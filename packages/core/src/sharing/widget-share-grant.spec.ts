@@ -283,7 +283,7 @@ describe("Slides widget write grant versus the share actions' own access checks"
     },
   );
 
-  it("still blocks a deck the user cannot administer if a call ever skipped the grant", async () => {
+  it("blocks a deck other than the grant's even when the route let the call through", async () => {
     const { context } = mintGrant(adminEmail);
 
     await runWithRequestContext({ userEmail: adminEmail, orgId }, async () => {
@@ -300,5 +300,213 @@ describe("Slides widget write grant versus the share actions' own access checks"
 
     expect(await sharesOf(deckB)).toEqual([]);
     expect(await visibilityOf(deckB)).toBe("private");
+  });
+});
+
+describe("share actions repeat the widget grant binding", () => {
+  const writeActions = [
+    ["share-resource", shareResource, shareArgs],
+    ["unshare-resource", unshareResource, unshareArgs],
+    ["set-resource-visibility", setResourceVisibility, visibilityArgs],
+  ] as const;
+
+  function widgetWriteContext(
+    overrides: {
+      resourceIds?: Record<string, string>;
+      actionNames?: readonly string[];
+      withGrant?: boolean;
+    } = {},
+  ): ActionRunContext {
+    const { context } = mintGrant(ownerEmail);
+    const grant = context.mcpDirectoryWidgetWrite;
+    return {
+      userEmail: ownerEmail,
+      orgId,
+      appId,
+      caller: "mcp-widget-write",
+      ...(overrides.withGrant === false
+        ? {}
+        : {
+            mcpDirectoryWidgetWrite: {
+              ...grant,
+              ...(overrides.resourceIds
+                ? { resourceIds: overrides.resourceIds }
+                : {}),
+              ...(overrides.actionNames
+                ? { actionNames: overrides.actionNames }
+                : {}),
+            },
+          }),
+    };
+  }
+
+  // The owner owns both decks, so only the grant check can refuse deck B.
+  const asOwner = <T>(run: () => Promise<T>) =>
+    runWithRequestContext({ userEmail: ownerEmail, orgId }, run);
+
+  it.each(writeActions)(
+    "%s refuses a widget write with no grant",
+    async (_name, action, argsFor) => {
+      await expect(
+        asOwner(() =>
+          action.run(
+            argsFor() as never,
+            widgetWriteContext({ withGrant: false }),
+          ),
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    },
+  );
+
+  it.each(writeActions)(
+    "%s refuses a deck, resource type or action outside the grant",
+    async (name, action, argsFor) => {
+      const other = widgetWriteContext({
+        resourceIds: { deckId: deckB, resourceType: "deck" },
+      });
+      await expect(
+        asOwner(() => action.run(argsFor(deckA) as never, other)),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+
+      await expect(
+        asOwner(() =>
+          action.run(
+            { ...argsFor(), resourceType: "document" } as never,
+            widgetWriteContext(),
+          ),
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+
+      await expect(
+        asOwner(() =>
+          action.run(
+            argsFor() as never,
+            widgetWriteContext({
+              resourceIds: { deckId: deckA },
+            }),
+          ),
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+
+      await expect(
+        asOwner(() =>
+          action.run(
+            argsFor() as never,
+            widgetWriteContext({
+              actionNames: writeActions
+                .map(([actionName]) => actionName)
+                .filter((actionName) => actionName !== name),
+            }),
+          ),
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+
+      expect(await sharesOf(deckA)).toContain(`${editorEmail}:editor`);
+      expect(await visibilityOf(deckA)).toBe("private");
+    },
+  );
+
+  it.each(writeActions)(
+    "%s refuses a mutation from a read-only widget session",
+    async (_name, action, argsFor) => {
+      await expect(
+        asOwner(() =>
+          action.run(argsFor() as never, {
+            userEmail: ownerEmail,
+            orgId,
+            appId,
+            caller: "mcp-widget",
+            mcpDirectoryWidgetResourceIds: {
+              deckId: deckA,
+              resourceType: "deck",
+            },
+          }),
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    },
+  );
+
+  it("leaves callers that are not a widget alone", async () => {
+    await expect(
+      asOwner(() =>
+        shareResource.run(shareArgs(deckB) as never, {
+          userEmail: ownerEmail,
+          orgId,
+          caller: "frontend",
+        }),
+      ),
+    ).resolves.toMatchObject({ updated: false });
+    expect(await sharesOf(deckB)).toContain(`${teammateEmail}:viewer`);
+  });
+
+  describe("list-resource-shares", () => {
+    const readContext = (
+      resourceIds?: Record<string, string>,
+    ): ActionRunContext => ({
+      userEmail: ownerEmail,
+      orgId,
+      appId,
+      caller: "mcp-widget",
+      mcpDirectoryWidgetReadOnly: true,
+      ...(resourceIds ? { mcpDirectoryWidgetResourceIds: resourceIds } : {}),
+    });
+    const listArgs = (resourceId: string, resourceType = "deck") =>
+      ({ resourceType, resourceId }) as never;
+
+    it("reads the deck a read-only widget session is bound to", async () => {
+      await expect(
+        asOwner(() =>
+          listResourceShares.run(
+            listArgs(deckA),
+            readContext({ deckId: deckA, resourceType: "deck" }),
+          ),
+        ),
+      ).resolves.toMatchObject({ role: "owner" });
+    });
+
+    it.each([
+      ["no resource ids", undefined, deckA, "deck"],
+      ["another deck", { deckId: deckA, resourceType: "deck" }, deckB, "deck"],
+      [
+        "another resource type",
+        { deckId: deckA, resourceType: "deck" },
+        deckA,
+        "document",
+      ],
+      ["no resource type", { deckId: deckA }, deckA, "deck"],
+    ])(
+      "refuses a read-only widget session with %s",
+      async (_label, resourceIds, resourceId, resourceType) => {
+        await expect(
+          asOwner(() =>
+            listResourceShares.run(
+              listArgs(resourceId, resourceType),
+              readContext(resourceIds),
+            ),
+          ),
+        ).rejects.toBeInstanceOf(ForbiddenError);
+      },
+    );
+
+    it("takes the write grant's resource when the capability is a write one", async () => {
+      const { context } = mintGrant(ownerEmail);
+
+      await expect(
+        asOwner(() =>
+          listResourceShares.run(listArgs(deckA), {
+            ...context,
+            caller: "mcp-widget",
+          }),
+        ),
+      ).resolves.toMatchObject({ role: "owner" });
+      await expect(
+        asOwner(() =>
+          listResourceShares.run(listArgs(deckB), {
+            ...context,
+            caller: "mcp-widget",
+          }),
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
   });
 });

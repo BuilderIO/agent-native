@@ -2221,6 +2221,7 @@ describe("mountActionRoutes", () => {
       caller: context?.caller,
       userEmail: context?.userEmail,
       mcpDirectoryWidgetReadOnly: context?.mcpDirectoryWidgetReadOnly,
+      mcpDirectoryWidgetResourceIds: context?.mcpDirectoryWidgetResourceIds,
     }));
     const capability = createMcpDirectoryWidgetReadCapability({
       appId: "agent",
@@ -2277,6 +2278,7 @@ describe("mountActionRoutes", () => {
       caller: "mcp-widget",
       userEmail: "ticket-owner@example.com",
       mcpDirectoryWidgetReadOnly: true,
+      mcpDirectoryWidgetResourceIds: { deckId: "deck-1" },
     });
     expect(run).toHaveBeenCalledOnce();
     expect(mockNotifyActionChange).not.toHaveBeenCalled();
@@ -2525,6 +2527,144 @@ describe("mountActionRoutes", () => {
       vi.doUnmock("../org/workspace-app-identity.js");
       vi.resetModules();
     }
+  });
+
+  describe("workspace app access on directory read routes", () => {
+    async function callReadRoute(
+      access: "allowed" | "denied" | "unavailable" | "not-configured",
+      caller: "session" | "adapter",
+    ) {
+      vi.resetModules();
+      const workspaceAccess = vi.fn(async () =>
+        access === "denied"
+          ? false
+          : access === "unavailable"
+            ? "unavailable"
+            : true,
+      );
+      vi.doMock("../org/workspace-app-access.js", () => ({
+        isWorkspaceAppAccessAllowed: workspaceAccess,
+        WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
+        WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
+          "Workspace app access is temporarily unavailable.",
+      }));
+      vi.doMock("../org/workspace-app-identity.js", () => ({
+        resolveWorkspaceAccessAppId: () =>
+          access === "not-configured" ? "" : "slides",
+      }));
+
+      try {
+        const { mountActionRoutes } = await import("./action-routes.js");
+        const mounted: Array<{ path: string; handler: any }> = [];
+        const run = vi.fn(async () => ({ shares: [] }));
+        mountActionRoutes(
+          {
+            use: vi.fn((path: string, handler: any) =>
+              mounted.push({ path, handler }),
+            ),
+          },
+          {
+            "list-resource-shares": {
+              http: { method: "GET" },
+              readOnly: false,
+              requiresAuth: true,
+              run,
+            } as any,
+          },
+          {
+            appId: "slides",
+            mcpDirectoryWidgetAppId: "slides",
+            mcpDirectoryWidgetResourceUri: "ui://slides/shell-v69",
+            mcpDirectoryWidgetReadActionArguments: {
+              "list-resource-shares": ["resourceType", "resourceId"],
+            },
+            mcpDirectoryWidgetReadOnlyActions: ["list-resource-shares"],
+            resolveOrgId: async () => "org-1",
+            ...(caller === "adapter"
+              ? {
+                  actionRouteAuth: {
+                    resolveCaller: async () => ({
+                      owner: "reviewer@example.com",
+                      anonymous: false,
+                      orgId: "org-1",
+                    }),
+                  },
+                }
+              : {
+                  getOwnerContextFromEvent: async () => ({
+                    owner: "reviewer@example.com",
+                    anonymous: false,
+                  }),
+                }),
+          },
+        );
+
+        const event: any = {
+          _method: "GET",
+          _headers: {
+            "x-agent-native-frontend": "1",
+            host: "slides.agent-native.test",
+          },
+          _query: { resourceType: "deck", resourceId: "deck-1" },
+          req: {
+            url: "https://slides.agent-native.test/_agent-native/actions/list-resource-shares?resourceType=deck&resourceId=deck-1",
+          },
+        };
+        const route = mounted.find(
+          ({ path }) => path === "/_agent-native/actions/list-resource-shares",
+        );
+        const result = await route!.handler(event);
+        return { event, result, run, workspaceAccess };
+      } finally {
+        vi.doUnmock("../org/workspace-app-access.js");
+        vi.doUnmock("../org/workspace-app-identity.js");
+        vi.resetModules();
+      }
+    }
+
+    it.each(["session", "adapter"] as const)(
+      "rejects a %s caller denied access to the workspace app before reading",
+      async (caller) => {
+        const { event, result, run, workspaceAccess } = await callReadRoute(
+          "denied",
+          caller,
+        );
+
+        expect(event._status).toBe(403);
+        expect(result).toEqual({
+          error: "You do not have access to this workspace app.",
+        });
+        expect(workspaceAccess).toHaveBeenCalledWith("slides", {
+          email: "reviewer@example.com",
+          orgId: "org-1",
+        });
+        expect(run).not.toHaveBeenCalled();
+      },
+    );
+
+    it("answers 503 while workspace app access cannot be checked", async () => {
+      const { event, result, run } = await callReadRoute(
+        "unavailable",
+        "session",
+      );
+
+      expect(event._status).toBe(503);
+      expect(result).toEqual({
+        error: "Workspace app access is temporarily unavailable.",
+      });
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it.each(["allowed", "not-configured"] as const)(
+      "runs the read when workspace app access is %s",
+      async (access) => {
+        const { event, result, run } = await callReadRoute(access, "session");
+
+        expect(event._status).toBeUndefined();
+        expect(result).toEqual({ shares: [] });
+        expect(run).toHaveBeenCalledOnce();
+      },
+    );
   });
 
   it("allows the Design create-file route when workspace app access is not configured", async () => {
@@ -2849,6 +2989,10 @@ describe("mountActionRoutes", () => {
         caller: "mcp-widget-write",
         userEmail: "editor@example.com",
         orgId: "org-1",
+        mcpDirectoryWidgetResourceIds: {
+          deckId: "deck-a",
+          resourceType: "deck",
+        },
         mcpDirectoryWidgetWrite: {
           appId: "slides",
           resourceIds: { deckId: "deck-a", resourceType: "deck" },
@@ -2927,7 +3071,13 @@ describe("mountActionRoutes", () => {
     });
     expect(run).toHaveBeenLastCalledWith(
       { resourceType: "deck", resourceId: "deck-a" },
-      expect.objectContaining({ caller: "mcp-widget" }),
+      expect.objectContaining({
+        caller: "mcp-widget",
+        mcpDirectoryWidgetResourceIds: {
+          deckId: "deck-a",
+          resourceType: "deck",
+        },
+      }),
     );
     run.mockClear();
     await expect(read("deck-b")).resolves.toMatchObject({ status: 403 });
