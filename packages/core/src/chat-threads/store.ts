@@ -26,6 +26,7 @@ import {
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
+import { stripInlineAttachmentPayloads } from "../shared/attachments.js";
 import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import { registerShareableResource } from "../sharing/registry.js";
 import { roleSatisfies, type ShareRole } from "../sharing/schema.js";
@@ -1449,7 +1450,12 @@ export async function updateThreadData(
       const current = await getThread(id);
       if (!current) return false;
 
-      const transformed = options.transformThreadData?.(current.threadData);
+      const safeCurrentThreadData = stripInlineAttachmentPayloads(
+        parseThreadData(current.threadData),
+      );
+      const transformed = options.transformThreadData?.(
+        JSON.stringify(safeCurrentThreadData),
+      );
       const incomingThreadData =
         typeof transformed === "string"
           ? transformed
@@ -1458,7 +1464,7 @@ export async function updateThreadData(
       let nextMessageCount = messageCount;
       const annotationConflicts: ThreadAnnotationSnapshotConflict[] = [];
       const merged = mergeThreadDataForClientSave(
-        parseThreadData(current.threadData),
+        safeCurrentThreadData,
         parseThreadData(incomingThreadData),
         {
           preserveExistingQueuedMessages:

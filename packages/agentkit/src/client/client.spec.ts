@@ -949,6 +949,76 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("revalidates queued submission scope after attachment upload", async () => {
+    const uploadStarted = Promise.withResolvers<void>();
+    const finishUpload = Promise.withResolvers<void>();
+    const queueTransport = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async (input) => ({
+        message: {
+          id: input.id ?? "queued-image",
+          threadId: input.threadId,
+          text: input.text,
+          createdAt: "2026-10-09T00:00:00.000Z",
+        },
+      }),
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: {
+          attachments: true,
+          messageQueue: true,
+          uploads: true,
+        },
+        queueMessage: queueTransport,
+        async createUpload() {
+          return {
+            uploadId: "scope-check-upload",
+            method: "PUT",
+            url: "https://upload.example.test/reference.png",
+          };
+        },
+        async completeUpload() {
+          return {
+            type: "file",
+            name: "reference.png",
+            mediaType: "image/png",
+            url: "https://storage.example.test/reference.png",
+          };
+        },
+      },
+      upload: async () => {
+        uploadStarted.resolve();
+        await finishUpload.promise;
+      },
+    });
+
+    const queued = client.queueMessage({
+      threadId: "thread-1",
+      text: "Describe this image",
+      requestAttachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,SGVsbG8=",
+        },
+      ],
+      validateBeforeQueue() {
+        throw new Error("Submission scope changed.");
+      },
+    });
+
+    await uploadStarted.promise;
+    expect(client.getThread("thread-1").queuedMessages).toHaveLength(1);
+    finishUpload.resolve();
+    await expect(queued).rejects.toThrow("Submission scope changed.");
+
+    expect(queueTransport).not.toHaveBeenCalled();
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    await client.shutdown();
+  });
+
   it("does not acknowledge a message rejected by capability preflight", async () => {
     const startRun = vi.fn<AgentTransport["startRun"]>();
     const client = new AgentKitClient({
@@ -6718,6 +6788,85 @@ describe("AgentKitClient", () => {
     await vi.waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
     persistence.resolve({ message: optimistic! });
     await expect(submission).resolves.toEqual(optimistic);
+    await client.shutdown();
+  });
+
+  it("revalidates queue scope after image upload and before persistence", async () => {
+    const upload = Promise.withResolvers<void>();
+    const uploadStarted = Promise.withResolvers<void>();
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id, threadId, text }) => ({
+        message: {
+          id: id ?? "queued-image",
+          threadId,
+          text,
+          createdAt: "2026-10-09T00:00:00.000Z",
+          attachments: [],
+        },
+      }),
+    );
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      capabilities: {
+        attachments: true,
+        messageQueue: true,
+        uploads: true,
+      },
+      async createUpload() {
+        return {
+          uploadId: "upload-1",
+          method: "PUT",
+          url: "https://storage.example.test/upload",
+        };
+      },
+      async completeUpload({ uploadId }) {
+        return {
+          type: "file",
+          name: "pixel.png",
+          fileId: uploadId,
+          url: "https://storage.example.test/pixel.png",
+        };
+      },
+      queueMessage,
+    };
+    const client = new AgentKitClient({
+      transport,
+      upload: async () => {
+        uploadStarted.resolve();
+        await upload.promise;
+      },
+    });
+    let activeScope = "thread-1";
+    const submission = client.queueMessage({
+      threadId: "thread-1",
+      text: "Queue this image",
+      requestAttachments: [
+        {
+          type: "image",
+          name: "pixel.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,iVBORw0KGgo=",
+        },
+      ],
+      validateBeforeQueue() {
+        if (activeScope !== "thread-1") {
+          throw Object.assign(new Error("scope changed"), {
+            code: "AGENT_CHAT_SUBMISSION_SCOPE_CHANGED",
+          });
+        }
+      },
+    });
+
+    await uploadStarted.promise;
+    expect(client.getThread("thread-1").queuedMessages).toHaveLength(1);
+    activeScope = "thread-2";
+    upload.resolve();
+
+    await expect(submission).rejects.toMatchObject({
+      code: "AGENT_CHAT_SUBMISSION_SCOPE_CHANGED",
+    });
+    expect(queueMessage).not.toHaveBeenCalled();
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
     await client.shutdown();
   });
 

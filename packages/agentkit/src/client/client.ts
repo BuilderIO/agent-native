@@ -180,6 +180,8 @@ export interface SendMessageInput {
   interruptActiveRun?: boolean;
   /** Host-only acknowledgement after the recoverable message enters local state; never sent to the transport. */
   onLocalSubmit?: () => void;
+  /** Host-only validation after queue preparation and immediately before the transport write. */
+  validateBeforeQueue?: () => void;
 }
 
 export interface AgentRunHandle {
@@ -3307,6 +3309,7 @@ export class AgentKitClient implements AgentKitController {
             });
           }
         }
+        input.validateBeforeQueue?.();
         const result = await this.invokeRequest(requestContext, (context) =>
           queueMessage(
             {

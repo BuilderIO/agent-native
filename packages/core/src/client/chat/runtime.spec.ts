@@ -2634,6 +2634,84 @@ describe("createAgentNativeChatRuntime", () => {
     expect(serializedHistory).not.toContain("token=secret-");
   });
 
+  it("reserves the original and latest asks before a long attachment history", async () => {
+    const initialAsk =
+      "Create a LinkedIn ad at exactly 1200x627 and keep one fixed canvas.";
+    const latestAsk = "Keep the fixed canvas and change the headline.";
+    const imageBytes = "PRIVATE_LONG_HISTORY_IMAGE_BYTES";
+    const messages = [
+      {
+        id: "original-brief",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: initialAsk }],
+      },
+      ...Array.from({ length: 130 }, (_, index) => ({
+        id: `attachment-turn-${index}`,
+        role: "user" as const,
+        content: [
+          {
+            type: "text" as const,
+            text: `Update ${index} using this reference.`,
+          },
+          {
+            type: "image" as const,
+            alt: `reference-${index}.png`,
+            mediaType: "image/png",
+            data: `data:image/png;base64,${imageBytes}-${index}`,
+            url: `https://files.example.test/reference-${index}.png`,
+          },
+        ],
+      })),
+      ...Array.from({ length: 12 }, (_, index) => ({
+        id: `recent-note-${index}`,
+        role: "assistant" as const,
+        content: [
+          { type: "text" as const, text: `Recent working note ${index}` },
+        ],
+      })),
+      {
+        id: "latest-brief",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: latestAsk }],
+      },
+    ];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-long-attachment-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue from those instructions.",
+      messages,
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const historyText = structuredHistory
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n");
+
+    expect(historyText).toContain(initialAsk);
+    expect(historyText).toContain(latestAsk);
+    expect(historyText).toContain("Recent working note 4");
+    expect(historyText).toContain("Recent working note 11");
+    expect(historyText).toContain(
+      "[attached: reference-129.png image/png https://files.example.test/reference-129.png]",
+    );
+    expect(historyText).not.toContain("data:image/");
+    expect(historyText).not.toContain(imageBytes);
+  });
+
   it("omits oversized tool-call and result identifiers and names", async () => {
     const oversizedId = "i".repeat(64 * 1024 + 1);
     const oversizedName = "n".repeat(64 * 1024 + 1);

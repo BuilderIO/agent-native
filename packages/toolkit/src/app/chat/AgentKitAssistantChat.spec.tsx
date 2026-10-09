@@ -3866,6 +3866,90 @@ describe("AgentKitAssistantChat host behavior", () => {
     },
   );
 
+  it("allows pasted data URL examples in deferred message text", async () => {
+    const threadId = `thread-deferred-text-example`;
+    const text = `Example image URL: data:image/png;base64,${"A".repeat(128)}`;
+    const submission = {
+      id: "deferred-text-example",
+      threadId,
+      text,
+      fileParts: [],
+      references: [],
+      composerOptions: {},
+      options: {},
+    };
+
+    await expect(
+      updateDeferredProviderSubmissions(threadId, () => [submission]),
+    ).resolves.toEqual([submission]);
+  });
+
+  it("cleans legacy deferred image bytes and surfaces a reattach action", async () => {
+    const threadId = chatMocks.threadId;
+    const encodedThreadId = Array.from(threadId, (character) =>
+      character.codePointAt(0)!.toString(16),
+    ).join("-");
+    const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+    const inlineImageUrl = "data:image/png;base64,LEGACY_DEFERRED_IMAGE_BYTES";
+    chatMocks.appState.set(stateKey, {
+      version: 1,
+      threadId,
+      submissions: [
+        {
+          id: "legacy-deferred-image",
+          threadId,
+          text: "Describe this image",
+          fileParts: [],
+          requestAttachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              data: inlineImageUrl,
+            },
+          ],
+          references: [],
+          composerOptions: {},
+          options: {
+            deferredRequestAttachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                contentType: "image/png",
+                data: inlineImageUrl,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    await mount(baseProps());
+    await flush();
+
+    const persisted = chatMocks.appState.get(stateKey);
+    expect(JSON.stringify(persisted)).not.toContain("data:image");
+    expect(persisted).toMatchObject({
+      submissions: [
+        {
+          failed: true,
+          attachmentRestoreRequired: true,
+          requestAttachments: [],
+          options: { deferredRequestAttachments: [] },
+        },
+      ],
+    });
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "agentChat.recovery.retryAttachmentUnavailable",
+    );
+    expect(
+      [...container.querySelectorAll("button")].some(
+        (button) => button.textContent === "agentChat.common.retry",
+      ),
+    ).toBe(false);
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("keeps a failed deferred send visible until the user retries or dismisses it", async () => {
     const threadId = chatMocks.threadId;
     const encodedThreadId = Array.from(threadId, (character) =>
@@ -6159,6 +6243,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     const createTransport = () => chatMocks.transport;
     const onSaveThread = vi.fn();
     const inlineImageUrl = "data:image/png;base64,INLINE_SQL_IMAGE_BYTES";
+    const pastedSseLine = 'data: {"message":"hello"}';
     const message = {
       id: "user-with-inline-image",
       role: "user",
@@ -6166,6 +6251,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       createdAt: "2026-10-07T12:00:00.000Z",
       parts: [
         { type: "text", text: "Describe this" },
+        { type: "text", text: pastedSseLine },
         {
           type: "file",
           name: "reference.png",
@@ -6237,6 +6323,10 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(JSON.stringify(snapshot)).not.toContain("data:image/");
     expect(JSON.stringify(snapshot)).not.toContain("INLINE_SQL_IMAGE_BYTES");
     const repository = JSON.parse(snapshot.threadData);
+    expect(repository.agentKit.messages[0].parts).toContainEqual({
+      type: "text",
+      text: pastedSseLine,
+    });
     expect(repository.queuedMessages[0].attachments[0]).not.toHaveProperty(
       "url",
     );

@@ -78,38 +78,53 @@ export function containsInlineAttachmentPayload(value: unknown): boolean {
   const seen = new WeakSet<object>();
   const isBase64Payload = (entry: string) =>
     entry.length >= 64 && /^[A-Za-z0-9+/]+={0,2}$/.test(entry.trim());
+  const isByteArray = (entry: unknown): boolean =>
+    Array.isArray(entry) &&
+    entry.length > 0 &&
+    entry.every(
+      (item) =>
+        typeof item === "number" &&
+        Number.isInteger(item) &&
+        item >= 0 &&
+        item <= 255,
+    );
+  const payloadField = /^(?:base64|bytes|body|data|image|payload)$/i;
+  const referenceField = /^(?:preview|referenceUrl|src|thumbnail|url)$/i;
   const visit = (
     entry: unknown,
     attachmentContext = false,
     fieldName?: string,
   ): boolean => {
     if (typeof entry === "string") {
-      const dataUrlPayload = entry.match(
-        /\bdata:[^\s,]+;base64,([A-Za-z0-9+/=]+)/i,
-      )?.[1];
       const isAttachmentField =
         attachmentContext &&
-        (fieldName === "url" ||
-          fieldName === "referenceUrl" ||
-          fieldName === "image" ||
-          fieldName === "data");
+        (payloadField.test(fieldName ?? "") ||
+          referenceField.test(fieldName ?? ""));
       if (
         (isAttachmentField && /\bdata:[^\s,]+,/i.test(entry)) ||
-        (dataUrlPayload?.length ?? 0) >= 64
+        (attachmentContext &&
+          payloadField.test(fieldName ?? "") &&
+          isBase64Payload(entry))
       ) {
         return true;
       }
-      return (
-        (fieldName === "data" ||
-          (attachmentContext && fieldName === "image")) &&
-        isBase64Payload(entry)
-      );
+      return false;
     }
     if (!entry || typeof entry !== "object") return false;
     if (seen.has(entry)) return false;
     seen.add(entry);
     if (Array.isArray(entry)) {
+      if (
+        attachmentContext &&
+        payloadField.test(fieldName ?? "") &&
+        isByteArray(entry)
+      ) {
+        return true;
+      }
       return entry.some((item) => visit(item, attachmentContext));
+    }
+    if (ArrayBuffer.isView(entry)) {
+      return attachmentContext && payloadField.test(fieldName ?? "");
     }
 
     const record = entry as Record<string, unknown>;
@@ -117,8 +132,16 @@ export function containsInlineAttachmentPayload(value: unknown): boolean {
       attachmentContext ||
       record.type === "image" ||
       record.type === "file" ||
-      record.type === "document";
-    if (isAttachment && typeof record.data === "string" && record.data.trim()) {
+      record.type === "document" ||
+      [record.contentType, record.mediaType, record.mimeType].some(
+        (mimeType) =>
+          typeof mimeType === "string" && /^image\//i.test(mimeType),
+      );
+    if (
+      isAttachment &&
+      ((typeof record.data === "string" && record.data.trim()) ||
+        isByteArray(record.data))
+    ) {
       return true;
     }
 

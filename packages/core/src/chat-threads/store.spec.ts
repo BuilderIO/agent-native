@@ -309,6 +309,101 @@ describe("chat thread store", () => {
     ).toBe(false);
   });
 
+  it("allows ordinary assistant and tool text containing image examples", async () => {
+    const incoming = JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "assistant-example",
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: `Example data URL: data:image/png;base64,${"A".repeat(128)}`,
+              },
+              {
+                type: "tool-call",
+                toolCallId: "tool-example",
+                toolName: "render_preview",
+                argsText: `data:image/png;base64,${"A".repeat(128)}`,
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    await expect(
+      updateThreadData("thread-1", incoming, "Thread", "Example", 1),
+    ).resolves.toBe(true);
+    expect(row!.thread_data).toContain("Example data URL");
+  });
+
+  it("cleans legacy inline image bodies before saving a later chat turn", async () => {
+    const legacyImageUrl = "data:image/png;base64,LEGACY_INLINE_IMAGE_BYTES";
+    const legacyMessage = {
+      id: "legacy-image-user",
+      role: "user",
+      content: [
+        { type: "text", text: "Describe the older image" },
+        {
+          type: "image",
+          name: "reference.png",
+          data: legacyImageUrl,
+          url: legacyImageUrl,
+        },
+      ],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [{ message: legacyMessage, parentId: null }],
+    });
+    const incoming = JSON.stringify({
+      messages: [
+        {
+          message: {
+            ...legacyMessage,
+            content: [
+              { type: "text", text: "Describe the older image" },
+              { type: "image", name: "reference.png" },
+            ],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "new-user-turn",
+            role: "user",
+            content: [{ type: "text", text: "Continue the design" }],
+          },
+          parentId: "legacy-image-user",
+        },
+      ],
+    });
+
+    await updateThreadData(
+      "thread-1",
+      incoming,
+      "Thread",
+      "Continue the design",
+      2,
+    );
+
+    const persisted = JSON.parse(row!.thread_data);
+    expect(JSON.stringify(persisted)).not.toContain("data:image/");
+    expect(JSON.stringify(persisted)).not.toContain(
+      "LEGACY_INLINE_IMAGE_BYTES",
+    );
+    expect(persisted.messages.map((entry: any) => entry.message.id)).toEqual([
+      "legacy-image-user",
+      "new-user-turn",
+    ]);
+    expect(persisted.messages[0].message.content).toContainEqual({
+      type: "text",
+      text: "Describe the older image",
+    });
+  });
+
   it("retries cross-process thread-data conflicts and preserves server-only messages", async () => {
     conflictOnce = () => {
       row = {

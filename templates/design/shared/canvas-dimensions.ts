@@ -176,7 +176,10 @@ const PRODUCT_SURFACE_HEAD =
 const FIXED_ARTWORK_OUTPUT =
   /\b(?:ads?|advertisements?|banners?|leaderboards?|skyscrapers?|billboards?|anzeige(?:n)?|annonce(?:s)?|publicit[ée]|an[uú]ncio(?:s)?|publicidade|social(?:\s+media)?\s+(?:posts?|stor(?:y|ies))|instagram\s+(?:posts?|stor(?:y|ies))|email\s+headers?|newsletter\s+(?:headers?|graphics?)|flyers?|posters?|brochures?|infographics?|cover\s+art|favicons?|logos?|avatars?|thumbnails?|promo(?:tional)?\s+(?:graphics?|images?|posts?)|open\s+graph\s+(?:preview\s+)?images?|og\s+images?)\b/i;
 
-function requestedOutputPhrase(prompt: string): string {
+function requestedOutputPhrase(prompt: string): {
+  head: string;
+  contextual: string;
+} {
   const verb = OUTPUT_VERB.exec(prompt);
   const remainder = verb ? prompt.slice(verb.index + verb[0].length) : prompt;
   const sentence = remainder.split(/[.!?;\n]/, 1)[0] ?? remainder;
@@ -188,9 +191,10 @@ function requestedOutputPhrase(prompt: string): string {
       .match(
         /^\s+(?:(?:an?|the)\s+)?(linkedin|meta|facebook|instagram|twitter|x|youtube|google)\b/i,
       );
-    if (platform) return `${phrase} ${platform[1]}`;
+    if (platform)
+      return { head: phrase, contextual: `${phrase} ${platform[1]}` };
   }
-  return phrase;
+  return { head: phrase, contextual: phrase };
 }
 
 function presetDimensions(name: string): CanvasDimensions | undefined {
@@ -227,10 +231,10 @@ export function resolveCanvasIntent(prompt?: string): CanvasIntent {
   }
 
   const output = requestedOutputPhrase(value);
-  if (hasProductSurfaceHead(output)) return { kind: "responsive" };
+  if (hasProductSurfaceHead(output.head)) return { kind: "responsive" };
 
   const outputAlias = CANVAS_PRESET_ALIASES.find((alias) =>
-    alias.pattern.test(output),
+    alias.pattern.test(output.contextual),
   );
   if (outputAlias) {
     const alias = outputAlias;
@@ -245,7 +249,7 @@ export function resolveCanvasIntent(prompt?: string): CanvasIntent {
     }
   }
 
-  if (FIXED_ARTWORK_OUTPUT.test(output)) {
+  if (FIXED_ARTWORK_OUTPUT.test(output.head)) {
     return { kind: "fixed", source: "fixed-output" };
   }
 

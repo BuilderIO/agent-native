@@ -1777,6 +1777,7 @@ const MAX_ADDED_TOOL_HISTORY_BYTES = 256 * 1024;
 const MAX_TOOL_HISTORY_RESULT_SUMMARY_BYTES = 4 * 1024;
 const MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
 const MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
+const MIN_RECENT_STRUCTURED_HISTORY_TEXT_PARTS = 8;
 const MAX_STRUCTURED_HISTORY_SOURCE_PARTS =
   MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS +
   MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS;
@@ -2480,7 +2481,6 @@ function boundedStructuredHistorySources(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
   supplementalMessages: readonly AgentChatRuntimeMessage[],
-  preservePreviousUserPrompt = false,
 ): BoundedStructuredHistorySources {
   const historyMessages = messages ?? [];
   let currentPromptMessageIndex: number | undefined;
@@ -2536,22 +2536,20 @@ function boundedStructuredHistorySources(
   }
 
   let previousUserPromptMessageIndex: number | undefined;
-  if (preservePreviousUserPrompt) {
-    for (let index = historyMessages.length - 1; index >= 0; index--) {
-      if (index === currentPromptMessageIndex) continue;
-      const message = historyMessages[index]!;
-      if (
-        message.role === "user" &&
-        message.content.some(
-          (part) =>
-            (part.type === "text" && part.text.trim()) ||
-            part.type === "image" ||
-            part.type === "file",
-        )
-      ) {
-        previousUserPromptMessageIndex = index;
-        break;
-      }
+  for (let index = historyMessages.length - 1; index >= 0; index--) {
+    if (index === currentPromptMessageIndex) continue;
+    const message = historyMessages[index]!;
+    if (
+      message.role === "user" &&
+      message.content.some(
+        (part) =>
+          (part.type === "text" && part.text.trim()) ||
+          part.type === "image" ||
+          part.type === "file",
+      )
+    ) {
+      previousUserPromptMessageIndex = index;
+      break;
     }
   }
   const attachmentBearingUserPromptMessageIndices = new Set<number>();
@@ -2572,7 +2570,19 @@ function boundedStructuredHistorySources(
       (index): index is number => index !== undefined,
     ),
   );
-  for (const index of attachmentBearingUserPromptMessageIndices) {
+  const maxProtectedPromptCount =
+    MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS -
+    Math.min(
+      MIN_RECENT_STRUCTURED_HISTORY_TEXT_PARTS,
+      MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS -
+        protectedUserPromptMessageIndices.size,
+    );
+  for (const index of [...attachmentBearingUserPromptMessageIndices].sort(
+    (a, b) => b - a,
+  )) {
+    if (protectedUserPromptMessageIndices.size >= maxProtectedPromptCount) {
+      break;
+    }
     protectedUserPromptMessageIndices.add(index);
   }
   const regularTextPartLimit = Math.max(
@@ -2584,6 +2594,7 @@ function boundedStructuredHistorySources(
   const selectedReversed: StructuredHistorySourceMessage[] = [];
   let selectedToolPartCount = 0;
   let selectedTextPartCount = 0;
+  let selectedRegularTextPartCount = 0;
   let scannedPartCount = 0;
   let visitedMessageCount = 0;
   const visitedHistoryMessageIndexes = new Set<number>();
@@ -2688,10 +2699,11 @@ function boundedStructuredHistorySources(
         }
         selectedToolPartCount++;
       } else {
-        if (selectedTextPartCount >= regularTextPartLimit) {
+        if (selectedRegularTextPartCount >= regularTextPartLimit) {
           omitted = true;
           continue;
         }
+        selectedRegularTextPartCount++;
         selectedTextPartCount++;
       }
       partsReversed.push(
@@ -2914,7 +2926,6 @@ function nativeStructuredHistoryFromMessages(
   supplementalMessages: readonly AgentChatRuntimeMessage[] = [],
   supplementalHistoryOmitted = false,
   supplementalToolHistoryOmitted = false,
-  preservePreviousUserPrompt = false,
 ): AgentChatStructuredMessage[] | undefined {
   const structuredHistory: AgentChatStructuredMessage[] = [];
   const callCandidates: StructuredToolHistoryCandidate[] = [];
@@ -2928,7 +2939,6 @@ function nativeStructuredHistoryFromMessages(
     messages,
     currentPrompt,
     supplementalMessages,
-    preservePreviousUserPrompt,
   );
   const boundaryResultsToOmit = boundaryToolResultPartsToOmit(
     messages,
@@ -4260,8 +4270,6 @@ export function createAgentNativeChatRuntime(
         pendingApprovalHistory.messages,
         pendingApprovalHistory.omitted,
         pendingApprovalHistory.toolHistoryOmitted,
-        turn.metadata?.[AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY] ===
-          true,
       );
       return {
         message: prompt,

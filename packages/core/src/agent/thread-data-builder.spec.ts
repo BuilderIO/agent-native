@@ -4329,7 +4329,7 @@ describe("upsertUserMessage", () => {
           },
         ],
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       containsInlineAttachmentPayload({
         type: "image",
@@ -4344,6 +4344,51 @@ describe("upsertUserMessage", () => {
         url: "data:image/png;base64,INLINE_BYTES",
       }),
     ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        metadata: { preview: `data:image/png;base64,${"A".repeat(128)}` },
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        metadata: { base64: "A".repeat(128) },
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        metadata: { bytes: [0, 1, 2, 255] },
+      }),
+    ).toBe(true);
+  });
+
+  it("allows inline-like content in assistant text and tool inputs", () => {
+    expect(
+      containsInlineAttachmentPayload({
+        messages: [
+          {
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "text",
+                  text: `Generated example: data:image/png;base64,${"A".repeat(128)}`,
+                },
+                {
+                  type: "tool-call",
+                  argsText: `data:image/png;base64,${"A".repeat(128)}`,
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toBe(false);
   });
 
   it("reconciles an already persisted queue submission without duplicating it", () => {

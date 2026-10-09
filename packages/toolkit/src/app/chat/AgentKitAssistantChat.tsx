@@ -74,6 +74,7 @@ import {
   parseBase64DataUrl,
   splitAgentChatContextFromMessage,
   stripAgentChatContextFromMessage,
+  stripInlineAttachmentPayloads,
 } from "@agent-native/core/shared";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
@@ -326,6 +327,7 @@ interface PendingProviderSubmission {
   options: AgentKitInternalSendOptions;
   attempts?: number;
   failed?: true;
+  attachmentRestoreRequired?: true;
   claim?: { token: string; expiresAt: number };
 }
 
@@ -380,11 +382,31 @@ function assertNoInlineAttachmentPayload(
   path: string,
   imageContext = false,
   active = new WeakSet<object>(),
+  fieldName = "",
 ): void {
   if (typeof value === "string") {
-    if (isInlineDataUrl(value)) {
+    const payloadField = /^(?:base64|bytes|data|image|payload)$/i.test(
+      fieldName,
+    );
+    if (
+      isInlineDataUrl(value) &&
+      (imageContext ||
+        payloadField ||
+        fieldName === "preview" ||
+        fieldName === "thumbnail")
+    ) {
       throw new TypeError(
         `${path}: inline attachment data cannot be persisted in application state.`,
+      );
+    }
+    if (
+      (payloadField ||
+        (imageContext && /^(?:preview|thumbnail)$/i.test(fieldName))) &&
+      (imageContext || fieldName === "base64") &&
+      isBase64Payload(value)
+    ) {
+      throw new TypeError(
+        `${path}: inline image bytes cannot be persisted in application state.`,
       );
     }
     return;
@@ -397,45 +419,85 @@ function assertNoInlineAttachmentPayload(
   active.add(value);
   try {
     if (Array.isArray(value)) {
+      if (
+        imageContext &&
+        /^(?:base64|bytes|data|image|payload|preview|thumbnail)$/i.test(
+          fieldName,
+        ) &&
+        value.length > 0 &&
+        value.every(
+          (entry) =>
+            typeof entry === "number" &&
+            Number.isInteger(entry) &&
+            entry >= 0 &&
+            entry <= 255,
+        )
+      ) {
+        throw new TypeError(
+          `${path}: inline image bytes cannot be persisted in application state.`,
+        );
+      }
       value.forEach((entry, index) =>
         assertNoInlineAttachmentPayload(
           entry,
           `${path}[${index}]`,
           imageContext,
           active,
+          fieldName,
         ),
       );
       return;
     }
+    if (ArrayBuffer.isView(value) && imageContext) {
+      throw new TypeError(
+        `${path}: inline image bytes cannot be persisted in application state.`,
+      );
+    }
 
     const record = value as Record<string, unknown>;
-    const imageRecord =
+    const attachmentRecord =
       imageContext ||
-      record.type === "image" ||
+      ["document", "file", "image"].includes(
+        String(record.type ?? "").toLowerCase(),
+      ) ||
       [record.contentType, record.mediaType, record.mimeType].some(
         (mimeType) =>
           typeof mimeType === "string" && /^image\//i.test(mimeType),
       );
     for (const [key, entry] of Object.entries(record)) {
+      const isPayloadField = /^(?:base64|bytes|body|data|image|payload)$/i.test(
+        key,
+      );
       const imagePayloadField =
-        /^(?:base64|(?:image|screenshot|photo|picture)(?:data|base64|bytes|payload)?)$/i.test(
-          key,
-        ) ||
-        (imageRecord && /^(?:data|bytes|payload|body|content|src)$/i.test(key));
+        isPayloadField && (attachmentRecord || key === "base64");
       if (
         imagePayloadField &&
         typeof entry === "string" &&
-        isBase64Payload(entry)
+        (isInlineDataUrl(entry) || isBase64Payload(entry))
       ) {
         throw new TypeError(
           `${path}.${key}: inline image bytes cannot be persisted in application state.`,
         );
       }
+      if (
+        (attachmentRecord || key === "preview" || key === "thumbnail") &&
+        /^(?:preview|referenceUrl|src|thumbnail|url)$/i.test(key) &&
+        typeof entry === "string" &&
+        isInlineDataUrl(entry)
+      ) {
+        throw new TypeError(
+          `${path}.${key}: inline attachment data cannot be persisted in application state.`,
+        );
+      }
       assertNoInlineAttachmentPayload(
         entry,
         `${path}.${key}`,
-        imageRecord || /image|screenshot|photo|picture/i.test(key),
+        attachmentRecord ||
+          /^(?:attachment|attachments|file|files|image|images|reference|references|requestAttachments)$/i.test(
+            key,
+          ),
         active,
+        key,
       );
     }
   } finally {
@@ -491,12 +553,17 @@ function parseDeferredProviderSubmissions(
         (!Array.isArray(requestAttachments) ||
           !requestAttachments.every((attachment) => {
             const requestAttachment = asRecord(attachment);
+            const durableUrl =
+              requestAttachment &&
+              (isDurableAttachmentUrl(requestAttachment.url)
+                ? requestAttachment.url
+                : isDurableAttachmentUrl(requestAttachment.referenceUrl)
+                  ? requestAttachment.referenceUrl
+                  : undefined);
             return (
               requestAttachment?.type === "image" &&
               typeof requestAttachment.name === "string" &&
-              isDurableAttachmentUrl(requestAttachment.url) &&
-              !isInlineDataUrl(requestAttachment.url) &&
-              !isInlineDataUrl(requestAttachment.referenceUrl) &&
+              typeof durableUrl === "string" &&
               requestAttachment.data === undefined
             );
           }))) ||
@@ -519,12 +586,17 @@ function parseDeferredProviderSubmissions(
         (!Array.isArray(deferredRequestAttachments) ||
           !deferredRequestAttachments.every((attachment) => {
             const requestAttachment = asRecord(attachment);
+            const durableUrl =
+              requestAttachment &&
+              (isDurableAttachmentUrl(requestAttachment.url)
+                ? requestAttachment.url
+                : isDurableAttachmentUrl(requestAttachment.referenceUrl)
+                  ? requestAttachment.referenceUrl
+                  : undefined);
             return (
               requestAttachment?.type === "image" &&
               typeof requestAttachment.name === "string" &&
-              isDurableAttachmentUrl(requestAttachment.url) &&
-              !isInlineDataUrl(requestAttachment.url) &&
-              !isInlineDataUrl(requestAttachment.referenceUrl) &&
+              typeof durableUrl === "string" &&
               requestAttachment.data === undefined
             );
           }))) ||
@@ -535,6 +607,8 @@ function parseDeferredProviderSubmissions(
         (!Number.isSafeInteger(submission.attempts) ||
           (submission.attempts as number) < 0)) ||
       (submission.failed !== undefined && submission.failed !== true) ||
+      (submission.attachmentRestoreRequired !== undefined &&
+        submission.attachmentRestoreRequired !== true) ||
       (submission.claim !== undefined &&
         (typeof claim?.token !== "string" ||
           typeof claim.expiresAt !== "number" ||
@@ -561,6 +635,9 @@ function parseDeferredProviderSubmissions(
         ? { attempts: submission.attempts }
         : {}),
       ...(submission.failed === true ? { failed: true as const } : {}),
+      ...(submission.attachmentRestoreRequired === true
+        ? { attachmentRestoreRequired: true as const }
+        : {}),
       ...(claim
         ? {
             claim: {
@@ -571,6 +648,176 @@ function parseDeferredProviderSubmissions(
         : {}),
     };
   });
+}
+
+function legacyDurableFileParts(value: unknown): FilePart[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const part = asRecord(entry);
+    if (part?.type !== "file" || typeof part.name !== "string") return [];
+    const url = isDurableAttachmentUrl(part.url) ? part.url : undefined;
+    const fileId =
+      typeof part.fileId === "string" &&
+      part.fileId.trim() &&
+      !isInlineDataUrl(part.fileId)
+        ? part.fileId
+        : undefined;
+    if (!url && !fileId) return [];
+    return [
+      {
+        ...part,
+        ...(url ? { url } : {}),
+        ...(fileId ? { fileId } : {}),
+      } as FilePart,
+    ];
+  });
+}
+
+function legacyDurableRequestAttachments(
+  value: unknown,
+): AgentRequestAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const attachment = asRecord(entry);
+    if (attachment?.type !== "image" || typeof attachment.name !== "string") {
+      return [];
+    }
+    const url = isDurableAttachmentUrl(attachment.url)
+      ? attachment.url
+      : isDurableAttachmentUrl(attachment.referenceUrl)
+        ? attachment.referenceUrl
+        : undefined;
+    return url ? [{ ...attachment, url } as AgentRequestAttachment] : [];
+  });
+}
+
+function containsDeferredInlinePayload(value: unknown): boolean {
+  try {
+    assertNoInlineAttachmentPayload(value, "deferredSubmissions");
+    return false;
+  } catch (error) {
+    if (
+      error instanceof TypeError &&
+      /inline (?:attachment data|image bytes)/i.test(error.message)
+    ) {
+      return true;
+    }
+    throw error;
+  }
+}
+
+function sanitizeLegacyDeferredProviderState(
+  value: unknown,
+  threadId: string,
+): DeferredProviderSubmissionsState | null {
+  if (value === null) return null;
+  const state = asRecord(value);
+  if (
+    state?.version !== DEFERRED_PROVIDER_SUBMISSIONS_VERSION ||
+    state.threadId !== threadId ||
+    !Array.isArray(state.submissions)
+  ) {
+    throw new Error(
+      `Deferred AgentKit submissions for ${threadId} have an invalid state shape.`,
+    );
+  }
+
+  const submissions = state.submissions.map((entry) => {
+    if (!containsDeferredInlinePayload(entry))
+      return entry as PendingProviderSubmission;
+    const submission = asRecord(entry);
+    if (!submission) return entry as PendingProviderSubmission;
+    const cleaned = stripInlineAttachmentPayloads(submission) as Record<
+      string,
+      unknown
+    >;
+    const rawOptions = asRecord(cleaned.options) ?? {};
+    const originalOptions = asRecord(submission.options) ?? {};
+    const rawAttachments = submission.requestAttachments;
+    const rawFileParts = submission.fileParts;
+    const requestAttachments = legacyDurableRequestAttachments(rawAttachments);
+    const fileParts = legacyDurableFileParts(rawFileParts);
+    const options = { ...rawOptions };
+    if (rawOptions.deferredRequestAttachments !== undefined) {
+      options.deferredRequestAttachments = legacyDurableRequestAttachments(
+        rawOptions.deferredRequestAttachments,
+      );
+    }
+    if (rawOptions.deferredFileParts !== undefined) {
+      options.deferredFileParts = legacyDurableFileParts(
+        rawOptions.deferredFileParts,
+      );
+    }
+    const lostRequestAttachment =
+      Array.isArray(rawAttachments) &&
+      rawAttachments.some(
+        (attachment) =>
+          containsDeferredInlinePayload(attachment) &&
+          legacyDurableRequestAttachments([attachment]).length === 0,
+      );
+    const lostFilePart =
+      Array.isArray(rawFileParts) &&
+      rawFileParts.some(
+        (part) =>
+          containsDeferredInlinePayload(part) &&
+          legacyDurableFileParts([part]).length === 0,
+      );
+    const lostDeferredRequestAttachment =
+      Array.isArray(originalOptions.deferredRequestAttachments) &&
+      originalOptions.deferredRequestAttachments.some(
+        (attachment) =>
+          containsDeferredInlinePayload(attachment) &&
+          legacyDurableRequestAttachments([attachment]).length === 0,
+      );
+    const lostDeferredFilePart =
+      Array.isArray(originalOptions.deferredFileParts) &&
+      originalOptions.deferredFileParts.some(
+        (part) =>
+          containsDeferredInlinePayload(part) &&
+          legacyDurableFileParts([part]).length === 0,
+      );
+    const retainedAttachmentCount =
+      fileParts.length +
+      requestAttachments.length +
+      ((Array.isArray(options.deferredFileParts)
+        ? options.deferredFileParts.length
+        : 0) ?? 0) +
+      ((Array.isArray(options.deferredRequestAttachments)
+        ? options.deferredRequestAttachments.length
+        : 0) ?? 0);
+    const lostReferencePayload =
+      containsDeferredInlinePayload(submission.references) &&
+      retainedAttachmentCount === 0;
+    const lostComposerPayload =
+      containsDeferredInlinePayload(submission.composerOptions) &&
+      retainedAttachmentCount === 0;
+    const lostOtherOptionsPayload =
+      containsDeferredInlinePayload(submission.options) &&
+      retainedAttachmentCount === 0;
+    const { claim: _claim, ...withoutClaim } = cleaned;
+    return {
+      ...withoutClaim,
+      fileParts,
+      requestAttachments,
+      options,
+      ...(lostRequestAttachment ||
+      lostFilePart ||
+      lostDeferredRequestAttachment ||
+      lostDeferredFilePart ||
+      lostReferencePayload ||
+      lostComposerPayload ||
+      lostOtherOptionsPayload
+        ? { failed: true as const, attachmentRestoreRequired: true as const }
+        : {}),
+    } as unknown as PendingProviderSubmission;
+  });
+  return submissions.length > 0
+    ? {
+        version: DEFERRED_PROVIDER_SUBMISSIONS_VERSION,
+        threadId,
+        submissions,
+      }
+    : null;
 }
 
 function runDeferredProviderSubmissionStateOperation<T>(
@@ -597,20 +844,44 @@ function readDeferredProviderSubmissions(
 ): Promise<PendingProviderSubmission[]> {
   return runDeferredProviderSubmissionStateOperation(
     threadId,
-    async (stateKey) =>
-      parseDeferredProviderSubmissions(
-        await readClientAppState<unknown>(stateKey),
-        threadId,
-      ),
+    async (stateKey) => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const persisted = await readClientAppState<unknown>(stateKey);
+        try {
+          return parseDeferredProviderSubmissions(persisted, threadId);
+        } catch (error) {
+          if (!containsDeferredInlinePayload(persisted)) throw error;
+          const expected = persisted === null ? null : asRecord(persisted);
+          if (expected === undefined) throw error;
+          const sanitized = sanitizeLegacyDeferredProviderState(
+            persisted,
+            threadId,
+          );
+          const next = sanitized as Record<string, unknown> | null;
+          parseDeferredProviderSubmissions(sanitized, threadId);
+          if (
+            await compareAndSetClientAppState(stateKey, expected, next, {
+              requestSource: "agentkit-deferred-legacy-cleanup",
+            })
+          ) {
+            return parseDeferredProviderSubmissions(sanitized, threadId);
+          }
+        }
+      }
+      throw new Error(
+        `Deferred AgentKit submissions for ${threadId} changed repeatedly during cleanup.`,
+      );
+    },
   );
 }
 
-export function updateDeferredProviderSubmissions(
+export async function updateDeferredProviderSubmissions(
   threadId: string,
   update: (
     submissions: PendingProviderSubmission[],
   ) => PendingProviderSubmission[],
 ): Promise<PendingProviderSubmission[]> {
+  await readDeferredProviderSubmissions(threadId);
   return runDeferredProviderSubmissionStateOperation(
     threadId,
     async (stateKey) => {
@@ -735,6 +1006,7 @@ interface AgentKitSurfaceContextValue {
   fileStorageMissing: boolean;
   retryFileStorageStatus: () => void;
   deferredSubmissionFailed: boolean;
+  deferredSubmissionRequiresAttachment: boolean;
   retryDeferredSubmission: () => Promise<void>;
   dismissDeferredSubmission: () => Promise<void>;
   isRunning: boolean;
@@ -1154,6 +1426,7 @@ export const AgentKitAssistantChat = forwardRef<
     [],
   );
   const transportThreadIdRef = useRef(threadId);
+  const tabIdRef = useRef(props.tabId);
   const modelRef = useRef<string | undefined>(props.selectedModel);
   const engineRef = useRef<string | undefined>(props.selectedEngine);
   const effortRef = useRef<AssistantChatAdapterContext["effortRef"]["current"]>(
@@ -1172,6 +1445,7 @@ export const AgentKitAssistantChat = forwardRef<
   const injectedRuntimeRef = useRef(props.runtime);
   const adapterReloadKeyRef = useRef(props.adapterReloadKey);
   transportThreadIdRef.current = threadId;
+  tabIdRef.current = props.tabId;
   if (adapterReloadKeyRef.current !== props.adapterReloadKey) {
     adapterReloadKeyRef.current = props.adapterReloadKey;
     injectedRuntimeRef.current = props.runtime;
@@ -1471,6 +1745,16 @@ const AgentKitAssistantChatBody = forwardRef<
   const { controller, threadId, requestComposerFocus } = useAgentKit();
   const control = useAgentKitControl(threadId);
   const thread = useAgentThread(threadId);
+  const queueScopeRef = useRef({
+    threadId,
+    tabId: props.tabId,
+    contextScope: props.contextScope,
+  });
+  queueScopeRef.current = {
+    threadId,
+    tabId: props.tabId,
+    contextScope: props.contextScope,
+  };
   const history = useOptionalAgentKitHistory();
   const suggestionSubmitRef =
     useRef<AgentKitSuggestionSubmitRef["current"]>(null);
@@ -2836,6 +3120,26 @@ const AgentKitAssistantChatBody = forwardRef<
         ...(effort ? { effort } : {}),
         requestMode,
       };
+      const capturedScope = JSON.stringify([
+        threadId,
+        props.tabId ?? null,
+        props.contextScope?.type ?? null,
+        props.contextScope?.id ?? null,
+      ]);
+      const validateBeforeQueue = () => {
+        const current = queueScopeRef.current;
+        const currentScope = JSON.stringify([
+          current.threadId,
+          current.tabId ?? null,
+          current.contextScope?.type ?? null,
+          current.contextScope?.id ?? null,
+        ]);
+        if (currentScope !== capturedScope) {
+          throw Object.assign(new Error(t("agentChat.error.failed")), {
+            code: "AGENT_CHAT_SUBMISSION_SCOPE_CHANGED",
+          });
+        }
+      };
       try {
         assertAttachmentSizesWithinLimit(
           requestAttachments.map((attachment) => ({
@@ -2855,6 +3159,7 @@ const AgentKitAssistantChatBody = forwardRef<
           attachments,
           ...(requestAttachments.length ? { requestAttachments } : {}),
           queuedWhileRunActive: true,
+          validateBeforeQueue,
           options: {
             model,
             mode: requestMode,
@@ -3416,6 +3721,12 @@ const AgentKitAssistantChatBody = forwardRef<
     fileStorageMissing,
     retryFileStorageStatus,
     deferredSubmissionFailed: deferredProviderSubmissionFailureId !== null,
+    deferredSubmissionRequiresAttachment:
+      pendingProviderSubmissionsRef.current.some(
+        (submission) =>
+          submission.id === deferredProviderSubmissionFailureId &&
+          submission.attachmentRestoreRequired === true,
+      ),
     retryDeferredSubmission,
     dismissDeferredSubmission,
     isRunning,
@@ -4133,6 +4444,7 @@ function AgentKitComposerSurface({
   fileStorageMissing,
   retryFileStorageStatus,
   deferredSubmissionFailed,
+  deferredSubmissionRequiresAttachment,
   retryDeferredSubmission,
   dismissDeferredSubmission,
   isRunning,
@@ -4172,6 +4484,7 @@ function AgentKitComposerSurface({
   fileStorageMissing: boolean;
   retryFileStorageStatus: () => void;
   deferredSubmissionFailed: boolean;
+  deferredSubmissionRequiresAttachment: boolean;
   retryDeferredSubmission: () => Promise<void>;
   dismissDeferredSubmission: () => Promise<void>;
   isRunning: boolean;
@@ -4620,18 +4933,24 @@ function AgentKitComposerSurface({
           >
             <IconAlertTriangle className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="flex-1 leading-snug">
-              {t("agentChat.recovery.deferredSubmissionFailed")}
+              {t(
+                deferredSubmissionRequiresAttachment
+                  ? "agentChat.recovery.retryAttachmentUnavailable"
+                  : "agentChat.recovery.deferredSubmissionFailed",
+              )}
             </span>
-            <button
-              type="button"
-              disabled={!canChat || isSubmissionInFlight}
-              onClick={() =>
-                void retryDeferredSubmission().catch(() => undefined)
-              }
-              className="shrink-0 rounded px-2 py-1 font-medium hover:bg-accent disabled:opacity-60"
-            >
-              {t("agentChat.common.retry")}
-            </button>
+            {!deferredSubmissionRequiresAttachment ? (
+              <button
+                type="button"
+                disabled={!canChat || isSubmissionInFlight}
+                onClick={() =>
+                  void retryDeferredSubmission().catch(() => undefined)
+                }
+                className="shrink-0 rounded px-2 py-1 font-medium hover:bg-accent disabled:opacity-60"
+              >
+                {t("agentChat.common.retry")}
+              </button>
+            ) : null}
             <button
               type="button"
               aria-label={t("agentChat.common.dismissError")}
@@ -6189,26 +6508,7 @@ function agentMessageText(message: AgentMessage): string {
 }
 
 function persistedAgentSnapshotValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.flatMap((entry) => {
-      const persisted = persistedAgentSnapshotValue(entry);
-      return persisted === undefined ? [] : [persisted];
-    });
-  }
-  if (typeof value === "string") {
-    return isInlineDataUrl(value) ? undefined : value;
-  }
-  const record = asRecord(value);
-  if (!record) return value;
-
-  const isAttachment = record.type === "file" || record.type === "image";
-  const persisted: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(record)) {
-    if (isAttachment && key === "data") continue;
-    const saved = persistedAgentSnapshotValue(entry);
-    if (saved !== undefined) persisted[key] = saved;
-  }
-  return persisted;
+  return stripInlineAttachmentPayloads(value);
 }
 
 function persistedAgentMessage(message: AgentMessage): AgentMessage {
