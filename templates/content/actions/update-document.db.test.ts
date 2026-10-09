@@ -95,6 +95,149 @@ async function documentRow(documentId: string) {
 }
 
 describe("update-document compare-and-swap", () => {
+  it.each(
+    (["conflict", "preservation"] as const).flatMap((responseKind) =>
+      (["owner", "editor", "viewer", "revoked", "deleted"] as const).map(
+        (accessAfterMove) => [responseKind, accessAfterMove] as const,
+      ),
+    ),
+  )(
+    "refreshes a %s response after a move leaves %s access",
+    async (responseKind, accessAfterMove) => {
+      const id = await createDocument({ content: "Original" });
+      const db = getDb();
+      await db.insert(schema.documentShares).values({
+        id: nextId("moving-share"),
+        resourceId: id,
+        principalType: "user",
+        principalId: EDITOR,
+        role: "editor",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+      const transaction = db.transaction.bind(db);
+      const race = vi
+        .spyOn(db, "transaction")
+        .mockImplementationOnce(async (...args: unknown[]) => {
+          const result = await transaction(...args);
+          await db
+            .delete(schema.documentShares)
+            .where(eq(schema.documentShares.resourceId, id));
+          if (accessAfterMove === "deleted") {
+            await db
+              .delete(schema.documents)
+              .where(eq(schema.documents.id, id));
+          } else {
+            await db
+              .update(schema.documents)
+              .set({
+                ownerEmail: accessAfterMove === "owner" ? EDITOR : VIEWER,
+              })
+              .where(eq(schema.documents.id, id));
+            if (accessAfterMove === "editor" || accessAfterMove === "viewer") {
+              await db.insert(schema.documentShares).values({
+                id: nextId("moved-share"),
+                resourceId: id,
+                principalType: "user",
+                principalId: EDITOR,
+                role: accessAfterMove,
+                createdBy: VIEWER,
+                createdAt: new Date().toISOString(),
+              });
+            }
+          }
+          return result;
+        });
+      try {
+        const save = () =>
+          runWithRequestContext({ userEmail: EDITOR }, () =>
+            updateDocumentAction.run(
+              {
+                id,
+                content: "Must not apply",
+                baseRevision: documentRevisionToken(0, "Stale base"),
+                ...(responseKind === "conflict"
+                  ? { recoveryExpectedUpdatedAt: "1970-01-01T00:00:00.000Z" }
+                  : {}),
+              },
+              { caller: "frontend", userEmail: EDITOR },
+            ),
+          );
+        if (accessAfterMove === "revoked") {
+          await expect(save()).rejects.toMatchObject({ statusCode: 403 });
+        } else if (accessAfterMove === "deleted") {
+          await expect(save()).rejects.toMatchObject({
+            errorCode: "DOCUMENT_NOT_FOUND",
+            statusCode: 404,
+          });
+        } else {
+          await expect(save()).resolves.toMatchObject({
+            [responseKind === "conflict" ? "conflict" : "preservationRequired"]:
+              true,
+            document: { id, content: "Original", accessRole: accessAfterMove },
+          });
+        }
+        expect(race).toHaveBeenCalledOnce();
+      } finally {
+        race.mockRestore();
+      }
+    },
+  );
+
+  it("keeps the saved snapshot when a move changes owner before the save locks the page", async () => {
+    const id = await createDocument({ content: "Before" });
+    const db = getDb();
+    await db.insert(schema.documentShares).values({
+      id: nextId("moving-snapshot-share"),
+      resourceId: id,
+      principalType: "user",
+      principalId: EDITOR,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    const transaction = db.transaction.bind(db);
+    const race = vi
+      .spyOn(db, "transaction")
+      .mockImplementationOnce(async (...args: unknown[]) => {
+        await db
+          .update(schema.documents)
+          .set({ ownerEmail: EDITOR })
+          .where(eq(schema.documents.id, id));
+        return transaction(...args);
+      });
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: EDITOR }, () =>
+          updateDocumentAction.run(
+            {
+              id,
+              title: "Moved page",
+              baseTitle: "Untitled",
+              content: "After",
+              baseRevision: documentRevisionToken(0, "Before"),
+              authoredBaseRevision: documentRevisionToken(0, "Before"),
+              authoredBaseContent: "Before",
+              authoredCandidateContent: "After",
+              editorSessionId: nextId("moving-snapshot-session"),
+              editorEditGeneration: 1,
+              browserSaveAttemptId: nextId("moving-snapshot-attempt"),
+            },
+            { caller: "frontend", userEmail: EDITOR },
+          ),
+        ),
+      ).resolves.toMatchObject({ id, title: "Moved page", content: "After" });
+      expect(await documentRow(id)).toMatchObject({
+        ownerEmail: EDITOR,
+        title: "Moved page",
+        content: "After",
+      });
+      expect(race).toHaveBeenCalledOnce();
+    } finally {
+      race.mockRestore();
+    }
+  });
+
   it("normalizes a duplicate title heading in an authored browser save", async () => {
     const id = await createDocument({ title: "Page", content: "Body before" });
     const revision = documentRevisionToken(0, "Body before");

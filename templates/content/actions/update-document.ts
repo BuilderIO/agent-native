@@ -975,6 +975,7 @@ export default defineAction({
         }
         const [historyBefore] = await tx
           .select({
+            ownerEmail: schema.documents.ownerEmail,
             title: schema.documents.title,
             content: schema.documents.content,
             bodyRevision: schema.documents.bodyRevision,
@@ -1343,7 +1344,7 @@ export default defineAction({
             .where(
               and(
                 eq(schema.documents.id, id),
-                eq(schema.documents.ownerEmail, ownerEmail),
+                eq(schema.documents.ownerEmail, historyBefore.ownerEmail),
               ),
             )
             .limit(1);
@@ -1429,7 +1430,7 @@ export default defineAction({
             .where(
               and(
                 eq(schema.documents.id, id),
-                eq(schema.documents.ownerEmail, ownerEmail),
+                eq(schema.documents.ownerEmail, historyBefore.ownerEmail),
               ),
             )
             .limit(1);
@@ -1474,94 +1475,75 @@ export default defineAction({
         }
       }
 
-      if (discardedEditorGeneration !== undefined) {
-        const [current] = await db
-          .select()
-          .from(schema.documents)
-          .where(
-            and(
-              eq(schema.documents.id, id),
-              eq(schema.documents.ownerEmail, ownerEmail),
-            ),
+      if (
+        discardedEditorGeneration !== undefined ||
+        browserSaveConfirmation?.result === "replayed" ||
+        preservationRequired ||
+        contentCasConflict
+      ) {
+        const currentAccess = await resolveDocumentAccessForMutation(id, "id");
+        const current = currentAccess.resource;
+        const currentOwnerEmail = current.ownerEmail as string;
+        const currentFavorite = requestUserEmail
+          ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
+          : parseDocumentFavorite(current.isFavorite);
+        if (discardedEditorGeneration !== undefined) {
+          return scopeDocumentAudit(
+            {
+              superseded: true,
+              id,
+              document: documentUpdateResponse(
+                current,
+                currentAccess.role,
+                currentFavorite,
+              ),
+              editorSessionId: args.editorSessionId as string,
+              editGeneration: args.editorEditGeneration as number,
+              discardedGeneration: discardedEditorGeneration,
+            } satisfies DocumentUpdateSupersededResponse,
+            currentOwnerEmail,
           );
-        return scopeDocumentAudit(
-          {
-            superseded: true,
-            id,
-            document: documentUpdateResponse(
+        }
+
+        if (browserSaveConfirmation?.result === "replayed") {
+          return scopeDocumentAudit(
+            documentUpdateResponse(
               current,
-              access.role,
+              currentAccess.role,
+              currentFavorite,
+              browserSaveConfirmation.softDeletedDatabaseIds ?? [],
+              browserSaveConfirmation,
+            ),
+            currentOwnerEmail,
+          );
+        }
+
+        if (preservationRequired) {
+          return scopeDocumentAudit(
+            {
+              preservationRequired: true,
+              id,
+              document: documentUpdateResponse(
+                current,
+                currentAccess.role,
+                currentFavorite,
+              ),
+              ...preservationRequired,
+            } satisfies DocumentUpdatePreservationResponse,
+            currentOwnerEmail,
+          );
+        }
+
+        if (contentCasConflict) {
+          return scopeDocumentAudit(
+            documentConflictResponse(
+              current,
+              currentAccess.role,
               currentFavorite,
             ),
-            editorSessionId: args.editorSessionId as string,
-            editGeneration: args.editorEditGeneration as number,
-            discardedGeneration: discardedEditorGeneration,
-          } satisfies DocumentUpdateSupersededResponse,
-          ownerEmail,
-        );
-      }
-
-      if (browserSaveConfirmation?.result === "replayed") {
-        const [current] = await db
-          .select()
-          .from(schema.documents)
-          .where(
-            and(
-              eq(schema.documents.id, id),
-              eq(schema.documents.ownerEmail, ownerEmail),
-            ),
+            currentOwnerEmail,
           );
-        return scopeDocumentAudit(
-          documentUpdateResponse(
-            current,
-            access.role,
-            currentFavorite,
-            browserSaveConfirmation.softDeletedDatabaseIds ?? [],
-            browserSaveConfirmation,
-          ),
-          ownerEmail,
-        );
-      }
-
-      if (preservationRequired) {
-        const [current] = await db
-          .select()
-          .from(schema.documents)
-          .where(
-            and(
-              eq(schema.documents.id, id),
-              eq(schema.documents.ownerEmail, ownerEmail),
-            ),
-          );
-        return scopeDocumentAudit(
-          {
-            preservationRequired: true,
-            id,
-            document: documentUpdateResponse(
-              current,
-              access.role,
-              currentFavorite,
-            ),
-            ...preservationRequired,
-          } satisfies DocumentUpdatePreservationResponse,
-          ownerEmail,
-        );
-      }
-
-      if (contentCasConflict) {
-        const [current] = await db
-          .select()
-          .from(schema.documents)
-          .where(
-            and(
-              eq(schema.documents.id, id),
-              eq(schema.documents.ownerEmail, ownerEmail),
-            ),
-          );
-        return scopeDocumentAudit(
-          documentConflictResponse(current, access.role, currentFavorite),
-          ownerEmail,
-        );
+        }
       }
 
       if (isAgentCaller && committedContentChanged) {
