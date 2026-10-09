@@ -81,7 +81,7 @@ import {
 } from "../tracking/failure-counters.js";
 import { redact, redactErrorStack } from "../tracking/redaction.js";
 import { ACTION_ROUTE_PREFIX, bindActionBatch } from "./action-batch.js";
-import { notifyActionChange } from "./action-change.js";
+import { notifyActionChangeForResponse } from "./action-change.js";
 import {
   readBrowserSessionIdHeader,
   readBrowserTabIdHeader,
@@ -1490,23 +1490,19 @@ function mountActionRoutesInternal(
                 caller !== "mcp-widget" &&
                 actionCallEmitsChange(entry, params, method === "GET")
               ) {
-                try {
-                  await notifyActionChange({
-                    actionName: name,
-                    ...actionChangeResource(entry, params, result),
-                    ...(userEmail ? { owner: userEmail } : {}),
-                    ...(getHeader(event, "x-request-source")
-                      ? {
-                          requestSource: getHeader(
-                            event,
-                            "x-request-source",
-                          ) as string,
-                        }
-                      : {}),
-                  });
-                } catch {
-                  // ignore
-                }
+                await notifyActionChangeForResponse({
+                  actionName: name,
+                  ...actionChangeResource(entry, params, result),
+                  ...(userEmail ? { owner: userEmail } : {}),
+                  ...(getHeader(event, "x-request-source")
+                    ? {
+                        requestSource: getHeader(
+                          event,
+                          "x-request-source",
+                        ) as string,
+                      }
+                    : {}),
+                });
               }
 
               if (typeof result === "string") {

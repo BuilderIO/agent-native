@@ -58,3 +58,18 @@ export async function writeActionChangeMarker(
     { requestSource: options.requestSource ?? "agent" },
   );
 }
+
+/**
+ * Awaited in full, even when the platform has waitUntil: polling clients read
+ * the marker right after the response, so it must be durable before it goes out.
+ */
+export async function writeActionChangeMarkerForResponse(
+  options: NotifyActionChangeOptions,
+): Promise<void> {
+  await writeActionChangeMarker(options).catch((error: unknown) => {
+    console.warn(
+      "[action-change] durable marker write failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  });
+}
