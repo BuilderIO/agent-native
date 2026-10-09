@@ -15,10 +15,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import {
-  ForbiddenError,
-  type ResolvedAccess,
-} from "@agent-native/core/sharing";
+import { ForbiddenError } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
@@ -929,6 +926,15 @@ export default defineAction({
 
     let writeCommitted = false;
     if (anyChange || settlesPreviewDraft || args.browserSaveAttemptId) {
+      if (isAgentCaller) {
+        creativeContext = await documentMutationCreativeContext({
+          documentId: id,
+          contextPackId: args.contextPackId,
+          contextModeOverride: args.contextModeOverride,
+          reuseLabels: args.reuseLabels,
+          artifactAccessAsserted: true,
+        });
+      }
       let documentFieldsApplied = false;
       let contentCasConflict = false;
       let committedContentChanged = false;
@@ -1600,31 +1606,67 @@ export default defineAction({
           );
         }
       }
-      if (isAgentCaller) {
-        creativeContext = await documentMutationCreativeContext({
-          documentId: id,
-          contextPackId: args.contextPackId,
-          contextModeOverride: args.contextModeOverride,
-          reuseLabels: args.reuseLabels,
-          artifactAccessAsserted: true,
-        });
-        if (creativeContext) {
-          await recordGenerationCreativeContext({
-            appId: "content",
-            artifactType: "document",
-            artifactId: id,
-            ...creativeContext,
-          });
-        }
-      }
     }
 
-    let finalAccess: ResolvedAccess;
+    let resolvingDocumentAccess = false;
     try {
-      finalAccess = await resolveDocumentAccessForMutation(id, "id");
+      if (isAgentCaller && creativeContext) {
+        await recordGenerationCreativeContext({
+          appId: "content",
+          artifactType: "document",
+          artifactId: id,
+          ...creativeContext,
+        });
+      }
+      resolvingDocumentAccess = true;
+      const finalAccess = await resolveDocumentAccessForMutation(id, "id");
+      resolvingDocumentAccess = false;
+      const doc = finalAccess.resource;
+      const finalFavorite = requestUserEmail
+        ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
+        : parseDocumentFavorite(doc.isFavorite);
+
+      await writeAppState("refresh-signal", { ts: Date.now() });
+
+      if (isAgentCaller && doc.content !== existing.content) {
+        track(
+          "ai_refine_used",
+          {
+            app_name: "content",
+            template_name: "content",
+            output_id: id,
+            output_type: "document",
+            edit_count: 1,
+            refine_type: "full_update",
+          },
+          ctx,
+        );
+      }
+
+      return scopeDocumentAudit(
+        {
+          ...documentUpdateResponse(
+            doc,
+            finalAccess.role,
+            finalFavorite,
+            softDeletedDatabaseIds,
+            browserSaveConfirmation,
+          ),
+          ...(bodyIntentOutcome ? { bodyIntentOutcome } : {}),
+          ...(creativeContext
+            ? {
+                contextMode: creativeContext.contextMode,
+                contextPackId: creativeContext.contextPackId,
+                reuseLabels: creativeContext.reuseLabels,
+              }
+            : {}),
+        } satisfies BrowserDocumentUpdateResponse,
+        doc.ownerEmail as string,
+      );
     } catch (error) {
+      if (!writeCommitted) throw error;
       if (
-        writeCommitted &&
+        resolvingDocumentAccess &&
         (error instanceof ForbiddenError ||
           (error instanceof ActionContractError &&
             error.errorCode === "DOCUMENT_NOT_FOUND"))
@@ -1638,50 +1680,15 @@ export default defineAction({
           },
         );
       }
-      throw error;
-    }
-    const doc = finalAccess.resource;
-    const finalFavorite = requestUserEmail
-      ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
-      : parseDocumentFavorite(doc.isFavorite);
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
-
-    if (isAgentCaller && doc.content !== existing.content) {
-      track(
-        "ai_refine_used",
+      throw new ActionContractError(
+        "The update was saved, but its response could not be completed. Do not retry this write.",
         {
-          app_name: "content",
-          template_name: "content",
-          output_id: id,
-          output_type: "document",
-          edit_count: 1,
-          refine_type: "full_update",
+          errorCode: "DOCUMENT_SAVED_RESPONSE_FAILED",
+          statusCode: 500,
+          details: { id, saved: true },
         },
-        ctx,
       );
     }
-
-    return scopeDocumentAudit(
-      {
-        ...documentUpdateResponse(
-          doc,
-          finalAccess.role,
-          finalFavorite,
-          softDeletedDatabaseIds,
-          browserSaveConfirmation,
-        ),
-        ...(bodyIntentOutcome ? { bodyIntentOutcome } : {}),
-        ...(creativeContext
-          ? {
-              contextMode: creativeContext.contextMode,
-              contextPackId: creativeContext.contextPackId,
-              reuseLabels: creativeContext.reuseLabels,
-            }
-          : {}),
-      } satisfies BrowserDocumentUpdateResponse,
-      doc.ownerEmail as string,
-    );
   },
   link: ({ result }) => {
     if (!result.id) return null;

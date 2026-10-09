@@ -166,6 +166,68 @@ afterAll(async () => {
 const longDescription = `${"Complete guidance with Unicode café 🪶 and Markdown **emphasis**.\n".repeat(160)}END OF DESCRIPTION`;
 
 describe("document descriptions through external MCP", () => {
+  it("rejects invalid creative context before saving document metadata", async () => {
+    const created = await createPage({ title: "Validate before save" });
+    const before = await readRow(created.id);
+    const rejected = await ownerClient.callTool({
+      name: "update-document",
+      arguments: {
+        id: created.id,
+        description: "Must not be saved",
+        contextModeOverride: "off",
+        contextPackId: "fake-context-pack",
+      },
+    });
+    expect(rejected.isError).toBe(true);
+    expect(JSON.stringify(rejected.content)).toContain(
+      "contextPackId cannot be applied",
+    );
+    expect(await readRow(created.id)).toEqual(before);
+  });
+
+  it.each(["unavailable", "forbidden"] as const)(
+    "reports a committed save when creative-context recording is %s",
+    async (failureKind) => {
+      const created = await createPage({
+        title: "Post-commit recording",
+        content: "Private body",
+      });
+      const creativeContext =
+        await import("@agent-native/creative-context/server");
+      const { ForbiddenError } = await import("@agent-native/core/sharing");
+      const record = vi
+        .spyOn(creativeContext, "recordGenerationCreativeContext")
+        .mockRejectedValueOnce(
+          failureKind === "forbidden"
+            ? new ForbiddenError("Private context failure")
+            : new Error("Private context failure"),
+        );
+      try {
+        const result = await ownerClient.callTool({
+          name: "update-document",
+          arguments: {
+            id: created.id,
+            description: "Saved private guidance",
+            contextModeOverride: "off",
+          },
+        });
+        expect(result.isError).toBe(true);
+        const errorText = JSON.stringify(result.content);
+        expect(errorText).toContain("DOCUMENT_SAVED_RESPONSE_FAILED");
+        expect(errorText).toContain("update was saved");
+        expect(errorText).not.toContain("Saved private guidance");
+        expect(errorText).not.toContain("Private body");
+        expect(errorText).not.toContain("Private context failure");
+        expect((await readRow(created.id)).description).toBe(
+          "Saved private guidance",
+        );
+        expect(record).toHaveBeenCalledOnce();
+      } finally {
+        record.mockRestore();
+      }
+    },
+  );
+
   it("rejects combined description and favorite changes before mutation", async () => {
     const created = await createPage({
       title: "Separate favorite update",
