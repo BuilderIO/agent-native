@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { appBasePath, appMountPath, appMountedPath } from "./api-path.js";
+import {
+  appBasePath,
+  appMountPath,
+  appMountedPath,
+  isWorkspaceAppPath,
+} from "./api-path.js";
 
 const SETTINGS = "/settings";
 
@@ -141,6 +146,25 @@ describe("appMountPath", () => {
     });
 
     expect(appBasePath()).toBe("");
+  });
+
+  it("keeps an explicit root mount above matching sibling mounts", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "settings", path: "/settings" }]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/settings/model" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceAppPath: "/",
+        workspaceAppMountPaths: ["/settings"],
+      },
+    });
+
+    expect(appBasePath()).toBe("");
+    expect(isWorkspaceAppPath("/settings/model")).toBe(true);
+    expect(appMountedPath("/settings/model", "/")).toBe("/settings/model");
   });
 
   it("does not infer a mount from an unmatched URL and a root index route", () => {

@@ -195,6 +195,7 @@ function workspacePathBasePath(fallbackPath = ""): string {
   }
   const segment = pathname.split("/").find(Boolean);
   if (!segment || isFrameworkSegment(segment) || segment === "api") return "";
+  if (hasExplicitWorkspaceRootPath()) return "";
   const mounts = workspaceAppMountPaths();
   const matchingMount = mounts
     ? [...mounts]
@@ -202,7 +203,6 @@ function workspacePathBasePath(fallbackPath = ""): string {
         .sort((a, b) => b.length - a.length)[0]
     : undefined;
   if (matchingMount) return matchingMount;
-  if (hasExplicitWorkspaceRootPath()) return "";
   if (fallbackPath) return fallbackPath;
   throw new Error(
     mounts
@@ -308,8 +308,11 @@ export function isWorkspaceAppPath(path: string): boolean {
 
   const targetPath = path.split(/[?#]/, 1)[0] || "/";
   const basePath = appBasePath();
-  if (!basePath) return false;
-  if (targetPath === basePath || targetPath.startsWith(`${basePath}/`)) {
+  if (!basePath && !hasExplicitWorkspaceRootPath()) return false;
+  if (
+    basePath &&
+    (targetPath === basePath || targetPath.startsWith(`${basePath}/`))
+  ) {
     return false;
   }
 
