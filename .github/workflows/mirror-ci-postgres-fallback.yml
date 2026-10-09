@@ -1,0 +1,70 @@
+name: Mirror CI Postgres images
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/mirror-ci-postgres-fallback.yml"
+  schedule:
+    - cron: "17 8 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: mirror-ci-postgres-fallback
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    name: Mirror Postgres service images
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      packages: write
+    steps:
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      # Copy the public Docker Official Images tags daily. The manifest digest
+      # check keeps the anonymous GHCR image identical to its upstream source.
+      - name: Mirror Postgres tags
+        run: |
+          set -euo pipefail
+          docker buildx version
+          source_repository="public.ecr.aws/docker/library/postgres"
+          mirror_repository="ghcr.io/builderio/agent-native-ci-postgres-fallback"
+
+          for tag in 17-alpine 18-alpine; do
+            source_image="$source_repository:$tag"
+            mirror_image="$mirror_repository:$tag"
+            source_digest="$(docker buildx imagetools inspect "$source_image" | awk '$1 == "Digest:" { print $2; exit }')"
+            if [[ -z "$source_digest" ]]; then
+              echo "::error::could not resolve the upstream digest for $source_image"
+              exit 1
+            fi
+            sleep 2
+
+            for attempt in 1 2 3 4 5; do
+              if docker buildx imagetools create --tag "$mirror_image" "$source_image"; then
+                break
+              fi
+              if [[ "$attempt" -eq 5 ]]; then
+                echo "::error::could not mirror $source_image after 5 attempts"
+                exit 1
+              fi
+              sleep $((attempt * 10))
+            done
+
+            mirror_digest="$(docker buildx imagetools inspect "$mirror_image" | awk '$1 == "Digest:" { print $2; exit }')"
+            if [[ "$source_digest" != "$mirror_digest" ]]; then
+              echo "::error::digest mismatch for $tag: source=$source_digest mirror=$mirror_digest"
+              exit 1
+            fi
+            echo "Mirrored $source_image at $mirror_digest"
+            sleep 2
+          done
