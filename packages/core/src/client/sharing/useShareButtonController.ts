@@ -328,12 +328,6 @@ export function useShareButtonController(
     });
   }, []);
 
-  useEffect(() => {
-    void sharesQuery.refetch();
-    // The resource identity is intentionally stable for this controller.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const memberSearch = useShareOrgMemberSearch(
     inviteEmail,
     canManage && suggestionsOpen,
