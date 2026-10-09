@@ -126,10 +126,15 @@ export function TemplatePreview({
         current = current.parentElement
       ) {
         const styles = window.getComputedStyle(current);
+        const hasZeroOpacityFilter =
+          /(?:^|\s)opacity\(\s*(?:0+(?:\.0*)?|\.0+)%?\s*\)(?:\s|$)/i.test(
+            styles.filter || "",
+          );
         if (
           styles.display === "none" ||
           styles.contentVisibility === "hidden" ||
           (styles.opacity !== "" && Number(styles.opacity) === 0) ||
+          hasZeroOpacityFilter ||
           (current === frame &&
             (styles.visibility === "hidden" ||
               styles.visibility === "collapse"))

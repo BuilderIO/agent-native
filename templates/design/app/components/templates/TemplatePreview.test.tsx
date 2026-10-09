@@ -181,6 +181,42 @@ describe("template artboard preview", () => {
     expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
   });
 
+  it.each(["iframe", "ancestor"] as const)(
+    "does not start replay for a preview hidden by a zero-opacity filter on the %s",
+    async (target) => {
+      await act(async () =>
+        root.render(
+          <TemplatePreview
+            title="Replay fixture"
+            html="<h1>Hidden by filter</h1>"
+            recordSessionReplay
+          />,
+        ),
+      );
+      const frame = container.querySelector("iframe")!;
+      const previewContainer = container.firstElementChild as HTMLElement;
+      const hiddenElement = target === "iframe" ? frame : previewContainer;
+      hiddenElement.style.filter = "opacity(0)";
+
+      act(() =>
+        intersectionObservers[0]!.callback(
+          [
+            {
+              isIntersecting: true,
+              intersectionRatio: 1,
+              intersectionRect: { width: 320, height: 180 },
+            } as IntersectionObserverEntry,
+          ],
+          {} as IntersectionObserver,
+        ),
+      );
+
+      expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(
+        false,
+      );
+    },
+  );
+
   it("rechecks visibility when an opacity transition completes", async () => {
     await act(async () =>
       root.render(
