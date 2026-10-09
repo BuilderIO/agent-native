@@ -5,7 +5,13 @@ import { registerFirstRunOnboardingExtension } from "@agent-native/core/client/o
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, Route, Routes } from "react-router";
+import {
+  createMemoryRouter,
+  MemoryRouter,
+  Route,
+  RouterProvider,
+  Routes,
+} from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createToolkitI18nCatalog } from "../i18n.js";
@@ -990,6 +996,7 @@ describe("FirstRunOnboarding", () => {
       "onboarding_method_outcome",
       expect.objectContaining({ method_id: "custom_keys", outcome: "failed" }),
     );
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings/model");
     expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
       "onboarding_method_outcome",
       expect.objectContaining({
@@ -1346,6 +1353,7 @@ describe("FirstRunOnboarding", () => {
     const attemptId = (methodClick?.[1] as Record<string, unknown>)
       ?.onboarding_attempt_id;
     expect(mocks.setCustomKeyOnboardingAttempt).toHaveBeenCalledWith(attemptId);
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings/model");
     expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
       "onboarding_method_outcome",
       expect.objectContaining({
@@ -1389,7 +1397,7 @@ describe("FirstRunOnboarding", () => {
         await Promise.resolve();
       });
 
-      expect(window.location.pathname).toBe(
+      expect(mocks.navigate).toHaveBeenCalledWith(
         manualSetupSettingsRoute({ redesign: true }),
       );
       expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
@@ -1549,6 +1557,71 @@ describe("FirstRunOnboarding", () => {
     ).toBeNull();
   });
 
+  it("tracks custom-key settings as opened after the settings route renders", async () => {
+    mocks.useActualRouter = true;
+    let settingsRenderedAtOutcome = false;
+    mocks.trackOnboardingEvent.mockImplementation((event, properties) => {
+      if (
+        event === "onboarding_method_outcome" &&
+        (properties as Record<string, unknown>).outcome === "settings_opened"
+      ) {
+        settingsRenderedAtOutcome =
+          document.body.querySelector(
+            '[data-testid="model-settings-route"]',
+          ) !== null;
+      }
+    });
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/home",
+          element: (
+            <TooltipProvider>
+              <FirstRunOnboarding />
+              <div data-testid="home-route">Home</div>
+            </TooltipProvider>
+          ),
+        },
+        {
+          path: "/settings/model",
+          element: <div data-testid="model-settings-route">Model settings</div>,
+        },
+      ],
+      { initialEntries: ["/home"] },
+    );
+
+    await act(async () => {
+      root.render(<RouterProvider router={router} />);
+    });
+
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(
+      document.body.querySelector('[data-testid="model-settings-route"]'),
+    ).not.toBeNull();
+    expect(router.state.location.pathname).toBe("/settings/model");
+    expect(settingsRenderedAtOutcome).toBe(true);
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "custom_keys",
+        outcome: "settings_opened",
+      }),
+    );
+  });
+
   it("does not start duplicate manual setup attempts while completion is pending", async () => {
     let resolveCompletion: (() => void) | undefined;
     mocks.completeFirstRun.mockImplementation(
@@ -1594,6 +1667,7 @@ describe("FirstRunOnboarding", () => {
 
     await act(async () => {
       resolveCompletion?.();
+      await Promise.resolve();
     });
 
     expect(
@@ -1634,8 +1708,7 @@ describe("FirstRunOnboarding", () => {
       await Promise.resolve();
     });
 
-    expect(window.location.search).not.toContain("onboarding=preview");
-    expect(window.location.search).not.toContain("step=choice");
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings/model");
     window.history.replaceState(null, "", "/");
   });
 
@@ -1800,8 +1873,8 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
-    expect(mocks.navigate).not.toHaveBeenCalled();
-    expect(window.location.pathname).toBe("/settings/model");
+    expect(mocks.navigate).toHaveBeenCalledOnce();
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings/model");
   });
 
   it("preserves the completed step when first-run completion succeeds on retry", async () => {
@@ -2052,7 +2125,7 @@ describe("FirstRunOnboarding", () => {
       await Promise.resolve();
     });
 
-    expect(window.location.pathname).toBe("/settings/model");
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings/model");
     expect(mocks.completeFirstRun).toHaveBeenCalled();
     window.history.replaceState(null, "", "/");
   });
@@ -2084,7 +2157,7 @@ describe("FirstRunOnboarding", () => {
       await Promise.resolve();
     });
 
-    expect(window.location.pathname).toBe("/dispatch/settings/model");
+    expect(mocks.navigate).toHaveBeenCalledWith("/dispatch/settings/model");
   });
 
   it("sends manual setup to Agent › Model", () => {

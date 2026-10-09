@@ -614,7 +614,6 @@ export function FirstRunOnboarding({
     const attemptStorage = attempt
       ? setCustomKeyOnboardingAttempt(attempt.id)
       : null;
-    trackFirstRunSetupOutcome(attempt, "settings_opened");
     if (attempt && attemptStorage) {
       void attemptStorage.then((status) => {
         if (status !== "stored") {
@@ -633,15 +632,12 @@ export function FirstRunOnboarding({
     search.delete(ONBOARDING_PREVIEW_QUERY_PARAM);
     search.delete(ONBOARDING_PREVIEW_STEP_QUERY_PARAM);
     const query = search.toString();
-    window.history.pushState(
-      null,
-      "",
-      `${appMountedPath(
-        manualSetupSettingsRoute({ redesign: redesign.enabled }),
-        pathname || STANDARD_APP_ROUTES.home,
-      )}${query ? `?${query}` : ""}`,
+    const path = appMountedPath(
+      manualSetupSettingsRoute({ redesign: redesign.enabled }),
+      pathname || STANDARD_APP_ROUTES.home,
     );
-    window.dispatchEvent(new Event("popstate"));
+    await navigate(`${path}${query ? `?${query}` : ""}`);
+    trackFirstRunSetupOutcome(attempt, "settings_opened");
   };
 
   const handleRoleContinue = async () => {
