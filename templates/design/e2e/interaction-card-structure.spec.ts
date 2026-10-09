@@ -51,7 +51,7 @@ const CARD_HTML = `<!doctype html>
 
 async function createCardDesign(request: APIRequestContext) {
   const created = await action(request, "create-design", {
-    title: `YT card/tips interaction ${Date.now()}`,
+    title: `Card structure and tips interactions ${Date.now()}`,
     projectType: "prototype",
   });
   const designId = created.id ?? created.data?.id ?? created.design?.id;
@@ -324,7 +324,7 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
 
 async function createIconScreensDesign(request: APIRequestContext) {
   const created = await action(request, "create-design", {
-    title: `YT tips overview interaction ${Date.now()}`,
+    title: `Tips overview interactions ${Date.now()}`,
     projectType: "prototype",
   });
   const designId = created.id ?? created.data?.id ?? created.design?.id;

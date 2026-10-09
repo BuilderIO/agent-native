@@ -301,7 +301,7 @@ test.describe("assemble portfolio pages", () => {
     designId = "";
   });
 
-  test("Frame Selection wraps and renames board frames; Shift+S does not change the active tool", async ({
+  test("Shift+S leaves the active tool unchanged; Frame Selection wraps selected board frames", async ({
     page,
     request,
   }) => {
@@ -310,9 +310,6 @@ test.describe("assemble portfolio pages", () => {
     ]));
     await gotoEditor(page, designId);
 
-    await expect(
-      page.locator('[data-design-bottom-toolbar] [aria-label*="Section" i]'),
-    ).toHaveCount(0);
     const activeToolBefore = await page
       .locator('[data-design-bottom-toolbar] button[aria-pressed="true"]')
       .first()

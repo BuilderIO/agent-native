@@ -159,7 +159,7 @@ const BLANK_SCREEN_HTML = `<!doctype html>
 
 async function createDesignWithHtml(request: APIRequestContext, html: string) {
   const created = await action(request, "create-design", {
-    title: `YT mobile/landing interaction ${Date.now()}`,
+    title: `Mobile and landing screen interactions ${Date.now()}`,
     projectType: "prototype",
   });
   const designId = created.id ?? created.data?.id ?? created.design?.id;
