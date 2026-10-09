@@ -920,6 +920,58 @@ describe("replay iframe audit", () => {
     });
   });
 
+  it("ignores an iframe fully excluded by a legacy CSS clip", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 20, height: 20 },
+      20,
+      20,
+    );
+    frame.style.position = "absolute";
+    frame.style.clip = "rect(0px, 0px, 0px, 0px)";
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
+  });
+
+  it("keeps a partly visible iframe under a legacy CSS clip", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 20, height: 20 },
+      20,
+      20,
+    );
+    frame.style.position = "absolute";
+    frame.style.clip = "rect(0px, 10px, 20px, 0px)";
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [1],
+      }),
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 0 });
+  });
+
   it("does not reject an iframe inside the center of a rounded inset clip", () => {
     const replayFrame = appendFrame(
       document,

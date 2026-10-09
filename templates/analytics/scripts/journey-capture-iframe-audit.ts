@@ -413,6 +413,56 @@ export function auditReplayIframeContent({
     },
   ];
 
+  const [legacyClipPolygon]: [
+    (value: string, geometry: BoxGeometry) => Point[] | null,
+  ] = [
+    (value, geometry) => {
+      const match = value.trim().match(/^rect\((.*)\)$/i);
+      if (
+        !match ||
+        geometry.uncertain ||
+        geometry.width <= 0 ||
+        geometry.height <= 0
+      ) {
+        return null;
+      }
+
+      const values = match[1]!
+        .trim()
+        .split(/\s*,\s*|\s+/)
+        .filter(Boolean);
+      if (values.length !== 4) return null;
+      const [resolveOffset]: [
+        (token: string, automatic: number) => number | null,
+      ] = [
+        (token, automatic) => {
+          if (token.toLowerCase() === "auto") return automatic;
+          const number = token.match(/^(-?(?:\d+(?:\.\d*)?|\.\d+))(px)?$/i);
+          if (!number) return null;
+          const amount = Number(number[1]);
+          if (!Number.isFinite(amount) || (!number[2] && amount !== 0)) {
+            return null;
+          }
+          return amount;
+        },
+      ];
+      const top = resolveOffset(values[0]!, 0);
+      const right = resolveOffset(values[1]!, geometry.width);
+      const bottom = resolveOffset(values[2]!, geometry.height);
+      const left = resolveOffset(values[3]!, 0);
+      if (top === null || right === null || bottom === null || left === null) {
+        return null;
+      }
+      if (right <= left || bottom <= top) return [];
+      return [
+        { x: left, y: top },
+        { x: right, y: top },
+        { x: right, y: bottom },
+        { x: left, y: bottom },
+      ];
+    },
+  ];
+
   const [polygonMayOverlapLocalRects]: [
     (
       polygon: Point[],
@@ -790,6 +840,25 @@ export function auditReplayIframeContent({
             break;
           }
           visibilityUncertain = true;
+        }
+        const legacyClip =
+          styles.getPropertyValue("clip") ||
+          (current as HTMLElement).style?.getPropertyValue("clip");
+        if (
+          legacyClip &&
+          legacyClip !== "auto" &&
+          (styles.position === "absolute" || styles.position === "fixed")
+        ) {
+          const geometry = geometryFor(current, view);
+          const clipPolygon = legacyClipPolygon(legacyClip, geometry);
+          if (clipPolygon) {
+            visiblePolygon = intersectPolygons(
+              visiblePolygon,
+              clipPolygon.map((point) => pointToScreen(geometry, point)),
+            );
+          } else {
+            visibilityUncertain = true;
+          }
         }
         const hasUnsupportedMask = [
           "mask-image",
