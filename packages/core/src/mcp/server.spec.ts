@@ -2475,6 +2475,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         ),
         ttlSeconds: 900,
         renewalExpiresAtMs: originalTicket.renewalExpiresAtMs,
+        revocationAnchorCreatedAtMs: originalTicket.createdAtMs,
       },
     );
     const writeScope =

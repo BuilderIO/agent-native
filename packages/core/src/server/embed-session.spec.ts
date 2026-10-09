@@ -343,6 +343,90 @@ describe("embed session tickets", () => {
     expect(inserted[0].args[8]).toBe(renewalExpiresAtMs);
   });
 
+  it("rejects renewing a widget ticket created before owner logout", async () => {
+    const createdAtMs = Date.now() - 1000;
+    const inserted: { sql: string; args: unknown[] }[] = [];
+    dbExec.execute.mockImplementation(async ({ sql, args }: any) => {
+      if (sql.includes("SELECT revoked_before")) {
+        return { rows: [{ revoked_before: Date.now() }] };
+      }
+      if (sql.includes("INSERT INTO agent_native_embed_tickets")) {
+        inserted.push({ sql, args });
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await expect(
+      createEmbedSessionTicket({
+        ownerEmail: "owner@example.com",
+        targetPath: "/page/doc_123",
+        scope: "capability:mcp-directory-widget-write:example",
+        ttlSeconds: 15 * 60,
+        revocationAnchorCreatedAtMs: createdAtMs,
+      }),
+    ).rejects.toThrow("Embed session ticket creation was revoked by logout.");
+
+    expect(dbExec.transaction).toHaveBeenCalledOnce();
+    expect(inserted).toHaveLength(0);
+  });
+
+  it("serializes widget ticket renewal with owner logout", async () => {
+    const createdAtMs = Date.now() - 1000;
+    let revokedBefore: number | null = null;
+    let ticketInserted = false;
+    dbExec.execute.mockImplementation(async ({ sql, args }: any) => {
+      if (sql.includes("SELECT revoked_before")) {
+        return {
+          rows:
+            revokedBefore === null ? [] : [{ revoked_before: revokedBefore }],
+          rowsAffected: 0,
+        };
+      }
+      if (sql.includes("INSERT INTO agent_native_embed_session_revocations")) {
+        revokedBefore = Number(args[1]);
+      }
+      if (sql.includes("INSERT INTO agent_native_embed_tickets")) {
+        ticketInserted = true;
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    let releaseRenewal!: () => void;
+    let signalRenewal!: () => void;
+    const renewalStarted = new Promise<void>((resolve) => {
+      signalRenewal = resolve;
+    });
+    const releaseTransaction = new Promise<void>((resolve) => {
+      releaseRenewal = resolve;
+    });
+    let transactionCount = 0;
+    dbExec.transaction.mockImplementation(async (run) => {
+      transactionCount += 1;
+      if (transactionCount === 1) {
+        signalRenewal();
+        await releaseTransaction;
+      }
+      return run(dbExec);
+    });
+
+    const pendingRenewal = createEmbedSessionTicket({
+      ownerEmail: "owner@example.com",
+      targetPath: "/page/doc_123",
+      scope: "capability:mcp-directory-widget-write:example",
+      ttlSeconds: 15 * 60,
+      revocationAnchorCreatedAtMs: createdAtMs,
+    });
+
+    await renewalStarted;
+    await revokeEmbedSessionsForOwner("owner@example.com");
+    releaseRenewal();
+
+    await expect(pendingRenewal).rejects.toThrow(
+      "Embed session ticket creation was revoked by logout.",
+    );
+    expect(ticketInserted).toBe(false);
+  });
+
   it("keeps renewal available after the short-lived widget ticket expires", async () => {
     const createdAt = Date.now() - 16 * 60 * 1000;
     const expiresAt = createdAt + 15 * 60 * 1000;

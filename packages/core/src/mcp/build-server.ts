@@ -74,6 +74,7 @@ import {
   MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   type McpDirectoryWidgetReadArgument,
+  isMcpDirectoryWidgetWriteCapabilityScope,
   renewMcpDirectoryWidgetCapabilityScope,
 } from "../shared/embed-auth.js";
 import {
@@ -1755,6 +1756,9 @@ async function renewMcpDirectoryWidgetEmbedSession(
       Math.ceil((capabilityExpiresAtMs - renewalNow) / 1000),
     ),
     renewalExpiresAtMs: originalTicket.renewalExpiresAtMs,
+    ...(isMcpDirectoryWidgetWriteCapabilityScope(originalTicket.scope)
+      ? { revocationAnchorCreatedAtMs: originalTicket.createdAtMs }
+      : {}),
   });
   const startPath = buildEmbedStartPath(ticket.ticket);
   return {

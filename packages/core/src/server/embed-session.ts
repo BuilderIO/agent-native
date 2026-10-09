@@ -80,6 +80,7 @@ export interface EmbedSessionTicketInput {
   scope?: string | null;
   ttlSeconds?: number;
   renewalExpiresAtMs?: number;
+  revocationAnchorCreatedAtMs?: number;
 }
 
 export interface EmbedSessionTicket {
@@ -809,6 +810,14 @@ export async function createEmbedSessionTicket(
   const widgetCapability = isMcpDirectoryWidgetCapabilityScope(
     input.scope ?? undefined,
   );
+  const checksOwnerRevocation =
+    !capabilityScope || input.revocationAnchorCreatedAtMs !== undefined;
+  if (
+    input.revocationAnchorCreatedAtMs !== undefined &&
+    !Number.isSafeInteger(input.revocationAnchorCreatedAtMs)
+  ) {
+    throw new Error("Embed session ticket has an invalid revocation anchor.");
+  }
   const renewalExpiryCap = createdAt + MCP_DIRECTORY_WIDGET_RENEWAL_TTL_MS;
   const renewalExpiresAt = widgetCapability
     ? Math.min(input.renewalExpiresAtMs ?? renewalExpiryCap, renewalExpiryCap)
@@ -823,15 +832,18 @@ export async function createEmbedSessionTicket(
   }
   const client = getDbExec();
   const insert = async (tx: DbExec) => {
-    if (!capabilityScope) {
+    if (checksOwnerRevocation) {
       const key = ownerHash(ownerEmail);
       if (!key) throw new Error("Embed session ticket requires ownerEmail.");
       await lockEmbedSessionsForOwner(tx, key);
       const revokedBefore = await embedSessionsRevokedBefore(ownerEmail, tx);
-      if (revokedBefore !== null && authenticatedAtMs <= revokedBefore) {
+      const revocationTime =
+        input.revocationAnchorCreatedAtMs ?? authenticatedAtMs;
+      if (revokedBefore !== null && revocationTime <= revokedBefore) {
         throw new Error("Embed session ticket creation was revoked by logout.");
       }
       if (
+        !capabilityScope &&
         contextSessionToken &&
         !(await sourceSessionBelongsToOwner(
           tx,
@@ -860,15 +872,15 @@ export async function createEmbedSessionTicket(
       ],
     });
   };
-  if (capabilityScope) {
-    await insert(client);
-  } else {
+  if (checksOwnerRevocation) {
     if (!client.transaction) {
       throw new Error(
         "Embed session ticket creation requires database transactions.",
       );
     }
     await client.transaction(insert);
+  } else {
+    await insert(client);
   }
   return { ticket, ticketHash, expiresAt };
 }
