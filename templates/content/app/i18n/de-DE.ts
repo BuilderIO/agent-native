@@ -1530,9 +1530,9 @@ const overrides = {
     failedCreatePage: "Seite konnte nicht erstellt werden",
     failedCreatePageDraftDescription:
       "Ihr Entwurf ist in diesem Browser gespeichert. Sie können die Seite erneut erstellen oder den Entwurf verwerfen.",
-    discardFailedCreatePageQuestion: "Diese Seite verwerfen?",
+    discardFailedCreatePageQuestion: "Ausstehende Erstellung verwerfen?",
     discardFailedCreatePageDescription:
-      "Dadurch werden die Seite und ihr ungespeicherter Entwurf aus diesem Browser entfernt. Dies kann nicht rückgängig gemacht werden.",
+      "Dadurch werden die ausstehende Erstellung und alle ungespeicherten Entwürfe gelöscht. Falls die Seite bereits gespeichert wurde, bleibt sie in deinem Arbeitsbereich erhalten.",
     failedDeletePage: "Seite konnte nicht gelöscht werden",
     failedPermanentDeletePage: "Seite konnte nicht dauerhaft gelöscht werden",
     failedRestorePage: "Seite konnte nicht wiederhergestellt werden",

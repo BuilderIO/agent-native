@@ -101,6 +101,9 @@ export function useCreatePage(opts?: {
         isFavorite: false,
         hideFromSearch: false,
         visibility: "private",
+        accessRole: "owner",
+        canEdit: true,
+        canManage: true,
         createdAt: now,
         updatedAt: now,
       });

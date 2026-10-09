@@ -1528,9 +1528,9 @@ const overrides = {
     failedCreatePage: "Échec de la création de la page",
     failedCreatePageDraftDescription:
       "Votre brouillon est enregistré dans ce navigateur. Vous pouvez réessayer de créer la page ou supprimer le brouillon.",
-    discardFailedCreatePageQuestion: "Supprimer cette page ?",
+    discardFailedCreatePageQuestion: "Annuler la création en attente ?",
     discardFailedCreatePageDescription:
-      "Cette action supprime la page et son brouillon non enregistré de ce navigateur. Elle est irréversible.",
+      "Cela efface la création en attente et tout brouillon non enregistré. Si la page a déjà été enregistrée, elle restera dans votre espace de travail.",
     failedDeletePage: "Échec de la suppression de la page",
     failedPermanentDeletePage: "Échec de la suppression définitive de la page",
     failedRestorePage: "Échec de la restauration de la page",

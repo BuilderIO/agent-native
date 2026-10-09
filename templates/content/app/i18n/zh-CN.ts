@@ -1549,9 +1549,9 @@ const overrides = {
     failedCreatePage: "创建页面失败",
     failedCreatePageDraftDescription:
       "草稿已保存在此浏览器中。你可以重试创建页面，或丢弃草稿。",
-    discardFailedCreatePageQuestion: "丢弃此页面？",
+    discardFailedCreatePageQuestion: "丢弃待处理的创建？",
     discardFailedCreatePageDescription:
-      "这会从此浏览器中移除页面及其未保存的草稿。此操作无法撤销。",
+      "这会清除待处理的创建和任何未保存的草稿。如果页面已经保存，它仍会保留在你的工作区中。",
     failedDeletePage: "删除页面失败",
     failedPermanentDeletePage: "永久删除页面失败",
     failedRestorePage: "恢复页面失败",

@@ -164,7 +164,6 @@ import {
   clearDocumentCreationConfirmed,
   clearDocumentCreationPending,
   clearDocumentCreateIntent,
-  DocumentCreateCoordinationUnavailableError,
   markDocumentCreationConfirmed,
   markDocumentCreationPending,
   readDocumentCreateIntent,
@@ -1828,11 +1827,7 @@ export function DocumentSidebar({
     } catch (error) {
       toast.error(t("sidebar.failedCreatePage"), {
         description:
-          error instanceof DocumentCreateCoordinationUnavailableError
-            ? t("empty.genericError")
-            : error instanceof Error
-              ? error.message
-              : t("empty.genericError"),
+          error instanceof Error ? error.message : t("empty.genericError"),
       });
     }
   }, [
@@ -2111,14 +2106,12 @@ export function DocumentSidebar({
         draftPreserved = Boolean(journal),
       ) => {
         const errorDescription = error
-          ? error instanceof DocumentCreateCoordinationUnavailableError
-            ? t("empty.genericError")
-            : error instanceof PageDraftJournalError ||
-                !(error instanceof Error && error.message)
-              ? t("editor.pageSaveBeforeNavigationFailed")
-              : error instanceof Error
-                ? error.message
-                : t("empty.genericError")
+          ? error instanceof PageDraftJournalError ||
+            !(error instanceof Error && error.message)
+            ? t("editor.pageSaveBeforeNavigationFailed")
+            : error instanceof Error
+              ? error.message
+              : t("empty.genericError")
           : null;
         toast.error(t("sidebar.failedCreatePage"), {
           id: retryToastId,

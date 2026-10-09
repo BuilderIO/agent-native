@@ -1770,9 +1770,9 @@ const overrides = {
     failedCreatePage: "建立頁面失敗",
     failedCreatePageDraftDescription:
       "草稿已儲存在此瀏覽器中。你可以重試建立頁面，或捨棄草稿。",
-    discardFailedCreatePageQuestion: "捨棄此頁面？",
+    discardFailedCreatePageQuestion: "捨棄待處理的建立？",
     discardFailedCreatePageDescription:
-      "這會從此瀏覽器中移除頁面及其未儲存的草稿。此操作無法復原。",
+      "這會清除待處理的建立與未儲存的草稿。如果頁面已儲存，仍會保留在你的工作區。",
     failedDeletePage: "刪除頁面失敗",
     failedPermanentDeleteDatabase: "永久刪除集合失敗",
     failedPermanentDeletePage: "永久刪除頁面失敗",

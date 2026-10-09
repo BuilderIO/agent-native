@@ -1649,9 +1649,9 @@ const enUS = {
     failedCreatePage: "Failed to create page",
     failedCreatePageDraftDescription:
       "Your draft is saved in this browser. You can retry page creation or discard the draft.",
-    discardFailedCreatePageQuestion: "Discard this page?",
+    discardFailedCreatePageQuestion: "Discard pending creation?",
     discardFailedCreatePageDescription:
-      "This removes the page and its unsaved draft from this browser. This cannot be undone.",
+      "This clears the pending creation and any unsaved draft. If the page was already saved, it will remain in your workspace.",
     failedCreateWorkspace: "Failed to create workspace",
     failedDeletePage: "Failed to delete page",
     failedPermanentDeleteDatabase: "Failed to permanently delete collection",

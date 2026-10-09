@@ -44,6 +44,7 @@ export class DocumentCreateIntentStorageError extends Error {
 
 const DOCUMENT_CREATE_INTENTS_PREFIX = "content-document-create-intent-v1:";
 const documentCreatesInFlight = new Map<string, number>();
+const documentCreateFallbackQueues = new Map<string, Promise<void>>();
 
 type DocumentCreateLockManager = {
   request<T>(
@@ -52,13 +53,6 @@ type DocumentCreateLockManager = {
     callback: (lock: unknown) => T | Promise<T>,
   ): Promise<T>;
 };
-
-export class DocumentCreateCoordinationUnavailableError extends Error {
-  constructor() {
-    super();
-    this.name = "DocumentCreateCoordinationUnavailableError";
-  }
-}
 
 export function isDocumentCreateInFlight(id: string): boolean {
   return (documentCreatesInFlight.get(id) ?? 0) > 0;
@@ -76,11 +70,6 @@ export async function withDocumentCreateInFlight<T>(
         ? undefined
         : (navigator as Navigator & { locks?: DocumentCreateLockManager })
             .locks;
-    if (typeof window !== "undefined" && !locks?.request) {
-      throw new DocumentCreateCoordinationUnavailableError();
-    }
-    if (!locks?.request) return await create();
-
     const name = [
       "agent-native:content:document-create",
       scope?.accountId.trim().toLowerCase() ?? "",
@@ -89,6 +78,27 @@ export async function withDocumentCreateInFlight<T>(
     ]
       .map(encodeURIComponent)
       .join(":");
+    if (!locks?.request) {
+      // Server retries with the same ID and request digest are safe across tabs.
+      const previous =
+        documentCreateFallbackQueues.get(name) ?? Promise.resolve();
+      let release!: () => void;
+      const turn = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const tail = previous.then(() => turn);
+      documentCreateFallbackQueues.set(name, tail);
+      try {
+        await previous;
+        return await create();
+      } finally {
+        release();
+        if (documentCreateFallbackQueues.get(name) === tail) {
+          documentCreateFallbackQueues.delete(name);
+        }
+      }
+    }
+
     return await locks.request(name, { mode: "exclusive" }, () => create());
   } finally {
     const active = documentCreatesInFlight.get(id) ?? 1;

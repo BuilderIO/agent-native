@@ -157,6 +157,30 @@ describe("optimistic document creation", () => {
     expect(isDocumentCreateInFlight("page-in-flight")).toBe(false);
   });
 
+  it("serializes same-tab creates when Web Locks are unavailable", async () => {
+    vi.stubGlobal("navigator", {});
+    let finishFirst!: () => void;
+    let secondStarted = false;
+    const first = withDocumentCreateInFlight(
+      "page-without-web-locks",
+      () => new Promise<void>((resolve) => (finishFirst = resolve)),
+    );
+    const second = withDocumentCreateInFlight(
+      "page-without-web-locks",
+      async () => {
+        secondStarted = true;
+      },
+    );
+
+    await Promise.resolve();
+    expect(secondStarted).toBe(false);
+    finishFirst();
+    await Promise.all([first, second]);
+
+    expect(secondStarted).toBe(true);
+    expect(isDocumentCreateInFlight("page-without-web-locks")).toBe(false);
+  });
+
   it("serializes create recovery across browser tabs for the same document", async () => {
     const scope = { accountId: "writer@example.com", orgId: "org-1" };
     const intent = {

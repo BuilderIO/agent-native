@@ -1474,9 +1474,9 @@ const overrides = {
     failedCreatePage: "فشل إنشاء الصفحة",
     failedCreatePageDraftDescription:
       "تم حفظ مسودتك في هذا المتصفح. يمكنك إعادة محاولة إنشاء الصفحة أو حذف المسودة.",
-    discardFailedCreatePageQuestion: "هل تريد حذف هذه الصفحة؟",
+    discardFailedCreatePageQuestion: "هل تريد إلغاء الإنشاء المعلّق؟",
     discardFailedCreatePageDescription:
-      "سيؤدي ذلك إلى إزالة الصفحة ومسودتها غير المحفوظة من هذا المتصفح. لا يمكن التراجع عن هذا الإجراء.",
+      "سيؤدي ذلك إلى مسح الإنشاء المعلّق وأي مسودة غير محفوظة. إذا كانت الصفحة محفوظة بالفعل، فستبقى في مساحة عملك.",
     failedDeletePage: "فشل حذف الصفحة",
     failedPermanentDeletePage: "فشل حذف الصفحة نهائيًا",
     failedRestorePage: "فشل استعادة الصفحة",

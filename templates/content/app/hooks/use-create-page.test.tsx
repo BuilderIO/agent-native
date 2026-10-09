@@ -161,6 +161,11 @@ describe("useCreatePage", () => {
     );
     const optimisticDocument = optimisticCacheWrite?.[1] as Document;
 
+    expect(optimisticDocument).toMatchObject({
+      accessRole: "owner",
+      canEdit: true,
+      canManage: true,
+    });
     expect(mocks.navigate).toHaveBeenCalledWith(`/page/${documentId}`, {
       flushSync: true,
     });

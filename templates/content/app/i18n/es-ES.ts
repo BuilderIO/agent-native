@@ -1773,9 +1773,9 @@ const overrides = {
     failedCreatePage: "No se pudo crear la página",
     failedCreatePageDraftDescription:
       "Tu borrador está guardado en este navegador. Puedes volver a intentar crear la página o descartar el borrador.",
-    discardFailedCreatePageQuestion: "¿Descartar esta página?",
+    discardFailedCreatePageQuestion: "¿Descartar la creación pendiente?",
     discardFailedCreatePageDescription:
-      "Esto quitará la página y su borrador sin guardar de este navegador. Esta acción no se puede deshacer.",
+      "Esto borra la creación pendiente y cualquier borrador sin guardar. Si la página ya se había guardado, seguirá en tu espacio de trabajo.",
     failedDeletePage: "No se pudo eliminar la página",
     failedPermanentDeletePage: "No se pudo eliminar la página permanentemente",
     failedRestorePage: "No se pudo restaurar la página",

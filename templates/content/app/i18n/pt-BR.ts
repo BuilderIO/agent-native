@@ -1520,9 +1520,9 @@ const overrides = {
     failedCreatePage: "Falha ao criar página",
     failedCreatePageDraftDescription:
       "Seu rascunho está salvo neste navegador. Você pode tentar criar a página novamente ou descartar o rascunho.",
-    discardFailedCreatePageQuestion: "Descartar esta página?",
+    discardFailedCreatePageQuestion: "Descartar a criação pendente?",
     discardFailedCreatePageDescription:
-      "Isso remove a página e o rascunho não salvo deste navegador. Esta ação não pode ser desfeita.",
+      "Isso limpa a criação pendente e qualquer rascunho não salvo. Se a página já tiver sido salva, ela permanecerá no seu espaço de trabalho.",
     failedDeletePage: "Falha ao excluir página",
     failedPermanentDeletePage: "Falha ao excluir a página permanentemente",
     failedRestorePage: "Falha ao restaurar a página",
