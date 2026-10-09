@@ -2284,22 +2284,27 @@ const FEEDBACK_REPLY_CONTEXT =
   /(?:reply|repl(?:y|ies)|responses?|status\s+updates?|feedback\s+updates?)/i
     .source;
 const FEEDBACK_REPLY_DETAIL_ISSUE =
-  /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|less\s+technical|less\s+detail|(?:should\s+not|shouldn't)\s+(?:(?:include|contain|have)\s+)?(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|should\s+(?:include|contain|have)\s+no\s+(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|(?:without|free\s+of)\s+(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information))/i
+  /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|high[- ]level|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|less\s+technical|less\s+detail|(?:should\s+not|shouldn't)\s+(?:(?:include|contain|have)\s+)?(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|should\s+(?:include|contain|have)\s+no\s+(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|(?:without|free\s+of)\s+(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information))/i
     .source;
 const FEEDBACK_REPLY_DETAIL_TARGET =
   /(?:(?:technical|implementation|internal|deployment)\s+(?:details?|information)|(?:commit|branch|ci|publisher|deployment|run|workflow)(?:\s+(?:details?|hash(?:es)?|results?|mentions?|status|ids?|names?))?|hash(?:es)?|results?)/i
     .source;
 const FEEDBACK_REPLY_DETAIL_OMISSION =
-  /(?:(?:don't|do not|shouldn't|should not)\s+(?:include|mention|say|write|share|post|list|describe|cover|discuss|add|use|quote)|(?:avoid|skip|omit|remove)(?:\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using))?|leave out|stop\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using))/i
+  /(?:(?:don['’]t|do not|shouldn['’]t|should not)\s+(?:include|mention|say|write|share|post|list|describe|cover|discuss|add|use|quote)|(?:avoid|skip|omit|remove)(?:\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using))?|leave out|stop\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using))/i
     .source;
 // A request to preserve detail is not a correction about excessive detail.
 const FEEDBACK_REPLY_DETAIL_NEGATION = [
   "\\b" +
     FEEDBACK_REPLY_CONTEXT +
     "\\b[^.!?;]{0,100}\\b(?:(?:is|are|seem|seems|look|looks|sound|sounds)\\s+)?(?:not|isn't|aren't|wasn't|weren't)\\s+(?:too\\s+)?(?:technical|detailed?|too\\s+much\\s+(?:(?:technical|implementation|internal|deployment)\\s+)?detail)\\b",
-  "\\b(?:don't|do not|shouldn't|should not)\\b[^.!?;]{0,100}\\b(?:make|keep|write|use)\\b[^.!?;]{0,100}\\b" +
+  "\\b(?:don['’]t|do not|shouldn['’]t|should not)\\b[^.!?;]{0,100}\\b(?:make|keep|write|use)\\b[^.!?;]{0,100}\\b" +
     FEEDBACK_REPLY_CONTEXT +
     "\\b[^.!?;]{0,100}\\bless\\s+(?:technical|detail)\\b",
+  "\\b(?:don['’]t|do not|shouldn['’]t|should not)\\s+(?:skip|omit|avoid|remove|leave\\s+out)\\b[^.!?;]{0,100}\\b" +
+    FEEDBACK_REPLY_DETAIL_TARGET +
+    "\\b[^.!?;]{0,100}\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b",
 ].join("|");
 const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
   "(?:^|[.!?;])\\s*(?![^.!?;]*(?:" +
@@ -2366,6 +2371,7 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [false, "Please reply with technical details."],
   [false, "Please reply with very technical details."],
   [false, "Don't make replies less technical."],
+  [false, "Don’t skip technical details in your reply."],
   [false, "Replies are not too technical."],
   [false, "Replies aren't too technical."],
   [
@@ -2379,6 +2385,7 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [false, "Reply once there are no CI results yet."],
   [false, "Reply once there are\nno CI results yet."],
   [false, "Reply after CI is green; don't post until deployment is done."],
+  [true, "Keep replies high level; do not mention commit hashes."],
   [false, "CI results and branch details are useful."],
 ];
 
