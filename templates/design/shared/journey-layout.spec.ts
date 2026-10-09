@@ -308,13 +308,23 @@ describe("layoutJourneyAppBands", () => {
               kind: "card",
             },
             {
-              key: "clips::custom-2",
+              key: "clips::custom-left",
               parentKey: "clips::custom-1",
               kind: "card",
             },
             {
-              key: "clips::custom-3",
-              parentKey: "clips::custom-2",
+              key: "clips::custom-left-1",
+              parentKey: "clips::custom-left",
+              kind: "card",
+            },
+            {
+              key: "clips::custom-left-2",
+              parentKey: "clips::custom-left-1",
+              kind: "card",
+            },
+            {
+              key: "clips::custom-right",
+              parentKey: "clips::custom-1",
               kind: "card",
             },
             {
