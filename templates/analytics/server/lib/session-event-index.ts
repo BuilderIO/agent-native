@@ -515,32 +515,37 @@ export async function sessionEventFilterConditions(
     // One analytics session can span tabs, each with its own recording. A
     // session that had a recording before coverage began may have events the
     // index never saw.
-    associationsReady
-      ? sql`not exists (
-          select 1 from ${r} as ${sibling}
-          where ${recordingTenantSql(sibling)} = ${recordingTenant}
-            and ${sibling.startedAt} < ${coverageStart}
-            and (
-              exists (
+    ...(associationsReady
+      ? [
+          sql`not exists (
+            select 1 from ${r} as ${sibling}
+            where ${recordingTenantSql(sibling)} = ${recordingTenant}
+              and ${sibling.startedAt} < ${coverageStart}
+              and exists (
                 select 1 from ${schema.sessionRecordingSessionAssociations} as ${siblingAssociation}
                 where ${siblingAssociation.recordingId} = ${sibling.id}
                   and ${siblingAssociation.sessionId} = ${sessionId}
               )
-              or (
-                not exists (
-                  select 1 from ${schema.sessionRecordingSessionAssociations} as ${siblingAssociationPresence}
-                  where ${siblingAssociationPresence.recordingId} = ${sibling.id}
-                )
-                and ${sibling.sessionId} = ${sessionId}
+          )`,
+          sql`not exists (
+            select 1 from ${r} as ${sibling}
+            where ${sibling.sessionId} = ${sessionId}
+              and ${recordingTenantSql(sibling)} = ${recordingTenant}
+              and ${sibling.startedAt} < ${coverageStart}
+              and not exists (
+                select 1 from ${schema.sessionRecordingSessionAssociations} as ${siblingAssociationPresence}
+                where ${siblingAssociationPresence.recordingId} = ${sibling.id}
               )
-            )
-        )`
-      : sql`not exists (
-          select 1 from ${r} as ${sibling}
-          where ${sibling.sessionId} = ${sessionId}
-            and ${recordingTenantSql(sibling)} = ${recordingTenant}
-            and ${sibling.startedAt} < ${coverageStart}
-        )`,
+          )`,
+        ]
+      : [
+          sql`not exists (
+            select 1 from ${r} as ${sibling}
+            where ${sibling.sessionId} = ${sessionId}
+              and ${recordingTenantSql(sibling)} = ${recordingTenant}
+              and ${sibling.startedAt} < ${coverageStart}
+          )`,
+        ]),
     // Every session in a "didn't" filter must have complete index coverage;
     // failed or pruned writes cannot read as the event's absence.
     ...(didNotEvents.length

@@ -1070,22 +1070,23 @@ function eventFrictionCoveredSql(
     sql`${r.startedAt} >= ${coverageStart}
       and not exists (
         select 1 from ${schema.sessionRecordings} as ${sibling}
-        where (
-          exists (
+        where ${recordingTenantSql(sibling)} = ${tenant}
+          and ${sibling.startedAt} < ${coverageStart}
+          and exists (
             select 1 from ${schema.sessionRecordingSessionAssociations} as ${siblingAssociation}
             where ${siblingAssociation.recordingId} = ${sibling.id}
               and ${siblingAssociation.sessionId} = ${candidate.sessionId}
           )
-          or (
-            ${sibling.sessionId} = ${candidate.sessionId}
-            and not exists (
-              select 1 from ${schema.sessionRecordingSessionAssociations} as ${siblingAnyAssociation}
-              where ${siblingAnyAssociation.recordingId} = ${sibling.id}
-            )
-          )
-        )
+      )
+      and not exists (
+        select 1 from ${schema.sessionRecordings} as ${sibling}
+        where ${sibling.sessionId} = ${candidate.sessionId}
           and ${recordingTenantSql(sibling)} = ${tenant}
           and ${sibling.startedAt} < ${coverageStart}
+          and not exists (
+            select 1 from ${schema.sessionRecordingSessionAssociations} as ${siblingAnyAssociation}
+            where ${siblingAnyAssociation.recordingId} = ${sibling.id}
+          )
       )
       and not exists (
         select 1 from ${events}
