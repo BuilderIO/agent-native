@@ -670,6 +670,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     gradientEditTarget,
   } = {},
   onPick,
+  onSelectForGesture,
   onEdit,
   metadataById,
   screenRootComputedStylesById,
@@ -8143,7 +8144,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (e.shiftKey && !wasAlreadySelected) return;
       if (!e.shiftKey) {
         if (activeId !== id) {
-          onPick(id);
+          if (onSelectForGesture) onSelectForGesture(id);
+          else onPick(id);
         }
         if (!currentSelectedIds.includes(id)) {
           updateSelectedIds(() => [id]);
@@ -8416,6 +8418,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       installDragListeners,
       lockedScreenIdSet,
       onPick,
+      onSelectForGesture,
       readOnly,
       resolvePrimitiveScreenId,
       updateFrameGeometry,
@@ -8437,7 +8440,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       suppressNextPick.current = true;
 
       if (activeId !== id) {
-        onPick(id);
+        if (onSelectForGesture) onSelectForGesture(id);
+        else onPick(id);
       }
 
       const currentSelectedIds = selectedIdsRef.current;
@@ -8728,6 +8732,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       installDragListeners,
       lockedScreenIdSet,
       onPick,
+      onSelectForGesture,
       showTransformFeedback,
       updateFrameGeometryPreview,
       updateSelectedIds,
@@ -9048,7 +9053,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       suppressNextPick.current = true;
 
       if (activeId !== id) {
-        onPick(id);
+        if (onSelectForGesture) onSelectForGesture(id);
+        else onPick(id);
       }
 
       const originFrame = getCurrentFrameEntries().find(
@@ -9158,6 +9164,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       installDragListeners,
       lockedScreenIdSet,
       onPick,
+      onSelectForGesture,
       showTransformFeedback,
       updateFrameGeometry,
       updateFrameGeometryRefOnly,

@@ -5,6 +5,7 @@ import {
   createMcpDirectoryWidgetReadCapability,
   createMcpDirectoryWidgetWriteCapability,
   getMcpDirectoryWidgetWriteCapabilityGrant,
+  isExpiredMcpDirectoryWidgetWriteCapability,
   isMcpDirectoryWidgetReadCapabilityScope,
   isMcpDirectoryWidgetWriteCapabilityScope,
   MCP_DIRECTORY_WIDGET_READ_CAPABILITY_PREFIX,
@@ -575,6 +576,30 @@ describe("MCP directory widget write capabilities", () => {
           allowedArgumentNames: ["designId", "operations"],
         }),
       ).toBeUndefined();
+      expect(
+        isExpiredMcpDirectoryWidgetWriteCapability(scope, {
+          appId: "design",
+          resourceUri: "ui://design/shell-v69",
+          userEmail: "reviewer@example.test",
+          orgId: "org-123",
+        }),
+      ).toBe(true);
+      expect(
+        isExpiredMcpDirectoryWidgetWriteCapability(scope, {
+          appId: "slides",
+          resourceUri: "ui://design/shell-v69",
+          userEmail: "reviewer@example.test",
+          orgId: "org-123",
+        }),
+      ).toBe(false);
+      expect(
+        isExpiredMcpDirectoryWidgetWriteCapability(scope, {
+          appId: "design",
+          resourceUri: "ui://design/shell-v69",
+          userEmail: "other@example.test",
+          orgId: "org-123",
+        }),
+      ).toBe(false);
     } finally {
       vi.useRealTimers();
     }

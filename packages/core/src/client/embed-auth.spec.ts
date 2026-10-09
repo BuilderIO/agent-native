@@ -424,6 +424,30 @@ describe("embed auth client", () => {
       expect(originalFetch).toHaveBeenCalledOnce();
     });
 
+    it("asks the widget host to renew an expired write session after a 401", async () => {
+      const writeCapability =
+        "capability:mcp-directory-widget-write:" +
+        encodeURIComponent(JSON.stringify({ version: 1 }));
+      const postMessage = vi
+        .spyOn(window.parent, "postMessage")
+        .mockImplementation(() => {});
+      const { originalFetch } = await interceptedFetch(writeCapability, {
+        upstream: async () => serverRefusal(),
+      });
+
+      const response = await window.fetch(
+        "/_agent-native/actions/update-document",
+        { method: "POST", body: "{}" },
+      );
+
+      expect(response.status).toBe(401);
+      expect(postMessage).toHaveBeenCalledWith(
+        { type: "agentNative.embedSessionExpired" },
+        "*",
+      );
+      expect(originalFetch).toHaveBeenCalledOnce();
+    });
+
     it("hands consumers the same failure the server's 401 produces", async () => {
       const refused = await interceptedFetch(readCapability);
       const { writeClientAppState, readClientAppStateMany } =

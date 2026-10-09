@@ -2309,6 +2309,95 @@ describe("mountActionRoutes", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
+  it("returns 401 only for an expired widget write grant bound to this caller", async () => {
+    const { createMcpDirectoryWidgetWriteCapability } =
+      await import("../shared/embed-auth.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const expiresAtMs = Date.now() + 60_000;
+    const capability = createMcpDirectoryWidgetWriteCapability({
+      appId: "content",
+      resourceUri: "ui://content/shell-v69",
+      resourceIds: { documentId: "doc-1" },
+      userEmail: "ticket-owner@example.com",
+      orgId: "org-1",
+      expiresAtMs,
+      readActionArguments: { "get-document": { id: "doc-1" } },
+      writeActionArguments: {
+        "update-document": {
+          id: "doc-1",
+          content: { type: "actionSchema" },
+        },
+      },
+    })!;
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      orgId: "org-1",
+      token: "signed-directory-capability",
+      targetPath: "/page/doc-1",
+      scope: capability,
+    });
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "update-document": {
+          http: { method: "POST" },
+          readOnly: false,
+          requiresAuth: true,
+          run,
+        } as any,
+      },
+      {
+        appId: "content",
+        mcpDirectoryWidgetAppId: "content",
+        mcpDirectoryWidgetResourceUri: "ui://content/shell-v69",
+        mcpDirectoryWidgetWriteActionArguments: {
+          "update-document": ["id", "content"],
+        },
+      },
+    );
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(expiresAtMs + 1);
+      const request = () => ({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/update-document",
+          json: async () => ({ id: "doc-1", content: "Updated" }),
+        },
+      });
+      const expiredOwnerRequest = request();
+      await expect(mounted[0]!.handler(expiredOwnerRequest)).resolves.toEqual({
+        error: "Unauthorized",
+      });
+      expect(expiredOwnerRequest._status).toBe(401);
+
+      mockResolveEmbedSessionFromRequest.mockResolvedValue({
+        email: "other@example.com",
+        orgId: "org-1",
+        token: "signed-directory-capability",
+        targetPath: "/page/doc-1",
+        scope: capability,
+      });
+      const otherUserRequest = request();
+      await expect(mounted[0]!.handler(otherUserRequest)).resolves.toEqual({
+        error:
+          "This widget write capability is scoped to a different user, app resource, or action.",
+      });
+      expect(otherUserRequest._status).toBe(403);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects a capability request for a different design", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

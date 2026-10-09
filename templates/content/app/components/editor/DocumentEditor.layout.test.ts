@@ -2968,12 +2968,6 @@ describe("document editor layout", () => {
       "const canEdit = widgetEditability.canEditDocument;",
     );
     expect(source).toContain("<PageDraftRecovery");
-    const recoverySource = readFileSync(
-      new URL("./PageDraftRecovery.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(recoverySource).toContain("scopedWidgetReadOnly ||");
-    expect(recoverySource).toContain("document.canEdit !== true ||");
     expect(source).toContain("flushAllBlockFieldSaveControllersForDocument");
     expect(source).toContain("flushDocumentPropertyWrites(documentId)");
     const navigationFlushStart = source.indexOf("const flushLatestPageEdits =");

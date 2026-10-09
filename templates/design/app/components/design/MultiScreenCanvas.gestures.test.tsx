@@ -1429,6 +1429,73 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("auto");
   });
 
+  it("keeps inactive-screen drags camera-neutral until a click completes", async () => {
+    const onPick = vi.fn();
+    const onSelectForGesture = vi.fn();
+    const screenB = {
+      id: "screen-b",
+      filename: "screen-b.html",
+      content: "<!doctype html><html><body></body></html>",
+    };
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+            screenB,
+          ]}
+          zoom={100}
+          activeId="screen-a"
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+              "screen-b": { x: 420, y: 0, width: 320, height: 640 },
+            },
+          }}
+          onPick={onPick}
+          onSelectForGesture={onSelectForGesture}
+        />,
+      );
+    });
+
+    const screenCard = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-b"] [data-screen-card]',
+    );
+    const frame = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-b"]',
+    );
+    expect(screenCard).not.toBeNull();
+    expect(frame).not.toBeNull();
+    const leftBefore = Number.parseFloat(frame!.style.left);
+
+    await act(async () => {
+      dispatchMouse(screenCard!, "mousedown", 500, 400);
+      dispatchMouse(window, "mousemove", 540, 400);
+      await nextAnimationFrame();
+      dispatchMouse(window, "mouseup", 540, 400);
+      dispatchMouse(screenCard!, "click", 540, 400);
+    });
+
+    expect(onSelectForGesture).toHaveBeenCalledOnce();
+    expect(onSelectForGesture).toHaveBeenCalledWith("screen-b");
+    expect(onPick).not.toHaveBeenCalled();
+    expect(Number.parseFloat(frame!.style.left)).toBeGreaterThan(leftBefore);
+
+    onSelectForGesture.mockClear();
+    await act(async () => {
+      dispatchMouse(screenCard!, "mousedown", 600, 400);
+      dispatchMouse(window, "mouseup", 600, 400);
+      dispatchMouse(screenCard!, "click", 600, 400);
+    });
+    expect(onSelectForGesture).toHaveBeenCalledWith("screen-b");
+    expect(onPick).toHaveBeenCalledWith("screen-b");
+  });
+
   it("keeps screen content with child layers interactive before frame selection", async () => {
     await act(async () => {
       root.render(

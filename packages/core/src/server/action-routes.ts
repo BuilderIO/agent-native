@@ -52,6 +52,7 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
   allowsMcpDirectoryWidgetReadAction,
   getMcpDirectoryWidgetWriteCapabilityGrant,
+  isExpiredMcpDirectoryWidgetWriteCapability,
   isMcpDirectoryWidgetCapabilityScope,
   isMcpDirectoryWidgetReadCapabilityScope,
   isMcpDirectoryWidgetWriteCapabilityScope,
@@ -1164,10 +1165,21 @@ function mountActionRoutesInternal(
                     orgId: embedSession?.orgId,
                   })?.resourceIds;
                 if (!normalizedArgs || !directoryWidgetWriteResourceIds) {
+                  const expired = isExpiredMcpDirectoryWidgetWriteCapability(
+                    authCapability,
+                    {
+                      appId:
+                        options.mcpDirectoryWidgetAppId ?? options.appId ?? "",
+                      resourceUri: options.mcpDirectoryWidgetResourceUri ?? "",
+                      userEmail: embedSession?.email ?? "",
+                      orgId: embedSession?.orgId,
+                    },
+                  );
                   throw createError({
-                    statusCode: 403,
-                    statusMessage:
-                      "This widget write capability is scoped to a different user, app resource, or action.",
+                    statusCode: expired ? 401 : 403,
+                    statusMessage: expired
+                      ? "Unauthorized"
+                      : "This widget write capability is scoped to a different user, app resource, or action.",
                   });
                 }
                 params = normalizedArgs;

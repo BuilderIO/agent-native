@@ -183,6 +183,7 @@ export function renderOverviewCanvas({
     handleUpdatePenPath,
     handleBoardDrawPrimitive,
     handleOverviewScreenPick,
+    handleOverviewScreenGestureSelect,
   } = editorToolsAndVectors;
   const { handleIframeContextMenu } = editorSelectionAndStyles;
   const {
@@ -480,6 +481,7 @@ export function renderOverviewCanvas({
         onDeleteSelection={handleDeleteOverviewSelection}
         screenRootComputedStylesById={screenRootComputedStylesById}
         onPick={handleOverviewScreenPick}
+        onSelectForGesture={handleOverviewScreenGestureSelect}
         onEdit={handleOverviewFrameAction}
         onDuplicate={handleDuplicateScreen}
         renderScreenContent={renderScreenContent}

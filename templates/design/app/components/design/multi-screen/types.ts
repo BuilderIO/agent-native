@@ -220,6 +220,7 @@ export interface MultiScreenCanvasProps {
     id: string,
     selectionToggle?: { screenId: string; selected: boolean },
   ) => void;
+  onSelectForGesture?: (id: string) => void;
   onEdit?: (id: string) => void;
   metadataById?: Record<string, ScreenMetadata | undefined>;
   screenRootComputedStylesById?: Record<string, Record<string, string>>;

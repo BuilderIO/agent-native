@@ -580,6 +580,29 @@ export function matchesMcpDirectoryWidgetWriteCapability(
   );
 }
 
+export function isExpiredMcpDirectoryWidgetWriteCapability(
+  scope: string | undefined,
+  input: {
+    appId: string;
+    resourceUri: string;
+    userEmail: string;
+    orgId?: string | null;
+  },
+): boolean {
+  if (!scope || !isMcpDirectoryWidgetWriteCapabilityScope(scope)) {
+    return false;
+  }
+  const capability = decodeMcpDirectoryWidgetWriteCapability(scope);
+  return (
+    capability !== undefined &&
+    capability.expiresAtMs <= Date.now() &&
+    capability.appId === input.appId &&
+    capability.resourceUri === input.resourceUri &&
+    capability.userEmail === input.userEmail.trim().toLowerCase() &&
+    capability.orgId === (input.orgId ?? undefined)
+  );
+}
+
 export function getMcpDirectoryWidgetWriteCapabilityGrant(
   scope: string | undefined,
   input: {
