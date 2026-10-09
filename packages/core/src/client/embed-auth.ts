@@ -205,7 +205,7 @@ export function getEmbedAuthToken(): string | null {
       try {
         win.sessionStorage?.removeItem(EMBED_TOKEN_RENEWED_FROM_STORAGE_KEY);
       } catch {
-        // ignore unavailable session storage
+        // coercion-ok: cleanup is best-effort; the refreshed URL token still supersedes this marker.
       }
     }
     storeToken(fromUrl, win);
@@ -226,7 +226,7 @@ function storeRenewedEmbedAuthToken(token: string, win: Window): void {
       );
     }
   } catch {
-    // Keep the fresh token in memory when opaque host storage is unavailable.
+    // coercion-ok: the fresh token is already active in memory when opaque host storage is unavailable.
   }
 }
 
@@ -796,8 +796,11 @@ function requestWidgetSessionRenewal(
               { type: "agentNative.embedSessionRenewalApplied", requestId },
               "*",
             );
-          } catch {
-            // The fresh token is already active for this page.
+          } catch (error) {
+            console.warn(
+              "[agent-native] could not acknowledge embedded session renewal",
+              error,
+            );
           }
           finish(true);
         } catch {
@@ -878,8 +881,7 @@ export function ensureEmbedAuthFetchInterceptor(): void {
         firstRequest = new Request(fetchInput as RequestInfo, fetchInit);
         replayRequest = firstRequest.clone();
       } catch {
-        // Some streamed request bodies cannot be cloned. Renewal still updates
-        // the session, while the original response remains visible to the caller.
+        // coercion-ok: non-cloneable streamed writes retain their original response and are not replayed.
       }
     }
 

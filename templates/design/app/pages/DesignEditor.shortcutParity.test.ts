@@ -91,6 +91,7 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
     );
   });
 
+  // oracle: none — this checks editor handler wiring, not measured Figma behavior.
   it("selects an overview frame before allowing its embedded layers to receive clicks", () => {
     const selectionHandler = editorSource.slice(
       editorSource.indexOf("const selectOverviewScreen = useCallback"),
