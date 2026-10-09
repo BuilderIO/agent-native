@@ -2289,7 +2289,7 @@ function buildCss(
       node,
       ctx,
       node.type === "BOOLEAN_OPERATION"
-        ? "BOOLEAN_OPERATION has no decodable geometry; omitted rather than painted as its bounding box. the input contains only the boolean operands; without a resolved outline, the combined shape cannot be rendered."
+        ? "BOOLEAN_OPERATION has no decodable geometry; omitted rather than painted as its bounding box. The input contains only boolean operands; retry REST import with a Figma token or upload the .fig source file to recover the combined shape."
         : `${node.type} has no decodable geometry; omitted rather than painted as its bounding box`,
     );
   }

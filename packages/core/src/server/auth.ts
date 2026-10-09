@@ -2241,14 +2241,6 @@ const AUTH_PUBLIC_PATHS_REGISTRY_KEY = Symbol.for(
 );
 const SESSION_RESOLUTION_ERROR_CONTEXT_KEY = "__anSessionResolutionError";
 
-export function isSessionResolutionUnavailable(event: H3Event): boolean {
-  return (
-    (event.context as Record<string, unknown>)[
-      SESSION_RESOLUTION_ERROR_CONTEXT_KEY
-    ] === true
-  );
-}
-
 async function getLegacyCookieSessionSafely(
   event: H3Event,
 ): Promise<AuthSession | null> {
@@ -4870,7 +4862,12 @@ export const authSessionHandler = defineEventHandler(async (event: H3Event) => {
     return { error: "Method not allowed" };
   }
   const session = await getSession(event);
-  if (!session && isSessionResolutionUnavailable(event)) {
+  if (
+    !session &&
+    (event.context as Record<string, unknown>)[
+      SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+    ] === true
+  ) {
     setResponseStatus(event, 503);
     return { error: "Session unavailable" };
   }
