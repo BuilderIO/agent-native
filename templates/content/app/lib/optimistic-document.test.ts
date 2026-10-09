@@ -10,11 +10,13 @@ import {
   getDocumentCreationBaseline,
   isDocumentCreationConfirmed,
   isDocumentCreationPending,
+  isDocumentCreateInFlight,
   markDocumentCreationConfirmed,
   markDocumentCreationPending,
   readDocumentCreateIntents,
   shouldCreateDocumentOptimistically,
   writeDocumentCreateIntent,
+  withDocumentCreateInFlight,
 } from "./optimistic-document";
 
 function document(): Document {
@@ -46,6 +48,18 @@ function memoryStorage(): Storage {
   };
 }
 
+function quarantinedIntentValues(storage: Storage, key: string): string[] {
+  const prefix = `${key}:quarantine:`;
+  const values: string[] = [];
+  for (let index = 0; index < storage.length; index += 1) {
+    const candidate = storage.key(index);
+    if (!candidate?.startsWith(prefix)) continue;
+    const value = storage.getItem(candidate);
+    if (value !== null) values.push(value);
+  }
+  return values;
+}
+
 describe("optimistic document creation", () => {
   beforeEach(() => {
     vi.stubGlobal("window", { localStorage: memoryStorage() });
@@ -71,6 +85,27 @@ describe("optimistic document creation", () => {
     expect(readDocumentCreateIntents(actor)).toEqual([intent]);
     expect(readDocumentCreateIntents(otherActor)).toEqual([]);
     expect(window.localStorage.length).toBe(1);
+  });
+
+  it("keeps concurrent creates in flight until each request settles", async () => {
+    let finishFirst!: () => void;
+    let finishSecond!: () => void;
+    const first = withDocumentCreateInFlight(
+      "page-in-flight",
+      () => new Promise<void>((resolve) => (finishFirst = resolve)),
+    );
+    const second = withDocumentCreateInFlight(
+      "page-in-flight",
+      () => new Promise<void>((resolve) => (finishSecond = resolve)),
+    );
+
+    expect(isDocumentCreateInFlight("page-in-flight")).toBe(true);
+    finishFirst();
+    await first;
+    expect(isDocumentCreateInFlight("page-in-flight")).toBe(true);
+    finishSecond();
+    await second;
+    expect(isDocumentCreateInFlight("page-in-flight")).toBe(false);
   });
 
   it("replaces an intent by ID and clears it without disturbing other intents", () => {
@@ -104,14 +139,106 @@ describe("optimistic document creation", () => {
     expect(clearDocumentCreateIntent(actor, second.id)).toBe(false);
   });
 
-  it("rejects malformed create intent records instead of treating them as absent", () => {
+  it("quarantines malformed records and preserves valid pending intents", () => {
     const actor = { accountId: "writer@example.com", orgId: null };
     const key = "content-document-create-intent-v1:writer%40example.com:";
-    window.localStorage.setItem(key, JSON.stringify([{ id: "page-1" }]));
+    const validIntent = {
+      id: "recoverable-page",
+      parentId: null,
+      spaceId: null,
+      createdAt: "2026-10-08T12:00:00.000Z",
+    };
+    const raw = JSON.stringify([validIntent, { id: "malformed-page" }]);
+    const storageWarning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+    window.localStorage.setItem(key, raw);
 
-    expect(() => readDocumentCreateIntents(actor)).toThrow(
-      DocumentCreateIntentStorageError,
-    );
+    try {
+      expect(readDocumentCreateIntents(actor)).toEqual([validIntent]);
+      expect(window.localStorage.getItem(key)).toBe(
+        JSON.stringify([validIntent]),
+      );
+      expect(quarantinedIntentValues(window.localStorage, key)).toEqual([raw]);
+
+      const nextIntent = {
+        id: "new-page",
+        parentId: "parent-page",
+        spaceId: null,
+        createdAt: "2026-10-08T12:01:00.000Z",
+      };
+      writeDocumentCreateIntent(actor, nextIntent);
+
+      expect(readDocumentCreateIntents(actor)).toEqual([
+        validIntent,
+        nextIntent,
+      ]);
+      expect(quarantinedIntentValues(window.localStorage, key)).toEqual([raw]);
+      expect(storageWarning).toHaveBeenCalledWith(
+        "Quarantined malformed pending Content page creation data.",
+        expect.any(DocumentCreateIntentStorageError),
+      );
+    } finally {
+      storageWarning.mockRestore();
+    }
+  });
+
+  it("quarantines unparsable raw data and allows later create intent writes", () => {
+    const actor = { accountId: "writer@example.com", orgId: null };
+    const key = "content-document-create-intent-v1:writer%40example.com:";
+    const raw = "{truncated-json";
+    const storageWarning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+    window.localStorage.setItem(key, raw);
+
+    try {
+      expect(readDocumentCreateIntents(actor)).toEqual([]);
+      expect(window.localStorage.getItem(key)).toBe("[]");
+      expect(quarantinedIntentValues(window.localStorage, key)).toEqual([raw]);
+
+      const nextIntent = {
+        id: "new-page",
+        parentId: null,
+        spaceId: null,
+        createdAt: "2026-10-08T12:01:00.000Z",
+      };
+      writeDocumentCreateIntent(actor, nextIntent);
+      expect(readDocumentCreateIntents(actor)).toEqual([nextIntent]);
+      expect(quarantinedIntentValues(window.localStorage, key)).toEqual([raw]);
+    } finally {
+      storageWarning.mockRestore();
+    }
+  });
+
+  it("keeps the malformed active value when it cannot be quarantined", () => {
+    const actor = { accountId: "writer@example.com", orgId: null };
+    const key = "content-document-create-intent-v1:writer%40example.com:";
+    const raw = "{truncated-json";
+    const storage = window.localStorage;
+    const originalSetItem = storage.setItem;
+    storage.setItem = (storageKey, value) => {
+      if (storageKey.startsWith(`${key}:quarantine:`)) {
+        throw new DOMException("Storage is full.", "QuotaExceededError");
+      }
+      originalSetItem.call(storage, storageKey, value);
+    };
+    storage.setItem(key, raw);
+
+    try {
+      let storageError: unknown;
+      try {
+        readDocumentCreateIntents(actor);
+      } catch (error) {
+        storageError = error;
+      }
+      expect(storageError).toBeInstanceOf(DocumentCreateIntentStorageError);
+      expect(storageError).toMatchObject({ code: "write_failed" });
+      expect(storage.getItem(key)).toBe(raw);
+      expect(quarantinedIntentValues(storage, key)).toEqual([]);
+    } finally {
+      storage.setItem = originalSetItem;
+    }
   });
 
   it("marks only the optimistic cache record as pending", () => {

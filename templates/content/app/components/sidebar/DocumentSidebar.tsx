@@ -50,7 +50,14 @@ import {
   contentSidebarOrderedItems,
   type ContentFilesSidebarRenderReorder,
 } from "@/components/editor/database/sidebar";
-import { readPageDraftJournal } from "@/components/editor/page-draft-journal";
+import {
+  clearPageDraftJournal,
+  PageDraftJournalError,
+  readPageDraftJournal,
+  writePageDraftJournal,
+  type PageDraftJournalEntry,
+  type PageDraftJournalSnapshot,
+} from "@/components/editor/page-draft-journal";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   AlertDialog,
@@ -117,6 +124,10 @@ import {
   useTrashedDocuments,
   useMoveDocument,
   useUpdateDocument,
+  isDocumentUpdateConflict,
+  isDocumentUpdatePreservationRequired,
+  isDocumentUpdateSuperseded,
+  type DocumentUpdateRequestWithCas,
   documentQueryFilter,
   removeCreatedDocumentNavigation,
   rollbackOptimisticCreatedDocument,
@@ -153,8 +164,10 @@ import {
   markDocumentCreationConfirmed,
   markDocumentCreationPending,
   readDocumentCreateIntents,
+  isDocumentCreateInFlight,
   shouldCreateDocumentOptimistically,
-  writeDocumentCreateIntent,
+  withDocumentCreateInFlight,
+  writeDocumentCreateIntentBestEffort,
 } from "@/lib/optimistic-document";
 import {
   readSidebarLayoutHint,
@@ -218,6 +231,127 @@ interface DocumentSidebarProps {
   onResize?: (width: number) => void;
   minWidth?: number;
   maxWidth?: number;
+}
+
+export function readCreateRecoveryDraft(
+  read: () => PageDraftJournalEntry | null,
+):
+  | { kind: "readable"; entry: PageDraftJournalEntry | null }
+  | { kind: "unreadable"; error: unknown } {
+  try {
+    return { kind: "readable", entry: read() };
+  } catch (error) {
+    return { kind: "unreadable", error };
+  }
+}
+
+export async function retryCreateAfterDraftRead<T>(
+  read: () => PageDraftJournalEntry | null,
+  create: () => Promise<T>,
+): Promise<{ created: T; draft: PageDraftJournalEntry | null }> {
+  const beforeCreate = readCreateRecoveryDraft(read);
+  if (beforeCreate.kind === "unreadable") throw beforeCreate.error;
+
+  const created = await create();
+  const afterCreate = readCreateRecoveryDraft(read);
+  if (afterCreate.kind === "unreadable") throw afterCreate.error;
+  return { created, draft: afterCreate.entry };
+}
+
+export function mergeCreatedDocumentWithDraft(
+  created: Document,
+  entry: PageDraftJournalEntry | null,
+): Document {
+  return entry
+    ? {
+        ...created,
+        title: entry.snapshot.title,
+        content: entry.snapshot.content,
+      }
+    : created;
+}
+
+export function prepareCreatedDraftReplay(
+  created: Document,
+  entry: PageDraftJournalEntry,
+): {
+  snapshot: PageDraftJournalSnapshot;
+  request: DocumentUpdateRequestWithCas;
+} | null {
+  const snapshot = entry.snapshot;
+  if (snapshot.title === created.title && snapshot.content === created.content)
+    return null;
+
+  const baseMatchesCreated =
+    snapshot.baseTitle === created.title &&
+    snapshot.baseContent === created.content;
+  const baseUpdatedAt = baseMatchesCreated
+    ? (created.updatedAt ?? null)
+    : snapshot.baseUpdatedAt;
+  const baseRevision = baseMatchesCreated
+    ? created.revision
+    : snapshot.baseRevision;
+  if (!baseUpdatedAt && !baseRevision) throw new Error();
+
+  const saveAttemptId = snapshot.saveAttemptId ?? crypto.randomUUID();
+  const replaySnapshot: PageDraftJournalSnapshot = {
+    ...snapshot,
+    ...(baseMatchesCreated
+      ? {
+          baseUpdatedAt,
+          baseRevision,
+          ...(snapshot.authoredBaseRevision &&
+          snapshot.authoredBaseContent !== undefined &&
+          snapshot.authoredCandidateContent === snapshot.content
+            ? {}
+            : baseRevision && snapshot.content !== created.content
+              ? {
+                  authoredBaseRevision: baseRevision,
+                  authoredBaseContent: created.content,
+                  authoredCandidateContent: snapshot.content,
+                }
+              : {}),
+        }
+      : {}),
+    saveAttemptId,
+  };
+  const replayBaseTitle = baseMatchesCreated
+    ? created.title
+    : snapshot.baseTitle;
+  const replayBaseContent = baseMatchesCreated
+    ? created.content
+    : snapshot.baseContent;
+  const hasAuthoredIntent =
+    snapshot.content !== replayBaseContent &&
+    (replaySnapshot.authoredBaseRevision !== undefined ||
+      replaySnapshot.authoredBaseContent !== undefined);
+
+  return {
+    snapshot: replaySnapshot,
+    request: {
+      id: created.id,
+      title: snapshot.title,
+      content: snapshot.content,
+      baseTitle: replayBaseTitle,
+      ...(baseUpdatedAt
+        ? { baseUpdatedAt, loadedUpdatedAt: baseUpdatedAt }
+        : {}),
+      ...(baseRevision ? { baseRevision } : {}),
+      loadedContentWasEmpty: replayBaseContent === "",
+      editorSessionId: entry.scope.writerId,
+      editorEditGeneration: snapshot.editGeneration,
+      browserSaveAttemptId: saveAttemptId,
+      editorSnapshotTitle: snapshot.title,
+      editorSnapshotContent: snapshot.content,
+      ...(hasAuthoredIntent && replaySnapshot.authoredBaseRevision
+        ? {
+            authoredBaseRevision: replaySnapshot.authoredBaseRevision,
+            authoredBaseContent: replaySnapshot.authoredBaseContent,
+            authoredCandidateContent: replaySnapshot.authoredCandidateContent,
+          }
+        : {}),
+    },
+  };
 }
 
 function openCommandMenuFrom(trigger: HTMLButtonElement | null) {
@@ -1699,92 +1833,198 @@ export function DocumentSidebar({
 
     for (const intent of intents) {
       const restoreKey = `${scope.accountId}:${scope.orgId ?? ""}:${intent.id}`;
+      if (isDocumentCreateInFlight(intent.id)) continue;
       if (restoredCreateIntentsRef.current.has(restoreKey)) continue;
       restoredCreateIntentsRef.current.add(restoreKey);
 
-      let journal = null;
-      try {
-        journal = readPageDraftJournal({
-          accountId: scope.accountId,
-          orgId: scope.orgId,
-          documentId: intent.id,
-        });
-      } catch (error) {
+      const draftScope = {
+        accountId: scope.accountId,
+        orgId: scope.orgId,
+        documentId: intent.id,
+      };
+      const journalRead = readCreateRecoveryDraft(() =>
+        readPageDraftJournal(draftScope),
+      );
+      const journal =
+        journalRead.kind === "readable" ? journalRead.entry : null;
+      if (journalRead.kind === "unreadable") {
         console.error(
           "Could not read the draft for a pending Content page.",
-          error,
+          journalRead.error,
         );
-        toast.error(t("editor.pageSaveBeforeNavigationFailed"));
       }
 
       const documentQueryKey = ["action", "get-document", { id: intent.id }];
       const cached = queryClient.getQueryData<Document>(documentQueryKey);
-      const tempDoc = markDocumentCreationPending(queryClient, {
-        ...(cached?.id === intent.id ? cached : {}),
-        id: intent.id,
-        parentId: intent.parentId,
-        title: journal?.snapshot.title ?? cached?.title ?? "",
-        content: journal?.snapshot.content ?? cached?.content ?? "",
-        icon: cached?.icon ?? null,
-        position: cached?.position ?? 9999,
-        isFavorite: cached?.isFavorite ?? false,
-        hideFromSearch: cached?.hideFromSearch ?? false,
-        visibility: cached?.visibility ?? "private",
-        accessRole: cached?.accessRole ?? "owner",
-        canEdit: cached?.canEdit ?? true,
-        canManage: cached?.canManage ?? true,
-        createdAt: intent.createdAt,
-        updatedAt: cached?.updatedAt ?? intent.createdAt,
-      });
-      pendingOptimisticCreationIdsRef.current.add(intent.id);
-      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
-        const docs: Document[] =
-          old?.documents ?? (Array.isArray(old) ? old : []);
-        const documents = docs.some((item) => item.id === tempDoc.id)
-          ? docs.map((item) => (item.id === tempDoc.id ? tempDoc : item))
-          : [...docs, tempDoc];
-        return withDocumentsCacheShape(old, documents);
-      });
-      queryClient.setQueryData(documentQueryKey, tempDoc);
-      seedCreatedDocumentNavigation(
-        queryClient,
-        tempDoc,
-        intent.filesDatabaseId ?? null,
-      );
-      if (intent.filesDatabaseId) {
-        const optimisticItem: ContentDatabaseItem = {
-          id: `optimistic-${intent.id}`,
-          databaseId: intent.filesDatabaseId,
-          document: tempDoc,
-          position: tempDoc.position,
-          properties: [],
-        };
-        queryClient.setQueryData<ContentDatabaseResponse>(
-          contentDatabaseByIdQueryKey(intent.filesDatabaseId),
-          (current) =>
-            applyOptimisticItemToContentDatabase(current, optimisticItem),
+      let pendingDocument: Document | undefined;
+      if (journalRead.kind === "readable") {
+        const tempDoc = markDocumentCreationPending(queryClient, {
+          ...(cached?.id === intent.id ? cached : {}),
+          id: intent.id,
+          parentId: intent.parentId,
+          title: journal?.snapshot.title ?? cached?.title ?? "",
+          content: journal?.snapshot.content ?? cached?.content ?? "",
+          icon: cached?.icon ?? null,
+          position: cached?.position ?? 9999,
+          isFavorite: cached?.isFavorite ?? false,
+          hideFromSearch: cached?.hideFromSearch ?? false,
+          visibility: cached?.visibility ?? "private",
+          accessRole: cached?.accessRole ?? "owner",
+          canEdit: cached?.canEdit ?? true,
+          canManage: cached?.canManage ?? true,
+          createdAt: intent.createdAt,
+          updatedAt: cached?.updatedAt ?? intent.createdAt,
+        });
+        pendingDocument = tempDoc;
+        pendingOptimisticCreationIdsRef.current.add(intent.id);
+        queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
+          const docs: Document[] =
+            old?.documents ?? (Array.isArray(old) ? old : []);
+          const documents = docs.some((item) => item.id === tempDoc.id)
+            ? docs.map((item) => (item.id === tempDoc.id ? tempDoc : item))
+            : [...docs, tempDoc];
+          return withDocumentsCacheShape(old, documents);
+        });
+        queryClient.setQueryData(documentQueryKey, tempDoc);
+        seedCreatedDocumentNavigation(
+          queryClient,
+          tempDoc,
+          intent.filesDatabaseId ?? null,
         );
+        if (intent.filesDatabaseId) {
+          const optimisticItem: ContentDatabaseItem = {
+            id: `optimistic-${intent.id}`,
+            databaseId: intent.filesDatabaseId,
+            document: tempDoc,
+            position: tempDoc.position,
+            properties: [],
+          };
+          queryClient.setQueryData<ContentDatabaseResponse>(
+            contentDatabaseByIdQueryKey(intent.filesDatabaseId),
+            (current) =>
+              applyOptimisticItemToContentDatabase(current, optimisticItem),
+          );
+        }
       }
 
-      const retryToastId = `create-page-retry-${intent.id}`;
+      const retryToastId = "create-page-retry-" + intent.id;
       let retrying = false;
+      const showRetry = (error?: unknown) => {
+        toast.error(t("sidebar.failedCreatePage"), {
+          id: retryToastId,
+          ...(error
+            ? {
+                description:
+                  error instanceof PageDraftJournalError ||
+                  !(error instanceof Error && error.message)
+                    ? t("editor.pageSaveBeforeNavigationFailed")
+                    : error instanceof Error
+                      ? error.message
+                      : t("empty.genericError"),
+              }
+            : {}),
+          duration: Infinity,
+          action: {
+            label: t("root.searchRetry"),
+            onClick: () => void retry(),
+          },
+        });
+      };
       const retry = async () => {
         if (retrying) return;
         retrying = true;
         try {
-          const created = await createDocument.mutateAsync({
-            id: intent.id,
-            title: "",
-            parentId: intent.parentId ?? undefined,
-            spaceId: intent.parentId
-              ? undefined
-              : (intent.spaceId ?? undefined),
-          });
-          const confirmed = markDocumentCreationConfirmed(queryClient, created);
-          queryClient.setQueryData(
-            ["action", "get-document", { id: created.id }],
-            confirmed,
+          const read = () => readPageDraftJournal(draftScope);
+          const { created, draft } = await retryCreateAfterDraftRead(read, () =>
+            withDocumentCreateInFlight(intent.id, () =>
+              createDocument.mutateAsync({
+                id: intent.id,
+                title: "",
+                parentId: intent.parentId ?? undefined,
+                spaceId: intent.parentId
+                  ? undefined
+                  : (intent.spaceId ?? undefined),
+              }),
+            ),
           );
+          let confirmedDocument: Document = created;
+          if (draft) {
+            const replay = prepareCreatedDraftReplay(created, draft);
+            if (replay) {
+              const requeued = writePageDraftJournal({
+                scope: draft.scope,
+                snapshot: replay.snapshot,
+              });
+              const replayWithLatest = prepareCreatedDraftReplay(created, {
+                ...draft,
+                snapshot: requeued.snapshot,
+              });
+              if (replayWithLatest) {
+                const current = writePageDraftJournal({
+                  scope: draft.scope,
+                  snapshot: replayWithLatest.snapshot,
+                });
+                const finalReplay = prepareCreatedDraftReplay(created, {
+                  ...draft,
+                  snapshot: current.snapshot,
+                });
+                if (finalReplay) {
+                  const result = await updateDocument.mutateAsync(
+                    finalReplay.request,
+                  );
+                  if (
+                    isDocumentUpdateConflict(result) ||
+                    isDocumentUpdatePreservationRequired(result) ||
+                    isDocumentUpdateSuperseded(result)
+                  ) {
+                    throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
+                  }
+                  const intentOutcome = (
+                    result as Document & {
+                      bodyIntentOutcome?: {
+                        status: "applied" | "displaced-preserved";
+                      };
+                    }
+                  ).bodyIntentOutcome;
+                  const confirmsBodyIntent =
+                    intentOutcome?.status === "applied" ||
+                    intentOutcome?.status === "displaced-preserved";
+                  if (
+                    result.title !== finalReplay.snapshot.title ||
+                    (result.content !== finalReplay.snapshot.content &&
+                      !confirmsBodyIntent)
+                  ) {
+                    throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
+                  }
+                  confirmedDocument = result;
+                  clearPageDraftJournal(draft.scope, finalReplay.snapshot);
+                }
+              } else {
+                clearPageDraftJournal(draft.scope, requeued.snapshot);
+              }
+            } else {
+              clearPageDraftJournal(draft.scope, draft.snapshot);
+            }
+          }
+          const remainingDraft = read();
+          confirmedDocument = mergeCreatedDocumentWithDraft(
+            confirmedDocument,
+            remainingDraft,
+          );
+          markDocumentCreationConfirmed(queryClient, created);
+          queryClient.setQueryData(documentQueryKey, confirmedDocument);
+          queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
+            const docs: Document[] =
+              old?.documents ?? (Array.isArray(old) ? old : []);
+            const documents = docs.some(
+              (item) => item.id === confirmedDocument.id,
+            )
+              ? docs.map((item) =>
+                  item.id === confirmedDocument.id ? confirmedDocument : item,
+                )
+              : [...docs, confirmedDocument];
+            return withDocumentsCacheShape(old, documents);
+          });
           try {
             clearDocumentCreateIntent(scope, intent.id);
           } catch (error) {
@@ -1808,21 +2048,50 @@ export function DocumentSidebar({
           }
           toast.dismiss(retryToastId);
         } catch (error) {
-          toast.error(t("sidebar.failedCreatePage"), {
-            id: retryToastId,
-            description:
-              error instanceof Error ? error.message : t("empty.genericError"),
-            duration: Infinity,
-            action: {
-              label: t("root.searchRetry"),
-              onClick: () => void retry(),
-            },
-          });
+          const currentDraft = readCreateRecoveryDraft(() =>
+            readPageDraftJournal(draftScope),
+          );
+          const preserved =
+            currentDraft.kind === "readable" && currentDraft.entry
+              ? currentDraft.entry
+              : journal;
+          if (preserved) {
+            const current =
+              queryClient.getQueryData<Document>(documentQueryKey) ??
+              pendingDocument;
+            if (current) {
+              const nextPending = markDocumentCreationPending(queryClient, {
+                ...current,
+                title: preserved.snapshot.title,
+                content: preserved.snapshot.content,
+              });
+              pendingDocument = nextPending;
+              queryClient.setQueryData(documentQueryKey, nextPending);
+              queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
+                const docs: Document[] =
+                  old?.documents ?? (Array.isArray(old) ? old : []);
+                const documents = docs.some(
+                  (item) => item.id === nextPending.id,
+                )
+                  ? docs.map((item) =>
+                      item.id === nextPending.id ? nextPending : item,
+                    )
+                  : [...docs, nextPending];
+                return withDocumentsCacheShape(old, documents);
+              });
+            }
+          } else {
+            if (pendingDocument)
+              queryClient.setQueryData(documentQueryKey, pendingDocument);
+          }
+          showRetry(error);
         } finally {
           retrying = false;
         }
       };
-      void retry();
+      showRetry(
+        journalRead.kind === "unreadable" ? journalRead.error : undefined,
+      );
     }
   }, [
     createDocument,
@@ -1831,6 +2100,7 @@ export function DocumentSidebar({
     session?.orgId,
     settleOptimisticListRefresh,
     t,
+    updateDocument,
   ]);
 
   const handleCreatePage = useCallback(
@@ -1924,7 +2194,7 @@ export function DocumentSidebar({
 
       const persistCreatedPage = async () => {
         if (session?.email) {
-          writeDocumentCreateIntent(
+          writeDocumentCreateIntentBestEffort(
             { accountId: session.email, orgId: session.orgId ?? null },
             {
               id,
@@ -1937,12 +2207,14 @@ export function DocumentSidebar({
             },
           );
         }
-        const created = await createDocument.mutateAsync({
-          id,
-          title: "",
-          parentId: parentId ?? undefined,
-          spaceId: parentId ? undefined : rootSpaceId,
-        });
+        const created = await withDocumentCreateInFlight(id, () =>
+          createDocument.mutateAsync({
+            id,
+            title: "",
+            parentId: parentId ?? undefined,
+            spaceId: parentId ? undefined : rootSpaceId,
+          }),
+        );
         const nextId = created?.id || id;
         const confirmed = markDocumentCreationConfirmed(queryClient, created);
         if (session?.email) {

@@ -24,7 +24,8 @@ import {
   markDocumentCreationConfirmed,
   markDocumentCreationPending,
   clearDocumentCreateIntent,
-  writeDocumentCreateIntent,
+  withDocumentCreateInFlight,
+  writeDocumentCreateIntentBestEffort,
 } from "@/lib/optimistic-document";
 
 const LIST_DOCUMENTS_QUERY_KEY = [
@@ -129,7 +130,7 @@ export function useCreatePage(opts?: {
 
       const persist = async () => {
         if (createIntentScope && shouldNavigate) {
-          writeDocumentCreateIntent(createIntentScope, {
+          writeDocumentCreateIntentBestEffort(createIntentScope, {
             id,
             parentId: parentId ?? null,
             spaceId: spaceId ?? null,
@@ -139,12 +140,14 @@ export function useCreatePage(opts?: {
             createdAt: now,
           });
         }
-        const created = await createDocument.mutateAsync({
-          id,
-          title: "",
-          parentId: parentId ?? undefined,
-          spaceId,
-        });
+        const created = await withDocumentCreateInFlight(id, () =>
+          createDocument.mutateAsync({
+            id,
+            title: "",
+            parentId: parentId ?? undefined,
+            spaceId,
+          }),
+        );
         const confirmed = markDocumentCreationConfirmed(queryClient, created);
         if (createIntentScope && shouldNavigate) {
           try {

@@ -8,7 +8,16 @@ import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const actionEffects = vi.hoisted(() => ({
-  recordGenerationCreativeContext: vi.fn(async () => undefined),
+  generationContexts: new Map<string, Record<string, unknown>>(),
+  getGenerationCreativeContext: vi.fn(
+    async ({ artifactId }: { artifactId: string }) =>
+      actionEffects.generationContexts.get(artifactId) ?? null,
+  ),
+  recordGenerationCreativeContext: vi.fn(
+    async (input: { artifactId: string } & Record<string, unknown>) => {
+      actionEffects.generationContexts.set(input.artifactId, input);
+    },
+  ),
   track: vi.fn(),
   writeAppState: vi.fn(async () => undefined),
 }));
@@ -29,6 +38,7 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/creative-context/server")
   >()),
+  getGenerationCreativeContext: actionEffects.getGenerationCreativeContext,
   recordGenerationCreativeContext:
     actionEffects.recordGenerationCreativeContext,
 }));
@@ -226,11 +236,33 @@ describe("space-aware document writers", () => {
       .set({ title: "Edited title", content: "Typed after create" })
       .where(eq(schema.documents.id, input.id));
 
+    await getDb()
+      .update(schema.documentShares)
+      .set({ role: "viewer" })
+      .where(
+        and(
+          eq(schema.documentShares.resourceId, parent.id),
+          eq(schema.documentShares.principalId, MEMBER),
+        ),
+      );
+    await getDb()
+      .update(schema.documentShares)
+      .set({ role: "viewer" })
+      .where(
+        and(
+          eq(schema.documentShares.resourceId, input.id),
+          eq(schema.documentShares.principalId, MEMBER),
+        ),
+      );
+
     const replayed = await create();
     expect(replayed).toMatchObject({
       id: input.id,
       title: "Edited title",
       content: "Typed after create",
+      accessRole: "viewer",
+      canEdit: false,
+      canManage: false,
     });
     await expect(
       getDb()
@@ -277,6 +309,47 @@ describe("space-aware document writers", () => {
       1,
     );
     expect(actionEffects.track).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries failed creation provenance without duplicating the document event", async () => {
+    const input = {
+      id: "optimistic-create-provenance-retry",
+      title: "Provenance retry",
+      content: "Body",
+      contextModeOverride: "off" as const,
+    };
+    actionEffects.generationContexts.delete(input.id);
+    actionEffects.getGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.track.mockClear();
+    actionEffects.writeAppState.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockRejectedValueOnce(
+      new Error("provenance store unavailable"),
+    );
+
+    const create = () =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        createDocument.run(input),
+      );
+
+    await expect(create()).rejects.toThrow("provenance store unavailable");
+    const retries = await Promise.all([create(), create()]);
+    expect(retries).toHaveLength(2);
+    expect(retries[0]).toMatchObject({ id: input.id, title: input.title });
+    expect(retries[1]).toMatchObject({ id: input.id, title: input.title });
+
+    expect(actionEffects.getGenerationCreativeContext).toHaveBeenCalledTimes(3);
+    expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(actionEffects.generationContexts.has(input.id)).toBe(true);
+    expect(actionEffects.track).toHaveBeenCalledTimes(1);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, input.id)),
+    ).resolves.toHaveLength(1);
   });
 
   it("lets ordinary organization members create root pages and databases while guests remain read-only", async () => {

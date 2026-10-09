@@ -42,6 +42,25 @@ export class DocumentCreateIntentStorageError extends Error {
 }
 
 const DOCUMENT_CREATE_INTENTS_PREFIX = "content-document-create-intent-v1:";
+const documentCreatesInFlight = new Map<string, number>();
+
+export function isDocumentCreateInFlight(id: string): boolean {
+  return (documentCreatesInFlight.get(id) ?? 0) > 0;
+}
+
+export async function withDocumentCreateInFlight<T>(
+  id: string,
+  create: () => Promise<T>,
+): Promise<T> {
+  documentCreatesInFlight.set(id, (documentCreatesInFlight.get(id) ?? 0) + 1);
+  try {
+    return await create();
+  } finally {
+    const active = documentCreatesInFlight.get(id) ?? 1;
+    if (active <= 1) documentCreatesInFlight.delete(id);
+    else documentCreatesInFlight.set(id, active - 1);
+  }
+}
 
 function normalizeDocumentCreateIntentScope(
   scope: DocumentCreateIntentScope,
@@ -114,6 +133,30 @@ function normalizeDocumentCreateIntent(
   };
 }
 
+function quarantineDocumentCreateIntentValue(
+  storage: Storage,
+  key: string,
+  raw: string,
+): void {
+  for (let index = 0; ; index += 1) {
+    const quarantineKey = `${key}:quarantine:${index}`;
+    let quarantined: string | null;
+    try {
+      quarantined = storage.getItem(quarantineKey);
+    } catch (cause) {
+      throw new DocumentCreateIntentStorageError("read_failed", cause);
+    }
+    if (quarantined === raw) return;
+    if (quarantined !== null) continue;
+    try {
+      storage.setItem(quarantineKey, raw);
+      return;
+    } catch (cause) {
+      throw new DocumentCreateIntentStorageError("write_failed", cause);
+    }
+  }
+}
+
 function readStoredDocumentCreateIntents(
   storage: Storage,
   key: string,
@@ -127,15 +170,30 @@ function readStoredDocumentCreateIntents(
   if (raw === null) return [];
 
   let parsed: unknown;
+  let parseError: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (cause) {
-    throw new DocumentCreateIntentStorageError("invalid_entry", cause);
+    parseError = cause;
   }
-  if (!Array.isArray(parsed) || !parsed.every(isDocumentCreateIntent)) {
-    throw new DocumentCreateIntentStorageError("invalid_entry");
+  if (Array.isArray(parsed) && parsed.every(isDocumentCreateIntent)) {
+    return parsed.map(normalizeDocumentCreateIntent);
   }
-  return parsed.map(normalizeDocumentCreateIntent);
+
+  const intents = Array.isArray(parsed)
+    ? parsed.filter(isDocumentCreateIntent).map(normalizeDocumentCreateIntent)
+    : [];
+  quarantineDocumentCreateIntentValue(storage, key, raw);
+  try {
+    storage.setItem(key, JSON.stringify(intents));
+  } catch (cause) {
+    throw new DocumentCreateIntentStorageError("write_failed", cause);
+  }
+  console.warn(
+    "Quarantined malformed pending Content page creation data.",
+    new DocumentCreateIntentStorageError("invalid_entry", parseError),
+  );
+  return intents;
 }
 
 export function writeDocumentCreateIntent(
@@ -152,6 +210,21 @@ export function writeDocumentCreateIntent(
     storage.setItem(key, JSON.stringify([...intents, normalizedIntent]));
   } catch (cause) {
     throw new DocumentCreateIntentStorageError("write_failed", cause);
+  }
+}
+
+export function writeDocumentCreateIntentBestEffort(
+  scope: DocumentCreateIntentScope,
+  intent: DocumentCreateIntent,
+): void {
+  try {
+    writeDocumentCreateIntent(scope, intent);
+  } catch (error) {
+    if (!(error instanceof DocumentCreateIntentStorageError)) throw error;
+    console.error(
+      "Could not store a pending Content page creation; attempting server creation anyway.",
+      error,
+    );
   }
 }
 

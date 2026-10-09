@@ -16,13 +16,19 @@ import {
 import {
   assertAccess,
   ForbiddenError,
+  roleSatisfies,
   type ShareRole,
 } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
+  getGenerationCreativeContext,
   recordGenerationCreativeContext,
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
+import type {
+  CreativeContextElementProvenance,
+  CreativeContextReuseLabel,
+} from "@agent-native/creative-context/types";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -109,6 +115,111 @@ function matchesDocumentCreationRequest(
     (!expected.requestDigest ||
       document.creationRequestDigest === expected.requestDigest),
   );
+}
+
+type DocumentAccessRole = "owner" | ShareRole;
+
+function canEditRole(role: DocumentAccessRole): boolean {
+  return role === "owner" || roleSatisfies(role, "editor");
+}
+
+function canManageRole(role: DocumentAccessRole): boolean {
+  return role === "owner" || role === "admin";
+}
+
+function canCommentRole(role: DocumentAccessRole): boolean {
+  return role === "owner" || roleSatisfies(role, "commenter");
+}
+
+const generationRecordLocks = new Map<string, Promise<unknown>>();
+
+function withGenerationRecordLock<T>(
+  artifactId: string,
+  record: () => Promise<T>,
+): Promise<T> {
+  const previous = generationRecordLocks.get(artifactId) ?? Promise.resolve();
+  const next = previous.then(record, record);
+  generationRecordLocks.set(artifactId, next);
+  next
+    .finally(() => {
+      if (generationRecordLocks.get(artifactId) === next) {
+        generationRecordLocks.delete(artifactId);
+      }
+    })
+    .catch(() => {});
+  return next;
+}
+
+type DocumentCreationProvenance = {
+  contextMode: "off" | "auto" | "pinned";
+  contextPackId: string | null;
+  reuseLabels: CreativeContextReuseLabel[];
+};
+
+async function recordDocumentCreationContextIfMissing(input: {
+  artifactId: string;
+  contextMode: DocumentCreationProvenance["contextMode"];
+  contextPackId: DocumentCreationProvenance["contextPackId"];
+  reuseLabels: DocumentCreationProvenance["reuseLabels"];
+  elementProvenance: CreativeContextElementProvenance[];
+}): Promise<void> {
+  await withGenerationRecordLock(input.artifactId, async () => {
+    const existing = await getGenerationCreativeContext({
+      appId: "content",
+      artifactType: "document",
+      artifactId: input.artifactId,
+    });
+    if (existing) return;
+
+    await recordGenerationCreativeContext({
+      appId: "content",
+      artifactType: "document",
+      artifactId: input.artifactId,
+      contextMode: input.contextMode,
+      contextPackId: input.contextPackId,
+      reuseLabels: input.reuseLabels,
+      elementProvenance: input.elementProvenance,
+    });
+  });
+}
+
+function documentCreationResult(
+  doc: typeof schema.documents.$inferSelect,
+  accessRole: DocumentAccessRole,
+  creativeContextProvenance: DocumentCreationProvenance | null,
+) {
+  const revision = documentRevisionToken(doc.bodyRevision, doc.content ?? "");
+  return {
+    id: doc.id,
+    spaceId: doc.spaceId,
+    urlPath: `/page/${doc.id}`,
+    deepLink: buildDeepLink({
+      app: "content",
+      view: "editor",
+      params: { documentId: doc.id },
+    }),
+    parentId: doc.parentId,
+    title: doc.title,
+    content: doc.content,
+    revision,
+    bodyRevision: doc.bodyRevision,
+    collabContentRevision:
+      doc.collabBodyRevision === doc.bodyRevision ? revision : null,
+    contentHash: documentContentHash(doc.content ?? ""),
+    description: doc.description,
+    icon: doc.icon,
+    position: doc.position,
+    isFavorite: parseDocumentFavorite(doc.isFavorite),
+    hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
+    visibility: doc.visibility,
+    accessRole,
+    canComment: canCommentRole(accessRole),
+    canEdit: canEditRole(accessRole),
+    canManage: canManageRole(accessRole),
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+    ...(creativeContextProvenance ?? {}),
+  };
 }
 
 const reuseLabelSchema = z
@@ -271,11 +382,13 @@ export default defineAction({
       : null;
     const db = getDb();
 
+    let existingAccess: Awaited<ReturnType<typeof assertAccess>> | undefined;
     if (hasCallerSuppliedId) {
       const [existing] = await db
         .select({
           createdBy: schema.documents.createdBy,
           creationRequestDigest: schema.documents.creationRequestDigest,
+          trashedAt: schema.documents.trashedAt,
         })
         .from(schema.documents)
         .where(eq(schema.documents.id, id))
@@ -283,9 +396,13 @@ export default defineAction({
       if (
         existing &&
         (existing.createdBy !== actor ||
-          existing.creationRequestDigest !== requestDigest)
+          existing.creationRequestDigest !== requestDigest ||
+          existing.trashedAt)
       ) {
         documentIdConflict();
+      }
+      if (existing) {
+        existingAccess = await assertAccess("document", id, "viewer");
       }
     }
 
@@ -326,12 +443,28 @@ export default defineAction({
               label: "Net-new document",
             },
           ];
+
+    if (existingAccess) {
+      if (creativeContextProvenance) {
+        await recordDocumentCreationContextIfMissing({
+          artifactId: id,
+          ...creativeContextProvenance,
+          elementProvenance: elementProvenanceFor(id),
+        });
+      }
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return documentCreationResult(
+        existingAccess.resource as typeof schema.documents.$inferSelect,
+        existingAccess.role,
+        creativeContextProvenance,
+      );
+    }
+
     let ownerEmail = currentUserEmail;
     let orgId = getRequestOrgId() ?? null;
     let visibility: "private" | "org" | "public" = "private";
     let hideFromSearch = 0;
     let rootSpaceId: string | null = null;
-    let inheritedRole: "owner" | ShareRole = "owner";
     let inheritedShares: Array<{
       principalType: "user" | "group" | "org";
       principalId: string;
@@ -398,7 +531,6 @@ export default defineAction({
       orgId = (parent.orgId as string | null) ?? null;
       visibility = parent.visibility ?? "private";
       hideFromSearch = parent.hideFromSearch ?? 0;
-      inheritedRole = parentAccess.role;
       inheritedShares = await db
         .select({
           principalType: schema.documentShares.principalType,
@@ -577,16 +709,6 @@ export default defineAction({
     }
 
     if (created) {
-      if (creativeContextProvenance) {
-        await recordGenerationCreativeContext({
-          appId: "content",
-          artifactType: "document",
-          artifactId: doc.id,
-          ...creativeContextProvenance,
-          elementProvenance: elementProvenanceFor(doc.id),
-        });
-      }
-
       track(
         "document_created",
         {
@@ -600,41 +722,22 @@ export default defineAction({
       );
     }
 
+    if (creativeContextProvenance) {
+      await recordDocumentCreationContextIfMissing({
+        artifactId: doc.id,
+        ...creativeContextProvenance,
+        elementProvenance: elementProvenanceFor(doc.id),
+      });
+    }
+
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    const revision = documentRevisionToken(doc.bodyRevision, doc.content ?? "");
-
-    return {
-      id: doc.id,
-      spaceId,
-      urlPath: `/page/${doc.id}`,
-      deepLink: buildDeepLink({
-        app: "content",
-        view: "editor",
-        params: { documentId: doc.id },
-      }),
-      parentId: doc.parentId,
-      title: doc.title,
-      content: doc.content,
-      revision,
-      bodyRevision: doc.bodyRevision,
-      collabContentRevision:
-        doc.collabBodyRevision === doc.bodyRevision ? revision : null,
-      contentHash: documentContentHash(doc.content ?? ""),
-      description: doc.description,
-      icon: doc.icon,
-      position: doc.position,
-      isFavorite: parseDocumentFavorite(doc.isFavorite),
-      hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
-      visibility: doc.visibility,
-      accessRole: inheritedRole,
-      canComment: true,
-      canEdit: true,
-      canManage: inheritedRole === "owner" || inheritedRole === "admin",
-      createdAt: doc.createdAt,
-      updatedAt: doc.updatedAt,
-      ...(creativeContextProvenance ?? {}),
-    };
+    const access = await assertAccess("document", doc.id, "viewer");
+    return documentCreationResult(
+      access.resource as typeof schema.documents.$inferSelect,
+      access.role,
+      creativeContextProvenance,
+    );
   },
   link: ({ result }) => {
     const id = (result as { id?: string } | null)?.id;

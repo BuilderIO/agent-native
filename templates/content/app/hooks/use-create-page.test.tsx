@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DocumentCreateIntentStorageError,
   isDocumentCreationConfirmed,
   isDocumentCreationPending,
   readDocumentCreateIntents,
@@ -216,6 +217,240 @@ describe("useCreatePage", () => {
       queryKey: ["action", "get-document"],
       predicate: expect.any(Function),
     });
+  });
+
+  it.each(["unavailable", "full", "corrupt"] as const)(
+    "attempts server creation when create-intent storage is %s",
+    async (storageFailure) => {
+      const id = `storage-${storageFailure}-page`;
+      const persistedDocument: Document = {
+        id,
+        parentId: null,
+        title: "",
+        content: "",
+        icon: null,
+        position: 9999,
+        isFavorite: false,
+        hideFromSearch: false,
+        visibility: "private",
+        createdAt: "2026-07-23T18:00:00.000Z",
+        updatedAt: "2026-07-23T18:00:01.000Z",
+      };
+      mocks.createDocument.mockResolvedValue(persistedDocument);
+
+      const actorStorageKey =
+        "content-document-create-intent-v1:writer%40example.test:org";
+      let restoreStorage: (() => void) | undefined;
+      if (storageFailure === "unavailable") {
+        const localStorageDescriptor = Object.getOwnPropertyDescriptor(
+          window,
+          "localStorage",
+        );
+        Object.defineProperty(window, "localStorage", {
+          configurable: true,
+          get() {
+            throw new DOMException("Storage is blocked.", "SecurityError");
+          },
+        });
+        restoreStorage = () => {
+          if (localStorageDescriptor) {
+            Object.defineProperty(
+              window,
+              "localStorage",
+              localStorageDescriptor,
+            );
+          } else {
+            Reflect.deleteProperty(window, "localStorage");
+          }
+        };
+      } else if (storageFailure === "full") {
+        const storage = window.localStorage;
+        const localStorageDescriptor = Object.getOwnPropertyDescriptor(
+          window,
+          "localStorage",
+        );
+        const failingStorage = new Proxy(storage, {
+          get(target, property) {
+            if (property === "setItem") {
+              return () => {
+                throw new DOMException(
+                  "Storage is full.",
+                  "QuotaExceededError",
+                );
+              };
+            }
+            const value = Reflect.get(target, property, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+        Object.defineProperty(window, "localStorage", {
+          configurable: true,
+          get: () => failingStorage,
+        });
+        restoreStorage = () => {
+          if (localStorageDescriptor) {
+            Object.defineProperty(
+              window,
+              "localStorage",
+              localStorageDescriptor,
+            );
+          } else {
+            Reflect.deleteProperty(window, "localStorage");
+          }
+        };
+      } else {
+        window.localStorage.setItem(
+          actorStorageKey,
+          JSON.stringify([{ id: "unreadable-record" }]),
+        );
+      }
+
+      const storageErrorLog = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const storageRepairLog = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => {});
+      mocks.location.pathname = `/page/${id}`;
+      let createPage!: (
+        parentId?: string,
+        requestedId?: string,
+      ) => Promise<string>;
+      function Probe() {
+        createPage = useCreatePage();
+        return null;
+      }
+
+      try {
+        await act(async () => root.render(<Probe />));
+        await act(async () => {
+          await expect(createPage(undefined, id)).resolves.toBe(id);
+        });
+        if (storageFailure === "corrupt") {
+          expect(storageRepairLog).toHaveBeenCalledWith(
+            "Quarantined malformed pending Content page creation data.",
+            expect.any(DocumentCreateIntentStorageError),
+          );
+        } else {
+          expect(storageErrorLog).toHaveBeenCalledWith(
+            expect.stringContaining("attempting server creation anyway"),
+            expect.any(DocumentCreateIntentStorageError),
+          );
+        }
+      } finally {
+        restoreStorage?.();
+        storageErrorLog.mockRestore();
+        storageRepairLog.mockRestore();
+      }
+
+      expect(mocks.createDocument).toHaveBeenCalledExactlyOnceWith({
+        id,
+        title: "",
+        parentId: undefined,
+        spaceId: undefined,
+      });
+      const documentWrites = mocks.setQueryData.mock.calls.filter(
+        ([key]) =>
+          Array.isArray(key) &&
+          key[0] === "action" &&
+          key[1] === "get-document" &&
+          key[2]?.id === id,
+      );
+      const confirmed = documentWrites[documentWrites.length - 1]?.[1] as
+        | Document
+        | undefined;
+      expect(confirmed).toBe(persistedDocument);
+      expect(
+        isDocumentCreationConfirmed(mocks.queryClient as never, confirmed!),
+      ).toBe(true);
+      if (storageFailure === "corrupt") {
+        expect(
+          readDocumentCreateIntents({
+            accountId: "writer@example.test",
+            orgId: "org",
+          }),
+        ).toEqual([]);
+      }
+    },
+  );
+
+  it("keeps server creation failures distinct when intent storage also fails", async () => {
+    const id = "storage-and-server-failure-page";
+    const createError = new Error("server create failed");
+    const storage = window.localStorage;
+    const localStorageDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    const failingStorage = new Proxy(storage, {
+      get(target, property) {
+        if (property === "setItem") {
+          return () => {
+            throw new DOMException("Storage is full.", "QuotaExceededError");
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get: () => failingStorage,
+    });
+    const storageErrorLog = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.location.pathname = `/page/${id}`;
+    mocks.createDocument.mockRejectedValue(createError);
+
+    let createPage!: (
+      parentId?: string,
+      requestedId?: string,
+    ) => Promise<string>;
+    function Probe() {
+      createPage = useCreatePage();
+      return null;
+    }
+
+    try {
+      await act(async () => root.render(<Probe />));
+      await act(async () => {
+        await expect(createPage(undefined, id)).rejects.toBe(createError);
+      });
+      expect(storageErrorLog).toHaveBeenCalledWith(
+        expect.stringContaining("attempting server creation anyway"),
+        expect.any(DocumentCreateIntentStorageError),
+      );
+    } finally {
+      if (localStorageDescriptor) {
+        Object.defineProperty(window, "localStorage", localStorageDescriptor);
+      } else {
+        Reflect.deleteProperty(window, "localStorage");
+      }
+      storageErrorLog.mockRestore();
+    }
+
+    expect(mocks.createDocument).toHaveBeenCalledExactlyOnceWith({
+      id,
+      title: "",
+      parentId: undefined,
+      spaceId: undefined,
+    });
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "sidebar.failedCreatePage",
+      expect.objectContaining({ description: createError.message }),
+    );
+    const optimistic = mocks.setQueryData.mock.calls.find(
+      ([key]) =>
+        Array.isArray(key) &&
+        key[0] === "action" &&
+        key[1] === "get-document" &&
+        key[2]?.id === id,
+    )?.[1] as Document | undefined;
+    expect(optimistic).toBeDefined();
+    expect(
+      isDocumentCreationConfirmed(mocks.queryClient as never, optimistic!),
+    ).toBe(false);
   });
 
   it("keeps a navigated optimistic page reachable and retries creation with the same ID", async () => {
