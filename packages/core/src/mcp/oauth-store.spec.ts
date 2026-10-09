@@ -144,6 +144,7 @@ describe("OAuth issuance executor", () => {
     orgId: "synthetic-org",
     scope: "mcp:read",
     resource: "https://app.example.test/mcp",
+    grantCreatedAtMs: 1_700_000_000_000,
   };
 
   it.each([0, undefined])(
@@ -233,6 +234,7 @@ describe("OAuth issuance executor", () => {
       orgId: "synthetic-org",
       scope: "mcp:read",
       resource: "https://app.example.test/mcp",
+      grantCreatedAtMs: 1_700_000_000_000,
     };
     const statements: string[] = [];
     await pglite.db.transaction(async (transaction) => {
@@ -589,11 +591,13 @@ describe("refresh tokens", () => {
     orgDomain: "example.com",
     scope: "mcp:read",
     resource: "https://mail.example.com",
+    grantCreatedAtMs: 1_700_000_000_000,
   };
 
   it("stores only the HASH of the refresh token, never the raw value", async () => {
     const s = await freshStore();
     const row = await s.createOAuthRefreshToken(refreshParams);
+    expect(row.grantCreatedAtMs).toBe(refreshParams.grantCreatedAtMs);
     expect(row.tokenHash).toBe(s.hashOAuthToken("raw-refresh-token"));
     expect(row.tokenHash).not.toBe("raw-refresh-token");
     const dump = (await pglite
@@ -615,6 +619,7 @@ describe("refresh tokens", () => {
       orgId: "org-1",
       scope: "mcp:read",
       resource: "https://mail.example.com",
+      grantCreatedAtMs: refreshParams.grantCreatedAtMs,
       revokedAt: null,
     });
     expect(await s.getOAuthRefreshToken("wrong-token")).toBeNull();
@@ -922,6 +927,7 @@ describe("refresh tokens", () => {
     });
     expect(rotated?.tokenHash).toBe(s.hashOAuthToken("new-refresh-token"));
     expect(rotated?.id).not.toBe(original.id);
+    expect(rotated?.grantCreatedAtMs).toBe(original.grantCreatedAtMs);
 
     expect(await s.getOAuthRefreshToken("raw-refresh-token")).toBeNull();
     expect(await s.getOAuthRefreshToken("new-refresh-token")).not.toBeNull();

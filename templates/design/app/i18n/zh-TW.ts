@@ -1052,6 +1052,12 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} 個圖片{{plural}}需要 Figma 存取權才能載入。",
       figmaPasteImagesDontShowAgain: "不再顯示",
+      figmaPasteUploadImage: "上傳圖片",
+      figmaPasteUploadImageFor: "上傳「{{name}}」",
+      figmaPasteImageFallbackName: "圖片 {{index}}",
+      figmaPasteUploadImageSuccess: "已填入圖片",
+      figmaPasteUploadImageInvalid: "請選擇圖片檔，例如 SVG、PNG 或 JPG。",
+      figmaPasteUploadImageError: "無法填入這張圖片",
       figmaHydrationDialogTitle: "連結 Figma 以載入圖片",
       figmaHydrationDialogDescription:
         "輸入您的 Figma 存取權杖，以載入已匯入螢幕{{screensPlural}}中 {{count}} 個缺少的圖片{{plural}}。",
@@ -1639,6 +1645,7 @@ export default {
     fork: "分支",
     fullView: "互動",
     preview: "預覽",
+    focusScreen: "聚焦畫面",
     openAndDuplicate: "選取 {{display}}。使用互動模式進行聚焦捲動。",
     openAndPreview: "選取 {{display}}。使用互動模式進行聚焦捲動。",
     doubleClickToEdit: "使用互動模式進行聚焦捲動",

@@ -7,6 +7,7 @@ import {
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+  MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER,
 } from "../shared/embed-auth.js";
 
 const STORAGE_KEY = "agent-native:embed-auth-token";
@@ -359,6 +360,15 @@ describe("embed auth client", () => {
         statusText: "Unauthorized",
         headers: { "Content-Type": "application/json" },
       });
+    const expiredWidgetSessionRefusal = () =>
+      new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        statusText: "Unauthorized",
+        headers: {
+          "Content-Type": "application/json",
+          [MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER]: "1",
+        },
+      });
 
     async function interceptedFetch(
       scope: string | undefined,
@@ -422,6 +432,140 @@ describe("embed auth client", () => {
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual(manifest);
       expect(originalFetch).toHaveBeenCalledOnce();
+    });
+
+    it("renews a write capability in place so pending editor state survives", async () => {
+      const writeCapability =
+        "capability:mcp-directory-widget-write:" +
+        encodeURIComponent(JSON.stringify({ version: 1 }));
+      const oldToken = `${tokenWithScope(writeCapability).split(".")[0]}.old`;
+      let writeAttempts = 0;
+      const originalFetch = vi.fn(async (input: RequestInfo | URL) => {
+        const request =
+          input instanceof Request ? input : new Request(input.toString());
+        writeAttempts += 1;
+        if (writeAttempts === 1) {
+          expect(request.headers.get("Authorization")).toBe(
+            `Bearer ${oldToken}`,
+          );
+          return expiredWidgetSessionRefusal();
+        }
+        expect(request.headers.get("Authorization")).toBe(`Bearer ${oldToken}`);
+        return new Response("saved");
+      });
+      Object.defineProperty(window, "fetch", {
+        configurable: true,
+        writable: true,
+        value: originalFetch,
+      });
+      window.history.replaceState(
+        null,
+        "",
+        `/design/d1?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=${encodeURIComponent(oldToken)}`,
+      );
+      const originalParent = Object.getOwnPropertyDescriptor(window, "parent");
+      const parentWindow = { postMessage: vi.fn() } as unknown as Window;
+      Object.defineProperty(window, "parent", {
+        configurable: true,
+        value: parentWindow,
+      });
+      const module = await loadEmbedAuth();
+      module.ensureEmbedAuthFetchInterceptor();
+      const postMessage = vi
+        .spyOn(parentWindow, "postMessage")
+        .mockImplementation((message) => {
+          const renewal = message as {
+            type?: string;
+            data?: { requestId?: string };
+          };
+          if (renewal.type !== "agentNative.embedSessionExpired") return;
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              source: parentWindow,
+              data: {
+                type: "agentNative.embedSessionRenewed",
+                data: {
+                  requestId: renewal.data?.requestId,
+                  ok: true,
+                },
+              },
+            }),
+          );
+        });
+
+      try {
+        const response = await window.fetch(
+          "/_agent-native/actions/update-document",
+          { method: "POST", body: "{}" },
+        );
+        expect(response.status).toBe(200);
+        expect(writeAttempts).toBe(2);
+        expect(module.getEmbedAuthToken()).toBe(oldToken);
+        expect(postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "agentNative.embedSessionExpired",
+            data: { requestId: expect.any(String) },
+          }),
+          "*",
+        );
+      } finally {
+        if (originalParent) {
+          Object.defineProperty(window, "parent", originalParent);
+        } else {
+          delete (window as unknown as { parent?: Window }).parent;
+        }
+      }
+    });
+
+    it("does not renew or replay an untyped 401", async () => {
+      const writeCapability =
+        "capability:mcp-directory-widget-write:" +
+        encodeURIComponent(JSON.stringify({ version: 1 }));
+      const oldToken = `${tokenWithScope(writeCapability).split(".")[0]}.old`;
+      const originalFetch = vi.fn(
+        async () => new Response("Unauthorized", { status: 401 }),
+      );
+      Object.defineProperty(window, "fetch", {
+        configurable: true,
+        writable: true,
+        value: originalFetch,
+      });
+      window.history.replaceState(
+        null,
+        "",
+        `/design/d1?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=${encodeURIComponent(oldToken)}`,
+      );
+      const originalParent = Object.getOwnPropertyDescriptor(window, "parent");
+      const parentWindow = { postMessage: vi.fn() } as unknown as Window;
+      Object.defineProperty(window, "parent", {
+        configurable: true,
+        value: parentWindow,
+      });
+      const module = await loadEmbedAuth();
+      module.ensureEmbedAuthFetchInterceptor();
+      vi.spyOn(parentWindow, "postMessage").mockImplementation((message) => {
+        void message;
+      });
+      try {
+        const response = await window.fetch(
+          "/_agent-native/actions/update-document",
+          { method: "POST", body: "{}" },
+        );
+        expect(response.status).toBe(401);
+        expect(originalFetch).toHaveBeenCalledOnce();
+        expect(module.getEmbedAuthToken()).toBe(oldToken);
+        expect(
+          parentWindow.postMessage.mock.calls.map(([message]) => message),
+        ).not.toContainEqual(
+          expect.objectContaining({ type: "agentNative.embedSessionExpired" }),
+        );
+      } finally {
+        if (originalParent) {
+          Object.defineProperty(window, "parent", originalParent);
+        } else {
+          delete (window as unknown as { parent?: Window }).parent;
+        }
+      }
     });
 
     it("hands consumers the same failure the server's 401 produces", async () => {

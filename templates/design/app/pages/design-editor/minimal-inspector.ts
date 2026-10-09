@@ -14,6 +14,18 @@ export function hasMinimalInspectorSelection({
   );
 }
 
+export function shouldAutoOpenMobileInspector({
+  minimalUi,
+  isMobileViewport,
+  hasSelection,
+}: {
+  minimalUi: boolean;
+  isMobileViewport: boolean;
+  hasSelection: boolean;
+}): boolean {
+  return minimalUi && isMobileViewport && hasSelection;
+}
+
 /**
  * Canvas width the right inspector reserves. A widget's inspector floats over
  * the canvas: reserving its width would refit the screen narrower the moment
@@ -23,12 +35,14 @@ export function rightInspectorCanvasInset({
   visible,
   width,
   widgetEmbed,
+  minimalUi,
 }: {
   visible: boolean;
   width: number;
   widgetEmbed: boolean;
+  minimalUi?: boolean;
 }): number {
-  return visible && !widgetEmbed ? width : 0;
+  return visible && !widgetEmbed && !minimalUi ? width : 0;
 }
 
 export const DOCKED_RIGHT_INSPECTOR_CLASSNAME =

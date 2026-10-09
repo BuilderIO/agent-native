@@ -493,7 +493,7 @@ export function deriveJourneyStep(
  * One session's rows as ordered steps. Rows with no step meaning are skipped;
  * consecutive repeats without an attempt ID collapse into the first step.
  */
-export function buildSessionSteps(
+export function projectSessionSteps(
   rows: readonly JourneyEventRow[],
 ): JourneyStep[] {
   const ordered = [...rows].sort((a, b) => {
@@ -569,4 +569,14 @@ export function buildSessionSteps(
     steps.push({ ...step, tsMs: row.tsMs });
   }
   return steps;
+}
+
+export function buildSessionSteps(
+  rows: readonly JourneyEventRow[],
+): JourneyStep[] {
+  return projectSessionSteps(rows).map(({ key, label, tsMs }) => ({
+    key,
+    label,
+    tsMs,
+  }));
 }

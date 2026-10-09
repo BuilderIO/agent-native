@@ -7,6 +7,7 @@ import {
   JOURNEY_STEP_EVENT_NAMES,
   normalizeJourneyPath,
   SLIDES_GENERATION_ATTEMPT_EVENT_NAMES,
+  projectSessionSteps,
   type JourneyEventRow,
 } from "./journey-steps";
 
@@ -631,6 +632,20 @@ describe("buildSessionSteps", () => {
     const serialized = JSON.stringify(steps);
     expect(serialized).not.toContain("private-recording-attempt");
     expect(serialized).not.toContain("private-generation-attempt");
+  });
+
+  it("retains the terminal selected step key and timestamp for aggregation", () => {
+    const selected = projectSessionSteps([
+      row("signup", 100),
+      row("onboarding_step_viewed", 200, { stepId: "role" }),
+      row("onboarding_step_viewed", 250, { stepId: "role" }),
+    ]);
+
+    expect(selected[selected.length - 1]).toEqual({
+      key: "step:role",
+      label: "Onboarding step: role",
+      tsMs: 200,
+    });
   });
 
   it("deduplicates legacy and canonical aliases and orders first-run Builder events", () => {
