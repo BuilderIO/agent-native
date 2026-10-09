@@ -157,3 +157,36 @@ describe("validateDashboardConfig ratchet", () => {
     expect(isAgentCaller(undefined)).toBe(false);
   });
 });
+
+describe("validateDashboardConfig multi-select options", () => {
+  const withOptions = (values: string[]) => ({
+    name: "Plans",
+    filters: [
+      {
+        id: "plan",
+        label: "Plan",
+        type: "multi-select",
+        options: values.map((value) => ({ value, label: value })),
+      },
+    ],
+    panels: [],
+  });
+
+  it("accepts plain option values", () => {
+    expect(
+      validateDashboardConfig(withOptions(["free", "self_serve"])),
+    ).toBeNull();
+  });
+
+  it("rejects an option value containing a comma, which would split in the URL", () => {
+    expect(validateDashboardConfig(withOptions(["north,west"]))).toContain(
+      'cannot contain ","',
+    );
+  });
+
+  it("rejects the reserved empty marker as an option value", () => {
+    expect(validateDashboardConfig(withOptions(["__empty__"]))).toContain(
+      "__empty__",
+    );
+  });
+});

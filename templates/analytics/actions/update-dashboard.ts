@@ -9,6 +9,7 @@ import {
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { MULTI_SELECT_EMPTY } from "../app/pages/adhoc/sql-dashboard/filter-vars";
 import {
   interpolate,
   interpolateDashboardPanelSql,
@@ -292,6 +293,21 @@ function collectDashboardConfigIssues(
       }
       const id = typeof f.id === "string" ? f.id.trim() : "";
       if (!id) return dashboardIssue(`config.filters[${i}].id is required`);
+      if (f.type === "multi-select" && Array.isArray(f.options)) {
+        // The selection is comma-joined in the URL and MULTI_SELECT_EMPTY is reserved, so either would corrupt the value.
+        const badIndex = (
+          f.options as Array<{ value?: unknown } | null>
+        ).findIndex(
+          (option) =>
+            typeof option?.value === "string" &&
+            (option.value.includes(",") || option.value === MULTI_SELECT_EMPTY),
+        );
+        if (badIndex !== -1) {
+          return dashboardIssue(
+            `config.filters[${i}].options[${badIndex}].value cannot contain "," or be "${MULTI_SELECT_EMPTY}" in a multi-select filter`,
+          );
+        }
+      }
       if (seen.has(id)) continue;
       seen.add(id);
       deduped.push(f);

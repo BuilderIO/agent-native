@@ -415,6 +415,20 @@ describe("multi-select filters", () => {
     );
   });
 
+  it("treats the empty marker as no selection even when a default is set", () => {
+    const withDefault: DashboardFilter = { ...tier, default: "enterprise" };
+    const vars = resolveFilterVars([withDefault], (key) =>
+      key === "tier" ? "__empty__" : "",
+    );
+    expect(vars.tier).toBe("");
+    expect(
+      interpolate(
+        "SELECT 1{{?tier}} WHERE tier IN ({{tier:list}}){{/tier}}",
+        vars,
+      ),
+    ).toBe("SELECT 1");
+  });
+
   it("uses GoogleSQL escapes for each item on BigQuery panels", () => {
     expect(
       interpolateDashboardPanelSql(

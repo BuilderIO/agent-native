@@ -2,6 +2,10 @@ import type { DashboardFilter, FilterType } from "./types";
 
 export const FILTER_PARAM_PREFIX = "f_";
 
+// URL marker for a multi-select with every option unchecked. An absent param
+// falls back to the filter default, so an empty selection needs its own value.
+export const MULTI_SELECT_EMPTY = "__empty__";
+
 const ALL_TIME_START = "1970-01-01";
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
@@ -188,6 +192,12 @@ export function resolveFilterVars(
         fallbackEnd,
         fallbackEnd,
       );
+    } else if (filter.type === "multi-select") {
+      const value = getParam(filter.id);
+      out[filter.id] =
+        value === MULTI_SELECT_EMPTY
+          ? ""
+          : value || resolveDefault(filter.default, filter.type);
     } else {
       const value = getParam(filter.id);
       out[filter.id] =
