@@ -3357,7 +3357,9 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
   ): Promise<void> {
     this.assertActive();
-    // The server verifies this run belongs to an already-admitted turn.
+    await this.assertAiSetupReady({ threadId }, context);
+    // A user-initiated continuation starts work, so it follows the same setup
+    // gate as a new prompt. Automatic run continuations use the transport path.
     const continueRun = this.transport.continueRun;
     if (!continueRun) throw new AgentKitOperationError("run continuation");
     const result = await this.invokeRequest(

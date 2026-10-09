@@ -393,6 +393,7 @@ export default function QuickPromptOverlay({
     >
       <PromptComposer
         autoFocus
+        requireAgentEngine
         attachmentsEnabled
         className="quick-prompt-overlay__composer"
         composerRef={composerRef}

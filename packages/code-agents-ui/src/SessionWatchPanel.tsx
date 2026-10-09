@@ -198,6 +198,12 @@ export function SessionWatchPanel({
         <PromptComposer
           className="code-agents-standard-composer code-agents-session-watch__composer"
           layoutVariant="compact"
+          requireAgentEngine
+          selectedEngine={
+            typeof run.metadata?.engine === "string"
+              ? run.metadata.engine
+              : undefined
+          }
           draftScope={`agent-native-code:watch:${run.id}`}
           disabled={sending}
           placeholder="Message this session…"

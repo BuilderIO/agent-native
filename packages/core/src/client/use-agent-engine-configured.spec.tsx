@@ -4,10 +4,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  AgentChatAiSetupRequiredError,
   agentEngineStatusUrlForChatApi,
   ensureAgentEngineReadiness,
   getAgentEngineReadiness,
   getAgentEngineReadinessStoreCountForTests,
+  requireAgentEngineConfiguredForDispatch,
   resetAgentEngineReadinessForTests,
   subscribeAgentEngineReadiness,
 } from "./agent-engine-readiness.js";
@@ -777,5 +779,92 @@ describe("useAgentEngineConfigured", () => {
       ),
     ).toHaveLength(2);
     expect(container.textContent).toBe("missing");
+  });
+});
+
+describe("requireAgentEngineConfiguredForDispatch", () => {
+  const sourceFor = (name: string, fetch: typeof globalThis.fetch) => ({
+    statusUrl: `https://${name}.example.test/_agent-native/agent-engine/status`,
+    fetch,
+  });
+
+  it("waits for an unknown readiness probe before allowing dispatch", async () => {
+    let resolveStatus!: (response: Response) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+    const readiness = requireAgentEngineConfiguredForDispatch({
+      source: sourceFor("pending-dispatch", fetch),
+    });
+    let settled = false;
+    void readiness.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    resolveStatus(jsonResponse({ configured: true, chatEligible: true }));
+    await expect(readiness).resolves.toBeUndefined();
+  });
+
+  it.each([
+    {
+      name: "missing eligibility",
+      fetch: async () =>
+        jsonResponse({ configured: false, chatEligible: false }),
+      state: "missing",
+    },
+    {
+      name: "an HTTP 503",
+      fetch: async () => new Response("Unavailable", { status: 503 }),
+      state: "unavailable",
+    },
+  ] as const)(
+    "blocks dispatch when readiness reports $name",
+    async ({ name, fetch, state }) => {
+      await expect(
+        requireAgentEngineConfiguredForDispatch({
+          source: sourceFor(`blocked-${name.replaceAll(" ", "-")}`, fetch),
+        }),
+      ).rejects.toMatchObject({
+        name: AgentChatAiSetupRequiredError.name,
+        state,
+      });
+    },
+  );
+
+  it("allows dispatch after readiness confirms chat eligibility", async () => {
+    const fetch = vi.fn(async () =>
+      jsonResponse({ configured: true, chatEligible: true }),
+    );
+
+    await expect(
+      requireAgentEngineConfiguredForDispatch({
+        source: sourceFor("configured-dispatch", fetch),
+      }),
+    ).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("does not probe for an explicitly selected local runtime engine", async () => {
+    const fetch = vi.fn(async () => jsonResponse({ chatEligible: false }));
+
+    await expect(
+      requireAgentEngineConfiguredForDispatch({
+        engine: "codex-cli",
+        source: sourceFor("local-dispatch", fetch),
+      }),
+    ).resolves.toBeUndefined();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

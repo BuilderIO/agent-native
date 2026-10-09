@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { findChatSendGateViolations } from "./guard-chat-send-gate.ts";
+import {
+  CHAT_SEND_GATE_WHOLE_FILE_BOUNDARIES,
+  findChatSendGateViolations,
+} from "./guard-chat-send-gate.ts";
 
 function violations(file: string, source: string) {
   return findChatSendGateViolations(file, source).map(({ reason }) => reason);
@@ -150,6 +153,7 @@ async function start() {
 
 test("requires the background-session dispatch function to invoke the shared readiness gate first", () => {
   const file = "packages/core/src/client/background-agent-session.ts";
+  assert.ok(CHAT_SEND_GATE_WHOLE_FILE_BOUNDARIES.includes(file));
   assert.match(
     violations(
       file,

@@ -4009,6 +4009,7 @@ function AgentKitComposerSurface({
       <div className="relative">
         <AgentKitComposer
           threadId={threadId}
+          requireAgentEngine
           disabled={
             (!canChat && !providerSubmissionPending) ||
             props.composerDisabled ||

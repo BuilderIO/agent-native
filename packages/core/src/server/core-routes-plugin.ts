@@ -156,7 +156,10 @@ import { track } from "../tracking/index.js";
 import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
-import { isAgentChatAiSetupReady } from "./agent-chat-ai-setup.js";
+import {
+  isAgentChatAiSetupReady,
+  isBuilderChatSetupReady,
+} from "./agent-chat-ai-setup.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
 import { createAgentEngineDisconnectHandler } from "./agent-engine-default-model-route.js";
 import { createAgentEngineOllamaModelsHandler } from "./agent-engine-ollama-models-route.js";
@@ -265,6 +268,7 @@ import {
   resolveSecret,
   resolveSecretDetailed,
   resolveBuilderGatewayCredentialsDetailed,
+  resolveBuilderPrivateKey,
   type BuilderCredentialLookupIdentity,
 } from "./credential-provider.js";
 import {
@@ -365,19 +369,29 @@ function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry>
     builderConnectionPromise ??= (async () => {
       if (
         credentialIdentity.userEmail &&
-        (await hasUsableBuilderOAuthSessionForReadiness(
-          credentialIdentity.userEmail,
-          credentialIdentity.orgId,
-        ))
+        isBuilderChatSetupReady({
+          oauthSessionUsable: await hasUsableBuilderOAuthSessionForReadiness(
+            credentialIdentity.userEmail,
+            credentialIdentity.orgId,
+          ),
+        })
       ) {
         return true;
       }
       const credentials =
         await resolveBuilderGatewayCredentialsDetailed(credentialIdentity);
       assertCredentialStoreReadable(credentials);
-      return Boolean(
-        credentials.privateKey?.trim() && credentials.publicKey?.trim(),
-      );
+      if (
+        isBuilderChatSetupReady({
+          privateKey: credentials.privateKey,
+          publicKey: credentials.publicKey,
+        })
+      ) {
+        return true;
+      }
+      return isBuilderChatSetupReady({
+        legacyPrivateKey: await resolveBuilderPrivateKey(credentialIdentity),
+      });
     })();
     return builderConnectionPromise;
   };

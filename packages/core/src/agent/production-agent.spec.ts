@@ -2085,16 +2085,21 @@ describe("resolvePresendWithCap", () => {
 
 describe("createProductionAgentHandler", () => {
   it("runs the required AI setup gate before a user turn even with a local engine selection", async () => {
-    const setupRequired = new Error("AI setup is required");
+    const setupRequired = Object.assign(new Error("AI setup is required"), {
+      statusMessage: "Use Builder.io before chatting.",
+      data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+    });
     const assertAiSetupReady = vi.fn(async () => {
       throw setupRequired;
     });
+    const onRunNotStarted = vi.fn(async () => undefined);
     const engine = engineWithUncalledStream();
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
       engine,
       actions: {},
       assertAiSetupReady,
+      onRunNotStarted,
     });
     const event = mockEvent(
       new Request("http://app.example.com/_agent-native/agent-chat", {
@@ -2103,6 +2108,7 @@ describe("createProductionAgentHandler", () => {
         body: JSON.stringify({
           message: "A new prompt",
           threadId: "thread-setup-gate",
+          turnId: "turn-setup-gate",
           engine: "codex-cli",
         }),
       }),
@@ -2116,6 +2122,18 @@ describe("createProductionAgentHandler", () => {
     ).rejects.toBe(setupRequired);
 
     expect(assertAiSetupReady).toHaveBeenCalledOnce();
+    expect(onRunNotStarted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "turn-setup-gate",
+        turnId: "turn-setup-gate",
+        threadId: "thread-setup-gate",
+        message: "A new prompt",
+        failure: {
+          code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+          message: "Use Builder.io before chatting.",
+        },
+      }),
+    );
     expect(engine.stream).not.toHaveBeenCalled();
   });
 
@@ -2168,6 +2186,46 @@ describe("createProductionAgentHandler", () => {
     } finally {
       getDbExec.mockRestore();
     }
+  });
+
+  it("requires current AI setup before a manual Continue claims a run slot", async () => {
+    mockTryClaimRunSlot.mockClear();
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Continue this turn",
+          threadId: "thread-manual-continue",
+          turnId: "turn-manual-continue",
+          internalContinuation: true,
+          continueOfRunId: "stopped-run",
+        }),
+      }),
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      ),
+    ).rejects.toBe(setupRequired);
+
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
+    expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
+    expect(engine.stream).not.toHaveBeenCalled();
+    mockTryClaimRunSlot.mockClear();
   });
 
   it("does not treat client queue markers as persisted admission", async () => {

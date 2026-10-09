@@ -473,7 +473,8 @@ describe("AgentKit composer context submission", () => {
   );
 
   it("forwards mode instructions unchanged to a host override", async () => {
-    const runtime = transport();
+    const assertAiSetupReady = vi.fn(async () => undefined);
+    const runtime = { ...transport(), assertAiSetupReady };
     client = new AgentKitClient({ transport: runtime });
     const onSubmit = vi.fn();
     await act(async () =>
@@ -498,8 +499,34 @@ describe("AgentKit composer context submission", () => {
         onLocalSubmit: expect.any(Function),
       }),
     );
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
     expect(runtime.startRun).not.toHaveBeenCalled();
     expect(runtime.queueMessage).not.toHaveBeenCalled();
+  });
+
+  it("blocks host overrides when the AgentKit transport rejects AI setup", async () => {
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const runtime = { ...transport(), assertAiSetupReady };
+    client = new AgentKitClient({ transport: runtime });
+    const onSubmit = vi.fn();
+    const onLocalSubmit = vi.fn();
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer onSubmit={onSubmit} autoFocus={false} />
+        </AgentKitProvider>,
+      ),
+    );
+
+    await expect(
+      capture.props!.onSubmit("Do not send", [], [], { onLocalSubmit }),
+    ).rejects.toBe(setupRequired);
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onLocalSubmit).not.toHaveBeenCalled();
   });
 
   it("preserves mode instructions when resubmitting an edited message on a fork", async () => {

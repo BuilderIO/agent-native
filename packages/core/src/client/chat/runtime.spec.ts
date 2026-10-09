@@ -753,6 +753,78 @@ describe("createAgentNativeChatRuntime", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
       "/_agent-native/agent-engine/status",
     );
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/_agent-native/agent-chat") &&
+          (init?.method ?? "GET") === "POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("waits for a pending readiness probe before posting a new turn", async () => {
+    resetAgentEngineReadinessForTests();
+    let resolveStatus!: (response: Response) => void;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return new Promise<Response>((resolve) => {
+          resolveStatus = resolve;
+        });
+      }
+      return Promise.resolve(sseResponse([{ type: "done" }]));
+    });
+    const apiUrl = "/_agent-native/agent-chat";
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl,
+      threadId: "thread-readiness-pending",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    const turnPromise = session.startTurn({ prompt: "Wait for setup" });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/_agent-native/agent-engine/status",
+    );
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === apiUrl)).toBe(
+      false,
+    );
+
+    resolveStatus(jsonResponse({ configured: true, chatEligible: true }));
+    const turn = await turnPromise;
+    await drain(turn.events);
+
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      expect.stringContaining("/_agent-native/agent-engine/status"),
+      apiUrl,
+    ]);
+  });
+
+  it("blocks a new turn when the readiness route returns 503", async () => {
+    resetAgentEngineReadinessForTests();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return new Response("Unavailable", { status: 503 });
+      }
+      return sseResponse([{ type: "done" }]);
+    });
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-readiness-unavailable",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+
+    await expect(
+      session.startTurn({ prompt: "Do not send while unavailable" }),
+    ).rejects.toMatchObject({
+      name: "AgentChatAiSetupRequiredError",
+      state: "unavailable",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/_agent-native/agent-engine/status",
+    );
   });
 
   it("sends prior tool activity as structured history without duplicating the current prompt", async () => {

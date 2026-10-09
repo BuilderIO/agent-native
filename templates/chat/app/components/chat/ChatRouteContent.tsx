@@ -562,6 +562,7 @@ function ChatCanvas({
       toolbar={toolbar}
       emptyComposerPlacement="center"
       composerProps={{
+        requireAgentEngine: true,
         stopButton,
         queueWhileRunning: true,
         autoFocus: true,

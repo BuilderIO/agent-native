@@ -23,6 +23,19 @@ import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 export const AGENT_CHAT_AI_SETUP_REQUIRED_CODE =
   "AGENT_CHAT_AI_SETUP_REQUIRED" as const;
 
+export function isBuilderChatSetupReady(input: {
+  oauthSessionUsable?: boolean;
+  privateKey?: string | null;
+  publicKey?: string | null;
+  legacyPrivateKey?: string | null;
+}): boolean {
+  return Boolean(
+    input.oauthSessionUsable ||
+    (input.privateKey?.trim() && input.publicKey?.trim()) ||
+    input.legacyPrivateKey?.trim(),
+  );
+}
+
 /**
  * Chat accepts the Builder gateway/OAuth lane, a usable BYOK API key, or a
  * configured OpenAI-compatible/Ollama endpoint. Engine selection by itself is
@@ -49,8 +62,11 @@ export async function isAgentChatAiSetupReady(input?: {
   const orgId = getRequestOrgId();
   const identity = ownerEmail ? { userEmail: ownerEmail, orgId } : undefined;
   if (
-    ownerEmail &&
-    (await hasUsableBuilderOAuthSessionForReadiness(ownerEmail, orgId))
+    isBuilderChatSetupReady({
+      oauthSessionUsable: ownerEmail
+        ? await hasUsableBuilderOAuthSessionForReadiness(ownerEmail, orgId)
+        : false,
+    })
   ) {
     return true;
   }
@@ -58,13 +74,17 @@ export async function isAgentChatAiSetupReady(input?: {
     await resolveBuilderGatewayCredentialsDetailed(identity);
   assertCredentialStoreReadable(builderCredentials);
   if (
-    builderCredentials.privateKey?.trim() &&
-    builderCredentials.publicKey?.trim()
+    isBuilderChatSetupReady({
+      privateKey: builderCredentials.privateKey,
+      publicKey: builderCredentials.publicKey,
+    })
   ) {
     return true;
   }
   const legacyBuilderKey = await resolveBuilderPrivateKey(identity);
-  if (legacyBuilderKey?.trim()) return true;
+  if (isBuilderChatSetupReady({ legacyPrivateKey: legacyBuilderKey })) {
+    return true;
+  }
 
   const customEndpointKeys = [
     OPENAI_BASE_URL_ENV_VAR,

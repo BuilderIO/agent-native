@@ -88,6 +88,10 @@ import {
   writeOptionalKeyCache,
 } from "../secrets/optional-key-cache.js";
 import {
+  AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
+  isAgentChatAiSetupRequiredError,
+} from "../server/agent-chat-ai-setup.js";
+import {
   COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
   preloadJevContextWithStatus,
   type JevPromptContextCandidate,
@@ -9431,9 +9435,11 @@ export function createProductionAgentHandler(
           })
         : null;
     // The continuation marker is client-controlled. Defer setup admission only
-    // when the named stop and turn can be checked under the run-slot lock;
-    // that check refuses invalid continuations before model work can start.
+    // for automatic successors when the named stop and turn can be checked
+    // under the run-slot lock. A user's manual Continue starts new work and
+    // still requires current provider readiness.
     const canDeferSetupGateForContinuationAdmission = Boolean(
+      continueOf?.trigger === "auto" &&
       continueOf &&
       typeof threadId === "string" &&
       threadId.trim() &&
@@ -9448,6 +9454,63 @@ export function createProductionAgentHandler(
       claimId: queuedMessageClaimId,
       message: requestMessage,
     });
+    const recordUnstartedTurn = async (failure: {
+      code: string;
+      message: string;
+    }) => {
+      const unstartedTurnId =
+        typeof requestTurnId === "string" && requestTurnId.trim()
+          ? requestTurnId.trim()
+          : undefined;
+      const normalizedThreadId =
+        typeof threadId === "string" ? threadId.trim() : "";
+      if (
+        !options.onRunNotStarted ||
+        !normalizedThreadId ||
+        !unstartedTurnId ||
+        continueOf ||
+        isBackgroundWorker ||
+        runRequestContext?.agentRunAnonymous === true
+      ) {
+        return;
+      }
+      try {
+        await options.onRunNotStarted({
+          runId: unstartedTurnId,
+          turnId: unstartedTurnId,
+          threadId: normalizedThreadId,
+          message:
+            typeof requestDisplayMessage === "string" &&
+            requestDisplayMessage.trim()
+              ? requestDisplayMessage
+              : requestMessage,
+          attachments: requestAttachments,
+          ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
+            ? { queuedMessageId: queuedMessageId.trim() }
+            : {}),
+          ...(agentKitMessageId ? { agentKitMessageId } : {}),
+          retryContext: retryContextFromRequest(body, (dropped) =>
+            console.warn(
+              `[agent-chat] dropped ${dropped} invalid reference(s) from a refused turn's retry context`,
+            ),
+          ),
+          failure,
+        });
+      } catch (error) {
+        console.error(
+          "[agent-chat] could not record a refused turn in its thread:",
+          error,
+        );
+        captureError(error, {
+          route: "agent-chat",
+          tags: {
+            source: "agent-chat",
+            failureClass: "unstarted-turn-persist",
+          },
+          extra: { threadId: normalizedThreadId, runId: unstartedTurnId },
+        });
+      }
+    };
     if (
       !isBackgroundWorker &&
       runRequestContext?.agentRunAnonymous !== true &&
@@ -9455,7 +9518,25 @@ export function createProductionAgentHandler(
       !canDeferSetupGateForContinuationAdmission &&
       !isQueuedPromotion
     ) {
-      await options.assertAiSetupReady();
+      try {
+        await options.assertAiSetupReady();
+      } catch (error) {
+        if (isAgentChatAiSetupRequiredError(error)) {
+          const setupError = error as {
+            statusMessage?: unknown;
+            message?: unknown;
+          };
+          await recordUnstartedTurn({
+            code: AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
+            message:
+              (typeof setupError.statusMessage === "string" &&
+                setupError.statusMessage) ||
+              (typeof setupError.message === "string" && setupError.message) ||
+              "Connect an AI provider before chatting.",
+          });
+        }
+        throw error;
+      }
     }
     const contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({

@@ -44,6 +44,12 @@ const READINESS_ADAPTERS = new Set([
   // app-specific adapter for the same shared module-level readiness store.
   "packages/mobile-app/lib/agent-chat/use-agent-chat.ts",
 ]);
+export const CHAT_SEND_GATE_WHOLE_FILE_BOUNDARIES = [
+  AGENTKIT_CONTROLLER_FILE,
+  CORE_RUNTIME_FILE,
+  CORE_AGENTKIT_TRANSPORT_FILE,
+  BACKGROUND_SESSION_FILE,
+] as const;
 const STATUS_ROUTE_FILES = new Set([
   ...READINESS_MODULES,
   "packages/core/src/client/client-status-requests.ts",
@@ -1249,11 +1255,7 @@ function main(): void {
 
   // These checks inspect the whole shared chokepoint whenever guards run, so
   // deleting a gate is caught even though deleted lines are absent from diff.
-  for (const relativeFile of [
-    AGENTKIT_CONTROLLER_FILE,
-    CORE_RUNTIME_FILE,
-    CORE_AGENTKIT_TRANSPORT_FILE,
-  ]) {
+  for (const relativeFile of CHAT_SEND_GATE_WHOLE_FILE_BOUNDARIES) {
     const absolutePath = path.join(REPO_ROOT, relativeFile);
     let source: string;
     try {
@@ -1265,16 +1267,19 @@ function main(): void {
       process.exit(2);
     }
     inspectedFiles.add(relativeFile);
-    const structural = structuralDispatchViolations(
-      relativeFile,
-      ts.createSourceFile(
-        relativeFile,
-        source,
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS,
-      ),
-    );
+    const structural =
+      relativeFile === BACKGROUND_SESSION_FILE
+        ? findChatSendGateViolations(relativeFile, source)
+        : structuralDispatchViolations(
+            relativeFile,
+            ts.createSourceFile(
+              relativeFile,
+              source,
+              ts.ScriptTarget.Latest,
+              true,
+              ts.ScriptKind.TS,
+            ),
+          );
     violations.push(
       ...structural.filter(
         (violation) => !hasChatSendGateOptOut(source, violation.startLine),

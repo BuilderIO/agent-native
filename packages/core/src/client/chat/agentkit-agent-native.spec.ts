@@ -10,7 +10,10 @@ import {
   upsertUserMessage,
 } from "../../agent/thread-data-builder.js";
 import { agentTroubleCauseForCode } from "../../shared/analytics-events.js";
-import { resetAgentEngineReadinessForTests } from "../agent-engine-readiness.js";
+import {
+  AgentChatAiSetupRequiredError,
+  resetAgentEngineReadinessForTests,
+} from "../agent-engine-readiness.js";
 import { createAgentNativeAgentKitTransport as createAgentNativeAgentKitTransportImplementation } from "./agentkit-agent-native.js";
 import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "./agentkit-protocol.js";
 import type { RunOutcomeReport } from "./run-outcome.js";
@@ -67,6 +70,36 @@ function resumableNativeRuntime(
 }
 
 describe("createAgentNativeAgentKitTransport", () => {
+  it("blocks a client send through the constructed transport when AI is missing", async () => {
+    resetAgentEngineReadinessForTests();
+    const statusUrl =
+      "https://provider.example.test/_agent-native/agent-engine/status";
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === statusUrl) {
+        return json({ configured: true, chatEligible: false });
+      }
+      return json({ error: "Unexpected prompt dispatch" }, 500);
+    });
+    const transport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl: "https://provider.example.test/_agent-native/agent-chat",
+      engine: "openai",
+      fetch: fetcher as typeof fetch,
+    });
+    const client = new AgentKitClient({ transport });
+
+    try {
+      await expect(
+        client.sendMessage({ threadId: "thread-no-ai", text: "Blocked" }),
+      ).rejects.toBeInstanceOf(AgentChatAiSetupRequiredError);
+      expect(fetcher.mock.calls.map(([input]) => String(input))).toEqual([
+        statusUrl,
+      ]);
+    } finally {
+      await client.shutdown();
+      resetAgentEngineReadinessForTests();
+    }
+  });
+
   it("uses the transport engine when checking AI readiness", async () => {
     resetAgentEngineReadinessForTests();
     const localFetch = vi.fn(async () => json({ chatEligible: true }));

@@ -274,9 +274,12 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
-  it("continues an already-admitted run without rechecking setup", async () => {
+  it("requires AI setup before a manual run continuation", async () => {
+    const setupRequired = new AgentKitOperationError(
+      "AI setup readiness validation",
+    );
     const assertAiSetupReady = vi.fn(async () => {
-      throw new AgentKitOperationError("AI setup readiness validation");
+      throw setupRequired;
     });
     const continueRun = vi.fn(async () => ({ runId: "run-1" }));
     const transport: AgentTransport = {
@@ -289,12 +292,12 @@ describe("AgentKitClient", () => {
     };
     const client = new AgentKitClientImplementation({ transport });
 
-    await expect(
-      client.continueRun("thread-1", "run-1"),
-    ).resolves.toBeUndefined();
+    await expect(client.continueRun("thread-1", "run-1")).rejects.toBe(
+      setupRequired,
+    );
 
-    expect(assertAiSetupReady).not.toHaveBeenCalled();
-    expect(continueRun).toHaveBeenCalledOnce();
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
+    expect(continueRun).not.toHaveBeenCalled();
     await client.shutdown();
   });
 

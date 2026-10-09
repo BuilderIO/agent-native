@@ -332,6 +332,7 @@ describe("AgentKitChat interactions", () => {
                 composerRef,
                 autoFocus: false,
                 modelStatusChecksEnabled: false,
+                requireAgentEngine: true,
                 voiceEnabled: false,
               }}
             />
@@ -686,6 +687,102 @@ describe("AgentKitChat interactions", () => {
         root.unmount();
         await Promise.resolve();
       });
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
+  it("blocks an edit before creating a fork when AI setup is missing", async () => {
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const forkThread = vi.fn(async (input) => ({
+      id: `${input.threadId}-fork`,
+      createdAt: "2026-09-26T00:00:00.000Z",
+      updatedAt: "2026-09-26T00:00:00.000Z",
+    }));
+    const startRun = vi.fn(async () => ({ runId: "run-edit-blocked" }));
+    const transport: AgentTransport = {
+      capabilities: { threadForking: true },
+      assertAiSetupReady,
+      forkThread,
+      startRun,
+      async *subscribeToRun() {},
+      async cancelRun() {},
+      async getThreadSnapshot(threadId) {
+        return {
+          id: threadId,
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:00:00.000Z",
+          messages: [
+            {
+              id: "user-edit-blocked",
+              role: "user",
+              parts: [{ type: "text", text: "Keep my prompt" }],
+            },
+          ],
+        };
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-edit-blocked");
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider
+            controller={client}
+            threadId="thread-edit-blocked"
+            onThreadForked={vi.fn()}
+          >
+            <AgentKitChat composerProps={{ modelStatusChecksEnabled: false }} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>('button[aria-label="Edit message"]')
+          ?.click();
+        await Promise.resolve();
+      });
+      const editor = container.querySelector<HTMLElement>(
+        '[contenteditable="true"]',
+      );
+      expect(editor?.textContent).toBe("Keep my prompt");
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-agent-composer-slot="send-button"]',
+          )
+          ?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(assertAiSetupReady).toHaveBeenCalledOnce();
+      expect(forkThread).not.toHaveBeenCalled();
+      expect(startRun).not.toHaveBeenCalled();
+      expect(editor?.textContent).toBe("Keep my prompt");
+    } finally {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      await client.shutdown();
       container.remove();
       if (previousActEnvironment === undefined) {
         delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;

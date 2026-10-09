@@ -4059,6 +4059,7 @@ function CodeAgentComposer({
 
   return (
     <PromptComposer
+      requireAgentEngine
       className="code-agents-standard-composer code-agents-composer-shell"
       style={codeAgentComposerAreaStyle}
       rootStyle={codeAgentComposerRootStyle}

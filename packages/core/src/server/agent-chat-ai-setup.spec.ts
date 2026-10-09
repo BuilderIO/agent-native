@@ -52,11 +52,24 @@ vi.mock("./request-context.js", () => ({
 
 import {
   AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
+  isBuilderChatSetupReady,
   isAgentChatAiSetupReady,
   isAgentChatAiSetupRequiredError,
   queuedMessagesNeedAgentChatAiSetup,
   requireAgentChatAiSetup,
 } from "./agent-chat-ai-setup.js";
+
+describe("isBuilderChatSetupReady", () => {
+  it.each([
+    ["usable OAuth", { oauthSessionUsable: true }, true],
+    ["Builder key pair", { privateKey: "private", publicKey: "public" }, true],
+    ["legacy Builder private key", { legacyPrivateKey: "private" }, true],
+    ["incomplete Builder key pair", { privateKey: "private" }, false],
+    ["blank legacy key", { legacyPrivateKey: "   " }, false],
+  ])("accepts %s consistently", (_label, input, expected) => {
+    expect(isBuilderChatSetupReady(input)).toBe(expected);
+  });
+});
 
 const testStatusEngineEntries: AgentEngineEntry[] = [
   {
@@ -157,6 +170,12 @@ describe("Agent-Native chat AI setup gate", () => {
 
     await expect(isAgentChatAiSetupReady()).resolves.toBe(true);
     expect(credentialMocks.resolveSecret).not.toHaveBeenCalled();
+  });
+
+  it("accepts the legacy Builder private key used by the status route", async () => {
+    credentialMocks.legacyBuilderKey.mockResolvedValue("legacy-builder-key");
+
+    await expect(isAgentChatAiSetupReady()).resolves.toBe(true);
   });
 
   it("rechecks credentials instead of trusting the status route memo for dispatch", async () => {

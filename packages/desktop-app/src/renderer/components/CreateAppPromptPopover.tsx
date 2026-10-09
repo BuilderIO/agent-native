@@ -92,6 +92,7 @@ export default function CreateAppPromptPopover({
           </div>
           <PromptComposer
             autoFocus
+            requireAgentEngine
             disabled={submitting}
             placeholder="What should your app help with?"
             draftScope="desktop:chat-first:create-app"

@@ -4011,7 +4011,6 @@ export interface AgentKitComposerProps extends Omit<
     | "onAgentChange"
     | "onModelSelectorOpenChange"
     | "modelStatusChecksEnabled"
-    | "requireAgentEngine"
     | "showMissingApiKeySetup"
     | "attachmentsEnabled"
     | "onAttachmentRequest"
@@ -4037,6 +4036,8 @@ export interface AgentKitComposerProps extends Omit<
 > {
   /** Override the default AgentKit submit path when the host owns send options. */
   onSubmit?: PromptComposerProps["onSubmit"];
+  /** Opt in to Agent-Native provider UI when this host owns that setup flow. */
+  requireAgentEngine?: boolean;
   beforeSend?: (submission: AgentKitComposerSubmission) => void | Promise<void>;
   composerRef?: { current: TiptapComposerHandle | null };
   threadId?: string;
@@ -4100,6 +4101,7 @@ export function AgentKitComposer({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
+  requireAgentEngine = false,
   showMissingApiKeySetup,
   attachmentsEnabled,
   onAttachmentRequest,
@@ -4303,6 +4305,11 @@ export function AgentKitComposer({
       options.onLocalSubmit?.();
     };
     if (!editingMessage && onSubmitOverride) {
+      const readinessEngine = options.engine ?? selectedEngine;
+      await controller.assertAiSetupReady({
+        engine:
+          typeof readinessEngine === "string" ? readinessEngine : undefined,
+      });
       const submitOptions = {
         ...(suggestion ? { ...options, suggestion } : options),
         onLocalSubmit,
@@ -4674,7 +4681,7 @@ export function AgentKitComposer({
         onAgentChange={onAgentChange}
         onModelSelectorOpenChange={onModelSelectorOpenChange}
         modelStatusChecksEnabled={modelStatusChecksEnabled}
-        requireAgentEngine
+        requireAgentEngine={requireAgentEngine}
         showMissingApiKeySetup={showMissingApiKeySetup}
         layoutVariant={layoutVariant}
         toolbarSlot={composerToolbarSlot}
