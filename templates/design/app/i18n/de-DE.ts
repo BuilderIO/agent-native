@@ -2,6 +2,8 @@ export default {
   journeyCanvas: {
     observedSessionReference: "Beobachtete Sitzungsreferenz",
     sessionsOfAll: "{count} Sitzungen · {percent} aller",
+    sessionsOfAppRoot:
+      "{count} Sitzungen · {percent} der {app}-Kohorte (n={rootCount})",
     sessionsOfPrevious: "{count} Sitzungen · {percent} des vorherigen Schritts",
     sessionsOfParent: "{count} Sitzungen · {percent} von {label}",
     sessionsOfStep: "{count} Sitzungen · {percent} dieses Schritts",
@@ -45,11 +47,17 @@ export default {
     promptSource: "Prompt (Quelle)",
     source: "Quelle",
     promptNotCaptured: "Prompt nicht erfasst",
+    actorUnavailable: "Akteur nicht verfügbar",
+    replayDetails: "Replay- und Quelldetails",
+    sourceApp: "Quell-App",
+    route: "Erfasste Route",
+    recordingStarted: "Aufzeichnung gestartet",
+    appBandHeading: "{app} · {count} Sitzungen",
     journeyTitleSummary: "{app} · {from} bis {to} · {count} Sitzungen{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} bis {to} · getrennte Kohorten je App{partial}",
     sessionCount: "{count} Sitzungen",
     otherPaths: "Andere Pfade",
-    capturedDate: "Aufgenommen am {date}{examples}",
-    additionalExamples: " · {count} Beispiele",
     htmlLanguage: "de-DE",
   },
   composer: { menu: { integrations: "Integrationen" } },
@@ -277,6 +285,19 @@ export default {
       exportSvg: "SVG exportieren",
       actionsPrefill: "Prüfen und senden",
       retry: "Erneut versuchen",
+      currentDesign: "das aktuelle Design",
+      chooseDesign:
+        "ein Design (frag mich bei Bedarf, welches ich verwenden soll)",
+      importFramePrompt:
+        "Importiere diesen Figma-Frame in {{destination}} und nenne Inhalte, die nicht übernommen werden konnten: {{url}}",
+      importFilePrompt:
+        "Öffne diese Figma-Datei, liste die obersten Frames auf und frage mich, welchen Frame ich importieren soll: {{url}}",
+      inspectFramePrompt:
+        "Untersuche diesen Figma-Frame und fasse Struktur, Komponenten, Stile und wiederverwendbare Tokens zusammen: {{url}}",
+      inspectFilePrompt:
+        "Untersuche diese Figma-Datei und fasse Struktur, Komponenten, Stile und wiederverwendbare Tokens zusammen: {{url}}",
+      exportSvgPrompt:
+        "Exportiere den aktuellen Design-Bildschirm als SVG zur Verwendung in Figma und nenne die Teile, die zu statischem SVG-Inhalt werden.",
     },
   },
   common: {

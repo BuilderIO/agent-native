@@ -378,11 +378,9 @@ async function uploadImage(
   return { bytes, sha256, dataUrl };
 }
 
-// oracle: none — verifies upload transport and model payload, not visual/Figma parity.
 test("Design editor sidebar sends uploaded PNG bytes to model vision input", async ({
   page,
 }) => {
-  // oracle: none — environment gate for this transport test, not visual parity.
   test
     .info()
     .skip(
@@ -471,7 +469,6 @@ test("Design editor sidebar sends uploaded PNG bytes to model vision input", asy
   ).toBe(true);
 });
 
-// oracle: none — verifies invalid exact dimensions are shown in the real editor before a run starts.
 test("Design editor shows an error for invalid exact canvas dimensions", async ({
   page,
 }) => {
@@ -546,7 +543,6 @@ test("Design editor shows an error for invalid exact canvas dimensions", async (
   });
 });
 
-// oracle: none — verifies owned HTTPS image hydration to model input, not visual/Figma parity.
 test("Design chat hydrates a 2.3 MB HTTPS upload into model vision input", async ({
   page,
 }) => {
@@ -649,7 +645,6 @@ test("Design chat hydrates a 2.3 MB HTTPS upload into model vision input", async
   ).toBe(true);
 });
 
-// oracle: none — verifies durable resized-image hydration and model transport, not visual/Figma parity.
 test("Design editor hydrates a 6 MB PNG's resized durable URL into model vision input", async ({
   page,
 }) => {
@@ -767,7 +762,6 @@ test("Design editor hydrates a 6 MB PNG's resized durable URL into model vision 
   ).toBe(true);
 });
 
-// oracle: none — verifies client image preparation and model transport, not visual/Figma parity.
 test("Design editor downscales a 6 MB PNG for vision and retains the original upload", async ({
   page,
 }) => {
@@ -1044,11 +1038,9 @@ test("Design editor downscales a 6 MB PNG for vision and retains the original up
     });
 });
 
-// oracle: none — verifies same-thread edit persistence and tool results, not visual/Figma parity.
 test("Design editor sidebar applies a same-thread edit and persists it", async ({
   page,
 }) => {
-  // oracle: none — environment gate for this deterministic chat edit test, not visual parity.
   test.skip(
     process.env.E2E_AI_SIDEBAR_LOOPBACK !== "1",
     "requires E2E_AI_SIDEBAR_LOOPBACK=1",
@@ -1145,11 +1137,9 @@ test("Design editor sidebar applies a same-thread edit and persists it", async (
   );
 });
 
-// oracle: none — verifies EXIF-oriented image decoding and model transport, not visual/Figma parity.
 test("Design chat preserves EXIF-rotated JPEG dimensions and orientation", async ({
   page,
 }) => {
-  // oracle: none — verifies EXIF-oriented image decoding and model transport, not visual/Figma parity.
   test.skip(
     process.env.E2E_AI_SIDEBAR_LOOPBACK !== "1",
     "requires E2E_AI_SIDEBAR_LOOPBACK=1",

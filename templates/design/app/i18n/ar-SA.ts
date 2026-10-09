@@ -2,6 +2,8 @@ export default {
   journeyCanvas: {
     observedSessionReference: "مرجع الجلسة المرصودة",
     sessionsOfAll: "\u200f{count} جلسة · {percent} من الإجمالي",
+    sessionsOfAppRoot:
+      "\u200f{count} جلسة · {percent} من مجموعة {app} (n={rootCount})",
     sessionsOfPrevious: "\u200f{count} جلسة · {percent} من الخطوة السابقة",
     sessionsOfParent: "\u200f{count} جلسة · {percent} من {label}",
     sessionsOfStep: "\u200f{count} جلسة · {percent} من هذه الخطوة",
@@ -43,11 +45,17 @@ export default {
     promptSource: "المطالبة (المصدر)",
     source: "المصدر",
     promptNotCaptured: "لم تُلتقط المطالبة",
+    actorUnavailable: "الفاعل غير متاح",
+    replayDetails: "تفاصيل إعادة التشغيل والمصدر",
+    sourceApp: "تطبيق المصدر",
+    route: "المسار الملتقط",
+    recordingStarted: "بدأ التسجيل",
+    appBandHeading: "{app} · {count} جلسة",
     journeyTitleSummary: "{app} · من {from} إلى {to} · {count} جلسة{partial}",
+    journeyTitleAppBandsSummary:
+      "من {from} إلى {to} · مجموعات مستقلة لكل تطبيق{partial}",
     sessionCount: "\u200f{count} جلسة",
     otherPaths: "مسارات أخرى",
-    capturedDate: "تاريخ الالتقاط {date}{examples}",
-    additionalExamples: " · {count} أمثلة",
     htmlLanguage: "ar-SA",
   },
   composer: { menu: { integrations: "التكاملات" } },
@@ -270,6 +278,18 @@ export default {
       exportSvg: "تصدير SVG",
       actionsPrefill: "راجع ثم أرسل",
       retry: "إعادة المحاولة",
+      currentDesign: "تصميم Design الحالي",
+      chooseDesign: "تصميم (اسألني أي تصميم أستخدمه عند الحاجة)",
+      importFramePrompt:
+        "استورد إطار Figma هذا إلى {{destination}} وحدد المحتوى الذي تعذر على المستورد نقله: {{url}}",
+      importFilePrompt:
+        "افتح ملف Figma هذا، واعرض الإطارات العليا فيه، واسألني عن الإطار الذي أريد استيراده: {{url}}",
+      inspectFramePrompt:
+        "افحص إطار Figma هذا ولخص بنيته ومكوناته وأنماطه والرموز القابلة لإعادة الاستخدام: {{url}}",
+      inspectFilePrompt:
+        "افحص ملف Figma هذا ولخص بنيته ومكوناته وأنماطه والرموز القابلة لإعادة الاستخدام: {{url}}",
+      exportSvgPrompt:
+        "صدّر شاشة Design الحالية بصيغة SVG لاستخدامها في Figma وحدد الأجزاء التي ستصبح محتوى SVG ثابتًا.",
     },
   },
   common: {

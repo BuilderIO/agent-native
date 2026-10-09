@@ -2,6 +2,7 @@ export default {
   journeyCanvas: {
     observedSessionReference: "देखे गए सत्र का संदर्भ",
     sessionsOfAll: "{count} सत्र · कुल का {percent}",
+    sessionsOfAppRoot: "{count} सत्र · {app} समूह का {percent} (n={rootCount})",
     sessionsOfPrevious: "{count} सत्र · पिछले चरण का {percent}",
     sessionsOfParent: "{count} सत्र · {label} का {percent}",
     sessionsOfStep: "{count} सत्र · इस चरण का {percent}",
@@ -44,11 +45,17 @@ export default {
     promptSource: "Prompt (स्रोत)",
     source: "स्रोत",
     promptNotCaptured: "Prompt कैप्चर नहीं हुआ",
+    actorUnavailable: "कर्ता उपलब्ध नहीं",
+    replayDetails: "रीप्ले और स्रोत का विवरण",
+    sourceApp: "स्रोत ऐप",
+    route: "कैप्चर किया गया मार्ग",
+    recordingStarted: "रिकॉर्डिंग शुरू हुई",
+    appBandHeading: "{app} · {count} सत्र",
     journeyTitleSummary: "{app} · {from} से {to} · {count} सत्र{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} से {to} · ऐप के अनुसार अलग-अलग समूह{partial}",
     sessionCount: "{count} सत्र",
     otherPaths: "अन्य रास्ते",
-    capturedDate: "कैप्चर की तारीख {date}{examples}",
-    additionalExamples: " · {count} उदाहरण",
     htmlLanguage: "hi-IN",
   },
   composer: { menu: { integrations: "इंटीग्रेशन" } },
@@ -272,6 +279,18 @@ export default {
       exportSvg: "SVG export करें",
       actionsPrefill: "जाँचें, फिर भेजें",
       retry: "फिर कोशिश करें",
+      currentDesign: "मौजूदा Design",
+      chooseDesign: "एक Design (ज़रूरत हो तो पूछें कि कौन-सा Design इस्तेमाल करना है)",
+      importFramePrompt:
+        "इस Figma frame को {{destination}} में import करें और बताएँ कि importer कौन-सी सामग्री साथ नहीं ला सका: {{url}}",
+      importFilePrompt:
+        "यह Figma file खोलें, उसके शीर्ष-स्तर के frames की सूची दें, और पूछें कि कौन-सा frame import करना है: {{url}}",
+      inspectFramePrompt:
+        "इस Figma frame की संरचना, components, styles और दोबारा इस्तेमाल किए जा सकने वाले tokens का सार दें: {{url}}",
+      inspectFilePrompt:
+        "इस Figma file की संरचना, components, styles और दोबारा इस्तेमाल किए जा सकने वाले tokens का सार दें: {{url}}",
+      exportSvgPrompt:
+        "मौजूदा Design screen को Figma में इस्तेमाल के लिए SVG के रूप में export करें और बताएँ कि कौन-से हिस्से स्थिर SVG सामग्री बनेंगे।",
     },
   },
   common: {

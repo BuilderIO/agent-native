@@ -2,6 +2,8 @@ export default {
   journeyCanvas: {
     observedSessionReference: "已觀察工作階段參考",
     sessionsOfAll: "{count} 個工作階段 · 佔全部 {percent}",
+    sessionsOfAppRoot:
+      "{count} 個工作階段 · 佔 {app} 群組 {percent}（n={rootCount}）",
     sessionsOfPrevious: "{count} 個工作階段 · 佔上一步 {percent}",
     sessionsOfParent: "{count} 個工作階段 · 佔 {label} 的 {percent}",
     sessionsOfStep: "{count} 個工作階段 · 佔此步驟 {percent}",
@@ -42,11 +44,16 @@ export default {
     promptSource: "提示（來源）",
     source: "來源",
     promptNotCaptured: "未擷取提示",
+    actorUnavailable: "無法取得操作者",
+    replayDetails: "回放與來源詳細資料",
+    sourceApp: "來源應用程式",
+    route: "擷取時的路由",
+    recordingStarted: "錄製開始時間",
+    appBandHeading: "{app} · {count} 個工作階段",
     journeyTitleSummary: "{app} · {from} 至 {to} · {count} 個工作階段{partial}",
+    journeyTitleAppBandsSummary: "{from} 至 {to} · 各應用程式獨立群組{partial}",
     sessionCount: "{count} 個工作階段",
     otherPaths: "其他路徑",
-    capturedDate: "擷取日期 {date}{examples}",
-    additionalExamples: " · {count} 個範例",
     htmlLanguage: "zh-TW",
   },
   composer: { menu: { integrations: "整合" } },
@@ -355,6 +362,18 @@ export default {
       exportSvg: "匯出 SVG",
       actionsPrefill: "檢閱後再傳送",
       retry: "重試",
+      currentDesign: "目前的 Design",
+      chooseDesign: "一個 Design（需要時詢問我要使用哪個）",
+      importFramePrompt:
+        "將此 Figma 畫框匯入 {{destination}}，並指出匯入工具無法保留的內容：{{url}}",
+      importFilePrompt:
+        "開啟此 Figma 檔案、列出頂層畫框，並詢問我要匯入哪個畫框：{{url}}",
+      inspectFramePrompt:
+        "檢查此 Figma 畫框，並摘要其結構、元件、樣式與可重複使用的權杖：{{url}}",
+      inspectFilePrompt:
+        "檢查此 Figma 檔案，並摘要其結構、元件、樣式與可重複使用的權杖：{{url}}",
+      exportSvgPrompt:
+        "將目前的 Design 畫面匯出為可在 Figma 使用的 SVG，並指出哪些部分會成為靜態 SVG 內容。",
     },
   },
   common: {

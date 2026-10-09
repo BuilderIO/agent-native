@@ -2,6 +2,8 @@ export default {
   journeyCanvas: {
     observedSessionReference: "Referencia de sesión observada",
     sessionsOfAll: "{count} sesiones · {percent} del total",
+    sessionsOfAppRoot:
+      "{count} sesiones · {percent} de la cohorte de {app} (n={rootCount})",
     sessionsOfPrevious: "{count} sesiones · {percent} del paso anterior",
     sessionsOfParent: "{count} sesiones · {percent} de {label}",
     sessionsOfStep: "{count} sesiones · {percent} de este paso",
@@ -45,11 +47,17 @@ export default {
     promptSource: "Prompt (origen)",
     source: "Origen",
     promptNotCaptured: "No se capturó el prompt",
+    actorUnavailable: "Actor no disponible",
+    replayDetails: "Detalles de reproducción y origen",
+    sourceApp: "Aplicación de origen",
+    route: "Ruta capturada",
+    recordingStarted: "Grabación iniciada",
+    appBandHeading: "{app} · {count} sesiones",
     journeyTitleSummary: "{app} · {from} a {to} · {count} sesiones{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} a {to} · cohortes separadas por aplicación{partial}",
     sessionCount: "{count} sesiones",
     otherPaths: "Otras rutas",
-    capturedDate: "Capturado el {date}{examples}",
-    additionalExamples: " · {count} ejemplos",
     htmlLanguage: "es-ES",
   },
   composer: { menu: { integrations: "Integraciones" } },
@@ -276,6 +284,18 @@ export default {
       exportSvg: "Exportar SVG",
       actionsPrefill: "Revisa y envía",
       retry: "Reintentar",
+      currentDesign: "el Diseño actual",
+      chooseDesign: "un Diseño (pregúntame cuál usar si hace falta)",
+      importFramePrompt:
+        "Importa este marco de Figma en {{destination}} e indica qué contenido no pudo conservar el importador: {{url}}",
+      importFilePrompt:
+        "Abre este archivo de Figma, enumera sus marcos de nivel superior y pregúntame cuál quiero importar: {{url}}",
+      inspectFramePrompt:
+        "Inspecciona este marco de Figma y resume su estructura, componentes, estilos y tokens reutilizables: {{url}}",
+      inspectFilePrompt:
+        "Inspecciona este archivo de Figma y resume su estructura, componentes, estilos y tokens reutilizables: {{url}}",
+      exportSvgPrompt:
+        "Exporta la pantalla de Design actual como SVG para usarla en Figma e indica qué partes pasan a ser contenido SVG estático.",
     },
   },
   common: {

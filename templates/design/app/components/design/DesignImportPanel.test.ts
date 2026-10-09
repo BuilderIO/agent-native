@@ -140,7 +140,7 @@ describe("DesignImportPanel quota attribution", () => {
     "utf8",
   );
 
-  it("renders Design-sourced cooldown copy instead of Figma rate-limit copy", () => {
+  it("renders the Design cooldown message", () => {
     expect(source).toContain('figmaRateLimitError.quotaSource === "design"');
     expect(source).toContain("designEditor.import.quotaCooldownTitle");
     expect(source).toContain("designEditor.import.quotaCooldownBody");

@@ -284,7 +284,7 @@ async function drawClosedTriangle(page: Page, designId: string) {
   return { centroid: { x: card.x + 127, y: card.y + 207 } };
 }
 
-test("a closed pen path starts with a stroke and no fill, like Figma", async ({
+test("a closed pen path starts with a stroke and no fill", async ({
   page,
   request,
 }) => {

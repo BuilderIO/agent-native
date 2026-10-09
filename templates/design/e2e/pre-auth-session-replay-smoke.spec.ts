@@ -108,11 +108,11 @@ function watchPage(page: Page, baseURL: string) {
   };
 }
 
-// oracle: none — verifies payload privacy and auth continuity, not Design parity.
+// Coverage is limited to payload privacy and auth continuity.
 test("pre-auth recording stays anonymous through signup and masks abandonment", async ({
   browser,
 }, testInfo) => {
-  // oracle: none — the isolated auth setup is a payload test precondition, not visual parity.
+  // The isolated auth setup is a payload-test precondition.
   test.skip(
     process.env.E2E_DISABLE_AUTO_DEV_ACCOUNT !== "1",
     "Requires the isolated signup and replay setup enabled by E2E_DISABLE_AUTO_DEV_ACCOUNT=1.",

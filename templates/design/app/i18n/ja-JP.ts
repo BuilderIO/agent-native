@@ -2,6 +2,8 @@ export default {
   journeyCanvas: {
     observedSessionReference: "観測されたセッションの参照",
     sessionsOfAll: "{count} セッション · 全体の {percent}",
+    sessionsOfAppRoot:
+      "{count} セッション · {app} コホートの {percent}（n={rootCount}）",
     sessionsOfPrevious: "{count} セッション · 前のステップの {percent}",
     sessionsOfParent: "{count} セッション · {label} の {percent}",
     sessionsOfStep: "{count} セッション · このステップの {percent}",
@@ -43,12 +45,18 @@ export default {
     promptSource: "プロンプト（元の言語）",
     source: "情報源",
     promptNotCaptured: "プロンプト未取得",
+    actorUnavailable: "実行者情報なし",
+    replayDetails: "リプレイとソースの詳細",
+    sourceApp: "ソースアプリ",
+    route: "キャプチャ時のルート",
+    recordingStarted: "録画開始時刻",
+    appBandHeading: "{app} · {count} セッション",
     journeyTitleSummary:
       "{app} · {from} から {to} · {count} セッション{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} から {to} · アプリごとの別コホート{partial}",
     sessionCount: "{count} セッション",
     otherPaths: "その他の経路",
-    capturedDate: "取得日 {date}{examples}",
-    additionalExamples: " · {count} 件の例",
     htmlLanguage: "ja-JP",
   },
   composer: { menu: { integrations: "連携" } },
@@ -278,6 +286,19 @@ export default {
       exportSvg: "SVG をエクスポート",
       actionsPrefill: "確認して送信",
       retry: "再試行",
+      currentDesign: "現在のDesign",
+      chooseDesign:
+        "Design（必要であれば、どのDesignを使うか質問してください）",
+      importFramePrompt:
+        "このFigmaフレームを{{destination}}にインポートし、取り込めなかった内容を示してください: {{url}}",
+      importFilePrompt:
+        "このFigmaファイルを開き、最上位のフレームを一覧にして、どのフレームをインポートするか質問してください: {{url}}",
+      inspectFramePrompt:
+        "このFigmaフレームの構造、コンポーネント、スタイル、再利用可能なトークンを要約してください: {{url}}",
+      inspectFilePrompt:
+        "このFigmaファイルの構造、コンポーネント、スタイル、再利用可能なトークンを要約してください: {{url}}",
+      exportSvgPrompt:
+        "現在のDesign画面をFigmaで使うSVGとしてエクスポートし、静的なSVGコンテンツになる部分を示してください。",
     },
   },
   common: {

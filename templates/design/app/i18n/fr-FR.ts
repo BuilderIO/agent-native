@@ -2,6 +2,8 @@ export default {
   journeyCanvas: {
     observedSessionReference: "Référence de session observée",
     sessionsOfAll: "{count} sessions · {percent} du total",
+    sessionsOfAppRoot:
+      "{count} sessions · {percent} de la cohorte {app} (n={rootCount})",
     sessionsOfPrevious: "{count} sessions · {percent} de l’étape précédente",
     sessionsOfParent: "{count} sessions · {percent} de {label}",
     sessionsOfStep: "{count} sessions · {percent} de cette étape",
@@ -44,12 +46,18 @@ export default {
     promptSource: "Prompt (source)",
     source: "Source",
     promptNotCaptured: "Prompt non capturé",
+    actorUnavailable: "Acteur indisponible",
+    replayDetails: "Détails de relecture et de source",
+    sourceApp: "Application source",
+    route: "Route capturée",
+    recordingStarted: "Début de l’enregistrement",
+    appBandHeading: "{app} · {count} sessions",
     journeyTitleSummary:
       "{app} · du {from} au {to} · {count} sessions{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} au {to} · cohortes distinctes par application{partial}",
     sessionCount: "{count} sessions",
     otherPaths: "Autres parcours",
-    capturedDate: "Capturé le {date}{examples}",
-    additionalExamples: " · {count} exemples",
     htmlLanguage: "fr-FR",
   },
   composer: { menu: { integrations: "Intégrations" } },
@@ -277,6 +285,18 @@ export default {
       exportSvg: "Exporter SVG",
       actionsPrefill: "Vérifiez puis envoyez",
       retry: "Réessayer",
+      currentDesign: "le Design actuel",
+      chooseDesign: "un Design (demandez-moi lequel utiliser si nécessaire)",
+      importFramePrompt:
+        "Importez cette frame Figma dans {{destination}} et indiquez les éléments que l’importateur n’a pas pu conserver : {{url}}",
+      importFilePrompt:
+        "Ouvrez ce fichier Figma, listez ses frames de premier niveau et demandez-moi laquelle importer : {{url}}",
+      inspectFramePrompt:
+        "Inspectez cette frame Figma et résumez sa structure, ses composants, ses styles et ses jetons réutilisables : {{url}}",
+      inspectFilePrompt:
+        "Inspectez ce fichier Figma et résumez sa structure, ses composants, ses styles et ses jetons réutilisables : {{url}}",
+      exportSvgPrompt:
+        "Exportez l’écran Design actuel en SVG pour l’utiliser dans Figma et indiquez quelles parties deviennent du contenu SVG statique.",
     },
   },
   common: {

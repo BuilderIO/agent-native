@@ -305,8 +305,8 @@ export function runScreenElementSelect(
   // stamp. Fixing that requires the code-layer projection itself to
   // model `<template>` repeater children as selectable/attributable
   // nodes, which is out of scope for this selection-time fix.
-  // Figma spec §1: Shift+click is the only additive (union) click gesture.
-  // Cmd/Ctrl+click alone deep-selects and REPLACES, same as a plain click —
+  // Shift+click is the additive (union) click gesture. Cmd/Ctrl+click alone
+  // deep-selects and REPLACES, same as a plain click —
   // it must not be OR'd in here, or a deep-selected child gets unioned onto
   // the container it was cycled out of instead of replacing it.
   const additiveSelection = Boolean(
