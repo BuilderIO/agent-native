@@ -1,7 +1,13 @@
+import fs from "node:fs";
+
 import { defineConfig, type Config } from "drizzle-kit";
 
 import { getAppConfig } from "../app-config/index.js";
-import { getIsolatedTestDatabaseUrl } from "./client.js";
+import {
+  getIsolatedTestDatabaseUrl,
+  isProcessAlive,
+  pgliteProcessLockPath,
+} from "./client.js";
 
 export interface CreateDrizzleConfigOptions {
   schema?: string;
@@ -21,6 +27,43 @@ function isDrizzlePushInvocation(): boolean {
     ""
   ).toLowerCase();
   return /\bdrizzle-kit\s+push\b/.test(lifecycleScript);
+}
+
+function isPgliteExclusiveDrizzleInvocation(): boolean {
+  const exclusive = new Set(["migrate", "push", "studio", "pull"]);
+  const argv = process.argv.map((a) => a.toLowerCase());
+  const bin = argv.findIndex((a) => /\bdrizzle-kit\b/.test(a));
+  if (bin !== -1) {
+    const subcommand = argv.slice(bin + 1).find((a) => !a.startsWith("-"));
+    if (subcommand && exclusive.has(subcommand)) return true;
+  }
+  const lifecycleScript = (
+    process.env.npm_lifecycle_script ||
+    process.env.npm_lifecycle_event ||
+    ""
+  ).toLowerCase();
+  return /\bdrizzle-kit\s+(?:migrate|push|studio|pull)\b/.test(lifecycleScript);
+}
+
+function assertPgliteNotOpenInAnotherProcess(dataDir: string): void {
+  if (dataDir === "memory://") return;
+  let owner: unknown;
+  try {
+    owner = JSON.parse(fs.readFileSync(pgliteProcessLockPath(dataDir), "utf8"));
+  } catch {
+    // coercion-ok: no readable lock file means no dev server is holding the
+    // directory; PGlite's own lock check still reports a real conflict.
+    return;
+  }
+  const pid = (owner as { pid?: unknown } | null)?.pid;
+  if (typeof pid !== "number" || pid === process.pid || !isProcessAlive(pid)) {
+    return;
+  }
+  throw new Error(
+    `PGlite database directory "${dataDir}" is open in the running dev server (pid ${pid}). ` +
+      "Running drizzle-kit against it from another process corrupts it. " +
+      "Use `agent-native db-migrate` (the starter's `pnpm db:migrate`), which applies migrations through the dev server, or stop the dev server first.",
+  );
 }
 
 function isNeonUrl(url: string): boolean {
@@ -93,6 +136,9 @@ export function createDrizzleConfig(
   }
 
   const isPglite = url.toLowerCase().startsWith("pglite:");
+  if (isPglite && isPgliteExclusiveDrizzleInvocation()) {
+    assertPgliteNotOpenInAnotherProcess(pgliteDataDirFromUrl(url));
+  }
   return defineConfig({
     schema,
     out,
