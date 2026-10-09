@@ -6,8 +6,10 @@ import {
   appBasePath,
   appMountPath,
   appMountedPath,
+  appPath,
   configureClientRouterBasename,
   isWorkspaceAppPath,
+  WorkspaceAppMountResolutionError,
 } from "./api-path.js";
 
 const SETTINGS = "/settings";
@@ -17,6 +19,24 @@ describe("appMountPath", () => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
+  });
+
+  it("imports org hooks before workspace mount metadata is available", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubGlobal("window", {
+      location: { pathname: "/dispatch/settings" },
+    });
+    vi.resetModules();
+    vi.doMock("./use-action.js", () => ({
+      useActionMutation: vi.fn(),
+      useActionQuery: vi.fn(),
+    }));
+
+    try {
+      await expect(import("./org/hooks.js")).resolves.toBeDefined();
+    } finally {
+      vi.doUnmock("./use-action.js");
+    }
   });
 
   it("uses the projected current mount when the workspace manifest omits it", () => {
@@ -111,6 +131,9 @@ describe("appMountPath", () => {
     expect(() => appMountPath("/home")).toThrow(
       "Cannot resolve workspace app mount path because the current URL matches no projected mount.",
     );
+    expect(() => agentNativePath("/_agent-native/auth/session")).toThrow(
+      WorkspaceAppMountResolutionError,
+    );
   });
 
   it("fails when a workspace mount has no positive path metadata", () => {
@@ -131,6 +154,20 @@ describe("appMountPath", () => {
     );
     expect(() => appMountPath("/")).toThrow(
       "Cannot resolve workspace app mount path without explicit mount metadata.",
+    );
+    expect(() => appBasePath()).toThrow(WorkspaceAppMountResolutionError);
+    expect(() => appMountPath("/")).toThrow(WorkspaceAppMountResolutionError);
+    expect(() => appMountedPath("/settings/account", "/")).toThrow(
+      WorkspaceAppMountResolutionError,
+    );
+    expect(() => appPath("/settings/account")).toThrow(
+      WorkspaceAppMountResolutionError,
+    );
+    expect(() => appApiPath("/health")).toThrow(
+      WorkspaceAppMountResolutionError,
+    );
+    expect(() => agentNativePath("/_agent-native/auth/session")).toThrow(
+      WorkspaceAppMountResolutionError,
     );
   });
 
@@ -187,6 +224,15 @@ describe("appMountPath", () => {
 
     expect(() => appBasePath()).toThrow(
       "Cannot resolve workspace app mount path because the current URL matches no projected mount.",
+    );
+    expect(() => appPath("/settings/account")).toThrow(
+      WorkspaceAppMountResolutionError,
+    );
+    expect(() => appApiPath("/api/health")).toThrow(
+      WorkspaceAppMountResolutionError,
+    );
+    expect(() => agentNativePath("/_agent-native/auth/session")).toThrow(
+      WorkspaceAppMountResolutionError,
     );
   });
 

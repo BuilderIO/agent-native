@@ -1,4 +1,5 @@
 import {
+  WorkspaceAppMountResolutionError,
   agentNativePath,
   appMountedPath,
 } from "@agent-native/core/client/api-path";
@@ -65,16 +66,25 @@ interface ProviderStatus {
   native?: true;
 }
 
-const PREFS_URL = agentNativePath(
-  "/_agent-native/application-state/voice-transcription-prefs",
-);
-const CLEANUP_PREFS_URL = agentNativePath(
-  "/_agent-native/application-state/voice-cleanup-prefs",
-);
-const SECRETS_URL = agentNativePath("/_agent-native/secrets");
-const PROVIDER_STATUS_URL = agentNativePath(
-  "/_agent-native/voice-providers/status",
-);
+function transcriptionPrefsUrl(): string {
+  return agentNativePath(
+    "/_agent-native/application-state/voice-transcription-prefs",
+  );
+}
+
+function cleanupPrefsUrl(): string {
+  return agentNativePath(
+    "/_agent-native/application-state/voice-cleanup-prefs",
+  );
+}
+
+function secretsUrl(): string {
+  return agentNativePath("/_agent-native/secrets");
+}
+
+function providerStatusUrl(): string {
+  return agentNativePath("/_agent-native/voice-providers/status");
+}
 const DEFAULT_TRANSCRIPTION_MODE: TranscriptionMode = "batch";
 const DEFAULT_BATCH_PROVIDER: Provider = "auto";
 
@@ -168,7 +178,7 @@ export function VoiceTranscriptionSection({
 
   useEffect(() => {
     let cancelled = false;
-    fetch(CLEANUP_PREFS_URL)
+    fetch(cleanupPrefsUrl())
       .then((r) => (r.ok ? r.json() : null))
       .then(
         (
@@ -199,10 +209,11 @@ export function VoiceTranscriptionSection({
   }, [builderStatus?.configured, cleanupEnabled]);
 
   const toggleCleanup = async (next: boolean) => {
+    const url = cleanupPrefsUrl();
     const previous = cleanupEnabled;
     setCleanupEnabled(next);
     try {
-      const res = await fetch(CLEANUP_PREFS_URL, {
+      const res = await fetch(url, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: next }),
@@ -217,7 +228,7 @@ export function VoiceTranscriptionSection({
 
   useEffect(() => {
     let cancelled = false;
-    fetch(PREFS_URL)
+    fetch(transcriptionPrefsUrl())
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         // A key that was never saved comes back as an empty 200.
@@ -261,7 +272,7 @@ export function VoiceTranscriptionSection({
 
   useEffect(() => {
     let cancelled = false;
-    fetch(PROVIDER_STATUS_URL)
+    fetch(providerStatusUrl())
       .then((r) => (r.ok ? r.json() : null))
       .then((status: ProviderStatus | null) => {
         if (cancelled) return;
@@ -272,7 +283,7 @@ export function VoiceTranscriptionSection({
           setGoogleRealtimeConfigured(!!status.googleRealtime);
           return;
         }
-        return fetch(SECRETS_URL)
+        return fetch(secretsUrl())
           .then((r) => (r.ok ? r.json() : []))
           .then((list: SecretStatus[]) => {
             if (cancelled) return;
@@ -286,7 +297,8 @@ export function VoiceTranscriptionSection({
             );
           });
       })
-      .catch(() => {
+      .catch((error) => {
+        if (error instanceof WorkspaceAppMountResolutionError) throw error;
         if (!cancelled) {
           setOpenAiConfigured(false);
           setGeminiConfigured(false);
@@ -310,10 +322,11 @@ export function VoiceTranscriptionSection({
         instructions: string;
       },
     ) => {
+      const url = transcriptionPrefsUrl();
       setSaving(true);
       setSaveError(null);
       try {
-        const res = await fetch(PREFS_URL, {
+        const res = await fetch(url, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

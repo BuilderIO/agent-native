@@ -47,8 +47,11 @@ const SOURCE_LABEL_KEY: Record<Exclude<SecretSource, "personal">, string> = {
 const OUTLINE_LINK_CLASSNAME =
   "inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] no-underline text-muted-foreground hover:text-foreground";
 
-const ENDPOINT = agentNativePath("/_agent-native/secrets");
 const SECRETS_REQUEST_TIMEOUT_MS = 15_000;
+
+function secretsEndpoint(): string {
+  return agentNativePath("/_agent-native/secrets");
+}
 
 function hasValueInEffect(secret: SecretStatus): boolean {
   return secret.status === "set" || secret.status === "invalid";
@@ -375,11 +378,14 @@ function SecretCard({
     if (!value.trim() || busy) return;
     setBusy("save");
     try {
-      const res = await fetch(`${ENDPOINT}/${encodeURIComponent(secret.key)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: value.trim() }),
-      });
+      const res = await fetch(
+        `${secretsEndpoint()}/${encodeURIComponent(secret.key)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: value.trim() }),
+        },
+      );
       if (!res.ok) {
         const err = await res
           .json()
@@ -403,10 +409,13 @@ function SecretCard({
     if (busy) return;
     setBusy("delete");
     try {
-      const res = await fetch(`${ENDPOINT}/${encodeURIComponent(secret.key)}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-      });
+      const res = await fetch(
+        `${secretsEndpoint()}/${encodeURIComponent(secret.key)}`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+        },
+      );
       if (!res.ok) {
         const err = await res
           .json()
@@ -430,7 +439,7 @@ function SecretCard({
     setBusy(isCandidate ? "test-candidate" : "test");
     try {
       const res = await fetch(
-        `${ENDPOINT}/${encodeURIComponent(secret.key)}/test`,
+        `${secretsEndpoint()}/${encodeURIComponent(secret.key)}/test`,
         {
           method: "POST",
           ...(isCandidate
@@ -840,7 +849,9 @@ interface AdHocKey {
   managedBy?: { id: string; owner: string; route: string };
 }
 
-const ADHOC_ENDPOINT = agentNativePath("/_agent-native/secrets/adhoc");
+function adHocSecretsEndpoint(): string {
+  return agentNativePath("/_agent-native/secrets/adhoc");
+}
 
 /** One name can be listed once per scope, so rows are told apart by both. */
 function adHocKeyId(key: AdHocKey): string {
@@ -905,7 +916,7 @@ function AdHocKeysSection({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch(ADHOC_ENDPOINT)
+    fetch(adHocSecretsEndpoint())
       .then(async (r) => {
         if (!r.ok) throw new Error(`Failed to load (${r.status})`);
         return (await r.json()) as AdHocKey[];
@@ -940,10 +951,11 @@ function AdHocKeysSection({
     const name = formName.trim();
     const value = formValue.trim();
     if (!name || !value || !formScope || formBusy) return;
+    const endpoint = adHocSecretsEndpoint();
     setFormBusy(true);
     setFormError(null);
     try {
-      const res = await fetch(ADHOC_ENDPOINT, {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -986,7 +998,7 @@ function AdHocKeysSection({
       setDeletingId(adHocKeyId(key));
       try {
         const res = await fetch(
-          `${ADHOC_ENDPOINT}/${encodeURIComponent(key.name)}?scope=${key.scope}`,
+          `${adHocSecretsEndpoint()}/${encodeURIComponent(key.name)}?scope=${key.scope}`,
           {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
