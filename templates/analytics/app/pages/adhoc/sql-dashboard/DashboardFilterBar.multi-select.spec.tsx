@@ -218,6 +218,19 @@ describe("multi-select dashboard filter", () => {
     expect(trigger().textContent).toContain("legacy, Self-Serve, Free");
   });
 
+  it("keeps unknown URL values when toggling configured options", () => {
+    render("/dashboards/test?f_plan=legacy,self_serve");
+    act(() => trigger().click());
+    act(() => optionCheckbox("Free").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe(
+      "legacy,self_serve,free",
+    );
+    act(() => optionCheckbox("Self-Serve").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe("legacy,free");
+  });
+
   it("limits the selection to one option from its Only action", () => {
     render("/dashboards/test?f_plan=free,self_serve");
     act(() => trigger().click());
@@ -240,5 +253,8 @@ describe("multi-select dashboard filter", () => {
 
     setSearchQuery("not a value");
     expect(popover().textContent).toContain("No values found");
+    const status = popover().querySelector('[role="status"]');
+    expect(status?.tagName).toBe("DIV");
+    expect(status?.closest("ul")).toBeNull();
   });
 });

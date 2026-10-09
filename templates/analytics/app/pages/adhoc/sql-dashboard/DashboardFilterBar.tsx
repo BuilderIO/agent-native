@@ -444,13 +444,9 @@ function MultiSelectFilter({
     );
   const toggle = (optionValue: string, checked: boolean) =>
     setSelected(
-      options
-        .filter((option) =>
-          option.value === optionValue
-            ? checked
-            : selectedSet.has(option.value),
-        )
-        .map((option) => option.value),
+      checked
+        ? Array.from(new Set([...selected, optionValue]))
+        : selected.filter((value) => value !== optionValue),
     );
 
   return (
@@ -512,33 +508,35 @@ function MultiSelectFilter({
               </Button>
             )}
           </div>
-          <ul
-            id={optionsListId}
-            aria-label={filter.label}
-            className="max-h-60 list-none overflow-y-auto p-1"
-          >
-            {filteredOptions.map((option) => (
-              <MultiSelectOption
-                key={option.value}
-                label={option.label}
-                checked={selectedSet.has(option.value)}
-                onCheckedChange={(checked) => toggle(option.value, checked)}
-                onOnly={() => setSelected([option.value])}
-                onlyLabel={t("sqlDashboard.selectOnly")}
-                onlyAriaLabel={t("sqlDashboard.selectOnlyValue", {
-                  value: option.label,
-                })}
-              />
-            ))}
-            {filteredOptions.length === 0 && (
-              <li
+          <div id={optionsListId}>
+            {filteredOptions.length > 0 ? (
+              <ul
+                aria-label={filter.label}
+                className="max-h-60 list-none overflow-y-auto p-1"
+              >
+                {filteredOptions.map((option) => (
+                  <MultiSelectOption
+                    key={option.value}
+                    label={option.label}
+                    checked={selectedSet.has(option.value)}
+                    onCheckedChange={(checked) => toggle(option.value, checked)}
+                    onOnly={() => setSelected([option.value])}
+                    onlyLabel={t("sqlDashboard.selectOnly")}
+                    onlyAriaLabel={t("sqlDashboard.selectOnlyValue", {
+                      value: option.label,
+                    })}
+                  />
+                ))}
+              </ul>
+            ) : (
+              <div
                 role="status"
                 className="px-2 py-4 text-center text-xs text-muted-foreground"
               >
                 {t("sqlDashboard.noValuesFound")}
-              </li>
+              </div>
             )}
-          </ul>
+          </div>
         </PopoverContent>
       </Popover>
     </div>
