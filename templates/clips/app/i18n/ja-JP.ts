@@ -1543,6 +1543,8 @@ const messages = {
     saveFailed: "チャプターを保存できませんでした",
     changedElsewhere:
       "チャプターが別の場所で変更されたため、最後の変更は保存されませんでした。",
+    unreadable:
+      "保存済みのチャプターの一部を読み取れないため、ここでは変更を保存できません。エージェントにチャプターの置き換えを依頼してください。",
     duplicateAtPoint: "この位置にはすでにチャプターがあります",
     defaultTitle: "チャプター {{count}}",
     seekTo: "{{time}} に移動",

@@ -1567,6 +1567,8 @@ const messages = {
     saveFailed: "Kapitel konnten nicht gespeichert werden",
     changedElsewhere:
       "Die Kapitel wurden an anderer Stelle geändert, daher wurde deine letzte Änderung nicht gespeichert.",
+    unreadable:
+      "Einige gespeicherte Kapitel können nicht gelesen werden, daher lassen sich Änderungen hier nicht speichern. Bitte den Agenten, die Kapitel zu ersetzen.",
     duplicateAtPoint: "An dieser Stelle gibt es bereits ein Kapitel",
     defaultTitle: "Kapitel {{count}}",
     seekTo: "Zu {{time}} springen",

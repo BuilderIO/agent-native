@@ -170,6 +170,8 @@ describe("set-chapters", () => {
   it.each([
     ["JSON that doesn't parse", '[{"startMs":0,'],
     ["a double-encoded list", JSON.stringify(JSON.stringify([intro]))],
+    ["a time too large to show", '[{"startMs":1e999,"title":"Far"}]'],
+    ["a time too large to save", '[{"startMs":1e300,"title":"Far"}]'],
   ])("refuses a guarded save over stored %s", async (_, chaptersJson) => {
     stored.chaptersJson = chaptersJson;
     await expect(

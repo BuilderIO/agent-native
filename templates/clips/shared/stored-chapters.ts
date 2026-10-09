@@ -7,6 +7,21 @@ export const CHAPTERS_UNREADABLE = "chapters_unreadable";
 
 export type StoredChapter = { startMs: number; title: string };
 
+/** set-chapters only takes whole, non-negative milliseconds. */
+export function storableMs(ms: number): number {
+  return Math.max(0, Math.round(ms));
+}
+
+/** How a chapter save failed, for the message the editor shows. */
+export function chapterSaveFailure(
+  err: unknown,
+): "changed" | "unreadable" | "failed" {
+  const code = (err as { errorCode?: unknown } | null)?.errorCode;
+  if (code === CHAPTERS_CHANGED) return "changed";
+  if (code === CHAPTERS_UNREADABLE) return "unreadable";
+  return "failed";
+}
+
 /**
  * A recording's chapters as the player shows them, and whether the stored
  * value held anything that can't be shown that way: JSON that doesn't
@@ -28,11 +43,17 @@ export function readStoredChapters(chaptersJson: string | null | undefined): {
   if (!Array.isArray(parsed)) return { chapters: [], unreadable: true };
   const chapters = parsed
     .filter(
-      (c: any) =>
-        typeof c?.startMs === "number" && typeof c?.title === "string",
+      (c: any) => Number.isFinite(c?.startMs) && typeof c?.title === "string",
     )
     .map((c: any) => ({ startMs: c.startMs, title: c.title }));
-  return { chapters, unreadable: chapters.length !== parsed.length };
+  return {
+    chapters,
+    // A time no save could keep (1e300, say) counts too: every edit would
+    // otherwise fail without saying why.
+    unreadable:
+      chapters.length !== parsed.length ||
+      chapters.some((c) => !Number.isSafeInteger(storableMs(c.startMs))),
+  };
 }
 
 /** The chapters readStoredChapters can show. */

@@ -1457,6 +1457,8 @@ const messages = {
     saveFailed: "Failed to save chapters",
     changedElsewhere:
       "Chapters were changed elsewhere, so your last change wasn't saved.",
+    unreadable:
+      "Some saved chapters can't be read, so changes can't be saved here. Ask the agent to replace the chapters.",
     duplicateAtPoint: "A chapter already exists at this point",
     defaultTitle: "Chapter {{count}}",
     seekTo: "Seek to {{time}}",

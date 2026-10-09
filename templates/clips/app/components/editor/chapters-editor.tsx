@@ -3,7 +3,9 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   CHAPTERS_BUSY,
   CHAPTERS_CHANGED,
+  chapterSaveFailure,
   sameChapters,
+  storableMs,
 } from "@shared/stored-chapters";
 import { IconBookmarks, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -51,6 +53,12 @@ function rowsFor(list: readonly Chapter[], before: readonly Row[]): Row[] {
     id: exact[i] ?? claim((r) => r.startMs === c.startMs) ?? ++lastRowId,
   }));
 }
+
+const FAILURE_MESSAGE = {
+  changed: "chapters.changedElsewhere",
+  unreadable: "chapters.unreadable",
+  failed: "chapters.saveFailed",
+} as const;
 
 export interface ChaptersEditorProps {
   recordingId: string;
@@ -147,9 +155,7 @@ export function ChaptersEditor({
       });
       // The hook's error text is English and for developers.
       console.error("[clips] set-chapters failed", failure);
-      toast.error(
-        t(changed ? "chapters.changedElsewhere" : "chapters.saveFailed"),
-      );
+      toast.error(t(FAILURE_MESSAGE[chapterSaveFailure(failure)]));
     }
 
     return send();
@@ -157,8 +163,9 @@ export function ChaptersEditor({
 
   const commit = (next: Row[]) => {
     show(next);
+    // set-chapters takes whole ms; a stored time may not be one.
     unsentRef.current = next.map((r) => ({
-      startMs: r.startMs,
+      startMs: storableMs(r.startMs),
       title: r.title,
     }));
     if (debounceRef.current) clearTimeout(debounceRef.current);

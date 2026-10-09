@@ -345,6 +345,29 @@ describe("ChaptersEditor saves", () => {
     expect(mocks.toastError).toHaveBeenCalledWith("chapters.changedElsewhere");
   });
 
+  it("sends whole milliseconds when a stored time isn't one", async () => {
+    render([{ startMs: 12_500.5, title: "Odd" }]);
+    type(0, "Even");
+    await settle();
+    expect(mocks.save.mock.calls[0][0]).toMatchObject({
+      chapters: [{ startMs: 12_501, title: "Even" }],
+      expectedChapters: [{ startMs: 12_500.5, title: "Odd" }],
+    });
+  });
+
+  it("says what to do when the stored chapters can't be read", async () => {
+    mocks.save.mockRejectedValueOnce(
+      Object.assign(new Error("unreadable"), {
+        errorCode: "chapters_unreadable",
+      }),
+    );
+    render([intro]);
+    type(0, "Opening");
+    await settle();
+    expect(mocks.toastError).toHaveBeenCalledWith("chapters.unreadable");
+    expect(titles()).toEqual(["Intro"]);
+  });
+
   it("saves the title being typed when the panel closes", async () => {
     render([intro]);
     focus(0);

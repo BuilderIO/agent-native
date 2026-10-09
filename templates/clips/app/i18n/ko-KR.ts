@@ -1523,6 +1523,8 @@ const messages = {
     saveFailed: "챕터를 저장하지 못했습니다",
     changedElsewhere:
       "챕터가 다른 곳에서 변경되어 마지막 변경 사항이 저장되지 않았습니다.",
+    unreadable:
+      "저장된 일부 챕터를 읽을 수 없어 여기서는 변경 사항을 저장할 수 없습니다. 에이전트에게 챕터를 교체해 달라고 요청하세요.",
     duplicateAtPoint: "이 위치에 이미 챕터가 있습니다",
     defaultTitle: "챕터 {{count}}",
     seekTo: "{{time}}(으)로 이동",

@@ -1554,6 +1554,8 @@ const messages = {
     saveFailed: "Não foi possível salvar os capítulos",
     changedElsewhere:
       "Os capítulos foram alterados em outro lugar, então sua última alteração não foi salva.",
+    unreadable:
+      "Alguns capítulos salvos não podem ser lidos, então as alterações não podem ser salvas aqui. Peça ao agente para substituir os capítulos.",
     duplicateAtPoint: "Já existe um capítulo neste ponto",
     defaultTitle: "Capítulo {{count}}",
     seekTo: "Ir para {{time}}",

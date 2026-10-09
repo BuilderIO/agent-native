@@ -21,9 +21,10 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  CHAPTERS_CHANGED,
+  chapterSaveFailure,
   sameChapters,
   sameCuts,
+  storableMs,
 } from "@shared/stored-chapters";
 import { IconPencil, IconPlus } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -179,11 +180,6 @@ function visibleChapters(
     .sort((a, b) => a.editedMs - b.editedMs);
 }
 
-/** set-chapters only takes whole, non-negative milliseconds. */
-function storable(ms: number): number {
-  return Math.max(0, Math.round(ms));
-}
-
 /**
  * Turn the parsed text back into stored chapters. A line whose time the
  * user didn't change keeps its chapter's exact stored time (the box shows
@@ -224,13 +220,19 @@ export function chaptersToSave(
     const startMs = match
       ? match.chapter.startMs
       : editedToOriginal(line.startMs, edits);
-    return { startMs: storable(startMs), title: line.title };
+    return { startMs: storableMs(startMs), title: line.title };
   });
   const hidden = before
     .filter((c) => Number.isFinite(c.startMs) && isExcluded(c.startMs, edits))
-    .map((c) => ({ startMs: storable(c.startMs), title: c.title }));
+    .map((c) => ({ startMs: storableMs(c.startMs), title: c.title }));
   return [...saved, ...hidden].sort((a, b) => a.startMs - b.startMs);
 }
+
+const FAILURE_MESSAGE = {
+  changed: "chapterList.changedWhileEditing",
+  unreadable: "chapters.unreadable",
+  failed: "chapters.saveFailed",
+} as const;
 
 interface ChapterListProps {
   recordingId: string;
@@ -363,7 +365,7 @@ function EditableChapterList({
   const [failedSave, setFailedSave] = useState<{
     draft: string;
     from: { chapters: Chapter[]; cuts: CutRange[]; draft: string | null };
-    changed: boolean;
+    failure: "changed" | "unreadable" | "failed";
   } | null>(null);
   const mutation = useActionMutation("set-chapters");
   const queryClient = useQueryClient();
@@ -395,15 +397,7 @@ function EditableChapterList({
       .join("\n");
     setDraft(failedSave?.draft ?? fresh);
     setEditingFrom(failedSave?.from ?? { chapters: shown, cuts, draft: fresh });
-    setError(
-      failedSave
-        ? t(
-            failedSave.changed
-              ? "chapterList.changedWhileEditing"
-              : "chapters.saveFailed",
-          )
-        : null,
-    );
+    setError(failedSave ? t(FAILURE_MESSAGE[failedSave.failure]) : null);
     setFailedSave(null);
     setMode("edit");
   };
@@ -482,7 +476,8 @@ function EditableChapterList({
             errorCode?: unknown;
             details?: { chapters?: unknown; cuts?: unknown };
           } | null;
-          const changed = refusal?.errorCode === CHAPTERS_CHANGED;
+          const failure = chapterSaveFailure(err);
+          const changed = failure === "changed";
           const server =
             changed &&
             Array.isArray(refusal?.details?.chapters) &&
@@ -498,7 +493,7 @@ function EditableChapterList({
           setFailedSave({
             draft: draftBeforeSave,
             from: server ? { ...server, draft: null } : from,
-            changed,
+            failure,
           });
           if (changed) {
             void queryClient.invalidateQueries({
@@ -511,13 +506,7 @@ function EditableChapterList({
           }
           // The hook's error text is English and for developers.
           console.error("[clips] set-chapters failed", err);
-          toast.error(
-            t(
-              changed
-                ? "chapterList.changedWhileEditing"
-                : "chapters.saveFailed",
-            ),
-          );
+          toast.error(t(FAILURE_MESSAGE[failure]));
         },
       },
     );

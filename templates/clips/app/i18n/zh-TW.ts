@@ -1458,6 +1458,8 @@ const messages = {
     remove: "移除章節",
     saveFailed: "無法儲存章節",
     changedElsewhere: "章節已在其他地方被修改，因此你的最後一次變更未儲存。",
+    unreadable:
+      "部分已儲存的章節無法讀取，因此無法在此儲存變更。請讓代理替換這些章節。",
     duplicateAtPoint: "此位置已經有章節",
     defaultTitle: "章節 {{count}}",
     seekTo: "跳到 {{time}}",

@@ -1568,6 +1568,8 @@ const messages = {
     saveFailed: "Impossible d'enregistrer les chapitres",
     changedElsewhere:
       "Les chapitres ont été modifiés ailleurs : votre dernière modification n'a pas été enregistrée.",
+    unreadable:
+      "Certains chapitres enregistrés sont illisibles : les modifications ne peuvent pas être enregistrées ici. Demandez à l'agent de remplacer les chapitres.",
     duplicateAtPoint: "Un chapitre existe déjà à cet endroit",
     defaultTitle: "Chapitre {{count}}",
     seekTo: "Aller à {{time}}",
