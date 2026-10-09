@@ -104,4 +104,19 @@ describe("CommentHighlight", () => {
     const deleted = state.apply(state.tr.delete(6, 11));
     expect(commentHighlightKey.getState(deleted)!.specs).toEqual([]);
   });
+
+  it("drops a highlight whose word was deleted ahead of an identical one", () => {
+    let state = EditorState.create({
+      doc: doc("alpha alpha"),
+      plugins: [createCommentHighlightPlugin()],
+    });
+    state = state.apply(
+      state.tr.setMeta(commentHighlightKey, {
+        specs: [{ threadId: "t1", from: 1, to: 6 }],
+      }),
+    );
+
+    const deleted = state.apply(state.tr.delete(1, 7));
+    expect(commentHighlightKey.getState(deleted)!.specs).toEqual([]);
+  });
 });

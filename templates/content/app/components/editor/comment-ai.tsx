@@ -297,6 +297,19 @@ export function latestCommentAiRequest(
     )[0];
 }
 
+/**
+ * Whether AI is starting or running on a thread from this tab. Requests list
+ * only the caller's own, so a teammate's run on the same thread is not seen.
+ */
+export function isCommentAiWorkingOn(
+  commentAi: Pick<CommentAiController, "requests" | "startingThreadIds">,
+  threadId: string,
+) {
+  if (commentAi.startingThreadIds.has(threadId)) return true;
+  const request = latestCommentAiRequest(commentAi.requests, threadId);
+  return Boolean(request && isCommentAiRequestActive(request));
+}
+
 function sessionReceipt(request: CommentAiRequest) {
   if (request.pendingSession) {
     return {

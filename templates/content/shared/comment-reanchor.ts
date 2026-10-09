@@ -36,36 +36,44 @@ function commonPrefixLength(left: string, right: string) {
  * Where the comment's own copy of its quote starts in the Markdown, scored the
  * way the editor resolves the anchor. Anchors are captured from editor text,
  * which joins blocks with no separator, so line breaks are dropped from the
- * context first. Null when two copies fit equally well.
+ * context first. Null when two copies fit equally well, or when Markdown syntax
+ * beside a copy keeps its context from being compared with editor text.
  */
 function ownOccurrence(quote: CommentQuoteAnchor, text: string) {
   const { quotedText } = quote;
   const found: { at: number; score: number }[] = [];
-  let newlines = 0;
+  let syntax = 0;
   let counted = 0;
+  let marked = false;
   for (
     let at = text.indexOf(quotedText);
     at >= 0;
     at = text.indexOf(quotedText, at + 1)
   ) {
     for (; counted < at; counted += 1)
-      if (text[counted] === "\n") newlines += 1;
+      if (SOURCE_SYNTAX.test(text[counted]!)) syntax += 1;
     const end = at + quotedText.length;
     const lead = text
       .slice(Math.max(0, at - CONTEXT_LEN * 2), at)
-      .replace(/\n/g, "");
-    const tail = text.slice(end, end + CONTEXT_LEN * 2).replace(/\n/g, "");
+      .replace(/\n/g, "")
+      .slice(-CONTEXT_LEN);
+    const tail = text
+      .slice(end, end + CONTEXT_LEN * 2)
+      .replace(/\n/g, "")
+      .slice(0, CONTEXT_LEN);
+    marked ||= SOURCE_SYNTAX.test(lead) || SOURCE_SYNTAX.test(tail);
     let score =
       commonSuffixLength(lead, quote.prefix ?? "") +
       commonPrefixLength(tail, quote.suffix ?? "");
     if (quote.startOffset != null)
       score -= Math.min(
         CONTEXT_LEN,
-        Math.abs(at - newlines - quote.startOffset) / 8,
+        Math.abs(at - syntax - quote.startOffset) / 8,
       );
     found.push({ at, score });
   }
   if (found.length < 2) return found[0]?.at ?? null;
+  if (marked) return null;
   found.sort((left, right) => right.score - left.score);
   return found[0]!.score === found[1]!.score ? null : found[0]!.at;
 }

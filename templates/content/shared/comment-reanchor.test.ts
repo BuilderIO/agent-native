@@ -110,6 +110,18 @@ describe("reanchoredCommentQuote", () => {
     ).toBeNull();
   });
 
+  it("gives up on a repeated quote whose context has Markdown syntax", () => {
+    // In editor text the comment's copy is the first: "AFridayBAFridayB".
+    const page = "**A**FridayB\n\nAFridayB";
+    expect(
+      reanchoredCommentQuote(
+        { quotedText: "Friday", prefix: "A", suffix: "B", startOffset: 1 },
+        page,
+        "**A**FridayB\n\nAMondayB",
+      ),
+    ).toBeNull();
+  });
+
   it("does not invent a quote across Markdown syntax", () => {
     expect(
       reanchoredCommentQuote(

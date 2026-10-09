@@ -481,11 +481,10 @@ describe("comment review interactions", () => {
     expect(dismissResolution).toHaveBeenCalledWith("one");
   });
 
-  it("takes back an AI reply and restores its draft when the AI does not start", async () => {
+  const sendAiReply = async (start: CommentAiController["start"]) => {
     actions.modelsReady = true;
     actions.create.mockResolvedValue({ id: "reply-1", threadId: "one" });
     actions.remove.mockResolvedValue(undefined);
-    const start = vi.fn().mockResolvedValue("busy");
     const commentAi = {
       requests: [],
       startingThreadIds: new Set<string>(),
@@ -521,7 +520,6 @@ describe("comment review interactions", () => {
         ) as HTMLButtonElement
       ).click(),
     );
-
     expect(actions.create).toHaveBeenCalledOnce();
     expect(start).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -529,11 +527,24 @@ describe("comment review interactions", () => {
         instructions: sent.trim(),
       }),
     );
+    return sent;
+  };
+
+  it("takes back an AI reply and restores its draft when AI is already busy", async () => {
+    const sent = await sendAiReply(vi.fn().mockResolvedValue("busy"));
+
     expect(actions.remove).toHaveBeenCalledWith({
       id: "reply-1",
       documentId: "fixture",
     });
     expect(replyDraft.draft.text).toBe(sent);
+  });
+
+  it("keeps an AI reply when starting AI fails, since the request may have been saved", async () => {
+    await sendAiReply(vi.fn().mockRejectedValue(new Error("network lost")));
+
+    expect(actions.remove).not.toHaveBeenCalled();
+    expect(replyDraft.draft.text).toBe("");
   });
   it("preserves a reply through dismissal, thread switches, and panel presentation remounts", async () => {
     render("one");

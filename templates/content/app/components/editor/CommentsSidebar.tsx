@@ -92,7 +92,7 @@ export { getAiCommentSource } from "./CommentEntry";
 import {
   CommentAiConversation,
   CommentAiRequestStatus,
-  isCommentAiRequestActive,
+  isCommentAiWorkingOn,
   latestCommentAiRequest,
   startCommentAiSubmission,
   type CommentAiController,
@@ -104,7 +104,11 @@ import {
 } from "./ReviewDiscussionTools";
 import type { DraftSuggestion } from "./suggestions/draft-session";
 import { SuggestionText } from "./SuggestionText";
-import { receiptSuggestion, suggestionsByThread } from "./thread-suggestions";
+import {
+  receiptSuggestion,
+  suggestionSourceThreadId,
+  suggestionsByThread,
+} from "./thread-suggestions";
 import { ThreadSuggestionBody, ThreadSuggestionRow } from "./ThreadSuggestion";
 
 /** Where a thread card is shown; each surface shares the same rows. */
@@ -1498,6 +1502,18 @@ export function CommentsSidebar({
     void changeResolution(thread, false);
   };
 
+  // Accepting moves the source thread's quote, which a revision still in
+  // flight would read as changed feedback and abandon.
+  const suggestionBusy = (suggestion: ResourceSuggestion) => {
+    const threadId = suggestionSourceThreadId(suggestion);
+    return (
+      decidingSuggestion(suggestion.id) ||
+      Boolean(
+        commentAi && threadId && isCommentAiWorkingOn(commentAi, threadId),
+      )
+    );
+  };
+
   const renderCommentThread = (
     thread: CommentThread,
     marginTop = 0,
@@ -1520,16 +1536,13 @@ export function CommentsSidebar({
     const receiptless = embedded.filter(
       (suggestion) => ![...receipts.values()].includes(suggestion),
     );
-    // Accepting moves the thread's quote, which a revision still in flight
-    // would read as changed feedback and abandon.
     const aiWorking = Boolean(
-      commentAi?.startingThreadIds.has(thread.threadId) ||
-      (aiRequest && isCommentAiRequestActive(aiRequest)),
+      commentAi && isCommentAiWorkingOn(commentAi, thread.threadId),
     );
     const suggestionProps = (suggestion: ResourceSuggestion) => ({
       suggestion,
       canDecide: canDecideSuggestions,
-      busy: decidingSuggestion(suggestion.id) || aiWorking,
+      busy: suggestionBusy(suggestion),
       conflict: isUnplaceable(suggestion),
       onDecide: (decision: SuggestionDecision) =>
         onDecideSuggestion?.(suggestion, decision),
@@ -1578,9 +1591,10 @@ export function CommentsSidebar({
       }
     };
     // A reply that mentions AI is posted first, so "actually, make it X"
-    // stays in the thread the AI answers in. If the AI does not start, the
-    // reply is taken back and the draft restored, so retrying does not post
-    // the same reply twice.
+    // stays in the thread the AI answers in. When AI is already busy on the
+    // thread, the reply is taken back and the draft restored, so retrying
+    // does not post the same reply twice. A failed start keeps the reply: the
+    // request may have been saved before its response was lost.
     const submitAi = async (selection: CommentAiSubmitPayload) => {
       if (!commentAi || !thread.comments[0] || aiWorking) return;
       const instructions = replyDrafts.get(thread.threadId).text.trim();
@@ -1605,7 +1619,7 @@ export function CommentsSidebar({
           description: error instanceof Error ? error.message : undefined,
         });
       }
-      if (outcome !== "confirmed-start") {
+      if (outcome === "busy") {
         try {
           await deleteComment.mutateAsync({ id: reply.id, documentId });
           replyDrafts.restoreSubmittedDraft(thread.threadId, reply.operationId);
@@ -1802,7 +1816,7 @@ export function CommentsSidebar({
         unplaceable={isUnplaceable(suggestion)}
         canComment={canComment}
         canDecide={canDecideSuggestions}
-        deciding={decidingSuggestion(suggestion.id)}
+        deciding={suggestionBusy(suggestion)}
         members={members}
         onActivate={() => {
           if (presentation !== "history") onActivateSuggestion?.(suggestion.id);
@@ -1831,7 +1845,7 @@ export function CommentsSidebar({
         (member) =>
           member.id === activeSuggestionId || member.id === focusSuggestionId,
       )}
-      deciding={members.some((member) => decidingSuggestion(member.id))}
+      deciding={members.some(suggestionBusy)}
       canDecide={canDecideSuggestions && !!onDecideSuggestionProposal}
       onDecide={(decision) =>
         onDecideSuggestionProposal?.(
