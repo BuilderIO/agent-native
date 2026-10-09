@@ -894,6 +894,9 @@ export function useEditorActiveScreenAndGeometry({
         imageAttachmentUnavailableMessage: t(
           "promptDialog.imageAttachmentUnavailable",
         ),
+        invalidCanvasDimensionsMessage: t(
+          "designEditor.invalidCanvasDimensions",
+        ),
         id,
         markGenerationStale,
         setGenerationChatTabId,

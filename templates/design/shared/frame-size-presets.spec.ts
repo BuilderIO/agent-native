@@ -71,4 +71,21 @@ describe("frame size presets", () => {
       new Set(["300x250", "728x90", "160x600", "320x50", "970x250"]),
     );
   });
+
+  it("includes common social and advertising canvases", () => {
+    const sizes = new Map(
+      allFrameSizePresets().map((preset) => [
+        preset.name,
+        `${preset.width}x${preset.height}`,
+      ]),
+    );
+    expect(sizes.get("LinkedIn Single Image Ad")).toBe("1200x627");
+    expect(sizes.get("Meta Feed Square Ad")).toBe("1080x1080");
+    expect(sizes.get("Meta Feed Landscape Ad")).toBe("1200x628");
+    expect(sizes.get("Instagram Portrait Post")).toBe("1080x1350");
+    expect(sizes.get("Instagram Story")).toBe("1080x1920");
+    expect(sizes.get("Open Graph Image")).toBe("1200x630");
+    expect(sizes.get("YouTube Thumbnail")).toBe("1280x720");
+    expect(sizes.get("Email Header")).toBe("600x200");
+  });
 });

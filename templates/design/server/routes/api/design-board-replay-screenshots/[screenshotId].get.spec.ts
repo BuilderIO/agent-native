@@ -8,10 +8,12 @@ const mocks = vi.hoisted(() => ({
   readPrivateBlob: vi.fn(),
   row: undefined as
     | {
+        id: string;
         designId: string;
         blobHandle: string;
         mimeType: string;
         sizeBytes: number;
+        createdAt: string | null;
       }
     | undefined,
   runWithRequestContext: vi.fn(),
@@ -19,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/private-blob", () => ({
+  ATTACHMENT_REF_MAX_CHARS: 4_096,
   isPrivateBlobError: () => false,
   readPrivateBlob: mocks.readPrivateBlob,
 }));
@@ -58,6 +61,7 @@ vi.mock("../../../db/index.js", () => ({
       id: "screenshots.id",
       mimeType: "screenshots.mimeType",
       sizeBytes: "screenshots.sizeBytes",
+      createdAt: "screenshots.createdAt",
     },
   },
 }));
@@ -74,6 +78,7 @@ describe("GET /api/design-board-replay-screenshots/:screenshotId", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.row = {
+      id: "screenshot-id",
       designId: "design-id",
       blobHandle: JSON.stringify({
         id: "public-upload:v1:encrypted-descriptor",
@@ -83,6 +88,7 @@ describe("GET /api/design-board-replay-screenshots/:screenshotId", () => {
       }),
       mimeType: "image/png",
       sizeBytes: imageData.byteLength,
+      createdAt: new Date().toISOString(),
     };
     mocks.getSession.mockResolvedValue({
       email: "designer@example.test",
@@ -140,6 +146,33 @@ describe("GET /api/design-board-replay-screenshots/:screenshotId", () => {
       statusMessage: "Screenshot not found",
     });
 
+    expect(mocks.readPrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("requires editor access before serving staged frames", async () => {
+    mocks.row!.id = "jcu_staged-frame";
+    mocks.getRouterParam.mockReturnValue(mocks.row!.id);
+
+    await handler(makeEvent() as never);
+
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "design",
+      "design-id",
+      "editor",
+    );
+  });
+
+  it("does not serve staged frames after their seven-day expiry", async () => {
+    mocks.row!.id = "jcu_staged-frame";
+    mocks.row!.createdAt = new Date(
+      Date.now() - 8 * 24 * 60 * 60 * 1_000,
+    ).toISOString();
+    mocks.getRouterParam.mockReturnValue(mocks.row!.id);
+
+    await expect(handler(makeEvent() as never)).rejects.toMatchObject({
+      statusCode: 404,
+      statusMessage: "Screenshot not found",
+    });
     expect(mocks.readPrivateBlob).not.toHaveBeenCalled();
   });
 });

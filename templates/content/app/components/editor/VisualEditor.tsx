@@ -1629,10 +1629,8 @@ interface VisualEditorProps {
     startOffset: number;
     beforeMarkdown: string;
   }) => void;
-  initialSelection?:
-    | { from: number; prefix: string; suffix: string }
-    | VisualEditorSelectionSnapshot
-    | null;
+  initialSelection?: VisualEditorInitialSelection | null;
+  onInitialSelectionApplied?: (selection: VisualEditorInitialSelection) => void;
   onSuggestionAnchorsChange?: (suggestionIds: string[]) => void;
   showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
@@ -1670,6 +1668,10 @@ export interface VisualEditorSelectionSnapshot {
   head: number;
   docJson: string;
 }
+
+export type VisualEditorInitialSelection =
+  | { from: number; prefix: string; suffix: string }
+  | VisualEditorSelectionSnapshot;
 
 export interface VisualEditorSelectionController {
   captureSelection: (options?: {
@@ -1821,6 +1823,16 @@ export function suggestionReplacementIntentForTransaction(
   };
 }
 
+function hasSemanticCollaborationContent(value: string): boolean {
+  return (
+    value
+      .split(/\r?\n/)
+      .filter((line) => !/^<empty-block\b[^>]*\/>$/.test(line.trim()))
+      .join("\n")
+      .trim().length > 0
+  );
+}
+
 export function shouldSeedCollaborativeContent({
   content,
   currentMarkdown,
@@ -1830,12 +1842,10 @@ export function shouldSeedCollaborativeContent({
   currentMarkdown: string;
   fragmentLength: number;
 }): boolean {
-  const semanticMarkdown = currentMarkdown
-    .split(/\r?\n/)
-    .filter((line) => !/^<empty-block\b[^>]*\/>$/.test(line.trim()))
-    .join("\n")
-    .trim();
-  return !!content.trim() && (fragmentLength === 0 || !semanticMarkdown);
+  return (
+    hasSemanticCollaborationContent(content) &&
+    (fragmentLength === 0 || !hasSemanticCollaborationContent(currentMarkdown))
+  );
 }
 
 export function parseNfmForCollabReconcile(
@@ -3046,6 +3056,7 @@ export function VisualEditor({
   onHoverSuggestion,
   onSuggestionReplacementIntent,
   initialSelection,
+  onInitialSelectionApplied,
   onSuggestionAnchorsChange,
   showCommentIndicators = true,
   onJoinTitle,
@@ -4489,10 +4500,11 @@ export function VisualEditor({
       if (!editor.isDestroyed) {
         editor.view.dispatch(editor.state.tr.setSelection(selection!));
         editor.view.focus();
+        onInitialSelectionApplied?.(initialSelection);
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [editable, editor, initialSelection]);
+  }, [editable, editor, initialSelection, onInitialSelectionApplied]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;

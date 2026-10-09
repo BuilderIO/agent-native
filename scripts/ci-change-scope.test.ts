@@ -170,6 +170,39 @@ test("selects Slides caret and authoring E2E for their dependency closure", () =
   assert.equal(full.checks.slides_authoring_e2e, true);
 });
 
+test("retains Slides parity and corpus gates while keeping the full soak manual", () => {
+  const ciWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  const soakWorkflow = readFileSync(
+    ".github/workflows/slides-authoring-fuzz-soak.yml",
+    "utf8",
+  );
+
+  assert.match(
+    ciWorkflow,
+    /run: pnpm exec tsx scripts\/edit-fidelity\/run\.ts --authoring\n/u,
+  );
+  assert.match(ciWorkflow, /--authoring --browser webkit/u);
+  assert.match(ciWorkflow, /--authoring-corpus/u);
+
+  for (const browser of ["chromium", "webkit", "firefox"]) {
+    assert.match(
+      ciWorkflow,
+      new RegExp(
+        `--authoring-fuzz\\s+--seed 16 --steps 80 --browser ${browser}`,
+        "u",
+      ),
+    );
+  }
+  assert.doesNotMatch(ciWorkflow, /slides-authoring-fuzz-soak:/u);
+  assert.match(soakWorkflow, /^name: Slides authoring fuzz soak$/mu);
+  assert.match(soakWorkflow, /workflow_dispatch:/u);
+  assert.doesNotMatch(soakWorkflow, /^\s+pull_request:/mu);
+  assert.match(
+    soakWorkflow,
+    /--seed\s+\$\{\{ matrix\.seed_start \}\}[\s\S]*--seeds 5 --steps 500/u,
+  );
+});
+
 test("fails closed for empty and unknown root change sets", () => {
   const empty = classifyChangedPaths([]);
   assert.equal(empty.docsOnly, false);
@@ -897,6 +930,35 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
     "changed-spec step must reject invalid selector output",
   );
+
+  const replaySmokeJobStart = workflow.indexOf(
+    "  pre-auth-session-replay-smoke:\n",
+  );
+  assert.notEqual(replaySmokeJobStart, -1);
+  const replaySmokeJobEnd = workflow.indexOf(
+    "\n  fast-tests:",
+    replaySmokeJobStart,
+  );
+  const replaySmokeJob = workflow.slice(
+    replaySmokeJobStart,
+    replaySmokeJobEnd === -1 ? undefined : replaySmokeJobEnd,
+  );
+  assert.ok(
+    workflow.includes(
+      "pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}",
+    ),
+  );
+  assert.ok(
+    replaySmokeJob.includes(
+      "if: needs.change-scope.outputs.pre_auth_session_replay_e2e == 'true'",
+    ),
+  );
+  assert.ok(
+    replaySmokeJob.includes('E2E_DISABLE_AUTO_DEV_ACCOUNT: "1"') &&
+      replaySmokeJob.includes(
+        "pnpm exec playwright test e2e/pre-auth-session-replay-smoke.spec.ts --workers=1",
+      ),
+  );
   assert.ok(
     changedSpecRegressions.includes(
       "mapfile -d '' -t changed_specs < \"$changed_specs_file\"",
@@ -946,6 +1008,20 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     fastTestsJob.includes('if [ "$DESIGN_CANVAS_RESULT" != "success" ]; then'),
+  );
+  assert.ok(
+    fastTestsJob
+      .slice(needsStart, needsEnd)
+      .includes("pre-auth-session-replay-smoke"),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      "PRE_AUTH_REPLAY_RESULT: ${{ needs.pre-auth-session-replay-smoke.result }}",
+    ),
+  );
+  assert.match(
+    fastTestsJob,
+    /if \[ "\$PRE_AUTH_REPLAY_E2E" = "true" \]; then\s+if \[ "\$PRE_AUTH_REPLAY_RESULT" != "success" \]; then\s+echo "::error::pre-auth session replay smoke did not succeed \(\$PRE_AUTH_REPLAY_RESULT\)"\s+exit 1\s+fi/,
   );
   assert.match(
     fastTestsJob,
@@ -1191,6 +1267,50 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     )[line - 1];
     assert.ok(sourceLine?.includes(`test(\"${title}\"`), location);
   }
+});
+
+test("selects the pre-auth replay browser smoke for its runtime paths", () => {
+  for (const path of [
+    "packages/core/src/app-config/analytics.ts",
+    "packages/core/src/client/analytics.ts",
+    "packages/core/src/client/session-replay.ts",
+    "packages/core/src/shared/environment-lanes.ts",
+    "packages/core/src/server/analytics.ts",
+    "packages/toolkit/src/app/auth/AuthPage.tsx",
+    "packages/toolkit/src/app/auth/entry.tsx",
+    "templates/analytics/server/handlers/session-replay.ts",
+    "templates/analytics/server/lib/session-replay.ts",
+    "templates/clips/server/plugins/config.ts",
+    "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+    "templates/design/playwright.config.ts",
+    "templates/design/server/plugins/config.ts",
+    "templates/slides/server/plugins/config.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.pre_auth_session_replay_e2e,
+      true,
+      path,
+    );
+  }
+
+  for (const path of [
+    "docs/guide.md",
+    "templates/design/app/components/Canvas.tsx",
+    "templates/analytics/app/routes/sessions.tsx",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.pre_auth_session_replay_e2e,
+      false,
+      path,
+    );
+  }
+
+  const smokeOnly = classifyChangedPaths([
+    "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+  ]);
+  assert.deepEqual(smokeOnly.designCanvasE2eSpecs, []);
+  assert.equal(smokeOnly.checks.design_canvas_interaction_e2e, false);
+  assert.equal(smokeOnly.checks.pre_auth_session_replay_e2e, true);
 });
 
 test("a deleted Design E2E path runs the focused interaction suite", () => {

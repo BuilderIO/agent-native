@@ -6,12 +6,15 @@ const mocks = vi.hoisted(() => ({
   agentLeaveDocument: vi.fn(),
   agentUpdateSelection: vi.fn(),
   deleteComponentMainFromDesign: vi.fn(),
+  getDb: vi.fn(),
+  prepareInlineSourceEdit: vi.fn(),
   readLiveSourceFile: vi.fn(),
   resolveAccess: vi.fn(),
   resolveSourceWorkspace: vi.fn(),
   restoreComponentMainInDesign: vi.fn(),
   snapshotDesignBeforeAgentEdit: vi.fn(),
   sourceType: "inline" as string,
+  writeInlineSourceFile: vi.fn(),
   writeInlineSourceFilesBatch: vi.fn(),
 }));
 
@@ -41,7 +44,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({}),
+  getDb: mocks.getDb,
   schema: {
     designFiles: {
       id: "designFiles.id",
@@ -61,8 +64,10 @@ vi.mock("../server/lib/design-versions.js", () => ({
 
 vi.mock("../server/source-workspace.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../server/source-workspace.js")>()),
+  prepareInlineSourceEdit: mocks.prepareInlineSourceEdit,
   readLiveSourceFile: mocks.readLiveSourceFile,
   resolveSourceWorkspace: mocks.resolveSourceWorkspace,
+  writeInlineSourceFile: mocks.writeInlineSourceFile,
   writeInlineSourceFilesBatch: mocks.writeInlineSourceFilesBatch,
 }));
 
@@ -205,6 +210,7 @@ describe("apply-component-prop-edit linked path", () => {
       resource: { data: { sourceType: "inline" } },
     });
     mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.getDb.mockReturnValue({});
     mocks.snapshotDesignBeforeAgentEdit.mockResolvedValue(undefined);
     mocks.resolveSourceWorkspace.mockResolvedValue({
       designId,
@@ -221,6 +227,11 @@ describe("apply-component-prop-edit linked path", () => {
     mocks.writeInlineSourceFilesBatch.mockImplementation(
       async ({ files: batch }) => batchResult(batch),
     );
+    mocks.writeInlineSourceFile.mockResolvedValue({
+      versionHash: "saved-version",
+      changed: true,
+      updatedAt: "saved:main-file",
+    });
   });
 
   it("propagates a main style edit through the action batch for both Screens", async () => {
@@ -443,6 +454,221 @@ describe("apply-component-prop-edit linked path", () => {
     expect(overrides).toContain(
       '"property":"attribute:data-agent-native-prop-variant"',
     );
+  });
+
+  it("rejects a stale linked component prop edit before writing", async () => {
+    mocks.readLiveSourceFile.mockImplementation(async (file) => ({
+      content: file.content,
+      versionHash: "another-version",
+      language: "html",
+    }));
+
+    const result = await action.run({
+      designId,
+      fileId: "copy-file",
+      nodeId: "copy-root",
+      edit: {
+        kind: "attribute",
+        attribute: "data-agent-native-prop-variant",
+        value: "outline",
+      },
+      source: { expectedFiles: expectedFiles() },
+    });
+
+    expect(result).toMatchObject({ persisted: false, conflict: true });
+    expect(mocks.prepareInlineSourceEdit).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFilesBatch).not.toHaveBeenCalled();
+  });
+
+  it("persists a prop edit on an unlinked inline component root", async () => {
+    const content = `<button data-agent-native-node-id="plain-widget" data-agent-native-component="Widget" data-agent-native-prop-disabled="false">Continue</button>`;
+    const file = {
+      id: "plain-file",
+      designId,
+      filename: "index.html",
+      fileType: "html",
+      content,
+      createdAt: null,
+      updatedAt: "plain-v1",
+    };
+    const files = [file];
+    mocks.resolveSourceWorkspace.mockResolvedValue({
+      designId,
+      sourceType: "inline",
+      canEdit: true,
+      files,
+      boardFileId: null,
+    });
+    mocks.readLiveSourceFile.mockImplementation(async (sourceFile) => ({
+      content: sourceFile.content,
+      versionHash: sourceContentHash(sourceFile.content),
+      language: "html",
+    }));
+    mocks.prepareInlineSourceEdit.mockResolvedValue({
+      content,
+      expectedVersionHash: sourceContentHash(content),
+    });
+
+    const query = {
+      from: vi.fn(),
+      innerJoin: vi.fn(),
+      where: vi.fn(),
+      limit: vi.fn().mockResolvedValue([file]),
+    };
+    query.from.mockReturnValue(query);
+    query.innerJoin.mockReturnValue(query);
+    query.where.mockReturnValue(query);
+    mocks.getDb.mockReturnValue({ select: vi.fn(() => query) });
+
+    const result = await action.run({
+      designId,
+      fileId: file.id,
+      nodeId: "plain-widget",
+      edit: {
+        kind: "attribute",
+        attribute: "data-agent-native-prop-disabled",
+        value: "true",
+      },
+      source: {
+        currentContent: content,
+        revision: file.updatedAt,
+        expectedFiles: expectedFor(files),
+      },
+    });
+
+    expect(result).toMatchObject({ persisted: true, ctaRequired: false });
+    expect(result.content).toContain('data-agent-native-prop-disabled="true"');
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file: expect.objectContaining({ id: file.id }),
+        content: expect.stringContaining(
+          'data-agent-native-prop-disabled="true"',
+        ),
+      }),
+    );
+    expect(mocks.writeInlineSourceFilesBatch).not.toHaveBeenCalled();
+  });
+
+  it("preserves unsaved editor content when persisting an unlinked prop edit", async () => {
+    const content = `<main data-agent-native-node-id="existing-content">Draft</main>`;
+    const workingContent = `${content}<button data-agent-native-node-id="plain-widget" data-agent-native-component="Widget" data-agent-native-prop-disabled="false">Continue now</button>`;
+    const file = {
+      id: "plain-file",
+      designId,
+      filename: "index.html",
+      fileType: "html",
+      content,
+      createdAt: null,
+      updatedAt: "plain-v1",
+    };
+    const files = [file];
+    mocks.resolveSourceWorkspace.mockResolvedValue({
+      designId,
+      sourceType: "inline",
+      canEdit: true,
+      files,
+      boardFileId: null,
+    });
+    mocks.readLiveSourceFile.mockImplementation(async (sourceFile) => ({
+      content: sourceFile.content,
+      versionHash: sourceContentHash(sourceFile.content),
+      language: "html",
+    }));
+    mocks.prepareInlineSourceEdit.mockImplementation(
+      async ({ file: sourceFile, currentContent }) => ({
+        content: currentContent ?? sourceFile.content,
+        expectedVersionHash: sourceContentHash(sourceFile.content),
+      }),
+    );
+
+    const query = {
+      from: vi.fn(),
+      innerJoin: vi.fn(),
+      where: vi.fn(),
+      limit: vi.fn().mockResolvedValue([file]),
+    };
+    query.from.mockReturnValue(query);
+    query.innerJoin.mockReturnValue(query);
+    query.where.mockReturnValue(query);
+    mocks.getDb.mockReturnValue({ select: vi.fn(() => query) });
+
+    const result = await action.run({
+      designId,
+      fileId: file.id,
+      nodeId: "plain-widget",
+      edit: {
+        kind: "attribute",
+        attribute: "data-agent-native-prop-disabled",
+        value: "true",
+      },
+      source: {
+        currentContent: workingContent,
+        revision: file.updatedAt,
+        expectedFiles: expectedFor([{ id: file.id, content: workingContent }]),
+      },
+    });
+
+    expect(result).toMatchObject({ persisted: true, ctaRequired: false });
+    expect(mocks.prepareInlineSourceEdit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currentContent: workingContent,
+        revision: file.updatedAt,
+      }),
+    );
+    expect(result.content).toContain(">Continue now</button>");
+    expect(result.content).toContain('data-agent-native-prop-disabled="true"');
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file: expect.objectContaining({ id: file.id }),
+        expectedVersionHash: sourceContentHash(content),
+        content: expect.stringContaining(">Continue now</button>"),
+      }),
+    );
+    expect(mocks.writeInlineSourceFilesBatch).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unlinked prop edit with stale versions when no editor snapshot is supplied", async () => {
+    const content = `<button data-agent-native-node-id="plain-widget" data-agent-native-component="Widget" data-agent-native-prop-disabled="false">Continue</button>`;
+    const file = {
+      id: "plain-file",
+      designId,
+      filename: "index.html",
+      fileType: "html",
+      content,
+      createdAt: null,
+      updatedAt: "plain-v1",
+    };
+    mocks.resolveSourceWorkspace.mockResolvedValue({
+      designId,
+      sourceType: "inline",
+      canEdit: true,
+      files: [file],
+      boardFileId: null,
+    });
+    mocks.readLiveSourceFile.mockImplementation(async (sourceFile) => ({
+      content: sourceFile.content,
+      versionHash: sourceContentHash(sourceFile.content),
+      language: "html",
+    }));
+
+    const result = await action.run({
+      designId,
+      fileId: file.id,
+      nodeId: "plain-widget",
+      edit: {
+        kind: "attribute",
+        attribute: "data-agent-native-prop-disabled",
+        value: "true",
+      },
+      source: {
+        expectedFiles: [{ fileId: file.id, versionHash: "stale-version" }],
+      },
+    });
+
+    expect(result).toMatchObject({ persisted: false, conflict: true });
+    expect(mocks.prepareInlineSourceEdit).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFilesBatch).not.toHaveBeenCalled();
   });
 
   it("writes a multi-property inspector commit through one component action batch", async () => {

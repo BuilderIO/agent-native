@@ -16,14 +16,45 @@ sizes and persists the whole tree in one transaction.
 
 ## Flow
 
-1. `get-onboarding-journey` (Analytics) returns the tree. Pass it through unchanged as `tree`.
+1. `get-onboarding-journey` (Analytics) returns the cohort tree. Pass it through unchanged as `tree` unless you are adding a separately observed visual-reference chain.
 2. Capture a frame for each example you want shown. Each frame is
    `{ nodeKey, exampleIndex, width, height, capturedAt }` plus exactly one of
-   `imageUrl` or `attachmentRef`. `exampleIndex` indexes `node.examples`; `width`
+   `imageUrl`, `attachmentRef`, or `stagedFrameId`. `exampleIndex` indexes `node.examples`; `width`
    and `height` are the image's real pixels. The card uses the matching example's
-   event timestamp, recording id, and replay offset from the tree, separately
-   from the screenshot's `capturedAt` time.
-3. `create-journey-canvas { title, tree, frames }` returns
+   event timestamp and recording id from the tree, separately from the
+   screenshot's `capturedAt` time. Pass `recordingStartedAt` and the actual
+   `screenshotOffsetMs` when known; replay observation time is derived only from
+   those exact recording values. Analytics `example.offsetMs` includes a settle
+   interval and is shown as a nominal checkpoint seek target, never used to
+   infer recording start or replay observation time. Pass the actual replay
+   `route` for staged frames; do not derive it from the journey node key.
+   When a frame has reviewed context, add it to that frame's `caption`
+   (`observedState` for the UI actually visible, `outputTitle`, recorded `actor`
+   and `actorSource`, `dateLabel`,
+      `evidenceStatus`, optional `evidenceAt` for a distinct source event time,
+      and `prompt` when captured). The card shows the UTC
+   timestamp, actor, and prompt preview; the full prompt opens in place. If the
+   prompt is absent, say so with `promptUnavailableReason` instead of inferring
+   it. Use the acting identity from recording metadata, never a storage-owner
+   email. A card with multiple frames has keyboard-accessible numbered controls
+   to switch examples without leaving the screen.
+   A manually added chain observed in a separate session is not cohort data:
+   mark each of its step nodes `referenceOnly: true` and omit `n`, `pctOfRoot`,
+   `pctOfParent`, `dropoffN`, and `dropoffPct`. The card says
+   `Observed session reference`; its cohort counts and percentages, incoming
+   edge percentages, and drop-off stub are suppressed. Keep examples and frames
+   paired by `exampleIndex` so chronological screenshots retain their event,
+   recording, replay-offset, and capture-time provenance.
+   For large native-PNG imports, create the Design once, then call
+   `stage-journey-canvas-frames` with a stable `importId` and batches of up to
+   eight frames. Use the same stable `frameKey` (`nodeKey`, NUL, `exampleIndex`)
+   and unchanged PNG bytes when retrying a batch; the action returns a
+   `stagedFrameId` for each frame, and the final canvas call consumes those
+   Design-owned blobs without copying them again. Keep each request below 5 MiB
+   and split batches when the action reports `journey_stage_batch_too_large`.
+   If an import is abandoned, call `discard-journey-canvas-frame-import` with
+   its exact `designId` and `importId`; promoted storyboard frames are preserved.
+3. `create-journey-canvas { title, tree, frames, locale }` returns
    `{ designId, url, nodeCount, frameCount, skippedNodes, collabSyncPending }`. Open `url`.
    A non-empty `collabSyncPending` means those files are saved but an open editor
    could not be updated live and may still show (and re-save) the previous
@@ -31,6 +62,10 @@ sizes and persists the whole tree in one transaction.
 
 Options: `designId` (refresh that design), `cardWidth` (default 360),
 `maxExamplesPerNode` (default 3, at most 6), `includeScreenshotless` (default false).
+Each call accepts at most 1,000 journey nodes and 900 frame entries, with a
+256 MiB total screenshot-byte limit.
+`locale` selects the translated labels inside each standalone storyboard card;
+it defaults to `en-US`.
 `allowEncryptedPublicUploadFallback` defaults to `false`; set it to `true` only
 when this call is approved to store encrypted screenshot ciphertext with the
 configured public-upload provider.
@@ -44,6 +79,9 @@ configured public-upload provider.
   public-upload fallback is used only when
   `allowEncryptedPublicUploadFallback: true` is passed and the fallback is
   configured; otherwise the call fails with `private_blob_provider_required`.
+- `stagedFrameId` must be returned by `stage-journey-canvas-frames` for the same
+  Design. It consumes the existing private blob handle and rejects missing,
+  cross-Design, or mismatched-provenance rows.
 
 ## What you get
 
