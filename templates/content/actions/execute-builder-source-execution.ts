@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, lt, notInArray, or } from "drizzle-orm";
 import { z } from "zod";
@@ -746,8 +746,9 @@ async function reconcileBuilderCmsWrite(args: {
             ),
           );
         if (builderExecutionAffectedRows(result) === 0) {
-          throw new Error(
+          fail(
             "Builder write succeeded, but the local source snapshot changed during reconciliation.",
+            { errorCode: "builder_reconciliation_conflict", statusCode: 409 },
           );
         }
       } else if (args.changeSet.documentId && args.changeSet.databaseItemId) {
@@ -761,9 +762,10 @@ async function reconcileBuilderCmsWrite(args: {
           ...patchWithValues,
         });
       } else {
-        throw new Error(
-          "Builder write succeeded, but the local source row was missing.",
-        );
+        fail("Builder write succeeded, but the local source row was missing.", {
+          errorCode: "builder_reconciliation_conflict",
+          statusCode: 409,
+        });
       }
       committedSnapshotReference = true;
 
@@ -854,7 +856,11 @@ export function realExecutionDeps(
       .from(schema.contentDatabaseSourceExecutions)
       .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
       .limit(1);
-    if (!execution) throw new Error("Builder execution disappeared.");
+    if (!execution)
+      fail("Builder execution disappeared.", {
+        errorCode: "builder_execution_changed",
+        statusCode: 409,
+      });
     const payloadJson = await storeBuilderExecutionPayload({
       payload,
       binding: {
@@ -885,19 +891,6 @@ export function realExecutionDeps(
           prepared.previousAttemptToken,
         )
       : isNull(schema.contentDatabaseSourceExecutions.attemptToken);
-  const exactPreviousExecutionFilter = (prepared: {
-    previousPayloadJson: string;
-    previousState: string;
-    previousAttemptToken: string | null;
-  }) =>
-    and(
-      eq(
-        schema.contentDatabaseSourceExecutions.payloadJson,
-        prepared.previousPayloadJson,
-      ),
-      eq(schema.contentDatabaseSourceExecutions.state, prepared.previousState),
-      previousAttemptFilter(prepared),
-    );
   const discardUncommittedPayload = async (prepared: {
     nextReference: string | null;
   }) => {
@@ -1079,7 +1072,10 @@ export function realExecutionDeps(
       }
       if (builderExecutionAffectedRows(result) === 0) {
         await discardUncommittedPayload(prepared);
-        throw new Error("Builder execution changed before state update.");
+        fail("Builder execution changed before state update.", {
+          errorCode: "builder_execution_changed",
+          statusCode: 409,
+        });
       }
       await cleanupCommittedPrevious(prepared);
     },
@@ -1235,7 +1231,10 @@ export function realExecutionDeps(
             );
           if (builderExecutionAffectedRows(result) === 0) {
             await discardUncommittedPayload(prepared);
-            throw new Error("Execution lease was reclaimed before completion.");
+            fail("Execution lease was reclaimed before completion.", {
+              errorCode: "builder_execution_changed",
+              statusCode: 409,
+            });
           }
           await tx
             .update(schema.contentDatabaseSourceChangeSets)
@@ -1315,7 +1314,10 @@ export function realExecutionDeps(
       }
       if (builderExecutionAffectedRows(result) === 0) {
         await discardUncommittedPayload(prepared);
-        throw new Error("Builder execution changed before failure checkpoint.");
+        fail("Builder execution changed before failure checkpoint.", {
+          errorCode: "builder_execution_changed",
+          statusCode: 409,
+        });
       }
       await cleanupCommittedPrevious(prepared);
     },

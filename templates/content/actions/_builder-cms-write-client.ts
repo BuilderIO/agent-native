@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import {
   BUILDER_CONTENT_WRITE_SCOPE,
   BUILDER_OAUTH_RESOURCE,
@@ -59,25 +60,29 @@ function assertBuilderWriteSourceBinding(
     (authorization?.source !== "oauth" ||
       authorization.oauthResource !== "general")
   ) {
-    throw new Error(
+    fail(
       "This Builder source's OAuth connection is unavailable. Reconnect the source before writing.",
+      { errorCode: "builder_connection_required", statusCode: 412 },
     );
   }
   if (authorization?.source !== "oauth") return;
   if (!required && !expectedSourceSpace && !expectedSourceConnectionId) return;
   if (!expectedSourceSpace || !expectedSourceConnectionId) {
-    throw new Error(
+    fail(
       "This Builder source is not bound to its connected space. Refresh the source before writing.",
+      { errorCode: "builder_source_unbound", statusCode: 409 },
     );
   }
   if (authorization.oauthSelectedPublicKey !== expectedSourceSpace) {
-    throw new Error(
+    fail(
       "The connected Builder space does not match this Content source. Reconnect the source's Builder space before writing.",
+      { errorCode: "builder_source_space_mismatch", statusCode: 409 },
     );
   }
   if (authorization.oauthConnectionId !== expectedSourceConnectionId) {
-    throw new Error(
+    fail(
       "The connected Builder credential does not match this Content source. Reconnect the source before writing.",
+      { errorCode: "builder_source_connection_mismatch", statusCode: 409 },
     );
   }
 }
@@ -166,8 +171,9 @@ function guardedWriteIdentity(args: {
     pathEntryId !== entryId ||
     (args.expectedSourceSpace && ownerId !== args.expectedSourceSpace)
   ) {
-    throw new Error(
+    fail(
       "Builder guarded write request does not match its bound entry, model, and space.",
+      { errorCode: "builder_guarded_write_mismatch", statusCode: 409 },
     );
   }
   return { entryId, ownerId, modelId };

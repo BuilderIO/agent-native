@@ -1,5 +1,5 @@
 import { ActionContractError } from "@agent-native/core";
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
@@ -147,17 +147,6 @@ export function reviewPreparePriority(
       ? 0
       : 1;
   return statePriority + effectPriority;
-}
-
-function parsePayload(value: string) {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
 }
 
 function dryRunStatus(execution: ContentDatabaseSourceExecution | null) {
@@ -570,7 +559,10 @@ async function approveChangeSetForReview(args: {
         )
         .returning({ id: schema.contentDatabaseSourceChangeSets.id });
       if (!updated) {
-        throw new Error("Builder change set changed during approval.");
+        fail("Builder change set changed during approval.", {
+          errorCode: "builder_change_set_changed",
+          statusCode: 409,
+        });
       }
       if (existing.state !== "approved") {
         await db.insert(schema.contentDatabaseSourceChangeReviews).values({
@@ -717,7 +709,10 @@ async function upsertExecutionGate(args: {
         )
         .returning({ id: schema.contentDatabaseSourceExecutions.id });
       if (!updated)
-        throw new Error("Builder execution changed during prepare.");
+        fail("Builder execution changed during prepare.", {
+          errorCode: "builder_execution_changed",
+          statusCode: 409,
+        });
     } catch (error) {
       let currentPayloadJson: string | null | undefined;
       try {
@@ -888,7 +883,10 @@ async function upsertExecutionGate(args: {
       )
       .returning({ id: schema.contentDatabaseSourceExecutions.id });
     if (!updated)
-      throw new Error("Builder execution changed during validation.");
+      fail("Builder execution changed during validation.", {
+        errorCode: "builder_execution_changed",
+        statusCode: 409,
+      });
   } catch (error) {
     let currentPayloadJson: string | null | undefined;
     try {

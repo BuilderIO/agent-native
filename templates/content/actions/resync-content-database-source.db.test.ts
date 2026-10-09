@@ -16,6 +16,10 @@ import {
   BUILDER_CMS_BODY_LAST_UPDATED_KEY,
   BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
+  BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
+  BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
+  BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
+  BUILDER_CMS_WRITE_VERSION_KEY,
 } from "./_builder-cms-source-adapter";
 import { buildBuilderCmsExecutionPlan } from "./_builder-cms-write-adapter";
 
@@ -3048,8 +3052,30 @@ it("keeps a materialized required Builder reference dispatchable after full refr
       "__agent_native_builder_reference_id:data.author"
     ],
   ).toBe("author-apoorva");
+  const guardedEntry = JSON.stringify({
+    id: entryId,
+    ownerId: "builder-space",
+    modelId: "builder-model",
+    data: { title: "Required reference refresh" },
+  });
   const plan = buildBuilderCmsExecutionPlan({
-    source: snapshot!,
+    source: {
+      ...snapshot!,
+      rows: snapshot!.rows.map((row) =>
+        row.sourceRowId === entryId
+          ? {
+              ...row,
+              sourceValues: {
+                ...row.sourceValues,
+                [BUILDER_CMS_WRITE_VERSION_KEY]: "opaque-version-refresh",
+                [BUILDER_CMS_WRITE_CANONICAL_JSON_KEY]: guardedEntry,
+                [BUILDER_CMS_WRITE_EDITABLE_JSON_KEY]: guardedEntry,
+                [BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY]: false,
+              },
+            }
+          : row,
+      ),
+    },
     changeSet: {
       id: "change-required-reference-refresh",
       databaseItemId: itemId,

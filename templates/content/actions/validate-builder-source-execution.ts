@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -25,17 +25,6 @@ import {
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
-
-function parsePayload(value: string) {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
-}
 
 export default defineAction({
   description:
@@ -191,7 +180,10 @@ export default defineAction({
         )
         .returning({ id: schema.contentDatabaseSourceExecutions.id });
       if (!updated)
-        throw new Error("Builder execution changed during validation.");
+        fail("Builder execution changed during validation.", {
+          errorCode: "builder_execution_changed",
+          statusCode: 409,
+        });
     } catch (error) {
       let currentPayloadJson: string | null | undefined;
       try {

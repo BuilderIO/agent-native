@@ -8,9 +8,19 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api";
 import {
+  BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY,
+  putBuilderPrivatePayload,
+} from "./_builder-cms-blob-custody";
+import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
+  BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
+  BUILDER_CMS_WRITE_VERSION_KEY,
 } from "./_builder-cms-source-adapter";
+import {
+  registerMemoryPrivateBlobProvider,
+  storedExecutionPayload,
+} from "./_builder-private-blob.test-fixture";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -18,6 +28,7 @@ const TEST_DB_PATH = join(
 );
 
 const OWNER = "owner@example.com";
+const privateBlobs = registerMemoryPrivateBlobProvider();
 
 const heavySnapshotReads = vi.hoisted(() => ({
   review: 0,
@@ -100,6 +111,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
+  privateBlobs.unregister();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
@@ -107,6 +119,36 @@ let counter = 0;
 
 async function asOwner<T>(fn: () => Promise<T>): Promise<T> {
   return runWithRequestContext({ userEmail: OWNER }, fn);
+}
+
+async function builderWriteSnapshotValues(args: {
+  sourceId: string;
+  sourceRowId: string;
+  sourceTable: string;
+}) {
+  const writeVersion = "opaque-version-1";
+  const entry = {
+    id: args.sourceRowId,
+    ownerId: "builder-space",
+    modelId: "builder-model",
+    data: { title: "Old title" },
+  };
+  return {
+    [BUILDER_CMS_WRITE_VERSION_KEY]: writeVersion,
+    [BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY]: await putBuilderPrivatePayload({
+      label: "Builder write snapshot",
+      ownerEmail: OWNER,
+      binding: {
+        ownerEmail: OWNER,
+        sourceId: args.sourceId,
+        sourceRowId: args.sourceRowId,
+        sourceTable: args.sourceTable,
+        writeVersion,
+      },
+      payload: { canonical: entry, editable: entry },
+    }),
+    [BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY]: false,
+  };
 }
 
 function capabilities(liveWritesEnabled: boolean) {
@@ -131,6 +173,7 @@ async function seedBuilderSource(args: {
   changeSetState?: "pending_push" | "approved";
   metadata?: Record<string, unknown>;
   unmatched?: boolean;
+  writeSnapshot?: boolean;
   bodyChange?: Record<string, unknown>;
 }) {
   const db = getDb();
@@ -194,21 +237,31 @@ async function seedBuilderSource(args: {
     createdAt: now,
     updatedAt: now,
   });
+  const sourceRowId = args.unmatched
+    ? `builder-${rowDocumentId}`
+    : `entry_${suffix}`;
   await db.insert(schema.contentDatabaseSourceRows).values({
     id: `row_${suffix}`,
     ownerEmail: OWNER,
     sourceId,
     databaseItemId: itemId,
     documentId: rowDocumentId,
-    sourceRowId: args.unmatched
-      ? `builder-${rowDocumentId}`
-      : `entry_${suffix}`,
+    sourceRowId,
     sourceQualifiedId: args.unmatched
       ? `builder-cms://${args.sourceTable}/builder-${rowDocumentId}`
       : `builder://${args.sourceTable}/entry_${suffix}`,
     sourceDisplayKey: "Old title",
     provenance: args.unmatched ? "Builder CMS fixture adapter" : "source",
-    sourceValuesJson: JSON.stringify({ "data.title": "Old title" }),
+    sourceValuesJson: JSON.stringify({
+      "data.title": "Old title",
+      ...(args.writeSnapshot
+        ? await builderWriteSnapshotValues({
+            sourceId,
+            sourceRowId,
+            sourceTable: args.sourceTable,
+          })
+        : {}),
+    }),
     createdAt: now,
     updatedAt: now,
   });
@@ -423,11 +476,12 @@ describe("Builder source review execution gates", () => {
             seeded.changeSetId,
           ),
         );
-      expect(JSON.parse(execution.payloadJson).target).toMatchObject({
+      const payload = await storedExecutionPayload(execution);
+      expect(payload.target).toMatchObject({
         entryId: expect.stringMatching(/^entry_/),
         documentId: expect.stringMatching(/^doc_row_/),
       });
-      expect(JSON.parse(execution.payloadJson).request.method).toBe("PATCH");
+      expect(payload.request.method).toBe("PATCH");
       expect(heavySnapshotReads.reviewDocumentScopes).toEqual([
         [seeded.rowDocumentId],
       ]);
@@ -456,7 +510,7 @@ describe("Builder source review execution gates", () => {
     expect(heavySnapshotReads.documentScopes).toEqual([[seeded.rowDocumentId]]);
   });
 
-  it("refreshes a previously approved body only from a provably unsent blocked dry run", async () => {
+  it("gives a refreshed body a new revision instead of rewriting an approved blocked gate", async () => {
     const staleBody = {
       summary: "Old blocked body",
       currentExcerpt: "",
@@ -523,25 +577,44 @@ describe("Builder source review execution gates", () => {
       }),
     );
 
-    const [persisted] = await db
+    const [original] = await db
       .select()
       .from(schema.contentDatabaseSourceChangeSets)
       .where(eq(schema.contentDatabaseSourceChangeSets.id, seeded.changeSetId));
-    const [refreshedExecution] = await db
+    const [blockedExecution] = await db
       .select()
       .from(schema.contentDatabaseSourceExecutions)
       .where(eq(schema.contentDatabaseSourceExecutions.id, executionId));
-    const body = JSON.parse(persisted.bodyChangeJson);
-    const payload = JSON.parse(refreshedExecution.payloadJson);
+    expect(JSON.parse(original.bodyChangeJson)).toEqual(staleBody);
+    expect(blockedExecution.state).toBe("blocked");
+    expect(JSON.parse(blockedExecution.payloadJson)).toEqual({
+      request: { method: "POST" },
+      dryRun: { status: "blocked" },
+    });
 
-    expect(persisted.id).toBe(seeded.changeSetId);
+    const revisionId = response.review.rows[0]?.changeSetId;
+    expect(revisionId).toBeTruthy();
+    expect(revisionId).not.toBe(seeded.changeSetId);
+    const [revision] = await db
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, revisionId!));
+    const [revisionExecution] = await db
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(
+        eq(schema.contentDatabaseSourceExecutions.changeSetId, revisionId!),
+      );
+    const body = JSON.parse(revision.bodyChangeJson);
+    const payload = await storedExecutionPayload(revisionExecution);
+
+    expect(revision.state).toBe("approved");
     expect(body.proposedContent).toBe("Fresh body after the converter fix.");
     expect(body.warnings).toEqual([]);
     expect(payload.request.body.data.blocks).toEqual(
       JSON.parse(body.proposedBlocksJson),
     );
     expect(payload.dryRun.status).toBe("validated");
-    expect(response.review.rows[0]?.changeSetId).toBe(seeded.changeSetId);
     expect(response.review.rows[0]?.bodyChange).toEqual(body);
   });
 
@@ -652,6 +725,7 @@ describe("Builder source review execution gates", () => {
     };
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      writeSnapshot: true,
       bodyChange,
     });
     heavySnapshotReads.review = 0;
@@ -682,7 +756,7 @@ describe("Builder source review execution gates", () => {
       );
     const persistedFields = JSON.parse(persistedChangeSet.fieldChangesJson);
     const persistedBody = JSON.parse(persistedChangeSet.bodyChangeJson);
-    const executionPayload = JSON.parse(execution.payloadJson);
+    const executionPayload = await storedExecutionPayload(execution);
 
     expect(heavySnapshotReads).toMatchObject({
       review: 1,
@@ -787,6 +861,7 @@ describe("Builder source review execution gates", () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
       changeSetState: "approved",
+      writeSnapshot: true,
       metadata: {
         writeMode: "publish_updates",
         pushMode: "publish",
@@ -825,7 +900,7 @@ describe("Builder source review execution gates", () => {
           idempotencyKey,
         ),
       );
-    const payload = JSON.parse(execution.payloadJson);
+    const payload = await storedExecutionPayload(execution);
 
     expect(execution.state).toBe("ready");
     expect(execution.lastError).toBeNull();

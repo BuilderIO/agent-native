@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
@@ -294,8 +294,9 @@ export default defineAction({
           )
           .returning({ id: schema.contentDatabaseSourceExecutions.id });
         if (!updated) {
-          throw new Error(
+          fail(
             "Cannot cancel this Builder update because an execution changed before cancellation committed.",
+            { errorCode: "builder_update_changed", statusCode: 409 },
           );
         }
       }
@@ -324,8 +325,9 @@ export default defineAction({
         )
         .returning({ id: schema.contentDatabaseSourceChangeSets.id });
       if (!rejectedChangeSet) {
-        throw new Error(
+        fail(
           "Cannot cancel this Builder update because its review state changed before cancellation committed.",
+          { errorCode: "builder_update_changed", statusCode: 409 },
         );
       }
       await tx

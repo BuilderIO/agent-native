@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import {
   BUILDER_CONTENT_READ_SCOPE,
   BUILDER_OAUTH_RESOURCE,
@@ -359,20 +360,27 @@ function entryArrayFromResponse(value: unknown) {
 
 function parseBuilderGeneralQueryDataResponse(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Builder query-data returned a malformed response.");
+    fail("Builder query-data returned a malformed response.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
+    });
   }
   const record = value as Record<string, unknown>;
   if (!Array.isArray(record.results)) {
-    throw new Error("Builder query-data did not return a results array.");
+    fail("Builder query-data did not return a results array.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
+    });
   }
   if (
     typeof record.totalCount !== "number" ||
     !Number.isInteger(record.totalCount) ||
     record.totalCount < 0
   ) {
-    throw new Error(
-      "Builder query-data read did not return a valid totalCount.",
-    );
+    fail("Builder query-data read did not return a valid totalCount.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
+    });
   }
   return { results: record.results, totalCount: record.totalCount };
 }
@@ -569,8 +577,9 @@ function assertBuilderReadSourceAuthorization(
     expectedSourceConnectionId &&
     !isGeneralBuilderOAuth(authorization)
   ) {
-    throw new Error(
+    fail(
       "This Builder source's OAuth connection is unavailable. Reconnect the source before reading.",
+      { errorCode: "builder_connection_required", statusCode: 412 },
     );
   }
 }
@@ -582,21 +591,24 @@ function requireBuilderOAuthPublicKey(
 ) {
   const selected = authorization.oauthSelectedPublicKey;
   if (!selected) {
-    throw new Error(
+    fail(
       "Builder OAuth access did not identify its selected space. Reconnect Builder.io in Settings.",
+      { errorCode: "builder_connection_required", statusCode: 412 },
     );
   }
   if (expectedSourceSpace && selected !== expectedSourceSpace) {
-    throw new Error(
+    fail(
       "The connected Builder space does not match this Content source. Reconnect the source's Builder space before continuing.",
+      { errorCode: "builder_source_space_mismatch", statusCode: 409 },
     );
   }
   if (
     expectedSourceConnectionId &&
     authorization.oauthConnectionId !== expectedSourceConnectionId
   ) {
-    throw new Error(
+    fail(
       "The connected Builder credential does not match this Content source. Reconnect the source before continuing.",
+      { errorCode: "builder_source_connection_mismatch", statusCode: 409 },
     );
   }
   return selected;
@@ -621,9 +633,10 @@ async function readBuilderCmsGeneralModels(args: {
     privateKey: args.authorization.token,
   });
   if (!response.ok) {
-    throw new Error(
-      `Builder model discovery failed with HTTP ${response.status}.`,
-    );
+    fail(`Builder model discovery failed with HTTP ${response.status}.`, {
+      errorCode: "builder_upstream_failed",
+      statusCode: 424,
+    });
   }
   return builderMcpModelsFromToolResponse((await response.json()) as unknown);
 }
@@ -645,7 +658,10 @@ async function resolveBuilderCmsGeneralModelId(args: {
   );
   const model = nameMatches.length === 1 ? nameMatches[0] : idMatch;
   if (!model) {
-    throw new Error(`Builder model ${args.model} was not found.`);
+    fail(`Builder model ${args.model} was not found.`, {
+      errorCode: "builder_model_not_found",
+      statusCode: 404,
+    });
   }
   return model.id;
 }
@@ -1373,8 +1389,9 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
     const { results: rawPageEntries, totalCount } =
       parseBuilderGeneralQueryDataResponse(json);
     if (expectedTotal !== null && totalCount !== expectedTotal) {
-      throw new Error(
+      fail(
         "Builder query-data total changed during pagination; refresh the source to restart the observed collection read.",
+        { errorCode: "builder_source_changed", statusCode: 409 },
       );
     }
     expectedTotal = totalCount;
@@ -1382,27 +1399,31 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
       .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
       .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
     if (pageEntries.length !== rawPageEntries.length) {
-      throw new Error(
+      fail(
         "Builder query-data returned a malformed entry before the observed collection was complete.",
+        { errorCode: "builder_response_invalid", statusCode: 424 },
       );
     }
     const appended = appendUniqueBuilderEntries(entries, seenIds, pageEntries);
     if (appended !== pageEntries.length) {
-      throw new Error(
+      fail(
         "Builder query-data returned duplicate entries before the observed collection was complete.",
+        { errorCode: "builder_response_invalid", statusCode: 424 },
       );
     }
     pagesRead += 1;
     offset += pageEntries.length;
     if (offset > totalCount) {
-      throw new Error(
+      fail(
         "Builder query-data returned more entries than its reported totalCount.",
+        { errorCode: "builder_response_invalid", statusCode: 424 },
       );
     }
     hasMore = offset < totalCount;
     if (hasMore && (pageEntries.length === 0 || appended === 0)) {
-      throw new Error(
+      fail(
         "Builder query-data pagination returned no new entries before the observed collection was complete.",
+        { errorCode: "builder_response_invalid", statusCode: 424 },
       );
     }
     if (!hasMore) break;
@@ -1469,19 +1490,24 @@ function builderCmsWriteSnapshotFromResponse(args: {
     typeof args.value !== "object" ||
     Array.isArray(args.value)
   ) {
-    throw new Error("Builder write snapshot returned a malformed response.");
+    fail("Builder write snapshot returned a malformed response.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
+    });
   }
   const response = args.value as Record<string, unknown>;
   if (!Array.isArray(response.results) || response.results.length !== 1) {
-    throw new Error(
-      "Builder write snapshot did not return exactly one canonical entry.",
-    );
+    fail("Builder write snapshot did not return exactly one canonical entry.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
+    });
   }
   const snapshot = response.writeSnapshot;
   if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-    throw new Error(
-      "Builder write snapshot capability is unavailable for this entry.",
-    );
+    fail("Builder write snapshot capability is unavailable for this entry.", {
+      errorCode: "builder_write_snapshot_unavailable",
+      statusCode: 424,
+    });
   }
   const record = snapshot as Record<string, unknown>;
   const version = stringFromUnknown(record.version);
@@ -1501,9 +1527,10 @@ function builderCmsWriteSnapshotFromResponse(args: {
         !Number.isFinite(record.autosaveCreatedDate))) ||
     typeof record.hasPendingAutosave !== "boolean"
   ) {
-    throw new Error(
-      "Builder write snapshot returned malformed capability data.",
-    );
+    fail("Builder write snapshot returned malformed capability data.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
+    });
   }
   const canonicalEntry = normalizeBuilderCmsApiEntry(
     response.results[0],
@@ -1539,9 +1566,10 @@ function builderCmsWriteSnapshotFromResponse(args: {
     !hasExpectedIdentity(content) ||
     !hasExpectedIdentity(editableContent)
   ) {
-    throw new Error(
-      "Builder write snapshot returned an unexpected entry payload.",
-    );
+    fail("Builder write snapshot returned an unexpected entry payload.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
+    });
   }
   return {
     canonicalEntry: snapshotCanonicalEntry,
@@ -1575,8 +1603,9 @@ export async function readBuilderCmsWriteSnapshot(args: {
     args.expectedSourceConnectionId,
   );
   if (!isGeneralBuilderOAuth(authorization)) {
-    throw new Error(
+    fail(
       "Builder write snapshot capability requires the source's general OAuth connection.",
+      { errorCode: "builder_connection_required", statusCode: 412 },
     );
   }
   const publicKey = requireBuilderOAuthPublicKey(
@@ -1600,9 +1629,10 @@ export async function readBuilderCmsWriteSnapshot(args: {
     privateKey: authorization.token,
   });
   if (!response.ok) {
-    throw new Error(
-      `Builder write snapshot read failed with HTTP ${response.status}.`,
-    );
+    fail(`Builder write snapshot read failed with HTTP ${response.status}.`, {
+      errorCode: "builder_upstream_failed",
+      statusCode: 424,
+    });
   }
   return builderCmsWriteSnapshotFromResponse({
     value: (await response.json()) as unknown,
@@ -1640,17 +1670,19 @@ export async function readBuilderCmsEntryLiveState(args: {
       fetchImpl: args.fetchImpl ?? fetch,
     });
     if (!response.ok) {
-      throw new Error(
-        `Builder CMS live entry read failed with HTTP ${response.status}.`,
-      );
+      fail(`Builder CMS live entry read failed with HTTP ${response.status}.`, {
+        errorCode: "builder_upstream_failed",
+        statusCode: 424,
+      });
     }
     const json = (await response.json()) as unknown;
     const { results } = parseBuilderGeneralQueryDataResponse(json);
     if (results.length === 0) return liveStateFromBuilderEntry([]);
     const entry = normalizeBuilderCmsApiEntry(results[0], args.model);
     if (!entry || entry.id !== args.entryId) {
-      throw new Error(
+      fail(
         "Builder CMS live entry read returned an unexpected entry payload.",
+        { errorCode: "builder_response_invalid", statusCode: 424 },
       );
     }
     return liveStateFromBuilderEntry(entry.rawEntry);

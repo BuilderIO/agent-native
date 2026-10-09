@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -163,7 +163,10 @@ export default defineAction({
               )
               .returning({ id: schema.contentDatabaseSourceExecutions.id });
             if (!updated) {
-              throw new Error("Builder execution changed during prepare.");
+              fail("Builder execution changed during prepare.", {
+                errorCode: "builder_execution_changed",
+                statusCode: 409,
+              });
             }
             replacementPrepared = true;
           } else if (!existing) {

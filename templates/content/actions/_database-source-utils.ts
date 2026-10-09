@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { fail } from "@agent-native/core/action";
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -2459,18 +2460,136 @@ async function processBuilderBodyHydrationJob(
   const nextSnapshotReference =
     builderSourceSnapshotReference(nextSourceValuesJson);
   let committedSnapshotReference = false;
-  try {
-    await db.transaction(async (tx) => {
-      const queueRowCas = builderBodyHydrationQueueOwnershipFilter(
-        row,
-        activeSourceEntryJson,
-      );
-      const markPendingIfReplaced = async () => {
-        const [replacedByNewerJob] = await tx
-          .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
-          .from(schema.contentDatabaseBodyHydrationQueue)
-          .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
-        if (!replacedByNewerJob) return;
+  await db.transaction(async (tx) => {
+    const queueRowCas = builderBodyHydrationQueueOwnershipFilter(
+      row,
+      activeSourceEntryJson,
+    );
+    const markPendingIfReplaced = async () => {
+      const [replacedByNewerJob] = await tx
+        .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+        .from(schema.contentDatabaseBodyHydrationQueue)
+        .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
+      if (!replacedByNewerJob) return;
+      await tx
+        .update(schema.contentDatabaseItems)
+        .set({
+          bodyHydrationStatus: "pending",
+          bodyHydrationAttemptedAt: now,
+          bodyHydrationError: null,
+          updatedAt: now,
+        })
+        .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+    };
+    const [stillOwnsQueueRow] = await tx
+      .update(schema.contentDatabaseBodyHydrationQueue)
+      .set({
+        updatedAt: now,
+      })
+      .where(queueRowCas)
+      .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+    if (!stillOwnsQueueRow) {
+      await markPendingIfReplaced();
+      return;
+    }
+    if (shouldWriteBody) {
+      const contentCas =
+        isEffectivelyEmptyDocumentContent(currentContent) &&
+        isEffectivelyEmptyDocumentContent(previousContent)
+          ? documentContent === null || documentContent === undefined
+            ? isNull(schema.documents.content)
+            : eq(schema.documents.content, documentContent)
+          : eq(schema.documents.content, currentContent);
+      const [updatedDocument] = await tx
+        .update(schema.documents)
+        .set({
+          content: nextContent,
+          bodyRevision: bodyRevisionForContent(nextContent),
+          updatedAt: now,
+        })
+        .where(and(eq(schema.documents.id, row.documentId), contentCas))
+        .returning({ id: schema.documents.id });
+      wroteBody = Boolean(updatedDocument);
+    }
+    if (shouldWriteBody && !wroteBody) {
+      const [stillQueued] = await tx
+        .update(schema.contentDatabaseBodyHydrationQueue)
+        .set({
+          lastError:
+            "Skipped Builder body hydration because the document changed during sync.",
+          updatedAt: now,
+        })
+        .where(queueRowCas)
+        .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+      if (stillQueued) {
+        await tx
+          .update(schema.contentDatabaseItems)
+          .set({
+            bodyHydrationStatus: "pending",
+            bodyHydrationAttemptedAt: now,
+            bodyHydrationError:
+              "Skipped Builder body hydration because the document changed during sync.",
+            updatedAt: now,
+          })
+          .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+      }
+      return;
+    }
+    const sourceRowWhere = and(
+      eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
+      eq(schema.contentDatabaseSourceRows.databaseItemId, row.databaseItemId),
+      sourceRow
+        ? eq(
+            schema.contentDatabaseSourceRows.sourceValuesJson,
+            sourceRow.sourceValuesJson,
+          )
+        : isNull(schema.contentDatabaseSourceRows.id),
+    );
+    const [updatedSourceRow] = await tx
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: nextSourceValuesJson,
+        lastSyncedAt: now,
+        lastSourceUpdatedAt: entryWithBody.updatedAt ?? now,
+        updatedAt: now,
+      })
+      .where(sourceRowWhere)
+      .returning({ id: schema.contentDatabaseSourceRows.id });
+    if (!updatedSourceRow) {
+      const [stillQueued] = await tx
+        .update(schema.contentDatabaseBodyHydrationQueue)
+        .set({
+          lastError:
+            "Skipped Builder body hydration because the source row changed during sync.",
+          updatedAt: now,
+        })
+        .where(queueRowCas)
+        .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+      if (stillQueued) {
+        await tx
+          .update(schema.contentDatabaseItems)
+          .set({
+            bodyHydrationStatus: "pending",
+            bodyHydrationAttemptedAt: now,
+            bodyHydrationError:
+              "Skipped Builder body hydration because the source row changed during sync.",
+            updatedAt: now,
+          })
+          .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+      }
+      return;
+    }
+    committedSnapshotReference = true;
+    const [deleted] = await tx
+      .delete(schema.contentDatabaseBodyHydrationQueue)
+      .where(queueRowCas)
+      .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+    if (!deleted) {
+      const [replacedByNewerJob] = await tx
+        .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+        .from(schema.contentDatabaseBodyHydrationQueue)
+        .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
+      if (replacedByNewerJob) {
         await tx
           .update(schema.contentDatabaseItems)
           .set({
@@ -2480,146 +2599,24 @@ async function processBuilderBodyHydrationJob(
             updatedAt: now,
           })
           .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-      };
-      const [stillOwnsQueueRow] = await tx
-        .update(schema.contentDatabaseBodyHydrationQueue)
-        .set({
-          updatedAt: now,
-        })
-        .where(queueRowCas)
-        .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-      if (!stillOwnsQueueRow) {
-        await markPendingIfReplaced();
-        return;
       }
-      if (shouldWriteBody) {
-        const contentCas =
-          isEffectivelyEmptyDocumentContent(currentContent) &&
-          isEffectivelyEmptyDocumentContent(previousContent)
-            ? documentContent === null || documentContent === undefined
-              ? isNull(schema.documents.content)
-              : eq(schema.documents.content, documentContent)
-            : eq(schema.documents.content, currentContent);
-        const [updatedDocument] = await tx
-          .update(schema.documents)
-          .set({
-            content: nextContent,
-            bodyRevision: bodyRevisionForContent(nextContent),
-            updatedAt: now,
-          })
-          .where(and(eq(schema.documents.id, row.documentId), contentCas))
-          .returning({ id: schema.documents.id });
-        wroteBody = Boolean(updatedDocument);
-      }
-      if (shouldWriteBody && !wroteBody) {
-        const [stillQueued] = await tx
-          .update(schema.contentDatabaseBodyHydrationQueue)
-          .set({
-            lastError:
-              "Skipped Builder body hydration because the document changed during sync.",
-            updatedAt: now,
-          })
-          .where(queueRowCas)
-          .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-        if (stillQueued) {
-          await tx
-            .update(schema.contentDatabaseItems)
-            .set({
-              bodyHydrationStatus: "pending",
-              bodyHydrationAttemptedAt: now,
-              bodyHydrationError:
-                "Skipped Builder body hydration because the document changed during sync.",
-              updatedAt: now,
-            })
-            .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-        }
-        return;
-      }
-      const sourceRowWhere = and(
-        eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
-        eq(schema.contentDatabaseSourceRows.databaseItemId, row.databaseItemId),
-        sourceRow
-          ? eq(
-              schema.contentDatabaseSourceRows.sourceValuesJson,
-              sourceRow.sourceValuesJson,
-            )
-          : isNull(schema.contentDatabaseSourceRows.id),
-      );
-      const [updatedSourceRow] = await tx
-        .update(schema.contentDatabaseSourceRows)
-        .set({
-          sourceValuesJson: nextSourceValuesJson,
-          lastSyncedAt: now,
-          lastSourceUpdatedAt: entryWithBody.updatedAt ?? now,
-          updatedAt: now,
-        })
-        .where(sourceRowWhere)
-        .returning({ id: schema.contentDatabaseSourceRows.id });
-      if (!updatedSourceRow) {
-        const [stillQueued] = await tx
-          .update(schema.contentDatabaseBodyHydrationQueue)
-          .set({
-            lastError:
-              "Skipped Builder body hydration because the source row changed during sync.",
-            updatedAt: now,
-          })
-          .where(queueRowCas)
-          .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-        if (stillQueued) {
-          await tx
-            .update(schema.contentDatabaseItems)
-            .set({
-              bodyHydrationStatus: "pending",
-              bodyHydrationAttemptedAt: now,
-              bodyHydrationError:
-                "Skipped Builder body hydration because the source row changed during sync.",
-              updatedAt: now,
-            })
-            .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-        }
-        return;
-      }
-      committedSnapshotReference = true;
-      const [deleted] = await tx
-        .delete(schema.contentDatabaseBodyHydrationQueue)
-        .where(queueRowCas)
-        .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-      if (!deleted) {
-        const [replacedByNewerJob] = await tx
-          .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
-          .from(schema.contentDatabaseBodyHydrationQueue)
-          .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
-        if (replacedByNewerJob) {
-          await tx
-            .update(schema.contentDatabaseItems)
-            .set({
-              bodyHydrationStatus: "pending",
-              bodyHydrationAttemptedAt: now,
-              bodyHydrationError: null,
-              updatedAt: now,
-            })
-            .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-        }
-        return;
-      }
-      await tx
-        .update(schema.contentDatabaseItems)
-        .set({
-          bodyHydrationStatus: "hydrated",
-          bodyHydrationAttemptedAt: now,
-          bodyHydrationError: null,
-          bodyHydrationVersion: builderBodyHydrationVersion(entryWithBody),
-          bodyHydrationReason: null,
-          bodyHydrationProviderStatus: "http_200",
-          bodyHydrationAttemptCount: row.attempts,
-          bodyHydrationRetryable: 0,
-          updatedAt: now,
-        })
-        .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-    });
-  } catch (error) {
-    throw error;
-  }
+      return;
+    }
+    await tx
+      .update(schema.contentDatabaseItems)
+      .set({
+        bodyHydrationStatus: "hydrated",
+        bodyHydrationAttemptedAt: now,
+        bodyHydrationError: null,
+        bodyHydrationVersion: builderBodyHydrationVersion(entryWithBody),
+        bodyHydrationReason: null,
+        bodyHydrationProviderStatus: "http_200",
+        bodyHydrationAttemptCount: row.attempts,
+        bodyHydrationRetryable: 0,
+        updatedAt: now,
+      })
+      .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+  });
   if (
     !committedSnapshotReference &&
     nextSnapshotReference &&
@@ -5386,14 +5383,16 @@ export function assertBuilderCmsContinuationIdentity(args: {
       args.activeReadSourceRowIds.length ||
     args.activeReadSourceRowIds.length !== args.continueOffset
   ) {
-    throw new Error(
+    fail(
       "Builder source continuation identity does not match its saved offset. Start a full refresh before mutating the snapshot.",
+      { errorCode: "builder_source_continuation_mismatch", statusCode: 409 },
     );
   }
   const activeIds = new Set(args.activeReadSourceRowIds);
   if (args.entries?.some((entry) => activeIds.has(entry.id))) {
-    throw new Error(
+    fail(
       "Builder source continuation repeated an entry from an earlier page. Start a full refresh before mutating the snapshot.",
+      { errorCode: "builder_source_continuation_mismatch", statusCode: 409 },
     );
   }
 }
