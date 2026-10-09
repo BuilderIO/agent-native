@@ -52,15 +52,16 @@ export function auditReplayIframeContent({
         frames.push(element as HTMLIFrameElement);
         continue;
       }
+      if (element.localName === "slot") {
+        const assigned = (element as HTMLSlotElement).assignedNodes();
+        const children = assigned.length > 0 ? assigned : element.childNodes;
+        for (const child of Array.from(children)) {
+          if (child.nodeType === 1) nodes.push(child);
+        }
+        continue;
+      }
       const source = element.shadowRoot ?? node;
       for (const child of Array.from(source.childNodes)) {
-        if (child.nodeType === 1 && (child as Element).localName === "slot") {
-          const assigned = (child as HTMLSlotElement).assignedNodes();
-          if (assigned.length > 0) {
-            nodes.push(...assigned);
-            continue;
-          }
-        }
         if (child.nodeType === 1) nodes.push(child);
       }
     }
@@ -70,6 +71,24 @@ export function auditReplayIframeContent({
       if (visibility === "hidden" || visibility === "collapse") continue;
 
       let rendered = true;
+      const bounds = frame.getBoundingClientRect();
+      const frameScaleX =
+        frame.offsetWidth > 0
+          ? (bounds.right - bounds.left) / frame.offsetWidth
+          : 1;
+      const frameScaleY =
+        frame.offsetHeight > 0
+          ? (bounds.bottom - bounds.top) / frame.offsetHeight
+          : 1;
+      const contentLeft = bounds.left + frame.clientLeft * frameScaleX;
+      const contentTop = bounds.top + frame.clientTop * frameScaleY;
+      const contentRight = contentLeft + frame.clientWidth * frameScaleX;
+      const contentBottom = contentTop + frame.clientHeight * frameScaleY;
+      let visibleLeft = Math.max(contentLeft, clip.left);
+      let visibleTop = Math.max(contentTop, clip.top);
+      let visibleRight = Math.min(contentRight, clip.right);
+      let visibleBottom = Math.min(contentBottom, clip.bottom);
+
       for (let current: Element | null = frame; current; ) {
         const styles = view.getComputedStyle(current);
         if (
@@ -79,6 +98,40 @@ export function auditReplayIframeContent({
         ) {
           rendered = false;
           break;
+        }
+        if (current !== frame) {
+          const ancestor = current as HTMLElement;
+          const ancestorBounds = ancestor.getBoundingClientRect();
+          const scaleX =
+            ancestor.offsetWidth > 0
+              ? ancestorBounds.width / ancestor.offsetWidth
+              : 1;
+          const scaleY =
+            ancestor.offsetHeight > 0
+              ? ancestorBounds.height / ancestor.offsetHeight
+              : 1;
+          const overflowX = styles.overflowX || styles.overflow;
+          const overflowY = styles.overflowY || styles.overflow;
+          if (
+            ["auto", "clip", "hidden", "overlay", "scroll"].includes(overflowX)
+          ) {
+            const left = ancestorBounds.left + ancestor.clientLeft * scaleX;
+            visibleLeft = Math.max(visibleLeft, left);
+            visibleRight = Math.min(
+              visibleRight,
+              left + ancestor.clientWidth * scaleX,
+            );
+          }
+          if (
+            ["auto", "clip", "hidden", "overlay", "scroll"].includes(overflowY)
+          ) {
+            const top = ancestorBounds.top + ancestor.clientTop * scaleY;
+            visibleTop = Math.max(visibleTop, top);
+            visibleBottom = Math.min(
+              visibleBottom,
+              top + ancestor.clientHeight * scaleY,
+            );
+          }
         }
         if (current.assignedSlot) {
           current = current.assignedSlot;
@@ -93,21 +146,15 @@ export function auditReplayIframeContent({
         }
       }
 
-      const bounds = frame.getBoundingClientRect();
       if (
         !rendered ||
-        bounds.width <= 0 ||
-        bounds.height <= 0 ||
+        visibleRight <= visibleLeft ||
+        visibleBottom <= visibleTop ||
         view.innerWidth <= 0 ||
         view.innerHeight <= 0
       ) {
         continue;
       }
-      const visibleLeft = Math.max(bounds.left, clip.left);
-      const visibleTop = Math.max(bounds.top, clip.top);
-      const visibleRight = Math.min(bounds.right, clip.right);
-      const visibleBottom = Math.min(bounds.bottom, clip.bottom);
-      if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) continue;
 
       visibleIframeCount += 1;
       if (depth >= MAX_REPLAY_IFRAME_DEPTH) {
@@ -131,14 +178,6 @@ export function auditReplayIframeContent({
           childView?.innerWidth || child.documentElement.clientWidth;
         const height =
           childView?.innerHeight || child.documentElement.clientHeight;
-        const frameScaleX =
-          frame.offsetWidth > 0
-            ? (bounds.right - bounds.left) / frame.offsetWidth
-            : 1;
-        const frameScaleY =
-          frame.offsetHeight > 0
-            ? (bounds.bottom - bounds.top) / frame.offsetHeight
-            : 1;
         const contentScaleX = (frame.clientWidth * frameScaleX) / width;
         const contentScaleY = (frame.clientHeight * frameScaleY) / height;
         if (
@@ -150,8 +189,6 @@ export function auditReplayIframeContent({
         ) {
           unavailable = true;
         } else {
-          const contentLeft = bounds.left + frame.clientLeft * frameScaleX;
-          const contentTop = bounds.top + frame.clientTop * frameScaleY;
           const childClip = {
             left: Math.max(
               0,
