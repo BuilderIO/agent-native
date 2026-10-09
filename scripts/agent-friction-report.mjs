@@ -2286,7 +2286,7 @@ const FEEDBACK_REPLY_CONTEXT =
 const FEEDBACK_REPLY_DETAIL_ISSUE_BASE =
   /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+jargon[- ]heavy|overly\s+jargon[- ]heavy|excessively\s+jargon[- ]heavy|too\s+much\s+jargon|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|too\s+many\s+commit\s+hashes?|less\s+technical|less\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|(?:should\s+not|shouldn't)\s+(?:(?:include|contain|have)\s+)?(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|should\s+(?:include|contain|have)\s+no\s+(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|(?:without|free\s+of)\s+(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information))/i
     .source;
-const FEEDBACK_REPLY_DETAIL_ISSUE = `(?:${FEEDBACK_REPLY_DETAIL_ISSUE_BASE}|verbose)`;
+const FEEDBACK_REPLY_DETAIL_ISSUE = `(?:${FEEDBACK_REPLY_DETAIL_ISSUE_BASE}|verbose|too\\s+(?:wordy|long)|less\\s+wordy)`;
 const FEEDBACK_REPLY_DETAIL_TARGET =
   /(?:(?:technical|implementation|internal|deployment)\s+(?:details?|information)|(?:commit|branch|ci|publisher|deployment|run|workflow)(?:\s+(?:details?|hash(?:es)?|results?|mentions?|status|ids?|names?))?|jargon(?:[- ]heavy)?|hash(?:es)?|results?)/i
     .source;
@@ -2321,10 +2321,10 @@ const FEEDBACK_REPLY_DETAIL_NON_CORRECTION = [
   "\\b(?:i|we)\\s+(?:like|love|enjoy|prefer)\\b[^.!?;,]{0,100}\\b(?:write|use|reply)\\b[^.!?;,]{0,100}\\b" +
     FEEDBACK_REPLY_CONTEXT +
     "\\b[^.!?;,]{0,100}\\b(?:plain\\s+english|plain[- ]language)\\b",
-  "\\b(?:i|we)\\s+(?:like|love|enjoy|prefer)\\b[^.!?;,]{0,100}\\b(?:less\\s+(?:(?:technical|implementation|internal|deployment)\\s+)?detail|less\\s+technical|less\\s+verbose|verbose|concise|brief|short|non[- ]?technical)\\b[^.!?;,]{0,100}\\b" +
+  "\\b(?:i|we)\\s+(?:like|love|enjoy|prefer)\\b[^.!?;,]{0,100}\\b(?:less\\s+(?:(?:technical|implementation|internal|deployment)\\s+)?detail|less\\s+technical|less\\s+verbose|verbose|wordy|long|concise|brief|short|non[- ]?technical)\\b[^.!?;,]{0,100}\\b" +
     FEEDBACK_REPLY_CONTEXT +
     "\\b",
-  "\\b(?:i|we)\\s+(?:do\\s+not|don't|would\\s+not|wouldn't)\\s+(?:want|prefer|need)\\b[^.!?;]{0,100}\\b(?:less\\s+(?:(?:technical|implementation|internal|deployment)\\s+)?detail|less\\s+(?:technical|verbose)|too\\s+(?:brief|concise|short))\\b[^.!?;]{0,60}\\b" +
+  "\\b(?:i|we)\\s+(?:do\\s+not|don't|would\\s+not|wouldn't)\\s+(?:want|prefer|need)\\b[^.!?;]{0,100}\\b(?:less\\s+(?:(?:technical|implementation|internal|deployment)\\s+)?detail|less\\s+(?:technical|verbose|wordy)|too\\s+(?:brief|concise|short))\\b[^.!?;]{0,60}\\b" +
     FEEDBACK_REPLY_CONTEXT +
     "\\b",
   "\\b(?:i|we)\\s+(?:like|love|enjoy|prefer)\\b[^.!?;,]{0,60}\\b(?:reply|write)\\s+(?:in|using)\\s+(?:plain\\s+english|plain[- ]language)\\b",
@@ -2440,7 +2440,7 @@ const FEEDBACK_REPLY_DETAIL_RETRACTION_RE =
 const FEEDBACK_REPLY_DETAIL_AFFIRMATIVE_FOLLOWUP_RE = new RegExp(
   "\\b" +
     FEEDBACK_REPLY_CONTEXT +
-    "\\b[^.!?]{0,100}\\b(?:not|no\\s+longer|aren['’]t|isn['’]t|wasn['’]t|weren['’]t)\\b[^.!?]{0,40}\\b(?:too\\s+)?(?:technical|verbose|detailed?|jargon[- ]heavy)\\b[.!?]\\s*(?:actually|yes|right)\\s*,?\\s*(?:(?:they|it)\\s+(?:are|is)|(?:they|it)['’](?:re|s))\\s*[.!?]",
+    "\\b[^.!?]{0,100}\\b(?:not|no\\s+longer|aren['’]t|isn['’]t|wasn['’]t|weren['’]t)\\b[^.!?]{0,40}\\b(?:(?:way|much|very)\\s+)?(?:too\\s+)?(?:technical|verbose|detailed?|jargon[- ]heavy|wordy|long)\\b[.!?]\\s*(?:actually|yes|right)\\s*,?\\s*(?:(?:they|it)\\s+(?:are|is)|(?:they|it)['’](?:re|s))(?:\\s+(?:(?:way|much|very)\\s+)?(?:too\\s+)?(?:technical|verbose|detailed?|jargon[- ]heavy|wordy|long))?\\s*[.!?]",
   "i",
 );
 const FEEDBACK_REPLY_DETAIL_CONTEXT_RE = new RegExp(
@@ -2448,9 +2448,9 @@ const FEEDBACK_REPLY_DETAIL_CONTEXT_RE = new RegExp(
   "i",
 );
 const FEEDBACK_REPLY_DETAIL_CANDIDATE_RE =
-  /\b(?:too|overly|excessively|less|should(?:n['’]t|\s+not)?|do\s+not|don['’]t|avoid|skip|omit|remove|leave\s+out|stop|no|without|free\s+of|concise|brief|short|verbose|non[- ]?technical|plain\s+(?:english|language)|jargon(?:[- ]heavy)?|high[- ]level)\b/i;
+  /\b(?:too|overly|excessively|less|should(?:n['’]t|\s+not)?|do\s+not|don['’]t|avoid|skip|omit|remove|leave\s+out|stop|no|without|free\s+of|concise|brief|short|shorten|shorter|verbose|wordy|long|non[- ]?technical|plain\s+(?:english|language)|jargon(?:[- ]heavy)?|high[- ]level)\b/i;
 const FEEDBACK_REPLY_DETAIL_SIGNAL_RE =
-  /\b(?:technical|implementation|internal|deployment|details?|information|jargon|commit|branch|ci|publisher|run|workflow|hash(?:es)?|results?|verbose|concise|brief|short|non[- ]?technical|plain\s+(?:english|language)|high[- ]level)\b/i;
+  /\b(?:technical|implementation|internal|deployment|detailed|details?|information|jargon|commit|branch|ci|publisher|run|workflow|hash(?:es)?|results?|verbose|wordy|long|shorten|shorter|concise|brief|short|non[- ]?technical|plain\s+(?:english|language)|high[- ]level)\b/i;
 const FEEDBACK_REPLY_DETAIL_SCAN_BUCKET_SIZE = 256;
 const FEEDBACK_REPLY_DETAIL_CANDIDATE_SCAN_RE = new RegExp(
   FEEDBACK_REPLY_DETAIL_CANDIDATE_RE.source,
@@ -2666,6 +2666,10 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "Replies are too verbose."],
   [true, "Replies are verbose."],
   [true, "Reply is overly verbose."],
+  [true, "Replies are too detailed."],
+  [true, "Replies are too wordy."],
+  [true, "Replies should be less wordy."],
+  [true, "Replies are way too long; please shorten them."],
   [true, "Please keep feedback updates short and non-technical."],
   [false, "I like replies in plain English."],
   [false, "Replies in plain English read well."],
@@ -2677,6 +2681,8 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [false, "I like the less verbose responses."],
   [false, "I like verbose replies."],
   [false, "I prefer verbose responses."],
+  [false, "I like long replies."],
+  [false, "I do not want less wordy replies."],
   [false, "Don't make the replies too brief though."],
   [false, "I do not want less technical replies."],
   [false, "The response is less verbose now."],
@@ -2690,10 +2696,13 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "Replies, in my view, are too technical."],
   [true, "Replies are, unfortunately, too technical."],
   [true, "Replies are, sadly, too technical."],
+  [true, "Replies are, sadly, too detailed."],
   [false, "Replies are, honestly, not too technical."],
   [false, "Replies are, sadly, not too technical."],
   [true, "Replies are not too technical. Actually, they are."],
   [false, "Replies are not too technical. Actually, they are not."],
+  [true, "Replies are not too technical. Actually, they are too technical."],
+  [true, "Replies are not too technical. Yes, they are too verbose."],
   [true, "Don't include commit hashes, or CI results, in replies."],
   [true, "Don't include commit hashes, nor branch details, in replies."],
   [false, "For example: reply in plain English."],
