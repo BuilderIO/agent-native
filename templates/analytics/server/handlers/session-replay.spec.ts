@@ -5,14 +5,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   record: vi.fn(),
+  getSession: vi.fn(),
   tokenizedManifest: vi.fn(),
   tokenizedChunkBytes: vi.fn(),
   tokenizedChunkBatch: vi.fn(),
+  sessionChunkBatch: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/server")>()),
-  getSession: vi.fn().mockResolvedValue(null),
+  getSession: mocks.getSession,
+}));
+
+vi.mock("@agent-native/core/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/org")>()),
+  getOrgContext: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("../lib/session-replay.js", async (importOriginal) => ({
@@ -22,6 +29,7 @@ vi.mock("../lib/session-replay.js", async (importOriginal) => ({
   getSessionReplayTokenizedManifest: mocks.tokenizedManifest,
   readSessionReplayTokenizedChunkBytes: mocks.tokenizedChunkBytes,
   readSessionReplayTokenizedChunkBatch: mocks.tokenizedChunkBatch,
+  readSessionReplayChunkBatch: mocks.sessionChunkBatch,
 }));
 
 import { createScopedAgentAccessGrant } from "@agent-native/core/server";
@@ -89,6 +97,7 @@ function expectNoTokenizedReads() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.getSession.mockResolvedValue(null);
   mocks.tokenizedManifest.mockResolvedValue({
     recording: { id: "sr_1" },
     chunks: [],
@@ -100,6 +109,10 @@ beforeEach(() => {
   });
   mocks.tokenizedChunkBatch.mockResolvedValue({
     chunks: [{ seq: 0, checksum: "checksum-0", events: [] }],
+    unavailableChunks: 0,
+  });
+  mocks.sessionChunkBatch.mockResolvedValue({
+    chunks: [{ seq: 0, checksum: "session-checksum-0", events: [] }],
     unavailableChunks: 0,
   });
 });
@@ -259,6 +272,24 @@ describe("session replay scoped agent reads", () => {
       error: "missing_api_key",
     });
     expect(event.res.status).toBe(401);
+    expectNoTokenizedReads();
+  });
+
+  it("keeps signed-in session access for batch reads without an agent token", async () => {
+    mocks.getSession.mockResolvedValue({
+      email: "viewer@example.test",
+      orgId: null,
+    });
+    const event = replayReadEvent("batch", "sr_1");
+
+    await expect(handleSessionReplayChunkBatch(event)).resolves.toEqual({
+      chunks: [{ seq: 0, checksum: "session-checksum-0", events: [] }],
+      unavailableChunks: 0,
+    });
+    expect(mocks.sessionChunkBatch).toHaveBeenCalledWith("sr_1", [0], {
+      userEmail: "viewer@example.test",
+      orgId: null,
+    });
     expectNoTokenizedReads();
   });
 });
