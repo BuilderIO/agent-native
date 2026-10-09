@@ -1105,6 +1105,7 @@ export default {
   },
   sqlDashboard: {
     customRange: "Intervalo personalizado",
+    allValues: "Todos",
     untitledDashboard: "Painel sem título",
     dashboardFallback: "painel",
     viewOnly: "Você tem acesso somente visualização a este painel.",

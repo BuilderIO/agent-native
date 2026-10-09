@@ -6,6 +6,11 @@ interface WidgetShareTarget {
   resourceId: string;
 }
 
+interface WidgetShareGrantee {
+  principalType?: string;
+  role?: string;
+}
+
 function assertGrantMatches(
   resourceIds: Record<string, string> | undefined,
   args: WidgetShareTarget,
@@ -33,7 +38,7 @@ function assertGrantMatches(
 export function assertWidgetShareWriteGrant(
   ctx: ActionRunContext | undefined,
   actionName: string,
-  args: WidgetShareTarget,
+  args: WidgetShareTarget & WidgetShareGrantee,
 ): void {
   if (ctx?.caller === "mcp-widget") {
     throw new ForbiddenError(
@@ -48,6 +53,33 @@ export function assertWidgetShareWriteGrant(
     );
   }
   assertGrantMatches(grant.resourceIds, args);
+  if (actionName === "share-resource") assertWidgetMayGrant(args);
+}
+
+/**
+ * A widget ticket is a short-lived credential an iframe holds, not the person
+ * clicking: what it can grant outlives it. It hands out access to individuals,
+ * and never the admin role that lets the grantee manage sharing in turn.
+ */
+function assertWidgetMayGrant(args: WidgetShareTarget & WidgetShareGrantee) {
+  if (args.principalType !== undefined && args.principalType !== "user") {
+    throw new ForbiddenError(
+      "A widget can share only with individual people, not an organization or group.",
+    );
+  }
+  if (args.role === "admin") {
+    throw new ForbiddenError(
+      "A widget cannot grant the admin role. Change that access in the app.",
+    );
+  }
+}
+
+/** The note in a share email is the caller's free text, so a widget sends none. */
+export function widgetShareMessage(
+  ctx: ActionRunContext | undefined,
+  message: string | undefined,
+): string | undefined {
+  return ctx?.caller === "mcp-widget-write" ? undefined : message;
 }
 
 export function assertWidgetShareReadGrant(

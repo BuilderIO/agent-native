@@ -5712,7 +5712,7 @@ export async function runAgentLoop(opts: {
   const journaledPriorToolResults =
     journalRead.status === "read" ? journalRead.priorToolResults : [];
   let threadSkillPages = new Map<string, string>();
-  let allowedJournalSlugs = new Set<string>();
+  let currentJournalSkillBodies = new Map<string, string>();
   const hasLoadedSkillPage = journaledPriorToolResults.some((result) => {
     const input =
       result.input && typeof result.input === "object"
@@ -5743,8 +5743,11 @@ export async function runAgentLoop(opts: {
         await loadAgentsBundle(),
         skillUserEmail,
       );
-      allowedJournalSlugs = new Set(
-        runtimeSkills.map((skill) => skillDocsSlug(skill.meta.name)),
+      currentJournalSkillBodies = new Map(
+        runtimeSkills.map((skill) => [
+          skillDocsSlug(skill.meta.name),
+          skill.content,
+        ]),
       );
     }
   }
@@ -5753,16 +5756,11 @@ export async function runAgentLoop(opts: {
   const continuationSystemPromptFor = (
     sentMessages: readonly EngineMessage[],
   ): string => {
-    const pages = new Map(threadSkillPages);
-    for (const [slug, page] of pages) {
-      if (skillPageIntactInHistory(sentMessages, slug, page)) {
-        pages.delete(slug);
-      }
-    }
     const loadedSkillsContext = loadedSkillPagesContext(
       reuseJournaledSkillPages ? journaledPriorToolResults : [],
-      pages,
-      allowedJournalSlugs,
+      threadSkillPages,
+      currentJournalSkillBodies,
+      (slug, page) => skillPageIntactInHistory(sentMessages, slug, page),
     );
     return loadedSkillsContext
       ? `${systemPrompt}\n\n${loadedSkillsContext}`

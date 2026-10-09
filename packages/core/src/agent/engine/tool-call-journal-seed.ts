@@ -151,7 +151,8 @@ const OMITTED_NOTICE_RESERVE_CHARS = 1_000;
 export function loadedSkillPagesContext(
   results: readonly PriorTurnToolResultSummary[],
   threadPages: ReadonlyMap<string, string>,
-  allowedSlugs: ReadonlySet<string>,
+  currentSkillBodies: ReadonlyMap<string, string>,
+  isInHistory: (slug: string, page: string) => boolean = () => false,
 ): string {
   const pages = new Map<string, string>();
   for (const result of results) {
@@ -161,12 +162,17 @@ export function loadedSkillPagesContext(
         ? (result.input as Record<string, unknown>)
         : null;
     const slug = input?.slug;
+    const currentBody =
+      typeof slug === "string" ? currentSkillBodies.get(slug) : undefined;
+    // A journaled read may predate a skill edit or have been truncated; only
+    // reuse it if it still holds the skill's current body.
     if (
       typeof slug !== "string" ||
       !slug.startsWith("skill-") ||
-      !allowedSlugs.has(slug) ||
+      currentBody === undefined ||
       !result.content.startsWith("# Skill:") ||
-      result.content.includes("Doc not found:")
+      result.content.includes("Doc not found:") ||
+      !result.content.includes(currentBody.trim())
     ) {
       continue;
     }
@@ -177,6 +183,9 @@ export function loadedSkillPagesContext(
   for (const [slug, page] of pages) {
     merged.delete(slug);
     merged.set(slug, page);
+  }
+  for (const [slug, page] of merged) {
+    if (isInHistory(slug, page)) merged.delete(slug);
   }
   return renderLoadedSkillPages(merged);
 }
