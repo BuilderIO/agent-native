@@ -1,6 +1,7 @@
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import { test, expect } from "@playwright/test";
 
+import enUS from "../app/i18n/en-US";
 import {
   canvasZoom,
   readSeedDesignId,
@@ -104,7 +105,10 @@ test("agent rail keeps the shared chat header and conversation tabs", async ({
     '[data-design-chrome-region="workspace-rail"]',
   );
   await workspaceRail
-    .getByRole("button", { name: "Agent", exact: true })
+    .getByRole("button", {
+      name: enUS.designEditor.leftRail.agent,
+      exact: true,
+    })
     .click();
 
   const agentPanel = page.locator("[data-design-agent-panel]");
@@ -151,7 +155,10 @@ test("agent rail stays contained at a narrow viewport", async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await page
     .locator('[data-design-chrome-region="workspace-rail"]')
-    .getByRole("button", { name: "Agent", exact: true })
+    .getByRole("button", {
+      name: enUS.designEditor.leftRail.agent,
+      exact: true,
+    })
     .click();
 
   const agentPanel = page.locator("[data-design-agent-panel]");
