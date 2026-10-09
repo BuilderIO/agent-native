@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import * as Y from "yjs";
 
-import { appPath, designFrame, gotoEditor } from "./helpers";
+import { appPath, designFrame, enterInteractView, gotoEditor } from "./helpers";
 
 const IMAGE_FIXTURE = path.resolve(
   import.meta.dirname,
@@ -731,14 +731,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
     await expect(imagePicker).toBeVisible();
     await page.getByRole("heading", { name: "Layers", exact: true }).click();
     await expect(imagePicker).toBeHidden();
-    await page
-      .locator(
-        `[data-screen-shell][data-frame-id="${screenAId}"] [data-frame-label]`,
-      )
-      .dblclick();
-    await expect(
-      page.locator(`[data-screen-shell][data-frame-id="${screenAId}"]`),
-    ).toHaveAttribute("data-screen-interact-mode", "true");
+    await enterInteractView(page, { screenId: screenAId });
     await expect(
       page.locator(`[data-screen-shell][data-frame-id="${screenBId}"]`),
     ).toHaveAttribute("data-screen-interact-mode", "false");

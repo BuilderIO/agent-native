@@ -850,12 +850,12 @@ async function createPodcastCard(
   await gap.fill("12");
   await gap.press("Enter");
   const horizontalPadding = layout.getByRole("textbox", {
-    name: /Left.*Right/,
+    name: /^Left \/ Right$/,
   });
   await horizontalPadding.fill("12");
   await horizontalPadding.press("Enter");
   const verticalPadding = layout.getByRole("textbox", {
-    name: /Top.*Bottom/,
+    name: /^Top \/ Bottom$/,
   });
   await verticalPadding.fill("12");
   await verticalPadding.press("Enter");
@@ -2091,12 +2091,14 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await rootGap.fill("10");
   await rootGap.press("Enter");
   const horizontalPadding = rootLayout.getByRole("textbox", {
-    name: /Left.*Right/,
+    name: "Left / Right",
+    exact: true,
   });
   await horizontalPadding.fill("10");
   await horizontalPadding.press("Enter");
   const verticalPadding = rootLayout.getByRole("textbox", {
-    name: /Top.*Bottom/,
+    name: "Top / Bottom",
+    exact: true,
   });
   await verticalPadding.fill("10");
   await verticalPadding.press("Enter");
@@ -2130,16 +2132,16 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await workspaceGap.fill("10");
   await workspaceGap.press("Enter");
   await workspaceLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: /^Left \/ Right$/ })
     .fill("10");
   await workspaceLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: /^Left \/ Right$/ })
     .press("Enter");
   await workspaceLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: /^Top \/ Bottom$/ })
     .fill("10");
   await workspaceLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: /^Top \/ Bottom$/ })
     .press("Enter");
   await setDimension(page, "H", 850);
   await setSizingMode(page, "W", "Fill container");
@@ -2189,13 +2191,17 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await sidebarLayout
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
-  await sidebarLayout.getByRole("textbox", { name: /Left.*Right/ }).fill("20");
   await sidebarLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: /^Left \/ Right$/ })
+    .fill("20");
+  await sidebarLayout
+    .getByRole("textbox", { name: /^Left \/ Right$/ })
     .press("Enter");
-  await sidebarLayout.getByRole("textbox", { name: /Top.*Bottom/ }).fill("20");
   await sidebarLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: /^Top \/ Bottom$/ })
+    .fill("20");
+  await sidebarLayout
+    .getByRole("textbox", { name: /^Top \/ Bottom$/ })
     .press("Enter");
   await setFillHex(page, "141A24");
   await drawInScreen(page, screenId, "Text", { x: 136, y: 30 }, "SONORA");
@@ -2233,8 +2239,8 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await contentGap.fill("24");
   await contentGap.press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "24"],
-    [/Top.*Bottom/, "24"],
+    [/^Left \/ Right$/, "24"],
+    [/^Top \/ Bottom$/, "24"],
   ] as const) {
     const field = contentLayout.getByRole("textbox", { name });
     await field.fill(value);
@@ -2261,13 +2267,17 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await topBarLayout
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
-  await topBarLayout.getByRole("textbox", { name: /Left.*Right/ }).fill("10");
   await topBarLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: /^Left \/ Right$/ })
+    .fill("10");
+  await topBarLayout
+    .getByRole("textbox", { name: /^Left \/ Right$/ })
     .press("Enter");
-  await topBarLayout.getByRole("textbox", { name: /Top.*Bottom/ }).fill("10");
   await topBarLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: /^Top \/ Bottom$/ })
+    .fill("10");
+  await topBarLayout
+    .getByRole("textbox", { name: /^Top \/ Bottom$/ })
     .press("Enter");
   await removeFill(page, "Top Bar");
   await layerButton(page, "Main Content").click();
@@ -2639,13 +2649,17 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   });
   await playerGap.fill("10");
   await playerGap.press("Enter");
-  await playerLayout.getByRole("textbox", { name: /Left.*Right/ }).fill("10");
   await playerLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: /^Left \/ Right$/ })
+    .fill("10");
+  await playerLayout
+    .getByRole("textbox", { name: /^Left \/ Right$/ })
     .press("Enter");
-  await playerLayout.getByRole("textbox", { name: /Top.*Bottom/ }).fill("10");
   await playerLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: /^Top \/ Bottom$/ })
+    .fill("10");
+  await playerLayout
+    .getByRole("textbox", { name: /^Top \/ Bottom$/ })
     .press("Enter");
   await setSizingMode(page, "W", "Fill container");
   await setSizingMode(page, "H", "Hug contents");
@@ -2944,16 +2958,16 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("button", { name: "Vertical", exact: true })
     .click();
   await mobileRootLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: /^Left \/ Right$/ })
     .fill("10");
   await mobileRootLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: /^Left \/ Right$/ })
     .press("Enter");
   await mobileRootLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: /^Top \/ Bottom$/ })
     .fill("10");
   await mobileRootLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: /^Top \/ Bottom$/ })
     .press("Enter");
   await mobileRootLayout.getByRole("button", { name: "Gap mode" }).click();
   await page.getByRole("menuitemcheckbox", { name: "Auto" }).click();
@@ -2985,8 +2999,8 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "10"],
-    [/Top.*Bottom/, "10"],
+    [/^Left \/ Right$/, "10"],
+    [/^Top \/ Bottom$/, "10"],
   ] as const) {
     const field = mobileWorkspaceLayout.getByRole("textbox", { name });
     await field.fill(value);
@@ -3018,8 +3032,8 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "12"],
-    [/Top.*Bottom/, "20"],
+    [/^Left \/ Right$/, "12"],
+    [/^Top \/ Bottom$/, "20"],
   ] as const) {
     const field = mobileSidebarLayout.getByRole("textbox", { name });
     await field.fill(value);
@@ -3084,8 +3098,8 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "24"],
-    [/Top.*Bottom/, "24"],
+    [/^Left \/ Right$/, "24"],
+    [/^Top \/ Bottom$/, "24"],
   ] as const) {
     const field = mobileContentLayout.getByRole("textbox", { name });
     await field.fill(value);
@@ -3117,8 +3131,8 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "10"],
-    [/Top.*Bottom/, "10"],
+    [/^Left \/ Right$/, "10"],
+    [/^Top \/ Bottom$/, "10"],
   ] as const) {
     const field = mobileTopBarLayout.getByRole("textbox", { name });
     await field.fill(value);
@@ -3217,8 +3231,8 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "10"],
-    [/Top.*Bottom/, "10"],
+    [/^Left \/ Right$/, "10"],
+    [/^Top \/ Bottom$/, "10"],
   ] as const) {
     const field = mobilePlayerLayout.getByRole("textbox", { name });
     await field.fill(value);

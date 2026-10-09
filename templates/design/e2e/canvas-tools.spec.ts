@@ -1181,11 +1181,13 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
   const layersBox = await page
     .getByRole("complementary", { name: "Layers" })
     .boundingBox();
-  expect(railBox?.width).toBe(64);
+  // The rail is 7 baseline units (`--design-chrome-rail-width`); the Layers
+  // panel opens at its 240px default width beside it.
+  expect(railBox?.width).toBe(56);
   expect(layersBox).not.toBeNull();
-  expect(Math.abs(layersBox!.x + layersBox!.width - 344)).toBeLessThanOrEqual(
-    1,
-  );
+  expect(
+    Math.abs(layersBox!.x + layersBox!.width - (railBox!.width + 240)),
+  ).toBeLessThanOrEqual(1);
 
   const iframe = screenShell(page, "Home")
     .locator("iframe[data-design-preview-iframe]")
