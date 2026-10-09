@@ -804,6 +804,121 @@ describe("onboarding journey events SQL", () => {
     expect(rows.some((row) => row.generation_attempt_id)).toBe(false);
   });
 
+  it("links a sessionless Design completion to its exact result pageview", async () => {
+    await setup();
+    const exactLink = {
+      output_id: "design-output",
+      generation_attempt_id: "V1StGXR8_Z5jdHi6B-myT",
+    };
+    await insert("design-session", "signup", 1, {
+      email: "design@example.com",
+      template: "design",
+    });
+    await insert("design-session", "pageview", 2, {
+      template: "design",
+      path: "/design/design-output",
+      properties: {
+        ...exactLink,
+        sessionReplayId: "replay-fixture",
+        sessionReplayStartedAt: "2026-10-09T12:00:00.000Z",
+      },
+    });
+    await insert(null, "generation_completed", 3, {
+      template: "design",
+      properties: { ...exactLink, output_type: "design" },
+    });
+    await insert(null, "generation_completed", 4, {
+      template: "design",
+      properties: {
+        ...exactLink,
+        generation_attempt_id: "another-attempt-id",
+        output_type: "design",
+      },
+    });
+
+    const rows = await run({ app: "design" });
+    const completed = rows.filter(
+      (row) => row.event_name === "generation_completed",
+    );
+
+    expect(completed).toHaveLength(1);
+    expect(completed[0]).toMatchObject({
+      session_id: "design-session",
+      journey_kind: "onboarding",
+      template_name: "design",
+      attempt_id: exactLink.generation_attempt_id,
+    });
+    expect(rows.find((row) => row.event_name === "pageview")).toMatchObject({
+      attempt_id: exactLink.generation_attempt_id,
+      session_replay_id: "replay-fixture",
+      session_replay_started_at: "2026-10-09T12:00:00.000Z",
+    });
+    expect(rows.some((row) => row.output_id || row.properties)).toBe(false);
+  });
+
+  it("keeps ambiguous Design output attempts unattributed", async () => {
+    await setup();
+    const exactLink = {
+      output_id: "shared-output",
+      generation_attempt_id: "V1StGXR8_Z5jdHi6B-myT",
+    };
+    for (const sessionId of ["design-a", "design-b"]) {
+      await insert(sessionId, "signup", 1, {
+        email: `${sessionId}@example.com`,
+        template: "design",
+      });
+      await insert(sessionId, "pageview", 2, {
+        template: "design",
+        path: "/design/shared-output",
+        properties: exactLink,
+      });
+    }
+    await insert(null, "generation_completed", 3, {
+      template: "design",
+      properties: { ...exactLink, output_type: "design" },
+    });
+
+    const rows = await run({ app: "design" });
+
+    expect(rows.some((row) => row.event_name === "generation_completed")).toBe(
+      false,
+    );
+  });
+
+  it("keeps Design output completion in the standalone setup tree", async () => {
+    await setup();
+    const exactLink = {
+      output_id: "standalone-output",
+      generation_attempt_id: "V1StGXR8_Z5jdHi6B-myT",
+    };
+    await insert("standalone-design", "app_entered", 1, {
+      template: "design",
+    });
+    await insert("standalone-design", "integration_setup_exposed", 2, {
+      template: "design",
+    });
+    await insert("standalone-design", "pageview", 3, {
+      template: "design",
+      path: "/design/standalone-output",
+      properties: exactLink,
+    });
+    await insert(null, "generation_completed", 4, {
+      template: "design",
+      properties: { ...exactLink, output_type: "design" },
+    });
+
+    const rows = await run({ app: "design" });
+    const completed = rows.find(
+      (row) => row.event_name === "generation_completed",
+    );
+
+    expect(completed).toMatchObject({
+      session_id: "standalone-design",
+      journey_kind: "standalone_setup",
+      attempt_id: exactLink.generation_attempt_id,
+    });
+  });
+
   it("returns standalone chat setup sessions outside onboarding denominators", async () => {
     await setup();
     await insert("home-chat", "pageview", 1, { path: "/home" });
@@ -1003,6 +1118,8 @@ describe("onboarding journey events SQL", () => {
       "outcome",
       "path",
       "session_id",
+      "session_replay_id",
+      "session_replay_started_at",
       "source",
       "step_id",
       "step_index",

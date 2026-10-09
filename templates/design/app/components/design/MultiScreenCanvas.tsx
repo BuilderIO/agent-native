@@ -344,6 +344,7 @@ import {
   getFocusedLineupFillHeight,
   getFocusedLineupScale,
   getFocusedLineupFitScale,
+  getWidgetFitPaddingPx,
   isLineupShrinkOnlyChange,
   OVERVIEW_FRAME_WIDTH,
   resolveFocusedLineupScreenId,
@@ -2471,16 +2472,34 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     }
     const rect = surfaceRef.current.getBoundingClientRect();
     const scale = zoomRef.current / 100;
+    const primaryWidths: number[] = [];
     const frames = renderedScreens.map((screen) => {
       const metadata = getResolvedMetadata(screen);
       const currentGeometry =
         frameGeometryRef.current[screen.id] ??
         getInitialFrameGeometry(screenIndexById.get(screen.id) ?? 0, metadata);
-      return getPreviewDeviceFrameGeometry({
+      const primary = getPreviewDeviceFrameGeometry({
         currentGeometry,
         metadata,
         previewDeviceFrame,
       });
+      primaryWidths.push(primary.width);
+      // A widget fits a screen together with its breakpoint frames, so a
+      // responsive screen never opens with its mobile frame off the pane.
+      return fitFocusedViewport
+        ? getResponsiveScreenCullGeometry(
+            {
+              ...screen,
+              metadata: { width: metadata.width, height: metadata.height },
+            },
+            primary,
+            (widthPx) =>
+              getResponsiveBreakpointHeightPx(
+                { breakpointHeights: screen.breakpointHeights },
+                widthPx,
+              ),
+          )
+        : primary;
     });
     const frameEntries = frames
       .map((geometry, index) => ({
@@ -2533,6 +2552,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       totalHeight > 0
         ? Math.max(minFitScale, (rect.height - 96) / totalHeight)
         : scale;
+    const widgetFitPadding = getWidgetFitPaddingPx(availableWidth, rect.height);
     // Focused widget screens fit entirely inside the pane; ordinary focused
     // lineups retain their edge-to-edge width framing.
     const focusScale = focusScreen
@@ -2540,10 +2560,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         ? getFocusedLineupFitScale({
             frameWidth: totalWidth,
             frameHeight: totalHeight,
-            availableWidth,
-            availableHeight: Math.max(0, rect.height - 96),
+            availableWidth: Math.max(0, availableWidth - widgetFitPadding * 2),
+            availableHeight: Math.max(0, rect.height - widgetFitPadding * 2),
             minScale: minFitScale,
-            maxScale: getResolvedMetadata(focusScreen).width / totalWidth,
+            maxScale:
+              getResolvedMetadata(focusScreen).width /
+              Math.max(1, primaryWidths[focusIndex] ?? totalWidth),
           })
         : getFocusedLineupScale({
             frameWidth: totalWidth,
@@ -9917,8 +9939,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         cameraCommand.fitBounds,
         { width: availableWidth, height: rect.height },
         {
-          paddingScreenPx:
-            cameraCommand.paddingScreenPx ?? CANVAS_FIT_PADDING_PX,
+          paddingScreenPx: fitFocusedViewport
+            ? Math.min(
+                cameraCommand.paddingScreenPx ?? CANVAS_FIT_PADDING_PX,
+                getWidgetFitPaddingPx(availableWidth, rect.height),
+              )
+            : (cameraCommand.paddingScreenPx ?? CANVAS_FIT_PADDING_PX),
           canvasPadding: SURFACE_PADDING,
           minZoom: MIN_ZOOM,
           maxZoom: MAX_ZOOM,
@@ -9965,7 +9991,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (retryFrame !== null) window.cancelAnimationFrame(retryFrame);
       resizeObserver?.disconnect();
     };
-  }, [cameraCommand, applyViewToDom, scheduleViewCommit]);
+  }, [cameraCommand, applyViewToDom, scheduleViewCommit, fitFocusedViewport]);
 
   const markWheelGestureActive = useCallback(() => {
     if (wheelGestureActiveRef.current) return;

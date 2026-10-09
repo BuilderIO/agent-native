@@ -288,6 +288,21 @@ function assertWidgetDataOperations(
 ): void {
   for (const operation of operations) {
     const [map, entryId, field, ...rest] = operation.path;
+    // The editor persists each measured responsive frame height on first paint.
+    if (
+      map === "screenMetadata" &&
+      entryId &&
+      field === "breakpointHeights" &&
+      rest.length === 1
+    ) {
+      if (
+        operation.op !== "set" ||
+        designDataWriteError(operation.path, operation.value)
+      ) {
+        throw widgetDataOperationError();
+      }
+      continue;
+    }
     if (rest.length > 0) throw widgetDataOperationError();
 
     if (map === "canvasFrames") {

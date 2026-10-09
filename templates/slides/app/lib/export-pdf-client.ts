@@ -10,6 +10,11 @@ import { materializeSlideNumberTokens } from "@shared/slide-number";
 import { type AspectRatio, getAspectRatioDims } from "./aspect-ratios";
 import { importExportModule } from "./dynamic-import";
 import { sanitizeSlideUrl } from "./sanitize-slide-html";
+import {
+  browserExportErrorType,
+  trackBrowserDeckExported,
+  type BrowserDeckExportFacts,
+} from "./slides-relay-tracking";
 
 export function imageProxyUrl(src: string, shareToken?: string): string {
   const params = new URLSearchParams({ url: src });
@@ -503,7 +508,41 @@ export async function exportDeckAsPdf(
   deckTitle: string,
   slides: PdfExportSlide[],
   aspectRatio?: AspectRatio,
-  options: { signal?: AbortSignal; shareToken?: string } = {},
+  options: {
+    signal?: AbortSignal;
+    shareToken?: string;
+    /** Reports `deck_exported` for this deck when set. */
+    analytics?: BrowserDeckExportFacts;
+  } = {},
+): Promise<void> {
+  const { analytics, ...renderOptions } = options;
+  try {
+    await downloadDeckPdf(deckTitle, slides, aspectRatio, renderOptions);
+  } catch (error) {
+    if (analytics) {
+      trackBrowserDeckExported("pdf", {
+        ...analytics,
+        slideCount: slides.length,
+        status: "failed",
+        errorType: browserExportErrorType(error),
+      });
+    }
+    throw error;
+  }
+  if (analytics) {
+    trackBrowserDeckExported("pdf", {
+      ...analytics,
+      slideCount: slides.length,
+      status: "completed",
+    });
+  }
+}
+
+async function downloadDeckPdf(
+  deckTitle: string,
+  slides: PdfExportSlide[],
+  aspectRatio: AspectRatio | undefined,
+  options: { signal?: AbortSignal; shareToken?: string },
 ): Promise<void> {
   const { signal, shareToken } = options;
   throwIfExportAborted(signal);

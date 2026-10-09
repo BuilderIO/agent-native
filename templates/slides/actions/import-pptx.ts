@@ -22,6 +22,7 @@ import {
   type ParsedImage,
   type ParsedPresentation,
 } from "../server/handlers/import/pptx-parser.js";
+import { trackSlides } from "../server/lib/slides-tracking.js";
 import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import {
   ASPECT_RATIOS,
@@ -33,6 +34,7 @@ import {
   resolveImportedDeckTitle,
 } from "../shared/deck-title.js";
 import { getDeckUrl } from "./_app-url.js";
+import { trackDeckCreated } from "./_deck-tracking.js";
 import {
   assertDeckWriteApplied,
   deckRevisionWhere,
@@ -331,17 +333,57 @@ export default defineAction({
       .describe(
         "Deck title — defaults to the title extracted from the presentation",
       ),
+    purpose: z
+      .enum(["direct", "reference"])
+      .optional()
+      .describe("Why the deck is being imported; used only for analytics"),
   }),
-  run: async ({ filePath, deckId, title, designSystemId }, ctx) => {
+  run: async ({ filePath, deckId, title, designSystemId, purpose }, ctx) => {
     const { data: fileBuffer } = await readUserUploadedFile(filePath, ctx);
-    return importPptxBufferToDeck({
+    const result = await importPptxBufferToDeck({
       fileBuffer,
       deckId,
       title,
       designSystemId,
     });
+    trackPptxImport(result, { deckId, purpose }, ctx);
+    return result;
   },
 });
+
+/**
+ * A PPTX imported as a new deck is a creation; imported into an existing deck
+ * it replaces that deck's slides, which is an edit.
+ */
+export function trackPptxImport(
+  result: { id: string; slideCount: number },
+  args: { deckId?: string; purpose?: "direct" | "reference" },
+  source: Parameters<typeof trackSlides>[2],
+): void {
+  if (!args.deckId) {
+    trackDeckCreated(
+      result.id,
+      {
+        creationMethod: "import_pptx",
+        purpose: args.purpose ?? "unknown",
+        slideCount: result.slideCount,
+      },
+      source,
+    );
+    return;
+  }
+  trackSlides(
+    "deck_edited",
+    {
+      output_id: args.deckId,
+      output_type: "deck",
+      edit_mode: "import_pptx",
+      change_kinds: ["content"],
+      slide_count: result.slideCount,
+    },
+    source,
+  );
+}
 
 function nearestAspectRatio(
   width: number | undefined,

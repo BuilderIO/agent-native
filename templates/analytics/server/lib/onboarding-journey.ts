@@ -18,6 +18,7 @@ import {
   type OnboardingJourneyPersonMember,
   type OnboardingJourneyTerminalStep,
 } from "./first-party-metric-catalog.js";
+import { MAX_SESSION_ID_LENGTH } from "./indexed-text.js";
 import {
   projectSessionSteps,
   type JourneyEventRow,
@@ -31,7 +32,11 @@ import {
   type JourneySession,
   type ViewportConstraints,
 } from "./journey-tree.js";
-import { listJourneyRecordings } from "./session-replay.js";
+import { canonicalReplayLinkTimestamp } from "./replay-link-timestamp.js";
+import {
+  listJourneyRecordings,
+  type JourneyReplayLink,
+} from "./session-replay.js";
 
 // Both backends cap a query result at 5,000 rows; stay under it so a full page
 // is never mistaken for a cut one.
@@ -279,6 +284,15 @@ export function parseJourneyEventRow(
   ) {
     return null;
   }
+  const sessionReplayId = text(raw.session_replay_id);
+  const sessionReplayStartedAt = canonicalReplayLinkTimestamp(
+    raw.session_replay_started_at,
+  );
+  const hasExactReplayLink =
+    sessionReplayId !== null &&
+    sessionReplayId.length > 0 &&
+    sessionReplayStartedAt !== null &&
+    sessionReplayId.length <= MAX_SESSION_ID_LENGTH;
   return {
     id,
     sessionId,
@@ -298,6 +312,8 @@ export function parseJourneyEventRow(
     action: text(raw.action),
     aliasId: text(raw.alias_id),
     attemptId: text(raw.attempt_id),
+    sessionReplayId: hasExactReplayLink ? sessionReplayId : null,
+    sessionReplayStartedAt: hasExactReplayLink ? sessionReplayStartedAt : null,
   };
 }
 
@@ -1167,9 +1183,10 @@ async function readPersonFollowup(
 async function readRecordings(
   scope: AnalyticsScope,
   sessionIds: readonly string[],
+  replayLinks: readonly JourneyReplayLink[],
   args: OnboardingJourneyArgs,
 ): Promise<JourneyRecording[]> {
-  if (!sessionIds.length) return [];
+  if (!sessionIds.length && !replayLinks.length) return [];
   // A recording can start the day before a late-night session's first event.
   const fromIso = new Date(
     Date.parse(`${args.dateFrom}T00:00:00Z`) - DAY_MS,
@@ -1179,7 +1196,12 @@ async function readRecordings(
   ).toISOString();
   let read;
   try {
-    read = await listJourneyRecordings(scope, sessionIds, { fromIso, toIso });
+    read = await listJourneyRecordings(
+      scope,
+      sessionIds,
+      { fromIso, toIso },
+      replayLinks,
+    );
   } catch (error) {
     // The cause can quote database details, so the server log keeps it.
     console.error("[onboarding-journey] recordings read failed", error);
@@ -1293,6 +1315,26 @@ export async function getOnboardingJourney(
       ...standalone.sessions.map((session) => session.sessionId),
     ]),
   ];
+  const journeySessionIds = new Set(sessionIds);
+  const replayLinksByKey = new Map<string, JourneyReplayLink>();
+  for (const row of read.rows) {
+    if (
+      !journeySessionIds.has(row.sessionId) ||
+      !row.sessionReplayId ||
+      !row.sessionReplayStartedAt
+    ) {
+      continue;
+    }
+    const link = {
+      sessionId: row.sessionId,
+      clientRecordingId: row.sessionReplayId,
+      startedAt: row.sessionReplayStartedAt,
+    };
+    replayLinksByKey.set(
+      JSON.stringify([link.sessionId, link.clientRecordingId, link.startedAt]),
+      link,
+    );
+  }
   const depthTruncated = sessions.some(
     (session) => session.steps.length > args.maxDepth,
   );
@@ -1302,7 +1344,12 @@ export async function getOnboardingJourney(
 
   let recordings: JourneyRecording[] | null;
   try {
-    recordings = await readRecordings(scope, sessionIds, args);
+    recordings = await readRecordings(
+      scope,
+      sessionIds,
+      [...replayLinksByKey.values()],
+      args,
+    );
   } catch (error) {
     // A summary carries no examples, so it reports the count as unknown;
     // a tree whose examples would be wrong fails instead.

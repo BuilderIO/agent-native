@@ -21,6 +21,8 @@ export default {
       "{label}，來源範例 {source}，圖庫位置 {current}/{total}，截圖日期 {date}",
     screenshotMissing: "未擷取螢幕截圖",
     recordingUnavailable: "無法使用",
+    recordingGap: "錄製空檔",
+    recordingGapDuration: "錄製空檔 · {duration}",
     eventTime: "事件時間（UTC）",
     generationCompletedEvent: "generation_completed 事件（UTC）",
     replayObservation: "回放觀察",
