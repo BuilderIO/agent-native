@@ -611,6 +611,7 @@
     "./shared/sign-in-journey": "./dist/shared/sign-in-journey.js",
     "./shared/ssr-beta-redirect": "./dist/shared/ssr-beta-redirect.js",
     "./shared/ssr-session-bootstrap": "./dist/shared/ssr-session-bootstrap.js",
+    "./shared/ssr-session-bootstrap-slot": "./dist/shared/ssr-session-bootstrap-slot.js",
     "./shared/test-traffic": "./dist/shared/test-traffic.js",
     "./shared/workspace-app-audience": "./dist/shared/workspace-app-audience.js",
     "./shared/workspace-app-id": "./dist/shared/workspace-app-id.js",
