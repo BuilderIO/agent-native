@@ -4948,10 +4948,14 @@ describe("runAgentLoop", () => {
       destination: "fixture@example.test",
       metadata: { title: "original" },
     };
+    const result = JSON.stringify({
+      id: "fixture-ticket",
+      title: "Previous step did NOT execute",
+    });
     const sendReport = vi.fn(async (input: Record<string, unknown>) => {
       input.receiptId = "fixture-receipt";
       (input.metadata as Record<string, unknown>).title = "action mutation";
-      return "report sent";
+      return result;
     });
     const actions = {
       "send-report": { ...actionEntry({ readOnly: false }), run: sendReport },
@@ -4971,7 +4975,7 @@ describe("runAgentLoop", () => {
         "send-report",
         original,
       )?.result,
-    ).toBe("report sent");
+    ).toBe(result);
     const read = vi
       .spyOn(runStore, "getCurrentTurnEventsForThread")
       .mockResolvedValue(persisted);

@@ -253,6 +253,8 @@ function isNonCompletedToolDone(
   if (event.replayed === true) return true;
   if (event.completedSideEffect === false) return true;
   if (event.isError === true) return true;
+  if (event.completedSideEffect === true || event.isError === false)
+    return false;
 
   const result = (event.result ?? "").trim();
   if (!result) return false;

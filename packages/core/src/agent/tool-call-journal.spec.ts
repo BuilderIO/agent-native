@@ -454,6 +454,68 @@ describe("classifyToolCallJournal", () => {
     expect(journal.interrupted).toHaveLength(0);
   });
 
+  it.each([
+    JSON.stringify({
+      id: "fixture-ticket",
+      title: "Previous step did NOT execute",
+    }),
+    "Skipped old entries; created fixture-ticket",
+    "Awaiting human approval was the prior state; created fixture-ticket",
+  ])(
+    "retains explicit completed receipts regardless of result prose: %s",
+    (result) => {
+      const input = { title: "Previous step did NOT execute" };
+      for (const outcome of [
+        { completedSideEffect: true },
+        { isError: false },
+      ]) {
+        const journal = classifyToolCallJournal([
+          { type: "tool_start", tool: "open-ticket", id: "call-1", input },
+          {
+            type: "tool_done",
+            tool: "open-ticket",
+            id: "call-1",
+            input,
+            result,
+            ...outcome,
+          },
+        ]);
+        const consumed = new Set<string>();
+        expect(
+          findCompletedJournalEntry(journal, "open-ticket", input, consumed)
+            ?.result,
+        ).toBe(result);
+        expect(
+          findCompletedJournalEntry(journal, "open-ticket", input, consumed),
+        ).toBeUndefined();
+        expect(journal.interrupted).toHaveLength(0);
+      }
+    },
+  );
+
+  it.each([
+    { completedSideEffect: true, isError: true },
+    { completedSideEffect: false, isError: false },
+    { completedSideEffect: true, replayed: true as const },
+  ])(
+    "keeps explicit failed, skipped, and replayed outcomes out of new completion evidence: %j",
+    (outcome) => {
+      const input = { title: "fixture" };
+      const journal = classifyToolCallJournal([
+        start("open-ticket", input),
+        {
+          type: "tool_done",
+          tool: "open-ticket",
+          input,
+          result: "fixture result",
+          ...outcome,
+        },
+      ]);
+      expect(journal.completed).toHaveLength(0);
+      expect(journal.interrupted).toHaveLength(0);
+    },
+  );
+
   it("does not classify legacy blocked tool_done text as completed writes", () => {
     const events: AgentChatEvent[] = [
       start("add-slide", { deckId: "deck-1", layout: "content" }),

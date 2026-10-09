@@ -46,3 +46,5 @@ Reject journal fingerprints that contradict their original arguments and require
 Snapshot fresh tool arguments before queued journal writes, store separate original and persisted argument digests, preserve every own JSON property during byte stripping, and leave ambiguous identical invocations unknown.
 
 Keep start and completion journal events bound to the same pre-invocation arguments even when an action mutates its input.
+
+Honor explicit successful tool outcomes during replay classification without interpreting arbitrary result text as a legacy failure marker.
