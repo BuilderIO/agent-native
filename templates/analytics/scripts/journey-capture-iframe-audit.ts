@@ -418,12 +418,7 @@ export function auditReplayIframeContent({
   ] = [
     (value, geometry) => {
       const match = value.trim().match(/^rect\((.*)\)$/i);
-      if (
-        !match ||
-        geometry.uncertain ||
-        geometry.width <= 0 ||
-        geometry.height <= 0
-      ) {
+      if (!match || geometry.uncertain) {
         return null;
       }
 
@@ -454,6 +449,7 @@ export function auditReplayIframeContent({
         return null;
       }
       if (right <= left || bottom <= top) return [];
+      if (geometry.width <= 0 || geometry.height <= 0) return null;
       return [
         { x: left, y: top },
         { x: right, y: top },

@@ -1075,6 +1075,35 @@ describe("replay iframe audit", () => {
     ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 0 });
   });
 
+  it("treats an empty legacy clip on zero-sized geometry as deterministically empty", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const clipper = replayDocument.createElement("div");
+    clipper.style.cssText = "position:absolute;clip:rect(0px, 0px, 0px, 0px)";
+    replayDocument.body.append(clipper);
+    setBox(clipper, { left: 10, top: 10, width: 0, height: 0 }, 0, 0);
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 20, height: 20 },
+      20,
+      20,
+      clipper,
+    );
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [1],
+      }),
+    ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
+  });
+
   it("fails closed when a legacy CSS clip rectangle has unsupported offsets", () => {
     const replayFrame = appendFrame(
       document,
