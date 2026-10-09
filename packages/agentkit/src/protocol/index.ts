@@ -97,6 +97,19 @@ export interface FilePart {
   fileId?: string;
 }
 
+/** Request-only image bytes paired with a durable reference when available. */
+export interface AgentRequestAttachment {
+  type: "image";
+  name: string;
+  contentType?: string;
+  /** A bounded data URL sent only with a new run, never stored in thread history. */
+  data?: string;
+  /** The resized image URL used when a request is queued for later execution. */
+  url?: string;
+  /** The user's original upload URL, retained for embedding or reference. */
+  referenceUrl?: string;
+}
+
 export interface AgentWidgetAction {
   id: string;
   label: string;
@@ -973,6 +986,7 @@ export interface AgentQueuedMessage {
   text: string;
   createdAt: string;
   attachments?: FilePart[];
+  requestAttachments?: AgentRequestAttachment[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
 }
@@ -1023,6 +1037,7 @@ export interface QueueMessageInput {
   id?: string;
   text: string;
   attachments?: FilePart[];
+  requestAttachments?: AgentRequestAttachment[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
 }
@@ -1168,6 +1183,7 @@ export interface AgentTransport extends AgentTransportThreadOperations {
 export interface StartRunInput {
   threadId: ThreadId;
   messages: AgentMessage[];
+  requestAttachments?: AgentRequestAttachment[];
   options?: AgentRunOptions;
   resume?: AgentResumeEntry[];
   metadata?: AgentProtocolMetadata;

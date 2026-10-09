@@ -2,15 +2,14 @@
  * Frame-tool size presets — the equivalent of Figma's right-panel preset list
  * that replaces the inspector while the Frame tool (F / A) is armed. Each
  * category maps to a `framePresets.categories.<key>` i18n label; preset
- * `name` values are product/device names and are intentionally left as
- * untranslated literals (matching Figma's own behavior).
+ * `name` values are standardized product, device, and canvas-format names and
+ * are intentionally left as untranslated literals (matching Figma's behavior).
  *
  * Pure data + a couple of small pure helpers so the shape can be unit tested
  * without mounting EditPanel.
  *
- * i18n-raw-literal-disable-file: every `name` below is a real-world
- * product/device name (iPhone, Android, Instagram Post, etc.) and must stay
- * untranslated in every locale, matching Figma's own preset list behavior.
+ * i18n-raw-literal-disable-file: preset names (iPhone, Android, Instagram
+ * Post, Medium Rectangle, etc.) stay untranslated, matching Figma's preset list.
  */
 
 export type FrameSizePresetCategoryKey =
@@ -97,9 +96,17 @@ export const FRAME_SIZE_PRESET_CATEGORIES: FrameSizePresetCategory[] = [
     key: "socialMedia",
     presets: [
       { name: "Instagram Post", width: 1080, height: 1080 },
+      { name: "Instagram Portrait Post", width: 1080, height: 1350 },
       { name: "Instagram Story", width: 1080, height: 1920 },
       { name: "X Post", width: 1200, height: 675 },
+      { name: "X Promo Graphic", width: 1200, height: 675 },
       { name: "Facebook Cover", width: 820, height: 312 },
+      { name: "Meta Feed Square Ad", width: 1080, height: 1080 },
+      { name: "Meta Feed Landscape Ad", width: 1200, height: 628 },
+      { name: "LinkedIn Single Image Ad", width: 1200, height: 627 },
+      { name: "Open Graph Image", width: 1200, height: 630 },
+      { name: "YouTube Thumbnail", width: 1280, height: 720 },
+      { name: "Email Header", width: 600, height: 200 },
       { name: "LinkedIn Cover", width: 1584, height: 396 },
     ],
   },

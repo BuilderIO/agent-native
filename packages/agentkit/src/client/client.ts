@@ -12,6 +12,7 @@ import type {
   AgentEvent,
   AgentMessage,
   AgentQueuedMessage,
+  AgentRequestAttachment,
   AgentRequestContext,
   AgentRunSnapshot,
   AgentRunOptions,
@@ -43,6 +44,7 @@ import {
   createRequestAbortedError,
   createAgentKitProtocolVersionOffer,
   parseAgentEvent,
+  parseStartRunInput,
   projectAgentCapabilities,
   resumeEntryFromApproval,
 } from "../protocol/index.js";
@@ -122,6 +124,30 @@ export interface AgentKitUploadFile {
   body: Blob;
 }
 
+function requestAttachmentFile(
+  attachment: AgentRequestAttachment,
+): AgentKitUploadFile | null {
+  if (!attachment.data) return null;
+  const match = attachment.data.match(
+    /^data:(image\/(?:gif|jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/i,
+  );
+  if (!match) {
+    throw new AgentProtocolValidationError(
+      "requestAttachments.data",
+      "expected a base64 raster image data URL",
+    );
+  }
+  const mediaType = match[1]!.toLowerCase();
+  const binary = atob(match[2]!);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return {
+    name: attachment.name,
+    mediaType,
+    size: bytes.byteLength,
+    body: new Blob([bytes], { type: mediaType }),
+  };
+}
+
 export type AgentKitUploadDriver = (
   target: AgentUploadTarget,
   file: AgentKitUploadFile,
@@ -143,6 +169,7 @@ export interface SendMessageInput {
   threadId: ThreadId;
   text: string;
   attachments?: FilePart[];
+  requestAttachments?: AgentRequestAttachment[];
   options?: AgentRunOptions;
   metadata?: Record<string, unknown>;
   /** Whether to queue when a run is active. Defaults to true. */
@@ -2662,7 +2689,7 @@ export class AgentKitClient implements AgentKitController {
     );
     const requestContext = this.createRequestContext(context);
     await this.ensureCapabilities(requestContext);
-    if (input.attachments?.length) {
+    if (input.attachments?.length || input.requestAttachments?.length) {
       await this.requireCapability("attachments", requestContext);
     }
     if (input.options?.model) {
@@ -2731,6 +2758,9 @@ export class AgentKitClient implements AgentKitController {
           {
             threadId: input.threadId,
             messages,
+            ...(input.requestAttachments?.length
+              ? { requestAttachments: input.requestAttachments }
+              : {}),
             options: input.options,
             metadata: input.metadata,
           },
@@ -3169,6 +3199,39 @@ export class AgentKitClient implements AgentKitController {
     this.assertActive();
   }
 
+  private async queueSafeRequestAttachments(
+    threadId: ThreadId,
+    attachments: AgentRequestAttachment[] | undefined,
+    context: AgentRequestContext,
+  ): Promise<AgentRequestAttachment[] | undefined> {
+    if (!attachments?.length) return undefined;
+    parseStartRunInput({
+      threadId,
+      messages: [],
+      requestAttachments: attachments,
+    });
+    const uploads = attachments.map(requestAttachmentFile);
+    if (!uploads.some(Boolean)) return attachments;
+    const uploaded = await this.uploadFiles(
+      threadId,
+      uploads.filter((file): file is AgentKitUploadFile => file !== null),
+      context,
+    );
+    let uploadIndex = 0;
+    return attachments.map((attachment, index) => {
+      const file = uploads[index];
+      if (!file) return attachment;
+      const result = uploaded[uploadIndex++];
+      if (!result?.url) {
+        throw new TypeError(
+          `Queued image ${attachment.name} did not receive a durable URL.`,
+        );
+      }
+      const { data: _data, ...reference } = attachment;
+      return { ...reference, url: result.url };
+    });
+  }
+
   public async queueMessage(
     input: SendMessageInput,
     context?: AgentRequestContext,
@@ -3186,6 +3249,10 @@ export class AgentKitClient implements AgentKitController {
     const queueMessage = this.transport.queueMessage;
     if (!queueMessage) {
       throw new AgentKitCapabilityError("messageQueue");
+    }
+    await this.requireCapability("messageQueue", requestContext);
+    if (input.attachments?.length || input.requestAttachments?.length) {
+      await this.requireCapability("attachments", requestContext);
     }
     const optimisticMessage: AgentQueuedMessage = {
       id: this.createId("queued-message"),
@@ -3212,12 +3279,33 @@ export class AgentKitClient implements AgentKitController {
     });
     try {
       input.onLocalSubmit?.();
-      await this.requireCapability("messageQueue", requestContext);
-      if (input.attachments?.length) {
-        await this.requireCapability("attachments", requestContext);
-      }
       return await this.enqueueQueueMutation(input.threadId, async () => {
         this.assertActive();
+        const requestAttachments = await this.queueSafeRequestAttachments(
+          input.threadId,
+          input.requestAttachments,
+          requestContext,
+        );
+        if (requestAttachments?.length) {
+          const thread = this.getThread(input.threadId);
+          const queuedMessages = thread.queuedMessages.map((message) =>
+            message.id === optimisticMessage.id
+              ? { ...message, requestAttachments }
+              : message,
+          );
+          this.setThread(input.threadId, { ...thread, queuedMessages });
+          const queueOverride = this.queuedMessageOverrides.get(input.threadId);
+          if (queueOverride) {
+            this.queuedMessageOverrides.set(input.threadId, {
+              messages: queueOverride.messages.map((message) =>
+                message.id === optimisticMessage.id
+                  ? { ...message, requestAttachments }
+                  : message,
+              ),
+              removedIds: queueOverride.removedIds,
+            });
+          }
+        }
         const result = await this.invokeRequest(requestContext, (context) =>
           queueMessage(
             {
@@ -3225,6 +3313,7 @@ export class AgentKitClient implements AgentKitController {
               id: optimisticMessage.id,
               text: input.text,
               attachments: input.attachments,
+              ...(requestAttachments?.length ? { requestAttachments } : {}),
               metadata: input.metadata,
               options: input.options,
             },

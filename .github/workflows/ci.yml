@@ -1155,10 +1155,11 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: playwright-${{ runner.os }}-
 
-      - name: Install Playwright Chromium and WebKit
+      - name: Install Playwright browsers
         run: |
           pnpm exec playwright install --only-shell --with-deps chromium
           pnpm exec playwright install --with-deps webkit
+          pnpm exec playwright install --with-deps firefox
 
       - name: Check IME Escape preserves inline slide text editing
         working-directory: templates/slides
@@ -1188,9 +1189,29 @@ jobs:
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
 
-      - name: Check mixed rich-text authoring operations in Chromium
+      - name: Run deterministic authoring smoke in Chromium
         working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seed 2 --steps 80
+        run: >-
+          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+          --seed 16 --steps 80 --browser chromium
+
+      - name: Run absolute-layout authoring smoke in Chromium
+        working-directory: templates/slides
+        run: >-
+          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+          --seed 2 --steps 80 --browser chromium
+
+      - name: Run deterministic authoring smoke in WebKit
+        working-directory: templates/slides
+        run: >-
+          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+          --seed 16 --steps 80 --browser webkit
+
+      - name: Run deterministic authoring smoke in Firefox
+        working-directory: templates/slides
+        run: >-
+          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+          --seed 16 --steps 80 --browser firefox
 
   brain-evals:
     name: Brain evals

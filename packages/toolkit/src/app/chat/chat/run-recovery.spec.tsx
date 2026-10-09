@@ -602,6 +602,36 @@ describe("run recovery surfaces", () => {
     expect(newChatButton?.textContent).toBe("");
   });
 
+  it("does not offer Retry for a terminal invalid-attachment provider error", async () => {
+    const onRetry = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message:
+                "The model provider rejected this attachment's format or size. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported file format or paste the relevant text, then attach it again.",
+              errorCode: "invalid_attachment",
+              recoverable: false,
+            }}
+            onContinue={vi.fn()}
+            onRetry={onRetry}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("export a smaller PNG");
+    expect(container.querySelector('button[aria-label="Retry"]')).toBeNull();
+    expect(onRetry).not.toHaveBeenCalled();
+  });
+
   it("gives Continue vertical padding and leaves icon actions unframed", async () => {
     await act(async () => {
       root.render(

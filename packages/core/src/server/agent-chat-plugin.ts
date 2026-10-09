@@ -3,7 +3,7 @@ import nodePath from "node:path";
 
 import {
   AgentProtocolValidationError,
-  parseAgentRunOptions,
+  parseQueueMessageInput,
 } from "@agent-native/agentkit/protocol";
 import {
   createError,
@@ -680,6 +680,8 @@ export function parseQueuedMessageForThread(
     (queued.threadId !== undefined && queued.threadId !== threadId) ||
     (queued.createdAt !== undefined && typeof queued.createdAt !== "string") ||
     (queued.attachments !== undefined && !Array.isArray(queued.attachments)) ||
+    (queued.requestAttachments !== undefined &&
+      !Array.isArray(queued.requestAttachments)) ||
     (queued.metadata !== undefined &&
       (!queued.metadata ||
         typeof queued.metadata !== "object" ||
@@ -687,13 +689,13 @@ export function parseQueuedMessageForThread(
   ) {
     return null;
   }
-  if (queued.options !== undefined) {
-    try {
-      parseAgentRunOptions(queued.options, "queuedMessage.options");
-    } catch (error) {
-      if (error instanceof AgentProtocolValidationError) return null;
-      throw error;
-    }
+  try {
+    parseQueueMessageInput({ ...queued, threadId }, "queuedMessage", {
+      allowLegacyQueueCount: true,
+    });
+  } catch (error) {
+    if (error instanceof AgentProtocolValidationError) return null;
+    throw error;
   }
   const { promotionClaim: _claim, ...message } = queued;
   return { ...message, threadId } as QueuedMessage;

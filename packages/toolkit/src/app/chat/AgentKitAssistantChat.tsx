@@ -5,12 +5,14 @@ import {
   type AgentKitUploadDriver,
   type AgentThreadState,
 } from "@agent-native/agentkit";
+import { MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS } from "@agent-native/agentkit/protocol";
 import type {
   AgentActionResult,
   AgentApprovalRequest,
   AgentConnectionRequest,
   AgentEvent,
   AgentMessage,
+  AgentRequestAttachment,
   AgentStreamIntegrityReport,
   AgentTransport,
   AgentThreadSnapshot,
@@ -68,6 +70,7 @@ import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { useSession } from "@agent-native/core/client/use-session";
 import { AGENTKIT_CHAT_MIGRATION_GUIDE_URL } from "@agent-native/core/package-lifecycle/migration-message";
 import {
+  parseBase64DataUrl,
   splitAgentChatContextFromMessage,
   stripAgentChatContextFromMessage,
 } from "@agent-native/core/shared";
@@ -81,6 +84,8 @@ import {
   type Reference,
   type AgentSuggestionInput,
   type TiptapComposerHandle,
+  AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
+  readAgentPromptAttachment,
 } from "@agent-native/toolkit/composer";
 import {
   appendRealtimeVoiceTranscriptToRepository,
@@ -300,6 +305,7 @@ type AgentKitInternalSendOptions = AssistantChatSendOptions & {
   recoveryEffort?: string;
   recoveryRequestMode?: "act" | "plan";
   deferredFileParts?: FilePart[];
+  deferredRequestAttachments?: AgentRequestAttachment[];
   contextAlreadyIncluded?: boolean;
   pendingSelectionCapturedAt?: number | null;
   skipAmbientSelectionContext?: boolean;
@@ -313,6 +319,7 @@ interface PendingProviderSubmission {
   threadId: string;
   text: string;
   fileParts: FilePart[];
+  requestAttachments?: AgentRequestAttachment[];
   references: Reference[];
   composerOptions: AgentKitSuggestionSubmitOptions;
   options: AgentKitInternalSendOptions;
@@ -375,6 +382,7 @@ function parseDeferredProviderSubmissions(
   return state.submissions.map((value) => {
     const submission = asRecord(value);
     const fileParts = submission?.fileParts;
+    const requestAttachments = submission?.requestAttachments;
     const composerOptions = asRecord(submission?.composerOptions);
     const options = asRecord(submission?.options);
     const claim = asRecord(submission?.claim);
@@ -392,6 +400,17 @@ function parseDeferredProviderSubmissions(
             typeof filePart.fileId === "string")
         );
       }) ||
+      (requestAttachments !== undefined &&
+        (!Array.isArray(requestAttachments) ||
+          !requestAttachments.every((attachment) => {
+            const requestAttachment = asRecord(attachment);
+            return (
+              requestAttachment?.type === "image" &&
+              typeof requestAttachment.name === "string" &&
+              typeof requestAttachment.url === "string" &&
+              requestAttachment.data === undefined
+            );
+          }))) ||
       !Array.isArray(submission.references) ||
       !composerOptions ||
       !options ||
@@ -413,6 +432,11 @@ function parseDeferredProviderSubmissions(
       threadId,
       text: submission.text,
       fileParts: fileParts as FilePart[],
+      ...(Array.isArray(requestAttachments)
+        ? {
+            requestAttachments: requestAttachments as AgentRequestAttachment[],
+          }
+        : {}),
       references: submission.references as Reference[],
       composerOptions: composerOptions as AgentKitSuggestionSubmitOptions,
       options: options as AgentKitInternalSendOptions,
@@ -629,6 +653,7 @@ interface AgentKitSurfaceContextValue {
       | "recoveryRequestMode"
       | "recoveryOfRunId"
       | "resumeAfterSetup"
+      | "deferredRequestAttachments"
     >,
   ) => Promise<AssistantChatSubmitResult>;
   submitSuggestion: (suggestion: AgentSuggestionInput) => void;
@@ -951,13 +976,34 @@ export const AgentKitAssistantChat = forwardRef<
         signal: context?.signal,
       });
       if (!response.ok) {
-        throw new Error(
-          translatorRef.current(
-            response.status === 415
-              ? "agentChat.composer.unsupportedFileType"
-              : "agentChat.composer.uploadFailed",
-          ),
-        );
+        const messageKey =
+          response.status === 415
+            ? "agentChat.composer.unsupportedFileType"
+            : response.status === 413
+              ? "agentChat.composer.fileTooLarge"
+              : response.status === 401
+                ? "agentChat.composer.sessionExpired"
+                : undefined;
+        const message = messageKey
+          ? translatorRef.current(messageKey)
+          : translatorRef.current("agentChat.composer.uploadFailed");
+        const error = new Error(message);
+        Object.assign(error, {
+          code:
+            response.status === 413
+              ? "upload_too_large"
+              : response.status === 401
+                ? "upload_session_expired"
+                : response.status === 415
+                  ? "upload_unsupported_type"
+                  : `upload_http_${response.status}`,
+          status: response.status,
+          retryable:
+            response.status === 408 ||
+            response.status === 429 ||
+            response.status >= 500,
+        });
+        throw error;
       }
       const result: unknown = await response.json();
       const uploaded = asRecord(result);
@@ -2071,17 +2117,70 @@ const AgentKitAssistantChatBody = forwardRef<
         ? text
         : appendAgentChatContextToMessage(text, context);
       const attachments = options.attachments ?? [];
-      const needsFileStorage =
-        files.length > 0 ||
-        attachments.some(
-          (attachment) => !attachment.displayOnly && !attachment.url,
-        );
+      const needsFileStorage = requiresDurableAttachmentUpload(
+        attachments,
+        files,
+      );
+      composerOptions.validateSubmission?.();
       if (needsFileStorage && !fileStorageConfigured) {
         throw new Error(t("onboarding.fileStorage.title"));
       }
-      const fileParts =
-        options.deferredFileParts ??
-        (await uploadAgentChatAttachments(control, attachments, files));
+      const uploadedAttachments = options.deferredFileParts
+        ? {
+            fileParts: options.deferredFileParts,
+            requestAttachments: options.deferredRequestAttachments ?? [],
+          }
+        : await uploadAgentChatAttachments(control, attachments, files, {
+            storageConfigured: fileStorageConfigured,
+            storageUnavailableMessage: t("onboarding.fileStorage.title"),
+          });
+      const fileParts = uploadedAttachments.fileParts;
+      let requestAttachments =
+        options.deferredRequestAttachments ??
+        uploadedAttachments.requestAttachments;
+      let retryRequestAttachments = requestAttachments.filter(
+        (attachment) => !attachment.data && attachment.url,
+      );
+      let retryAttachmentsUnavailable = false;
+      if (requestAttachments.some((attachment) => attachment.data)) {
+        if (!fileStorageConfigured) {
+          retryAttachmentsUnavailable = true;
+        } else {
+          try {
+            const durableAttachments = await uploadRequestAttachments(
+              control,
+              requestAttachments,
+            );
+            const inlineImageDataChars = requestAttachments.reduce(
+              (total, attachment) => total + (attachment.data?.length ?? 0),
+              0,
+            );
+            requestAttachments =
+              inlineImageDataChars > MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS
+                ? durableAttachments
+                : requestAttachments.map((attachment, index) => {
+                    const durable = durableAttachments[index];
+                    return attachment.data && durable?.url
+                      ? { ...attachment, url: durable.url }
+                      : attachment;
+                  });
+            retryRequestAttachments = durableAttachments.filter(
+              (attachment) => !attachment.data && attachment.url,
+            );
+            retryAttachmentsUnavailable =
+              retryRequestAttachments.length !== requestAttachments.length;
+          } catch {
+            retryAttachmentsUnavailable = true;
+          }
+        }
+      }
+      const inlineImageDataChars = requestAttachments.reduce(
+        (total, attachment) => total + (attachment.data?.length ?? 0),
+        0,
+      );
+      if (inlineImageDataChars > MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS) {
+        throw new Error(t("agentChat.composer.requestTooLarge"));
+      }
       composerOptions.validateSubmission?.();
       const selectionChangedDuringSubmission =
         selectionRevision !== selectionRevisionRef.current ||
@@ -2117,6 +2216,28 @@ const AgentKitAssistantChatBody = forwardRef<
           ? (options.deferredAgentId ?? undefined)
           : props.selectedAgent;
       const actionScope = options.actionScope ?? contextScope;
+      const customMetadata = {
+        ...(options.recoveryAction
+          ? { agentNativeRecoveryAction: options.recoveryAction }
+          : {}),
+        ...(options.recoveryOfRunId
+          ? { agentNativeRecoveryOfRunId: options.recoveryOfRunId }
+          : {}),
+        ...(options.resumeAfterSetup
+          ? { agentNativeResumeAfterSetup: true }
+          : {}),
+        ...(options.deferredSubmissionId
+          ? {
+              agentNativeDeferredSubmissionId: options.deferredSubmissionId,
+            }
+          : {}),
+        ...(retryRequestAttachments.length
+          ? { agentNativeRetryRequestAttachments: retryRequestAttachments }
+          : {}),
+        ...(retryAttachmentsUnavailable
+          ? { agentNativeRetryAttachmentsUnavailable: true }
+          : {}),
+      };
       const metadata = {
         ...(composerOptions.suggestion
           ? { suggestion: composerOptions.suggestion }
@@ -2134,26 +2255,8 @@ const AgentKitAssistantChatBody = forwardRef<
           ? { approvedToolCalls: options.approvedToolCalls }
           : {}),
         ...(options.hideUserMessage ? { hideUserMessage: true } : {}),
-        ...(options.recoveryAction || options.deferredSubmissionId
-          ? {
-              custom: {
-                ...(options.recoveryAction
-                  ? { agentNativeRecoveryAction: options.recoveryAction }
-                  : {}),
-                ...(options.recoveryOfRunId
-                  ? { agentNativeRecoveryOfRunId: options.recoveryOfRunId }
-                  : {}),
-                ...(options.resumeAfterSetup
-                  ? { agentNativeResumeAfterSetup: true }
-                  : {}),
-                ...(options.deferredSubmissionId
-                  ? {
-                      agentNativeDeferredSubmissionId:
-                        options.deferredSubmissionId,
-                    }
-                  : {}),
-              },
-            }
+        ...(Object.keys(customMetadata).length
+          ? { custom: customMetadata }
           : {}),
         ...(options.recoveryAction === "continue"
           ? { agentNativeInternalContinuation: true }
@@ -2178,6 +2281,7 @@ const AgentKitAssistantChatBody = forwardRef<
         await control.sendMessage({
           text: message,
           attachments: fileParts,
+          ...(requestAttachments.length ? { requestAttachments } : {}),
           queuedWhileRunActive:
             composerOptions.queuedWhileRunActive ||
             composerOptions.intent === "queued",
@@ -2263,18 +2367,37 @@ const AgentKitAssistantChatBody = forwardRef<
             const attachments = options.attachments ?? [];
             const needsFileStorage =
               !options.deferredFileParts &&
-              (files.length > 0 ||
-                attachments.some(
-                  (attachment) => !attachment.displayOnly && !attachment.url,
-                ));
+              requiresDurableAttachmentUpload(attachments, files);
+            submittedComposerOptions.validateSubmission?.();
             if (needsFileStorage && !fileStorageConfigured) {
               throw new Error(t("onboarding.fileStorage.title"));
             }
             // Persist only URLs or opaque file handles; application_state is
             // not a file store and must never receive attachment bodies.
-            const fileParts =
-              options.deferredFileParts ??
-              (await uploadAgentChatAttachments(control, attachments, files));
+            const uploadedAttachments = options.deferredFileParts
+              ? {
+                  fileParts: options.deferredFileParts,
+                  requestAttachments: options.deferredRequestAttachments ?? [],
+                }
+              : await uploadAgentChatAttachments(control, attachments, files, {
+                  storageConfigured: fileStorageConfigured,
+                  storageUnavailableMessage: t("onboarding.fileStorage.title"),
+                });
+            const fileParts = uploadedAttachments.fileParts;
+            if (
+              !fileStorageConfigured &&
+              uploadedAttachments.requestAttachments.some(
+                (attachment) => attachment.data,
+              )
+            ) {
+              throw new Error(t("onboarding.fileStorage.title"));
+            }
+            const requestAttachments =
+              options.deferredRequestAttachments ??
+              (await uploadRequestAttachments(
+                control,
+                uploadedAttachments.requestAttachments,
+              ));
             const selectionChangedDuringUpload =
               selectionRevision !== selectionRevisionRef.current;
             const context = options.recoveryAction
@@ -2302,6 +2425,7 @@ const AgentKitAssistantChatBody = forwardRef<
             delete deferredOptions.submitMessageId;
             delete deferredOptions.attachments;
             deferredOptions.contextAlreadyIncluded = true;
+            deferredOptions.deferredRequestAttachments = requestAttachments;
             deferredOptions.deferredSubmissionId =
               submitMessageId ?? createAgentUploadId();
             deferredOptions.deferredAgentId = props.selectedAgent ?? null;
@@ -2321,6 +2445,7 @@ const AgentKitAssistantChatBody = forwardRef<
               threadId,
               text: appendAgentChatContextToMessage(text, context),
               fileParts,
+              ...(requestAttachments.length ? { requestAttachments } : {}),
               references: [...references],
               composerOptions: deferredComposerOptions,
               options: deferredOptions,
@@ -2562,6 +2687,7 @@ const AgentKitAssistantChatBody = forwardRef<
           {
             ...submission.options,
             deferredFileParts: submission.fileParts,
+            deferredRequestAttachments: submission.requestAttachments,
             contextAlreadyIncluded: true,
             deferredSubmissionId: submission.id,
           },
@@ -4734,9 +4860,12 @@ function retryRequestFrom(message: AgentMessage | undefined) {
   return {
     text: message ? agentMessageText(message) : "",
     fileParts,
-    hasUnavailableAttachment: fileParts.some(
-      (part) => !part.url && !part.fileId,
+    requestAttachments: retryRequestAttachmentsFrom(
+      custom?.agentNativeRetryRequestAttachments,
     ),
+    hasUnavailableAttachment:
+      custom?.agentNativeRetryAttachmentsUnavailable === true ||
+      fileParts.some((part) => !part.url && !part.fileId),
     references: Array.isArray(metadata?.references)
       ? (metadata.references as Reference[])
       : [],
@@ -4764,12 +4893,44 @@ function sendRetryRequest(
       recoveryEngine: request.engine,
       recoveryEffort: request.effort,
       recoveryOfRunId,
+      ...(request.requestAttachments.length
+        ? { deferredRequestAttachments: request.requestAttachments }
+        : {}),
       ...(resumeAfterSetup ? { resumeAfterSetup } : {}),
       ...(request.requestMode
         ? { recoveryRequestMode: request.requestMode }
         : {}),
     },
   );
+}
+
+function retryRequestAttachmentsFrom(value: unknown): AgentRequestAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    const record = asRecord(candidate);
+    if (
+      record?.type !== "image" ||
+      typeof record.name !== "string" ||
+      typeof record.url !== "string" ||
+      record.url.startsWith("data:") ||
+      record.data !== undefined
+    ) {
+      return [];
+    }
+    return [
+      {
+        type: "image",
+        name: record.name,
+        ...(typeof record.contentType === "string"
+          ? { contentType: record.contentType }
+          : {}),
+        url: record.url,
+        ...(typeof record.referenceUrl === "string"
+          ? { referenceUrl: record.referenceUrl }
+          : {}),
+      },
+    ];
+  });
 }
 
 /**
@@ -5234,19 +5395,84 @@ function setupSubmissionResult(
   };
 }
 
+interface UploadedAgentChatAttachments {
+  fileParts: FilePart[];
+  requestAttachments: AgentRequestAttachment[];
+}
+
+const OPTIMIZABLE_RASTER_IMAGE_TYPES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+function isPotentiallyDownscalableImage(args: {
+  mediaType: string;
+  sizeBytes: number;
+}): boolean {
+  const mediaType = args.mediaType.split(";", 1)[0]!.trim().toLowerCase();
+  return (
+    args.sizeBytes > AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES &&
+    OPTIMIZABLE_RASTER_IMAGE_TYPES.has(mediaType)
+  );
+}
+
+function isPotentiallyDownscalableAttachment(
+  attachment: AgentChatAttachment,
+): boolean {
+  if (attachment.displayOnly || attachment.url || !attachment.data) {
+    return false;
+  }
+  const dataUrl = parseBase64DataUrl(attachment.data);
+  const base64 = dataUrl?.data ?? attachment.data;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) return false;
+  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+  const sizeBytes = Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+  const mediaType = attachment.contentType ?? dataUrl?.mediaType ?? "";
+  return isPotentiallyDownscalableImage({ mediaType, sizeBytes });
+}
+
+function requiresDurableAttachmentUpload(
+  attachments: readonly AgentChatAttachment[],
+  files: readonly PromptComposerFile[],
+): boolean {
+  return (
+    files.some(
+      (file) =>
+        !isPotentiallyDownscalableImage({
+          mediaType: file.type,
+          sizeBytes: file.size,
+        }),
+    ) ||
+    attachments.some(
+      (attachment) =>
+        !attachment.displayOnly &&
+        !attachment.url &&
+        !isPotentiallyDownscalableAttachment(attachment),
+    )
+  );
+}
+
 async function uploadAgentChatAttachments(
   control: ReturnType<typeof useAgentKitControl>,
   attachments: readonly AgentChatAttachment[],
   files: readonly PromptComposerFile[],
-): Promise<FilePart[]> {
+  options: {
+    storageConfigured: boolean;
+    storageUnavailableMessage: string;
+  },
+): Promise<UploadedAgentChatAttachments> {
   const entries: Array<FilePart | File> = [];
   for (const attachment of attachments) {
     if (attachment.displayOnly) continue;
     if (attachment.url) {
+      const dataUrlMediaType = parseBase64DataUrl(attachment.url)?.mediaType;
       entries.push({
         type: "file",
         name: attachment.name,
-        mediaType: attachment.contentType ?? attachment.type,
+        mediaType:
+          dataUrlMediaType ?? attachment.contentType ?? attachment.type,
         url: attachment.url,
       });
     } else {
@@ -5258,20 +5484,127 @@ async function uploadAgentChatAttachments(
   const pending = entries.filter(
     (entry): entry is File => entry instanceof File,
   );
-  const uploaded = pending.length
-    ? await control.uploadFiles(
-        pending.map((file) => ({
+  const optimizedImages = new Map<
+    File,
+    { data: string; contentType: string }
+  >();
+  for (const file of pending) {
+    if (
+      !file.type.startsWith("image/") ||
+      file.size <= AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES
+    ) {
+      continue;
+    }
+    const attachment = await readAgentPromptAttachment(file);
+    if (!attachment.dataUrl) continue;
+    const mediaType = parseBase64DataUrl(attachment.dataUrl)?.mediaType;
+    if (mediaType) {
+      optimizedImages.set(file, {
+        data: attachment.dataUrl,
+        contentType: mediaType,
+      });
+    }
+  }
+  const uploadedByFile = new Map<File, FilePart>();
+  const filesToUploadNormally = pending.filter(
+    (file) => !optimizedImages.has(file),
+  );
+  if (!options.storageConfigured && filesToUploadNormally.length > 0) {
+    throw new Error(options.storageUnavailableMessage);
+  }
+  if (filesToUploadNormally.length) {
+    const uploaded = await control.uploadFiles(
+      filesToUploadNormally.map((file) => ({
+        name: file.name,
+        mediaType: file.type || "application/octet-stream",
+        size: file.size,
+        body: file,
+      })),
+    );
+    filesToUploadNormally.forEach((file, index) => {
+      const part = uploaded[index];
+      if (!part) {
+        throw new TypeError("File upload did not return every uploaded file.");
+      }
+      uploadedByFile.set(file, part);
+    });
+  }
+  for (const file of pending) {
+    if (!optimizedImages.has(file) || !options.storageConfigured) continue;
+    try {
+      const [part] = await control.uploadFiles([
+        {
           name: file.name,
           mediaType: file.type || "application/octet-stream",
           size: file.size,
           body: file,
-        })),
-      )
-    : [];
-  let uploadIndex = 0;
-  return entries.map((entry) =>
-    entry instanceof File ? uploaded[uploadIndex++]! : entry,
+        },
+      ]);
+      if (part) uploadedByFile.set(file, part);
+    } catch {
+      // coercion-ok: the resized inline pixels are sent; this upload only adds a reusable URL.
+    }
+  }
+  const fileParts = entries.flatMap((entry) => {
+    if (!(entry instanceof File)) return [entry];
+    const part = uploadedByFile.get(entry);
+    return part ? [part] : [];
+  });
+  const requestAttachments = pending.flatMap((file) => {
+    const optimized = optimizedImages.get(file);
+    if (!optimized) return [];
+    const part = uploadedByFile.get(file);
+    return [
+      {
+        type: "image" as const,
+        name: file.name,
+        contentType: optimized.contentType,
+        data: optimized.data,
+        ...(part?.url ? { referenceUrl: part.url } : {}),
+      },
+    ];
+  });
+  return { fileParts, requestAttachments };
+}
+
+async function uploadRequestAttachments(
+  control: ReturnType<typeof useAgentKitControl>,
+  attachments: readonly AgentRequestAttachment[],
+): Promise<AgentRequestAttachment[]> {
+  const inline = attachments.filter((attachment) => attachment.data);
+  if (inline.length === 0) return [...attachments];
+  const files = await Promise.all(
+    inline.map(async (attachment) => {
+      const file = await attachmentToFile({
+        type: "image",
+        name: attachment.name,
+        contentType: attachment.contentType,
+        data: attachment.data,
+      });
+      if (!file) throw new TypeError(`Could not prepare ${attachment.name}.`);
+      return file;
+    }),
   );
+  const uploaded = await control.uploadFiles(
+    files.map((file) => ({
+      name: file.name,
+      mediaType: file.type || "application/octet-stream",
+      size: file.size,
+      body: file,
+    })),
+  );
+  let uploadIndex = 0;
+  return attachments.map((attachment) => {
+    if (!attachment.data) return attachment;
+    const part = uploaded[uploadIndex++];
+    if (!part?.url) {
+      throw new TypeError(
+        `The optimized image ${attachment.name} did not receive a durable URL.`,
+      );
+    }
+    const { data: _data, ...reference } = attachment;
+    return { ...reference, url: part.url };
+  });
 }
 
 function rawAgentMessageTextFromParts(parts: AgentMessage["parts"]): string {

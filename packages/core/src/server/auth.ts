@@ -369,6 +369,12 @@ export interface AuthOptions {
   trustCustomEmailVerification?: boolean;
   publicPaths?: string[];
   /**
+   * Routes whose handlers authenticate a query token. These bypass session
+   * auth only when the named query parameter is present; without it, normal
+   * session and workspace-app authorization runs.
+   */
+  publicPathsWithQueryToken?: Array<{ path: string; queryParam: string }>;
+  /**
    * Public, unauthenticated ingest paths that may receive cross-origin
    * requests when CORS_ALLOWED_ORIGINS is unset. These routes must perform
    * their own request validation and must not rely on cookies for auth.
@@ -2226,6 +2232,7 @@ interface AuthGuardConfig {
   authMode?: OnboardingHtmlOptions["authMode"];
   rootAuth: boolean;
   publicPaths: string[];
+  publicPathsWithQueryToken: Array<{ path: string; queryParam: string }>;
   publicCorsPaths: string[];
   workspaceAppAudience: WorkspaceAppAudience;
   workspaceAppPublicPaths: string[];
@@ -4144,7 +4151,27 @@ function createAuthGuardFn(
     if (getMethod(event) === "GET" && p.startsWith("/_agent-native/avatar/")) {
       return;
     }
-    if (isPublicPath(normalizedUrl, publicPaths, exactPublicPaths)) return;
+    const tokenPublicPaths = config.publicPathsWithQueryToken.filter(
+      ({ path }) => matchesPathList(p, [path]),
+    );
+    if (tokenPublicPaths.length > 0) {
+      const query = getQuery(event);
+      if (
+        tokenPublicPaths.some(({ queryParam }) => {
+          const value = query[queryParam];
+          if (typeof value === "string") return Boolean(value.trim());
+          return (
+            Array.isArray(value) &&
+            typeof value[0] === "string" &&
+            Boolean(value[0].trim())
+          );
+        })
+      ) {
+        return;
+      }
+    } else if (isPublicPath(normalizedUrl, publicPaths, exactPublicPaths)) {
+      return;
+    }
     if (shouldBypassAuthForBuilderConnect(event, p)) return;
     if (isPublicWorkspacePageRequest(event, p, config)) {
       return;
@@ -6923,6 +6950,7 @@ async function mountBetterAuthRoutes(
   _authGuardConfig = {
     ...loginHtmlConfig,
     publicPaths,
+    publicPathsWithQueryToken: options.publicPathsWithQueryToken ?? [],
     publicCorsPaths: options.publicCorsPaths ?? [],
     workspaceAppAudience,
     workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
@@ -7120,6 +7148,12 @@ export async function autoMountAuth(
           ...options.publicPaths,
         ];
       }
+      if (options.publicPathsWithQueryToken) {
+        _authGuardConfig.publicPathsWithQueryToken = [
+          ..._authGuardConfig.publicPathsWithQueryToken,
+          ...options.publicPathsWithQueryToken,
+        ];
+      }
       if (options.publicCorsPaths) {
         _authGuardConfig.publicCorsPaths = [
           ...new Set([
@@ -7197,6 +7231,7 @@ export async function autoMountAuth(
           }),
       rootAuth: options.rootAuth ?? Boolean(options.loginHtml),
       publicPaths,
+      publicPathsWithQueryToken: options.publicPathsWithQueryToken ?? [],
       publicCorsPaths: options.publicCorsPaths ?? [],
       workspaceAppAudience,
       workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
@@ -7227,6 +7262,7 @@ export async function autoMountAuth(
     _authGuardConfig = {
       ...loginHtmlConfig,
       publicPaths,
+      publicPathsWithQueryToken: options.publicPathsWithQueryToken ?? [],
       publicCorsPaths: options.publicCorsPaths ?? [],
       workspaceAppAudience,
       workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,

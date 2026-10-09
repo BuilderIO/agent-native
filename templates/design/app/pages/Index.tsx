@@ -185,7 +185,10 @@ type HomeSuggestionsResult =
   | { status: "ready"; suggestions: HomeSuggestion[] }
   | {
       status: "unavailable";
-      reason: "missing_credentials" | "timeout";
+      reason:
+        | "missing_credentials"
+        | "timeout"
+        | "agent_engine_settings_unavailable";
       suggestions: [];
     };
 

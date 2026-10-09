@@ -408,6 +408,48 @@ async function fetchWithRequestContext(
 }
 
 describe("agent chat queued-message route", () => {
+  it("rejects data URL attachment references before durable queue mutation", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-queued-data-url";
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: {
+            type: "append",
+            message: {
+              id: "queued-data-url",
+              threadId,
+              text: "Inspect this image",
+              createdAt: new Date().toISOString(),
+              requestAttachments: [
+                {
+                  type: "image",
+                  name: "screen.png",
+                  url: "data:image/png;base64,iVBORw==",
+                },
+              ],
+            },
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid queue mutation" });
+    expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+  });
+
   it("requires AI setup before claiming a queued prompt for dispatch", async () => {
     const h3App = await mountResourceRoutes();
     const setupRequired = Object.assign(new Error("Connect AI first"), {
