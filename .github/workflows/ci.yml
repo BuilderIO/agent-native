@@ -534,8 +534,7 @@ jobs:
             if [[ -f "$spec" ]]; then
               existing_changed_specs+=("$spec")
             else
-              echo "::error::Changed Design E2E spec is missing: $spec"
-              exit 2
+              echo "::warning::Removed Design E2E spec is no longer runnable: $spec"
             fi
           done
           if ((${#existing_changed_specs[@]} == 0)); then

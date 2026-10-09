@@ -971,6 +971,17 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "changed-spec step must ignore deleted specs",
   );
   assert.ok(
+    changedSpecRegressions.includes(
+      'echo "::warning::Removed Design E2E spec is no longer runnable: $spec"',
+    ),
+    "changed-spec step must report removed specs without failing runnable specs",
+  );
+  assert.doesNotMatch(
+    changedSpecRegressions,
+    /echo "::error::Changed Design E2E spec is missing: \$spec"/,
+    "a removed path must not fail the changed-spec shard",
+  );
+  assert.ok(
     regressionCases.includes(
       "mapfile -d '' -t changed_specs < \"$changed_specs_file\"",
     ),
