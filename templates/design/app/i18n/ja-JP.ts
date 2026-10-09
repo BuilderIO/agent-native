@@ -54,9 +54,9 @@ export default {
     replayDetails: "リプレイとソースの詳細",
     sourceApp: "ソースアプリ",
     route: "キャプチャ時の現在のルート",
-    routeUnavailable: "リプレイで未検証",
+    routeUnavailable: "利用できません",
     captureSourceFingerprint: "キャプチャ元のフィンガープリント",
-    captureSourceUnavailable: "記録なし",
+    captureSourceUnavailable: "提供されていません",
     recordingStarted: "録画開始時刻",
     appBandHeading: "{app} · {count} セッション",
     journeyTitleSummary:

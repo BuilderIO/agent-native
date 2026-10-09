@@ -462,10 +462,30 @@ describe("create-journey-canvas input", () => {
       route: null,
       captureSourceFingerprint: null,
     });
-    expect(screen.html).toContain(
-      "Current route at capture: not verified in replay",
+    expect(screen.html).toContain("Current route at capture: not available");
+    expect(screen.html).toContain("Capture-source fingerprint: not provided");
+    expect(screen.html).not.toContain("verified in replay");
+  });
+
+  it("uses source-neutral unavailable provenance for external images", () => {
+    const result = plan(
+      rawInput({
+        designId: "design-1",
+        frames: [
+          frame("signup", 0, {
+            route: null,
+            captureSourceFingerprint: null,
+          }),
+        ],
+      }),
     );
-    expect(screen.html).toContain("Capture-source fingerprint: not recorded");
+    const screen = result.screens[0]!;
+
+    expect(screen.attachment).toBeUndefined();
+    expect(screen.html).toContain("Current route at capture: not available");
+    expect(screen.html).toContain("Capture-source fingerprint: not provided");
+    expect(screen.html).not.toContain("not verified in replay");
+    expect(screen.html).not.toContain("not recorded");
   });
 
   it("labels only validated same-recording reference edges without cohort percentages", () => {

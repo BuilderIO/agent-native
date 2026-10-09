@@ -56,9 +56,9 @@ export default {
     replayDetails: "Détails de relecture et de source",
     sourceApp: "Application source",
     route: "Route actuelle lors de la capture",
-    routeUnavailable: "non vérifiée dans la relecture",
+    routeUnavailable: "indisponible",
     captureSourceFingerprint: "Empreinte de la source de capture",
-    captureSourceUnavailable: "non enregistrée",
+    captureSourceUnavailable: "non fournie",
     recordingStarted: "Début de l’enregistrement",
     appBandHeading: "{app} · {count} sessions",
     journeyTitleSummary:
