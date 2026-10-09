@@ -6195,6 +6195,114 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
+  it("bounds retries when a snapshot cannot be saved", async () => {
+    const createTransport = () => chatMocks.transport;
+    const onSaveThread = vi.fn().mockResolvedValue(false);
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    vi.useFakeTimers();
+    try {
+      const message = {
+        id: "bounded-retry-user-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Retry this save" }],
+      };
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        activeRunIds: ["bounded-retry-run"],
+        messages: [message],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({ createTransport, onSaveThread })}
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      expect(onSaveThread).toHaveBeenCalledOnce();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_000);
+      });
+      expect(onSaveThread).toHaveBeenCalledTimes(4);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(onSaveThread).toHaveBeenCalledTimes(4);
+      await act(async () => root.render(null));
+      expect(onSaveThread).toHaveBeenCalledTimes(4);
+    } finally {
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries an in-flight snapshot save after the chat unmounts", async () => {
+    const createTransport = () => chatMocks.transport;
+    let resolveFirstSave: ((saved: boolean) => void) | undefined;
+    const firstSave = new Promise<boolean>((resolve) => {
+      resolveFirstSave = resolve;
+    });
+    const onSaveThread = vi
+      .fn()
+      .mockReturnValueOnce(firstSave)
+      .mockResolvedValue(true);
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    vi.useFakeTimers();
+    try {
+      const message = {
+        id: "unmount-retry-user-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Retry after unmount" }],
+      };
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        activeRunIds: ["unmount-retry-run"],
+        messages: [message],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({ createTransport, onSaveThread })}
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      expect(onSaveThread).toHaveBeenCalledOnce();
+      await act(async () => root.render(null));
+      await act(async () => {
+        resolveFirstSave?.(false);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+
+      expect(onSaveThread).toHaveBeenCalledTimes(2);
+      expect(onSaveThread.mock.calls[1]?.[1].threadData).toBe(
+        onSaveThread.mock.calls[0]?.[1].threadData,
+      );
+    } finally {
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
   it("shows an expired-session card and emits the session-expired event", async () => {
     chatMocks.failureError = { code: "unauthorized", message: "HTTP 401" };
     vi.stubGlobal(

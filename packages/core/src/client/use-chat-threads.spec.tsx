@@ -1330,6 +1330,55 @@ describe("useChatThreads", () => {
     expect(hook!.isNewThread("route-thread")).toBe(false);
   });
 
+  it("confirms a route thread selected after the initial history load", async () => {
+    const routeThread: ChatThreadSummary = {
+      id: "later-route-thread",
+      title: "Later route",
+      preview: "route preview",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/later-route-thread" && !init) {
+        return jsonResponse(routeThread);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    let routeThreadId: string | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "later-route-test", null, {
+        routeThreadId,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    routeThreadId = "later-route-thread";
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("later-route-thread");
+    expect(hook!.isThreadPersisted("later-route-thread")).toBe(true);
+    expect(hook!.isNewThread("later-route-thread")).toBe(false);
+    expect(fetchMock).toHaveBeenCalledWith("/chat/threads/later-route-thread");
+  });
+
   it("classifies a missing route thread as a draft without exposing saved state", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/chat/threads" && !init) {

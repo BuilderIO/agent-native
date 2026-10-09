@@ -328,6 +328,10 @@ export function useChatThreads(
   const routeThreadId = normalizeThreadId(options?.routeThreadId);
   const routeThreadIdRef = useRef(routeThreadId);
   routeThreadIdRef.current = routeThreadId;
+  const initialRouteConfirmationPendingRef = useRef(
+    routeControlsActiveThread ? routeThreadId : null,
+  );
+  const lastRouteConfirmationIdRef = useRef<string | null>(null);
   const activeThreadKey = useMemo(() => {
     return activeThreadStorageKey(storageKey, scope, browserTabId);
   }, [browserTabId, storageKey, scope?.type, scope?.id]);
@@ -831,6 +835,7 @@ export function useChatThreads(
       const loadedThreads = await fetchThreads();
       const restoredId = activeThreadIdRef.current;
       if (loadedThreads === undefined) {
+        initialRouteConfirmationPendingRef.current = null;
         if (
           restoredId &&
           autoCreate &&
@@ -951,6 +956,76 @@ export function useChatThreads(
     addOptimisticThread,
     autoCreate,
     historyScope,
+    isolateHistory,
+    routeControlsActiveThread,
+    routeThreadId,
+  ]);
+
+  useEffect(() => {
+    if (!routeControlsActiveThread) return;
+    if (!routeThreadId) {
+      lastRouteConfirmationIdRef.current = null;
+      return;
+    }
+    if (isLoading) return;
+
+    if (initialRouteConfirmationPendingRef.current !== null) {
+      const initialRouteId = initialRouteConfirmationPendingRef.current;
+      initialRouteConfirmationPendingRef.current = null;
+      if (initialRouteId === routeThreadId) {
+        lastRouteConfirmationIdRef.current = routeThreadId;
+        return;
+      }
+    }
+    if (lastRouteConfirmationIdRef.current === routeThreadId) return;
+    lastRouteConfirmationIdRef.current = routeThreadId;
+    if (
+      serverConfirmedThreadIdsRef.current.has(routeThreadId) ||
+      newlyCreatedRef.current.has(routeThreadId) ||
+      hasClientDraftThreadMarker(routeThreadId)
+    ) {
+      return;
+    }
+
+    void fetchThreadById(apiUrl, routeThreadId, historyScope).then((thread) => {
+      if (routeThreadIdRef.current !== routeThreadId || thread === undefined) {
+        return;
+      }
+      if (thread === null) {
+        newlyCreatedRef.current.add(routeThreadId);
+        markClientDraftThread(routeThreadId);
+        addOptimisticThread(routeThreadId, scopeRef.current ?? null);
+        return;
+      }
+
+      serverConfirmedThreadIdsRef.current.add(thread.id);
+      knownThreadScopesRef.current.set(thread.id, thread.scope ?? null);
+      clearClientDraftThreadMarker(thread.id);
+      newlyCreatedRef.current.delete(thread.id);
+      if (
+        isolateHistory &&
+        !threadCanStayVisibleInHistory(
+          thread.scope ?? null,
+          historyScope,
+          isolateHistory,
+        )
+      ) {
+        return;
+      }
+      setThreads((prev) =>
+        prev.some((candidate) => candidate.id === thread.id)
+          ? prev.map((candidate) =>
+              candidate.id === thread.id ? thread : candidate,
+            )
+          : [thread, ...prev],
+      );
+    });
+  }, [
+    addOptimisticThread,
+    apiUrl,
+    clearClientDraftThreadMarker,
+    historyScope,
+    isLoading,
     isolateHistory,
     routeControlsActiveThread,
     routeThreadId,

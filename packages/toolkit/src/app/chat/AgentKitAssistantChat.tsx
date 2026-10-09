@@ -226,6 +226,8 @@ const PENDING_SELECTION_TTL_MS = 5 * 60 * 1000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const THREAD_HANDOFF_TTL_MS = 60_000;
 const MAX_THREAD_HANDOFF_SNAPSHOTS = 20;
+const MAX_THREAD_SNAPSHOT_SAVE_RETRIES = 3;
+const THREAD_SNAPSHOT_SAVE_RETRY_DELAY_MS = 1_000;
 const DEFERRED_PROVIDER_SUBMISSIONS_VERSION = 1;
 const DEFERRED_PROVIDER_SUBMISSION_CLAIM_TTL_MS = 15 * 60 * 1000;
 const DEFERRED_PROVIDER_SUBMISSION_MAX_RETRIES = 3;
@@ -1538,6 +1540,11 @@ const AgentKitAssistantChatBody = forwardRef<
   const latestThreadDataRef = useRef<string | null>(null);
   const savingThreadDataRef = useRef(new Set<string>());
   const retryThreadSaveTimerRef = useRef<number | null>(null);
+  const threadSaveRetryRef = useRef({
+    threadData: null as string | null,
+    retries: 0,
+    exhausted: false,
+  });
   const saveSnapshotRef = useRef<() => void>(() => undefined);
   const isUnmountingRef = useRef(false);
   const localSubmissionRef = useRef(false);
@@ -1552,12 +1559,22 @@ const AgentKitAssistantChatBody = forwardRef<
   const saveThreadSnapshot = useCallback(
     (snapshot: ReturnType<typeof createAgentKitThreadSnapshot>) => {
       if (!props.onSaveThread) return;
-      latestThreadDataRef.current = snapshot.threadData;
-      if (snapshot.threadData === lastSavedThreadDataRef.current) {
+      if (latestThreadDataRef.current !== snapshot.threadData) {
+        latestThreadDataRef.current = snapshot.threadData;
+        threadSaveRetryRef.current = {
+          threadData: snapshot.threadData,
+          retries: 0,
+          exhausted: false,
+        };
         if (retryThreadSaveTimerRef.current !== null) {
           window.clearTimeout(retryThreadSaveTimerRef.current);
           retryThreadSaveTimerRef.current = null;
         }
+      }
+      const retry = threadSaveRetryRef.current;
+      if (retry.exhausted && retry.threadData === snapshot.threadData) return;
+      if (retryThreadSaveTimerRef.current !== null) return;
+      if (snapshot.threadData === lastSavedThreadDataRef.current) {
         return;
       }
       if (savingThreadDataRef.current.has(snapshot.threadData)) {
@@ -1587,16 +1604,33 @@ const AgentKitAssistantChatBody = forwardRef<
             window.clearTimeout(retryThreadSaveTimerRef.current);
             retryThreadSaveTimerRef.current = null;
           }
+          threadSaveRetryRef.current = {
+            threadData: snapshot.threadData,
+            retries: 0,
+            exhausted: false,
+          };
         } else if (
           !saved &&
-          !isUnmountingRef.current &&
-          latestThreadDataRef.current !== lastSavedThreadDataRef.current &&
+          latestThreadDataRef.current === snapshot.threadData &&
+          threadSaveRetryRef.current.threadData === snapshot.threadData &&
           retryThreadSaveTimerRef.current === null
         ) {
-          retryThreadSaveTimerRef.current = window.setTimeout(() => {
-            retryThreadSaveTimerRef.current = null;
-            saveSnapshotRef.current();
-          }, 5000);
+          if (
+            threadSaveRetryRef.current.retries <
+            MAX_THREAD_SNAPSHOT_SAVE_RETRIES
+          ) {
+            threadSaveRetryRef.current.retries += 1;
+            retryThreadSaveTimerRef.current = window.setTimeout(
+              () => {
+                retryThreadSaveTimerRef.current = null;
+                saveSnapshotRef.current();
+              },
+              THREAD_SNAPSHOT_SAVE_RETRY_DELAY_MS *
+                2 ** (threadSaveRetryRef.current.retries - 1),
+            );
+          } else {
+            threadSaveRetryRef.current.exhausted = true;
+          }
         }
       };
       try {
