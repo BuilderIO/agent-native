@@ -54,3 +54,5 @@ Fence recovery settlement by the scheduler lease and inspected worker identity, 
 Apply worker-identity fences to every runner outcome and permanent recovery rejection, and revalidate scheduler ownership immediately before projecting terminal status.
 
 Accept terminal history retries only when their stored outcome and delivery evidence agree, preserving canonical delivery truth when competing handlers settle the same worker.
+
+Keep interrupted firings retryable when recovery context, journal, delivery-evidence or worker-admission storage is temporarily unavailable, while settling permanently corrupt or missing evidence explicitly.

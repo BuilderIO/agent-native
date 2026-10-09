@@ -2062,6 +2062,199 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
 });
 
 describe("runBackgroundAutomation — a failed run reports its own cause", () => {
+  it.each(["journal", "delivery evidence", "thread", "transcript", "claim"])(
+    "keeps unfinished history retryable after a temporary %s storage failure",
+    async (failureAt) => {
+      const store = await import("../agent/run-store.js");
+      const history = await import("./run-history.js");
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const automation = precondition(`read-retry-${failureAt}`);
+      const threadId = `thread-read-retry-${failureAt}`;
+      const turnId = `turn-read-retry-${failureAt}`;
+      const historyId = await history.startAutomationRun({
+        owner: automation.resource.owner,
+        automation: automation.name,
+        path: automation.resource.path,
+        runId: "prior",
+        threadId,
+      });
+      const thread = {
+        id: threadId,
+        title: "Interrupted",
+        preview: "",
+        messageCount: 1,
+        threadData: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Send an email, then open a ticket." },
+              ],
+              metadata: { custom: { submittedTurnId: turnId } },
+            },
+          ],
+        }),
+      };
+      const receipt = [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start" as const,
+            id: "email",
+            tool: "send-test-email",
+            input: { recipient: "fixture@example.test" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done" as const,
+            id: "email",
+            tool: "send-test-email",
+            input: { recipient: "fixture@example.test" },
+            result: "Delivered",
+            isError: false,
+            completedSideEffect: true,
+          },
+        },
+      ];
+      const journal = vi
+        .spyOn(store, "getCurrentTurnRunEventsForThread")
+        .mockResolvedValue(receipt);
+      const ref = vi
+        .spyOn(store, "getRunTurnRef")
+        .mockResolvedValue({ threadId, turnId });
+      const evidence = vi
+        .spyOn(store, "getCurrentTurnEventsForThread")
+        .mockResolvedValue(receipt.map(({ event }) => event));
+      if (failureAt === "delivery evidence")
+        evidence.mockRejectedValueOnce(
+          new Error("evidence database temporarily unavailable"),
+        );
+      const finish = vi.spyOn(history, "finishAutomationRun");
+      const claim = vi
+        .spyOn(store, "tryClaimRunSlot")
+        .mockImplementation(async (id, runId, _staleMs, options) => {
+          await store.insertRun(runId, id, options!.turnId!, {
+            dispatchMode: "background",
+            afterInsert: options!.afterInsert,
+          });
+          return { claimed: true, activeRunId: null };
+        });
+      const getSystemPrompt = vi.fn(async () => "system");
+      if (failureAt === "journal")
+        journal.mockRejectedValueOnce(
+          new Error("journal database temporarily unavailable"),
+        );
+      else if (failureAt === "delivery evidence")
+        getSystemPrompt.mockRejectedValueOnce(
+          new Error("setup temporarily unavailable"),
+        );
+      const options = runOptions(automation, {
+        historyId,
+        resume: {
+          historyId,
+          threadId,
+          turnId,
+          previousRunId: "prior",
+          hardDeadlineAt: Date.now() + 60_000,
+        },
+      });
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+      try {
+        getThreadMock.mockResolvedValueOnce(thread);
+        if (failureAt === "thread") {
+          getThreadMock.mockReset();
+          getThreadMock.mockRejectedValueOnce(
+            new Error("thread database temporarily unavailable"),
+          );
+        }
+        if (failureAt === "transcript")
+          updateThreadDataMock.mockRejectedValueOnce(
+            new Error("transcript database temporarily unavailable"),
+          );
+        if (failureAt === "claim")
+          claim.mockRejectedValueOnce(
+            new Error("claim database temporarily unavailable"),
+          );
+        await expect(
+          runBackgroundAutomation(options, {
+            ...standardDeps,
+            getSystemPrompt,
+          }),
+        ).rejects.toMatchObject({
+          errorCode: "automation_recovery_storage_unavailable",
+        });
+        expect(finish).not.toHaveBeenCalled();
+        expect(claim).toHaveBeenCalledTimes(failureAt === "claim" ? 1 : 0);
+        expect(await history.getAutomationRun(historyId)).toMatchObject({
+          runId: "prior",
+          status: "running",
+          finishedAt: null,
+        });
+        expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
+        expect(
+          (
+            await pglite.query("SELECT id FROM agent_runs WHERE turn_id = $1", [
+              turnId,
+            ])
+          ).rows,
+        ).toEqual([]);
+        getThreadMock.mockReset();
+        getThreadMock.mockResolvedValue({
+          ...thread,
+          id: "thread-1",
+          threadData: "{}",
+        });
+        getThreadMock.mockResolvedValueOnce(thread);
+        vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+          async (opts) => {
+            expect(JSON.stringify(opts.messages)).toContain("Delivered");
+            opts.send?.({
+              type: "tool_done",
+              tool: "open-ticket",
+              result: "Created",
+              completedSideEffect: true,
+            });
+            return {
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              model: "test-model",
+            };
+          },
+        );
+        await expect(
+          runBackgroundAutomation(options, {
+            ...standardDeps,
+            getSystemPrompt,
+          }),
+        ).resolves.toMatchObject({ status: "success" });
+        expect(runAgentLoopDirectWithSoftTimeout).toHaveBeenCalledOnce();
+        expect(await history.getAutomationRun(historyId)).toMatchObject({
+          status: "success",
+        });
+        expect(finish).toHaveBeenCalledOnce();
+      } finally {
+        journal.mockRestore();
+        ref.mockRestore();
+        evidence.mockRestore();
+        finish.mockRestore();
+        claim.mockRestore();
+        getThreadMock.mockReset();
+        getThreadMock.mockResolvedValue({
+          id: "thread-1",
+          title: "Job: daily-digest",
+          preview: "",
+          threadData: "{}",
+          messageCount: 0,
+        });
+      }
+    },
+  );
+
   it("saves the original prompt and attaches history before the worker claim", async () => {
     const history = await import("./run-history.js");
     const { getDbExec } = await import("../db/client.js");
@@ -2141,7 +2334,12 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
         .spyOn(runStore, "getCurrentTurnRunEventsForThread")
         .mockImplementationOnce(async () => {
           if (state === "pre-claim failure" || state === "same-worker outcome")
-            throw new Error("journal database temporarily unavailable");
+            throw new runStore.AgentRunJournalUnreadableError(
+              threadId,
+              turnId,
+              0,
+              "invalid_event",
+            );
           if (state === "reassigned")
             await history.attachAutomationRunThread(
               historyId,
@@ -2178,7 +2376,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
               "worker_stopped",
               { requirePersisted: true, expectedRunId: "prior" },
             );
-            throw new Error("delivery evidence temporarily unavailable");
+            return [];
           }
           await history.attachAutomationRunThread(
             historyId,

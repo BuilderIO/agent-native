@@ -11,6 +11,8 @@ import {
   automationDeliveryNote,
   deliveryNoteForEvents,
   inspectAutomationRecovery,
+  readAutomationRecoveryEvents,
+  readAutomationRunDeliveryNote,
 } from "./automation-recovery.js";
 
 const mocks = vi.hoisted(() => ({
@@ -21,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   ref: vi.fn(),
   count: vi.fn(),
   events: vi.fn(),
+  runEvents: vi.fn(),
 }));
 vi.mock("./run-history.js", () => ({
   listAutomationRuns: mocks.list,
@@ -36,6 +39,7 @@ vi.mock("../agent/run-store.js", async (importOriginal) => ({
   getRunTurnRef: mocks.ref,
   countRunsForTurn: mocks.count,
   getCurrentTurnEventsForThread: mocks.events,
+  getCurrentTurnRunEventsForThread: mocks.runEvents,
   STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN: 3,
 }));
 vi.mock("../agent/run-manager.js", () => ({
@@ -94,6 +98,42 @@ describe("automation worker recovery", () => {
     mocks.ref.mockResolvedValue({ threadId: "thread-1", turnId: "job-1" });
     mocks.count.mockResolvedValue(1);
     mocks.events.mockResolvedValue(sent);
+    mocks.runEvents.mockResolvedValue([]);
+  });
+
+  it("keeps permanently corrupt recovery evidence distinct from unavailable storage", async () => {
+    const corrupt = new AgentRunJournalUnreadableError(
+      "thread-1",
+      "job-1",
+      0,
+      "invalid_event_json",
+    );
+    mocks.runEvents.mockRejectedValueOnce(corrupt);
+    await expect(
+      readAutomationRecoveryEvents("thread-1", "job-1"),
+    ).rejects.toBe(corrupt);
+    mocks.events.mockRejectedValueOnce(corrupt);
+    await expect(readAutomationRunDeliveryNote("job-1")).resolves.toBe(
+      deliveryNoteForEvents(null),
+    );
+  });
+
+  it("reports permanently missing turn identity without treating it as a database outage", async () => {
+    mocks.ref.mockResolvedValueOnce(null);
+    await expect(readAutomationRunDeliveryNote("job-1")).resolves.toBe(
+      deliveryNoteForEvents(null),
+    );
+    expect(mocks.events).not.toHaveBeenCalled();
+  });
+
+  it("retains the database cause when delivery identity cannot be read", async () => {
+    const cause = new Error("turn lookup temporarily unavailable");
+    mocks.ref.mockRejectedValueOnce(cause);
+    await expect(readAutomationRunDeliveryNote("job-1")).rejects.toMatchObject({
+      errorCode: "automation_recovery_storage_unavailable",
+      cause,
+    });
+    expect(mocks.events).not.toHaveBeenCalled();
   });
 
   it("recovers an unstarted successor released after scheduler lease loss", async () => {

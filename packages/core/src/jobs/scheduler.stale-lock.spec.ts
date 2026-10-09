@@ -709,6 +709,111 @@ describe("stale automation run-lock recovery across trigger types", () => {
     }
   });
 
+  it.each(["journal", "delivery evidence"])(
+    "retries the same firing on a later tick after a temporary %s read failure",
+    async (failureAt) => {
+      const fixture = interruptedScheduledJob();
+      const receipt = [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start" as const,
+            id: "email",
+            tool: "send-test-email",
+            input: { recipient: "fixture@example.test" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done" as const,
+            id: "email",
+            tool: "send-test-email",
+            input: { recipient: "fixture@example.test" },
+            result: "Delivered",
+            isError: false,
+            completedSideEffect: true,
+          },
+        },
+      ];
+      vi.mocked(runStore.getCurrentTurnRunEventsForThread).mockResolvedValue(
+        receipt,
+      );
+      const saved = {
+        id: "thread-1",
+        threadData: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Send an email, then open a ticket." },
+              ],
+              metadata: { custom: { submittedTurnId: "killed-worker" } },
+            },
+          ],
+        }),
+      } as any;
+      vi.mocked(getThread).mockResolvedValue(saved);
+      const getSystemPrompt = vi.fn(async () => "system");
+      if (failureAt === "journal")
+        vi.mocked(
+          runStore.getCurrentTurnRunEventsForThread,
+        ).mockRejectedValueOnce(
+          new Error("journal database temporarily unavailable"),
+        );
+      else {
+        getSystemPrompt.mockRejectedValueOnce(
+          new Error("setup temporarily unavailable"),
+        );
+        vi.mocked(runStore.getCurrentTurnEventsForThread)
+          .mockResolvedValueOnce(receipt.map(({ event }) => event))
+          .mockRejectedValueOnce(
+            new Error("evidence database temporarily unavailable"),
+          );
+      }
+      const finish = vi
+        .spyOn(runHistory, "finishAutomationRun")
+        .mockResolvedValue();
+      try {
+        await processRecurringJobs({ ...recoveryDeps, getSystemPrompt });
+        expect(finish).not.toHaveBeenCalled();
+        for (const call of resourcePutMock.mock.calls)
+          expect(parseJobResource(call[2]).meta).toMatchObject({
+            lastStatus: "running",
+            lastHistoryId: fixture.history.id,
+            lastRun: new Date(fixture.history.startedAt).toISOString(),
+          });
+        expect(startRunMock).not.toHaveBeenCalled();
+        await processRecurringJobs({ ...recoveryDeps, getSystemPrompt });
+        expect(runAgentLoopMock).toHaveBeenCalledOnce();
+        expect(runAgentLoopMock.mock.calls[0]![0]).toMatchObject({
+          threadId: "thread-1",
+          turnId: "killed-worker",
+        });
+        expect(
+          JSON.stringify(runAgentLoopMock.mock.calls[0]![0].messages),
+        ).toContain("Delivered");
+        expect(
+          parseJobResource(resourcePutMock.mock.calls.at(-1)![2]).meta,
+        ).toMatchObject({
+          lastStatus: "success",
+          lastHistoryId: fixture.history.id,
+        });
+        expect(finish).toHaveBeenCalledOnce();
+      } finally {
+        finish.mockRestore();
+        fixture.restore();
+        vi.mocked(getThread).mockResolvedValue({
+          id: "thread-1",
+          title: "Job",
+          preview: "",
+          threadData: "{}",
+          messageCount: 0,
+        });
+      }
+    },
+  );
+
   it("retains a firing marker when its history lookup is temporarily unavailable", async () => {
     const fixture = interruptedScheduledJob();
     vi.mocked(runHistory.getAutomationRun).mockRejectedValue(

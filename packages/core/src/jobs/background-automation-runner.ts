@@ -33,9 +33,6 @@ import {
   claimBackgroundRun,
   insertRun,
   tryClaimRunSlot,
-  getCurrentTurnRunEventsForThread,
-  getRunTurnRef,
-  getCurrentTurnEventsForThread,
   releaseBackgroundRunBeforeStart,
 } from "../agent/run-store.js";
 import {
@@ -102,7 +99,11 @@ import {
   type AutomationFailure,
 } from "./automation-outcome.js";
 import {
+  AutomationRecoveryStorageError,
   deliveryNoteForEvents,
+  readAutomationRecoveryEvents,
+  readAutomationRunDeliveryNote,
+  withAutomationRecoveryStorage,
   type AutomationResume,
 } from "./automation-recovery.js";
 import { inspectAutomationWork } from "./automation-work-evidence.js";
@@ -605,23 +606,17 @@ export async function runBackgroundAutomation(
   } catch (err) {
     if (
       err instanceof AutomationSchedulerLeaseLostError ||
+      err instanceof AutomationRecoveryStorageError ||
       (err instanceof BackgroundAutomationRunError &&
-        err.errorCode === "background_automation_claim_lost")
+        (err.errorCode === "background_automation_claim_lost" ||
+          err.errorCode === "background_automation_history_write_failed"))
     )
       throw err;
     const failure = classifyAutomationFailure(err);
     if (runIdRef.current) {
-      try {
-        const ref = await getRunTurnRef(runIdRef.current);
-        if (!ref)
-          throw new Error(`Automation run ${runIdRef.current} has no turn`);
-        failure.deliveryNote = deliveryNoteForEvents(
-          await getCurrentTurnEventsForThread(ref.threadId, ref.turnId),
-        );
-      } catch (error) {
-        console.error("[automations] Could not read delivery evidence:", error);
-        failure.deliveryNote = deliveryNoteForEvents(null);
-      }
+      failure.deliveryNote = await readAutomationRunDeliveryNote(
+        runIdRef.current,
+      );
     }
     // Same transition the scheduler persists, so the run that pauses the
     // automation is the one that tells its owner.
@@ -1099,8 +1094,9 @@ async function executeBackgroundAutomation(
       assertHardDeadline(options.hardDeadlineAt);
       const systemPrompt = `${await deps.getSystemPrompt(ownerEmail)}\n\n${messages.noOpInstruction}`;
       assertHardDeadline(options.hardDeadlineAt);
-      const thread = options.resume
-        ? await getThread(options.resume.threadId)
+      const resume = options.resume;
+      const thread = resume
+        ? await withAutomationRecoveryStorage(() => getThread(resume.threadId))
         : await createThread(ownerEmail, {
             title: threadTitle,
             orgId: orgId ?? null,
@@ -1145,10 +1141,7 @@ async function executeBackgroundAutomation(
             "background_automation_resume_context_missing",
           );
         executionPrompt = originalPrompt;
-        const events = await getCurrentTurnRunEventsForThread(
-          thread.id,
-          turnId,
-        );
+        const events = await readAutomationRecoveryEvents(thread.id, turnId);
         priorEvents = events.map(({ event }) => event);
         const partial = buildAssistantMessage(
           events,
@@ -1197,42 +1190,48 @@ async function executeBackgroundAutomation(
       let hardTimedOut = false;
 
       assertHardDeadline(options.hardDeadlineAt);
-      await persistBackgroundAutomationTurn({
-        threadId: thread.id,
-        threadTitle,
-        prompt: executionPrompt,
-        run: { runId, turnId, startedAt: Date.now(), events: [] },
-      });
-      const afterInsert = (tx: DbExec) =>
-        withDbExec(tx, async () => {
-          await recordRunThread(
-            historyId,
-            thread.id,
-            runId,
-            Boolean(options.historyId),
-            options.resume?.previousRunId,
-          );
-          if (!(await claimBackgroundRun(runId)))
-            throw new Error(
-              `Background automation "${automation.name}" (run "${runId}") could not claim its own freshly-inserted run row`,
+      try {
+        await persistBackgroundAutomationTurn({
+          threadId: thread.id,
+          threadTitle,
+          prompt: executionPrompt,
+          run: { runId, turnId, startedAt: Date.now(), events: [] },
+        });
+        const afterInsert = (tx: DbExec) =>
+          withDbExec(tx, async () => {
+            await recordRunThread(
+              historyId,
+              thread.id,
+              runId,
+              Boolean(options.historyId),
+              options.resume?.previousRunId,
             );
-        });
-      if (options.resume) {
-        const claim = await tryClaimRunSlot(thread.id, runId, undefined, {
-          turnId,
-          dispatchMode: "background",
-          afterInsert,
-        });
-        if (!claim.claimed)
-          throw new BackgroundAutomationRunError(
-            `Automation recovery could not claim turn ${turnId}`,
-            "background_automation_claim_lost",
-          );
-      } else {
-        await insertRun(runId, thread.id, turnId, {
-          dispatchMode: "background",
-          afterInsert,
-        });
+            if (!(await claimBackgroundRun(runId)))
+              throw new Error(
+                `Background automation "${automation.name}" (run "${runId}") could not claim its own freshly-inserted run row`,
+              );
+          });
+        if (options.resume) {
+          const claim = await tryClaimRunSlot(thread.id, runId, undefined, {
+            turnId,
+            dispatchMode: "background",
+            afterInsert,
+          });
+          if (!claim.claimed)
+            throw new BackgroundAutomationRunError(
+              `Automation recovery could not claim turn ${turnId}`,
+              "background_automation_claim_lost",
+            );
+        } else {
+          await insertRun(runId, thread.id, turnId, {
+            dispatchMode: "background",
+            afterInsert,
+          });
+        }
+      } catch (error) {
+        if (error instanceof BackgroundAutomationRunError) throw error;
+        if (options.resume) throw new AutomationRecoveryStorageError(error);
+        throw error;
       }
       if (runIdRef) {
         runIdRef.current = runId;

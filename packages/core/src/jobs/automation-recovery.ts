@@ -4,6 +4,7 @@ import {
   AgentRunJournalUnreadableError,
   countRunsForTurn,
   getCurrentTurnEventsForThread,
+  getCurrentTurnRunEventsForThread,
   getRunById,
   getRunTurnRef,
   reapIfStale,
@@ -35,6 +36,50 @@ export interface AutomationResume {
   turnId: string;
   previousRunId: string;
   hardDeadlineAt: number;
+}
+
+export class AutomationRecoveryStorageError extends Error {
+  readonly errorCode = "automation_recovery_storage_unavailable";
+
+  constructor(cause: unknown) {
+    super(automationRecoveryMessagesForLocale().unreadable, { cause });
+    this.name = "AutomationRecoveryStorageError";
+  }
+}
+
+export async function withAutomationRecoveryStorage<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof AgentRunJournalUnreadableError) throw error;
+    throw new AutomationRecoveryStorageError(error);
+  }
+}
+
+export async function readAutomationRecoveryEvents(
+  threadId: string,
+  turnId: string,
+) {
+  return withAutomationRecoveryStorage(() =>
+    getCurrentTurnRunEventsForThread(threadId, turnId),
+  );
+}
+
+export async function readAutomationRunDeliveryNote(runId: string) {
+  try {
+    const ref = await getRunTurnRef(runId);
+    return deliveryNoteForEvents(
+      ref
+        ? await getCurrentTurnEventsForThread(ref.threadId, ref.turnId)
+        : null,
+    );
+  } catch (error) {
+    if (error instanceof AgentRunJournalUnreadableError)
+      return deliveryNoteForEvents(null);
+    throw new AutomationRecoveryStorageError(error);
+  }
 }
 
 export type AutomationRecovery =
