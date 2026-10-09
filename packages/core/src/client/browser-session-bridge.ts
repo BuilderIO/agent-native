@@ -91,6 +91,15 @@ class BrowserSessionRequestTimeoutError extends Error {
   }
 }
 
+class BrowserSessionRegistrationContextTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(
+      `Browser-session registration context timed out after ${timeoutMs}ms`,
+    );
+    this.name = "TimeoutError";
+  }
+}
+
 class BrowserSessionRequestSerializationError extends Error {
   constructor(error: unknown) {
     super(
@@ -102,6 +111,51 @@ class BrowserSessionRequestSerializationError extends Error {
 
 function messageError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function abortError(): Error {
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
+function awaitWithAbort<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal,
+  timeoutMs?: number,
+): Promise<T> {
+  if (!signal && timeoutMs === undefined) return promise;
+  const abortReason = () => signal?.reason ?? abortError();
+  if (signal?.aborted) return Promise.reject(abortReason());
+  return new Promise<T>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = () => {
+      signal?.removeEventListener("abort", onAbort);
+      if (timer !== undefined) clearTimeout(timer);
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(abortReason());
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (timeoutMs !== undefined) {
+      timer = setTimeout(() => {
+        cleanup();
+        reject(new BrowserSessionRegistrationContextTimeoutError(timeoutMs));
+      }, timeoutMs);
+    }
+    promise.then(
+      (value) => {
+        cleanup();
+        if (signal?.aborted) reject(abortReason());
+        else resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
 }
 
 function endpointBase(options: AgentNativeBrowserSessionBridgeOptions): string {
@@ -598,8 +652,10 @@ export function createAgentNativeBrowserSessionBridge(
   let lastWebMcpTools: AgentNativeWebMcpTool[] | undefined;
   let activeRequestCount = 0;
   const requestExpiryTimers = new Set<ReturnType<typeof setTimeout>>();
+  const pendingRegistrationControllers = new Set<AbortController>();
   // A delayed cleanup must finish before a restart reuses its session ID.
   let sessionMutationQueue: Promise<void> = Promise.resolve();
+  let registrationBarrier: Promise<void> = Promise.resolve();
 
   function serializeSessionMutation<T>(
     operation: () => Promise<T>,
@@ -612,63 +668,97 @@ export function createAgentNativeBrowserSessionBridge(
     return result;
   }
 
-  async function refreshRegistration(
+  function refreshRegistration(
     signal?: AbortSignal,
   ): Promise<AgentNativeBrowserSessionRecord> {
-    return serializeSessionMutation(async () => {
-      const direct = hasDirectHost(options);
-      const hostOptions = hostRequestOptions(options);
-      const [context, actions, webmcpTools] = direct
-        ? await Promise.all([
-            resolveDirectContext(
-              options,
-              currentSessionId ?? fallbackSessionId ?? undefined,
-            ),
-            resolveDirectActionManifest(options).catch(() => []),
-            resolveWebMcpTools(options),
-          ])
-        : await Promise.all([
-            requestAgentNativeHostContext(hostOptions),
-            requestAgentNativeHostActions(hostOptions).catch(() => []),
-            resolveWebMcpTools(options),
-          ]);
-      lastWebMcpTools = webmcpTools;
-      const hostSession = context.session;
-      if (!currentSessionId) {
-        currentSessionId =
-          fallbackSessionId || hostSession?.id || browserSessionId();
-        fallbackSessionId = currentSessionId;
+    const registrationStopGeneration = stopGeneration;
+    const registrationController = new AbortController();
+    const relayAbort = () =>
+      registrationController.abort(signal?.reason ?? abortError());
+    if (signal?.aborted) relayAbort();
+    else signal?.addEventListener("abort", relayAbort, { once: true });
+    pendingRegistrationControllers.add(registrationController);
+    const work = (async () => {
+      try {
+        const direct = hasDirectHost(options);
+        const hostOptions = hostRequestOptions(options);
+        const registrationContext = direct
+          ? Promise.all([
+              resolveDirectContext(
+                options,
+                currentSessionId ?? fallbackSessionId ?? undefined,
+              ),
+              resolveDirectActionManifest(options).catch(() => []),
+              resolveWebMcpTools(options),
+            ])
+          : Promise.all([
+              requestAgentNativeHostContext(hostOptions),
+              requestAgentNativeHostActions(hostOptions).catch(() => []),
+              resolveWebMcpTools(options),
+            ]);
+        const [context, actions, webmcpTools] = await awaitWithAbort(
+          registrationContext,
+          registrationController.signal,
+          requestAbortMs(options),
+        );
+        return await serializeSessionMutation(async () => {
+          if (
+            registrationStopGeneration !== stopGeneration ||
+            registrationController.signal.aborted
+          ) {
+            throw registrationController.signal.reason ?? abortError();
+          }
+          lastWebMcpTools = webmcpTools;
+          const hostSession = context.session;
+          if (!currentSessionId) {
+            currentSessionId =
+              fallbackSessionId || hostSession?.id || browserSessionId();
+            fallbackSessionId = currentSessionId;
+          }
+          const session = normalizeSession(
+            currentSessionId,
+            options.label,
+            hostSession,
+            context.url,
+          );
+          const body = await postJson(
+            options,
+            "",
+            {
+              session,
+              sessionId: currentSessionId,
+              context,
+              actions,
+              ...(lastWebMcpTools !== undefined
+                ? { webmcpTools: lastWebMcpTools }
+                : {}),
+              ttlMs: options.ttlMs,
+            },
+            registrationController.signal,
+          );
+          return body.session as AgentNativeBrowserSessionRecord;
+        });
+      } finally {
+        pendingRegistrationControllers.delete(registrationController);
+        signal?.removeEventListener("abort", relayAbort);
       }
-      const session = normalizeSession(
-        currentSessionId,
-        options.label,
-        hostSession,
-        context.url,
-      );
-      const body = await postJson(
-        options,
-        "",
-        {
-          session,
-          sessionId: currentSessionId,
-          context,
-          actions,
-          ...(lastWebMcpTools !== undefined
-            ? { webmcpTools: lastWebMcpTools }
-            : {}),
-          ttlMs: options.ttlMs,
-        },
-        signal,
-      );
-      return body.session as AgentNativeBrowserSessionRecord;
-    });
+    })();
+    registrationBarrier = Promise.all([
+      registrationBarrier,
+      work.then(
+        () => undefined,
+        () => undefined,
+      ),
+    ]).then(() => undefined);
+    return work;
   }
 
   async function claimOnce(
     signal?: AbortSignal,
   ): Promise<AgentNativeBrowserSessionRequest | null> {
     const claimStopGeneration = stopGeneration;
-    await sessionMutationQueue;
+    await awaitWithAbort(registrationBarrier, signal);
+    await awaitWithAbort(sessionMutationQueue, signal);
     if (!currentSessionId) {
       await refreshRegistration(signal);
     }
@@ -879,6 +969,9 @@ export function createAgentNativeBrowserSessionBridge(
       if (!started) return;
       started = false;
       stopGeneration++;
+      for (const controller of pendingRegistrationControllers) {
+        controller.abort();
+      }
       heartbeatEngine.stop();
       pollEngine.stop();
       for (const timer of requestExpiryTimers) clearTimeout(timer);

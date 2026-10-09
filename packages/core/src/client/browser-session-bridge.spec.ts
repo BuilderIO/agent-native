@@ -592,6 +592,96 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     expect(deletedSessionIds).toEqual(["tab-1", "tab-1"]);
   });
 
+  it("disconnects while registration context is still resolving", async () => {
+    let resolveContext: ((context: { url?: string }) => void) | undefined;
+    const context = new Promise<{ url?: string }>((resolve) => {
+      resolveContext = resolve;
+    });
+    let deleteCount = 0;
+    let registrationCount = 0;
+    const getContext = vi.fn(() => context);
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (url === "/_agent-native/browser-sessions" && method === "POST") {
+        registrationCount++;
+        return Promise.resolve(
+          jsonResponse({
+            ok: true,
+            session: {
+              sessionId: "tab-1",
+              session: { id: "tab-1" },
+              active: true,
+              actions: [],
+            },
+          }),
+        );
+      }
+      if (
+        url === "/_agent-native/browser-sessions/tab-1" &&
+        method === "DELETE"
+      ) {
+        deleteCount++;
+        return Promise.resolve(jsonResponse({ ok: true, deleted: true }));
+      }
+      if (url.endsWith("/requests/claim") && method === "POST") {
+        return Promise.resolve(jsonResponse({ ok: true, request: null }));
+      }
+      throw new Error(`Unexpected fetch ${method} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      sessionId: "tab-1",
+      session: { id: "tab-1" },
+      getContext,
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    bridge.start();
+    const registration = bridge.refreshRegistration();
+    const registrationRejection = expect(registration).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await vi.waitFor(() => expect(getContext).toHaveBeenCalled());
+    expect(registrationCount).toBe(0);
+
+    bridge.stop();
+    await vi.waitFor(() => expect(deleteCount).toBe(1));
+    await registrationRejection;
+    expect(registrationCount).toBe(0);
+
+    resolveContext?.({ url: "https://app.example" });
+    await Promise.resolve();
+    expect(registrationCount).toBe(0);
+  });
+
+  it("bounds registration context work before later claims", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith("/requests/claim") && init?.method === "POST") {
+        return Promise.resolve(jsonResponse({ ok: true, request: null }));
+      }
+      throw new Error(`Unexpected fetch ${init?.method ?? "GET"} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      sessionId: "tab-1",
+      session: { id: "tab-1" },
+      getContext: () => new Promise(() => {}),
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    const registration = bridge.refreshRegistration();
+    const claim = bridge.claimOnce();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(registration).rejects.toThrow(
+      "Browser-session registration context timed out after 10000ms",
+    );
+    await expect(claim).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/browser-sessions/tab-1/requests/claim",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("disconnects the session when a claim response body times out", async () => {
     vi.useFakeTimers();
     let claimSignal: AbortSignal | undefined;
