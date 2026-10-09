@@ -231,6 +231,90 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("aborts in-flight server requests when the bridge stops", async () => {
+    let registrationSignal: AbortSignal | null = null;
+    let claimSignal: AbortSignal | null = null;
+    let releaseRegistration: ((response: Response) => void) | null = null;
+    let releaseClaim: ((response: Response) => void) | null = null;
+    let pendingRequestCount = 0;
+    let resolveRequestsStarted = () => {};
+    const requestsStarted = new Promise<void>((resolve) => {
+      resolveRequestsStarted = resolve;
+    });
+    const markRequestStarted = () => {
+      pendingRequestCount += 1;
+      if (pendingRequestCount === 2) resolveRequestsStarted();
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/tab-1/requests/claim")) {
+        claimSignal = init?.signal ?? null;
+        markRequestStarted();
+        return new Promise<Response>((resolve, reject) => {
+          releaseClaim = resolve;
+          if (init?.signal?.aborted) {
+            reject(new DOMException("The request was aborted", "AbortError"));
+            return;
+          }
+          init?.signal?.addEventListener(
+            "abort",
+            () =>
+              reject(new DOMException("The request was aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      }
+      if (url.endsWith("/_agent-native/browser-sessions")) {
+        registrationSignal = init?.signal ?? null;
+        markRequestStarted();
+        return new Promise<Response>((resolve, reject) => {
+          releaseRegistration = resolve;
+          if (init?.signal?.aborted) {
+            reject(new DOMException("The request was aborted", "AbortError"));
+            return;
+          }
+          init?.signal?.addEventListener(
+            "abort",
+            () =>
+              reject(new DOMException("The request was aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      }
+      return jsonResponse({
+        ok: true,
+        session: { sessionId: "tab-1", session: { id: "tab-1" }, active: true },
+      });
+    });
+
+    const bridge = createAgentNativeBrowserSessionBridge({
+      sessionId: "tab-1",
+      session: { id: "tab-1" },
+      heartbeatMs: 60_000,
+      pollMs: 60_000,
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    try {
+      bridge.start();
+      await requestsStarted;
+      const activeRegistrationSignal = registrationSignal;
+      const activeClaimSignal = claimSignal;
+      expect(activeRegistrationSignal).not.toBeNull();
+      expect(activeClaimSignal).not.toBeNull();
+
+      bridge.stop();
+
+      expect(activeRegistrationSignal?.aborted).toBe(true);
+      expect(activeClaimSignal?.aborted).toBe(true);
+    } finally {
+      bridge.stop();
+      releaseRegistration?.(
+        jsonResponse({ ok: true, session: { sessionId: "tab-1" } }),
+      );
+      releaseClaim?.(jsonResponse({ ok: true, request: null }));
+    }
+  });
+
   it("registers direct embedded context and actions without postMessage", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe("/_agent-native/browser-sessions");
