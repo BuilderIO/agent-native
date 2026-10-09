@@ -139,8 +139,12 @@ function replayEndpointFromAnalyticsEndpoint(
   endpoint: string,
 ): string | undefined {
   if (/^[a-z][a-z\d+.-]*:\/\//i.test(endpoint)) {
-    if (!URL.canParse(endpoint)) return undefined;
-    const url = new URL(endpoint);
+    let url: URL;
+    try {
+      url = new URL(endpoint);
+    } catch {
+      return undefined;
+    }
     if (url.pathname.endsWith("/api/analytics/track")) {
       url.pathname = url.pathname.replace(
         /\/api\/analytics\/track$/,
