@@ -768,7 +768,7 @@ describe("session replay iframe recording", () => {
     await page.close();
   }, 30_000);
 
-  it("fails closed when clip paths or masks may hide an iframe", async () => {
+  it("accounts for inset clip paths and fails closed for unsupported clips and masks", async () => {
     const page = await browser.newPage();
     await page.setContent(
       '<!doctype html><iframe id="replay" style="width:300px;height:200px;border:0"></iframe>',
@@ -793,7 +793,13 @@ describe("session replay iframe recording", () => {
         "position:absolute;left:0;top:0;width:20px;height:20px;border:0";
       maskedFrame.srcdoc = `<!doctype html><html><body style="margin:0"><iframe id="nested-mask" style="position:absolute;left:2px;top:2px;width:6px;height:6px;border:0" srcdoc="<!doctype html><html><body>nested</body></html>"></iframe></body></html>`;
       masked.append(maskedFrame);
-      replayDocument.body.append(clipped, masked);
+
+      const inset = replayDocument.createElement("iframe");
+      inset.id = "inset-frame";
+      inset.style.cssText =
+        "position:absolute;left:130px;top:30px;width:20px;height:20px;border:0;clip-path:inset(2px)";
+      inset.srcdoc = "<!doctype html><html><body>inset</body></html>";
+      replayDocument.body.append(clipped, masked, inset);
     });
     await page.waitForFunction(() => {
       const replayDocument = (
@@ -810,7 +816,7 @@ describe("session replay iframe recording", () => {
         ),
       );
       return (
-        frames.length === 2 &&
+        frames.length === 3 &&
         nestedFrames.length === 2 &&
         [...frames, ...nestedFrames].every(
           (frame) =>
@@ -837,11 +843,15 @@ describe("session replay iframe recording", () => {
       const nestedMask = masked.contentDocument!.querySelector(
         "#nested-mask",
       ) as HTMLIFrameElement;
+      const inset = replayDocument.querySelector(
+        "#inset-frame",
+      ) as HTMLIFrameElement;
       const ids = new Map<Element, number>([
         [clipped, 1],
         [nestedClip, 2],
         [masked, 3],
         [nestedMask, 4],
+        [inset, 5],
       ]);
       (
         window as typeof window & { __anJourneyCapture?: unknown }
@@ -862,17 +872,20 @@ describe("session replay iframe recording", () => {
             replayDocument.querySelector("#mask-container")!,
           )
           .getPropertyValue("mask-image"),
+        insetClipPath:
+          replayDocument.defaultView!.getComputedStyle(inset).clipPath,
         audit: audit({
           dimensions: { width: 300, height: 200 },
-          recordedIframeParentIds: [1, 2, 3, 4],
+          recordedIframeParentIds: [1, 2, 3, 4, 5],
         }),
       };
     }, serializedAuditSource());
 
     expect(result.clipPath).not.toBe("none");
     expect(result.maskImage).not.toBe("none");
+    expect(result.insetClipPath).not.toBe("none");
     expect(result.audit).toEqual({
-      visibleIframeCount: 0,
+      visibleIframeCount: 1,
       unavailableIframeCount: 0,
       unverifiableIframeCount: 2,
     });

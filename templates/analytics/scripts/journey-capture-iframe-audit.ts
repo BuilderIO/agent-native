@@ -293,15 +293,19 @@ export function auditReplayIframeContent({
       const [offsetsValue, roundValue] = match[1]!.split(/\s+round\s+/i, 2);
       const tokens = offsetsValue!.trim().split(/\s+/);
       if (tokens.length < 1 || tokens.length > 4) return null;
-      const resolveOffset = (token: string, extent: number): number | null => {
-        const number = token.match(/^(-?(?:\d+(?:\.\d*)?|\.\d+))(px|%)?$/i);
-        if (!number) return null;
-        const amount = Number(number[1]);
-        if (!Number.isFinite(amount)) return null;
-        if (number[2] === "%") return (amount / 100) * extent;
-        if (!number[2] && amount !== 0) return null;
-        return amount;
-      };
+      const [resolveOffset]: [
+        (token: string, extent: number) => number | null,
+      ] = [
+        (token, extent) => {
+          const number = token.match(/^(-?(?:\d+(?:\.\d*)?|\.\d+))(px|%)?$/i);
+          if (!number) return null;
+          const amount = Number(number[1]);
+          if (!Number.isFinite(amount)) return null;
+          if (number[2] === "%") return (amount / 100) * extent;
+          if (!number[2] && amount !== 0) return null;
+          return amount;
+        },
+      ];
       const top = resolveOffset(tokens[0]!, geometry.height);
       const right = resolveOffset(tokens[1] ?? tokens[0]!, geometry.width);
       const bottom = resolveOffset(tokens[2] ?? tokens[0]!, geometry.height);
