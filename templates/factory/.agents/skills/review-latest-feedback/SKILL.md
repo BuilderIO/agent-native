@@ -245,29 +245,25 @@ Do not change code for an unrelated product idea, praise, status update, merge
 or review request, irrelevant bot forward, duplicate, or work outside the
 invocation's ownership.
 
-**Subjective UX requests need human review.** Adding buttons/chrome, or changing
-visibility, placement, emphasis, or discoverability—including “hard to find”
-reports—is a product proposal, not an objective defect. Unless the invoking
-user approves a concrete approach in this task or via the `:upvote:` gate
-below, skip it during automatic sweeps. Recap the request, checked surfaces,
-options, recommendation, and tradeoff. Record approval as human-directed and
-limited to that approach. If claimed, keep 👀 and post **Skipped** once; don't
-ask the reporter to choose.
+**Subjective UX proposals need human review.** Adding buttons/chrome or changing
+visibility, placement, emphasis, or discoverability (including “hard to find”)
+is a product proposal, not a defect. Check overflow, keyboard, Cmd+K, and
+contextual surfaces first. Recap the ask, findings, options, recommendation,
+and tradeoff; mark **Skipped**. A report or `:upvote:` never authorizes automatic
+implementation; only a user-directed task may implement an approved approach.
+If claimed, keep 👀, post **Skipped** once, and don't ask the reporter to choose.
 
-Auto-fix objective UI defects only: broken behavior/result, misalignment,
-overlap/clipping, illegibility, unusable focus/hit target, jank, jitter,
-measurable slowness, regression. Separate defects from preferences; measure
-failures with `text-heavy-ui`.
-
-New capabilities need the invoking identity's `:upvote:` gate. Content stays
-Alice's unless the invocation claims it.
+Auto-fix objective defects only: broken behavior/results, misalignment,
+overlap/clipping, illegibility, unusable focus/targets, jank, jitter,
+measurable slowness, regressions. Separate defects from preferences; measure
+failures with `text-heavy-ui`. Content remains Alice's unless claimed.
 
 ### `:upvote:` authorizes feature requests
 
 An `:upvote:` from **the invoking identity** - not from anyone else - promotes
-an otherwise out-of-scope item into scope and authorizes the work. It is the
-endorsement that settles the product question: the person who would otherwise
-route this away has read it and decided it should happen. Build it.
+an otherwise out-of-scope item into scope and authorizes the work. Subjective
+UX proposals are the exception: an upvote routes them for human review, not
+implementation by this sweep.
 
 Find them alongside the newest-message scan:
 
