@@ -231,6 +231,41 @@ export function isExpectedSaveReloadWatchedRequestAbort(
   );
 }
 
+export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
+  message: string,
+  activePhase: string,
+  candidates: Array<{
+    url: string;
+    pathname: string;
+    method: string;
+    ageMs: number;
+    requestWasPendingAtReloadNavigation?: boolean;
+  }>,
+) {
+  if (activePhase !== "save/reload") return false;
+  const match =
+    /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.$/.exec(
+      message,
+    );
+  if (!match) return false;
+
+  return candidates.some(
+    (candidate) =>
+      candidate.url === match[1] &&
+      candidate.method === "POST" &&
+      candidate.requestWasPendingAtReloadNavigation === true &&
+      candidate.ageMs >= 0 &&
+      candidate.ageMs < reloadNavigationAbortMaxRequestAgeMs &&
+      saveReloadRequestAbortRules.some((rule) => {
+        const matchesPath =
+          typeof rule.path === "string"
+            ? rule.path === candidate.pathname
+            : rule.path.test(candidate.pathname);
+        return matchesPath && rule.method === candidate.method;
+      }),
+  );
+}
+
 export function isConflictResourceConsoleError(message: string) {
   return /\bstatus of 409\b/.test(message);
 }
@@ -827,7 +862,7 @@ export async function runAuthoringFuzz(
     { method: string; path: string; startedAt: number }
   >();
   const watchedRequests = new Map<any, number>();
-  const reloadNavigationRequests = new Set<any>();
+  const reloadNavigationRequests = new Map<any, number>();
   const pendingSaveConflicts: Promise<void>[] = [];
   const conflictResponsePaths: string[] = [];
   const patchDeckActionPath = "/_agent-native/actions/patch-deck";
@@ -854,6 +889,21 @@ export async function runAuthoringFuzz(
       conflictResourceErrors += 1;
       return;
     }
+    if (
+      isExpectedSaveReloadWatchedRequestCorsConsoleError(
+        message.text(),
+        activePhase,
+        [...reloadNavigationRequests.entries()].map(([request, startedAt]) => ({
+          url: request.url(),
+          pathname: new URL(request.url()).pathname,
+          method: request.method(),
+          ageMs: Date.now() - startedAt,
+          requestWasPendingAtReloadNavigation: true,
+        })),
+      )
+    ) {
+      return;
+    }
     pageErrors.push(message.text());
   };
   const onPageError = (error: Error) =>
@@ -864,7 +914,6 @@ export async function runAuthoringFuzz(
       reloadNavigationRequests.has(request);
     pendingRequests.delete(request);
     watchedRequests.delete(request);
-    reloadNavigationRequests.delete(request);
     const url = request.url();
     const pathname = new URL(url).pathname;
     const errorText = request.failure()?.errorText ?? "unknown";
@@ -4569,8 +4618,8 @@ export async function runAuthoringFuzz(
 
     activePhase = "save/reload";
     const persistence = await options.finishAndReload(() => {
-      for (const request of watchedRequests.keys()) {
-        reloadNavigationRequests.add(request);
+      for (const [request, startedAt] of watchedRequests.entries()) {
+        reloadNavigationRequests.set(request, startedAt);
       }
     });
     assertAuthoringPersistence(persistence);

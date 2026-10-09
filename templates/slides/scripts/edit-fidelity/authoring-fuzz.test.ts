@@ -21,6 +21,7 @@ import {
   isBrowserSessionPath,
   isCaretScrollOnlyChange,
   isExpectedSaveReloadWatchedRequestAbort,
+  isExpectedSaveReloadWatchedRequestCorsConsoleError,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
   runAuthoringFuzz,
@@ -1069,6 +1070,93 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
       "net::ERR_ABORTED",
       "step 12",
     ),
+  ).toBe(false);
+});
+
+it("ignores only WebKit CORS console errors for pending claim requests canceled by reload", () => {
+  const url =
+    "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim";
+  const message = `Fetch API cannot load ${url} due to access control checks.`;
+  const candidate = {
+    url,
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 100,
+    requestWasPendingAtReloadNavigation: true,
+  };
+
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      candidate,
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "step 12", [
+      candidate,
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `Fetch API cannot load ${url} because of a CORS error.`,
+      "save/reload",
+      [candidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      {
+        ...candidate,
+        url: `${url}-extra`,
+        pathname: `${candidate.pathname}-extra`,
+      },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      { ...candidate, method: "GET" },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      { ...candidate, requestWasPendingAtReloadNavigation: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      {
+        url,
+        pathname: candidate.pathname,
+        method: "POST",
+        ageMs: 100,
+      },
+    ]),
+  ).toBe(false);
+});
+
+it("does not hide aged browser-session registration CORS errors", () => {
+  const url = "http://localhost:45715/_agent-native/browser-sessions";
+  const message = `Fetch API cannot load ${url} due to access control checks.`;
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      {
+        url,
+        pathname: "/_agent-native/browser-sessions",
+        method: "POST",
+        ageMs: 9_000,
+        requestWasPendingAtReloadNavigation: true,
+      },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      {
+        url,
+        pathname: "/_agent-native/browser-sessions",
+        method: "POST",
+        ageMs: 10_000,
+        requestWasPendingAtReloadNavigation: true,
+      },
+    ]),
   ).toBe(false);
 });
 
