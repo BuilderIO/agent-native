@@ -100,6 +100,7 @@ export interface ShareButtonProps {
     label: string;
     copiedLabel: string;
     onCopy: () => Promise<boolean | void> | boolean | void;
+    className?: string;
   };
   /** Optional label for the primary copyable link section. */
   shareUrlLabel?: string;
@@ -362,6 +363,7 @@ export function ShareButton(props: ShareButtonProps) {
             copyLabel={props.quickCopy.label}
             copiedLabel={props.quickCopy.copiedLabel}
             onCopy={props.quickCopy.onCopy}
+            className={props.quickCopy.className}
           />
         ) : (
           <SheetTrigger asChild>{trigger}</SheetTrigger>
@@ -398,6 +400,7 @@ export function ShareButton(props: ShareButtonProps) {
             copyLabel={props.quickCopy.label}
             copiedLabel={props.quickCopy.copiedLabel}
             onCopy={props.quickCopy.onCopy}
+            className={props.quickCopy.className}
           />
         </PopoverAnchor>
       ) : (

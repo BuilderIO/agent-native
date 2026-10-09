@@ -1697,7 +1697,7 @@ export function DocumentToolbar({
                         ? WIDGET_SHARE_GROUP_CLASS_NAME
                         : undefined,
                     }}
-                    shareActionsOnly={inWidget}
+                    basicSharingOnly={inWidget}
                     peopleTabLabel={t("editor.toolbar.sharePeople")}
                     agentsTabLabel={t("editor.toolbar.shareAgents")}
                     peopleAccessLabel={t("editor.toolbar.whoHasAccess")}

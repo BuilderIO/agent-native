@@ -1486,4 +1486,36 @@ describe("ShareButton", () => {
       expect(trigger?.querySelector("svg")).toBeFalsy();
     });
   });
+
+  it("lets a host size the joined copy control through quickCopy.className", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="document"
+              resourceId="doc-1"
+              quickCopy={{
+                label: "Copy page link",
+                copiedLabel: "Copied page link",
+                onCopy: async () => true,
+                className: "widget-joined-share",
+              }}
+            />
+          </QueryClientProvider>
+        </TooltipProvider>,
+      );
+    });
+
+    const joined = container.querySelector(".widget-joined-share");
+    expect(joined).not.toBeNull();
+    expect(
+      joined?.contains(
+        container.querySelector('button[aria-label="Copy page link"]'),
+      ),
+    ).toBe(true);
+    expect(
+      joined?.contains(container.querySelector('button[aria-label="Share"]')),
+    ).toBe(true);
+  });
 });

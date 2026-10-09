@@ -478,7 +478,7 @@ describe("DocumentToolbar in an MCP App widget", () => {
       expect(props.resourceType).toBe("document");
       expect(props.resourceId).toBe("widget-fixture");
       expect(props.mobileSheet).toBe(true);
-      expect(props.shareActionsOnly).toBe(true);
+      expect(props.basicSharingOnly).toBe(true);
       // The widget's session cannot set discoverability, mint agent links,
       // or open the app's agent deep links.
       expect(props.hideInSearchControl).toBeUndefined();
@@ -499,7 +499,7 @@ describe("DocumentToolbar in an MCP App widget", () => {
       await act(async () => Promise.resolve());
 
       const props = mocks.shareProps[mocks.shareProps.length - 1];
-      expect(props.shareActionsOnly).toBe(false);
+      expect(props.basicSharingOnly).toBe(false);
       expect(props.hideInSearchControl).toBeDefined();
       expect(props.agentTabContent).toBeDefined();
       expect(props.quickCopy.className).toBeUndefined();
