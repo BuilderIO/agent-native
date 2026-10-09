@@ -682,7 +682,7 @@ const esES = {
         "Instala planificación visual como skill respaldada por una app. Tu agente de código puede abrir planes estructurados con diagramas, wireframes, prototipos, anotaciones, comentarios y enlaces de revisión.",
     },
     design: {
-      replaces: "Reemplaza o amplía herramientas de prototipado",
+      replaces: "Estudio de diseño de Agent-Native",
       description:
         "Convierte instrucciones en diseños interactivos que siguen tu sistema de diseño mientras el agente perfecciona cada pantalla según tus comentarios.",
     },
@@ -1454,7 +1454,7 @@ const esES = {
       s003: "generar",
       s004: "Refinar",
       s005: "Todas las plantillas",
-      s006: "El estudio de creación de prototipos de código abierto AI HTML",
+      s006: "Espacio de diseño de código abierto",
       s007: "Cree diseños y prototipos interactivos. Refine con herramientas familiares o realice ediciones conversacionales. Exporte a donde quiera.",
       s008: "Diseña algo",
       s009: "como funciona",
@@ -1898,7 +1898,6 @@ const esES = {
       heroDescription:
         "Plans es una herramienta de planificación visual gratuita y de código abierto para revisar el enfoque de tu agente de código, darle comentarios y entender los cambios de código mediante diagramas, wireframes y código anotado.",
       heroCta: "Planifica visualmente",
-      heroSecondaryCta: "Abrir Plans",
       useCasesHeading: "¿Qué puedes hacer con Plans?",
       useCasesBody:
         "Revisa un enfoque de implementación, perfecciona una interfaz o entiende un cambio ya realizado junto a tu agente de código.",

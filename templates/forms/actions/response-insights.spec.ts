@@ -6,6 +6,12 @@ import {
 } from "@agent-native/core/data-widgets";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
+  getRequestUserEmail: () => "owner@example.com",
+  getRequestOrgId: () => undefined,
+}));
+
 const dbMock = vi.hoisted(() => {
   let results: unknown[][] = [];
   const selectCalls: unknown[] = [];
@@ -40,6 +46,7 @@ const dbMock = vi.hoisted(() => {
 });
 
 const sharingMock = vi.hoisted(() => ({
+  resolveAccess: vi.fn(async () => ({ role: "owner", resource: {} })),
   accessFilter: vi.fn(() => true),
   assertAccess: vi.fn(async () => ({ resource: form })),
 }));
@@ -100,10 +107,13 @@ async function runInsights(
     [{ formId: "form_1", count: responseRows.length }],
   ]);
 
-  return responseInsights.run({
-    formId: "form_1",
-    ...(displayMode ? { displayMode } : {}),
-  });
+  return responseInsights.run(
+    {
+      formId: "form_1",
+      ...(displayMode ? { displayMode } : {}),
+    },
+    { caller: "frontend", userEmail: form.ownerEmail, orgId: form.orgId },
+  );
 }
 
 describe("response-insights action", () => {

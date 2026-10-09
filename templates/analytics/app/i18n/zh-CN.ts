@@ -654,6 +654,17 @@ export default {
     copied: "已复制",
     copy: "复制",
     keyActions: "{{name}} 关键动作",
+    manageReplayOrigins: "管理回放来源",
+    replayOriginsDescription: "每行添加一个准确的 HTTPS 来源。现有来源将保留。",
+    currentReplayOrigins: "当前允许的来源",
+    anyReplayOriginAllowed:
+      "当前允许任何来源。添加来源后，回放将仅限于列表中的来源，因此请包含使用此密钥的所有应用。",
+    originsToAdd: "要添加的来源",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "添加来源",
+    addingReplayOrigins: "正在添加来源…",
+    replayOriginsUpdateFailed: "无法更新允许的来源。",
+    cancel: "取消",
     lastUsed: "最后使用 {{date}}",
     neverUsed: "从未使用过",
     revoking: "撤销...",
@@ -1421,6 +1432,8 @@ export default {
     replayPlayer: "回放播放器",
     replayLoading: "正在加载回放...",
     replayLoadingProgress: "已加载 {{loaded}} / {{total}} 个回放分块",
+    replayTargetFallback:
+      "无法显示请求的录制偏移 {{requested}}；当前显示的是 {{available}} 处最接近的回放帧。",
     replayUnavailable: "此会话没有回放分块",
     replayUnavailableDescription: "此会话有分析事件，但未找到 rrweb 分块事件。",
     unavailableChunks: "{{count}} replay segments could not be loaded.",
@@ -1472,8 +1485,12 @@ export default {
     time: "时间",
     storageSetupTitle: "连接回放存储",
     storageSetupDescription:
-      "保存会话回放录制片段前需要先配置存储。可使用 Builder.io 使用免费层存储，或配置您自己的 S3 兼容存储桶。",
+      "会话回放需要经过授权的文件上传服务。授予上传权限后，Builder.io 可以存储回放；您也可以配置自己的 S3 兼容存储桶。",
     storageConnected: "存储已连接",
+    storageStatusUnavailable:
+      "无法检查回放存储状态。请重试以确认上传是否已就绪。",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io 已连接，可用于 AI 和额度，但回放上传还需要单独的存储权限。",
     connectBuilder: "使用 Builder.io",
     configureS3: "配置 S3 存储",
     devtools: "开发工具",
@@ -1539,7 +1556,10 @@ export default {
       "回放 {{replayId}} 在 {{timestamp}} 时的路由不可用。",
     storyboardNoDesignResponse: "Design 未返回故事板结果。",
     storyboardTemporaryCleanupPending: "故事板已保存，但无法删除临时截图文件。",
+    storyboardTemporaryCleanupFailed: "临时截图清理仍在等待处理。",
     storyboardUnexpectedResponse: "截图导出返回了无法读取的响应。请重试。",
+    storyboardSaveOutcomeUnknown:
+      "Design 可能已保存故事板。重试前请先检查 Design。",
     openStoryboard: "在 Design 中打开故事板",
     cancelStoryboardCapture: "取消捕获",
     captureToDesign: "捕获并添加到 Design",

@@ -247,6 +247,7 @@ test.describe("canvas chords", () => {
     designId = "";
   });
 
+  // oracle: none — checks the app's shortcut and persisted node placement; native Figma behavior is unmeasured.
   test("Shift+A wraps one rectangle where it stands, not at the frame origin", async ({
     page,
     request,
@@ -256,6 +257,7 @@ test.describe("canvas chords", () => {
       request,
       baseURL,
       "E2E Chords AutoLayout",
+      CHORDS_HTML.replace(">Alpha</div>", "></div>"),
     );
     await gotoEditor(page, designId);
 

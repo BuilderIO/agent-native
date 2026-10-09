@@ -11,11 +11,22 @@ import type {
   EngineMessage,
 } from "./engine/types.js";
 import {
-  createProductionAgentHandler,
+  createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
   runAgentLoop,
   type ActionEntry,
+  type ProductionAgentOptions,
 } from "./production-agent.js";
 import type { AgentChatEvent } from "./types.js";
+
+function createProductionAgentHandler(
+  options: Omit<ProductionAgentOptions, "assertAiSetupReady"> &
+    Partial<Pick<ProductionAgentOptions, "assertAiSetupReady">>,
+) {
+  return createProductionAgentHandlerWithSetupGate({
+    ...options,
+    assertAiSetupReady: options.assertAiSetupReady ?? (async () => {}),
+  });
+}
 
 const mockResolveConnection = vi.hoisted(() =>
   vi.fn(async (): Promise<{ available: boolean }> => ({ available: false })),

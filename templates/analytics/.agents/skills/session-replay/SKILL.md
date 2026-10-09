@@ -154,10 +154,12 @@ agent answers about browser recordings in the Analytics template.
   clients send no id and are skipped: followed together, two tabs would look
   like one tab going back.
 - A replay row counts only while `processed_chunks` equals the recording's
-  `chunk_count`. Each batch must continue from the stored detector state and
-  its chunk seqs must start exactly at `processed_chunks`, so a batch that
-  cannot be measured, or arrives out of order, leaves the row behind and the
-  recording reads as unmeasured; never restart from fresh state. An event row
+  `chunk_count`. Each batch continues from the stored detector state, whose
+  `lastSeq` is the highest chunk measured; a seq the recorder lost is skipped.
+  A batch that cannot be measured, or a chunk below `lastSeq`, leaves the row
+  behind and the recording reads as unmeasured until it ends. Then
+  `remeasureReplayFriction` measures every stored chunk again in seq order;
+  never continue a row that fell behind from fresh state. An event row
   counts only when the tenant's friction coverage began before every
   recording of the session and the session has neither an event index gap
   nor a friction gap (`analytics_session_friction_gaps`). A friction write
@@ -445,6 +447,16 @@ agent answers about browser recordings in the Analytics template.
   Vite/Netlify env vars on the recorded site.
 - Inputs are masked by default. Page text is visible unless marked with
   `.an-mask` or `data-an-mask`.
+- UI rendering a run failure message or diagnostic details spreads
+  `SESSION_REPLAY_MASK_PROPS` from `@agent-native/core/client/session-replay-privacy` on
+  the message element, including expanded details and failed tool rows. Keep
+  headlines and recovery controls outside the mask. The `data-an-mask` marker
+  remains active when an app supplies its own `maskTextSelector`; selectors
+  extend this privacy baseline. Do not rely on name redaction for run errors.
+  Masking covers text only; the recorder keeps attributes, so leave `title` off
+  masked failure text. Wrap failed content that can render links or embedded
+  frames, such as an MCP App or a failed activity summary, in
+  `SESSION_REPLAY_BLOCK_PROPS`.
 - Use `.an-block`, `.an-ignore`, `data-an-block`, or `data-an-ignore` for
   sensitive zones that should not be captured.
 - A definitive upload `409` abandons only the conflicted replay identity and

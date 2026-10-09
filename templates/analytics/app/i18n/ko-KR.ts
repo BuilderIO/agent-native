@@ -678,6 +678,18 @@ export default {
     copied: "복사됨",
     copy: "복사",
     keyActions: "{{name}} 주요 동작",
+    manageReplayOrigins: "재생 오리진 관리",
+    replayOriginsDescription:
+      "정확한 HTTPS 오리진을 한 줄에 하나씩 추가하세요. 기존 오리진은 유지됩니다.",
+    currentReplayOrigins: "현재 허용된 오리진",
+    anyReplayOriginAllowed:
+      "현재 모든 오리진이 허용됩니다. 오리진을 추가하면 리플레이가 목록으로 제한되므로 이 키를 사용하는 모든 앱을 포함하세요.",
+    originsToAdd: "추가할 오리진",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "오리진 추가",
+    addingReplayOrigins: "오리진 추가 중…",
+    replayOriginsUpdateFailed: "허용 오리진을 업데이트하지 못했습니다.",
+    cancel: "취소",
     lastUsed: "마지막으로 사용된 {{date}}",
     neverUsed: "한번도 사용하지 않은",
     revoking: "취소 중...",
@@ -1473,6 +1485,8 @@ export default {
     replayPlayer: "리플레이 플레이어",
     replayLoading: "리플레이 로드 중...",
     replayLoadingProgress: "{{loaded}} / {{total}} 개의 리플레이 청크가 로드됨",
+    replayTargetFallback:
+      "요청한 녹화 위치({{requested}})를 재생할 수 없어 {{available}}의 가장 가까운 리플레이 프레임을 표시합니다.",
     replayUnavailable: "이 세션에는 리플레이 청크가 없습니다",
     replayUnavailableDescription:
       "세션에는 분석 이벤트가 있지만 rrweb 청크 이벤트를 찾지 못했습니다.",
@@ -1529,8 +1543,12 @@ export default {
     time: "시간",
     storageSetupTitle: "재생 저장소 연결",
     storageSetupDescription:
-      "세션 재생 녹화를 저장하려면 먼저 저장소가 필요합니다. 무료 등급 저장소를 사용하려면 Builder.io를 사용하거나, 직접 S3 호환 버킷을 구성하세요.",
+      "세션 재생에는 승인된 파일 업로드 제공업체가 필요합니다. 업로드 권한을 허용하면 Builder.io에 저장할 수 있고, 직접 S3 호환 버킷을 구성할 수도 있습니다.",
     storageConnected: "저장소 연결됨",
+    storageStatusUnavailable:
+      "재생 저장소 상태를 확인할 수 없습니다. 업로드가 준비되었는지 다시 확인하세요.",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io가 AI 및 크레딧용으로 연결되어 있지만 재생 업로드에는 별도의 저장소 권한이 필요합니다.",
     connectBuilder: "Builder.io 사용",
     configureS3: "S3 저장소 구성",
     devtools: "개발자 도구",
@@ -1603,8 +1621,12 @@ export default {
       "Design에서 스토리보드 결과를 반환하지 않았습니다.",
     storyboardTemporaryCleanupPending:
       "스토리보드는 저장했지만 임시 스크린샷 파일을 삭제하지 못했습니다.",
+    storyboardTemporaryCleanupFailed:
+      "임시 스크린샷 정리가 아직 대기 중입니다.",
     storyboardUnexpectedResponse:
       "스크린샷 내보내기에서 읽을 수 없는 응답을 받았습니다. 다시 시도해 주세요.",
+    storyboardSaveOutcomeUnknown:
+      "Design에 스토리보드가 저장되었을 수 있습니다. 다시 시도하기 전에 Design을 확인하세요.",
     openStoryboard: "Design에서 스토리보드 열기",
     cancelStoryboardCapture: "캡처 취소",
     captureToDesign: "캡처하여 Design에 추가",

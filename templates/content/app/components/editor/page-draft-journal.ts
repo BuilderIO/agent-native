@@ -154,7 +154,24 @@ function parseEntry(raw: string, expectedKey: string): PageDraftJournalEntry {
 export function writePageDraftJournal(input: {
   scope: PageDraftJournalScope;
   snapshot: PageDraftJournalSnapshot;
-}): PageDraftJournalEntry {
+}): PageDraftJournalEntry;
+export function writePageDraftJournal(input: {
+  scope: PageDraftJournalScope;
+  snapshot: PageDraftJournalSnapshot;
+  currentTitle: string;
+}): PageDraftJournalEntry | null;
+export function writePageDraftJournal(input: {
+  scope: PageDraftJournalScope;
+  snapshot: PageDraftJournalSnapshot;
+  currentTitle?: string;
+}): PageDraftJournalEntry | null {
+  // Peer title adoption does not advance editGeneration.
+  if (
+    input.currentTitle !== undefined &&
+    input.snapshot.title !== input.currentTitle
+  )
+    return null;
+
   const scope = normalizedScope(input.scope);
   if (
     !Number.isSafeInteger(input.snapshot.editGeneration) ||

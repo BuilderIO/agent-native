@@ -3,15 +3,38 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-08
+
+### Improved
+
+- You can skip setup and start recording clips without connecting storage.
+- The storage setup screen no longer lists example S3 providers.
+- The video editor confirms when edits save to a clip and provides a clear way back to its viewer.
+
+### Fixed
+
+- First-run storage setup remains available when the status check fails.
+
 ## 2026-10-07
 
 ### Improved
 
+- Allow local recordings to be previewed and downloaded without storage.
+- Clips explains when Builder needs separate file-upload access and how to restore storage.
+- Show a skippable storage choice before the first recording, then keep local capture available.
 - Builder.io setup choices now say “Use Builder.io”.
 
 ### Fixed
 
+- Clips can finish saving when a browser tab stops responding.
+- Clips keeps active recordings running while storage connects and shows current Builder recovery steps
+- Clips preserves queued uploads, keeps complete local previews, and offers a retry when Builder status is unavailable.
+- Builder connection errors now show actionable retry and browser recovery guidance.
+- Return to Home after storage connects during first-run setup
+- Skipping storage setup keeps the recorder ready, including when opened from a setup link
+- Storage setup errors now point members to an owner or admin when they can't manage storage settings
 - Clips sizes Settings and recording views correctly while a recording is active.
+- Clarify Builder storage setup choices and retry guidance
 
 ## 2026-10-06
 
@@ -32,6 +55,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Dictation now transcribes from AirPods and other Bluetooth microphones instead of reporting that no speech was detected.
 - Agent links copied from a clip are shorter, so Claude can fetch them without hitting its URL length limit.
 - Sign-in and signup pages now share the animated Agent-Native wave.
 - Confirming Discard recording now returns you to your library.

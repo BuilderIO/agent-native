@@ -416,7 +416,7 @@ describe("http response telemetry", () => {
     });
   });
 
-  it("does not derive action names from unknown action URLs", async () => {
+  it("records unknown action URLs under the action template without naming an action", async () => {
     const { requestHooks, responseHooks } = createHooks();
     processState.requestSequence = 5;
     const tracked: TrackingEvent[] = [];
@@ -432,7 +432,9 @@ describe("http response telemetry", () => {
     await responseHooks[0](new Response("not found", { status: 404 }), event);
 
     expect(tracked[0]?.properties).not.toHaveProperty("action_name");
-    expect(tracked[0]?.properties).not.toHaveProperty("route_template");
+    expect(tracked[0]?.properties).toMatchObject({
+      route_template: "/_agent-native/actions/:action",
+    });
   });
 
   it("uses registered action metadata before the route handler runs", async () => {
@@ -537,9 +539,69 @@ describe("http response telemetry", () => {
         {
           "http.request.method": "GET",
           "http.response.status_code": 200,
+          "http.route": "page",
         },
       ]);
       expect(forceFlush).toHaveBeenCalledOnce();
+    } finally {
+      unregister();
+    }
+  });
+
+  it("attributes a framework 401 to its route on the metric and the span", async () => {
+    processState.requestSequence = 5;
+    const recorded: Array<Record<string, string | number> | undefined> = [];
+    const spanAttributes: Array<Record<string, unknown> | undefined> = [];
+    __setAgentTracerForTests({
+      startSpan(
+        _name: string,
+        options?: { attributes?: Record<string, unknown> },
+      ): AgentSpan {
+        spanAttributes.push(options?.attributes);
+        return {
+          setAttribute() {},
+          setAttributes() {},
+          setStatus() {},
+          recordException() {},
+          end() {},
+        };
+      },
+    });
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: () => ({
+            record: (
+              _value: number,
+              attributes?: Record<string, string | number>,
+            ) => recorded.push(attributes),
+          }),
+          createCounter: () => ({ add() {} }),
+        }),
+      },
+    });
+    try {
+      const { requestHooks, responseHooks } = createHooks();
+      const event = eventFor(
+        "/_agent-native/agent-chat/runs/run-1783002639448-8rptjt/events",
+      );
+      await requestHooks[0](event);
+      await responseHooks[0](
+        new Response("unauthorized", { status: 401 }),
+        event,
+      );
+
+      expect(recorded).toEqual([
+        {
+          "http.request.method": "GET",
+          "http.response.status_code": 401,
+          "http.route": "/_agent-native/agent-chat/runs/:runId/events",
+        },
+      ]);
+      expect(spanAttributes[0]).toMatchObject({
+        "http.route": "/_agent-native/agent-chat/runs/:runId/events",
+        "http.status_code": 401,
+      });
     } finally {
       unregister();
     }

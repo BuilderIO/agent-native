@@ -126,6 +126,20 @@ export {
   type UseAgentEngineConfiguredResult,
 } from "../use-agent-engine-configured.js";
 export {
+  AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
+  AgentChatAiSetupRequiredError,
+  ensureAgentEngineReadiness,
+  getAgentEngineReadiness,
+  invalidateAgentEngineReadiness,
+  isAgentChatAiSetupRequiredError,
+  isLocalRuntimeEngine,
+  requireAgentEngineConfiguredForDispatch,
+  subscribeAgentEngineReadiness,
+  LOCAL_RUNTIME_ENGINE_IDS,
+  agentEngineStatusUrlForChatApi,
+  type AgentEngineReadinessSource,
+} from "../agent-engine-readiness.js";
+export {
   AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES,
   getMcpAppHostContext,
   initializeMcpAppHost,

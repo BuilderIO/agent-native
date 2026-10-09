@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 
 import { DatabaseViewSkeleton } from "./database/DatabaseViewSkeleton";
 import {
+  DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
   DOCUMENT_EDITOR_DATABASE_TITLE_SIZE_CLASS_NAME,
   DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
   DOCUMENT_EDITOR_TITLE_CLASS_NAME,
@@ -184,7 +185,12 @@ export function DocumentEditorSkeleton({
           <Skeleton className="h-7 w-7 rounded-md" />
         </div>
       </div>
-      <div className="relative @container min-h-0 flex-1 overflow-hidden">
+      <div
+        className={cn(
+          "relative @container min-h-0 flex-1 overflow-hidden",
+          DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
+        )}
+      >
         {shape === "startup" ? (
           <>
             <PageColumn

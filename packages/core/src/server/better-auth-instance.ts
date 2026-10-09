@@ -82,6 +82,7 @@ import {
   enforceSignupAdmission,
   isBootstrapAdmin,
 } from "../org/signup-admission.js";
+import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
@@ -260,12 +261,16 @@ export async function emitSignupEventForCreatedUser(
 
   const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
   if (!requestHeaders) return;
+  const requestSessionId = normalizeAnalyticsSessionId(
+    requestHeaders.get("x-agent-native-session-id"),
+  );
 
   const scoped = hasContinuationLocalRequestContext()
     ? getRequestContext()
     : undefined;
   let attribution: Record<string, string> | undefined;
   let anonymousId: string | undefined;
+  let sessionId: string | undefined;
   try {
     const browser =
       (context?.request?.url?.includes("newUserCallbackURL")
@@ -276,6 +281,8 @@ export async function emitSignupEventForCreatedUser(
       signupAttributionContextFromCookieHeader(requestHeaders.get("cookie"));
     attribution = browser?.attribution;
     anonymousId = browser?.anonymousId;
+    sessionId =
+      normalizeAnalyticsSessionId(browser?.sessionId) ?? requestSessionId;
   } catch (err) {
     console.error("[auth] failed to derive signup attribution", err);
   }
@@ -284,9 +291,13 @@ export async function emitSignupEventForCreatedUser(
   // so an account created by another signed-in user (admin or API creation)
   // must not inherit it.
   const actingUserId = context?.context?.session?.user?.id;
-  if (user.id && attribution && (!actingUserId || actingUserId === user.id)) {
+  const ownsSignupAttribution = !actingUserId || actingUserId === user.id;
+  const eventAttribution = ownsSignupAttribution ? attribution : undefined;
+  const eventAnonymousId = ownsSignupAttribution ? anonymousId : undefined;
+  const eventSessionId = ownsSignupAttribution ? sessionId : undefined;
+  if (user.id && eventAttribution) {
     try {
-      await persistUserFirstTouchAttribution(user.id, attribution);
+      await persistUserFirstTouchAttribution(user.id, eventAttribution);
     } catch (err) {
       // The signup itself already succeeded; the event below still carries
       // the attribution, so only the row copy is missing, and loudly so.
@@ -306,8 +317,9 @@ export async function emitSignupEventForCreatedUser(
     authUserId: user.id,
     email,
     name: user.name,
-    attribution,
-    anonymousId,
+    attribution: eventAttribution,
+    anonymousId: eventAnonymousId,
+    sessionId: eventSessionId,
   });
 }
 
@@ -334,6 +346,7 @@ export async function trackSignupEvent({
   name,
   attribution,
   anonymousId,
+  sessionId,
 }: {
   authProvider: string;
   origin: SignupOrigin;
@@ -352,6 +365,7 @@ export async function trackSignupEvent({
    */
   attribution?: Record<string, string | undefined>;
   anonymousId?: string;
+  sessionId?: string;
 }): Promise<void> {
   identify(email, {
     email,
@@ -380,6 +394,7 @@ export async function trackSignupEvent({
       userId: email,
       authUserId,
       ...(anonymousId ? { anonymousId } : {}),
+      ...(sessionId ? { sessionId } : {}),
     },
   );
   await flushSignupTracking();

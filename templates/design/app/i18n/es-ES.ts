@@ -1,4 +1,74 @@
 export default {
+  journeyCanvas: {
+    observedSessionReference: "Referencia de sesión observada",
+    sessionsOfAll: "{count} sesiones · {percent} del total",
+    sessionsOfAppRoot:
+      "{count} sesiones · {percent} de la cohorte de {app} (n={rootCount})",
+    sessionsOfPrevious: "{count} sesiones · {percent} del paso anterior",
+    sessionsOfParent: "{count} sesiones · {percent} de {label}",
+    observedContinuation:
+      "Misma grabación · ejemplo {fromExample} → ejemplo {toExample}",
+    observedContinuationCompact: "Ej. {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
+    sessionsOfStep: "{count} sesiones · {percent} de este paso",
+    partialSample: "muestra parcial",
+    continuedOnUnpictured:
+      "Continuaron por rutas no mostradas: {count} · {percent} de este paso",
+    noLaterStepObserved: "No se observó ningún paso posterior",
+    examplePosition: "Galería {current} de {total}",
+    sourceExampleLabel: "Origen",
+    showExample: "Mostrar ejemplo de origen {current}",
+    screenshotExamples: "Ejemplos de capturas",
+    screenshotAlt:
+      "{label}, ejemplo de origen {source}, posición en galería {current} de {total}, capturado el {date}",
+    screenshotMissing: "No se capturó ninguna captura",
+    recordingUnavailable: "no disponible",
+    eventTime: "Hora del evento (UTC)",
+    generationCompletedEvent: "evento generation_completed (UTC)",
+    replayObservation: "Observación de reproducción",
+    utcTimestamp: "Marca de tiempo UTC",
+    recordingId: "ID de grabación",
+    replayOffset: "Desplazamiento de reproducción",
+    replayOffsetUnavailable: "no disponible",
+    replaySeek: "Búsqueda en la reproducción",
+    checkpointSeekTarget: "Destino de búsqueda del punto de control",
+    analyticsCheckpointOffset:
+      "Desplazamiento del punto de control de Analytics",
+    replayObserved: "Reproducción observada",
+    screenshotCaptured: "Captura realizada",
+    screenshotExportTimestamp: "Marca UTC de exportación de captura",
+    output: "Resultado",
+    outputTitle: "Título del resultado",
+    observedState: "Estado observado",
+    actorRecording: "Actor (grabación)",
+    actorSource: "Origen del actor",
+    recordingMetadata: "metadatos de grabación",
+    evidence: "Evidencia",
+    generationCompletedEvidence: "evento generation_completed",
+    renderedOutputEvidence:
+      "resultado renderizado observado; no se afirma un evento de finalización",
+    openFullPrompt: "Abrir el prompt completo",
+    prompt: "Prompt",
+    promptEnglish: "Prompt (inglés)",
+    promptSource: "Prompt (origen)",
+    source: "Origen",
+    promptNotCaptured: "No se capturó el prompt",
+    actorUnavailable: "Actor no disponible",
+    replayDetails: "Detalles de reproducción y origen",
+    sourceApp: "Aplicación de origen",
+    route: "Ruta actual en la captura",
+    routeUnavailable: "no disponible",
+    captureSourceFingerprint: "Huella de la fuente de captura",
+    captureSourceUnavailable: "no proporcionada",
+    recordingStarted: "Grabación iniciada",
+    appBandHeading: "{app} · {count} sesiones",
+    journeyTitleSummary: "{app} · {from} a {to} · {count} sesiones{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} a {to} · cohortes separadas por aplicación{partial}",
+    sessionCount: "{count} sesiones",
+    otherPaths: "Otras rutas",
+    htmlLanguage: "es-ES",
+  },
   composer: { menu: { integrations: "Integraciones" } },
   creativeContext: {
     title: "Biblioteca",
@@ -223,6 +293,18 @@ export default {
       exportSvg: "Exportar SVG",
       actionsPrefill: "Revisa y envía",
       retry: "Reintentar",
+      currentDesign: "el Diseño actual",
+      chooseDesign: "un Diseño (pregúntame cuál usar si hace falta)",
+      importFramePrompt:
+        "Importa este marco de Figma en {{destination}} e indica qué contenido no pudo conservar el importador: {{url}}",
+      importFilePrompt:
+        "Abre este archivo de Figma, enumera sus marcos de nivel superior y pregúntame cuál quiero importar: {{url}}",
+      inspectFramePrompt:
+        "Inspecciona este marco de Figma y resume su estructura, componentes, estilos y tokens reutilizables: {{url}}",
+      inspectFilePrompt:
+        "Inspecciona este archivo de Figma y resume su estructura, componentes, estilos y tokens reutilizables: {{url}}",
+      exportSvgPrompt:
+        "Exporta la pantalla de Design actual como SVG para usarla en Figma e indica qué partes pasan a ser contenido SVG estático.",
     },
   },
   common: {
@@ -941,6 +1023,9 @@ export default {
         figmaPasteFailed: "Error al importar el pegado de Figma",
         uploadFailed: "Error al subir el archivo",
         invalidFigFile: "Elige un archivo que termine en .fig.",
+        unsupportedFileType: "Elige un archivo .fig, .html o .htm.",
+        importBusy:
+          "Hay otra importación en curso. Termínala o cancélala primero.",
         figFileTooLarge:
           "Ese .fig es demasiado grande: las subidas están limitadas a {{max}} MB. En Figma, copia solo el frame que quieras a un archivo nuevo y exporta ese archivo como .fig, o usa Pegar desde Figma.",
       },
@@ -953,6 +1038,8 @@ export default {
       "La generación se detuvo antes de crear archivos. Inténtalo de nuevo para continuar desde el mismo prompt.",
     generationStoppedCheckAgent:
       "La generación se detuvo antes de crear archivos. Revisa el mensaje del agente o inténtalo de nuevo.",
+    invalidCanvasDimensions:
+      "El tamaño de lienzo solicitado no es compatible. Usa dimensiones en píxeles positivas dentro de los límites del editor.",
     notFound: "Diseño no encontrado",
     backToDesigns: "Volver a diseños",
     designNotFoundDescription: "Este diseño no existe o se ha eliminado.",
@@ -980,7 +1067,17 @@ export default {
     saveTemplate: "Guardar plantilla",
     templateSaved: "Plantilla guardada en la biblioteca",
     templateSaveFailed: "No se pudo guardar esta plantilla",
-    clickToRename: "Haz clic para cambiar el nombre",
+    fileMenu: {
+      pendingEditsBlocked:
+        "Aplica o descarta tus ediciones visuales pendientes antes de duplicar.",
+      designs: "Diseños",
+      rename: "Renombrar",
+      duplicate: "Duplicar",
+      versionHistory: "Historial de versiones",
+      import: "Importar…",
+      delete: "Eliminar",
+      deleteError: "No se pudo eliminar este diseño",
+    },
     collaborators: "Colaboradores",
     share: "Compartir",
     signUpToSave: "Registrarse",
@@ -1001,6 +1098,10 @@ export default {
       draw: "Dibujar",
       interact: "Interact",
       screens: "Pantallas",
+    },
+    topBar: {
+      modeDesign: "Diseño",
+      modeSwitch: "Modo del editor",
     },
     fileTabs: "Files",
     tools: {

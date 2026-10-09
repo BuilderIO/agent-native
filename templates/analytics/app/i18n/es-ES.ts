@@ -693,6 +693,19 @@ export default {
     copied: "copiado",
     copy: "Copiar",
     keyActions: "Acciones clave {{name}}",
+    manageReplayOrigins: "Administrar orígenes de reproducción",
+    replayOriginsDescription:
+      "Añade orígenes HTTPS exactos, uno por línea. Se conservarán los existentes.",
+    currentReplayOrigins: "Orígenes permitidos actuales",
+    anyReplayOriginAllowed:
+      "Actualmente se permite cualquier origen. Al añadir orígenes, la reproducción se limitará a la lista; incluye todas las aplicaciones que usan esta clave.",
+    originsToAdd: "Orígenes para añadir",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "Añadir orígenes",
+    addingReplayOrigins: "Añadiendo orígenes…",
+    replayOriginsUpdateFailed:
+      "No se pudieron actualizar los orígenes permitidos.",
+    cancel: "Cancelar",
     lastUsed: "último usado {{date}}",
     neverUsed: "nunca usado",
     revoking: "Revocando...",
@@ -1514,6 +1527,8 @@ export default {
     replayLoading: "Cargando reproducción...",
     replayLoadingProgress:
       "{{loaded}} de {{total}} fragmentos de reproducción cargados",
+    replayTargetFallback:
+      "El desplazamiento solicitado ({{requested}}) no está disponible; se muestra el fotograma de reproducción más cercano en {{available}}.",
     replayUnavailable: "Esta sesión no tiene fragmentos de reproducción",
     replayUnavailableDescription:
       "La sesión tiene eventos de analítica, pero no se encontraron eventos de fragmentos rrweb.",
@@ -1571,8 +1586,12 @@ export default {
     time: "Hora",
     storageSetupTitle: "Conectar almacenamiento de repeticiones",
     storageSetupDescription:
-      "Las grabaciones de repetición de sesión necesitan almacenamiento antes de poder guardar los fragmentos. Usa el almacenamiento de nivel gratuito de Builder.io o configura tu propio bucket compatible con S3.",
+      "Las repeticiones de sesión necesitan un proveedor autorizado para subir archivos. Builder.io puede almacenarlas cuando se concede el permiso de subida, o puedes configurar tu propio bucket compatible con S3.",
     storageConnected: "Almacenamiento conectado",
+    storageStatusUnavailable:
+      "No se pudo comprobar el estado del almacenamiento de repeticiones. Reintenta para saber si las subidas están disponibles.",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io está conectado para IA y créditos, pero las subidas de repeticiones necesitan un permiso de almacenamiento independiente.",
     connectBuilder: "Usar Builder.io",
     configureS3: "Configurar almacenamiento S3",
     devtools: "Herramientas de desarrollo",
@@ -1649,8 +1668,12 @@ export default {
       "Design no devolvió un resultado del guion gráfico.",
     storyboardTemporaryCleanupPending:
       "El guion gráfico se guardó, pero no se pudieron eliminar los archivos temporales de captura.",
+    storyboardTemporaryCleanupFailed:
+      "La limpieza de las capturas temporales sigue pendiente.",
     storyboardUnexpectedResponse:
       "La exportación de capturas devolvió una respuesta ilegible. Vuelve a intentarlo.",
+    storyboardSaveOutcomeUnknown:
+      "Es posible que Design haya guardado el guion gráfico. Comprueba Design antes de volver a intentarlo.",
     openStoryboard: "Abrir guion gráfico en Design",
     cancelStoryboardCapture: "Cancelar captura",
     captureToDesign: "Capturar y añadir a Design",

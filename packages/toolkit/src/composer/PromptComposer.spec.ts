@@ -29,10 +29,10 @@ afterEach(() => {
 });
 
 describe("shouldGateComposerForEngine", () => {
-  it("blocks submissions until provider status confirms the engine is configured", () => {
-    for (const state of ["unknown", "unavailable", "missing"] as const) {
-      expect(shouldGateComposerForEngine(state)).toBe(true);
-    }
+  it("blocks the composer only after a provider is confirmed missing", () => {
+    expect(shouldGateComposerForEngine("unknown")).toBe(false);
+    expect(shouldGateComposerForEngine("unavailable")).toBe(false);
+    expect(shouldGateComposerForEngine("missing")).toBe(true);
   });
 
   it("leaves the composer usable once an engine is configured", () => {

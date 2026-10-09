@@ -1127,6 +1127,18 @@ export default {
     copied: "Copied",
     copy: "Copy",
     keyActions: "{{name}} key actions",
+    manageReplayOrigins: "Manage replay origins",
+    replayOriginsDescription:
+      "Add exact HTTPS origins, one per line. Existing origins are preserved.",
+    currentReplayOrigins: "Current allowed origins",
+    anyReplayOriginAllowed:
+      "Any origin is currently allowed. Adding origins limits replay to the list, so include every app that uses this key.",
+    originsToAdd: "Origins to add",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "Add origins",
+    addingReplayOrigins: "Adding origins…",
+    replayOriginsUpdateFailed: "Could not update allowed origins.",
+    cancel: "Cancel",
     lastUsed: "last used {{date}}",
     neverUsed: "never used",
     revoking: "Revoking...",
@@ -1568,6 +1580,8 @@ export default {
     replayPlayer: "Replay player",
     replayLoading: "Loading replay...",
     replayLoadingProgress: "{{loaded}} of {{total}} replay chunks loaded",
+    replayTargetFallback:
+      "Requested recording offset {{requested}} is unavailable; showing the nearest replay frame at {{available}}.",
     replayUnavailable: "No playable replay for this session",
     replayUnavailableDescription:
       "This recording has metadata, but no playable replay events were found.",
@@ -1623,8 +1637,12 @@ export default {
     time: "Time",
     storageSetupTitle: "Connect replay storage",
     storageSetupDescription:
-      "Session replay recordings need storage before chunks can be saved. Use Builder.io for free-tier storage, or configure your own S3-compatible bucket.",
+      "Session replay recordings need an authorized file-upload provider. Builder.io can store them when its upload permission is granted, or you can configure your own S3-compatible bucket.",
     storageConnected: "Storage connected",
+    storageStatusUnavailable:
+      "Couldn't check replay storage status. Retry to see whether uploads are ready.",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io is connected for AI and credits, but replay uploads need its separate storage permission.",
     connectBuilder: "Use Builder.io",
     configureS3: "Configure S3 storage",
     devtools: "Dev Tools",
@@ -1694,8 +1712,12 @@ export default {
     storyboardNoDesignResponse: "Design returned no storyboard result.",
     storyboardTemporaryCleanupPending:
       "The storyboard was saved, but temporary screenshot files could not be removed.",
+    storyboardTemporaryCleanupFailed:
+      "Temporary screenshot cleanup is still pending.",
     storyboardUnexpectedResponse:
       "The screenshot export returned an unreadable response. Retry the export.",
+    storyboardSaveOutcomeUnknown:
+      "Design may have saved the storyboard. Check Design before retrying.",
     openStoryboard: "Open storyboard in Design",
     cancelStoryboardCapture: "Cancel capture",
     captureToDesign: "Capture and add to Design",

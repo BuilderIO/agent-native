@@ -125,7 +125,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "Pular por enquanto",
   "onboarding.saveRoleError": "Não foi possível salvar sua função.",
   "onboarding.builderCreateAccount": "Usar Builder.io",
-  "onboarding.builderSignInWithAccount": "Entrar com uma conta do Builder.io",
+  "onboarding.builderSignInWithAccount": "Usar Builder.io",
   "onboarding.builderActivateDescription":
     "Crie ou reutilize sua conta do Builder.io e ative os créditos gratuitos com um clique.",
   "onboarding.builderActiveCredits":
@@ -155,7 +155,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "Termos de Serviço",
   "onboarding.builderPrivacy": "Política de Privacidade",
   "onboarding.builderConsentAnd": "e",
-  "onboarding.builderExistingAccount": "Tenho uma conta do Builder.io",
+  "onboarding.builderExistingAccount": "Usar Builder.io",
   "onboarding.builderActivating":
     "Ativando os créditos gratuitos do Builder.io",
   "onboarding.builderConnecting":
@@ -211,7 +211,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Armazenamento Builder ou bucket compatível com S3",
   "onboarding.capability.clipsObjectStorage.why":
-    "Vídeos gravados precisam de armazenamento de objetos durável antes de serem reproduzidos ou compartilhados.",
+    "Você pode gravar, pré-visualizar e baixar Clips sem armazenamento. Conecte um armazenamento de objetos durável para acessar e compartilhar as gravações em vários dispositivos.",
   "onboarding.capability.clipsTranscription.keySummary":
     "Chave de provedor de conversão de fala em texto",
   "onboarding.capability.about": "Sobre {{label}}",
@@ -1135,6 +1135,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Carregar",
   "composer.uploadFailed":
     "Não foi possível fazer upload do arquivo selecionado.",
+  "composer.fileTooLarge":
+    "Este arquivo excede o limite de tamanho para upload.",
+  "composer.sessionExpired":
+    "Sua sessão expirou. Atualize a página e tente novamente.",
   "composer.unsupportedFileType": "Este tipo de arquivo não é compatível.",
   "composer.useAttachedContext": "Use o contexto anexado.",
   "mentions.commands": "Comandos",
@@ -1295,6 +1299,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Você saiu da sua conta, então este chat não consegue acompanhar o agente. Entre novamente e recarregue.",
   "errorMessages.malformedRequestAttachment":
     "O modelo rejeitou um arquivo anexado, então esta mensagem nunca foi enviada. Remova o anexo e tente novamente: um PDF, um arquivo de texto simples ou uma imagem JPEG, PNG, GIF ou WebP é lido diretamente; outros formatos precisam ser enviados e vinculados.",
+  "errorMessages.invalidAttachment":
+    "O provedor do modelo rejeitou este anexo por causa do formato ou tamanho. Para imagens, exporte uma versão menor em PNG, JPEG, GIF ou WebP; para documentos, use um formato de arquivo compatível ou cole o texto relevante e anexe novamente.",
   "errorMessages.noProviderConnected":
     "Nenhum provedor LLM está conectado. Abra Configurações > Agente > Provedores de IA e use o Builder.io (plano gratuito disponível) ou adicione uma chave de provedor.",
   "errorMessages.openBuilderSpaceSettings":
@@ -2209,7 +2215,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Não foi possível desconectar o Builder.io.",
   "settingsShell.builder.disconnectTitle": "Desconectar o Builder.io?",
   "settingsShell.builder.grantsFailed":
-    "Não foi possível ler as conexões do Builder.io.",
+    "O status da conexão está indisponível. Tente novamente para verificar.",
   "settingsShell.builder.setupStartFailed":
     "Não foi possível iniciar a configuração do Builder.io. Atualize esta página e tente novamente.",
   "settingsShell.builder.setupHostFailed":
@@ -2658,7 +2664,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "Acesso a modelos, automação de navegador, armazenamento de arquivos e identidade do workspace. Plano gratuito disponível.",
   "settingsShell.integrations.builderStatusFailed":
-    "Não foi possível verificar a conexão do Builder.io.",
+    "O status da conexão está indisponível. Tente novamente para verificar.",
   "settingsShell.integrations.category.analytics": "Análise",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Engenharia",
@@ -2815,6 +2821,11 @@ const messages: ToolkitAgentChatTranslation = {
     "O fallback da implantação está disponível. Use sua própria conta do Builder.io para substituí-lo.",
   "settingsInfra.builderStorageHint":
     "O armazenamento de objetos mantém os arquivos enviados e permite reutilizar seus URLs em toda a conversa. Use o Builder.io ou o bucket compatível com S3 abaixo.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io está conectado, mas ainda não pode armazenar arquivos enviados. Reconecte para conceder acesso a uploads ou configure um bucket abaixo.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Não foi possível verificar o acesso de upload do Builder.io. Tente novamente ou configure um bucket abaixo.",
+  "settingsInfra.reconnectBuilderUploads": "Conceder acesso a uploads",
   "settingsInfra.builderUnknown":
     "Não foi possível verificar a conexão com o Builder.io.",
   "settingsInfra.manage": "Gerenciar",

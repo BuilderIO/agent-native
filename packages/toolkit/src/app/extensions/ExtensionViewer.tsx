@@ -36,7 +36,14 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  type ReactNode,
+} from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 
 import { AgentToggleButton } from "../chat/AgentSidebar.js";
@@ -124,6 +131,8 @@ interface Extension {
 
 export interface ExtensionViewerProps {
   extensionId: string;
+  /** Trailing toolbar controls. Defaults to the agent toggle. */
+  headerActions?: ReactNode;
 }
 
 function readExtensionTitleSuffix(): string | null {
@@ -444,6 +453,7 @@ function EditToolPopover({
         </p>
         <PromptComposer
           autoFocus
+          requireAgentEngine
           placeholder="What would you like to change?"
           draftScope={`extensions:edit:${extension.id}`}
           onSubmit={handleSubmit}
@@ -698,7 +708,10 @@ function ExtensionHistoryPopover({
   );
 }
 
-export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
+export function ExtensionViewer({
+  extensionId,
+  headerActions = <AgentToggleButton />,
+}: ExtensionViewerProps) {
   const t = useT();
   const location = useLocation();
   const navigate = useNavigate();
@@ -1242,7 +1255,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
                 />
               </>
             )}
-            <AgentToggleButton />
+            {headerActions}
           </div>
         </div>
         {isLocalExtension && (

@@ -150,8 +150,9 @@ export interface HttpServerRequestMetric {
   statusCode: number;
   durationMs: number;
   /**
-   * A low-cardinality route template. Omit rather than pass a raw path:
-   * arbitrary request paths would mint a series each.
+   * A value from the closed set `httpRouteForRequest()` documents, or a
+   * trusted action's declared template. Never a raw path: arbitrary request
+   * paths would mint a series each.
    */
   route?: string;
 }

@@ -135,10 +135,11 @@ type CollabActivityEvent = {
 
 // The server mirrors every saved file into its Yjs doc under the "agent"
 // source, so a lone editor's own save comes back as a collab event that is not
-// from anyone else. Only a Yjs update a browser tab posted names its sender.
-function isHumanCollabUpdate(event: CollabActivityEvent): boolean {
+// from anyone else. Only an event a browser tab posted names its sender: a Yjs
+// update, or a resource event such as Slides' `deck` carrying the writing tab.
+function namesHumanSender(event: CollabActivityEvent): boolean {
   return (
-    event.source === "collab" &&
+    (event.source === "collab" || event.source === "deck") &&
     typeof event.requestSource === "string" &&
     event.requestSource !== "" &&
     event.requestSource !== "agent"
@@ -152,7 +153,7 @@ function noteCollaboratorActivity(
   const until = Date.now() + COLLAB_ACTIVITY_WINDOW_MS;
   for (const event of events) {
     if (
-      (event.source !== "action" && !isHumanCollabUpdate(event)) ||
+      (event.source !== "action" && !namesHumanSender(event)) ||
       typeof event.resourceType !== "string" ||
       event.resourceType === "" ||
       typeof event.resourceId !== "string" ||

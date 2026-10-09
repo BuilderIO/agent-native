@@ -17,11 +17,28 @@ import {
 } from "../protocol/index.js";
 import {
   AgentKitCapabilityError,
-  AgentKitClient,
+  AgentKitClient as AgentKitClientImplementation,
+  AgentKitOperationError,
   AgentRunHandle,
   AgentKitRunSlotBusyError,
 } from "./client.js";
 import { hasActiveAgentRuns, type AgentThreadState } from "./state.js";
+
+class AgentKitClient extends AgentKitClientImplementation {
+  constructor(
+    options: ConstructorParameters<typeof AgentKitClientImplementation>[0],
+  ) {
+    super({
+      ...options,
+      transport: options.transport.assertAiSetupReady
+        ? options.transport
+        : {
+            ...options.transport,
+            assertAiSetupReady: async () => undefined,
+          },
+    });
+  }
+}
 
 function protocolEvent(
   sequence: number,
@@ -43,6 +60,7 @@ function protocolEvent(
 function createTransport(events: AgentEvent[]): AgentTransport {
   return {
     capabilities: { resumableRuns: true, messageQueue: true },
+    async assertAiSetupReady() {},
     async startRun() {
       return { runId: "run-1" };
     },
@@ -53,6 +71,52 @@ function createTransport(events: AgentEvent[]): AgentTransport {
     },
     async cancelRun() {},
   };
+}
+
+function createTerminalCatchUpTransport(): AgentTransport {
+  const transport = createTransport([]);
+  transport.getThreadSnapshot = async () => ({
+    id: "thread-1",
+    createdAt: "2026-08-29T00:00:00.000Z",
+    updatedAt: "2026-08-29T00:00:02.000Z",
+    messages: [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        status: "streaming",
+        parts: [{ type: "text", text: "Partial response" }],
+      },
+    ],
+    events: [
+      {
+        ...protocolEvent(1, { type: "run.started" }),
+        runId: "run-approval",
+      },
+      {
+        ...protocolEvent(2, {
+          type: "approval.requested",
+          request: { id: "approval-1", title: "Continue?" },
+        }),
+        runId: "run-approval",
+      },
+    ],
+    activeRunIds: [],
+    approvals: [
+      {
+        request: { id: "approval-1", title: "Continue?" },
+        status: "pending",
+        runId: "run-approval",
+      },
+    ],
+  });
+  transport.getRun = async () => ({
+    id: "run-approval",
+    threadId: "thread-1",
+    status: "completed",
+    lastSequence: 7,
+    activeMessageId: "assistant-1",
+  });
+  return transport;
 }
 
 type AgentEventBody = Omit<
@@ -174,6 +238,69 @@ async function assistantPartsAfterToolHistory(input: {
 }
 
 describe("AgentKitClient", () => {
+  it("refuses dispatch when a transport has no AI readiness validator", async () => {
+    const startRun = vi.fn(async () => ({ runId: "run-1" }));
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      assertAiSetupReady: undefined,
+      startRun,
+    };
+    const client = new AgentKitClientImplementation({ transport });
+
+    await expect(
+      client.sendMessage({ threadId: "thread-1", text: "Blocked" }),
+    ).rejects.toBeInstanceOf(AgentKitOperationError);
+    await expect(
+      client.queueMessage({ threadId: "thread-1", text: "Blocked" }),
+    ).rejects.toBeInstanceOf(AgentKitOperationError);
+    expect(startRun).not.toHaveBeenCalled();
+  });
+
+  it("allows transports without shared AI setup only with an explicit opt-out", async () => {
+    const startRun = vi.fn(async () => ({ runId: "run-1" }));
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      assertAiSetupReady: undefined,
+      startRun,
+    };
+    const client = new AgentKitClientImplementation({
+      transport,
+      aiSetupReadiness: "not-applicable",
+    });
+
+    await client.sendMessage({ threadId: "thread-1", text: "Continue" });
+
+    expect(startRun).toHaveBeenCalledOnce();
+    await client.shutdown();
+  });
+
+  it("requires AI setup before a manual run continuation", async () => {
+    const setupRequired = new AgentKitOperationError(
+      "AI setup readiness validation",
+    );
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const continueRun = vi.fn(async () => ({ runId: "run-1" }));
+    const transport: AgentTransport = {
+      ...createTransport([
+        protocolEvent(1, { type: "run.started" }),
+        protocolEvent(2, { type: "run.completed" }),
+      ]),
+      assertAiSetupReady,
+      continueRun,
+    };
+    const client = new AgentKitClientImplementation({ transport });
+
+    await expect(client.continueRun("thread-1", "run-1")).rejects.toBe(
+      setupRequired,
+    );
+
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
+    expect(continueRun).not.toHaveBeenCalled();
+    await client.shutdown();
+  });
+
   it("bounds nested tool-history values before serializing them", async () => {
     const messages = await assistantPartsAfterToolHistory({
       toolInput: { nested: { text: "x".repeat(1024 * 1024) } },
@@ -607,6 +734,220 @@ describe("AgentKitClient", () => {
       await client.shutdown();
     },
   );
+
+  it("stores resized queued image payloads by URL instead of persisting base64", async () => {
+    const queuedRequest = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async (input) => ({
+        message: {
+          id: input.id ?? "queued-image",
+          threadId: input.threadId,
+          text: input.text,
+          createdAt: "2026-10-08T00:00:00.000Z",
+          requestAttachments: input.requestAttachments,
+        },
+      }),
+    );
+    const completeUpload = vi.fn(async () => ({
+      type: "file" as const,
+      name: "reference.png",
+      mediaType: "image/png",
+      url: "https://storage.example.test/optimized.png",
+    }));
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: {
+          attachments: true,
+          messageQueue: true,
+          uploads: true,
+        },
+        queueMessage: queuedRequest,
+        async createUpload() {
+          return {
+            uploadId: "upload-1",
+            method: "PUT",
+            url: "https://upload.example.test/optimized.png",
+          };
+        },
+        completeUpload,
+      },
+      upload: async () => undefined,
+    });
+
+    await client.queueMessage({
+      threadId: "thread-1",
+      text: "Describe this",
+      requestAttachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,SGVsbG8=",
+          referenceUrl: "https://storage.example.test/original.png",
+        },
+      ],
+    });
+
+    const request = queuedRequest.mock.calls[0]?.[0];
+    expect(request?.requestAttachments).toEqual([
+      {
+        type: "image",
+        name: "reference.png",
+        contentType: "image/png",
+        referenceUrl: "https://storage.example.test/original.png",
+        url: "https://storage.example.test/optimized.png",
+      },
+    ]);
+    expect(JSON.stringify(request)).not.toContain("SGVsbG8=");
+    expect(completeUpload).toHaveBeenCalledOnce();
+    await client.shutdown();
+  });
+
+  it("validates queued image size limits before decoding inline bytes", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>();
+    const upload = vi.fn(async () => undefined);
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { attachments: true, messageQueue: true, uploads: true },
+        queueMessage,
+      },
+      upload,
+    });
+    const atobMock = vi.spyOn(globalThis, "atob");
+
+    try {
+      await expect(
+        client.queueMessage({
+          threadId: "thread-1",
+          text: "Describe this",
+          requestAttachments: [
+            {
+              type: "image",
+              name: "oversized.png",
+              data: `data:image/png;base64,${"A".repeat(3_000_000)}`,
+            },
+          ],
+        }),
+      ).rejects.toThrow("bounded base64 raster image data URL");
+
+      expect(atobMock).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+      expect(queueMessage).not.toHaveBeenCalled();
+    } finally {
+      atobMock.mockRestore();
+      await client.shutdown();
+    }
+  });
+
+  it("validates aggregate queued image bytes before decoding any attachment", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>();
+    const upload = vi.fn(async () => undefined);
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { attachments: true, messageQueue: true, uploads: true },
+        queueMessage,
+      },
+      upload,
+    });
+    const atobMock = vi.spyOn(globalThis, "atob");
+
+    try {
+      await expect(
+        client.queueMessage({
+          threadId: "thread-1",
+          text: "Describe these",
+          requestAttachments: Array.from({ length: 3 }, (_, index) => ({
+            type: "image" as const,
+            name: `image-${index}.png`,
+            data: `data:image/png;base64,${"A".repeat(2_000_000)}`,
+          })),
+        }),
+      ).rejects.toThrow("aggregate inline image data exceeds");
+
+      expect(atobMock).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+      expect(queueMessage).not.toHaveBeenCalled();
+    } finally {
+      atobMock.mockRestore();
+      await client.shutdown();
+    }
+  });
+
+  it("reserves queue order before uploading a queued image", async () => {
+    const uploadStarted = Promise.withResolvers<void>();
+    const finishUpload = Promise.withResolvers<void>();
+    const queueOrder: string[] = [];
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: {
+          attachments: true,
+          messageQueue: true,
+          uploads: true,
+        },
+        async queueMessage(input) {
+          queueOrder.push(input.text);
+          return {
+            message: {
+              id: input.id ?? `queued-${input.text}`,
+              threadId: input.threadId,
+              text: input.text,
+              createdAt: "2026-10-08T00:00:00.000Z",
+              requestAttachments: input.requestAttachments,
+            },
+          };
+        },
+        async createUpload() {
+          return {
+            uploadId: "upload-image",
+            method: "PUT",
+            url: "https://upload.example.test/image.png",
+          };
+        },
+        async completeUpload() {
+          return {
+            type: "file",
+            name: "optimized.png",
+            mediaType: "image/png",
+            url: "https://storage.example.test/optimized.png",
+          };
+        },
+      },
+      upload: async () => {
+        uploadStarted.resolve();
+        await finishUpload.promise;
+      },
+    });
+
+    const imageMessage = client.queueMessage({
+      threadId: "thread-1",
+      text: "Describe this image",
+      requestAttachments: [
+        {
+          type: "image",
+          name: "optimized.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,SGVsbG8=",
+          referenceUrl: "https://storage.example.test/original.png",
+        },
+      ],
+    });
+    await uploadStarted.promise;
+    const textMessage = client.queueMessage({
+      threadId: "thread-1",
+      text: "Follow up",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(queueOrder).toEqual([]);
+
+    finishUpload.resolve();
+    await Promise.all([imageMessage, textMessage]);
+    expect(queueOrder).toEqual(["Describe this image", "Follow up"]);
+    await client.shutdown();
+  });
 
   it("does not acknowledge a message rejected by capability preflight", async () => {
     const startRun = vi.fn<AgentTransport["startRun"]>();
@@ -4295,65 +4636,166 @@ describe("AgentKitClient", () => {
     }
   });
 
-  it("keeps terminal status when catch-up ends before its terminal event", async () => {
+  it("retries a terminal catch-up after an early replay EOF", async () => {
     const reports: AgentStreamIntegrityReport[] = [];
     let subscriptions = 0;
-    const transport = createTransport([]);
-    transport.getThreadSnapshot = async () => ({
-      id: "thread-1",
-      createdAt: "2026-08-29T00:00:00.000Z",
-      updatedAt: "2026-08-29T00:00:02.000Z",
-      messages: [
-        {
-          id: "assistant-1",
-          role: "assistant",
-          status: "streaming",
-          parts: [{ type: "text", text: "Partial response" }],
-        },
-      ],
-      events: [
-        {
-          ...protocolEvent(1, { type: "run.started" }),
-          runId: "run-approval",
-        },
-        {
-          ...protocolEvent(2, {
-            type: "approval.requested",
-            request: { id: "approval-1", title: "Continue?" },
-          }),
-          runId: "run-approval",
-        },
-      ],
-      activeRunIds: [],
-      approvals: [
-        {
-          request: { id: "approval-1", title: "Continue?" },
-          status: "pending",
-          runId: "run-approval",
-        },
-      ],
-    });
-    transport.getRun = async () => ({
-      id: "run-approval",
-      threadId: "thread-1",
-      status: "completed",
-      lastSequence: 7,
-      activeMessageId: "assistant-1",
-    });
+    const transport = createTerminalCatchUpTransport();
     transport.subscribeToRun = async function* ({ afterSequence }) {
       subscriptions += 1;
-      expect(afterSequence).toBe(2);
+      if (subscriptions === 1) {
+        expect(afterSequence).toBe(2);
+        yield {
+          ...protocolEvent(3, {
+            type: "approval.resolved",
+            approvalId: "approval-1",
+            response: { decision: "approve", optionIds: ["approve"] },
+          }),
+          runId: "run-approval",
+        };
+        return;
+      }
+
+      expect(afterSequence).toBe(3);
       yield {
-        ...protocolEvent(3, {
-          type: "approval.resolved",
-          approvalId: "approval-1",
-          response: { decision: "approve", optionIds: ["approve"] },
+        ...protocolEvent(4, {
+          type: "message.created",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "streaming",
+            parts: [],
+          },
         }),
+        runId: "run-approval",
+      };
+      yield {
+        ...protocolEvent(5, {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "Recovered response.",
+        }),
+        runId: "run-approval",
+      };
+      yield {
+        ...protocolEvent(6, {
+          type: "message.completed",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "Recovered response." }],
+          },
+        }),
+        runId: "run-approval",
+      };
+      yield {
+        ...protocolEvent(7, { type: "run.completed" }),
         runId: "run-approval",
       };
     };
     const client = new AgentKitClient({
       transport,
+      reconnect: { attempts: 1, delayMs: () => 0 },
+      onIntegrityReport: (report) => reports.push(report),
+    });
+
+    try {
+      await client.loadThread("thread-1");
+      await vi.waitFor(() =>
+        expect(client.getThread("thread-1").messages).toContainEqual(
+          expect.objectContaining({
+            id: "assistant-1",
+            status: "complete",
+            parts: [{ type: "text", text: "Recovered response." }],
+          }),
+        ),
+      );
+
+      expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
+        status: "completed",
+        lastSequence: 7,
+      });
+      expect(client.getThread("thread-1").activeRunIds).toEqual([]);
+      expect(hasActiveAgentRuns(client.getThread("thread-1"))).toBe(false);
+      expect(client.getSnapshot().connection).toBe("connected");
+      expect(subscriptions).toBe(2);
+      expect(reports).not.toContainEqual(
+        expect.objectContaining({ code: "run_missing_terminal" }),
+      );
+    } finally {
+      await client.dispose();
+    }
+  });
+
+  it("does not resubscribe when a terminal catch-up consumer is already aborted", async () => {
+    const reports: AgentStreamIntegrityReport[] = [];
+    let subscriptions = 0;
+    const transport = createTerminalCatchUpTransport();
+    transport.subscribeToRun = async function* () {
+      subscriptions += 1;
+      if (subscriptions === 1) {
+        yield {
+          ...protocolEvent(3, {
+            type: "approval.resolved",
+            approvalId: "approval-1",
+            response: { decision: "approve", optionIds: ["approve"] },
+          }),
+          runId: "run-approval",
+        };
+      }
+    };
+    const client = new AgentKitClient({
+      transport,
+      reconnect: { attempts: 1, delayMs: () => 25 },
+      onIntegrityReport: (report) => reports.push(report),
+    });
+    let disposePromise: Promise<void> | undefined;
+    const unsubscribe = client.subscribe(() => {
+      if (client.getSnapshot().connection === "reconnecting") {
+        disposePromise = client.dispose();
+      }
+    });
+
+    try {
+      await client.loadThread("thread-1");
+      await vi.waitFor(() =>
+        expect(client.getSnapshot().connection).toBe("offline"),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(subscriptions).toBe(1);
+      expect(reports).not.toContainEqual(
+        expect.objectContaining({ code: "run_missing_terminal" }),
+      );
+    } finally {
+      unsubscribe();
+      await (disposePromise ?? client.dispose());
+    }
+  });
+
+  it("keeps a terminal catch-up unconfirmable after repeated early EOF", async () => {
+    const reports: AgentStreamIntegrityReport[] = [];
+    let subscriptions = 0;
+    const transport = createTerminalCatchUpTransport();
+    transport.subscribeToRun = async function* ({ afterSequence }) {
+      subscriptions += 1;
+      if (subscriptions === 1) {
+        expect(afterSequence).toBe(2);
+        yield {
+          ...protocolEvent(3, {
+            type: "approval.resolved",
+            approvalId: "approval-1",
+            response: { decision: "approve", optionIds: ["approve"] },
+          }),
+          runId: "run-approval",
+        };
+      } else {
+        expect(afterSequence).toBe(3);
+      }
+    };
+    const client = new AgentKitClient({
+      transport,
+      reconnect: { attempts: 1, delayMs: () => 0 },
       onIntegrityReport: (report) => reports.push(report),
     });
 
@@ -4378,7 +4820,7 @@ describe("AgentKitClient", () => {
 
       await client.loadThread("thread-1");
       await Promise.resolve();
-      expect(subscriptions).toBe(1);
+      expect(subscriptions).toBe(2);
       expect(client.getThread("thread-1").messages).toContainEqual(
         expect.objectContaining({ id: "assistant-1", status: "error" }),
       );

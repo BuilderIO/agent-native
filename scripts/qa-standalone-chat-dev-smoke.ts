@@ -3367,10 +3367,12 @@ async function assertAgentKitChatAcceptance(
     "the AgentKit thread must call each sample action sequentially",
   );
   assert.equal(provider.widgetActionResults.length, widgetToolCalls.length);
+  const widgetCompletionText = "All seven local sample widgets are ready.";
   await page
-    .getByText("All seven local sample widgets are ready.", { exact: true })
+    .locator('.agentkit-message[data-role="assistant"]')
+    .filter({ hasText: widgetCompletionText })
     .filter({ visible: true })
-    .first()
+    .last()
     .waitFor({ state: "visible" });
   await assertAssistantContentOutsideActivity(
     page,

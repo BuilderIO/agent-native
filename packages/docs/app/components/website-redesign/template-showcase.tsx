@@ -41,11 +41,11 @@ interface ShowcaseApp {
 }
 
 const APPS: ShowcaseApp[] = [
-  { slug: "clips", name: "Clips", href: "/apps/clips" },
   { slug: "design", name: "Design", href: "/apps/design" },
   { slug: "slides", name: "Slides", href: "/apps/slides" },
   { slug: "analytics", name: "Analytics", href: "/apps/analytics" },
   { slug: "calendar", name: "Calendar", href: "/apps/calendar" },
+  { slug: "clips", name: "Clips", href: "/apps/clips" },
   { slug: "mail", name: "Mail", href: "/apps/mail" },
   { slug: "assets", name: "Assets", href: "/apps/assets" },
   { slug: "content", name: "Content", href: "/apps/content" },

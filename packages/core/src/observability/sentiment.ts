@@ -140,6 +140,7 @@ function truncateInput(text: string): string {
 
 export const INFERRED_SENTIMENT_FAILURE_REASONS = [
   "engine_unavailable",
+  "model_unsupported",
   "timeout",
   "parse_failed",
   "empty",
@@ -160,13 +161,41 @@ function engineCanRun(engine: AgentEngine, model: string): boolean {
   );
 }
 
+// Codes an engine puts on a stop event or EngineError when the gateway or
+// provider refuses the model itself. `builder_model_unauthorized` is
+// BUILDER_MODEL_UNAUTHORIZED_ERROR_CODE; builder-engine is imported lazily here.
+const MODEL_REJECTION_ERROR_CODES = new Set([
+  "builder_model_unauthorized",
+  "model_not_found",
+  "not_found_error",
+]);
+
+// A rejected model is a configuration error to fix, not an outage to retry, so
+// it must not be counted as `engine_unavailable`.
+function engineFailureReason(
+  errorCode: unknown,
+): "engine_unavailable" | "model_unsupported" {
+  return typeof errorCode === "string" &&
+    MODEL_REJECTION_ERROR_CODES.has(errorCode.trim().toLowerCase())
+    ? "model_unsupported"
+    : "engine_unavailable";
+}
+
+function thrownErrorCode(error: unknown): unknown {
+  return typeof error === "object" && error !== null && "errorCode" in error
+    ? error.errorCode
+    : undefined;
+}
+
 async function classifySentiment(args: {
   engine: AgentEngine;
   model: string;
   text: string;
 }): Promise<SentimentClassification> {
+  // The engine is up but does not list the model: a configuration error, not
+  // an outage, so it must not read as `engine_unavailable`.
   if (!engineCanRun(args.engine, args.model)) {
-    return { failure: "engine_unavailable" };
+    return { failure: "model_unsupported" };
   }
 
   const input = truncateInput(args.text);
@@ -180,8 +209,8 @@ async function classifySentiment(args: {
   }, INFERRED_SENTIMENT_TIMEOUT_MS);
   let output = "";
   let finalOutput = "";
-  const interrupted = (): SentimentClassification => ({
-    failure: timedOut ? "timeout" : "engine_unavailable",
+  const interrupted = (errorCode?: unknown): SentimentClassification => ({
+    failure: timedOut ? "timeout" : engineFailureReason(errorCode),
   });
   try {
     for await (const event of args.engine.stream({
@@ -204,11 +233,11 @@ async function classifySentiment(args: {
           .join("");
       }
       if (typedEvent.type === "stop" && typedEvent.reason === "error") {
-        return interrupted();
+        return interrupted(typedEvent.errorCode);
       }
     }
-  } catch {
-    return interrupted();
+  } catch (error) {
+    return interrupted(thrownErrorCode(error));
   } finally {
     clearTimeout(timeout);
   }

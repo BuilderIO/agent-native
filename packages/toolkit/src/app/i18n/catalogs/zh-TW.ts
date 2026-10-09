@@ -120,7 +120,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "暫時略過",
   "onboarding.saveRoleError": "無法儲存你的角色。",
   "onboarding.builderCreateAccount": "使用 Builder.io",
-  "onboarding.builderSignInWithAccount": "使用 Builder.io 帳戶登入",
+  "onboarding.builderSignInWithAccount": "使用 Builder.io",
   "onboarding.builderActivateDescription":
     "只要按一下即可建立或重新使用您的 Builder.io 帳戶，並啟用免費額度。",
   "onboarding.builderActiveCredits": "包含於有效的 Builder.io 免費額度",
@@ -147,7 +147,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "服務條款",
   "onboarding.builderPrivacy": "隱私權政策",
   "onboarding.builderConsentAnd": "和",
-  "onboarding.builderExistingAccount": "我有 Builder.io 帳戶",
+  "onboarding.builderExistingAccount": "使用 Builder.io",
   "onboarding.builderActivating": "正在啟用 Builder.io 免費額度",
   "onboarding.builderConnecting": "正在設定 Builder.io 免費額度",
   "onboarding.builderProvisioningDescription":
@@ -194,7 +194,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder 儲存空間或相容 S3 的儲存桶",
   "onboarding.capability.clipsObjectStorage.why":
-    "錄製的影片需要持久的物件儲存空間，才能播放或分享。",
+    "不連接儲存空間也能錄製、預覽和下載 Clips。連接持久物件儲存空間後，就能在不同裝置上查看並分享錄製內容。",
   "onboarding.capability.clipsTranscription.keySummary": "語音轉文字提供者金鑰",
   "onboarding.capability.about": "關於{{label}}",
   "onboarding.capability.why": "為什麼需要{{label}}",
@@ -479,6 +479,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "上傳技能檔案",
   "composer.upload": "上傳",
   "composer.uploadFailed": "無法上傳所選檔案。",
+  "composer.fileTooLarge": "此檔案超出上傳大小限制。",
+  "composer.sessionExpired": "工作階段已逾期。請重新整理頁面後再試一次。",
   "composer.unsupportedFileType": "不支援此檔案類型。",
   "composer.useAttachedContext": "使用附加的上下文。",
   "mentions.commands": "命令",
@@ -615,6 +617,8 @@ const messages: ToolkitAgentChatTranslation = {
     "您已登出，因此此對話無法追蹤代理。請重新登入，然後重新載入。",
   "errorMessages.malformedRequestAttachment":
     "模型拒絕了一個附加檔案，因此這則訊息並未送出。請移除附件後重試：PDF、純文字檔案以及 JPEG、PNG、GIF、WebP 圖片可直接讀取；其他格式需要先上傳再以連結引用。",
+  "errorMessages.invalidAttachment":
+    "模型供應商因附件格式或大小不受支援而拒絕了該附件。圖片請匯出為較小的 PNG、JPEG、GIF 或 WebP；文件請使用支援的檔案格式，或貼上相關文字，然後重新附加。",
   "errorMessages.noProviderConnected":
     "尚未連線 LLM 供應商。開啟設定 > 代理 > AI 供應商，然後使用 Builder.io（提供免費方案）或新增供應商金鑰。",
   "errorMessages.openBuilderSpaceSettings": "開啟 Builder 空間設定",
@@ -1934,7 +1938,8 @@ const messages: ToolkitAgentChatTranslation = {
     "這會影響 {{org}} 中所有未連結自己帳戶的人。",
   "settingsShell.builder.disconnectFailed": "無法中斷 Builder.io 的連結。",
   "settingsShell.builder.disconnectTitle": "要中斷 Builder.io 的連結嗎？",
-  "settingsShell.builder.grantsFailed": "無法讀取 Builder.io 連結。",
+  "settingsShell.builder.grantsFailed":
+    "連線狀態目前無法確認。請重試以再次檢查。",
   "settingsShell.builder.setupStartFailed":
     "無法啟動 Builder.io 設定。請重新整理此頁面後再試一次。",
   "settingsShell.builder.setupHostFailed":
@@ -2301,7 +2306,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "模型存取、瀏覽器自動化、檔案儲存和工作區身分。提供免費方案。",
   "settingsShell.integrations.builderStatusFailed":
-    "無法確認 Builder.io 連結。",
+    "連線狀態目前無法確認。請重試以再次檢查。",
   "settingsShell.integrations.category.analytics": "分析",
   "settingsShell.integrations.category.design": "設計",
   "settingsShell.integrations.category.engineering": "工程",
@@ -2443,6 +2448,11 @@ const messages: ToolkitAgentChatTranslation = {
     "可使用部署備援設定。使用您自己的 Builder.io 帳戶即可覆寫。",
   "settingsInfra.builderStorageHint":
     "物件儲存空間會保留上傳檔案，並讓網址在整個對話中重複使用。請使用下方的 Builder.io 或相容 S3 的儲存貯體。",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io 已連線，但目前無法儲存上傳的檔案。重新連線以授予上傳權限，或在下方設定儲存貯體。",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "無法確認 Builder.io 的上傳權限。請重試或在下方設定儲存貯體。",
+  "settingsInfra.reconnectBuilderUploads": "授予上傳權限",
   "settingsInfra.builderUnknown": "無法檢查 Builder.io 連線。",
   "settingsInfra.manage": "管理",
   "settingsInfra.connect": "連線",

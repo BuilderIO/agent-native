@@ -6,6 +6,7 @@ const messages = {
       providerStatusUnavailable: "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
     },
     common: { retry: "फिर से प्रयास करें" },
+    onboarding: { skipForNow: "अभी छोड़ें" },
   },
   timelineTrack: {
     helpOtherSide: "पहले उस हिस्से पर क्लिक करें, फिर लाल रेखा को दाईं ओर खींचें।",
@@ -210,6 +211,7 @@ const messages = {
   recordingPage: {
     back: "पीछे",
     done: "हो गया",
+    backToClip: "क्लिप पर वापस जाएँ",
     untitledClip: "शीर्षक रहित क्लिप",
     recordingNotFound: "रिकॉर्डिंग नहीं मिली",
     noAccess: "हो सकता है कि आपके पास इस क्लिप तक पहुंच न हो.",
@@ -299,6 +301,8 @@ const messages = {
     silenceWorking: "मौन हटाए जा रहे हैं…",
     silenceCompleted: "मौन हटाना पूरा हुआ",
     silenceFailed: "मौन हटाना विफल रहा",
+    silenceEditsUnreadable:
+      "सहेजे गए संपादन पढ़े नहीं जा सके, इसलिए मौन भाग नहीं हटाए गए।",
     generatePrSummary: "पीआर सारांश तैयार करें",
     generateSop: "SOP उत्पन्न करें",
     generateSopTooltip:
@@ -1316,6 +1320,10 @@ const messages = {
     burningRedactionsPercent:
       "रिडैक्शन को वीडियो में रेंडर किया जा रहा है… {{percent}}%",
     editFailed: "यह बदलाव सहेजा नहीं जा सका",
+    refreshFailed: "नवीनतम बदलाव लोड नहीं हो पाए। संपादन से पहले फिर से कोशिश करें।",
+    autoSaveHint: "बदलाव इस क्लिप में अपने आप सहेजे जाते हैं",
+    savingChanges: "बदलाव सहेजे जा रहे हैं…",
+    changesSaved: "बदलाव इस क्लिप में सहेज दिए गए",
     nothingToRedo: "दोहराने के लिए कुछ नहीं है",
   },
   transcriptEditor: {
@@ -1434,9 +1442,18 @@ const messages = {
     builderConnectPopupError:
       "Builder.io नहीं खुल सका। अगर यह ऐप किसी चैट में एम्बेड है, तो इसे ब्राउज़र टैब में खोलें; अन्यथा फिर कोशिश करें।",
     builderConnectError:
-      "Builder.io सेट अप नहीं हो सका। फिर से कोशिश करें या सहायता टीम से संपर्क करें।",
+      "Builder.io सेटअप पूरा नहीं हो सका। फिर से कोशिश करें या S3-संगत स्टोरेज चुनें।",
+    builderConnectErrorAskAdmin:
+      "Builder.io सेटअप पूरा नहीं हो सका। फिर से कोशिश करें या किसी मालिक या एडमिन से स्टोरेज सेट अप करने को कहें।",
+    builderStatusReadError:
+      "कनेक्शन की स्थिति उपलब्ध नहीं है। दोबारा जांचने के लिए फिर से कोशिश करें।",
+    builderUploadGrantMissing:
+      "Builder.io AI के लिए कनेक्ट है, लेकिन यह कनेक्शन क्लिप अपलोड नहीं कर सकता। अपलोड की अनुमति के साथ Builder.io को फिर से कनेक्ट करें, या किसी मालिक या एडमिन से मदद लें।",
+    builderGrantAskAdmin:
+      "किसी मालिक या एडमिन से क्लिप अपलोड की अनुमति के साथ Builder.io कनेक्ट करने को कहें।",
+    statusUnavailable: "वीडियो स्टोरेज की स्थिति जाँची नहीं जा सकी।",
     checkingBuilderConnection: "Builder कनेक्शन जांच रहे हैं…",
-    builderTimeout: "5 मिनट में Builder से जवाब नहीं मिला। फिर कोशिश करें।",
+    builderTimeout: "पुष्टि नहीं हो सकी कि Builder.io स्टोरेज तैयार है। फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
     waitingForBuilder: "Builder की प्रतीक्षा...",
     description:
@@ -1790,6 +1807,9 @@ const messages = {
     storageConnectedUploading:
       "स्टोरेज कनेक्ट हो गया। आपकी रिकॉर्डिंग अपलोड हो रही है…",
     downloadCopy: "एक कॉपी डाउनलोड करें",
+    localRecordingPreview: "स्थानीय रिकॉर्डिंग का प्रीव्यू",
+    localPreviewUnavailable:
+      "यह स्थानीय प्रीव्यू उपलब्ध नहीं है। फिर भी आप एक कॉपी डाउनलोड कर सकते हैं।",
     localRecordingOpenElsewhere:
       "वह रिकॉर्डिंग अभी भी किसी दूसरे Clips टैब में खुली है।",
     uploadWaitingForConnection:

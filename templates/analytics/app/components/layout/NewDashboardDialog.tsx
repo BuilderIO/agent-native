@@ -78,6 +78,7 @@ export function NewDashboardDialog({
         </p>
         <PromptComposer
           autoFocus
+          requireAgentEngine
           disabled={isGenerating}
           layoutVariant="compact"
           placeholder={t("dialogs.newDashboardPlaceholder")}

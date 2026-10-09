@@ -689,6 +689,18 @@ export default {
     copied: "コピーされました",
     copy: "コピー",
     keyActions: "{{name}} キーアクション",
+    manageReplayOrigins: "リプレイオリジンを管理",
+    replayOriginsDescription:
+      "正確なHTTPSオリジンを1行に1つ追加します。既存のオリジンは保持されます。",
+    currentReplayOrigins: "現在許可されているオリジン",
+    anyReplayOriginAllowed:
+      "現在はすべてのオリジンが許可されています。オリジンを追加すると再生は一覧のみに制限されるため、このキーを使うすべてのアプリを追加してください。",
+    originsToAdd: "追加するオリジン",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "オリジンを追加",
+    addingReplayOrigins: "オリジンを追加中…",
+    replayOriginsUpdateFailed: "許可オリジンを更新できませんでした。",
+    cancel: "キャンセル",
     lastUsed: "最後に使用した{{date}}",
     neverUsed: "決して使われていない",
     revoking: "取り消し中...",
@@ -1500,6 +1512,8 @@ export default {
     replayLoading: "リプレイを読み込み中...",
     replayLoadingProgress:
       "{{loaded}} / {{total}} 個のリプレイチャンクを読み込み済み",
+    replayTargetFallback:
+      "指定した録画位置（{{requested}}）は再生できないため、最も近い再生フレーム（{{available}}）を表示しています。",
     replayUnavailable: "このセッションにはリプレイチャンクがありません",
     replayUnavailableDescription:
       "このセッションには分析イベントがありますが、rrweb チャンクイベントは見つかりませんでした。",
@@ -1557,8 +1571,12 @@ export default {
     time: "時刻",
     storageSetupTitle: "リプレイストレージを接続",
     storageSetupDescription:
-      "セッションリプレイの録画を保存するには、まずストレージが必要です。Builder.io の無料枠ストレージを使うか、独自の S3 互換バケットを設定してください。",
+      "セッションリプレイには、認可されたファイルアップロード先が必要です。アップロード権限を付与すると Builder.io に保存できます。または独自の S3 互換バケットを設定してください。",
     storageConnected: "ストレージ接続済み",
+    storageStatusUnavailable:
+      "リプレイストレージの状態を確認できませんでした。アップロード可能か確認するには再試行してください。",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io は AI とクレジット用に接続されていますが、リプレイのアップロードには別途ストレージ権限が必要です。",
     connectBuilder: "Builder.io を使う",
     configureS3: "S3 ストレージを設定",
     devtools: "開発ツール",
@@ -1641,8 +1659,12 @@ export default {
       "Design からストーリーボードの結果が返されませんでした。",
     storyboardTemporaryCleanupPending:
       "ストーリーボードは保存されましたが、一時スクリーンショットを削除できませんでした。",
+    storyboardTemporaryCleanupFailed:
+      "一時スクリーンショットのクリーンアップはまだ保留中です。",
     storyboardUnexpectedResponse:
       "スクリーンショットのエクスポートから読み取れない応答が返されました。もう一度お試しください。",
+    storyboardSaveOutcomeUnknown:
+      "Design にストーリーボードが保存された可能性があります。再試行する前に Design を確認してください。",
     openStoryboard: "Design でストーリーボードを開く",
     cancelStoryboardCapture: "キャプチャをキャンセル",
     captureToDesign: "キャプチャして Design に追加",

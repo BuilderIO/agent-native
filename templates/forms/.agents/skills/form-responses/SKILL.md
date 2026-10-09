@@ -7,6 +7,21 @@ description: >-
 
 # Form Responses
 
+## Team Roles
+
+Forms enforces the Team page roles through shared permission guards. Reviewer can review submissions and export or analyze responses, but cannot create, edit, publish, archive, delete, or restore forms. Editor can edit and review. Submission review still requires an editor-level resource share; the app role does not grant access to private forms. Form owners and organization owners/admins bypass the app-role restriction while resource sharing checks remain in force. Members without an assigned role retain Editor permissions for compatibility; assigning Reviewer removes those edit permissions. Authenticated personal deployments without an organization retain their existing resource access. Forms opts into `defineAppRoles(descriptor, { unassignedRole: "editor", allowOrgAdmins: true })`; `defaultRole` remains display-only, and other apps retain strict guards unless they opt in.
+
+Organization-owned forms always use that organization's role policy, even when personal scope or a different organization is selected. Changing a form's visibility also requires edit permission.
+
+For organization-owned forms, editing and submission review require active membership in the form's organization unless the sharing system recognizes the caller as its owner. A direct share alone does not satisfy this app-permission check.
+
+If `view-screen` reports `responseAccess.status: "denied"`, use its navigation and available form metadata as context; submission counts and previews are omitted. Other permission-lookup failures still fail the action.
+
+- For tables or charts in chat, use typed action results. `response-insights`
+  is the first-party path for native response tables and submission charts, but
+  do not include both unless the user asked for both; iframe/MCP App rendering
+  is only a fallback for external hosts.
+
 ## Viewing Responses
 
 Use `list-responses` to see submissions for a specific form:

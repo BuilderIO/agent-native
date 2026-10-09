@@ -13,15 +13,4 @@ export const COLLAPSED_SIDEBAR_WIDTH = 56;
 export const STARTUP_SIDEBAR_WIDTH_PROPERTY = "--content-startup-sidebar-width";
 export const STARTUP_SIDEBAR_COLLAPSED_ATTRIBUTE =
   "data-content-sidebar-collapsed";
-
-// Runs in <head> before the first paint, so the server-rendered shell takes
-// the saved width, or the collapsed rail, without waiting for the app.
-export const CONTENT_STARTUP_SIDEBAR_SCRIPT = `(function(){try{var r=document.documentElement,s=window.localStorage,w=Number(s.getItem(${JSON.stringify(
-  SIDEBAR_WIDTH_KEY,
-)}));if(s.getItem(${JSON.stringify(
-  SIDEBAR_COLLAPSED_KEY,
-)})==="true"){r.setAttribute(${JSON.stringify(
-  STARTUP_SIDEBAR_COLLAPSED_ATTRIBUTE,
-)},"");w=${COLLAPSED_SIDEBAR_WIDTH}}else if(!(w>=${MIN_SIDEBAR_WIDTH}&&w<=${MAX_SIDEBAR_WIDTH})){return}r.style.setProperty(${JSON.stringify(
-  STARTUP_SIDEBAR_WIDTH_PROPERTY,
-)},w+"px")}catch(e){}})();`; // coercion-ok: without storage the shell draws the default width.
+export const STARTUP_SIDEBAR_DRAWER_ATTRIBUTE = "data-content-sidebar-drawer";

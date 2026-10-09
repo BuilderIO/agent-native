@@ -48,7 +48,7 @@ import {
   IconZoomIn,
   IconZoomOut,
 } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -84,7 +84,6 @@ import {
   horizontalAlignPatch,
   resolveHorizontalAlignment,
   resolveVerticalAlignment,
-  rotationTransform,
   tokenPalette,
   verticalAlignPatch,
   type SlideStylePatch,
@@ -183,7 +182,8 @@ export function SlideContextToolbar({
   onOpenAnimations?: () => void;
   canComment?: boolean;
   onComment?: () => void;
-  onChange: (patch: SlideStylePatch) => void;
+  /** False when the patch was refused: the object paints what it did before. */
+  onChange: (patch: SlideStylePatch) => boolean | void;
   onEnablePositioning?: () => void;
   onBackgroundChange: (background: string) => void;
   onArrange?: (target: SlideObjectZOrderTarget) => void;
@@ -206,6 +206,9 @@ export function SlideContextToolbar({
   };
 }) {
   const t = useT();
+  // The field holds what was typed until the object paints it; a refused
+  // rotation never will, so the field starts over from what the object paints.
+  const [refusedRotations, setRefusedRotations] = useState(0);
   const documentColors = tokenPalette(designSystem, t).map(
     (option) => option.value,
   );
@@ -1028,17 +1031,25 @@ export function SlideContextToolbar({
                       onChange={(y) => onChange({ top: `${formatValue(y)}px` })}
                     />
                   </div>
+                  {/* An unreadable rotation shows as mixed and cannot be edited; its value is never shown or written. */}
                   <VisualScrubInput
+                    key={refusedRotations}
                     label={t("styleInspector.rotation")}
                     icon={IconAngle}
                     prefix="icon"
-                    value={snapshot.rotation}
-                    min={-360}
-                    max={360}
+                    value={snapshot.rotation ?? 0}
                     unit="°"
-                    onChange={(rotation) =>
-                      onChange({ transform: rotationTransform(rotation) })
-                    }
+                    mixed={snapshot.rotation === null}
+                    mixedLabel={t("styleInspector.mixed")}
+                    disabled={snapshot.rotation === null}
+                    onChange={(rotation, meta) => {
+                      if (
+                        onChange({ rotation }) === false &&
+                        meta.phase === "commit"
+                      ) {
+                        setRefusedRotations((count) => count + 1);
+                      }
+                    }}
                   />
                 </>
               )}

@@ -692,6 +692,19 @@ export default {
     copied: "Copiado",
     copy: "Cópia",
     keyActions: "Principais ações {{name}}",
+    manageReplayOrigins: "Gerenciar origens de reprodução",
+    replayOriginsDescription:
+      "Adicione origens HTTPS exatas, uma por linha. As origens existentes serão mantidas.",
+    currentReplayOrigins: "Origens permitidas atuais",
+    anyReplayOriginAllowed:
+      "No momento, qualquer origem é permitida. Ao adicionar origens, a reprodução ficará limitada à lista; inclua todos os apps que usam esta chave.",
+    originsToAdd: "Origens para adicionar",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "Adicionar origens",
+    addingReplayOrigins: "Adicionando origens…",
+    replayOriginsUpdateFailed:
+      "Não foi possível atualizar as origens permitidas.",
+    cancel: "Cancelar",
     lastUsed: "último {{date}} usado",
     neverUsed: "nunca usado",
     revoking: "Revogando...",
@@ -1510,6 +1523,8 @@ export default {
     replayLoading: "Carregando replay...",
     replayLoadingProgress:
       "{{loaded}} de {{total}} blocos de replay carregados",
+    replayTargetFallback:
+      "O ponto solicitado ({{requested}}) não está disponível; exibindo o quadro de replay mais próximo em {{available}}.",
     replayUnavailable: "Nenhum bloco de replay para esta sessão",
     replayUnavailableDescription:
       "A sessão tem eventos de analytics, mas nenhum evento de bloco rrweb foi encontrado.",
@@ -1566,8 +1581,12 @@ export default {
     time: "Hora",
     storageSetupTitle: "Conectar armazenamento de replay",
     storageSetupDescription:
-      "As gravações de replay de sessão precisam de armazenamento antes que os fragmentos possam ser salvos. Use o Builder.io para armazenamento no plano gratuito ou configure seu próprio bucket compatível com S3.",
+      "As gravações de replay precisam de um provedor autorizado para envio de arquivos. O Builder.io pode armazená-las quando a permissão de envio for concedida, ou configure seu próprio bucket compatível com S3.",
     storageConnected: "Armazenamento conectado",
+    storageStatusUnavailable:
+      "Não foi possível verificar o status do armazenamento de replay. Tente novamente para saber se os envios estão disponíveis.",
+    builderAiConnectedStorageNeedsGrant:
+      "O Builder.io está conectado para IA e créditos, mas os envios de replay precisam de uma permissão de armazenamento separada.",
     connectBuilder: "Usar Builder.io",
     configureS3: "Configurar armazenamento S3",
     devtools: "Ferramentas de dev",
@@ -1642,8 +1661,12 @@ export default {
       "O Design não retornou um resultado do storyboard.",
     storyboardTemporaryCleanupPending:
       "O storyboard foi salvo, mas não foi possível remover os arquivos temporários de captura.",
+    storyboardTemporaryCleanupFailed:
+      "A limpeza das capturas temporárias ainda está pendente.",
     storyboardUnexpectedResponse:
       "A exportação das capturas retornou uma resposta ilegível. Tente novamente.",
+    storyboardSaveOutcomeUnknown:
+      "O Design pode ter salvo o storyboard. Verifique o Design antes de tentar novamente.",
     openStoryboard: "Abrir storyboard no Design",
     cancelStoryboardCapture: "Cancelar captura",
     captureToDesign: "Capturar e adicionar ao Design",

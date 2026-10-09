@@ -702,6 +702,19 @@ export default {
     copied: "Kopiert",
     copy: "Kopie",
     keyActions: "{{name}}-Schlüsselaktionen",
+    manageReplayOrigins: "Replay-Ursprünge verwalten",
+    replayOriginsDescription:
+      "Fügen Sie exakte HTTPS-Ursprünge ein, einen pro Zeile. Vorhandene Ursprünge bleiben erhalten.",
+    currentReplayOrigins: "Derzeit erlaubte Ursprünge",
+    anyReplayOriginAllowed:
+      "Derzeit ist jeder Ursprung zugelassen. Nach dem Hinzufügen sind nur die aufgeführten Ursprünge erlaubt. Fügen Sie daher jede App hinzu, die diesen Schlüssel verwendet.",
+    originsToAdd: "Hinzuzufügende Ursprünge",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "Ursprünge hinzufügen",
+    addingReplayOrigins: "Ursprünge werden hinzugefügt…",
+    replayOriginsUpdateFailed:
+      "Zugelassene Ursprünge konnten nicht aktualisiert werden.",
+    cancel: "Abbrechen",
     lastUsed: "zuletzt verwendeter {{date}}",
     neverUsed: "nie benutzt",
     revoking: "Widerrufen...",
@@ -1524,6 +1537,8 @@ export default {
     replayPlayer: "Wiedergabe-Player",
     replayLoading: "Wiedergabe wird geladen...",
     replayLoadingProgress: "{{loaded}} von {{total}} Wiedergabe-Chunks geladen",
+    replayTargetFallback:
+      "Der angeforderte Aufnahmezeitpunkt ({{requested}}) ist nicht verfügbar; das nächste Replay-Bild bei {{available}} wird angezeigt.",
     replayUnavailable: "Keine Wiedergabe-Chunks für diese Sitzung",
     replayUnavailableDescription:
       "Die Sitzung enthält Analytics-Ereignisse, aber keine rrweb-Chunk-Ereignisse.",
@@ -1582,8 +1597,12 @@ export default {
     time: "Zeit",
     storageSetupTitle: "Wiedergabe-Speicher verbinden",
     storageSetupDescription:
-      "Aufzeichnungen der Sitzungswiedergabe benötigen einen Speicher, bevor Chunks gesichert werden können. Nutzen Sie Builder.io für Speicher im kostenlosen Kontingent oder konfigurieren Sie Ihren eigenen S3-kompatiblen Bucket.",
+      "Sitzungswiedergaben benötigen einen autorisierten Anbieter für Datei-Uploads. Builder.io kann sie speichern, wenn die Upload-Berechtigung erteilt wurde; alternativ können Sie einen eigenen S3-kompatiblen Bucket einrichten.",
     storageConnected: "Speicher verbunden",
+    storageStatusUnavailable:
+      "Der Status des Wiedergabe-Speichers konnte nicht geprüft werden. Versuchen Sie es erneut, um die Upload-Bereitschaft zu prüfen.",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io ist für KI und Credits verbunden, aber Wiedergabe-Uploads benötigen eine separate Speicherberechtigung.",
     connectBuilder: "Builder.io verwenden",
     configureS3: "S3-Speicher konfigurieren",
     devtools: "Dev-Tools",
@@ -1663,8 +1682,12 @@ export default {
       "Design hat kein Storyboard-Ergebnis zurückgegeben.",
     storyboardTemporaryCleanupPending:
       "Das Storyboard wurde gespeichert, aber temporäre Screenshots konnten nicht entfernt werden.",
+    storyboardTemporaryCleanupFailed:
+      "Die Bereinigung der temporären Screenshots steht noch aus.",
     storyboardUnexpectedResponse:
       "Der Screenshot-Export hat eine unlesbare Antwort zurückgegeben. Bitte erneut versuchen.",
+    storyboardSaveOutcomeUnknown:
+      "Design hat das Storyboard möglicherweise gespeichert. Prüfen Sie Design, bevor Sie es erneut versuchen.",
     openStoryboard: "Storyboard in Design öffnen",
     cancelStoryboardCapture: "Aufnahme abbrechen",
     captureToDesign: "Aufnehmen und zu Design hinzufügen",
