@@ -9,6 +9,7 @@ import type {
   UseMutationOptions,
 } from "@tanstack/react-query";
 
+import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
 import { SLOW_ACTION_RESPONSE_MS } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
 import {
@@ -25,6 +26,7 @@ import {
   resetActionFailureCircuit,
   resetActionFailureCircuits,
 } from "./action-failure-circuit.js";
+import { fetchActionGet } from "./action-get-batch.js";
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { trackEvent } from "./analytics.js";
@@ -39,7 +41,10 @@ import {
   clientCompatibilityVersion,
   reloadForClientCompatibilityMismatch,
 } from "./build-compatibility.js";
-import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
+import {
+  ensureEmbedAuthFetchInterceptor,
+  isEmbedAuthActive,
+} from "./embed-auth.js";
 import { currentRouteTemplate } from "./route-template.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
@@ -262,6 +267,20 @@ function utf8ByteLength(value: string): number {
   return bytes;
 }
 
+/**
+ * A GET with no per-call headers or blob body can share a request with the
+ * other GETs in its tick. Inside an embed the embed token's scope decides which
+ * requests the server accepts, and a batch POST can be refused where its GETs
+ * would pass, so an embed keeps one request per call.
+ */
+function canBatchActionGet(options?: InternalActionFetchOptions): boolean {
+  return (
+    options?.responseType !== "blob" &&
+    options?.headers === undefined &&
+    !isEmbedAuthActive()
+  );
+}
+
 async function performActionFetch<T>(
   name: string,
   method: string,
@@ -270,6 +289,7 @@ async function performActionFetch<T>(
 ): Promise<T> {
   ensureEmbedAuthFetchInterceptor();
   let url = `${actionPrefix()}/${name}`;
+  let query = "";
   const browserTabId = getBrowserTabId();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -305,8 +325,8 @@ async function performActionFetch<T>(
   };
 
   if (method === "GET" && params && Object.keys(params).length > 0) {
-    const qs = serializeActionQueryParams(params);
-    if (qs) url += `?${qs}`;
+    query = serializeActionQueryParams(params);
+    if (query) url += `?${query}`;
   } else if (method !== "GET" && params) {
     init.body = options?.serializedBody ?? JSON.stringify(params);
   }
@@ -350,7 +370,18 @@ async function performActionFetch<T>(
   let readError: unknown;
   try {
     try {
-      res = await Promise.race([fetch(url, init), timedOutSignal]);
+      const request =
+        method === "GET" && canBatchActionGet(options)
+          ? fetchActionGet({
+              name,
+              query,
+              url,
+              init,
+              headers,
+              batchUrl: `${actionPrefix()}/${ACTION_BATCH_ACTION_NAME}`,
+            })
+          : fetch(url, init);
+      res = await Promise.race([request, timedOutSignal]);
       throwIfAborted(outerSignal);
       options?.onResponse?.(res);
     } catch (err) {
