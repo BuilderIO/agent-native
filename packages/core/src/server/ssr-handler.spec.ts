@@ -14,6 +14,7 @@ import {
 import {
   CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
 } from "../shared/route-chunk-recovery-bootstrap.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
@@ -416,6 +417,60 @@ describe("createH3SSRHandler", () => {
     expect(mocks.requestHandler.mock.calls[0]?.[0].url).toContain("/page.data");
     expect(mocks.requestHandler.mock.calls[1]?.[0].url).toContain(
       "/page/_.data",
+    );
+  });
+
+  it("preserves a bounded cache variant for the exact legacy recovery marker", async () => {
+    process.env.SITE_ID = "site-test";
+    const handler = createH3SSRHandler(() => ({})) as any;
+    const legacyUrl = `/page?${CHUNK_RECOVERY_QUERY_PARAM}=${CHUNK_RECOVERY_QUERY_VALUE}&tab=one`;
+
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const legacyResponse = await handler(createEvent(legacyUrl));
+
+    expect(legacyResponse.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(legacyResponse.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const arbitraryResponse = await handler(
+      createEvent(`/page?${CHUNK_RECOVERY_QUERY_PARAM}=arbitrary&tab=one`),
+    );
+
+    expect(arbitraryResponse.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(arbitraryResponse.headers.get("netlify-vary")).toBe(
+      "query=_routes|index",
+    );
+
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const duplicateMarkerResponse = await handler(
+      createEvent(
+        `/page?${CHUNK_RECOVERY_QUERY_PARAM}=1&${CHUNK_RECOVERY_QUERY_PARAM}=1`,
+      ),
+    );
+
+    expect(duplicateMarkerResponse.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(duplicateMarkerResponse.headers.get("netlify-vary")).toBe(
+      "query=_routes|index",
     );
   });
 

@@ -1,3 +1,5 @@
+import { CHUNK_RECOVERY_QUERY_PARAM } from "./route-chunk-recovery-bootstrap.js";
+
 export const DEFAULT_PUBLIC_CACHE_CONTROL =
   "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
 
@@ -146,8 +148,14 @@ export function resolveChunkRecoveryCacheControl(
     : CHUNK_RECOVERY_BROWSER_CACHE_CONTROL;
 }
 
-export function resolveSsrNetlifyQueryVary(varyByQuery = false): string {
+export function resolveSsrNetlifyQueryVary(
+  varyByQuery = false,
+  varyByLegacyRecovery = false,
+): string {
   if (varyByQuery) return "query";
+  if (varyByLegacyRecovery) {
+    return `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`;
+  }
   return "query=_routes|index";
 }
 
@@ -155,7 +163,7 @@ export function resolveSsrCacheKeyHeaders(
   env: Record<string, string | undefined> = typeof process === "undefined"
     ? {}
     : process.env,
-  options: { varyByQuery?: boolean } = {},
+  options: { varyByQuery?: boolean; varyByLegacyRecovery?: boolean } = {},
 ): Readonly<Record<string, string>> {
   const explicitlyNotNetlify =
     env.NETLIFY_LOCAL === "true" || env.NETLIFY === "false";
@@ -165,7 +173,10 @@ export function resolveSsrCacheKeyHeaders(
   if (!onNetlify) return none;
   return Object.freeze({
     // guard:allow-ssr-shell-exception — bounded public React Router query keys
-    "netlify-vary": resolveSsrNetlifyQueryVary(options.varyByQuery),
+    "netlify-vary": resolveSsrNetlifyQueryVary(
+      options.varyByQuery,
+      options.varyByLegacyRecovery,
+    ),
   });
 }
 

@@ -10,7 +10,10 @@ import {
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
-import { CHUNK_RECOVERY_PATH_SUFFIX } from "../shared/route-chunk-recovery-bootstrap.js";
+import {
+  CHUNK_RECOVERY_PATH_SUFFIX,
+  isLegacyChunkRecoveryRequest,
+} from "../shared/route-chunk-recovery-bootstrap.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -294,9 +297,9 @@ function isSsrHtmlOrDataResponse(
  * │                                                                            │
  * │ Normal SSR HTML / React Router `.data` responses get the same public       │
  * │ stale-while-revalidate policy for ALL visitors, authenticated or not, so   │
- * │ the edge serves one shared copy and never stampedes origin. The one fixed  │
- * │ recovery alias always revalidates in browsers while retaining the shared   │
- * │ CDN cache, which Netlify invalidates on deploy.                             │
+ * │ the edge serves one shared copy and never stampedes origin. Recovery via  │
+ * │ the fixed path or exact legacy marker revalidates in browsers while using │
+ * │ the shared CDN cache, which Netlify invalidates on deploy.                  │
  * │                                                                            │
  * │ DO NOT reintroduce per-user / cookie-based cache variation here (no        │
  * │ `private`, no `Vary: Cookie`, no "authenticated → don't                    │
@@ -314,8 +317,8 @@ function isSsrHtmlOrDataResponse(
  * │ AGENT_NATIVE_SSR_CACHE (see `resolveSsrCacheHeaders`), for hosts that do   │
  * │ not purge their CDN on deploy. What remains forbidden is PER-REQUEST /     │
  * │ PER-USER response variation — no `private`, no `Vary: Cookie`, and no     │
- * │ request-specific content. The reserved recovery suffix selects the same   │
- * │ shell without varying on a nonce or arbitrary query value.                 │
+ * │ request-specific content. The recovery path or exact legacy marker       │
+ * │ selects the same shell without varying on a nonce or arbitrary query.     │
  * └──────────────────────────────────────────────────────────────────────────┘
  *
  * The same sharing rule governs any DIAGNOSTIC header on this response. A
@@ -331,15 +334,17 @@ function applyDefaultSsrCacheHeader(
   status: number,
   pathname: string,
   isRecoveryAlias = false,
+  isLegacyRecovery = false,
 ) {
   const responseRequestsQueryVary =
     headers.get(SSR_QUERY_CACHE_KEY_HEADER)?.trim().toLowerCase() === "query";
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
-  // Recovery uses one fixed path alias, not caller-controlled query values.
-  // Keep Netlify's default cache ID: deploy-context invalidation refreshes this
-  // alias, while a custom cache ID opts out and can preserve a stale shell.
+  // Current recovery uses one fixed path alias. Still-deployed clients use the
+  // exact legacy marker below, which varies only on that allowlisted query key.
+  // Keep Netlify's default cache ID so deploy-context invalidation refreshes
+  // these recovery responses.
   const varyByQuery = responseRequestsQueryVary;
 
   // A public shell must never set a viewer cookie or vary by credentials.
@@ -368,11 +373,12 @@ function applyDefaultSsrCacheHeader(
   }
   const cacheKeyHeaders = resolveSsrCacheKeyHeaders(undefined, {
     varyByQuery,
+    varyByLegacyRecovery: isLegacyRecovery,
   });
   const netlifyVary = cacheKeyHeaders["netlify-vary"];
   if (netlifyVary) headers.set("netlify-vary", netlifyVary);
   else headers.delete("netlify-vary");
-  if (isRecoveryAlias) {
+  if (isRecoveryAlias || isLegacyRecovery) {
     headers.set("cache-control", resolveChunkRecoveryCacheControl());
   }
 }
@@ -433,6 +439,7 @@ async function rewriteMountedResponse(
   pathname: string,
   requestUrl: string,
   isRecoveryAlias = false,
+  isLegacyRecovery = false,
 ): Promise<Response> {
   const clientConfigScript =
     [
@@ -458,6 +465,7 @@ async function rewriteMountedResponse(
     response.status,
     pathname,
     isRecoveryAlias,
+    isLegacyRecovery,
   );
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
@@ -507,6 +515,7 @@ export function createH3SSRHandler(getBuild: () => unknown) {
     const basePath = getAppBasePath();
     const appPath = stripAppBasePath(event.url.pathname);
     const isRecoveryAlias = isChunkRecoveryPath(appPath);
+    const isLegacyRecovery = isLegacyChunkRecoveryRequest(event.url);
     const p = stripChunkRecoveryPathSuffix(appPath);
     if (isFrameworkOrAssetPath(p)) {
       return new Response(null, { status: 404 });
@@ -535,6 +544,7 @@ export function createH3SSRHandler(getBuild: () => unknown) {
           p,
           request.url,
           isRecoveryAlias,
+          isLegacyRecovery,
         );
       }
       return await rewriteMountedResponse(
@@ -543,6 +553,7 @@ export function createH3SSRHandler(getBuild: () => unknown) {
         p,
         request.url,
         isRecoveryAlias,
+        isLegacyRecovery,
       );
     } catch (err) {
       console.error("[ssr-handler] SSR error:", err);

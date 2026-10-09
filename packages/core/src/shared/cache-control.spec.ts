@@ -14,6 +14,7 @@ import {
   ssrCacheHeadersForPolicy,
   withSsrHtmlContentType,
 } from "./cache-control.js";
+import { CHUNK_RECOVERY_QUERY_PARAM } from "./route-chunk-recovery-bootstrap.js";
 function envWith(value: string | undefined) {
   return { [SSR_CACHE_ENV_VAR]: value };
 }
@@ -208,6 +209,17 @@ describe("resolveSsrCacheKeyHeaders", () => {
     expect(
       resolveSsrCacheKeyHeaders({ NETLIFY: "true" }, { varyByQuery: true }),
     ).toEqual({ "netlify-vary": "query" });
+  });
+
+  it("varies only on the fixed legacy recovery marker when requested", () => {
+    expect(
+      resolveSsrCacheKeyHeaders(
+        { NETLIFY: "true" },
+        { varyByLegacyRecovery: true },
+      ),
+    ).toEqual({
+      "netlify-vary": `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    });
   });
 
   it("does not emit a Netlify header outside Netlify", () => {

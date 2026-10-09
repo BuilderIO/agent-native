@@ -9,6 +9,11 @@ export const CHUNK_RECOVERY_ORIGINAL_HASH_PARAM =
   "__agentNativeRecoveryOriginalHash";
 export const ROUTE_WARMUP_PRELOAD_ATTRIBUTE = "data-agent-native-route-warmup";
 
+export function isLegacyChunkRecoveryRequest(url: URL): boolean {
+  const values = url.searchParams.getAll(CHUNK_RECOVERY_QUERY_PARAM);
+  return values.length === 1 && values[0] === CHUNK_RECOVERY_QUERY_VALUE;
+}
+
 export const ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT = `(()=>{
 const queryParam=${JSON.stringify(CHUNK_RECOVERY_QUERY_PARAM)};
 const queryValue=${JSON.stringify(CHUNK_RECOVERY_QUERY_VALUE)};

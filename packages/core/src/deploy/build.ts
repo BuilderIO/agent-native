@@ -64,7 +64,11 @@ import {
   toPublicFrameworkPath,
 } from "../shared/framework-route-prefix.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
-import { CHUNK_RECOVERY_PATH_SUFFIX } from "../shared/route-chunk-recovery-bootstrap.js";
+import {
+  CHUNK_RECOVERY_PATH_SUFFIX,
+  CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
+} from "../shared/route-chunk-recovery-bootstrap.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -1663,6 +1667,11 @@ function isChunkRecoveryPath(pathname) {
   return routePath.replace(/\\/+$/, "").endsWith(CHUNK_RECOVERY_PATH_SUFFIX);
 }
 
+function isLegacyChunkRecoveryRequest(url) {
+  const values = url.searchParams.getAll(CHUNK_RECOVERY_QUERY_PARAM);
+  return values.length === 1 && values[0] === CHUNK_RECOVERY_QUERY_VALUE;
+}
+
 function parseActionSearchParams(searchParams) {
   const params = {};
   for (const [rawKey, value] of searchParams.entries()) {
@@ -2063,6 +2072,8 @@ const CHUNK_RECOVERY_ALIAS_CACHE_CONTROL = ${JSON.stringify(chunkRecoveryCacheCo
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const SSR_QUERY_CACHE_KEY_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_KEY_HEADER)};
 const CHUNK_RECOVERY_PATH_SUFFIX = ${JSON.stringify(CHUNK_RECOVERY_PATH_SUFFIX)};
+const CHUNK_RECOVERY_QUERY_PARAM = ${JSON.stringify(CHUNK_RECOVERY_QUERY_PARAM)};
+const CHUNK_RECOVERY_QUERY_VALUE = ${JSON.stringify(CHUNK_RECOVERY_QUERY_VALUE)};
 const SSR_AUTH_REDIRECT_COOKIE_NAME = ${JSON.stringify(ssrAuthRedirectCookieName)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
@@ -2155,7 +2166,7 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
  * Always overwrite route cache hints so generated edge workers cannot drift
  * from the canonical Nitro/Netlify handler or send normal pages to origin.
  */
-function applyDefaultSsrCacheHeader(headers, status, pathname, isRecoveryAlias = false) {
+function applyDefaultSsrCacheHeader(headers, status, pathname, isRecoveryAlias = false, isLegacyRecovery = false) {
   const varyByQuery =
     (headers.get(SSR_QUERY_CACHE_KEY_HEADER) || "").trim().toLowerCase() === "query";
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
@@ -2182,10 +2193,12 @@ function applyDefaultSsrCacheHeader(headers, status, pathname, isRecoveryAlias =
     ? SSR_CACHE_KEY_HEADERS["netlify-vary"]
       ? "query"
       : undefined
-    : SSR_CACHE_KEY_HEADERS["netlify-vary"];
+    : isLegacyRecovery && SSR_CACHE_KEY_HEADERS["netlify-vary"]
+      ? SSR_CACHE_KEY_HEADERS["netlify-vary"] + "|" + CHUNK_RECOVERY_QUERY_PARAM
+      : SSR_CACHE_KEY_HEADERS["netlify-vary"];
   if (netlifyVary) headers.set("netlify-vary", netlifyVary);
   else headers.delete("netlify-vary");
-  if (isRecoveryAlias) {
+  if (isRecoveryAlias || isLegacyRecovery) {
     headers.set("cache-control", CHUNK_RECOVERY_ALIAS_CACHE_CONTROL);
   }
 }
@@ -2224,7 +2237,7 @@ function applyImmutableAssetCacheHeaders(response, request) {
   });
 }
 
-async function rewriteMountedResponse(response, basePath, pathname, request, isRecoveryAlias = false) {
+async function rewriteMountedResponse(response, basePath, pathname, request, isRecoveryAlias = false, isLegacyRecovery = false) {
   const clientConfigScript =
     [
       getSentryClientConfigScript(),
@@ -2237,7 +2250,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request, isR
       .filter(Boolean)
       .join("") || null;
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname, isRecoveryAlias);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname, isRecoveryAlias, isLegacyRecovery);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
@@ -2315,8 +2328,10 @@ function isStaticAppShellRequest(request) {
 async function fetchStaticAppShell(request, env) {
   if (!env?.ASSETS || !isStaticAppShellRequest(request)) return null;
   const basePath = getAppBasePath();
-  const appPath = stripAppBasePath(new URL(request.url).pathname);
+  const requestUrl = new URL(request.url);
+  const appPath = stripAppBasePath(requestUrl.pathname);
   const isRecoveryAlias = isChunkRecoveryPath(appPath);
+  const isLegacyRecovery = isLegacyChunkRecoveryRequest(requestUrl);
   const p = stripChunkRecoveryPathSuffix(appPath);
   const shellRequest = requestWithPathname(
     requestWithMethod(request, "GET"),
@@ -2340,9 +2355,17 @@ async function fetchStaticAppShell(request, env) {
       p,
       request,
       isRecoveryAlias,
+      isLegacyRecovery,
     );
   }
-  return rewriteMountedResponse(response, basePath, p, request, isRecoveryAlias);
+  return rewriteMountedResponse(
+    response,
+    basePath,
+    p,
+    request,
+    isRecoveryAlias,
+    isLegacyRecovery,
+  );
 }
 
 // API route handlers
@@ -2427,8 +2450,10 @@ ${
   const rrHandler = createRequestHandler(() => serverBuild);
   app.all("/**", defineEventHandler(async (event) => {
     const basePath = getAppBasePath();
-    const appPath = stripAppBasePath(new URL(event.req.url).pathname);
+    const requestUrl = new URL(event.req.url);
+    const appPath = stripAppBasePath(requestUrl.pathname);
     const isRecoveryAlias = isChunkRecoveryPath(appPath);
+    const isLegacyRecovery = isLegacyChunkRecoveryRequest(requestUrl);
     const p = stripChunkRecoveryPathSuffix(appPath);
     if (
       p.startsWith("/.well-known/") ||
@@ -2457,7 +2482,8 @@ ${
         basePath,
         p,
         getRequest,
-        isRecoveryAlias
+        isRecoveryAlias,
+        isLegacyRecovery
       );
     }
     return rewriteMountedResponse(
@@ -2465,7 +2491,8 @@ ${
       basePath,
       p,
       request,
-      isRecoveryAlias
+      isRecoveryAlias,
+      isLegacyRecovery
     );
   }));`
     : ""

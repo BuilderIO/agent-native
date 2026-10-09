@@ -54,6 +54,16 @@ describe("Docs SSR cache key wrapper", () => {
     expect(headers.get("netlify-vary")).toBe("query");
   });
 
+  it("varies on only the exact legacy recovery query key", () => {
+    const headers = new Headers();
+
+    applyDocsSsrCacheKeyHeaders(headers, { varyByLegacyRecovery: true });
+
+    expect(headers.get("netlify-vary")).toBe(
+      "query=_routes|index|__agentNativeChunkRecovery",
+    );
+  });
+
   it("does not vary on a recovery nonce now that recovery uses a path alias", () => {
     vi.stubEnv("NETLIFY", "true");
     const headers = new Headers();
@@ -132,6 +142,28 @@ describe("Docs SSR cache key wrapper", () => {
         "public, durable, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600",
       );
     }
+  });
+
+  it("preserves browser revalidation and community CDN TTL for legacy recovery", () => {
+    const headers = new Headers({
+      ...resolveSsrCacheHeaders({}),
+      "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+      "content-type": "text/html; charset=utf-8",
+    });
+
+    applyCommunityAppSsrCacheHeaders(headers, "/apps/community/foo/", 200, {
+      isLegacyRecovery: true,
+    });
+
+    expect(headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(headers.get("cdn-cache-control")).toBe(
+      "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
+    );
+    expect(headers.get("netlify-cdn-cache-control")).toBe(
+      "public, durable, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600",
+    );
   });
 
   it("keeps mutable community app routes in the durable cache", () => {

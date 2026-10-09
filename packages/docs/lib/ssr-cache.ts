@@ -19,10 +19,14 @@ export const COMMUNITY_APP_SSR_CACHE_HEADERS = {
 
 export function applyDocsSsrCacheKeyHeaders(
   headers: Headers,
-  options: { varyByQuery?: boolean } = {},
+  options: { varyByQuery?: boolean; varyByLegacyRecovery?: boolean } = {},
 ): void {
   if (options.varyByQuery) {
     headers.set("netlify-vary", resolveSsrNetlifyQueryVary(true));
+    return;
+  }
+  if (options.varyByLegacyRecovery) {
+    headers.set("netlify-vary", resolveSsrNetlifyQueryVary(false, true));
     return;
   }
   if (headers.get("netlify-vary")?.trim().toLowerCase() === "query") return;
@@ -76,11 +80,13 @@ export function applyCommunityAppSsrCacheHeaders(
   headers: Headers,
   pathname: string,
   status = 200,
+  options: { isLegacyRecovery?: boolean } = {},
 ): void {
   if (!isCacheableSsrResponse(headers, status, pathname)) return;
   if (!isMutableCommunityAppPath(pathname)) return;
 
-  const isRecoveryAlias = isChunkRecoveryAliasPathname(pathname);
+  const isRecoveryAlias =
+    options.isLegacyRecovery || isChunkRecoveryAliasPathname(pathname);
   const preservesBrowserRevalidation =
     isRecoveryAlias &&
     headers.get("cache-control") === CHUNK_RECOVERY_BROWSER_CACHE_CONTROL;
