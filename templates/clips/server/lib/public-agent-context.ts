@@ -1014,7 +1014,7 @@ export async function loadScreenshotImage(
 ): Promise<{ bytes: Uint8Array; mimeType: string }> {
   const url = recording.imageUrl ?? recording.thumbnailUrl ?? "";
   if (!url || url.startsWith("data:")) {
-    throw new Error("Screenshot has no stored image");
+    throw new RecordingMediaFetchError("Screenshot media is missing.", 404);
   }
   const response = await fetchRecordingMediaResponse(url);
   const mimeType =
@@ -1033,7 +1033,9 @@ export async function loadRecordingMediaBytes(
   recording: PublicAgentRecording,
 ): Promise<{ bytes: Uint8Array; mimeType: string }> {
   const videoUrl = recording.videoUrl ?? "";
-  if (!videoUrl) throw new Error("Recording has no videoUrl");
+  if (!videoUrl) {
+    throw new RecordingMediaFetchError("Recording media is missing.", 404);
+  }
   if (isLoomEmbedBackedRecording(recording)) {
     throw new Error(
       "Frame extraction is not available for legacy Loom embed imports.",
@@ -1050,7 +1052,9 @@ export async function loadRecordingMediaBytes(
       `recording-blob-${recording.id}`,
     );
     const b64 = typeof stash?.data === "string" ? stash.data : null;
-    if (!b64) throw new Error("recording-blob app-state missing");
+    if (!b64) {
+      throw new RecordingMediaFetchError("Recording media is missing.", 404);
+    }
     assertFrameMediaSize(estimateBase64DecodedByteLength(b64));
     const bytes = Buffer.from(normalizeBase64Payload(b64), "base64");
     assertFrameMediaSize(bytes.byteLength);
@@ -1078,7 +1082,9 @@ export async function loadRecordingMediaFile(
   recording: PublicAgentRecording,
 ): Promise<{ path: string; mimeType: string; cleanup: () => Promise<void> }> {
   const videoUrl = recording.videoUrl ?? "";
-  if (!videoUrl) throw new Error("Recording has no videoUrl");
+  if (!videoUrl) {
+    throw new RecordingMediaFetchError("Recording media is missing.", 404);
+  }
   if (isLoomEmbedBackedRecording(recording)) {
     throw new Error(
       "Frame extraction is not available for legacy Loom embed imports.",

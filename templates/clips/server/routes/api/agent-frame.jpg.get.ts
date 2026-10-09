@@ -106,6 +106,30 @@ function applyFrameHeaders(event: H3Event) {
   setResponseHeader(event, "Cache-Control", cacheControlForAccess());
 }
 
+function describeFrameFailure(error: unknown, status: number) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (
+    error instanceof RecordingMediaFetchError &&
+    (error.statusCode === 404 || error.statusCode === 410)
+  ) {
+    return {
+      failureKind: "media",
+      error: message,
+      nextStep:
+        "The stored media could not be retrieved. The agent link is valid; another Share with agents link will not restore it. Ask the owner to restore or replace the clip's media.",
+    };
+  }
+
+  const nextStep =
+    status === 413
+      ? "The stored media is too large for frame inspection. The share link may still be valid; report that frames cannot be inspected at this size."
+      : status === 422
+        ? "This frame could not be extracted at the requested timestamp. Try a different timestamp; if the failure continues, report the frame error. Do not treat it as an access failure or missing media."
+        : "Frame extraction or media storage failed after clip access was granted. Retry once; if it continues, report the returned error. Do not request another share link unless a context or transcript response has failureKind=access.";
+
+  return { failureKind: "processing", error: message, nextStep };
+}
+
 async function persistDefaultThumbnailIfMissing(
   access: PublicAgentAccess,
   frame: Uint8Array,
@@ -249,23 +273,19 @@ export default defineEventHandler(async (event: H3Event) => {
     } catch (err) {
       // Pass the storage outcome on, as the video path does: a timeout or a
       // missing object is not the same failure to retry as a bad gateway.
-      setResponseStatus(
-        event,
+      const status =
         err instanceof RecordingMediaFetchError
           ? err.statusCode
           : err instanceof Error && /too large/i.test(err.message)
             ? 413
-            : 502,
-      );
+            : 502;
+      setResponseStatus(event, status);
       setResponseHeader(
         event,
         "Content-Type",
         "application/json; charset=utf-8",
       );
-      return {
-        error:
-          err instanceof Error ? err.message : "Screenshot could not be loaded",
-      };
+      return describeFrameFailure(err, status);
     }
   }
   const durationMs =
@@ -328,25 +348,17 @@ export default defineEventHandler(async (event: H3Event) => {
     }
   } catch (err) {
     const isFrameError = err instanceof VideoFrameExtractionError;
-    setResponseStatus(
-      event,
+    const status =
       err instanceof RecordingMediaFetchError
         ? err.statusCode
         : isFrameError && err.code === "FFMPEG_UNAVAILABLE"
           ? 503
           : err instanceof Error && /too large/i.test(err.message)
             ? 413
-            : 422,
-    );
+            : 422;
+    setResponseStatus(event, status);
     setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return {
-      failureKind: "media",
-      error: isFrameError
-        ? err.message
-        : err instanceof Error
-          ? err.message
-          : String(err),
-    };
+    return describeFrameFailure(err, status);
   }
 });

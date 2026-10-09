@@ -5,6 +5,7 @@ const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockLoadPublicAgentAccess = vi.hoisted(() => vi.fn());
 const mockLoadRecordingMediaFile = vi.hoisted(() => vi.fn());
+const mockLoadScreenshotImage = vi.hoisted(() => vi.fn());
 const mockExtractJpegFrameFromFile = vi.hoisted(() => vi.fn());
 const mockProbeMediaDurationMsFromFile = vi.hoisted(() => vi.fn());
 const mockCleanupMediaFile = vi.hoisted(() => vi.fn());
@@ -42,6 +43,7 @@ vi.mock("../../lib/public-agent-context.js", () => ({
     mockLoadPublicAgentAccess(...args),
   loadRecordingMediaFile: (...args: unknown[]) =>
     mockLoadRecordingMediaFile(...args),
+  loadScreenshotImage: (...args: unknown[]) => mockLoadScreenshotImage(...args),
   RecordingMediaFetchError: class RecordingMediaFetchError extends Error {
     statusCode: number;
     constructor(message: string, statusCode = 502) {
@@ -124,6 +126,10 @@ describe("agent-frame.jpg route", () => {
       path: "/tmp/recording.webm",
       mimeType: "video/webm",
       cleanup: mockCleanupMediaFile,
+    });
+    mockLoadScreenshotImage.mockResolvedValue({
+      bytes: new Uint8Array([1, 2, 3]),
+      mimeType: "image/png",
     });
     mockExtractJpegFrameFromFile.mockResolvedValue(new Uint8Array([1, 2, 3]));
     mockProbeMediaDurationMsFromFile.mockResolvedValue(null);
@@ -371,7 +377,48 @@ describe("agent-frame.jpg route", () => {
     expect(result).toEqual({
       failureKind: "media",
       error: "Recording media fetch failed: HTTP 404 Not Found",
+      nextStep: expect.stringContaining(
+        "another Share with agents link will not restore it",
+      ),
     });
     expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
+  });
+
+  it("marks frame extraction failures as processing, not missing media", async () => {
+    mockExtractJpegFrameFromFile.mockRejectedValue(
+      new MockVideoFrameExtractionError(
+        "FFmpeg is not available",
+        "FFMPEG_UNAVAILABLE",
+      ),
+    );
+
+    const event = makeEvent({ id: "rec-1", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(503);
+    expect(result).toMatchObject({
+      failureKind: "processing",
+      error: "FFmpeg is not available",
+      nextStep: expect.stringContaining("Retry once"),
+    });
+  });
+
+  it("marks unavailable screenshot assets as media failures", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({ recording: { kind: "image" } }),
+    });
+    mockLoadScreenshotImage.mockRejectedValue(
+      new RecordingMediaFetchError("Screenshot media is missing.", 404),
+    );
+
+    const event = makeEvent({ id: "rec-1", atMs: "0" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(404);
+    expect(result).toMatchObject({
+      failureKind: "media",
+      error: "Screenshot media is missing.",
+    });
   });
 });

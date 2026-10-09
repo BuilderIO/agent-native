@@ -207,7 +207,10 @@ context instead of stopping at the share page or transcript preview:
    link does not grant access. For a private clip, ask its owner to open the
    Clips Share menu, choose **Share with agents**, and send the generated link.
    If a frame request has `failureKind: media` while the transcript works,
-   report that the stored video is unavailable; another link will not fix it.
+   report that the stored media could not be retrieved; another link will not
+   fix it. If it has `failureKind: processing`, follow `nextStep`: extraction,
+   size-limit, and temporary storage errors do not prove that media is missing
+   or that the link lacks access.
    If `failureKind: expired` or HTTP 410, ask the owner to extend or remove the
    clip expiry in the Share menu, save, then create and send a new
    **Share with agents** link. Never claim to have seen frames that were not
