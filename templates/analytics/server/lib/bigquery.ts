@@ -57,6 +57,41 @@ export interface BigQueryTableMetadata {
   schema?: { fields?: BigQueryTableField[] };
 }
 
+export class BigQueryMaximumBytesBilledError extends Error {
+  constructor() {
+    super("BigQuery query exceeded its configured billed-byte limit");
+    this.name = "BigQueryMaximumBytesBilledError";
+  }
+}
+
+function isMaximumBytesBilledError(status: number, responseText: string) {
+  if (status !== 400) return false;
+  if (hasMaximumBytesBilledMessage([responseText])) return true;
+  try {
+    const response = JSON.parse(responseText) as {
+      error?: {
+        message?: unknown;
+        errors?: Array<{ message?: unknown }>;
+      };
+    };
+    return hasMaximumBytesBilledMessage([
+      response.error?.message,
+      ...(response.error?.errors ?? []).map((error) => error.message),
+    ]);
+  } catch {
+    // coercion-ok: Invalid bodies without the exact cap marker stay generic errors thrown by the caller.
+    return false;
+  }
+}
+
+function hasMaximumBytesBilledMessage(messages: readonly unknown[]) {
+  return messages.some(
+    (message) =>
+      typeof message === "string" &&
+      /query exceeded limit for bytes billed/i.test(message),
+  );
+}
+
 export interface BigQueryTableSummary {
   projectId?: string;
   datasetId?: string;
@@ -617,6 +652,7 @@ export interface QueryResult {
 export interface RunQueryOptions {
   signal?: AbortSignal;
   forceRefresh?: boolean;
+  maxBytesBilled?: number;
 }
 
 interface BigQueryField {
@@ -632,6 +668,7 @@ interface BigQueryGetQueryResultsResponse {
   totalRows?: string;
   jobComplete?: boolean;
   totalBytesProcessed?: string;
+  errors?: Array<{ message?: string }>;
 }
 
 function createAbortError(): Error {
@@ -898,6 +935,16 @@ export async function runQuery(
   options: RunQueryOptions = {},
 ): Promise<QueryResult> {
   assertReadOnlySql(sql, "bigquery");
+  const maxBytesBilled = options.maxBytesBilled ?? 750_000_000_000;
+  if (
+    !Number.isSafeInteger(maxBytesBilled) ||
+    maxBytesBilled < 1 ||
+    maxBytesBilled > 750_000_000_000
+  ) {
+    throw new Error(
+      "BigQuery maximum bytes billed is outside the allowed range",
+    );
+  }
   const { signal } = options;
   throwIfAborted(signal);
   const { projectId, cacheScope, appEventsTable } = await getProjectInfo();
@@ -983,7 +1030,7 @@ export async function runQuery(
           query: {
             query: cacheableSql,
             useLegacySql: false,
-            maximumBytesBilled: "750000000000", // 750GB cap
+            maximumBytesBilled: String(maxBytesBilled),
             ...(forceRefresh ? { useQueryCache: false } : {}),
           },
         },
@@ -992,6 +1039,10 @@ export async function runQuery(
 
     if (!res.ok) {
       const text = await res.text();
+      if (isMaximumBytesBilledError(res.status, text)) {
+        jobId = null;
+        throw new BigQueryMaximumBytesBilledError();
+      }
       throw new Error(`BigQuery API error ${res.status}: ${text}`);
     }
 
@@ -1024,10 +1075,23 @@ export async function runQuery(
       });
       if (!pollRes.ok) {
         const text = await pollRes.text();
+        if (isMaximumBytesBilledError(pollRes.status, text)) {
+          jobId = null;
+          throw new BigQueryMaximumBytesBilledError();
+        }
         throw new Error(`BigQuery poll error ${pollRes.status}: ${text}`);
       }
       data = (await pollRes.json()) as BigQueryGetQueryResultsResponse;
       attempts++;
+      if (
+        data.jobComplete &&
+        hasMaximumBytesBilledMessage(
+          data.errors?.map((error) => error.message) ?? [],
+        )
+      ) {
+        jobId = null;
+        throw new BigQueryMaximumBytesBilledError();
+      }
       if (!data.jobComplete && attempts < 60) {
         await waitForPollInterval(signal);
       }
