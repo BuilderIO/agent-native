@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -7,9 +7,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createLocalImportAssetPrivateBlobProvider,
   createLocalImportAssetUploadProvider,
+  createPreviousLocalImportAssetPrivateBlobProvider,
   isLocalImportAssetUploadEnabled,
   localImportAssetAssetMimeType,
   localImportAssetAssetPath,
+  localImportAssetAssetPaths,
 } from "./local-import-asset-upload.js";
 
 const roots: string[] = [];
@@ -104,6 +106,31 @@ describe("local import-asset upload provider", () => {
     expect(localImportAssetAssetMimeType(assetId)).toBe("image/svg+xml");
   });
 
+  it("keeps the previous local cache path available for saved assets", async () => {
+    const rootDir = await mkdtemp(
+      path.join(os.tmpdir(), "design-import-assets-compatibility-"),
+    );
+    roots.push(rootDir);
+    const assetId = "0f0f0f0f-1111-4222-8333-444444444444.png";
+    const currentPath = localImportAssetAssetPath(
+      "qa@example.test",
+      assetId,
+      path.join(rootDir, "current"),
+    );
+    const previousPath = localImportAssetAssetPath(
+      "qa@example.test",
+      assetId,
+      path.join(rootDir, "previous"),
+    );
+
+    expect(
+      localImportAssetAssetPaths("qa@example.test", assetId, {
+        rootDir: path.join(rootDir, "current"),
+        legacyRootDir: path.join(rootDir, "previous"),
+      }),
+    ).toEqual([currentPath, previousPath]);
+  });
+
   it("rejects missing owners, unsupported types, oversized data, and path traversal", async () => {
     const provider = createLocalImportAssetUploadProvider({
       enabled: () => true,
@@ -153,5 +180,29 @@ describe("local import-asset upload provider", () => {
         enabled: () => false,
       }).isConfigured(),
     ).toBe(false);
+  });
+
+  it("reads private blobs saved by the previous local provider", async () => {
+    const rootDir = await mkdtemp(
+      path.join(os.tmpdir(), "design-import-assets-compatibility-"),
+    );
+    roots.push(rootDir);
+    const provider = createPreviousLocalImportAssetPrivateBlobProvider({
+      rootDir,
+      enabled: () => true,
+    });
+    const handle = {
+      id: "0f0f0f0f-1111-4222-8333-444444444444.blob",
+      provider: "design-local-figma-qa-private",
+      opaque: true,
+      encrypted: false,
+      mimeType: "application/json",
+    } as const;
+    const data = new TextEncoder().encode('{"files":[]}');
+    const privateDir = path.join(rootDir, "private");
+    await mkdir(privateDir, { recursive: true });
+    await writeFile(path.join(privateDir, handle.id), data);
+
+    expect((await provider.read(handle)).data).toEqual(data);
   });
 });

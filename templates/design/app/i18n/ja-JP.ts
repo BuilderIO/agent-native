@@ -226,6 +226,19 @@ export default {
       exportSvg: "SVG をエクスポート",
       actionsPrefill: "確認して送信",
       retry: "再試行",
+      currentDesign: "現在のDesign",
+      chooseDesign:
+        "Design（必要であれば、どのDesignを使うか質問してください）",
+      importFramePrompt:
+        "このFigmaフレームを{{destination}}にインポートし、取り込めなかった内容を示してください: {{url}}",
+      importFilePrompt:
+        "このFigmaファイルを開き、最上位のフレームを一覧にして、どのフレームをインポートするか質問してください: {{url}}",
+      inspectFramePrompt:
+        "このFigmaフレームの構造、コンポーネント、スタイル、再利用可能なトークンを要約してください: {{url}}",
+      inspectFilePrompt:
+        "このFigmaファイルの構造、コンポーネント、スタイル、再利用可能なトークンを要約してください: {{url}}",
+      exportSvgPrompt:
+        "現在のDesign画面をFigmaで使うSVGとしてエクスポートし、静的なSVGコンテンツになる部分を示してください。",
     },
   },
   common: {

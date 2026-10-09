@@ -213,6 +213,18 @@ export default {
       exportSvg: "导出 SVG",
       actionsPrefill: "检查后发送",
       retry: "重试",
+      currentDesign: "当前 Design",
+      chooseDesign: "一个 Design（需要时询问我使用哪个）",
+      importFramePrompt:
+        "将此 Figma 画框导入 {{destination}}，并说明导入器无法保留的内容：{{url}}",
+      importFilePrompt:
+        "打开此 Figma 文件，列出顶层画框，并询问我要导入哪个画框：{{url}}",
+      inspectFramePrompt:
+        "检查此 Figma 画框，并总结其结构、组件、样式和可复用令牌：{{url}}",
+      inspectFilePrompt:
+        "检查此 Figma 文件，并总结其结构、组件、样式和可复用令牌：{{url}}",
+      exportSvgPrompt:
+        "将当前 Design 画面导出为可在 Figma 中使用的 SVG，并说明哪些部分会变成静态 SVG 内容。",
     },
   },
   common: {

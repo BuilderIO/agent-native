@@ -223,6 +223,18 @@ export default {
       exportSvg: "Exportar SVG",
       actionsPrefill: "Revisa y envía",
       retry: "Reintentar",
+      currentDesign: "el Diseño actual",
+      chooseDesign: "un Diseño (pregúntame cuál usar si hace falta)",
+      importFramePrompt:
+        "Importa este marco de Figma en {{destination}} e indica qué contenido no pudo conservar el importador: {{url}}",
+      importFilePrompt:
+        "Abre este archivo de Figma, enumera sus marcos de nivel superior y pregúntame cuál quiero importar: {{url}}",
+      inspectFramePrompt:
+        "Inspecciona este marco de Figma y resume su estructura, componentes, estilos y tokens reutilizables: {{url}}",
+      inspectFilePrompt:
+        "Inspecciona este archivo de Figma y resume su estructura, componentes, estilos y tokens reutilizables: {{url}}",
+      exportSvgPrompt:
+        "Exporta la pantalla de Design actual como SVG para usarla en Figma e indica qué partes pasan a ser contenido SVG estático.",
     },
   },
   common: {

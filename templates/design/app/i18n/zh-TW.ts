@@ -305,6 +305,18 @@ export default {
       exportSvg: "匯出 SVG",
       actionsPrefill: "檢閱後再傳送",
       retry: "重試",
+      currentDesign: "目前的 Design",
+      chooseDesign: "一個 Design（需要時詢問我要使用哪個）",
+      importFramePrompt:
+        "將此 Figma 畫框匯入 {{destination}}，並指出匯入工具無法保留的內容：{{url}}",
+      importFilePrompt:
+        "開啟此 Figma 檔案、列出頂層畫框，並詢問我要匯入哪個畫框：{{url}}",
+      inspectFramePrompt:
+        "檢查此 Figma 畫框，並摘要其結構、元件、樣式與可重複使用的權杖：{{url}}",
+      inspectFilePrompt:
+        "檢查此 Figma 檔案，並摘要其結構、元件、樣式與可重複使用的權杖：{{url}}",
+      exportSvgPrompt:
+        "將目前的 Design 畫面匯出為可在 Figma 使用的 SVG，並指出哪些部分會成為靜態 SVG 內容。",
     },
   },
   common: {

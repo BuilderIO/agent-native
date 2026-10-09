@@ -219,6 +219,18 @@ export default {
       exportSvg: "تصدير SVG",
       actionsPrefill: "راجع ثم أرسل",
       retry: "إعادة المحاولة",
+      currentDesign: "تصميم Design الحالي",
+      chooseDesign: "تصميم (اسألني أي تصميم أستخدمه عند الحاجة)",
+      importFramePrompt:
+        "استورد إطار Figma هذا إلى {{destination}} وحدد المحتوى الذي تعذر على المستورد نقله: {{url}}",
+      importFilePrompt:
+        "افتح ملف Figma هذا، واعرض الإطارات العليا فيه، واسألني عن الإطار الذي أريد استيراده: {{url}}",
+      inspectFramePrompt:
+        "افحص إطار Figma هذا ولخص بنيته ومكوناته وأنماطه والرموز القابلة لإعادة الاستخدام: {{url}}",
+      inspectFilePrompt:
+        "افحص ملف Figma هذا ولخص بنيته ومكوناته وأنماطه والرموز القابلة لإعادة الاستخدام: {{url}}",
+      exportSvgPrompt:
+        "صدّر شاشة Design الحالية بصيغة SVG لاستخدامها في Figma وحدد الأجزاء التي ستصبح محتوى SVG ثابتًا.",
     },
   },
   common: {

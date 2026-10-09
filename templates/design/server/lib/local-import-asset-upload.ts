@@ -16,6 +16,9 @@ const MAX_QA_ASSET_BYTES = 16 * 1024 * 1024;
 const QA_UPLOAD_ROOT = path.resolve(
   "node_modules/.cache/agent-native-design/local-import-assets",
 );
+const LEGACY_QA_UPLOAD_ROOT = path.resolve(
+  "node_modules/.cache/agent-native-design/figma-qa-assets",
+);
 
 const MIME_EXTENSIONS = new Map([
   ["image/png", "png"],
@@ -56,6 +59,21 @@ export function localImportAssetAssetPath(
   return resolved.startsWith(`${path.resolve(ownerRoot)}${path.sep}`)
     ? resolved
     : null;
+}
+
+export function localImportAssetAssetPaths(
+  ownerEmail: string,
+  assetId: string,
+  options?: { rootDir?: string; legacyRootDir?: string },
+): string[] {
+  return [
+    localImportAssetAssetPath(ownerEmail, assetId, options?.rootDir),
+    localImportAssetAssetPath(
+      ownerEmail,
+      assetId,
+      options?.legacyRootDir ?? LEGACY_QA_UPLOAD_ROOT,
+    ),
+  ].filter((filepath): filepath is string => filepath !== null);
 }
 
 export function localImportAssetAssetMimeType(assetId: string): string | null {
@@ -120,8 +138,21 @@ export function createLocalImportAssetPrivateBlobProvider(options?: {
   rootDir?: string;
   enabled?: () => boolean;
 }): PrivateBlobProvider {
-  const rootDir = path.join(options?.rootDir ?? QA_UPLOAD_ROOT, "private");
-  const enabled = options?.enabled ?? isLocalImportAssetUploadEnabled;
+  return createPrivateBlobProvider({
+    id: "design-local-import-assets-private",
+    name: "Design local QA private blobs",
+    rootDir: options?.rootDir ?? QA_UPLOAD_ROOT,
+    enabled: options?.enabled ?? isLocalImportAssetUploadEnabled,
+  });
+}
+
+function createPrivateBlobProvider(options: {
+  id: string;
+  name: string;
+  rootDir: string;
+  enabled: () => boolean;
+}): PrivateBlobProvider {
+  const rootDir = path.join(options.rootDir, "private");
   const blobPath = (id: string) => {
     if (!/^[a-f0-9-]{36}\.blob$/.test(id)) {
       throw new Error("Invalid local QA private blob id.");
@@ -129,18 +160,19 @@ export function createLocalImportAssetPrivateBlobProvider(options?: {
     return path.join(rootDir, id);
   };
   return {
-    id: "design-local-import-assets-private",
-    name: "Design local QA private blobs",
-    isConfigured: enabled,
+    id: options.id,
+    name: options.name,
+    isConfigured: options.enabled,
     put: async ({ data, mimeType, metadata }) => {
-      if (!enabled()) throw new Error("Local QA private blobs are disabled.");
+      if (!options.enabled())
+        throw new Error("Local QA private blobs are disabled.");
       const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
       const id = `${randomUUID()}.blob`;
       await mkdir(rootDir, { recursive: true, mode: 0o700 });
       await writeFile(blobPath(id), bytes, { flag: "wx", mode: 0o600 });
       return {
         id,
-        provider: "design-local-import-assets-private",
+        provider: options.id,
         opaque: true,
         encrypted: false,
         mimeType,
@@ -162,7 +194,22 @@ export function createLocalImportAssetPrivateBlobProvider(options?: {
   };
 }
 
+export function createPreviousLocalImportAssetPrivateBlobProvider(options?: {
+  rootDir?: string;
+  enabled?: () => boolean;
+}): PrivateBlobProvider {
+  return createPrivateBlobProvider({
+    id: "design-local-figma-qa-private",
+    name: "Design local QA private blobs",
+    rootDir: options?.rootDir ?? LEGACY_QA_UPLOAD_ROOT,
+    enabled: options?.enabled ?? isLocalImportAssetUploadEnabled,
+  });
+}
+
 export function registerLocalImportAssetUploadProvider(): void {
   registerFileUploadProvider(createLocalImportAssetUploadProvider());
   registerPrivateBlobProvider(createLocalImportAssetPrivateBlobProvider());
+  registerPrivateBlobProvider(
+    createPreviousLocalImportAssetPrivateBlobProvider(),
+  );
 }

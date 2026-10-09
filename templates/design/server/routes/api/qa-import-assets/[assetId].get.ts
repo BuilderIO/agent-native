@@ -12,7 +12,7 @@ import {
 import {
   isLocalImportAssetUploadEnabled,
   localImportAssetAssetMimeType,
-  localImportAssetAssetPath,
+  localImportAssetAssetPaths,
 } from "../../../lib/local-import-asset-upload.js";
 
 export default defineEventHandler(async (event) => {
@@ -27,16 +27,27 @@ export default defineEventHandler(async (event) => {
   }
 
   const assetId = getRouterParam(event, "assetId") ?? "";
-  const filepath = localImportAssetAssetPath(session.email, assetId);
+  const filepaths = localImportAssetAssetPaths(session.email, assetId);
   const mimeType = localImportAssetAssetMimeType(assetId);
-  if (!filepath || !mimeType) {
+  if (filepaths.length === 0 || !mimeType) {
     setResponseStatus(event, 400);
     return { error: "Invalid asset id" };
   }
-  try {
-    const info = await stat(filepath);
-    if (!info.isFile()) throw new Error("not a file");
-  } catch {
+  let filepath: string | null = null;
+  for (const candidate of filepaths) {
+    try {
+      const info = await stat(candidate);
+      if (!info.isFile()) continue;
+      filepath = candidate;
+      break;
+    } catch (error) {
+      const code =
+        error instanceof Error && "code" in error ? error.code : undefined;
+      if (code !== "ENOENT") throw error;
+      // Try the previous local cache path before treating saved assets as missing.
+    }
+  }
+  if (!filepath) {
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }
