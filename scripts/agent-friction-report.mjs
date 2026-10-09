@@ -2290,7 +2290,7 @@ const FEEDBACK_REPLY_DETAIL_TARGET =
   /(?:(?:technical|implementation|internal|deployment)\s+(?:details?|information)|(?:commit|branch|ci|publisher|deployment|run|workflow)(?:\s+(?:details?|hash(?:es)?|results?|mentions?|status|ids?|names?))?|hash(?:es)?|results?)/i
     .source;
 const FEEDBACK_REPLY_DETAIL_OMISSION =
-  /(?:(?:don't|do not)\s+(?:include|mention|say|write|share|post|list|describe|cover|discuss|add|use|quote)|(?:avoid|skip|omit|remove)\s+(?:(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using)\s+)?|leave out|stop\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using))/i
+  /(?:(?:don't|do not|shouldn't|should not)\s+(?:include|mention|say|write|share|post|list|describe|cover|discuss|add|use|quote)|(?:avoid|skip|omit|remove)(?:\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using))?|leave out|stop\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using))/i
     .source;
 // A request to preserve detail is not a correction about excessive detail.
 const FEEDBACK_REPLY_DETAIL_NEGATION = [
@@ -2302,37 +2302,37 @@ const FEEDBACK_REPLY_DETAIL_NEGATION = [
     "\\b[^.!?;]{0,100}\\bless\\s+(?:technical|detail)\\b",
 ].join("|");
 const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
-  "^(?![\\s\\S]*(?:" +
+  "(?:^|[.!?;])\\s*(?![^.!?;]*(?:" +
     FEEDBACK_REPLY_DETAIL_NEGATION +
-    "))[\\s\\S]*(?:" +
+    "))[^.!?;]*?(?:" +
     [
       "\\b" +
         FEEDBACK_REPLY_CONTEXT +
-        "\\b[^.!?]{0,100}\\b" +
+        "\\b[^.!?;]{0,100}\\b" +
         FEEDBACK_REPLY_DETAIL_ISSUE +
         "\\b",
       "\\b" +
         FEEDBACK_REPLY_DETAIL_ISSUE +
-        "\\b[^.!?]{0,100}\\b" +
+        "\\b[^.!?;]{0,100}\\b" +
         FEEDBACK_REPLY_CONTEXT +
         "\\b",
       "\\b" +
         FEEDBACK_REPLY_CONTEXT +
-        "\\b[^.!?]{0,100}\\b" +
+        "\\b[^.!?;]{0,100}\\b" +
         FEEDBACK_REPLY_DETAIL_OMISSION +
-        "\\b\\s+(?:(?:all|any|these|those|the|some|extra|unnecessary)\\s+){0,3}" +
+        "\\b\\s+(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
         FEEDBACK_REPLY_DETAIL_TARGET +
         "\\b",
       "\\b" +
         FEEDBACK_REPLY_DETAIL_OMISSION +
-        "\\b\\s+(?:(?:all|any|these|those|the|some|extra|unnecessary)\\s+){0,3}" +
+        "\\b\\s+(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
         FEEDBACK_REPLY_DETAIL_TARGET +
         "\\b[^.!?;]{0,120}\\b(?:in|from|for|when)\\b[^.!?;]{0,30}\\b(?:you\\s+)?" +
         FEEDBACK_REPLY_CONTEXT +
         "\\b",
-      "\\bno\\b[^.!?]{0,120}\\b" +
+      "\\bno\\b[^.!?;]{0,120}\\b" +
         FEEDBACK_REPLY_DETAIL_TARGET +
-        "\\b[^.!?]{0,120}\\b(?:in|from|for|when)\\b[^.!?]{0,30}\\b(?:you\\s+)?" +
+        "\\b[^.!?;]{0,120}\\b(?:in|from|for|when)\\b[^.!?;]{0,30}\\b(?:you\\s+)?" +
         FEEDBACK_REPLY_CONTEXT +
         "\\b",
     ].join("|") +
@@ -2348,10 +2348,17 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "Replies are too technical."],
   [true, "Leave out publisher details from replies."],
   [true, "Don't include commit hashes or CI results in replies."],
+  [true, "Replies should not include any more technical details."],
+  [true, "Do not include additional technical details in replies."],
   [true, "Do not mention CI in replies."],
   [true, "Leave out publisher from replies."],
+  [true, "Avoid CI in replies."],
+  [true, "Skip CI in replies."],
+  [true, "Omit publisher from replies."],
+  [true, "Remove publisher from replies."],
   [true, "Replies should not contain technical details."],
   [true, "Replies should contain no technical details."],
+  [true, "Replies should not include commit hashes."],
   [true, "Keep replies without technical details."],
   [true, "Replies should be free of technical details."],
   [true, "No technical details in replies."],
@@ -2360,6 +2367,14 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [false, "Don't make replies less technical."],
   [false, "Replies are not too technical."],
   [false, "Replies aren't too technical."],
+  [
+    true,
+    "Replies aren't too technical. Please stop including CI results in replies.",
+  ],
+  [
+    true,
+    "Replies are not too technical. But don't include commit hashes in replies.",
+  ],
   [false, "Reply once there are no CI results yet."],
   [false, "Reply once there are\nno CI results yet."],
   [false, "Reply after CI is green; don't post until deployment is done."],
