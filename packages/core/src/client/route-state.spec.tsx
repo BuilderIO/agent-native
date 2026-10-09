@@ -117,6 +117,7 @@ describe("route-state client helpers", () => {
       value: window,
     });
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("reports child route changes to an embedding parent", async () => {
