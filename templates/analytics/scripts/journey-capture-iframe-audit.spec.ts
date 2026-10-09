@@ -135,6 +135,35 @@ describe("replay iframe audit", () => {
     ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 0 });
   });
 
+  it("audits an iframe assigned directly to a shadow-root slot", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const host = replayDocument.createElement("div");
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.append(replayDocument.createElement("slot"));
+    replayDocument.body.append(host);
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 20, height: 20 },
+      20,
+      20,
+    );
+    host.append(frame);
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [1],
+      }),
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 0 });
+  });
+
   it("ignores frames hidden by an ancestor with zero opacity", () => {
     const replayFrame = appendFrame(
       document,

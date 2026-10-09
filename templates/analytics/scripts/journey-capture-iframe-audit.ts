@@ -46,8 +46,13 @@ export function auditReplayIframeContent({
     const nodes: Node[] = [owner.documentElement];
     while (nodes.length > 0) {
       const node = nodes.pop()!;
-      const source =
-        node.nodeType === 1 ? ((node as Element).shadowRoot ?? node) : node;
+      if (node.nodeType !== 1) continue;
+      const element = node as Element;
+      if (element.tagName === "IFRAME") {
+        frames.push(element as HTMLIFrameElement);
+        continue;
+      }
+      const source = element.shadowRoot ?? node;
       for (const child of Array.from(source.childNodes)) {
         if (child.nodeType === 1 && (child as Element).localName === "slot") {
           const assigned = (child as HTMLSlotElement).assignedNodes();
@@ -56,13 +61,7 @@ export function auditReplayIframeContent({
             continue;
           }
         }
-        if (child.nodeType !== 1) continue;
-        const element = child as Element;
-        if (element.tagName === "IFRAME") {
-          frames.push(element as HTMLIFrameElement);
-          continue;
-        }
-        nodes.push(element);
+        if (child.nodeType === 1) nodes.push(child);
       }
     }
 
