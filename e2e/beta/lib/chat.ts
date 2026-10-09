@@ -233,6 +233,14 @@ const SAFE_AGENT_NATIVE_PATHS = new Set([
   "/_agent-native/application-state",
   "/_agent-native/application-state/pending-selection-context",
   "/_agent-native/actions/get-document",
+  "/_agent-native/events",
+  "/_agent-native/poll",
+  "/_agent-native/auth/session",
+  "/_agent-native/env-status",
+  "/_agent-native/builder/status",
+  "/_agent-native/file-upload/status",
+  "/_agent-native/agent-chat/models",
+  "/_agent-native/agent-chat/runs/latest",
 ]);
 const SAFE_THREAD_PATH =
   /^\/_agent-native\/agent-chat\/threads\/[^/]+(?:\/queued)?$/;
@@ -287,7 +295,15 @@ export function watchAgentNativeRequests(
     if (!path) return;
 
     if (requests.length >= MAX_AGENT_NATIVE_REQUEST_RECORDS) {
-      const completedIndex = requests.findIndex((entry) => !entry.pending);
+      let completedIndex = requests.findIndex(
+        (entry) =>
+          !entry.pending &&
+          entry.path !== "/_agent-native/agent-engine/status" &&
+          entry.path !==
+            "/_agent-native/application-state/pending-selection-context",
+      );
+      if (completedIndex < 0)
+        completedIndex = requests.findIndex((entry) => !entry.pending);
       if (completedIndex < 0) {
         omittedRequests = Math.min(999_999, omittedRequests + 1);
         return;
@@ -607,14 +623,7 @@ export async function sendPromptAndAwaitTurn(
     } catch {
       const message =
         "Send was clicked but the app never POSTed a turn to /_agent-native/agent-chat within 30s.";
-      const failure = await composerFailure(page, message);
-      throw ownsDiagnostics
-        ? new Error(
-            failure.message +
-              "\nAgent-native request diagnostics: " +
-              JSON.stringify(diagnostics.snapshot()),
-          )
-        : failure;
+      throw await composerFailure(page, message);
     }
 
     const stop = page.locator(VISIBLE_COMPOSER.stop).first();
@@ -624,6 +633,14 @@ export async function sendPromptAndAwaitTurn(
       .waitFor({ state: "visible", timeout: 30_000 })
       .catch(() => undefined); // coercion-ok: see above
     await stop.waitFor({ state: "hidden", timeout: turnTimeoutMs });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      message +
+        "\nAgent-native request diagnostics: " +
+        JSON.stringify(diagnostics.snapshot()),
+      { cause: error },
+    );
   } finally {
     if (ownsDiagnostics) disposePageAgentNativeRequests(page, diagnostics);
   }

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
+import { classifySave } from "../../../templates/content/e2e/helpers";
 import {
   SaveLineageCapture,
   type SaveLineageBucket,
@@ -10,6 +11,26 @@ import {
 function sha256(value: string): string {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
+
+test("save diagnostics preserve rejection of a successful JSON null payload", async () => {
+  const response = {
+    text: async () => "null",
+    ok: () => true,
+    status: () => 200,
+  } as unknown as Parameters<typeof classifySave>[0];
+  await assert.rejects(classifySave(response), TypeError);
+});
+
+test("save diagnostics preserve empty successful response classification", async () => {
+  const response = {
+    text: async () => "",
+    ok: () => true,
+    status: () => 204,
+  } as unknown as Parameters<typeof classifySave>[0];
+  const result = await classifySave(response);
+  assert.equal(result.outcome, "written");
+  assert.equal(result.bodyState, "absent");
+});
 
 function bucket(): SaveLineageBucket {
   return { saveLineage: [], saveLineageDropped: 0 };
@@ -255,10 +276,46 @@ test("the 64-entry aggregate reserves slots for readback checkpoints", () => {
       pendingRequestOrders: [],
     });
 
-  assert.equal(record.saveLineage.length, 64);
+  assert.equal(record.saveLineage.length, 57);
   assert.equal(
     record.saveLineage.filter((event) => event.kind === "readback").length,
-    8,
+    1,
   );
-  assert.equal(record.saveLineageDropped, 5);
+  assert.equal(record.saveLineageDropped, 4);
+});
+
+test("repeated SQL reads replace their checkpoint with the actual latest read order", () => {
+  let now = 1_000;
+  const capture = new SaveLineageCapture({ now: () => now });
+  const record = bucket();
+  const input = {
+    checkpoint: "deadline" as const,
+    documentId: "fixture-document",
+    content: "before",
+    contentHash: sha256("before"),
+    bodyRevision: 1,
+    revision: `body:1:${sha256("before")}`,
+    savesInFlight: 0,
+    pendingRequestOrders: [],
+  };
+  const first = capture.captureReadback(record, input);
+  now += 50;
+  const request = capture.captureRequest(record, saveRequest());
+  now += 50;
+  const latest = capture.captureReadback(record, {
+    ...input,
+    content: "after",
+  });
+  assert.ok(first && request && latest);
+  assert.ok(first.order < request.order && request.order < latest.order);
+  assert.equal(
+    record.saveLineage.filter((entry) => entry.kind === "readback").length,
+    1,
+  );
+  assert.equal(record.saveLineage[0], latest);
+  assert.equal(latest.atMs, 100);
+  assert.deepEqual(latest.contentSha256, {
+    state: "valid",
+    value: sha256("after"),
+  });
 });

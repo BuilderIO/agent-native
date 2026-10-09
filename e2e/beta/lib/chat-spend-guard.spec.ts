@@ -6,6 +6,7 @@ import {
   MISSING_ENGINE,
   formatChatRequestDiagnostics,
   readTurnSelection,
+  sendPromptAndAwaitTurn,
   spendViolations,
   watchAgentNativeRequests,
   watchChatRequests,
@@ -14,6 +15,57 @@ import {
 
 const OPENAI = "ai-sdk:openai";
 const LUNA = LUNA_OPENAI_MODEL;
+
+test("early send failures include diagnostics owned by an existing chat watcher", async () => {
+  const events = eventPage("https://beta.content.agent-native.com/");
+  const chat = watchChatRequests(events.page);
+  const preflight = request(
+    "https://beta.content.agent-native.com/_agent-native/agent-engine/status",
+  );
+  events.emit("request", preflight);
+  events.page.locator = (() => ({
+    first: () => ({
+      waitFor: async () => {
+        throw new Error("fixture composer unavailable");
+      },
+    }),
+  })) as unknown as typeof events.page.locator;
+  await assert.rejects(
+    sendPromptAndAwaitTurn(events.page, "fixture"),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message.includes("fixture composer unavailable") &&
+      error.message.includes("Agent-native request diagnostics:") &&
+      error.message.includes("/_agent-native/agent-engine/status"),
+  );
+  assert.ok(events.listenerCount() > 0);
+  chat.dispose();
+  assert.equal(events.listenerCount(), 0);
+});
+
+test("completed readiness evidence survives unrelated polling traffic", () => {
+  const events = eventPage("https://beta.content.agent-native.com/");
+  const diagnostics = watchAgentNativeRequests(events.page);
+  const preflight = request(
+    "https://beta.content.agent-native.com/_agent-native/agent-engine/status",
+  );
+  events.emit("request", preflight);
+  events.emit("response", { request: () => preflight, status: () => 200 });
+  events.emit("requestfinished", preflight);
+  for (let index = 0; index < 40; index++) {
+    const poll = request(
+      "https://beta.content.agent-native.com/_agent-native/poll",
+    );
+    events.emit("request", poll);
+    events.emit("requestfinished", poll);
+  }
+  assert.equal(
+    diagnostics.snapshot().requests[0]?.path,
+    "/_agent-native/agent-engine/status",
+  );
+  assert.equal(diagnostics.snapshot().requests[0]?.pending, false);
+  diagnostics.dispose();
+});
 
 function eventPage(pageUrl: string) {
   type Listener = (value: unknown) => void;

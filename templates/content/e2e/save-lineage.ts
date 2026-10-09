@@ -452,7 +452,11 @@ export class SaveLineageCapture {
     },
   ): SaveReadbackLineage | undefined {
     const stamp = this.stamp();
-    if (!this.retain(bucket, "readback")) return undefined;
+    const previousIndex = bucket.saveLineage.findIndex(
+      (entry) =>
+        entry.kind === "readback" && entry.checkpoint === input.checkpoint,
+    );
+    if (previousIndex < 0 && !this.retain(bucket, "readback")) return undefined;
     const event: SaveReadbackLineage = {
       kind: "readback",
       order: stamp.order,
@@ -470,7 +474,8 @@ export class SaveLineageCapture {
         .filter((order) => Number.isSafeInteger(order) && order > 0)
         .slice(0, MAX_SAVE_LINEAGE_ENTRIES),
     };
-    bucket.saveLineage.push(event);
+    if (previousIndex < 0) bucket.saveLineage.push(event);
+    else bucket.saveLineage[previousIndex] = event;
     return event;
   }
 

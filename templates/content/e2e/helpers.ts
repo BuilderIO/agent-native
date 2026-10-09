@@ -287,7 +287,7 @@ function pageOf(request: Request): Page | null {
   }
 }
 
-async function classifySave(response: Response): Promise<{
+export async function classifySave(response: Response): Promise<{
   outcome: SaveOutcome;
   code?: string;
   bodyState: "absent" | "invalid" | "valid";
@@ -302,12 +302,12 @@ async function classifySave(response: Response): Promise<{
     } else {
       try {
         const parsed: unknown = JSON.parse(text);
+        body = parsed as Record<string, any>;
         if (
           parsed !== null &&
           typeof parsed === "object" &&
           !Array.isArray(parsed)
         ) {
-          body = parsed as Record<string, any>;
           bodyState = "valid";
         }
       } catch {
@@ -1055,6 +1055,7 @@ export async function observeIntegrity(
     let lastDocument: Awaited<ReturnType<typeof getDocument>> | undefined;
     do {
       lastDocument = await getDocument(reader, id);
+      tabs.captureReadback(at, id, lastDocument);
       round = [
         judge(
           at,
@@ -1078,7 +1079,6 @@ export async function observeIntegrity(
       await delay(1_000);
     } while (Date.now() < deadline);
     observations.push(...round);
-    if (lastDocument) tabs.captureReadback(at, id, lastDocument);
   };
 
   // A hidden tab may defer remote updates; the gate asks what a person sees
