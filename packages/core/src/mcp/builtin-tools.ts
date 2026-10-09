@@ -344,7 +344,7 @@ async function createA2AClientForAskApp(
   client: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
   metadata: Record<string, unknown>;
 }> {
-  if (localClient) {
+  if (localClient && getRequestUserEmail()?.trim()) {
     return {
       client: localClient,
       metadata: {

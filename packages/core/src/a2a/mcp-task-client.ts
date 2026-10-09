@@ -15,6 +15,7 @@ export function createMcpAgentTaskClient(
   async function invokeUnbounded(
     method: "message/send" | "tasks/get",
     params: Record<string, unknown>,
+    beforeTaskPersistence?: () => void,
   ): Promise<Task> {
     const caller = getRequestContext();
     const userEmail = caller?.userEmail?.trim();
@@ -34,6 +35,9 @@ export function createMcpAgentTaskClient(
         __a2aIdentityAssurance: "user",
         ...(caller?.orgId ? { __a2aVerifiedOrgId: caller.orgId } : {}),
         __a2aServicePrincipalAllowedActions: admission.allowedActions,
+        ...(beforeTaskPersistence
+          ? { __a2aBeforeTaskPersistence: beforeTaskPersistence }
+          : {}),
       },
     });
     const response = await handleJsonRpcH3(
@@ -61,18 +65,28 @@ export function createMcpAgentTaskClient(
       options?.deadlineMs == null ? Infinity : options.deadlineMs - Date.now(),
     );
     if (timeoutMs <= 0) throw new Error("A2A request timeout");
-    // Once submission starts, return its durable handle even if dispatch takes
-    // longer than the request budget; abandoning it can cause duplicate work.
-    if (method === "message/send") return invokeUnbounded(method, params);
+    const expiresAt = Date.now() + timeoutMs;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let expired = false;
+    const beforeTaskPersistence = () => {
+      if (expired || Date.now() >= expiresAt)
+        throw new Error("A2A request timeout");
+      // A database mutation may commit even if its await times out. From this
+      // boundary onward, wait for the durable handle instead of abandoning it.
+      if (timer) clearTimeout(timer);
+    };
     try {
       return await Promise.race([
-        invokeUnbounded(method, params),
+        invokeUnbounded(
+          method,
+          params,
+          method === "message/send" ? beforeTaskPersistence : undefined,
+        ),
         new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(
-            () => reject(new Error("A2A request timeout")),
-            timeoutMs,
-          );
+          timer = setTimeout(() => {
+            expired = true;
+            reject(new Error("A2A request timeout"));
+          }, timeoutMs);
         }),
       ]);
     } finally {

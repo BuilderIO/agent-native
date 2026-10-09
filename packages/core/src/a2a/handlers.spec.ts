@@ -522,6 +522,37 @@ describe("handleJsonRpc", () => {
     await assertion;
   });
 
+  it("times out local admission and prevents late admission from creating a task", async () => {
+    vi.useFakeTimers();
+    const { createMcpAgentTaskClient } = await import("./mcp-task-client.js");
+    const taskStore = await import("./task-store.js");
+    const persist = vi.spyOn(taskStore, "createOrReuseTask");
+    let finishAdmission!: () => void;
+    evaluateServicePrincipalMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishAdmission = () => resolve({ status: "not-service" });
+        }),
+    );
+    const client = createMcpAgentTaskClient(customHandler, mockEvent());
+    const pending = runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-1" },
+      () =>
+        client.send(
+          { role: "user", parts: [{ type: "text", text: "read only" }] },
+          { deadlineMs: Date.now() + 100 },
+        ),
+    );
+    const assertion = expect(pending).rejects.toThrow("timeout");
+    await vi.advanceTimersByTimeAsync(100);
+    await assertion;
+    finishAdmission();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(persist).not.toHaveBeenCalled();
+    persist.mockRestore();
+  });
+
   it("rejects invalid JSON-RPC requests", async () => {
     const event = mockEvent();
     const result = await handleJsonRpc({}, event, customHandler);
