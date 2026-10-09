@@ -1529,6 +1529,8 @@ export default {
     replayLoading: "Chargement de la relecture...",
     replayLoadingProgress:
       "{{loaded}} sur {{total}} fragments de relecture chargés",
+    replayTargetFallback:
+      "Le décalage demandé ({{requested}}) n’est pas disponible ; l’image du replay la plus proche à {{available}} est affichée.",
     replayUnavailable:
       "Aucun fragment de relecture n'est disponible pour cette session",
     replayUnavailableDescription:

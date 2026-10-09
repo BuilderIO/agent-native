@@ -52,6 +52,7 @@ export const dispatchRoutes: RouteConfig = [
   route("automations", "./pages/automations.js"),
   route("audit", "./pages/audit.js"),
   route("settings", "./pages/settings.js"),
+  route("settings/*", "./pages/settings.js"),
   route("dreams", "./pages/dreams.js"),
   route("thread-debug", "./pages/thread-debug.js"),
   route("team", "./pages/team.js"),

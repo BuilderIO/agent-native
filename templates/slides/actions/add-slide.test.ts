@@ -900,6 +900,38 @@ describe("add-slide", () => {
     });
   });
 
+  it("returns hygieneWarnings for a slide the sanitizer would strip, and still writes it", async () => {
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-svg",
+      content:
+        '<div class="fmd-slide"><svg viewBox="0 0 4 4"></svg><footer>04 / 12</footer></div>',
+    })) as { hygieneWarnings?: { warnings: Array<Record<string, unknown>> } };
+
+    expect(JSON.parse(updatedFields!.data as string).slides[2].id).toBe(
+      "slide-svg",
+    );
+    expect(result.hygieneWarnings?.warnings).toEqual([
+      expect.objectContaining({
+        code: "inline-svg",
+        severity: "error",
+        count: 1,
+        slideIds: ["slide-svg"],
+      }),
+      expect.objectContaining({ code: "typed-page-number", count: 1 }),
+    ]);
+  });
+
+  it("leaves the result unchanged for a clean slide", async () => {
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-clean",
+      content: "<div>New</div>",
+    });
+
+    expect(result).not.toHaveProperty("hygieneWarnings");
+  });
+
   it("clears source provenance when adding to an imported deck", async () => {
     deckData.sourceImport = {
       mode: "source-preserving",

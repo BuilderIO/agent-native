@@ -97,6 +97,16 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
 
+function integer(value: unknown): number | null {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(value)
+        : Number.NaN;
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 export function parseJourneyEventRow(
   raw: Record<string, unknown>,
 ): JourneyEventRow | null {
@@ -111,7 +121,9 @@ export function parseJourneyEventRow(
     tsMs,
     eventName,
     path: text(raw.path),
+    flow: text(raw.flow),
     stepId: text(raw.step_id),
+    stepIndex: integer(raw.step_index),
     methodId: text(raw.method_id),
     outcome: text(raw.outcome),
     action: text(raw.action),

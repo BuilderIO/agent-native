@@ -59,7 +59,9 @@ function eventRow(
     timestamp: new Date(T0 + offsetSeconds * 1000).toISOString(),
     event_name: eventName,
     path: null,
+    flow: null,
     step_id: null,
+    step_index: null,
     method_id: null,
     outcome: null,
     action: null,
@@ -133,6 +135,24 @@ describe("parseJourneyEventRow", () => {
     ]) {
       expect(parseJourneyEventRow(broken)).toBeNull();
     }
+  });
+
+  it("parses the onboarding step index used for causal tie ordering", () => {
+    expect(
+      parseJourneyEventRow(
+        eventRow("s1", "onboarding_step_skipped", 0, {
+          flow: "first_run",
+          step_index: "2",
+        }),
+      )?.stepIndex,
+    ).toBe(2);
+    expect(
+      parseJourneyEventRow(
+        eventRow("s1", "onboarding_step_skipped", 0, {
+          step_index: "not-an-index",
+        }),
+      )?.stepIndex,
+    ).toBeNull();
   });
 });
 

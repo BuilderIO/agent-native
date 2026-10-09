@@ -3274,13 +3274,11 @@ export function DocumentSidebar({
       ref={searchTriggerRef}
       type="button"
       variant="ghost"
-      className="grid h-8 w-full grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-0 rounded p-0 pe-2 text-sm font-normal text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+      className="grid h-8 w-full grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-0 rounded p-0 pe-2 text-sm font-normal text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground !px-0"
       onClick={handleOpenSearch}
     >
       <IconSearch className="size-4 justify-self-center" />
-      <span className="min-w-0 truncate ps-1.5 text-start">
-        {t("sidebar.search")}
-      </span>
+      <span className="min-w-0 truncate text-start">{t("sidebar.search")}</span>
       <kbd className="font-sans text-[11px] font-normal text-muted-foreground/70">
         {isMac ? "⌘ K" : "Ctrl K"}
       </kbd>
@@ -3289,7 +3287,7 @@ export function DocumentSidebar({
   const contentSpaceSelector = selectedSpace ? (
     <div
       {...startupAnchor("sidebar-space")}
-      className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2 pt-2"
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-2 pe-2 pt-2"
     >
       <WorkspaceSourceMenu
         onCreated={handleWorkspaceCreated}
@@ -3321,11 +3319,13 @@ export function DocumentSidebar({
       >
         <Button
           variant="ghost"
-          className="grid h-8 min-w-0 grid-cols-[minmax(0,1fr)_1.75rem] items-center p-0 hover:bg-sidebar-accent/60"
+          className="grid h-8 min-w-0 grid-cols-[1.75rem_minmax(0,1fr)_1.75rem] items-center gap-0 p-0 hover:bg-sidebar-accent/60 !px-0"
           aria-label={`${t("sidebar.contentSpace")}: ${selectedSpace.name}`}
         >
-          <span className="truncate ps-2 text-start">{selectedSpace.name}</span>
-          <IconChevronDown className="size-3.5 justify-self-center" />
+          <span className="col-start-2 min-w-0 truncate text-start">
+            {selectedSpace.name}
+          </span>
+          <IconChevronDown className="col-start-3 size-3.5 justify-self-center" />
         </Button>
       </WorkspaceSourceMenu>
       <DropdownMenu>
@@ -3803,7 +3803,7 @@ export function DocumentSidebar({
         onBrandClick={onToggleCollapsed}
       />
       {contentSpaceSelector}
-      <div className="shrink-0 ps-3 pe-2 py-2">{searchButton}</div>
+      <div className="shrink-0 ps-2 pe-2 py-2">{searchButton}</div>
 
       <SidebarPageActionsProvider value={sidebarPageActions}>
         <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
@@ -3812,6 +3812,9 @@ export function DocumentSidebar({
               <PersonalSidebarSections
                 spaceId={selectedSpaceId}
                 pinnedCount={pinnedCount}
+                pinnedError={
+                  favoritesDatabase.isError || favoritesPersonalView.isError
+                }
                 renderFiles={renderWorkspaceNavigation}
                 activeDocumentId={sidebarActiveDocumentId}
                 onNavigate={onNavigate}

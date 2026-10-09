@@ -564,6 +564,11 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).toContain("renderPinned={(limit) =>");
     expect(sections).toContain("sections[id].visible");
+    expect(sections).toContain(
+      "const hideEmptyPinned = pinnedCount === 0 && !pinnedError;",
+    );
+    expect(sections).toContain('(id) => id !== "pinned" || !hideEmptyPinned');
+    expect(sidebar).toContain("pinnedError={");
     expect(sections).toContain("expanded={sections[id].expanded}");
     expect(sections).toContain(
       "change(id, { expanded: !sections[id].expanded });",
@@ -714,19 +719,26 @@ describe("document sidebar layout", () => {
     expect(databaseSidebar).toContain("<SidebarDepthGuides depth={depth} />");
   });
 
-  it("aligns the expanded sidebar controls to one trailing grid", () => {
+  it("aligns expanded sidebar labels and controls to shared columns", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const sections = readSidebarSource("./PersonalSidebarSections.tsx");
 
     expect(sidebar).toContain(
-      "grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2",
+      "grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-2 pe-2",
     );
     expect(sidebar).toContain("grid-cols-[1.75rem_minmax(0,1fr)_auto]");
+    expect(sidebar).toContain(
+      "grid-cols-[1.75rem_minmax(0,1fr)_1.75rem] items-center gap-0 p-0",
+    );
+    expect(sidebar).toContain('className="shrink-0 ps-2 pe-2 py-2"');
+    expect(sidebar.match(/!px-0/g)).toHaveLength(2);
+    expect(sections).toContain('className="mb-4 min-w-0 px-2"');
     expect(sidebar).not.toContain('variant="outline"');
     expect(sidebar).toContain("w-[var(--radix-dropdown-menu-trigger-width)]");
     expect(sidebar).toContain("max-w-[calc(100vw-1rem)]");
     expect(sidebar).toContain('className="min-w-0 flex-1 truncate"');
-    expect(sidebar).toContain('className="shrink-0 ps-3 pe-2 py-2"');
+    expect(sidebar).toContain("col-start-2 min-w-0 truncate text-start");
+    expect(sidebar).toContain('className="min-w-0 truncate text-start"');
     expect(sections).toContain(
       "size-7 text-muted-foreground hover:text-foreground focus-visible:text-foreground",
     );

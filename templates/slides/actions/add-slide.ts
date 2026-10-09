@@ -27,6 +27,10 @@ import {
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
 import { noteGenerationFirstOutput } from "../server/lib/generation-completion.js";
+import {
+  HYGIENE_ACTION_DESCRIPTION,
+  slideHygieneResult,
+} from "../server/lib/slide-hygiene.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
 import { generationTimingFields } from "../shared/generation-timing.js";
 import {
@@ -116,7 +120,8 @@ export default defineAction({
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
     "Every new slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, follow one deliberate deck-level visual contract expressed with semantic --deck-* values on every slide; keep the canvas, type system, spacing, surfaces, and accent treatment consistent instead of alternating themes or using a stock provider/brand palette. " +
     "Use `patch-deck` for edits to existing slides or deck structure, not for appending newly generated slides in this workflow. " +
-    "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity. Do not check fit after each write: finish all slide edits, then call get-layout-overflows once, and once more only after a repair. If measurements are unknown, report the unmeasured slides and do not recheck this turn unless the editor has produced a new measurement. If the slide is saved but client notification fails, the result includes notificationStatus='failed' and notificationErrorType; the write already succeeded, so do not retry it.",
+    "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity. Do not check fit after each write: finish all slide edits, then call get-layout-overflows once, and once more only after a repair. If measurements are unknown, report the unmeasured slides and do not recheck this turn unless the editor has produced a new measurement. If the slide is saved but client notification fails, the result includes notificationStatus='failed' and notificationErrorType; the write already succeeded, so do not retry it." +
+    HYGIENE_ACTION_DESCRIPTION,
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),
     content: z.string().describe("Full HTML content of the new slide"),
@@ -653,6 +658,9 @@ export default defineAction({
           contentHash: hashSlideContent(newSlide.content),
           layoutFitRevision: newSlide.layoutFitRevision,
         },
+        ...slideHygieneResult([
+          { slideId: newSlideId, html: newSlide.content },
+        ]),
       };
 
       return base;

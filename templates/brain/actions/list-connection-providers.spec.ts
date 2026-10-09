@@ -175,7 +175,7 @@ describe("list-connection-providers", () => {
       id: "jira",
       configured: false,
       setupLink:
-        "https://dispatch.agent-native.com/integrations?provider=jira&appId=brain&returnTo=ask",
+        "https://dispatch.agent-native.com/settings/integrations?provider=jira&appId=brain&returnTo=ask",
       sourceProviderSupported: false,
       providerHealth: { status: "missing_credentials" },
       rawProviderApi: { available: true },

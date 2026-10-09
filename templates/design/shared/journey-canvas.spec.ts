@@ -14,6 +14,7 @@ import {
   replaceJourneyBoardObjects,
   type CreateJourneyCanvasInput,
 } from "./journey-canvas.js";
+import { CARD_PROVENANCE_HEADER_HEIGHT } from "./journey-layout.js";
 
 type RawInput = z.input<typeof createJourneyCanvasInputSchema>;
 
@@ -118,6 +119,7 @@ describe("create-journey-canvas input", () => {
     expect(input.cardWidth).toBe(360);
     expect(input.maxExamplesPerNode).toBe(3);
     expect(input.includeScreenshotless).toBe(false);
+    expect(input.allowEncryptedPublicUploadFallback).toBe(false);
   });
 
   it("accepts an https imageUrl and an attachmentRef", () => {
@@ -221,6 +223,7 @@ describe("create-journey-canvas input", () => {
     };
     expect(schema.required.sort()).toEqual(["frames", "title", "tree"]);
     expect(Object.keys(schema.properties).sort()).toEqual([
+      "allowEncryptedPublicUploadFallback",
       "cardWidth",
       "designId",
       "frames",
@@ -243,7 +246,7 @@ describe("create-journey-canvas input", () => {
 });
 
 describe("planJourneyCanvas", () => {
-  it("renders a card per node with a frame, stubs for drop-off and other, and lists the rest", () => {
+  it("renders a card per node with a frame, stubs for last-observed steps and other, and lists the rest", () => {
     const result = plan();
     expect(result.nodeCount).toBe(4);
     expect(result.frameCount).toBe(4);
@@ -256,6 +259,38 @@ describe("planJourneyCanvas", () => {
       "signup > prompt",
       "signup > skip > editor",
     ]);
+  });
+
+  it("keeps concatenated journey roots grouped in their input order", () => {
+    const raw = rawInput();
+    const roots = [
+      {
+        root: node("Clips", null, 600),
+        child: node("Clips > next", "Clips", 550),
+      },
+      {
+        root: node("Design", null, 800),
+        child: node("Design > next", "Design", 700),
+      },
+      {
+        root: node("Slides", null, 1000),
+        child: node("Slides > next", "Slides", 900),
+      },
+    ];
+    raw.tree.nodes = roots.flatMap(({ root, child }) => [root, child]);
+    raw.frames = roots.flatMap(({ root, child }) => [
+      frame(root.key, 0),
+      frame(child.key, 0),
+    ]);
+
+    const { screens } = plan(raw);
+    const y = (key: string) =>
+      screens.find((screen) => screen.nodeKey === key)!.frame.y;
+
+    expect(y("Clips")).toBeLessThan(y("Design"));
+    expect(y("Clips > next")).toBeLessThan(y("Design"));
+    expect(y("Design")).toBeLessThan(y("Slides"));
+    expect(y("Design > next")).toBeLessThan(y("Slides"));
   });
 
   it("never drops a frame passed for an other node: it is rejected without examples and drawn as a card with them", () => {
@@ -317,6 +352,21 @@ describe("planJourneyCanvas", () => {
     expect(root.html).toContain("1,000 sessions · 100% of all");
   });
 
+  it("shows original example provenance separately from screenshot capture time", () => {
+    const root = plan().screens.find((s) => s.nodeKey === "signup")!;
+    expect(root.provenance).toEqual({
+      eventAt: "2026-10-01T12:00:00.000Z",
+      recordingId: "rec-signup-1",
+      offsetMs: 4_000,
+      screenshotCapturedAt: "2026-10-08T09:30:00.000Z",
+    });
+    expect(root.html).toContain("Event date 2026-10-01");
+    expect(root.html).toContain("Recording ID rec-signup-1");
+    expect(root.html).toContain("Replay offset 4,000 ms");
+    expect(root.html).toContain("Screenshot captured 2026-10-08");
+    expect(root.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 225);
+  });
+
   it("never inlines image bytes", () => {
     for (const screen of plan().screens) {
       expect(screen.html).not.toMatch(/data:|base64/i);
@@ -330,13 +380,13 @@ describe("planJourneyCanvas", () => {
     )!;
     const mobile = screens.find((s) => s.nodeKey === "signup > prompt")!;
     expect(root.frame.width).toBe(360);
-    expect(root.frame.height).toBe(56 + 225);
+    expect(root.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 225);
     expect(mobile.frame.width).toBe(360);
-    expect(mobile.frame.height).toBe(56 + 720);
+    expect(mobile.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 720);
     const wide = plan(
       rawInput({ frames: [frame("signup", 0, { width: 5000, height: 500 })] }),
     ).screens[0]!;
-    expect(wide.frame.height).toBe(56 + 180);
+    expect(wide.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 180);
   });
 
   it("stacks extra examples behind the front card", () => {
@@ -386,10 +436,11 @@ describe("planJourneyCanvas", () => {
     expect(result.frameCount).toBe(4);
   });
 
-  it("draws arrows, fork percentages, drop-off and other stubs, a date line and a title on the board", () => {
+  it("draws arrows, fork percentages, last-observed-step and other stubs, a date line and a title on the board", () => {
     const html = plan().boardFragments({ x: 100, y: 200 }).join("\n");
-    expect(html).toContain("34% dropped");
-    expect(html).toContain("340 sessions");
+    expect(html).toContain("No later step observed");
+    expect(html).toContain("340 sessions · 34% of this step");
+    expect(html).toContain("10 sessions · 10% of this step");
     expect(html).toContain("Other (3 branches)");
     expect(html).toContain("Captured 2026-10-08 · 2 examples");
     expect(html).toContain("Design onboarding");
@@ -477,14 +528,14 @@ describe("replaceJourneyBoardObjects", () => {
       emptyBoardHtml(),
       plan().boardFragments({ x: 0, y: 0 }),
     );
-    expect(first).toContain("34% dropped");
+    expect(first).toContain("No later step observed");
     const smaller = rawInput();
     smaller.tree.nodes[0]!.dropoffN = 0;
     const second = replaceJourneyBoardObjects(
       first,
       plan(smaller).boardFragments({ x: 0, y: 0 }),
     );
-    expect(second).not.toContain("34% dropped");
+    expect(second).not.toContain("340 sessions · 34% of this step");
     expect(second).toContain("jc-title");
   });
 });
