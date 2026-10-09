@@ -916,7 +916,13 @@ export function AuthPage(props: AuthPageProps) {
             },
           );
           if (isAuthenticatedAuthSession(response, data)) {
-            redirectToSignedInApp();
+            if (
+              !isVerificationLinkInvalid(
+                new URLSearchParams(window.location.search).get("error"),
+              )
+            ) {
+              redirectToSignedInApp();
+            }
             return;
           }
           if (isConfirmedAnonymousAuthSession(response, data, readable)) {
