@@ -814,6 +814,13 @@ describe("Markdown import", () => {
     expect(page.content).toContain("After");
   });
 
+  it("keeps a paragraph in block quotes nested up to the limit", () => {
+    const page = importMarkdown(`${"> ".repeat(63)}deep`);
+
+    expect(noteKinds(page)).not.toContain("unsupported-markdown");
+    expect(page.content).toContain("deep");
+  });
+
   it("reports HTML elements nested past the limit and keeps their text", () => {
     const page = importMarkdown(`<div>
 ${"<span>".repeat(70)}deep

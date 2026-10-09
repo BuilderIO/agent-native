@@ -390,6 +390,9 @@ function containerDepthBound(line: string): number {
     let end = index;
     if (char === ">") {
       end += 1;
+      // The space after `>` is part of the marker, not indentation a list
+      // inside the quote could use.
+      if (line[end] === " ") end += 1;
     } else if (char === "-" || char === "*" || char === "+") {
       end += 1;
       if (end < line.length && line[end] !== " " && line[end] !== "\t") break;
