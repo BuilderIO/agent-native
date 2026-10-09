@@ -384,18 +384,22 @@ export default function DownloadPage() {
       download.option !== primaryDownload?.option && Boolean(download.asset),
   );
   const bestAlternative = alternativeDownloads[0] ?? null;
-  const releaseStatus = manifestError
-    ? t("downloadPage.loadError")
-    : !manifest
-      ? t("downloadPage.checkingRelease")
-      : null;
-  const primaryLabel = primaryAsset
-    ? t(primaryDownload?.option.labelKey ?? info.primary.labelKey)
+  const releaseStatus = mountResolutionError
+    ? null
     : manifestError
-      ? t("downloadPage.retry")
+      ? t("downloadPage.loadError")
       : !manifest
         ? t("downloadPage.checkingRelease")
-        : t("downloadPage.unavailable");
+        : null;
+  const primaryLabel = primaryAsset
+    ? t(primaryDownload?.option.labelKey ?? info.primary.labelKey)
+    : mountResolutionError
+      ? t("downloadPage.unavailable")
+      : manifestError
+        ? t("downloadPage.retry")
+        : !manifest
+          ? t("downloadPage.checkingRelease")
+          : t("downloadPage.unavailable");
   const desktopDownloadLabel = primaryAsset
     ? t("downloadPage.downloadInstaller")
     : primaryLabel;
@@ -435,10 +439,6 @@ export default function DownloadPage() {
   }
 
   function handleRetry() {
-    if (mountResolutionError) {
-      window.location.reload();
-      return;
-    }
     setManifest(null);
     setManifestError(false);
     setConfirmedDownload(null);
@@ -520,6 +520,13 @@ export default function DownloadPage() {
                 >
                   {primaryButtonContent}
                 </Button>
+              ) : mountResolutionError ? (
+                <p
+                  role="alert"
+                  className="max-w-[18rem] text-[length:var(--b-t-label-2)] text-[var(--b-text-secondary)]"
+                >
+                  {t("downloadPage.mountError")}
+                </p>
               ) : (
                 <Button
                   variant={isDesktopApp ? "secondary" : "cta"}

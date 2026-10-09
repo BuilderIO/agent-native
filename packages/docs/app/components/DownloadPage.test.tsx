@@ -32,6 +32,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "downloadPage.downloadAgain": "Didn't work? Try downloading again",
       "downloadPage.checkingRelease": "Checking the latest desktop release...",
       "downloadPage.loadError": "Could not load the latest desktop installer.",
+      "downloadPage.mountError":
+        "The desktop download page could not find its workspace path. Ask your workspace admin to check the app mount configuration.",
       "downloadPage.retry": "Retry",
       "downloadPage.unavailable": "Installer unavailable for this platform",
       "downloadPage.allPlatforms": "All platforms",
@@ -185,13 +187,17 @@ describe("DownloadPage", () => {
     });
   });
 
-  it("offers a retry when workspace mount details are unavailable", async () => {
+  it("shows a non-retryable error when workspace mount details are unavailable", async () => {
     appBasePathMock.mockImplementation(() => {
       throw new WorkspaceAppMountResolutionError("Workspace mount is unknown");
     });
     render(<DownloadPage />);
 
-    expect(await screen.findByRole("button", { name: "Retry" })).toBeTruthy();
+    const error = await screen.findByRole("alert");
+    expect(error.textContent).toContain(
+      "Ask your workspace admin to check the app mount configuration.",
+    );
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -273,17 +279,5 @@ describe("DownloadPage", () => {
           .getAttribute("href"),
       ).toBe(productionManifest.assets[0].url);
     });
-  });
-
-  it("offers a retry when the workspace mount cannot be resolved", async () => {
-    appBasePathMock.mockImplementation(() => {
-      throw new WorkspaceAppMountResolutionError("Workspace mount is unknown");
-    });
-
-    render(<DownloadPage />);
-
-    const retry = await screen.findByRole("button", { name: "Retry" });
-    expect((retry as HTMLButtonElement).disabled).toBe(false);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

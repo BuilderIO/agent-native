@@ -2202,6 +2202,8 @@ const deDE = {
     downloadStarted: "Download gestartet",
     downloadAgain: "Hat es nicht funktioniert? Erneut herunterladen",
     loadError: "Der neueste Desktop-Installer konnte nicht geladen werden.",
+    mountError:
+      "Die Downloadseite für die Desktop-App konnte ihren Workspace-Pfad nicht finden. Bitte den Workspace-Administrator, die App-Pfadkonfiguration zu prüfen.",
     checkingRelease: "Neueste Desktop-Version wird geprüft...",
     retry: "Erneut versuchen",
     unavailable: "Installer für diese Plattform nicht verfügbar",
