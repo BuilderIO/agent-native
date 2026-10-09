@@ -11,12 +11,18 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- The overview canvas keeps screen selections centered without switching modes, and its compact style panel overlays the canvas.
 - Click a design's name in the editor to open a file menu with Rename, Duplicate, Version history, Save as template, Import, Export, and Delete.
 
 ### Fixed
 
+- Onboarding storyboards show replay context and clearly mark where no later step was observed.
 - Design now reports pending screenshot cleanup and uncertain storyboard rollback after export failures.
 - Failed screenshot exports report when temporary image cleanup is still pending.
+
+### Changed
+
+- Replay screenshots use the encrypted upload fallback only when you enable it for the action.
 
 ## 2026-10-07
 

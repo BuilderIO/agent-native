@@ -533,7 +533,7 @@ describe("DeckEditor generation signal wiring", () => {
     ).toBe("false");
   });
 
-  it("renders only the compact slide rail and the slide inside an MCP App widget", async () => {
+  it("renders only the compact slide rail and slide in a read-only MCP App widget", async () => {
     mocks.deck.slides = [{ id: "slide-1", content: "draft" }];
     mocks.widgetEmbed = true;
     mocks.readOnlyWidget = true;
@@ -553,6 +553,31 @@ describe("DeckEditor generation signal wiring", () => {
     expect(
       screen.getByTestId("editor-sidebar").getAttribute("data-compact"),
     ).toBe("true");
+  });
+
+  it("renders the full compact editor in a writable MCP App widget", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "draft" }];
+    mocks.widgetEmbed = true;
+    mocks.readOnlyWidget = false;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    const { container } = render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-toolbar")).toBeTruthy(),
+    );
+    expect(screen.getByTestId("editor-toolbar").dataset.canEdit).toBe("true");
+    expect(
+      container.querySelector("[data-context-toolbar-host='narrow']"),
+    ).not.toBeNull();
+    expect(
+      screen.getByTestId("editor-sidebar").getAttribute("data-compact"),
+    ).toBe("true");
+    expect(screen.getByTestId("slide-editor").dataset.readOnly).toBe("false");
+    expect(screen.getByTestId("slide-editor").dataset.canComment).toBe("false");
   });
 
   it("keeps the deck toolbar and a closed rail on a narrow screen outside a widget", async () => {

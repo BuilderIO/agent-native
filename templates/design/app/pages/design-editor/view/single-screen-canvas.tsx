@@ -225,6 +225,7 @@ export function renderSingleScreenCanvas({
     interactZoom,
     handleExitReviewCommentMode,
     handleModeChange,
+    handleSidebarScreenSelect,
   } = editorModes;
   const {
     selectedLayerSelectorGroupsByScreen,
@@ -531,9 +532,11 @@ export function renderSingleScreenCanvas({
           if (!target) return;
           const match = files.find((f) => norm(f.filename) === target);
           if (match) {
-            handleModeChange("interact", {
-              targetFileId: match.id,
-            });
+            if (mode === "interact") {
+              handleModeChange("interact", { targetFileId: match.id });
+            } else {
+              handleSidebarScreenSelect(match.id);
+            }
           }
         }}
       />

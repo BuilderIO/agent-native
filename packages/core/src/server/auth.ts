@@ -29,7 +29,7 @@ import {
   EMBED_SESSION_COOKIE,
   EMBED_START_PATH,
   EMBED_TARGET_HEADER,
-  isMcpDirectoryWidgetReadCapabilityScope,
+  isMcpDirectoryWidgetCapabilityScope,
 } from "../shared/embed-auth.js";
 import {
   FIRST_RUN_ONBOARDING_COOKIE,
@@ -4671,7 +4671,7 @@ async function resolveSessionUncached(
   if (!options.ignoreEmbedSession) {
     const embedSession = await resolveEmbedSessionFromRequest(event);
     if (
-      isMcpDirectoryWidgetReadCapabilityApplicationStateRequest(
+      isMcpDirectoryWidgetCapabilityApplicationStateRequest(
         event,
         embedSession?.scope,
       )
@@ -4760,11 +4760,11 @@ async function resolveSessionUncached(
   return null;
 }
 
-function isMcpDirectoryWidgetReadCapabilityApplicationStateRequest(
+function isMcpDirectoryWidgetCapabilityApplicationStateRequest(
   event: H3Event,
   scope: string | undefined,
 ): boolean {
-  if (!isMcpDirectoryWidgetReadCapabilityScope(scope)) return false;
+  if (!isMcpDirectoryWidgetCapabilityScope(scope)) return false;
 
   const rawUrl = event.node?.req?.url ?? event.path ?? "/";
   const base = "http://agent-native.invalid";

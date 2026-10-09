@@ -56,6 +56,7 @@ import { runPrimitiveCreated } from "../commands/primitive-created";
 import { runScaleSelection } from "../commands/scale-selection";
 import { runSendOverviewAnnotations } from "../commands/send-overview-annotations";
 import { runTweakPromptSubmit } from "../commands/tweak-prompt-submit";
+import { getCreatedScreenNavigationPlan } from "../created-screen-navigation";
 import {
   EMPTY_TEXT_CLEANUP_MAX_ATTEMPTS,
   EMPTY_TEXT_CLEANUP_RETRY_MS,
@@ -196,6 +197,9 @@ export function useEditorToolsAndVectors({
     activeFile,
     handleBreakpointBarSelect,
     overviewCanvasZoom,
+    setCameraCommand,
+    cameraCommandNonceRef,
+    exportCanvasFrameGeometryById,
   } = editorActiveScreenAndGeometry;
   const {
     setHoveredElementScreenId,
@@ -1450,11 +1454,39 @@ export function useEditorToolsAndVectors({
       setActiveFileId(pickedId);
       setActiveTool(resolveToolAfterSelection);
       setMode("edit");
+      const geometry = exportCanvasFrameGeometryById[pickedId];
+      if (
+        geometry &&
+        Number.isFinite(geometry.x) &&
+        Number.isFinite(geometry.y) &&
+        Number.isFinite(geometry.width) &&
+        Number.isFinite(geometry.height)
+      ) {
+        cameraCommandNonceRef.current += 1;
+        setCameraCommand({
+          ...getCreatedScreenNavigationPlan({
+            screenId: pickedId,
+            geometry: {
+              x: geometry.x as number,
+              y: geometry.y as number,
+              width: geometry.width as number,
+              height: geometry.height as number,
+            },
+          }).camera,
+          nonce: cameraCommandNonceRef.current,
+        });
+      }
       if (activeBreakpointWidthStateRef.current !== undefined) {
         handleBreakpointBarSelect(undefined);
       }
     },
-    [clearPendingOverviewLayerSelectionTimer, handleBreakpointBarSelect],
+    [
+      cameraCommandNonceRef,
+      clearPendingOverviewLayerSelectionTimer,
+      exportCanvasFrameGeometryById,
+      handleBreakpointBarSelect,
+      setCameraCommand,
+    ],
   );
 
   return {

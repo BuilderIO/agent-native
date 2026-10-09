@@ -17,7 +17,11 @@ import { defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
-import { createMCPServerForRequest } from "./build-server.js";
+import {
+  createMCPServerForRequest,
+  selectMcpDirectoryWidgetReadActions,
+  selectMcpDirectoryWidgetWriteActions,
+} from "./build-server.js";
 import * as mcpBuildServer from "./build-server.js";
 import { MCP_DIRECTORY_ROUTE_PREFIX } from "./route-paths.js";
 
@@ -864,6 +868,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           ...new Set([
             ...profile.connectorCatalog,
             ...Object.keys(profile.widgetReadActionArguments ?? {}),
+            ...Object.keys(profile.widgetWriteActionArguments ?? {}),
           ]),
         ];
         const sharedActions =
@@ -906,11 +911,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           instructions: profile.instructions,
           actions,
           productionActions: actions,
-          widgetReadActions: Object.fromEntries(
-            (profile.widgetReadPrivateActions ?? []).map((name) => [
-              name,
-              loadedActions[name],
-            ]),
+          widgetReadActions: selectMcpDirectoryWidgetReadActions(
+            profile,
+            loadedActions,
+          ),
+          widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
+            profile,
+            loadedActions,
           ),
           builtinCrossAppTools: false,
           directoryProfile: profile,
@@ -1189,7 +1196,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           expect(widgetTools.map((tool: any) => tool.name).sort()).toEqual(
             expectedWidgetToolNames[appId],
           );
-          expect(linkedUris).toEqual([`ui://${appId}/shell-v68`]);
+          expect(linkedUris).toEqual([`ui://${appId}/shell-v69`]);
           for (const tool of widgetTools) {
             const uri = tool._meta.ui.resourceUri;
             expect(Object.keys(tool._meta).sort()).toEqual([
@@ -2158,6 +2165,18 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       run: async (args: Record<string, unknown>) => ({ id: args.id }),
     });
+    const updateDocument = defineAction({
+      description: "Update one workspace document title.",
+      schema: z.object({ id: z.string(), title: z.string() }),
+      http: { method: "POST" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ updated: true }),
+    });
     const directoryConfig = {
       ...config,
       catalogMode: "directory" as const,
@@ -2172,6 +2191,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
               ? {
                   targetPath: `/page/${encodeURIComponent(record.id)}`,
                   resourceIds: { documentId: record.id },
+                  writeActions: ["update-document"],
                 }
               : null;
           },
@@ -2179,12 +2199,19 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         widgetReadActionArguments: {
           "get-document": { id: "documentId" },
         },
+        widgetWriteActionArguments: {
+          "update-document": {
+            id: "documentId",
+            title: { type: "actionSchema" as const },
+          },
+        },
       },
       widgetDomain: "https://mail.agent-native.com",
       actions: {
         "create-document": createDocument,
         "get-document": getDocument,
       },
+      widgetWriteActions: { "update-document": updateDocument },
     };
     const headers = await mcpAppsAuthHeaders({
       resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
@@ -2225,13 +2252,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(originalCall.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl: expect.stringContaining("minted-picker-ticket"),
     });
+    expect(
+      embedSessionMocks.createEmbedSessionTicket.mock.calls[0]?.[0]?.scope,
+    ).toContain("capability:mcp-directory-widget-write:");
 
     const savedMetadata = { ...originalCall.result._meta };
     delete savedMetadata["agent-native/embedStart"];
-    delete savedMetadata["agent-native/widgetSource"];
     expect(savedMetadata).not.toHaveProperty("agent-native/embedStart");
-    expect(savedMetadata).not.toHaveProperty("agent-native/widgetSource");
     const reloadArguments = {
+      sourceTool: "create-document",
       toolInput: {},
       toolOutput: originalCall.result.structuredContent,
       chrome: "full",
@@ -2261,9 +2290,22 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         ownerEmail: "oauth@example.com",
         orgId: undefined,
         targetPath: "/page/doc-1?__an_mcp_chat_bridge=1",
-        scope: expect.stringContaining("capability:mcp-directory-widget-read:"),
+        scope: expect.stringContaining(
+          "capability:mcp-directory-widget-write:",
+        ),
+        ttlSeconds: 900,
       },
     );
+    const writeScope =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
+    const {
+      getMcpDirectoryWidgetWriteCapabilityExpiresAt,
+      isMcpDirectoryWidgetWriteCapabilityScope,
+    } = await import("../shared/embed-auth.js");
+    expect(isMcpDirectoryWidgetWriteCapabilityScope(writeScope)).toBe(true);
+    const expiresAt = getMcpDirectoryWidgetWriteCapabilityExpiresAt(writeScope);
+    expect(expiresAt).toBeGreaterThan(Date.now());
+    expect(expiresAt).toBeLessThanOrEqual(Date.now() + 15 * 60 * 1000);
   });
 
   it("does not publish directory widgets or embed tickets to non-user principals", async () => {
@@ -2415,7 +2457,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       mcpApp: {
         resource: {
-          uri: "ui://design/shell-v68",
+          uri: "ui://design/shell-v69",
           title: "Design",
           html: "<!doctype html><html><body>Design</body></html>",
         },
@@ -2540,6 +2582,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         orgId: undefined,
         targetPath: "/design/design-42?__an_mcp_chat_bridge=1",
         scope: expect.stringContaining("capability:mcp-directory-widget-read:"),
+        ttlSeconds: 900,
       },
     );
     const { allowsMcpDirectoryWidgetReadAction } =
@@ -2550,7 +2593,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       allowsMcpDirectoryWidgetReadAction(renewalCapability, {
         actionName: "get-design",
         appId: "design",
-        resourceUri: "ui://design/shell-v68",
+        resourceUri: "ui://design/shell-v69",
         args: { id: "design-42" },
         allowedArgumentNames: ["id"],
       }),
@@ -2640,10 +2683,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       listed.result.tools.map((tool: any) => [tool.name, tool]),
     );
     expect(tools["create-design"]._meta.ui.resourceUri).toBe(
-      "ui://mail/shell-v68",
+      "ui://mail/shell-v69",
     );
     expect(tools["create-design"]._meta["openai/outputTemplate"]).toBe(
-      "ui://mail/shell-v68",
+      "ui://mail/shell-v69",
     );
     expect(tools["create-design"].outputSchema).toBeDefined();
     expect(tools["get-design-snapshot"]._meta).toBeUndefined();
@@ -2655,7 +2698,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const resources = await rpc(171, "resources/list", {});
     expect(
       resources.result.resources.map((resource: any) => resource.uri),
-    ).toEqual(["ui://mail/shell-v68"]);
+    ).toEqual(["ui://mail/shell-v69"]);
 
     const snapshotCall = await rpc(172, "tools/call", {
       name: "get-design-snapshot",
@@ -2683,7 +2726,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       startUrl: expect.stringContaining("minted-picker-ticket"),
     });
     expect(createCall.result._meta["openai/outputTemplate"]).toBe(
-      "ui://mail/shell-v68",
+      "ui://mail/shell-v69",
     );
     expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(1);
 
@@ -2710,7 +2753,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       mcpApp: {
         resource: {
-          uri: "ui://content/shell-v68",
+          uri: "ui://content/shell-v69",
           title: "Open database",
           html: "<!doctype html><html><body>Content</body></html>",
         },
@@ -2729,7 +2772,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       mcpApp: {
         resource: {
-          uri: "ui://content/shell-v68",
+          uri: "ui://content/shell-v69",
           title: "Open document",
           html: "<!doctype html><html><body>Content</body></html>",
         },
@@ -2958,7 +3001,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       allowsMcpDirectoryWidgetReadAction(renewedCapability, {
         actionName: "list-comments",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { documentId: "document-7" },
         allowedArgumentNames: ["documentId"],
       }),
@@ -2967,7 +3010,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       allowsMcpDirectoryWidgetReadAction(renewedCapability, {
         actionName: "list-comments",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { documentId: "another-document" },
         allowedArgumentNames: ["documentId"],
       }),
@@ -2976,7 +3019,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       allowsMcpDirectoryWidgetReadAction(renewedCapability, {
         actionName: "get-content-database-personal-view",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { databaseId: "database-7" },
         allowedArgumentNames: ["databaseId"],
       }),
@@ -2985,7 +3028,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       allowsMcpDirectoryWidgetReadAction(renewedCapability, {
         actionName: "get-content-database-personal-view",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { databaseId: "another-database" },
         allowedArgumentNames: ["databaseId"],
       }),
@@ -2994,7 +3037,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       allowsMcpDirectoryWidgetReadAction(renewedCapability, {
         actionName: "query-content-database-items",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: baseArgs,
         allowedArgumentNames: ["documentId", "limit", "tableQuery"],
       }),
@@ -3003,7 +3046,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       allowsMcpDirectoryWidgetReadAction(renewedCapability, {
         actionName: "query-content-database-items",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { ...baseArgs, documentId: "another-document" },
         allowedArgumentNames: ["documentId", "limit", "tableQuery"],
       }),

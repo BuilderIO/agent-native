@@ -37,6 +37,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         ? {
             targetPath: `/design/${encodeURIComponent(designId)}`,
             resourceIds: { designId },
+            writeActions: ["update-design", "update-file"],
           }
         : null;
     },
@@ -53,6 +54,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         ? {
             targetPath: `/design/${encodeURIComponent(designId)}`,
             resourceIds: { designId },
+            writeActions: ["update-design", "update-file"],
           }
         : null;
     },
@@ -62,6 +64,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         ? {
             targetPath: `/design/${encodeURIComponent(designId)}`,
             resourceIds: { designId },
+            writeActions: ["update-design", "update-file"],
           }
         : null;
     },
@@ -74,6 +77,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         ? {
             targetPath: `/design/${encodeURIComponent(designId)}`,
             resourceIds: { designId },
+            writeActions: ["update-design", "update-file"],
           }
         : null;
     },
@@ -81,6 +85,25 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   widgetReadActionArguments: {
     "get-design-snapshot": { designId: "designId" },
     "get-design": { id: "designId" },
+  },
+  widgetWriteActionArguments: {
+    "update-design": {
+      id: "designId",
+      title: { type: "actionSchema" as const },
+      dataOperations: { type: "actionSchema" as const },
+      operationSource: { type: "actionSchema" as const },
+      operationRevision: { type: "actionSchema" as const },
+    },
+    "update-file": {
+      id: {
+        type: "actionSchemaResourceBound" as const,
+        resourceKey: "designId",
+      },
+      content: { type: "actionSchema" as const },
+      expectedVersionHash: { type: "actionSchema" as const },
+      operationSource: { type: "actionSchema" as const },
+      operationRevision: { type: "actionSchema" as const },
+    },
   },
   widgetReadPublicActions: ["get-design"],
   keyToolNames: [

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { applyMcpDirectoryWidgetReadOnlyPolicy } from "./mcp-widget-write-capabilities";
+import {
+  applyMcpDirectoryWidgetReadOnlyPolicy,
+  applyMcpDirectoryWidgetWritePolicy,
+} from "./mcp-widget-write-capabilities";
 
 describe("MCP directory widget write capabilities", () => {
   const editableDesignCapabilities = {
@@ -27,5 +30,43 @@ describe("MCP directory widget write capabilities", () => {
     expect(
       applyMcpDirectoryWidgetReadOnlyPolicy(editableDesignCapabilities, false),
     ).toBe(editableDesignCapabilities);
+  });
+
+  it("enables Design editing only for an explicitly writable widget", () => {
+    const viewerCapabilities = {
+      canEditDesign: false,
+      canEditLiveScreens: false,
+      publicVisualEdit: false,
+      canCommentDesign: false,
+      canRenderAuthenticatedShare: false,
+    };
+
+    expect(
+      applyMcpDirectoryWidgetWritePolicy(viewerCapabilities, true),
+    ).toEqual({ ...viewerCapabilities, canEditDesign: true });
+    expect(applyMcpDirectoryWidgetWritePolicy(viewerCapabilities, false)).toBe(
+      viewerCapabilities,
+    );
+  });
+
+  it("still blocks every write when a read-only widget policy applies", () => {
+    const writeGrant = applyMcpDirectoryWidgetWritePolicy(
+      {
+        canEditDesign: false,
+        canEditLiveScreens: false,
+        publicVisualEdit: false,
+        canCommentDesign: false,
+        canRenderAuthenticatedShare: false,
+      },
+      true,
+    );
+
+    expect(applyMcpDirectoryWidgetReadOnlyPolicy(writeGrant, true)).toEqual({
+      canEditDesign: false,
+      canEditLiveScreens: false,
+      publicVisualEdit: false,
+      canCommentDesign: false,
+      canRenderAuthenticatedShare: false,
+    });
   });
 });

@@ -71,6 +71,7 @@ describe("runApplyDesignEditorCommand: overview camera fit", () => {
     expect(applied).toBe(true);
     expect(args.setActiveFileId).toHaveBeenCalledWith("file-1");
     expect(args.setOverviewSelectedScreenIds).toHaveBeenCalledWith(["file-1"]);
+    expect(args.setSelectedLayerIdsState).toHaveBeenCalledWith(["file-1"]);
     expect(requestCameraFit).toHaveBeenCalledTimes(1);
     const camera = requestCameraFit.mock.calls[0]![0];
     expect(camera.fitBounds).toMatchObject({
@@ -233,21 +234,26 @@ describe("runApplyDesignEditorCommand: overview camera fit", () => {
   });
 });
 
-describe("runApplyDesignEditorCommand: focused URL mode", () => {
-  it("preserves an explicit edit mode for single-screen navigation", () => {
+describe("runApplyDesignEditorCommand: screen focus stays on All screens", () => {
+  it("keeps legacy single-screen focus commands in the overview and fits the target", () => {
+    const requestCameraFit = vi.fn();
     const args = makeArgs({
       files: [screenFile],
       overviewScreens: [overviewScreen],
+      requestCameraFit,
     });
     const applied = runApplyDesignEditorCommand(args, {
       designId: "design-1",
       issuedAt: 0,
       editorView: "single",
       screen: "file-1",
-      mode: "edit",
+      mode: "interact",
     });
     expect(applied).toBe(true);
     expect(args.setMode).toHaveBeenCalledWith("edit");
-    expect(args.setViewMode).toHaveBeenCalledWith("single");
+    expect(args.setViewMode).toHaveBeenCalledWith("overview");
+    expect(args.setSelectedLayerIdsState).toHaveBeenCalledWith(["file-1"]);
+    expect(requestCameraFit).toHaveBeenCalledTimes(1);
+    expect(args.setScreenZoom).not.toHaveBeenCalled();
   });
 });

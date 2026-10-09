@@ -43,6 +43,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
               resourceType: "document",
               ...(spaceId ? { spaceId } : {}),
             },
+            writeActions: ["update-document"],
           }
         : null;
     },
@@ -60,9 +61,11 @@ export const CHATGPT_DIRECTORY_PROFILE = {
             resourceIds: {
               databaseId,
               documentId,
+              databaseDocumentId: documentId,
               resourceType: "document",
               ...(spaceId ? { spaceId } : {}),
             },
+            writeActions: ["add-database-item", "update-database-item"],
           }
         : null;
     },
@@ -86,6 +89,54 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       documentId: "documentId",
       limit: { type: "integerRange" as const, min: 1, max: 5_000 },
       tableQuery: { type: "actionSchema" as const },
+    },
+  },
+  widgetWriteActionArguments: {
+    "update-document": {
+      id: "documentId",
+      title: { type: "actionSchema" as const },
+      content: { type: "actionSchema" as const },
+      loadedUpdatedAt: { type: "actionSchema" as const },
+      loadedContentWasEmpty: { type: "actionSchema" as const },
+      baseUpdatedAt: { type: "actionSchema" as const },
+      recoveryExpectedUpdatedAt: { type: "actionSchema" as const },
+      baseRevision: { type: "actionSchema" as const },
+      authoredBaseRevision: { type: "actionSchema" as const },
+      authoredBaseContent: { type: "actionSchema" as const },
+      authoredCandidateContent: { type: "actionSchema" as const },
+      baseTitle: { type: "actionSchema" as const },
+      historySessionId: { type: "actionSchema" as const },
+      editorSessionId: { type: "actionSchema" as const },
+      editorEditGeneration: { type: "actionSchema" as const },
+      editorSnapshotTitle: { type: "actionSchema" as const },
+      editorSnapshotContent: { type: "actionSchema" as const },
+      browserSaveAttemptId: { type: "actionSchema" as const },
+      preserveLeadingTitleHeading: { type: "actionSchema" as const },
+    },
+    "add-database-item": {
+      target: {
+        type: "actionSchemaResourceBound" as const,
+        resourceKey: "databaseId",
+      },
+      expectedSchemaRevision: { type: "actionSchema" as const },
+      idempotencyKey: { type: "actionSchema" as const },
+      title: { type: "actionSchema" as const },
+      propertyValues: { type: "actionSchema" as const },
+      propertyEntries: { type: "actionSchema" as const },
+    },
+    "update-database-item": {
+      target: {
+        type: "actionSchemaResourceBound" as const,
+        resourceKey: "databaseId",
+      },
+      expectedSchemaRevision: { type: "actionSchema" as const },
+      idempotencyKey: { type: "actionSchema" as const },
+      itemId: { type: "actionSchema" as const },
+      documentId: { type: "actionSchema" as const },
+      expectedRowRevision: { type: "actionSchema" as const },
+      title: { type: "actionSchema" as const },
+      propertyValues: { type: "actionSchema" as const },
+      propertyEntries: { type: "actionSchema" as const },
     },
   },
   widgetReadOnlyActions: [

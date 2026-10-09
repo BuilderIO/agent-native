@@ -338,6 +338,19 @@ export const OperationSchema = z.discriminatedUnion("op", [
 
 export type Operation = z.infer<typeof OperationSchema>;
 
+export function isMcpWidgetPatchAllowed(
+  caller: string | undefined,
+  operations: Operation[],
+): boolean {
+  if (caller !== "mcp-widget-write") return true;
+
+  return operations.every(
+    (operation) =>
+      operation.op !== "patch-deck-fields" ||
+      Object.keys(operation.fields).every((field) => field === "title"),
+  );
+}
+
 function persistedTargetSlideCount(deck: unknown): number | null {
   if (!deck || typeof deck !== "object" || Array.isArray(deck)) return null;
   const generationContext = (deck as Record<string, unknown>).generationContext;
@@ -981,6 +994,16 @@ export default defineAction({
     },
     ctx,
   ) => {
+    if (!isMcpWidgetPatchAllowed(ctx?.caller, operations)) {
+      fail(
+        "The Slides widget can only update the deck title and slide content, not deck access or linked resources.",
+        {
+          errorCode: "mcp_widget_write_outside_editor_scope",
+          statusCode: 403,
+        },
+      );
+    }
+
     await assertAccess("deck", deckId, "editor");
     const isAgentCaller = isAgentPatchCaller(ctx?.caller);
 

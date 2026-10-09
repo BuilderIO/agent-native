@@ -10,6 +10,7 @@ export {
   isEmbedAuthActive,
   isEmbedMcpChatBridgeActive,
   isMcpDirectoryWidgetReadOnlyEmbed,
+  isMcpDirectoryWidgetWriteEmbed,
 } from "../embed-auth.js";
 export {
   sendToFrame,

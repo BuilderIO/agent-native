@@ -9,7 +9,11 @@ export const EMBED_TARGET_HEADER = "x-agent-native-embed-target";
 
 export const MCP_DIRECTORY_WIDGET_READ_CAPABILITY_PREFIX =
   "capability:mcp-directory-widget-read:";
+export const MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_PREFIX =
+  "capability:mcp-directory-widget-write:";
 export const MCP_DIRECTORY_WIDGET_READ_CAPABILITY_MAX_LENGTH = 2048;
+export const MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH = 4096;
+export const MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS = 15 * 60 * 1000;
 const MCP_DIRECTORY_WIDGET_INTEGER_ARGUMENT_MAX = 5_000;
 
 const MCP_DIRECTORY_ACTION_NAME = /^[A-Za-z0-9_.-]{1,128}$/;
@@ -26,13 +30,36 @@ export interface McpDirectoryWidgetReadCapabilityInput {
   >;
 }
 
+export interface McpDirectoryWidgetWriteCapabilityInput {
+  appId: string;
+  resourceUri: string;
+  resourceIds: Record<string, string>;
+  userEmail: string;
+  orgId?: string;
+  expiresAtMs: number;
+  readActionArguments: Record<
+    string,
+    Record<string, McpDirectoryWidgetReadArgument>
+  >;
+  writeActionArguments: Record<
+    string,
+    Record<string, McpDirectoryWidgetReadArgument>
+  >;
+}
+
 export type McpDirectoryWidgetReadArgument =
   | string
   | { type: "integerRange"; min: number; max: number }
   /** Dynamic input validated against the server action schema after resource binding. */
-  | { type: "actionSchema" };
+  | { type: "actionSchema" }
+  /** Dynamic input whose artifact relationship is checked by the action. */
+  | { type: "actionSchemaResourceBound"; resourceKey: string };
 
 interface McpDirectoryWidgetReadCapability extends McpDirectoryWidgetReadCapabilityInput {
+  version: 1;
+}
+
+interface McpDirectoryWidgetWriteCapability extends McpDirectoryWidgetWriteCapabilityInput {
   version: 1;
 }
 
@@ -60,6 +87,7 @@ function isStringRecord(
 
 function isWidgetReadArgument(
   value: unknown,
+  allowResourceBound = false,
 ): value is McpDirectoryWidgetReadArgument {
   if (typeof value === "string") {
     return (
@@ -72,6 +100,14 @@ function isWidgetReadArgument(
   const range = value as Record<string, unknown>;
   if (range.type === "actionSchema") {
     return Object.keys(range).length === 1;
+  }
+  if (range.type === "actionSchemaResourceBound") {
+    return (
+      allowResourceBound &&
+      Object.keys(range).length === 2 &&
+      typeof range.resourceKey === "string" &&
+      MCP_DIRECTORY_SCOPE_KEY.test(range.resourceKey)
+    );
   }
   return (
     range.type === "integerRange" &&
@@ -86,7 +122,15 @@ function isWidgetReadArgument(
 
 function isWidgetReadArgumentRecord(
   value: unknown,
-  { minEntries = 1, maxEntries = 16 } = {},
+  {
+    minEntries = 1,
+    maxEntries = 16,
+    allowResourceBound = false,
+  }: {
+    minEntries?: number;
+    maxEntries?: number;
+    allowResourceBound?: boolean;
+  } = {},
 ): value is Record<string, McpDirectoryWidgetReadArgument> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
@@ -97,7 +141,8 @@ function isWidgetReadArgumentRecord(
     entries.length <= maxEntries &&
     entries.every(
       ([key, item]) =>
-        MCP_DIRECTORY_SCOPE_KEY.test(key) && isWidgetReadArgument(item),
+        MCP_DIRECTORY_SCOPE_KEY.test(key) &&
+        isWidgetReadArgument(item, allowResourceBound),
     )
   );
 }
@@ -193,6 +238,104 @@ function decodeMcpDirectoryWidgetReadCapability(
     : { ok: false, reason: "invalid-capability" };
 }
 
+function decodeMcpDirectoryWidgetWriteCapability(
+  scope: string,
+): McpDirectoryWidgetWriteCapability | undefined {
+  if (
+    !scope.startsWith(MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_PREFIX) ||
+    scope.length > MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH
+  ) {
+    return undefined;
+  }
+  try {
+    const value = JSON.parse(
+      decodeURIComponent(
+        scope.slice(MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_PREFIX.length),
+      ),
+    ) as Record<string, unknown>;
+    if (
+      value.version !== 1 ||
+      typeof value.appId !== "string" ||
+      !MCP_DIRECTORY_SCOPE_KEY.test(value.appId) ||
+      typeof value.resourceUri !== "string" ||
+      !value.resourceUri.startsWith("ui://") ||
+      value.resourceUri.length > 512 ||
+      CONTROL_CHARS.test(value.resourceUri) ||
+      !isStringRecord(value.resourceIds) ||
+      typeof value.userEmail !== "string" ||
+      value.userEmail.length > 320 ||
+      CONTROL_CHARS.test(value.userEmail) ||
+      (value.orgId !== undefined &&
+        (typeof value.orgId !== "string" ||
+          value.orgId.length > 256 ||
+          CONTROL_CHARS.test(value.orgId))) ||
+      !Number.isSafeInteger(value.expiresAtMs)
+    ) {
+      return undefined;
+    }
+    const readActionArguments = value.readActionArguments;
+    const writeActionArguments = value.writeActionArguments;
+    if (
+      !isWidgetActionArgumentMap(readActionArguments, { minActions: 0 }) ||
+      !isWidgetActionArgumentMap(writeActionArguments, {
+        maxArguments: 32,
+        allowResourceBound: true,
+      }) ||
+      Object.keys(writeActionArguments).some((actionName) => {
+        const args = writeActionArguments[actionName];
+        return !Object.values(args).some((argument) =>
+          typeof argument === "string"
+            ? Object.values(
+                value.resourceIds as Record<string, string>,
+              ).includes(argument)
+            : argument.type === "actionSchemaResourceBound" &&
+              Object.hasOwn(
+                value.resourceIds as Record<string, string>,
+                argument.resourceKey,
+              ),
+        );
+      })
+    ) {
+      return undefined;
+    }
+    return value as unknown as McpDirectoryWidgetWriteCapability;
+  } catch {
+    // coercion-ok: malformed caller scope remains an absent, denied capability.
+    return undefined;
+  }
+}
+
+function isWidgetActionArgumentMap(
+  value: unknown,
+  {
+    minActions = 1,
+    maxArguments = 16,
+    allowResourceBound = false,
+  }: {
+    minActions?: number;
+    maxArguments?: number;
+    allowResourceBound?: boolean;
+  } = {},
+): value is Record<string, Record<string, McpDirectoryWidgetReadArgument>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const actions = Object.entries(value);
+  return (
+    actions.length >= minActions &&
+    actions.length <= 32 &&
+    actions.every(
+      ([actionName, args]) =>
+        MCP_DIRECTORY_ACTION_NAME.test(actionName) &&
+        isWidgetReadArgumentRecord(args, {
+          minEntries: 0,
+          maxEntries: maxArguments,
+          allowResourceBound,
+        }),
+    )
+  );
+}
+
 function sortStringRecord(value: Record<string, string>) {
   return Object.fromEntries(
     Object.entries(value).sort(([a], [b]) => a.localeCompare(b)),
@@ -263,12 +406,185 @@ export function createMcpDirectoryWidgetReadCapability(
     : undefined;
 }
 
+export function createMcpDirectoryWidgetWriteCapability(
+  input: McpDirectoryWidgetWriteCapabilityInput,
+): string | undefined {
+  const now = Date.now();
+  if (
+    !input ||
+    typeof input.appId !== "string" ||
+    !MCP_DIRECTORY_SCOPE_KEY.test(input.appId) ||
+    typeof input.resourceUri !== "string" ||
+    !input.resourceUri.startsWith("ui://") ||
+    input.resourceUri.length > 512 ||
+    CONTROL_CHARS.test(input.resourceUri) ||
+    !isStringRecord(input.resourceIds) ||
+    typeof input.userEmail !== "string" ||
+    !input.userEmail.trim() ||
+    input.userEmail.length > 320 ||
+    CONTROL_CHARS.test(input.userEmail) ||
+    (input.orgId !== undefined &&
+      (typeof input.orgId !== "string" ||
+        !input.orgId.trim() ||
+        input.orgId.length > 256 ||
+        CONTROL_CHARS.test(input.orgId))) ||
+    !Number.isSafeInteger(input.expiresAtMs) ||
+    input.expiresAtMs <= now ||
+    input.expiresAtMs >
+      now + MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS ||
+    !isWidgetActionArgumentMap(input.readActionArguments, { minActions: 0 }) ||
+    !isWidgetActionArgumentMap(input.writeActionArguments, {
+      maxArguments: 32,
+      allowResourceBound: true,
+    }) ||
+    Object.values(input.writeActionArguments).some(
+      (args) =>
+        !Object.values(args).some((argument) =>
+          typeof argument === "string"
+            ? Object.values(input.resourceIds).includes(argument)
+            : argument.type === "actionSchemaResourceBound" &&
+              Object.hasOwn(input.resourceIds, argument.resourceKey),
+        ),
+    )
+  ) {
+    return undefined;
+  }
+
+  const capability: McpDirectoryWidgetWriteCapability = {
+    version: 1,
+    appId: input.appId,
+    resourceUri: input.resourceUri,
+    resourceIds: sortStringRecord(input.resourceIds),
+    userEmail: input.userEmail.trim().toLowerCase(),
+    ...(input.orgId ? { orgId: input.orgId } : {}),
+    expiresAtMs: input.expiresAtMs,
+    readActionArguments: Object.fromEntries(
+      Object.entries(input.readActionArguments)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([actionName, args]) => [
+          actionName,
+          sortWidgetReadArgumentRecord(args),
+        ]),
+    ),
+    writeActionArguments: Object.fromEntries(
+      Object.entries(input.writeActionArguments)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([actionName, args]) => [
+          actionName,
+          sortWidgetReadArgumentRecord(args),
+        ]),
+    ),
+  };
+  const scope =
+    MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_PREFIX +
+    encodeURIComponent(JSON.stringify(capability));
+  return scope.length <= MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH
+    ? scope
+    : undefined;
+}
+
 export function isMcpDirectoryWidgetReadCapabilityScope(
   scope: string | undefined,
 ): boolean {
   return (
     scope?.startsWith(MCP_DIRECTORY_WIDGET_READ_CAPABILITY_PREFIX) === true
   );
+}
+
+export function isMcpDirectoryWidgetWriteCapabilityScope(
+  scope: string | undefined,
+): boolean {
+  return (
+    scope?.startsWith(MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_PREFIX) === true
+  );
+}
+
+export function isMcpDirectoryWidgetCapabilityScope(
+  scope: string | undefined,
+): boolean {
+  return (
+    isMcpDirectoryWidgetReadCapabilityScope(scope) ||
+    isMcpDirectoryWidgetWriteCapabilityScope(scope)
+  );
+}
+
+export function matchesMcpDirectoryWidgetWriteCapability(
+  scope: string | undefined,
+  input: {
+    appId: string;
+    resourceUri: string;
+    userEmail: string;
+    orgId?: string | null;
+  },
+): boolean {
+  if (!scope || !isMcpDirectoryWidgetWriteCapabilityScope(scope)) {
+    return false;
+  }
+  const capability = decodeMcpDirectoryWidgetWriteCapability(scope);
+  return (
+    capability !== undefined &&
+    capability.expiresAtMs > Date.now() &&
+    capability.appId === input.appId &&
+    capability.resourceUri === input.resourceUri &&
+    capability.userEmail === input.userEmail.trim().toLowerCase() &&
+    capability.orgId === (input.orgId ?? undefined)
+  );
+}
+
+export function getMcpDirectoryWidgetWriteCapabilityGrant(
+  scope: string | undefined,
+  input: {
+    appId: string;
+    resourceUri: string;
+    userEmail: string;
+    orgId?: string | null;
+  },
+): { resourceIds: Record<string, string>; actionNames: string[] } | undefined {
+  if (!matchesMcpDirectoryWidgetWriteCapability(scope, input) || !scope) {
+    return undefined;
+  }
+  const capability = decodeMcpDirectoryWidgetWriteCapability(scope);
+  return capability
+    ? {
+        resourceIds: { ...capability.resourceIds },
+        actionNames: Object.keys(capability.writeActionArguments),
+      }
+    : undefined;
+}
+
+export function getMcpDirectoryWidgetWriteCapabilityExpiresAt(
+  scope: string | undefined,
+): number | undefined {
+  if (!scope || !isMcpDirectoryWidgetWriteCapabilityScope(scope)) {
+    return undefined;
+  }
+  return decodeMcpDirectoryWidgetWriteCapability(scope)?.expiresAtMs;
+}
+
+export function matchesMcpDirectoryWidgetReadCapabilityResource(
+  scope: string | undefined,
+  input: { appId: string; resourceUri: string },
+): boolean {
+  if (!scope || !isMcpDirectoryWidgetReadCapabilityScope(scope)) return false;
+  const decoded = decodeMcpDirectoryWidgetReadCapability(scope);
+  return (
+    decoded.ok &&
+    decoded.capability.appId === input.appId &&
+    decoded.capability.resourceUri === input.resourceUri
+  );
+}
+
+function widgetReadActionArgumentsForScope(
+  scope: string,
+): Record<string, Record<string, McpDirectoryWidgetReadArgument>> | undefined {
+  if (isMcpDirectoryWidgetWriteCapabilityScope(scope)) {
+    const capability = decodeMcpDirectoryWidgetWriteCapability(scope);
+    return capability && capability.expiresAtMs > Date.now()
+      ? capability.readActionArguments
+      : undefined;
+  }
+  const decoded = decodeMcpDirectoryWidgetReadCapability(scope);
+  return decoded.ok ? decoded.capability.actionArguments : undefined;
 }
 
 export function normalizeMcpDirectoryWidgetReadActionArguments(
@@ -278,22 +594,43 @@ export function normalizeMcpDirectoryWidgetReadActionArguments(
     appId: string | undefined;
     resourceUri: string | undefined;
     args?: Record<string, unknown>;
+    userEmail?: string;
+    orgId?: string | null;
     allowedArgumentNames?: readonly string[];
     requireArgumentMatch?: boolean;
   },
 ): Record<string, unknown> | undefined {
   if (!scope || !input.appId || !input.resourceUri) return undefined;
-  const decoded = decodeMcpDirectoryWidgetReadCapability(scope);
-  if (!decoded.ok) return undefined;
-  const capability = decoded.capability;
+  const actionArguments = widgetReadActionArgumentsForScope(scope);
+  if (!actionArguments) return undefined;
+  let capabilityAppId: string | undefined;
+  let capabilityResourceUri: string | undefined;
+  let capabilityUserEmail: string | undefined;
+  let capabilityOrgId: string | undefined;
+  if (isMcpDirectoryWidgetWriteCapabilityScope(scope)) {
+    const capability = decodeMcpDirectoryWidgetWriteCapability(scope);
+    capabilityAppId = capability?.appId;
+    capabilityResourceUri = capability?.resourceUri;
+    capabilityUserEmail = capability?.userEmail;
+    capabilityOrgId = capability?.orgId;
+  } else {
+    const decoded = decodeMcpDirectoryWidgetReadCapability(scope);
+    capabilityAppId = decoded.ok ? decoded.capability.appId : undefined;
+    capabilityResourceUri = decoded.ok
+      ? decoded.capability.resourceUri
+      : undefined;
+  }
   if (
-    !capability ||
-    capability.appId !== input.appId ||
-    capability.resourceUri !== input.resourceUri
+    capabilityAppId !== input.appId ||
+    capabilityResourceUri !== input.resourceUri ||
+    (capabilityUserEmail &&
+      capabilityUserEmail !== input.userEmail?.trim().toLowerCase()) ||
+    (isMcpDirectoryWidgetWriteCapabilityScope(scope) &&
+      capabilityOrgId !== (input.orgId ?? undefined))
   ) {
     return undefined;
   }
-  const expectedArgs = capability.actionArguments[input.actionName];
+  const expectedArgs = actionArguments[input.actionName];
   if (!expectedArgs) return undefined;
 
   const allowedNames = [...(input.allowedArgumentNames ?? [])].sort();
@@ -333,6 +670,97 @@ export function normalizeMcpDirectoryWidgetReadActionArguments(
       normalizedArgs.push([name, value]);
       continue;
     }
+    if (expected.type === "actionSchemaResourceBound") return undefined;
+    const number =
+      typeof value === "number"
+        ? value
+        : typeof value === "string" && /^(0|[1-9]\d*)$/.test(value)
+          ? Number(value)
+          : Number.NaN;
+    if (
+      !Number.isSafeInteger(number) ||
+      number < expected.min ||
+      number > expected.max
+    ) {
+      return undefined;
+    }
+    normalizedArgs.push([name, number]);
+  }
+  return Object.fromEntries(normalizedArgs);
+}
+
+export function normalizeMcpDirectoryWidgetWriteActionArguments(
+  scope: string | undefined,
+  input: {
+    actionName: string;
+    appId: string | undefined;
+    resourceUri: string | undefined;
+    userEmail: string | undefined;
+    orgId?: string | null;
+    args?: Record<string, unknown>;
+    allowedArgumentNames?: readonly string[];
+  },
+): Record<string, unknown> | undefined {
+  if (
+    !scope ||
+    !isMcpDirectoryWidgetWriteCapabilityScope(scope) ||
+    !input.appId ||
+    !input.resourceUri ||
+    !input.userEmail
+  ) {
+    return undefined;
+  }
+  const capability = decodeMcpDirectoryWidgetWriteCapability(scope);
+  if (
+    !capability ||
+    capability.expiresAtMs <= Date.now() ||
+    capability.appId !== input.appId ||
+    capability.resourceUri !== input.resourceUri ||
+    capability.userEmail !== input.userEmail.trim().toLowerCase() ||
+    capability.orgId !== (input.orgId ?? undefined)
+  ) {
+    return undefined;
+  }
+  const expectedArgs = capability.writeActionArguments[input.actionName];
+  if (!expectedArgs) return undefined;
+  const allowedNames = [...(input.allowedArgumentNames ?? [])].sort();
+  const expectedNames = Object.keys(expectedArgs).sort();
+  if (
+    allowedNames.length !== expectedNames.length ||
+    allowedNames.some((name, index) => name !== expectedNames[index])
+  ) {
+    return undefined;
+  }
+
+  const suppliedArgs = Object.entries(input.args ?? {});
+  const includesResourceBinding =
+    suppliedArgs.some(
+      ([name, value]) =>
+        typeof expectedArgs[name] === "string" && expectedArgs[name] === value,
+    ) ||
+    Object.values(expectedArgs).some(
+      (expected) =>
+        typeof expected !== "string" &&
+        expected.type === "actionSchemaResourceBound" &&
+        Object.hasOwn(capability.resourceIds, expected.resourceKey),
+    );
+  if (!includesResourceBinding) return undefined;
+  const normalizedArgs: Array<[string, unknown]> = [];
+  for (const [name, value] of suppliedArgs) {
+    if (!Object.hasOwn(expectedArgs, name)) return undefined;
+    const expected = expectedArgs[name];
+    if (typeof expected === "string") {
+      if (expected !== value) return undefined;
+      normalizedArgs.push([name, value]);
+      continue;
+    }
+    if (
+      expected.type === "actionSchema" ||
+      expected.type === "actionSchemaResourceBound"
+    ) {
+      normalizedArgs.push([name, value]);
+      continue;
+    }
     const number =
       typeof value === "number"
         ? value
@@ -357,6 +785,8 @@ export function allowsMcpDirectoryWidgetReadAction(
     actionName: string;
     appId: string | undefined;
     resourceUri: string | undefined;
+    userEmail?: string;
+    orgId?: string | null;
     args?: Record<string, unknown>;
     allowedArgumentNames?: readonly string[];
     requireArgumentMatch?: boolean;

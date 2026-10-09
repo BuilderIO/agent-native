@@ -9,6 +9,7 @@ import {
   assertPatchedSlideAnimationsResolve,
   assertSourceImportSlidesCovered,
   clearOmittedAnimationsForAgentContentPatches,
+  isMcpWidgetPatchAllowed,
   isAgentPatchCaller,
   OperationSchema,
   resolveDeckColumnUpdates,
@@ -1775,6 +1776,62 @@ describe("run() — asynchronous layout fit metadata", () => {
         ],
       }),
     };
+  });
+
+  it.each([
+    { visibility: "public" },
+    { shareToken: "share-token" },
+    { designSystemId: "another-design-system" },
+    { generationContext: { prompt: "unrelated" } },
+  ])("rejects widget writes to unrelated deck metadata: %o", async (fields) => {
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [{ op: "patch-deck-fields", fields }],
+      },
+      { caller: "mcp-widget-write" },
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "mcp_widget_write_outside_editor_scope",
+      statusCode: 403,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("allows widget title and slide-content edits while preserving normal callers", async () => {
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        { op: "patch-deck-fields", fields: { title: "Updated" } },
+      ]),
+    ).toBe(true);
+    expect(
+      isMcpWidgetPatchAllowed("frontend", [
+        { op: "patch-deck-fields", fields: { visibility: "public" } },
+      ]),
+    ).toBe(true);
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          { op: "patch-deck-fields", fields: { title: "Updated" } },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Edited in widget</div>" },
+          },
+        ],
+      },
+      { caller: "mcp-widget-write" },
+    );
+
+    const savedDeck = JSON.parse(String(mockDeckRow?.data));
+    expect(savedDeck.title).toBe("Updated");
+    expect(savedDeck.slides[0]).toMatchObject({
+      id: "slide-1",
+      content: "<div>Edited in widget</div>",
+    });
   });
 
   it.each(["tool", "webmcp"] as const)(

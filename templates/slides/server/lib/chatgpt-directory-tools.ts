@@ -37,6 +37,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         ? {
             targetPath: `/deck/${encodeURIComponent(deckId)}`,
             resourceIds: { deckId },
+            writeActions: ["patch-deck"],
           }
         : null;
     },
@@ -46,6 +47,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         ? {
             targetPath: `/deck/${encodeURIComponent(deckId)}`,
             resourceIds: { deckId },
+            writeActions: ["patch-deck"],
           }
         : null;
     },
@@ -53,6 +55,13 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   widgetReadActionArguments: {
     // The ticketed get-deck path normalizes duplicate IDs in memory only.
     "get-deck": { id: "deckId", deckId: "deckId" },
+  },
+  widgetWriteActionArguments: {
+    "patch-deck": {
+      deckId: "deckId",
+      operations: { type: "actionSchema" as const },
+      clientWrite: { type: "actionSchema" as const },
+    },
   },
   widgetReadOnlyActions: ["get-deck"],
   keyToolNames: [

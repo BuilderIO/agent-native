@@ -6,6 +6,14 @@ export interface DesignEditorWriteCapabilities {
   canRenderAuthenticatedShare: boolean;
 }
 
+export function applyMcpDirectoryWidgetWritePolicy(
+  capabilities: DesignEditorWriteCapabilities,
+  isWritableWidget: boolean,
+): DesignEditorWriteCapabilities {
+  if (!isWritableWidget) return capabilities;
+  return { ...capabilities, canEditDesign: true };
+}
+
 export function applyMcpDirectoryWidgetReadOnlyPolicy(
   capabilities: DesignEditorWriteCapabilities,
   isReadOnlyWidget: boolean,

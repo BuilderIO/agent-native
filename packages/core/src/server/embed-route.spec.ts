@@ -594,7 +594,7 @@ describe("createEmbedStartRouteHandler", () => {
   it("does not expose directory widget scope in the embed URL", async () => {
     const scope = createMcpDirectoryWidgetReadCapability({
       appId: "content",
-      resourceUri: "ui://content/shell-v68",
+      resourceUri: "ui://content/shell-v69",
       resourceIds: { documentId: "doc-1" },
       actionArguments: { "get-document": { id: "doc-1" } },
     });

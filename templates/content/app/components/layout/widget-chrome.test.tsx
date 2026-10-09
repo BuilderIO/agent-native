@@ -45,6 +45,8 @@ vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
     typeof import("@agent-native/core/client/mcp-app-host")
   >()),
   useIsMcpAppWidgetEmbed: () => widgetHost.embedded,
+  useIsMcpDirectoryWidgetReadOnlyEmbed: () => false,
+  useIsMcpDirectoryWidgetWriteEmbed: () => false,
 }));
 
 const WIDGET_ATTRIBUTE = "data-agent-native-mcp-widget";

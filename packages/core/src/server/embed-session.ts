@@ -17,7 +17,7 @@ import {
   EMBED_TARGET_HEADER,
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
-  MCP_DIRECTORY_WIDGET_READ_CAPABILITY_MAX_LENGTH,
+  MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH,
 } from "../shared/embed-auth.js";
 import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
@@ -82,6 +82,15 @@ export interface EmbedSessionTicket {
   ticket: string;
   ticketHash: string;
   expiresAt: number;
+}
+
+export interface McpDirectoryWidgetRenewalTicket {
+  ownerEmail: string;
+  orgId?: string;
+  targetPath: string;
+  scope: string;
+  createdAtMs: number;
+  expiresAtMs: number;
 }
 
 export type EmbedSessionTicketConsumeOutcome =
@@ -164,7 +173,7 @@ export function resolvedEmbedCapabilityScope(
   if (
     !isEmbedCapabilityScope(scope) ||
     !scope ||
-    scope.length > MCP_DIRECTORY_WIDGET_READ_CAPABILITY_MAX_LENGTH ||
+    scope.length > MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH ||
     CONTROL_CHARS.test(scope)
   ) {
     return undefined;
@@ -835,6 +844,48 @@ export async function createEmbedSessionTicket(
     await client.transaction(insert);
   }
   return { ticket, ticketHash, expiresAt };
+}
+
+export async function readMcpDirectoryWidgetRenewalTicket(
+  ticket: string,
+): Promise<McpDirectoryWidgetRenewalTicket | null> {
+  if (!ticket || ticket.length > 128 || CONTROL_CHARS.test(ticket)) {
+    return null;
+  }
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql:
+      "SELECT owner_email, org_id, target_path, scope, created_at, expires_at " +
+      "FROM agent_native_embed_tickets WHERE ticket_hash = ? LIMIT 1",
+    args: [hashTicket(ticket)],
+  });
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const ownerEmail = stringOrUndefined(row.owner_email ?? row.ownerEmail);
+  const targetPath = normalizeEmbedTargetPath(
+    stringOrUndefined(row.target_path ?? row.targetPath),
+  );
+  const scope = stringOrUndefined(row.scope);
+  const createdAtMs = numberOrNull(row.created_at ?? row.createdAt);
+  const expiresAtMs = numberOrNull(row.expires_at ?? row.expiresAt);
+  if (
+    !ownerEmail ||
+    !targetPath ||
+    !scope ||
+    !createdAtMs ||
+    expiresAtMs === null
+  ) {
+    return null;
+  }
+  const orgId = stringOrUndefined(row.org_id ?? row.orgId);
+  return {
+    ownerEmail,
+    ...(orgId ? { orgId } : {}),
+    targetPath,
+    scope,
+    createdAtMs,
+    expiresAtMs,
+  };
 }
 
 export async function resolveEmbedSessionTokenForHost(

@@ -26,6 +26,7 @@ import {
 } from "../commands/enter-single-screen";
 import { runEscapeHotkey } from "../commands/escape-hotkey";
 import { runModeChange } from "../commands/mode-change";
+import { getFocusedScreenNavigationPlan } from "../created-screen-navigation";
 import { isRadixOverlayOpen } from "../dom-guards";
 import { OVERVIEW_ZOOM_THRESHOLD } from "../editor-constants";
 import {
@@ -77,7 +78,6 @@ export function useEditorModes({
   const {
     t,
     embedded,
-    hostEmbeddedEditor,
     mode,
     setMode,
     overviewInteractScreenId,
@@ -272,6 +272,83 @@ export function useEditorModes({
     lastOverviewSelectedScreenIdsRef.current = [screenId];
   }, []);
 
+  const focusOverviewScreen = useCallback(
+    (screenId: string) => {
+      if (!files.some((file) => file.id === screenId)) return;
+      const geometry = exportCanvasFrameGeometryById[screenId];
+      const plan = geometry
+        ? getFocusedScreenNavigationPlan({
+            screenId,
+            geometry: {
+              x: geometry.x as number,
+              y: geometry.y as number,
+              width: geometry.width as number,
+              height: geometry.height as number,
+            },
+          })
+        : null;
+      selectionRevisionRef.current += 1;
+      explicitOverviewScreenSelectionRef.current = [screenId];
+      lastOverviewSelectedScreenIdsRef.current = [screenId];
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
+      setOverviewSelectedScreenIds(plan?.selectedScreenIds ?? [screenId]);
+      setSelectedLayerIdsState(plan?.selectedLayerIds ?? [screenId]);
+      setActiveFileId(plan?.activeFileId ?? screenId);
+      setSelectedElement(null);
+      setHoveredElement(null);
+      setActiveTool(plan?.tool ?? "move");
+      setMode(plan?.editorMode ?? "edit");
+      setDrawMode(plan?.drawMode ?? false);
+      setPinMode(plan?.pinMode ?? false);
+      setOverviewInteractScreenId(null);
+      overviewInteractScreenIdRef.current = null;
+      viewModeRef.current = "overview";
+      setViewMode("overview");
+      if (activeBreakpointWidthStateRef.current !== undefined) {
+        handleBreakpointBarSelect(undefined);
+      }
+
+      if (plan) {
+        cameraCommandNonceRef.current += 1;
+        setCameraCommand({
+          ...plan.camera,
+          nonce: cameraCommandNonceRef.current,
+        });
+      }
+    },
+    [
+      activeBreakpointWidthStateRef,
+      cameraCommandNonceRef,
+      clearPendingOverviewLayerSelectionTimer,
+      exportCanvasFrameGeometryById,
+      files,
+      handleBreakpointBarSelect,
+      lastOverviewSelectedScreenIdsRef,
+      overviewInteractScreenIdRef,
+      pendingOverviewLayerSelectionRef,
+      pendingOverviewScreenSelectionRef,
+      explicitOverviewScreenSelectionRef,
+      selectionRevisionRef,
+      setActiveFileId,
+      setActiveTool,
+      setCameraCommand,
+      setCreatedOverviewLayerSelection,
+      setDrawMode,
+      setHoveredElement,
+      setMode,
+      setOverviewInteractScreenId,
+      setOverviewSelectedScreenIds,
+      setPinMode,
+      setSelectedElement,
+      setSelectedLayerIdsState,
+      setViewMode,
+      viewModeRef,
+    ],
+  );
+
   const enterOverviewFromZoom = useCallback(
     (nextMode?: EditorMode) => {
       if (viewModeRef.current === "overview") return;
@@ -432,14 +509,8 @@ export function useEditorModes({
     handleModeChange("edit");
   }, [handleModeChange]);
   const handleOverviewFrameAction = useCallback(
-    (screenId: string) => {
-      if (overviewInteractScreenIdRef.current === screenId) {
-        handleExitResponsiveInteract();
-        return;
-      }
-      handleModeChange("interact", { targetFileId: screenId });
-    },
-    [handleExitResponsiveInteract, handleModeChange],
+    (screenId: string) => focusOverviewScreen(screenId),
+    [focusOverviewScreen],
   );
   useEffect(() => {
     if (!responsiveInteractActive) return;
@@ -495,44 +566,21 @@ export function useEditorModes({
 
   const handleViewModeToggle = useCallback(() => {
     if (viewModeRef.current === "overview") {
-      handleModeChange("interact");
+      const screenId = overviewSelectedScreenIds[0] ?? activeFileId;
+      if (screenId) focusOverviewScreen(screenId);
       return;
     }
     enterOverviewFromZoom();
-  }, [enterOverviewFromZoom, handleModeChange]);
+  }, [
+    activeFileId,
+    enterOverviewFromZoom,
+    focusOverviewScreen,
+    overviewSelectedScreenIds,
+  ]);
 
   const handleSidebarScreenSelect = useCallback(
-    (screenId: string) => {
-      selectionRevisionRef.current += 1;
-      explicitOverviewScreenSelectionRef.current = [];
-      if (
-        viewModeRef.current === "overview" &&
-        overviewSelectedScreenIds.length > 0
-      ) {
-        lastOverviewSelectedScreenIdsRef.current = [
-          ...overviewSelectedScreenIds,
-        ];
-      }
-      pendingOverviewScreenSelectionRef.current = null;
-      pendingOverviewLayerSelectionRef.current = null;
-      clearPendingOverviewLayerSelectionTimer();
-      setCreatedOverviewLayerSelection(null);
-      setOverviewSelectedScreenIds([]);
-      setSelectedLayerIdsState([]);
-      if (hostEmbeddedEditor) {
-        enterSingleScreen(screenId, { mode });
-        return;
-      }
-      handleModeChange("interact", { targetFileId: screenId });
-    },
-    [
-      clearPendingOverviewLayerSelectionTimer,
-      enterSingleScreen,
-      handleModeChange,
-      hostEmbeddedEditor,
-      mode,
-      overviewSelectedScreenIds,
-    ],
+    (screenId: string) => focusOverviewScreen(screenId),
+    [focusOverviewScreen],
   );
 
   const handleReviewNodeRewrite = useCallback(
@@ -1026,9 +1074,7 @@ export function useEditorModes({
     requestPendingVisualStyleRevert(pendingVisualStyleEdits);
     requestPendingLiveNonStyleRevert(pendingLiveNonStyleEdits);
     clearPendingLiveEditState();
-    window.setTimeout(() => {
-      handleModeChange("interact", { pendingLiveEditsAlreadyHandled: true });
-    }, 50);
+    window.setTimeout(() => handleModeChange("edit"), 50);
     toast.success(t("designEditor.pendingVisualStyles.abortedToast"));
   }, [
     clearPendingLiveEditState,

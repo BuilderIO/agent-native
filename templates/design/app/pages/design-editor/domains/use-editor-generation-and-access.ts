@@ -13,6 +13,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import { useLab } from "@agent-native/core/client/labs";
+import { useIsMcpDirectoryWidgetWriteEmbed } from "@agent-native/core/client/mcp-app-host";
 import {
   useReviewComments,
   useSendReviewThreadToAgent,
@@ -97,7 +98,10 @@ import {
 import { createLatestWriteQueue } from "../latest-write-queue";
 import { reconcileLiveCollaborationOverride } from "../live-collaboration-override";
 import { localhostConsentRequestRefetchInterval } from "../localhost-consent-request";
-import { applyMcpDirectoryWidgetReadOnlyPolicy } from "../mcp-widget-write-capabilities";
+import {
+  applyMcpDirectoryWidgetReadOnlyPolicy,
+  applyMcpDirectoryWidgetWritePolicy,
+} from "../mcp-widget-write-capabilities";
 import {
   explicitOverviewScreenSelectionForHistory,
   selectionHistorySnapshotsEqual,
@@ -147,6 +151,7 @@ export function useEditorGenerationAndAccess({
     activeFileId,
     setActiveFileId,
   } = editorCore;
+  const writableWidget = useIsMcpDirectoryWidgetWriteEmbed();
   const {
     shellInput,
     setSelectedLayerIdsState,
@@ -689,13 +694,16 @@ export function useEditorGenerationAndAccess({
     canCommentDesign,
     canRenderAuthenticatedShare,
   } = applyMcpDirectoryWidgetReadOnlyPolicy(
-    {
-      canEditDesign: roleCanEditDesign,
-      canEditLiveScreens: roleCanEditLiveScreens,
-      publicVisualEdit: rolePublicVisualEdit,
-      canCommentDesign: roleCanCommentDesign,
-      canRenderAuthenticatedShare: isSignedIn || roleCanEditDesign,
-    },
+    applyMcpDirectoryWidgetWritePolicy(
+      {
+        canEditDesign: roleCanEditDesign,
+        canEditLiveScreens: roleCanEditLiveScreens,
+        publicVisualEdit: rolePublicVisualEdit,
+        canCommentDesign: roleCanCommentDesign,
+        canRenderAuthenticatedShare: isSignedIn || roleCanEditDesign,
+      },
+      writableWidget && !visualEditAccessLost,
+    ),
     readOnlyWidget,
   );
   const [failedLocalhostConsentClear, setFailedLocalhostConsentClear] =

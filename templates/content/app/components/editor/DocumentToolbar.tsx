@@ -3,7 +3,11 @@ import { appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
+import {
+  useIsMcpAppWidgetEmbed,
+  useIsMcpDirectoryWidgetReadOnlyEmbed,
+  useIsMcpDirectoryWidgetWriteEmbed,
+} from "@agent-native/core/client/mcp-app-host";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
@@ -926,11 +930,61 @@ export function toolbarFoldLevel(width: number, reserved: number) {
   return TOOLBAR_FOLD_ROOMS.filter((step) => room < step).length;
 }
 
-// The MCP App host owns the page chrome, so the widget draws no toolbar and
-// makes none of the requests behind it (its scoped session would be refused).
 export function DocumentToolbar(props: DocumentToolbarProps) {
   const inWidget = useIsMcpAppWidgetEmbed();
-  return inWidget ? null : <DocumentToolbarRow {...props} />;
+  const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
+  const writeWidget = useIsMcpDirectoryWidgetWriteEmbed();
+
+  if (!inWidget) return <DocumentToolbarRow {...props} />;
+  if (
+    !writeWidget ||
+    readOnlyWidget ||
+    props.readOnly === true ||
+    props.canEdit !== true
+  ) {
+    return null;
+  }
+
+  return <WidgetEditorToolbar {...props} />;
+}
+
+function WidgetEditorToolbar({
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
+}: DocumentToolbarProps) {
+  const t = useT();
+
+  return (
+    <div
+      className="flex h-12 min-w-0 shrink-0 items-center justify-end gap-1 border-b bg-background px-3"
+      data-content-widget-editor-toolbar=""
+      role="toolbar"
+      aria-label={t("editor.toolbar.morePageActions")}
+    >
+      <button
+        type="button"
+        className="flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+        aria-label={t("editor.toolbar.undo")}
+        title={t("editor.toolbar.undo")}
+        disabled={!canUndo}
+        onClick={onUndo}
+      >
+        <IconArrowBackUp size={16} />
+      </button>
+      <button
+        type="button"
+        className="flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+        aria-label={t("editor.toolbar.redo")}
+        title={t("editor.toolbar.redo")}
+        disabled={!canRedo}
+        onClick={onRedo}
+      >
+        <IconArrowForwardUp size={16} />
+      </button>
+    </div>
+  );
 }
 
 function DocumentToolbarRow({

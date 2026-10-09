@@ -1585,6 +1585,7 @@ interface VisualEditorProps {
   awareness?: Awareness | null;
   user?: { name: string; color: string; email?: string; avatarUrl?: string };
   editable?: boolean;
+  directoryWidgetEditing?: boolean;
   suggesting?: boolean;
   widgetLoadDiagnosticsActive?: boolean;
   localFileMode?: boolean;
@@ -3021,6 +3022,7 @@ export function VisualEditor({
   awareness,
   user,
   editable = true,
+  directoryWidgetEditing = false,
   suggesting = false,
   widgetLoadDiagnosticsActive = false,
   localFileMode = false,
@@ -4605,6 +4607,7 @@ export function VisualEditor({
           documentId={documentId}
           contentSpaceId={contentSpaceId}
           suggesting={suggesting}
+          directoryWidgetEditing={directoryWidgetEditing}
           notionPageId={notionPageId}
           onDraftCommitted={() =>
             Promise.resolve(

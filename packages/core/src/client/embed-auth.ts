@@ -6,7 +6,10 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
-import { isMcpDirectoryWidgetReadCapabilityScope } from "../shared/embed-auth.js";
+import {
+  isMcpDirectoryWidgetReadCapabilityScope,
+  isMcpDirectoryWidgetWriteCapabilityScope,
+} from "../shared/embed-auth.js";
 import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
 import { MCP_APP_HOST_FILL_ATTRIBUTE } from "../shared/mcp-app-display.js";
 import {
@@ -201,7 +204,12 @@ function readEmbedTokenScope(token: string): string | undefined {
   }
 }
 
-let readOnlyScopeCache: { token: string; readOnly: boolean } | null = null;
+let widgetScopeCache: {
+  token: string;
+  readOnly: boolean;
+  writable: boolean;
+} | null = null;
+let writeSessionRenewalNotified = false;
 
 /**
  * True when the embed credential is a directory-widget read capability, which
@@ -214,15 +222,29 @@ let readOnlyScopeCache: { token: string; readOnly: boolean } | null = null;
 export function hasMcpDirectoryWidgetCapabilityToken(): boolean {
   const token = getEmbedAuthToken();
   if (!token) return false;
-  if (readOnlyScopeCache?.token !== token) {
-    readOnlyScopeCache = {
+  if (widgetScopeCache?.token !== token) {
+    const scope = readEmbedTokenScope(token);
+    widgetScopeCache = {
       token,
-      readOnly: isMcpDirectoryWidgetReadCapabilityScope(
-        readEmbedTokenScope(token),
-      ),
+      readOnly: isMcpDirectoryWidgetReadCapabilityScope(scope),
+      writable: isMcpDirectoryWidgetWriteCapabilityScope(scope),
     };
   }
-  return readOnlyScopeCache.readOnly;
+  return widgetScopeCache.readOnly || widgetScopeCache.writable;
+}
+
+export function hasMcpDirectoryWidgetWriteCapabilityToken(): boolean {
+  const token = getEmbedAuthToken();
+  if (!token) return false;
+  if (widgetScopeCache?.token !== token) {
+    const scope = readEmbedTokenScope(token);
+    widgetScopeCache = {
+      token,
+      readOnly: isMcpDirectoryWidgetReadCapabilityScope(scope),
+      writable: isMcpDirectoryWidgetWriteCapabilityScope(scope),
+    };
+  }
+  return widgetScopeCache.writable;
 }
 
 /**
@@ -231,7 +253,23 @@ export function hasMcpDirectoryWidgetCapabilityToken(): boolean {
  * server limits to the widget's own resource reads.
  */
 export function isMcpDirectoryWidgetReadOnlyEmbed(): boolean {
-  return hasMcpDirectoryWidgetCapabilityToken() && isEmbedMcpChatBridgeActive();
+  const token = getEmbedAuthToken();
+  if (!token) return false;
+  if (widgetScopeCache?.token !== token) {
+    const scope = readEmbedTokenScope(token);
+    widgetScopeCache = {
+      token,
+      readOnly: isMcpDirectoryWidgetReadCapabilityScope(scope),
+      writable: isMcpDirectoryWidgetWriteCapabilityScope(scope),
+    };
+  }
+  return widgetScopeCache.readOnly && isEmbedMcpChatBridgeActive();
+}
+
+export function isMcpDirectoryWidgetWriteEmbed(): boolean {
+  return (
+    hasMcpDirectoryWidgetWriteCapabilityToken() && isEmbedMcpChatBridgeActive()
+  );
 }
 
 export function isEmbedAuthActive(): boolean {
@@ -353,7 +391,8 @@ export function _resetEmbedAuthForTests(): void {
   }
   installed = false;
   memoryToken = null;
-  readOnlyScopeCache = null;
+  widgetScopeCache = null;
+  writeSessionRenewalNotified = false;
   mcpChatBridgeActive = false;
   mcpChatBridgeScope = null;
   authFailureCache.clear();
@@ -668,6 +707,26 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     }
 
     const response = await originalFetch(fetchInput as any, fetchInit as any);
+    if (
+      response.status === 401 &&
+      isMcpDirectoryWidgetWriteEmbed() &&
+      request &&
+      sameOrigin(input, win) &&
+      !writeSessionRenewalNotified
+    ) {
+      writeSessionRenewalNotified = true;
+      try {
+        win.parent?.postMessage(
+          { type: "agentNative.embedSessionExpired" },
+          "*",
+        );
+      } catch {
+        // coercion-ok: this notification cannot change the failed HTTP response.
+        // Renewal is progressive enhancement; server auth remains authoritative.
+      }
+    } else if (response.ok) {
+      writeSessionRenewalNotified = false;
+    }
     if (request?.shouldGuard && isAuthFailureStatus(response.status)) {
       await recordAuthFailure(request.key, response);
     } else if (request?.shouldGuard && response.ok) {

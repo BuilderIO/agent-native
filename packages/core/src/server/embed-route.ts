@@ -12,7 +12,7 @@ import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_START_PATH,
   EMBED_TOKEN_QUERY_PARAM,
-  isMcpDirectoryWidgetReadCapabilityScope,
+  isMcpDirectoryWidgetCapabilityScope,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   MCP_DIRECTORY_WIDGET_QUERY_PARAM,
 } from "../shared/embed-auth.js";
@@ -385,7 +385,7 @@ export function createEmbedStartRouteHandler(
     const chatBridgeActive =
       firstQueryValue(query[MCP_APP_CHAT_BRIDGE_QUERY_PARAM]) === "1" ||
       firstQueryValue(query[MCP_APP_CHAT_BRIDGE_QUERY_PARAM]) === "true" ||
-      isMcpDirectoryWidgetReadCapabilityScope(consumed.scope);
+      isMcpDirectoryWidgetCapabilityScope(consumed.scope);
     const location = withConfiguredBasePath(
       withCollapsedAgentSidebarParam(
         appendEmbedParams(target, token, chatBridgeActive),

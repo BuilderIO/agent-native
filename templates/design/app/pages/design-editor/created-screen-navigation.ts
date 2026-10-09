@@ -18,6 +18,13 @@ export interface CreatedScreenNavigationPlan {
   };
 }
 
+export interface FocusedScreenNavigationPlan extends CreatedScreenNavigationPlan {
+  editorMode: "edit";
+  tool: "move";
+  drawMode: false;
+  pinMode: false;
+}
+
 export function getCreatedScreenNavigationPlan(args: {
   screenId: string;
   geometry: CreatedScreenGeometry;
@@ -44,5 +51,19 @@ export function getCreatedScreenNavigationPlan(args: {
       },
       paddingScreenPx: args.paddingScreenPx ?? 96,
     },
+  };
+}
+
+export function getFocusedScreenNavigationPlan(args: {
+  screenId: string;
+  geometry: CreatedScreenGeometry;
+  paddingScreenPx?: number;
+}): FocusedScreenNavigationPlan {
+  return {
+    ...getCreatedScreenNavigationPlan(args),
+    editorMode: "edit",
+    tool: "move",
+    drawMode: false,
+    pinMode: false,
   };
 }

@@ -99,7 +99,6 @@ export function renderOverviewCanvas({
   const {
     overviewInteractScreenId,
     widgetEmbed,
-    readOnlyWidget,
     activeFileId,
     mode,
     hoveredElement,
@@ -281,7 +280,7 @@ export function renderOverviewCanvas({
             ? (findDesignFileByScreenTarget(files, initialRouteScreenTarget)
                 ?.id ?? null)
             : undefined,
-          fillFocusedViewport: readOnlyWidget,
+          fitFocusedViewport: widgetEmbed,
           chromeInsetLeft,
           chromeInsetRight,
           visibleCanvasRectRef,

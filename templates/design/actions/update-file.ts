@@ -30,6 +30,7 @@ import {
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
+import { assertDesignWidgetFileWriteScope } from "./widget-write-scope.js";
 
 function logSaveConflictDebug(
   event: string,
@@ -210,6 +211,8 @@ export default defineAction({
       // The row is gone or out of access scope — retry can't succeed.
       throw fileNotFound(id);
     }
+
+    assertDesignWidgetFileWriteScope(file.designId, context);
 
     await assertAccess("design", file.designId, "editor");
     const checkpoint = await snapshotDesignBeforeAgentEdit(

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getCreatedScreenNavigationPlan } from "./created-screen-navigation";
+import {
+  getCreatedScreenNavigationPlan,
+  getFocusedScreenNavigationPlan,
+} from "./created-screen-navigation";
 
 describe("getCreatedScreenNavigationPlan", () => {
   it("selects, activates, and fits the new screen in one overview transition", () => {
@@ -49,6 +52,38 @@ describe("getCreatedScreenNavigationPlan", () => {
         centerY: 18.5,
       },
       paddingScreenPx: 140,
+    });
+  });
+});
+
+describe("getFocusedScreenNavigationPlan", () => {
+  it("keeps a focused screen on All screens in edit mode and fits it in view", () => {
+    expect(
+      getFocusedScreenNavigationPlan({
+        screenId: "screen-1",
+        geometry: { x: 100, y: 200, width: 1280, height: 720 },
+      }),
+    ).toMatchObject({
+      activeFileId: "screen-1",
+      selectedLayerIds: ["screen-1"],
+      selectedScreenIds: ["screen-1"],
+      viewMode: "overview",
+      editorMode: "edit",
+      tool: "move",
+      drawMode: false,
+      pinMode: false,
+      camera: {
+        fitBounds: {
+          left: 100,
+          top: 200,
+          right: 1380,
+          bottom: 920,
+          width: 1280,
+          height: 720,
+          centerX: 740,
+          centerY: 560,
+        },
+      },
     });
   });
 });

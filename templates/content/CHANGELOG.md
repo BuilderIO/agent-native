@@ -7,6 +7,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- The Content editor fits ChatGPT's panel sizes and supports direct edits to documents and database rows in the widget.
 - Edits an agent makes now show up in an open page about two seconds sooner when you aren't typing.
 
 ### Fixed
@@ -63,6 +64,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- A page opened from a link or a refresh starts loading sooner
 - On phones, a collection's sort and filter chips stay on one line you can swipe, so the table no longer jumps when they load
 - Commenting on text you suggested now replies on that suggestion instead of leaving a comment that loses its place.
 - Collection pages keep selected rows visible through failed refreshes, and review space stays in place while comments refresh.

@@ -1,16 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   allowsMcpDirectoryWidgetReadAction,
   createMcpDirectoryWidgetReadCapability,
+  createMcpDirectoryWidgetWriteCapability,
   isMcpDirectoryWidgetReadCapabilityScope,
   MCP_DIRECTORY_WIDGET_READ_CAPABILITY_PREFIX,
+  MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_PREFIX,
+  normalizeMcpDirectoryWidgetWriteActionArguments,
 } from "./embed-auth.js";
 
 describe("MCP directory widget read capabilities", () => {
   const capability = {
     appId: "design",
-    resourceUri: "ui://design/shell-v68",
+    resourceUri: "ui://design/shell-v69",
     resourceIds: { designId: "design-123" },
     actionArguments: {
       "get-design-snapshot": { designId: "design-123" },
@@ -25,7 +28,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(scope, {
         actionName: "get-design-snapshot",
         appId: "design",
-        resourceUri: "ui://design/shell-v68",
+        resourceUri: "ui://design/shell-v69",
         args: { designId: "design-123" },
         allowedArgumentNames: ["designId"],
       }),
@@ -34,14 +37,14 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(scope, {
         actionName: "get-design-snapshot",
         appId: "slides",
-        resourceUri: "ui://design/shell-v68",
+        resourceUri: "ui://design/shell-v69",
         args: { designId: "design-123" },
         allowedArgumentNames: ["designId"],
       }),
     ).toBe(false);
     const contentScope = createMcpDirectoryWidgetReadCapability({
       appId: "content",
-      resourceUri: "ui://content/shell-v68",
+      resourceUri: "ui://content/shell-v69",
       resourceIds: { databaseId: "database-123", documentId: "document-123" },
       actionArguments: {
         "get-content-database": {
@@ -60,7 +63,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "get-content-database",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { databaseId: "database-123", limit: "100" },
         allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
@@ -69,7 +72,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "get-content-database",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { documentId: "document-123", limit: 5_000 },
         allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
@@ -78,7 +81,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "get-content-database",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { databaseId: "database-123", documentId: "another-document" },
         allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
@@ -87,7 +90,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "query-content-database-items",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: {
           documentId: "document-123",
           limit: "50",
@@ -100,7 +103,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "query-content-database-items",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { limit: "50", tableQuery: { search: "launch" } },
         allowedArgumentNames: ["documentId", "limit", "tableQuery"],
       }),
@@ -109,7 +112,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "query-content-database-items",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: {
           documentId: "document-123",
           limit: "50",
@@ -123,7 +126,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "get-content-database",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { databaseId: "database-123", limit: "5001" },
         allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
@@ -132,7 +135,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "get-content-database",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { databaseId: "database-123", limit: "100.5" },
         allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
@@ -141,7 +144,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(contentScope, {
         actionName: "get-content-database",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { databaseId: "database-123", limit: "-1" },
         allowedArgumentNames: ["databaseId", "documentId", "limit"],
       }),
@@ -159,7 +162,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(scope, {
         actionName: "get-design-snapshot",
         appId: "design",
-        resourceUri: "ui://design/shell-v68",
+        resourceUri: "ui://design/shell-v69",
         args: { designId: "different-design" },
         allowedArgumentNames: ["designId"],
       }),
@@ -213,7 +216,7 @@ describe("MCP directory widget read capabilities", () => {
         {
           actionName: "get-design-snapshot",
           appId: "design",
-          resourceUri: "ui://design/shell-v68",
+          resourceUri: "ui://design/shell-v69",
           args: { designId: "design-123" },
           allowedArgumentNames: ["designId"],
         },
@@ -225,7 +228,7 @@ describe("MCP directory widget read capabilities", () => {
         {
           actionName: "get-design-snapshot",
           appId: "design",
-          resourceUri: "ui://design/shell-v68",
+          resourceUri: "ui://design/shell-v69",
           args: { designId: "design-123" },
           allowedArgumentNames: ["designId"],
         },
@@ -237,7 +240,7 @@ describe("MCP directory widget read capabilities", () => {
         {
           actionName: "get-design-snapshot",
           appId: "design",
-          resourceUri: "ui://design/shell-v68",
+          resourceUri: "ui://design/shell-v69",
           args: { designId: "design-123" },
           allowedArgumentNames: ["designId"],
         },
@@ -253,7 +256,7 @@ describe("MCP directory widget read capabilities", () => {
   it("supports an explicitly scoped read action with no input arguments", () => {
     const scope = createMcpDirectoryWidgetReadCapability({
       appId: "content",
-      resourceUri: "ui://content/shell-v68",
+      resourceUri: "ui://content/shell-v69",
       resourceIds: { documentId: "document-123" },
       actionArguments: { "list-content-spaces": {} },
     });
@@ -262,7 +265,7 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(scope, {
         actionName: "list-content-spaces",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: {},
         allowedArgumentNames: [],
       }),
@@ -271,10 +274,119 @@ describe("MCP directory widget read capabilities", () => {
       allowsMcpDirectoryWidgetReadAction(scope, {
         actionName: "list-content-spaces",
         appId: "content",
-        resourceUri: "ui://content/shell-v68",
+        resourceUri: "ui://content/shell-v69",
         args: { unexpected: true },
         allowedArgumentNames: [],
       }),
     ).toBe(false);
+  });
+});
+
+describe("MCP directory widget write capabilities", () => {
+  const input = () => ({
+    appId: "design",
+    resourceUri: "ui://design/shell-v69",
+    resourceIds: { designId: "design-123" },
+    userEmail: "reviewer@example.test",
+    orgId: "org-123",
+    expiresAtMs: Date.now() + 60_000,
+    readActionArguments: {
+      "get-design-snapshot": { designId: "design-123" },
+    },
+    writeActionArguments: {
+      "update-design": {
+        designId: "design-123",
+        operations: { type: "actionSchema" },
+      },
+    },
+  });
+
+  it("binds each editor mutation to one user, workspace, artifact, and action", () => {
+    const grant = input();
+    const scope = createMcpDirectoryWidgetWriteCapability(grant);
+    expect(scope).toContain(MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_PREFIX);
+    const args = {
+      designId: "design-123",
+      operations: [{ op: "set_text", elementId: "headline", text: "Hello" }],
+    };
+    const normalize = (overrides: Record<string, unknown> = {}) =>
+      normalizeMcpDirectoryWidgetWriteActionArguments(scope, {
+        actionName: "update-design",
+        appId: "design",
+        resourceUri: "ui://design/shell-v69",
+        userEmail: "REVIEWER@example.test",
+        orgId: "org-123",
+        args,
+        allowedArgumentNames: ["designId", "operations"],
+        ...overrides,
+      });
+
+    expect(normalize()).toEqual(args);
+    expect(normalize({ appId: "slides" })).toBeUndefined();
+    expect(normalize({ resourceUri: "ui://design/shell-v67" })).toBeUndefined();
+    expect(normalize({ userEmail: "other@example.test" })).toBeUndefined();
+    expect(normalize({ orgId: "another-org" })).toBeUndefined();
+    expect(normalize({ orgId: undefined })).toBeUndefined();
+    expect(normalize({ actionName: "delete-design" })).toBeUndefined();
+    expect(
+      normalize({
+        allowedArgumentNames: ["designId", "operations", "otherDesignId"],
+        args: { ...args, otherDesignId: "design-elsewhere" },
+      }),
+    ).toBeUndefined();
+    expect(
+      normalize({
+        args: { ...args, designId: "design-elsewhere" },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("fails closed after expiry and rejects grants with an invalid lifetime", () => {
+    const expired = createMcpDirectoryWidgetWriteCapability({
+      ...input(),
+      expiresAtMs: Date.now() - 1,
+    });
+    const tooLong = createMcpDirectoryWidgetWriteCapability({
+      ...input(),
+      expiresAtMs: Date.now() + 24 * 60 * 60 * 1000 + 1,
+    });
+    expect(expired).toBeUndefined();
+    expect(tooLong).toBeUndefined();
+
+    const grant = input();
+    const scope = createMcpDirectoryWidgetWriteCapability(grant);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(grant.expiresAtMs + 1);
+      expect(
+        normalizeMcpDirectoryWidgetWriteActionArguments(scope, {
+          actionName: "update-design",
+          appId: "design",
+          resourceUri: "ui://design/shell-v69",
+          userEmail: grant.userEmail,
+          orgId: grant.orgId,
+          args: {
+            designId: "design-123",
+            operations: [
+              { op: "set_text", elementId: "headline", text: "Hello" },
+            ],
+          },
+          allowedArgumentNames: ["designId", "operations"],
+        }),
+      ).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not mint a write grant without a server-bound artifact id", () => {
+    expect(
+      createMcpDirectoryWidgetWriteCapability({
+        ...input(),
+        writeActionArguments: {
+          "update-design": { operations: { type: "actionSchema" } },
+        },
+      }),
+    ).toBeUndefined();
   });
 });

@@ -28,6 +28,10 @@ export interface AgentChatMcpOptions {
       string,
       Record<string, McpDirectoryWidgetReadArgument>
     >;
+    widgetWriteActionArguments?: Record<
+      string,
+      Record<string, McpDirectoryWidgetReadArgument>
+    >;
     /** Actions whose capability-backed `mcp-widget` execution is strictly read-only. */
     widgetReadOnlyActions?: readonly string[];
     /** Unlisted public reads that are available only through a scoped widget ticket. */

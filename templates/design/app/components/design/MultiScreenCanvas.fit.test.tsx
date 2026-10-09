@@ -80,6 +80,7 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       chromeInsetRight = 0,
       initialFitScreenId,
       fillFocusedViewport,
+      fitFocusedViewport,
       selectedScreenIds,
       paneSize,
     }: {
@@ -89,6 +90,7 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       chromeInsetRight?: number;
       initialFitScreenId?: string | null;
       fillFocusedViewport?: boolean;
+      fitFocusedViewport?: boolean;
       selectedScreenIds?: string[];
       paneSize?: { width: number; height: number };
     } = {},
@@ -120,6 +122,7 @@ describe("MultiScreenCanvas auto-fit framing", () => {
             chromeInsetRight,
             initialFitScreenId,
             fillFocusedViewport,
+            fitFocusedViewport,
           }}
           selection={{ selectedScreenIds }}
         />,
@@ -292,13 +295,13 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       expect(frame.top + frame.height).toBeGreaterThan(NARROW_PANE.height);
     });
 
-    it("lands on the selected screen over the requested one", async () => {
+    it("lands on the requested route screen over a stale selection", async () => {
       const view = await renderScreens([1280, 1280, 1280], {
         height: 2560,
         initialFitScreenId: "screen-1",
         selectedScreenIds: ["screen-2"],
       });
-      const frame = frameScreenRect(view, 2, 1280, 2560);
+      const frame = frameScreenRect(view, 1, 1280, 2560);
       expect(frame.left).toBeCloseTo(0, 4);
       expect(frame.right).toBeCloseTo(SURFACE_WIDTH, 4);
     });
@@ -322,6 +325,35 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       expect(frame.left).toBeCloseTo((SURFACE_WIDTH - 390) / 2, 4);
       expect(frame.top).toBeCloseTo(0, 4);
     });
+  });
+
+  describe("fitFocusedViewport", () => {
+    it.each([
+      ["narrow", NARROW_PANE],
+      ["wide", WIDE_PANE],
+    ])(
+      "centers the focused tall screen and fits it fully in a %s pane",
+      async (_label, paneSize) => {
+        const view = await renderScreens([1440], {
+          height: 2560,
+          initialFitScreenId: "screen-0",
+          fitFocusedViewport: true,
+          paneSize,
+        });
+        const frame = frameScreenRect(view, 0, 1440, 2560);
+
+        expect(frame.left).toBeCloseTo(
+          (paneSize.width - 1440 * view.scale) / 2,
+          4,
+        );
+        expect(frame.top).toBeGreaterThan(0);
+        expect(frame.top).toBeCloseTo(
+          (paneSize.height - 2560 * view.scale) / 2,
+          4,
+        );
+        expect(frame.top + frame.height).toBeLessThanOrEqual(paneSize.height);
+      },
+    );
   });
 
   describe("fillFocusedViewport", () => {

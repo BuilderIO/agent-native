@@ -25,6 +25,7 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import {
   createMCPServerForRequest,
   selectMcpDirectoryWidgetReadActions,
+  selectMcpDirectoryWidgetWriteActions,
   validateMcpDirectoryProfile,
 } from "./build-server.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
@@ -71,6 +72,7 @@ async function loadTemplateActions(appId: string) {
     ...new Set([
       ...toolNames,
       ...Object.keys(profile.widgetReadActionArguments ?? {}),
+      ...Object.keys(profile.widgetWriteActionArguments ?? {}),
     ]),
   ];
   const actionNames = [
@@ -173,7 +175,7 @@ describe("ChatGPT directory template profiles", () => {
         createMcpDirectoryWidgetReadCapability,
         normalizeMcpDirectoryWidgetReadActionArguments,
       } = await import("../shared/embed-auth.js");
-      const resourceUri = "ui://content/shell-v68";
+      const resourceUri = "ui://content/shell-v69";
       const pageBootReads = [
         ["get-document", { id: documentId }],
         ["get-content-navigation-context", { id: documentId }],
@@ -261,6 +263,7 @@ describe("ChatGPT directory template profiles", () => {
       expect(database.target.resourceIds).toEqual({
         databaseId,
         documentId,
+        databaseDocumentId: documentId,
         resourceType: "document",
         spaceId,
       });
@@ -307,6 +310,10 @@ describe("ChatGPT directory template profiles", () => {
         mcpOptions.directoryProfile,
         actions,
       );
+      const widgetWriteActions = selectMcpDirectoryWidgetWriteActions(
+        mcpOptions.directoryProfile,
+        actions,
+      );
       const serverConfig = {
         name: `agent-native-${appId}`,
         appId,
@@ -317,6 +324,7 @@ describe("ChatGPT directory template profiles", () => {
         actions: productionActions,
         productionActions,
         widgetReadActions,
+        widgetWriteActions,
         directoryProfile: mcpOptions.directoryProfile,
       };
 
@@ -369,12 +377,12 @@ describe("ChatGPT directory template profiles", () => {
         const sessionTool = tools.find(
           (tool) => tool.name === "create_embed_session",
         );
-        expect(
-          [
-            ...((sessionTool?.inputSchema.properties?.sourceTool as any)
-              ?.enum ?? []),
-          ].sort(),
-        ).toEqual(widgetTargetNames);
+        expect(sessionTool?._meta?.ui?.visibility).toEqual(["app"]);
+        expect(sessionTool?.inputSchema.required).toEqual([
+          "sourceTool",
+          "toolInput",
+          "toolOutput",
+        ]);
       } finally {
         await Promise.all([client.close(), server.close()]);
       }
@@ -466,6 +474,10 @@ describe("ChatGPT directory template profiles", () => {
         actions: stubbedActions,
         productionActions: stubbedActions,
         widgetReadActions: selectMcpDirectoryWidgetReadActions(
+          mcpOptions.directoryProfile,
+          actions,
+        ),
+        widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
           mcpOptions.directoryProfile,
           actions,
         ),
@@ -603,7 +615,7 @@ describe("ChatGPT directory template profiles", () => {
           mcpAnnotations: writeAnnotations,
           mcpApp: {
             resource: {
-              uri: "ui://content/shell-v68",
+              uri: "ui://content/shell-v69",
               title: "Document",
               html: "<html></html>",
             },
@@ -725,7 +737,7 @@ describe("ChatGPT directory template profiles", () => {
       mcpAnnotations: annotations,
       mcpApp: {
         resource: {
-          uri: "ui://content/shell-v68",
+          uri: "ui://content/shell-v69",
           title: "Document",
           html: "<html></html>",
         },

@@ -564,7 +564,7 @@ describe("embedApp", () => {
       const functionSource = (html: string, name: string) => {
         const source = html.match(
           new RegExp(
-            `    function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n    \\}\\n`,
+            `    (?:async )?function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n    \\}\\n`,
           ),
         )?.[0];
         expect(source, name).toBeTruthy();
@@ -656,6 +656,8 @@ return paneFillHeight;`,
         const reported: Array<{ height: number }> = [];
         const notifyHostHeight = new Function(
           "fillsPane",
+          "updateDirectoryWidgetLayout",
+          "isCompactDirectoryWidget",
           "applyHostFillMode",
           "paneFillHeight",
           "hostState",
@@ -667,6 +669,8 @@ return paneFillHeight;`,
           `${functionSource(html, "notifyHostHeight")}; return notifyHostHeight;`,
         )(
           true,
+          () => false,
+          () => false,
           () => false,
           () => 860,
           () => ({ context: codexInline }),
@@ -687,26 +691,70 @@ return paneFillHeight;`,
         expect(reported).toEqual([{ height: 860 }, { height: 860 }]);
       });
 
+      it("reports a compact inline launcher height of 56px", () => {
+        const reported: Array<{ height: number }> = [];
+        const notifyHostHeight = new Function(
+          "fillsPane",
+          "updateDirectoryWidgetLayout",
+          "isCompactDirectoryWidget",
+          "applyHostFillMode",
+          "openAiBridge",
+          "app",
+          "console",
+          `${functionSource(htmlFor("directory"), "notifyHostHeight")}; return notifyHostHeight;`,
+        )(
+          true,
+          () => true,
+          () => true,
+          () => false,
+          null,
+          {
+            sendSizeChanged: (size: { height: number }) => reported.push(size),
+          },
+          { warn: () => {} },
+        ) as () => void;
+
+        notifyHostHeight();
+
+        expect(reported).toEqual([{ height: 56 }]);
+      });
+
       it("never reports a height while the host owns the frame", () => {
         const reported: unknown[] = [];
         const notifyHostHeight = new Function(
           "fillsPane",
+          "updateDirectoryWidgetLayout",
           "applyHostFillMode",
           "app",
           `${functionSource(htmlFor("directory"), "notifyHostHeight")}; return notifyHostHeight;`,
-        )(true, () => true, {
-          sendSizeChanged: (size: unknown) => reported.push(size),
-        }) as () => void;
+        )(
+          true,
+          () => false,
+          () => true,
+          {
+            sendSizeChanged: (size: unknown) => reported.push(size),
+          },
+        ) as () => void;
 
         notifyHostHeight();
 
         expect(reported).toEqual([]);
       });
 
-      it("fills the frame with CSS from first paint, and leaves app mode content-sized", () => {
-        const attribute = `${MCP_APP_HOST_FILL_ATTRIBUTE}="1"`;
+      it("starts directory widgets as a compact launcher and keeps app mode content-sized", () => {
+        const html = htmlFor("directory");
 
-        expect(htmlFor("directory")).toContain(`<html lang="en" ${attribute}>`);
+        expect(html).toContain('<html lang="en">');
+        expect(html).not.toContain(
+          `<html lang="en" ${MCP_APP_HOST_FILL_ATTRIBUTE}="1">`,
+        );
+        expect(html).toContain('data-widget-mode="inline"');
+        expect(html).toContain(
+          "height: 56px; min-height: 56px; max-height: 56px",
+        );
+        expect(html).toContain(
+          'data-catalog-mode="directory"][data-widget-mode="inline"] .stage { display: none; }',
+        );
         expect(htmlFor("app")).toContain('<html lang="en">');
         expect(htmlFor("app")).toContain("const fillsPane = false;");
       });
@@ -717,6 +765,7 @@ return paneFillHeight;`,
           "objectValue",
           "fillsPane",
           "hostState",
+          "isCompactDirectoryWidget",
           "hostFillsContainer",
           "paneFillHeight",
           `${functionSource(html, "hostStateForApp")}; return hostStateForApp;`,
@@ -724,6 +773,7 @@ return paneFillHeight;`,
           objectValue,
           true,
           () => ({ context: codexInline, version: "codex" }),
+          () => false,
           mcpAppHostFillsContainer,
           () => 860,
         )() as { context: unknown; version: string };
@@ -735,6 +785,147 @@ return paneFillHeight;`,
         });
         expect(mcpAppHostFillsContainer(hostStateForApp.context)).toBe(true);
         expect(mcpAppHostFillsContainer(codexInline)).toBe(false);
+      });
+
+      it("requests fullscreen when Open is clicked before the host reports a display mode", async () => {
+        const html = htmlFor("directory");
+        const requested: string[] = [];
+        const calls: string[] = [];
+        let context: Record<string, unknown> = {};
+        const openDirectoryWidget = new Function(
+          "hostState",
+          "supportedDisplayMode",
+          "requestHostDisplayMode",
+          "updateDirectoryWidgetLayout",
+          "notifyHostHeight",
+          "launchEmbed",
+          "openHostLink",
+          `let directoryWidgetOpenRequested = false;
+${functionSource(html, "openDirectoryWidget")}
+return { openDirectoryWidget, isOpen: () => directoryWidgetOpenRequested };`,
+        )(
+          () => ({ context }),
+          () => true,
+          async (mode: string) => {
+            requested.push(mode);
+            context = { displayMode: mode };
+            return { mode };
+          },
+          () => calls.push("layout"),
+          () => calls.push("height"),
+          async () => calls.push("embed"),
+          async () => calls.push("external"),
+        ) as {
+          openDirectoryWidget: (url: string) => Promise<void>;
+          isOpen: () => boolean;
+        };
+
+        await openDirectoryWidget.openDirectoryWidget(
+          "https://design.example/design/1",
+        );
+
+        expect(requested).toEqual(["fullscreen"]);
+        expect(calls).toContain("embed");
+        expect(calls).not.toContain("external");
+        expect(openDirectoryWidget.isOpen()).toBe(true);
+      });
+
+      it("keeps the editor compact when the host keeps the widget inline", async () => {
+        const html = htmlFor("directory");
+        const requested: string[] = [];
+        const calls: string[] = [];
+        const openDirectoryWidget = new Function(
+          "hostState",
+          "supportedDisplayMode",
+          "requestHostDisplayMode",
+          "updateDirectoryWidgetLayout",
+          "notifyHostHeight",
+          "launchEmbed",
+          "openHostLink",
+          `let directoryWidgetOpenRequested = false;
+${functionSource(html, "openDirectoryWidget")}
+return { openDirectoryWidget, isOpen: () => directoryWidgetOpenRequested };`,
+        )(
+          () => ({ context: { displayMode: "inline" } }),
+          () => true,
+          async (mode: string) => {
+            requested.push(mode);
+            return { mode: "inline" };
+          },
+          () => calls.push("layout"),
+          () => calls.push("height"),
+          async () => calls.push("embed"),
+          async () => calls.push("external"),
+        ) as {
+          openDirectoryWidget: (url: string) => Promise<void>;
+          isOpen: () => boolean;
+        };
+
+        await openDirectoryWidget.openDirectoryWidget(
+          "https://design.example/design/1",
+        );
+
+        expect(requested).toEqual(["fullscreen"]);
+        expect(calls).toContain("height");
+        expect(calls).not.toContain("external");
+        expect(calls).not.toContain("embed");
+        expect(openDirectoryWidget.isOpen()).toBe(false);
+      });
+
+      it("does not open the app outside the pane when fullscreen is unavailable", async () => {
+        const html = htmlFor("directory");
+        const calls: string[] = [];
+        const openDirectoryWidget = new Function(
+          "hostState",
+          "supportedDisplayMode",
+          "requestHostDisplayMode",
+          "updateDirectoryWidgetLayout",
+          "notifyHostHeight",
+          "launchEmbed",
+          "openHostLink",
+          `let directoryWidgetOpenRequested = false;
+${functionSource(html, "openDirectoryWidget")}
+return { openDirectoryWidget, isOpen: () => directoryWidgetOpenRequested };`,
+        )(
+          () => ({ context: { displayMode: "inline" } }),
+          () => false,
+          async () => calls.push("request"),
+          () => calls.push("layout"),
+          () => calls.push("height"),
+          async () => calls.push("embed"),
+          async () => calls.push("external"),
+        ) as {
+          openDirectoryWidget: () => Promise<void>;
+          isOpen: () => boolean;
+        };
+
+        await openDirectoryWidget.openDirectoryWidget();
+
+        expect(calls).toContain("height");
+        expect(calls).not.toContain("request");
+        expect(calls).not.toContain("embed");
+        expect(calls).not.toContain("external");
+        expect(openDirectoryWidget.isOpen()).toBe(false);
+      });
+
+      it("restores the compact transcript row when the host returns from fullscreen", () => {
+        const html = htmlFor("directory");
+        const body = { dataset: { widgetMode: "pane" } };
+        const restored = new Function(
+          "fillsPane",
+          "hostState",
+          "body",
+          `let directoryWidgetOpenRequested = true;
+let lastHostDisplayMode = "fullscreen";
+${functionSource(html, "updateDirectoryWidgetLayout")}
+updateDirectoryWidgetLayout();
+return { mode: body.dataset.widgetMode, openRequested: directoryWidgetOpenRequested };`,
+        )(true, () => ({ context: { displayMode: "inline" } }), body) as {
+          mode: string;
+          openRequested: boolean;
+        };
+
+        expect(restored).toEqual({ mode: "inline", openRequested: false });
       });
 
       describe("asking for fullscreen", () => {

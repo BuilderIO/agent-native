@@ -31,6 +31,7 @@ import {
   validateMcpDirectoryWidgetDomain,
   selectMcpActionSurface,
   selectMcpDirectoryWidgetReadActions,
+  selectMcpDirectoryWidgetWriteActions,
   type MCPConfig,
   type MCPCallerIdentity,
   type MCPRequestMeta,
@@ -56,6 +57,7 @@ export {
   resolveOrgIdFromDomain,
   buildLinkArtifacts,
   selectMcpDirectoryWidgetReadActions,
+  selectMcpDirectoryWidgetWriteActions,
 };
 export type { MCPConfig, MCPCallerIdentity, MCPRequestMeta };
 

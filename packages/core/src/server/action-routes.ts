@@ -51,8 +51,12 @@ import {
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
   allowsMcpDirectoryWidgetReadAction,
+  getMcpDirectoryWidgetWriteCapabilityGrant,
+  isMcpDirectoryWidgetCapabilityScope,
   isMcpDirectoryWidgetReadCapabilityScope,
+  isMcpDirectoryWidgetWriteCapabilityScope,
   normalizeMcpDirectoryWidgetReadActionArguments,
+  normalizeMcpDirectoryWidgetWriteActionArguments,
 } from "../shared/embed-auth.js";
 import {
   isMcpEmbedCorsOrigin,
@@ -132,6 +136,7 @@ import {
 const ROUTE_PREFIX = "/_agent-native/actions";
 const WEBMCP_ACTION_ROUTE_PREFIX = "/_agent-native/webmcp/actions";
 const MAX_MCP_DIRECTORY_WIDGET_SCHEMA_ARGUMENT_BYTES = 32 * 1024;
+const MAX_MCP_DIRECTORY_WIDGET_WRITE_SCHEMA_ARGUMENT_BYTES = 1024 * 1024;
 const FRONTEND_MUTATION_METHODS = new Set(["POST", "PUT", "DELETE"]);
 const EMBED_ACTION_QUERY_PARAMS = new Set([
   EMBED_TARGET_QUERY_PARAM,
@@ -347,6 +352,11 @@ export interface MountActionRoutesOptions {
   >;
   mcpDirectoryWidgetReadOnlyActions?: readonly string[];
   mcpDirectoryWidgetReadPublicActions?: readonly string[];
+  mcpDirectoryWidgetWriteActionArguments?: Record<string, readonly string[]>;
+  mcpDirectoryWidgetWriteActionSchemaArguments?: Record<
+    string,
+    readonly string[]
+  >;
   mcpDirectoryWidgetAppId?: string;
   mcpDirectoryWidgetResourceUri?: string;
   getOwnerContextFromEvent?: (
@@ -608,7 +618,9 @@ function mountActionRoutesInternal(
       (Array.isArray(entry.capabilityScopes) &&
         entry.capabilityScopes.length) ||
       (!options?.caller &&
-        options?.mcpDirectoryWidgetReadActionArguments?.[name] !== undefined)
+        (options?.mcpDirectoryWidgetReadActionArguments?.[name] !== undefined ||
+          options?.mcpDirectoryWidgetWriteActionArguments?.[name] !==
+            undefined))
     ) {
       registerAuthPublicPaths([routePath], app);
     }
@@ -689,17 +701,28 @@ function mountActionRoutesInternal(
         let userName: string | undefined;
         let authUserId: string | undefined;
         const authCapability = await resolveRequestAuthCapability(event);
-        const directoryWidgetReadCapability =
-          isMcpDirectoryWidgetReadCapabilityScope(authCapability);
-        const embedSession = directoryWidgetReadCapability
+        const directoryWidgetWriteCapability =
+          isMcpDirectoryWidgetWriteCapabilityScope(authCapability);
+        const directoryWidgetCapability =
+          isMcpDirectoryWidgetCapabilityScope(authCapability);
+        const embedSession = directoryWidgetCapability
           ? await resolveRequestEmbedSession(event)
           : null;
+        const directoryWidgetWriteGrant =
+          directoryWidgetWriteCapability && embedSession
+            ? getMcpDirectoryWidgetWriteCapabilityGrant(authCapability, {
+                appId: options?.mcpDirectoryWidgetAppId ?? options?.appId ?? "",
+                resourceUri: options?.mcpDirectoryWidgetResourceUri ?? "",
+                userEmail: embedSession.email,
+                orgId: embedSession.orgId,
+              })
+            : undefined;
         const directoryWidgetReadRequest =
           isFrontendActionRequest(event) ||
           (options?.caller === "webmcp" &&
             options.routePrefix === WEBMCP_ACTION_ROUTE_PREFIX);
         const directoryWidgetReadAllowed =
-          directoryWidgetReadCapability &&
+          directoryWidgetCapability &&
           embedSession !== null &&
           directoryWidgetReadRequest &&
           entry.http !== false &&
@@ -716,22 +739,41 @@ function mountActionRoutesInternal(
             actionName: name,
             appId: options.mcpDirectoryWidgetAppId ?? options.appId,
             resourceUri: options.mcpDirectoryWidgetResourceUri,
+            userEmail: embedSession?.email,
+            orgId: embedSession?.orgId,
             allowedArgumentNames:
               options.mcpDirectoryWidgetReadActionArguments[name],
             requireArgumentMatch: false,
           });
+        const directoryWidgetWriteAllowed =
+          directoryWidgetWriteCapability &&
+          embedSession !== null &&
+          isFrontendActionRequest(event) &&
+          entry.http !== false &&
+          entry.http?.method !== "GET" &&
+          entry.readOnly !== true &&
+          entry.requiresAuth !== false &&
+          options?.mcpDirectoryWidgetWriteActionArguments?.[name] !== undefined;
+        let directoryWidgetWriteResourceIds: Record<string, string> | undefined;
         const directoryWidgetReadRoute =
           options?.mcpDirectoryWidgetReadActionArguments?.[name] !==
             undefined &&
           options?.mcpDirectoryWidgetReadPublicActions?.includes(name) !== true;
-        if (directoryWidgetReadCapability && !directoryWidgetReadAllowed) {
+        if (
+          directoryWidgetCapability &&
+          !directoryWidgetReadAllowed &&
+          !directoryWidgetWriteAllowed
+        ) {
           setResponseStatus(event, 403);
           return {
             error:
               "This widget capability only permits its scoped data routes.",
           };
         }
-        if (directoryWidgetReadAllowed && embedSession) {
+        if (
+          (directoryWidgetReadAllowed || directoryWidgetWriteAllowed) &&
+          embedSession
+        ) {
           userEmail = embedSession.email;
           if (embedSession.orgId == null) markExplicitPersonalOrgScope(event);
         }
@@ -754,10 +796,12 @@ function mountActionRoutesInternal(
         const capabilityAllowed =
           (options?.caller === "webmcp" || isFrontendActionRequest(event)) &&
           (allowsWebMcpCapability(entry, authCapability) ||
-            directoryWidgetReadAllowed);
+            directoryWidgetReadAllowed ||
+            directoryWidgetWriteAllowed);
         if (
           options?.allowDelegatedCaller !== false &&
-          !directoryWidgetReadAllowed
+          !directoryWidgetReadAllowed &&
+          !directoryWidgetWriteAllowed
         ) {
           let caller: ActionRouteResolvedCaller | null;
           try {
@@ -823,6 +867,7 @@ function mountActionRoutesInternal(
           !resolvedCaller &&
           !ownerContextResolved &&
           !directoryWidgetReadAllowed &&
+          !directoryWidgetWriteAllowed &&
           options?.caller === "webmcp" &&
           options?.getOwnerContextFromEvent
         ) {
@@ -861,6 +906,7 @@ function mountActionRoutesInternal(
           !resolvedCaller &&
           !ownerContextResolved &&
           !directoryWidgetReadAllowed &&
+          !directoryWidgetWriteAllowed &&
           options?.getOwnerFromEvent
         ) {
           try {
@@ -888,6 +934,7 @@ function mountActionRoutesInternal(
           !resolvedCaller &&
           !directoryWidgetReadAuthenticatedFallback &&
           !directoryWidgetReadAllowed &&
+          !directoryWidgetWriteAllowed &&
           options?.getAuthUserIdFromEvent
         ) {
           try {
@@ -909,7 +956,10 @@ function mountActionRoutesInternal(
         // token caller's actions execute under. Non-adapter callers keep the
         // original resolveOrgId-only behavior.
         let orgId: string | undefined;
-        if (directoryWidgetReadAllowed && embedSession) {
+        if (
+          (directoryWidgetReadAllowed || directoryWidgetWriteAllowed) &&
+          embedSession
+        ) {
           orgId = normalizeOrgId(embedSession.orgId);
         } else if (resolvedCaller) {
           orgId = normalizeOrgId(resolvedCaller.orgId);
@@ -1077,6 +1127,8 @@ function mountActionRoutesInternal(
                       appId: options.mcpDirectoryWidgetAppId ?? options.appId,
                       resourceUri: options.mcpDirectoryWidgetResourceUri,
                       args: params,
+                      userEmail: embedSession?.email,
+                      orgId: embedSession?.orgId,
                       allowedArgumentNames:
                         options.mcpDirectoryWidgetReadActionArguments?.[name],
                     },
@@ -1086,6 +1138,38 @@ function mountActionRoutesInternal(
                     statusCode: 403,
                     statusMessage:
                       "This widget capability is scoped to a different app resource.",
+                  });
+                }
+                params = normalizedArgs;
+              }
+              if (directoryWidgetWriteAllowed) {
+                const normalizedArgs =
+                  normalizeMcpDirectoryWidgetWriteActionArguments(
+                    authCapability,
+                    {
+                      actionName: name,
+                      appId: options.mcpDirectoryWidgetAppId ?? options.appId,
+                      resourceUri: options.mcpDirectoryWidgetResourceUri,
+                      userEmail: embedSession?.email,
+                      orgId: embedSession?.orgId,
+                      args: params,
+                      allowedArgumentNames:
+                        options.mcpDirectoryWidgetWriteActionArguments?.[name],
+                    },
+                  );
+                directoryWidgetWriteResourceIds =
+                  getMcpDirectoryWidgetWriteCapabilityGrant(authCapability, {
+                    appId:
+                      options.mcpDirectoryWidgetAppId ?? options.appId ?? "",
+                    resourceUri: options.mcpDirectoryWidgetResourceUri ?? "",
+                    userEmail: embedSession?.email ?? "",
+                    orgId: embedSession?.orgId,
+                  })?.resourceIds;
+                if (!normalizedArgs || !directoryWidgetWriteResourceIds) {
+                  throw createError({
+                    statusCode: 403,
+                    statusMessage:
+                      "This widget write capability is scoped to a different user, app resource, or action.",
                   });
                 }
                 params = normalizedArgs;
@@ -1102,12 +1186,14 @@ function mountActionRoutesInternal(
               }
               const caller = directoryWidgetReadAllowed
                 ? "mcp-widget"
-                : (options?.caller ??
-                  (resolvedCaller
-                    ? "a2a"
-                    : isFrontendActionRequest(event)
-                      ? "frontend"
-                      : "http"));
+                : directoryWidgetWriteAllowed
+                  ? "mcp-widget-write"
+                  : (options?.caller ??
+                    (resolvedCaller
+                      ? "a2a"
+                      : isFrontendActionRequest(event)
+                        ? "frontend"
+                        : "http"));
               const runContext: ActionRunContext = {
                 userEmail,
                 orgId: orgId ?? null,
@@ -1116,6 +1202,19 @@ function mountActionRoutesInternal(
                 requestHeaders: event.headers,
                 ...(directoryWidgetReadAllowed
                   ? { mcpDirectoryWidgetReadOnly: true as const }
+                  : {}),
+                ...(directoryWidgetWriteGrant &&
+                (directoryWidgetWriteAllowed || directoryWidgetReadAllowed)
+                  ? {
+                      mcpDirectoryWidgetWrite: {
+                        appId:
+                          options?.mcpDirectoryWidgetAppId ??
+                          options?.appId ??
+                          "",
+                        resourceIds: directoryWidgetWriteGrant.resourceIds,
+                        actionNames: directoryWidgetWriteGrant.actionNames,
+                      },
+                    }
                   : {}),
                 ...(event.req?.signal ? { signal: event.req.signal } : {}),
                 actionName: name,
@@ -1163,22 +1262,33 @@ function mountActionRoutesInternal(
                   );
                 }
               } else if (
-                directoryWidgetReadAllowed &&
-                (options?.mcpDirectoryWidgetReadActionSchemaArguments?.[name]
-                  ?.length ?? 0) > 0
+                (directoryWidgetReadAllowed || directoryWidgetWriteAllowed) &&
+                ((directoryWidgetReadAllowed
+                  ? options?.mcpDirectoryWidgetReadActionSchemaArguments?.[name]
+                  : options?.mcpDirectoryWidgetWriteActionSchemaArguments?.[
+                      name
+                    ]
+                )?.length ?? 0) > 0
               ) {
-                const oversizedSchemaArgument =
-                  options?.mcpDirectoryWidgetReadActionSchemaArguments?.[
-                    name
-                  ]?.find((argumentName) => {
+                const schemaArguments = directoryWidgetReadAllowed
+                  ? options?.mcpDirectoryWidgetReadActionSchemaArguments?.[name]
+                  : options?.mcpDirectoryWidgetWriteActionSchemaArguments?.[
+                      name
+                    ];
+                const maxSchemaArgumentBytes = directoryWidgetWriteAllowed
+                  ? MAX_MCP_DIRECTORY_WIDGET_WRITE_SCHEMA_ARGUMENT_BYTES
+                  : MAX_MCP_DIRECTORY_WIDGET_SCHEMA_ARGUMENT_BYTES;
+                const oversizedSchemaArgument = schemaArguments?.find(
+                  (argumentName) => {
                     if (!Object.hasOwn(params, argumentName)) return false;
                     const serialized = JSON.stringify(params[argumentName]);
                     return (
                       typeof serialized !== "string" ||
                       new TextEncoder().encode(serialized).byteLength >
-                        MAX_MCP_DIRECTORY_WIDGET_SCHEMA_ARGUMENT_BYTES
+                        maxSchemaArgumentBytes
                     );
-                  });
+                  },
+                );
                 if (oversizedSchemaArgument) {
                   throw new ActionContractError(
                     "MCP directory widget query arguments exceed the supported size.",
@@ -1194,7 +1304,7 @@ function mountActionRoutesInternal(
                   !("~standard" in entry.schema)
                 ) {
                   throw new Error(
-                    `MCP directory widget read action "${name}" requires an input schema.`,
+                    `MCP directory widget action "${name}" requires an input schema.`,
                   );
                 }
                 params = await validateActionArgs(
