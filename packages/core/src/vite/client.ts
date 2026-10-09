@@ -4984,7 +4984,8 @@ function createAgentNativeConfig(
       ...userBuild,
       // Named imports from side-effect-free barrels such as @tabler/icons-react
       // otherwise make Rolldown parse every re-exported module (6k+ icons) in
-      // both the client and SSR builds before tree-shaking drops them.
+      // both the client and SSR builds before tree-shaking drops them. Only
+      // Vite 8 reads build.rolldownOptions; Vite 7 ignores it.
       rolldownOptions: {
         experimental: {
           lazyBarrel:
