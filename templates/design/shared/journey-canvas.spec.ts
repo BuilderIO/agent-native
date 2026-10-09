@@ -970,7 +970,6 @@ describe("planJourneyCanvas", () => {
             outputTitle: "Create test case modal",
             observedState: "The first output is visible.",
             actor: "second-actor@example.test",
-            actorSource: "recording metadata",
             dateLabel: "Event time (UTC)",
             evidenceStatus: "rendered_output_observed",
             prompt: "Create a modal for test cases.",
@@ -1020,6 +1019,10 @@ describe("planJourneyCanvas", () => {
     expect(exampleHeader(1)).toContain(
       "Actor (recording): second-actor@example.test",
     );
+    expect(exampleHeader(1)).toContain(
+      'title="Actor (recording): second-actor@example.test"',
+    );
+    expect(exampleHeader(1)).not.toContain("recording metadata");
     expect(exampleHeader(1)).toContain("The first output is visible.");
     expect(exampleHeader(1)).toContain(
       "Prompt: Create a modal for test cases.",

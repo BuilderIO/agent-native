@@ -742,7 +742,8 @@ function cardProvenanceMarkup(
       ].join("")
     : "";
   const actor = caption?.actor ?? messages.actorUnavailable;
-  const actorSource = caption?.actorSource ?? messages.recordingMetadata;
+  const actorSource = caption?.actorSource;
+  const actorTitle = `${messages.actorRecording}: ${actor}${actorSource ? ` (${messages.actorSource}: ${actorSource})` : ""}`;
   const evidenceText = caption ? captionEvidenceText(caption, messages) : null;
   const technicalRows = [
     `<p>${escapeHtml(messages.recordingId)}: ${escapeHtml(recordingId)}</p>`,
@@ -774,12 +775,12 @@ function cardProvenanceMarkup(
       ? `<p>${escapeHtml(messages.analyticsCheckpointOffset)}: ${formatInt(provenance.checkpointOffsetMs, messages.htmlLanguage)} ms</p>`
       : "",
     `<p>${escapeHtml(messages.screenshotCaptured)}: ${escapeHtml(utcTimestamp(provenance.screenshotCapturedAt))}</p>`,
-    caption?.actor
+    caption?.actor && actorSource
       ? `<p>${escapeHtml(messages.actorSource)}: ${escapeHtml(actorSource)}</p>`
       : "",
     evidenceText ? `<p>${escapeHtml(evidenceText)}</p>` : "",
   ].join("");
-  return `<section class="example-provenance" data-index="${index}"><p class="provenance date-line" title="${escapeHtml(`${messages.utcTimestamp}: ${utcTimestamp(displayedTimestamp)}`)}"><time datetime="${escapeHtml(utcTimestamp(displayedTimestamp))}">${escapeHtml(utcDate(displayedTimestamp))}</time><span class="date-kind">${escapeHtml(provenance.dateLabel)}</span></p><p class="provenance actor-line" title="${escapeHtml(`${messages.actorRecording}: ${actor} (${messages.actorSource}: ${actorSource})`)}">${escapeHtml(messages.actorRecording)}: ${escapeHtml(actor)}</p>${captionMarkup}<details class="provenance-details" name="journey-card-details"><summary title="${escapeHtml(messages.replayDetails)}">${escapeHtml(messages.replayDetails)}</summary><div class="provenance-body">${technicalRows}</div></details></section>`;
+  return `<section class="example-provenance" data-index="${index}"><p class="provenance date-line" title="${escapeHtml(`${messages.utcTimestamp}: ${utcTimestamp(displayedTimestamp)}`)}"><time datetime="${escapeHtml(utcTimestamp(displayedTimestamp))}">${escapeHtml(utcDate(displayedTimestamp))}</time><span class="date-kind">${escapeHtml(provenance.dateLabel)}</span></p><p class="provenance actor-line" title="${escapeHtml(actorTitle)}">${escapeHtml(messages.actorRecording)}: ${escapeHtml(actor)}</p>${captionMarkup}<details class="provenance-details" name="journey-card-details"><summary title="${escapeHtml(messages.replayDetails)}">${escapeHtml(messages.replayDetails)}</summary><div class="provenance-body">${technicalRows}</div></details></section>`;
 }
 
 function promptExcerpt(value: string): string {
