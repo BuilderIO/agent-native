@@ -53,39 +53,47 @@ async function ensureAnalyticsDashboardCreatedByColumn(): Promise<void> {
   return;
 }
 
-async function repairAnalyticsIndexes(): Promise<
-  void | typeof MIGRATION_DEFERRED
-> {
-  const repairIndexes = [
-    {
-      name: "analytics_events_org_received_id_non_http_idx",
-      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx
-        ON analytics_events (org_id, received_at, id)
-        WHERE event_name IS DISTINCT FROM 'http.response'`,
-    },
-    {
-      name: "analytics_events_owner_received_id_non_http_idx",
-      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
-        ON analytics_events (owner_email, received_at, id)
-        WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
-    },
-    {
-      name: "analytics_event_daily_rollups_org_event_date_idx",
-      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_event_daily_rollups_org_event_date_idx
-        ON analytics_event_daily_rollups (org_id, event_date)`,
-    },
-    {
-      name: "analytics_user_days_org_event_date_idx",
-      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_user_days_org_event_date_idx
-        ON analytics_user_days (org_id, event_date)`,
-    },
-    {
-      name: "session_recordings_client_started_idx",
-      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS session_recordings_client_started_idx
-        ON session_recordings (client_recording_id, started_at)`,
-    },
-  ];
+type AnalyticsIndexRepair = { name: string; createSql: string };
 
+const ANALYTICS_INDEX_REPAIRS: AnalyticsIndexRepair[] = [
+  {
+    name: "analytics_events_org_received_id_non_http_idx",
+    createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx
+      ON analytics_events (org_id, received_at, id)
+      WHERE event_name IS DISTINCT FROM 'http.response'`,
+  },
+  {
+    name: "analytics_events_owner_received_id_non_http_idx",
+    createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
+      ON analytics_events (owner_email, received_at, id)
+      WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
+  },
+  {
+    name: "analytics_event_daily_rollups_org_event_date_idx",
+    createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_event_daily_rollups_org_event_date_idx
+      ON analytics_event_daily_rollups (org_id, event_date)`,
+  },
+  {
+    name: "analytics_user_days_org_event_date_idx",
+    createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_user_days_org_event_date_idx
+      ON analytics_user_days (org_id, event_date)`,
+  },
+  {
+    name: "session_recordings_client_started_idx",
+    createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS session_recordings_client_started_idx
+      ON session_recordings (client_recording_id, started_at)`,
+  },
+];
+
+const SESSION_RECORDING_CLIENT_STARTED_AT_INDEX: AnalyticsIndexRepair = {
+  name: "session_recordings_client_started_at_idx",
+  createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS session_recordings_client_started_at_idx
+    ON session_recordings (client_recording_id, client_started_at)`,
+};
+
+async function repairNamedAnalyticsIndexes(
+  repairIndexes: readonly AnalyticsIndexRepair[],
+): Promise<void | typeof MIGRATION_DEFERRED> {
   const exec = await createDbExec({ url: getAnalyticsMigrationDatabaseUrl() });
   const query = (sql: string) =>
     exec.execute({
@@ -136,6 +144,21 @@ async function repairAnalyticsIndexes(): Promise<
   } finally {
     await exec.close?.();
   }
+}
+
+async function repairAnalyticsIndexes(): Promise<
+  void | typeof MIGRATION_DEFERRED
+> {
+  return repairNamedAnalyticsIndexes(ANALYTICS_INDEX_REPAIRS);
+}
+
+async function repairAnalyticsReplayLinkIndexes(): Promise<
+  void | typeof MIGRATION_DEFERRED
+> {
+  return repairNamedAnalyticsIndexes([
+    ...ANALYTICS_INDEX_REPAIRS,
+    SESSION_RECORDING_CLIENT_STARTED_AT_INDEX,
+  ]);
 }
 
 export const runAnalyticsMigrations = runMigrations(
@@ -1747,6 +1770,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       version: 162,
       name: "session-recordings-client-started-index",
       run: repairAnalyticsIndexes,
+      sql: { postgres: "SELECT 1" },
+    },
+    {
+      version: 163,
+      name: "session-recordings-client-started-at",
+      sql: "ALTER TABLE session_recordings ADD COLUMN IF NOT EXISTS client_started_at TEXT",
+    },
+    {
+      version: 164,
+      name: "session-recordings-client-started-at-index",
+      run: repairAnalyticsReplayLinkIndexes,
       sql: { postgres: "SELECT 1" },
     },
   ],

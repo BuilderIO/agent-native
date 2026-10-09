@@ -3098,6 +3098,9 @@ describe("session replay ingest parsing", () => {
     expect((recordingInsert?.values as { startedAt: string }).startedAt).toBe(
       "2026-07-01T13:00:00.000Z",
     );
+    expect(
+      (recordingInsert?.values as { clientStartedAt: string }).clientStartedAt,
+    ).toBe("2026-07-05T12:00:00.000Z");
   });
 
   it("uploads replay chunks in the public key owner's org scope (anonymous ingest)", async () => {
@@ -3618,6 +3621,7 @@ describe("listJourneyRecordings", () => {
     id,
     sessionId: "s1",
     clientRecordingId: `client-${id}`,
+    clientStartedAt: null,
     startedAt: "2026-10-01T12:00:00.000Z",
     endedAt: "2026-10-01T12:01:00.000Z",
     durationMs: 60_000,
@@ -3730,6 +3734,32 @@ describe("listJourneyRecordings", () => {
     expect(where).toContain("owner_email");
   });
 
+  it("matches the preserved client start when ingest clamps the stored start", async () => {
+    const recording = {
+      ...row("clamped-start"),
+      clientRecordingId: "client-clamped",
+      clientStartedAt: "2099-10-09T18:00:00.000Z",
+      startedAt: "2026-10-09T12:00:00.000Z",
+    };
+    const { read, condition } = await readWith(
+      [recording],
+      [],
+      [
+        {
+          sessionId: "event-session",
+          clientRecordingId: recording.clientRecordingId,
+          startedAt: "2099-10-09T18:00:00+00:00",
+        },
+      ],
+    );
+
+    expect(read.complete).toBe(true);
+    expect(read.recordings).toMatchObject([
+      { id: "clamped-start", sessionId: "event-session" },
+    ]);
+    expect(conditionText(condition)).toContain("client_started_at");
+  });
+
   it("declares a non-unique composite index for exact replay lookups", () => {
     const index = getTableConfig(schema.sessionRecordings).indexes.find(
       (candidate) =>
@@ -3742,6 +3772,20 @@ describe("listJourneyRecordings", () => {
         "name" in column ? column.name : null,
       ),
     ).toEqual(["client_recording_id", "started_at"]);
+  });
+
+  it("indexes the preserved client start used by exact replay links", () => {
+    const index = getTableConfig(schema.sessionRecordings).indexes.find(
+      (candidate) =>
+        candidate.config.name === "session_recordings_client_started_at_idx",
+    );
+
+    expect(index?.config.unique).toBe(false);
+    expect(
+      index?.config.columns.map((column) =>
+        "name" in column ? column.name : null,
+      ),
+    ).toEqual(["client_recording_id", "client_started_at"]);
   });
 
   it("keeps duplicate exact replay matches unknown instead of choosing one", async () => {
@@ -3807,7 +3851,7 @@ describe("listJourneyRecordings", () => {
     expect(limits).toEqual([3, 2, 2]);
   });
 
-  it("marks an unmatched exact replay link incomplete and keeps neighboring matches", async () => {
+  it("keeps valid neighbors when an exact replay link has no visible match", async () => {
     const clamped = {
       ...row("clamped-start"),
       clientRecordingId: "client-clamped",
@@ -3833,7 +3877,7 @@ describe("listJourneyRecordings", () => {
       ],
     );
 
-    expect(read.complete).toBe(false);
+    expect(read.complete).toBe(true);
     expect(read.recordings).toMatchObject([
       { id: "exact-valid", sessionId: "valid-event-session" },
     ]);

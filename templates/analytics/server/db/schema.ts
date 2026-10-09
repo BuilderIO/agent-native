@@ -756,6 +756,7 @@ export const sessionRecordings = table(
     userId: text("user_id"),
     anonymousId: text("anonymous_id"),
     userKey: text("user_key"),
+    clientStartedAt: text("client_started_at"),
     startedAt: text("started_at").notNull(),
     endedAt: text("ended_at"),
     durationMs: integer("duration_ms"),
@@ -787,6 +788,10 @@ export const sessionRecordings = table(
     clientStartedIdx: index("session_recordings_client_started_idx").on(
       recording.clientRecordingId,
       recording.startedAt,
+    ),
+    clientStartedAtIdx: index("session_recordings_client_started_at_idx").on(
+      recording.clientRecordingId,
+      recording.clientStartedAt,
     ),
   }),
 );

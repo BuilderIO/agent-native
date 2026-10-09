@@ -1460,19 +1460,22 @@ const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
     AND COUNT(DISTINCT journey_kind) = 1
 ), journey_events AS (
   SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
-    e.properties, lower(${TEMPLATE_EXPR}) AS template_name, 'onboarding' AS journey_kind
+    e.properties, lower(${TEMPLATE_EXPR}) AS template_name, e.template, e.app,
+    'onboarding' AS journey_kind
   FROM scoped_onboarding_events e
   JOIN cohort_sessions s ON s.session_id = e.session_id
   WHERE e.event_name IN (${sqlNameList(JOURNEY_STEP_EVENT_NAMES)})
   UNION ALL
   SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
-    e.properties, lower(${TEMPLATE_EXPR}) AS template_name, 'standalone_setup' AS journey_kind
+    e.properties, lower(${TEMPLATE_EXPR}) AS template_name, e.template, e.app,
+    'standalone_setup' AS journey_kind
   FROM scoped_onboarding_events e
   JOIN standalone_setup_sessions s ON s.session_id = e.session_id
   WHERE e.event_name IN (${sqlNameList(JOURNEY_STEP_EVENT_NAMES)})
   UNION ALL
   SELECT e.id, links.session_id, e.timestamp, e.event_name, e.path,
-    e.properties, lower(${TEMPLATE_EXPR}) AS template_name, 'onboarding' AS journey_kind
+    e.properties, lower(${TEMPLATE_EXPR}) AS template_name, e.template, e.app,
+    'onboarding' AS journey_kind
   FROM scoped_onboarding_events e
   JOIN unique_output_links links
     ON links.template_name = lower(${TEMPLATE_EXPR})
@@ -1495,7 +1498,8 @@ const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
     )
   UNION ALL
   SELECT e.id, links.session_id, e.timestamp, e.event_name, e.path,
-    e.properties, 'design' AS template_name, links.journey_kind
+    e.properties, 'design' AS template_name, e.template, e.app,
+    links.journey_kind
   FROM scoped_onboarding_events e
   JOIN unique_design_output_links links
     ON links.output_id = NULLIF(e.properties::jsonb ->> 'output_id', '')

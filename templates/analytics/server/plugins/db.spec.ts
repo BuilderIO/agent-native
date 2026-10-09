@@ -170,6 +170,22 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
+  it("preserves client replay start time and repairs its lookup index", () => {
+    expect(dbTsSource).toContain(
+      'name: "session-recordings-client-started-at"',
+    );
+    expect(dbTsSource).toContain(
+      "ALTER TABLE session_recordings ADD COLUMN IF NOT EXISTS client_started_at TEXT",
+    );
+    expect(dbTsSource).toContain(
+      "CREATE INDEX CONCURRENTLY IF NOT EXISTS session_recordings_client_started_at_idx",
+    );
+    expect(dbTsSource).toContain(
+      'name: "session-recordings-client-started-at-index"',
+    );
+    expect(dbTsSource).toContain("run: repairAnalyticsReplayLinkIndexes");
+  });
+
   it("indexes the alert-rule sweep query by enabled status and evaluation time", () => {
     expect(dbTsSource).toMatch(
       /CREATE INDEX IF NOT EXISTS analytics_alert_rules_enabled_eval_idx ON analytics_alert_rules \(enabled, last_status, last_evaluated_at, created_at\)/,

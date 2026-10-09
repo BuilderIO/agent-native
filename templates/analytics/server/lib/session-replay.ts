@@ -1736,6 +1736,7 @@ export async function recordSessionReplayChunks(
         id: newRecordingId,
         publicKeyId: key.id,
         clientRecordingId: clampedInput.clientRecordingId,
+        clientStartedAt: input.startedAt,
         sessionId: clampedInput.sessionId,
         userId: clampedInput.userId,
         anonymousId: clampedInput.anonymousId,
@@ -2317,7 +2318,10 @@ export async function listJourneyRecordings(
         ...batch.map(([, link]) =>
           and(
             eq(r.clientRecordingId, link.clientRecordingId),
-            eq(r.startedAt, link.startedAt),
+            or(
+              eq(r.clientStartedAt, link.startedAt),
+              and(isNull(r.clientStartedAt), eq(r.startedAt, link.startedAt)),
+            ),
           ),
         ),
       );
@@ -2325,6 +2329,7 @@ export async function listJourneyRecordings(
         .select({
           id: r.id,
           clientRecordingId: r.clientRecordingId,
+          clientStartedAt: r.clientStartedAt,
           startedAt: r.startedAt,
           endedAt: r.endedAt,
           durationMs: r.durationMs,
@@ -2354,7 +2359,10 @@ export async function listJourneyRecordings(
       }
       const rowsByPair = new Map<string, typeof read>();
       for (const row of read) {
-        const key = JSON.stringify([row.clientRecordingId, row.startedAt]);
+        const key = JSON.stringify([
+          row.clientRecordingId,
+          row.clientStartedAt ?? row.startedAt,
+        ]);
         const matches = rowsByPair.get(key) ?? [];
         matches.push(row);
         rowsByPair.set(key, matches);
@@ -2367,7 +2375,6 @@ export async function listJourneyRecordings(
         }
         const row = matches[0];
         if (!row) {
-          complete = false;
           continue;
         }
         const startedAtMs = Date.parse(row.startedAt);

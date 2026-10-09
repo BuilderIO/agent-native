@@ -1110,6 +1110,24 @@ describe("getOnboardingJourney", () => {
     log.mockRestore();
   });
 
+  it("keeps the tree when an exact replay link has no visible recording", async () => {
+    const rows = journeyRows();
+    rows[0] = {
+      ...rows[0],
+      session_replay_id: "client-recording-test",
+      session_replay_started_at: "2026-10-01T12:00:00.000Z",
+    };
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({ rows, schema: [] });
+    mocks.listJourneyRecordings.mockResolvedValue({
+      recordings: [recordingFor("s2")],
+      complete: true,
+    });
+
+    const tree = (await getOnboardingJourney(scope, ARGS)) as JourneyTree;
+
+    expect(tree.coverage.sessionsWithReplay).toBe(1);
+  });
+
   it("does not turn an unreadable event store into an empty tree", async () => {
     mocks.queryFirstPartyAnalytics.mockRejectedValue(new Error("bq timeout"));
     await expect(getOnboardingJourney(scope, ARGS)).rejects.toThrow(
