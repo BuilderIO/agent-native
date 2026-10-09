@@ -866,7 +866,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     ]);
   });
 
-  it("does not disconnect the session when the poll deadline aborts a claim", async () => {
+  it("clears the session when the poll deadline aborts an ambiguous claim", async () => {
     vi.useFakeTimers();
     const { host } = hostWindow();
     const onError = vi.fn();
@@ -920,8 +920,8 @@ describe("createAgentNativeBrowserSessionBridge", () => {
 
     await vi.advanceTimersByTimeAsync(10_000);
     expect(claimSignal?.aborted).toBe(true);
-    expect(deletedSessionIds).toEqual([]);
-    expect(bridge.sessionId).toBe("configured-tab");
+    expect(deletedSessionIds).toEqual(["configured-tab"]);
+    expect(bridge.sessionId).toBeNull();
     expect(onError).toHaveBeenCalledWith(expect.any(Error), "poll");
 
     bridge.stop();

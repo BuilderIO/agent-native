@@ -775,8 +775,10 @@ export function createAgentNativeBrowserSessionBridge(
       );
     } catch (error) {
       const timedOut = error instanceof BrowserSessionRequestTimeoutError;
-      if (claimStopGeneration === stopGeneration && timedOut) {
+      const pollAborted = signal?.aborted === true;
+      if (claimStopGeneration === stopGeneration && (timedOut || pollAborted)) {
         try {
+          // The poll deadline can abort after the server accepted the claim.
           await serializeSessionMutation(() =>
             deleteJson(options, `/${encodePathSegment(sessionId)}`),
           );
