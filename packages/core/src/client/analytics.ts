@@ -923,10 +923,21 @@ function readForwardedLastTouch(): LastTouchAttribution | null {
   return hasAttributionSource(forwarded) ? forwarded : null;
 }
 
-function readStoredAttribution<T>(storageKey: string): T | null {
+/**
+ * The stored touch, or its cookie when storage is blocked or was cleared. The
+ * cookie is what signup reads, so a touch that survives only there still
+ * counts, and capture must not overwrite it as if this were a first visit.
+ */
+function readStoredAttribution<T>(
+  storageKey: string,
+  cookieName: string,
+): T | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = safeStorageGet(storageKey);
+    const cookie = readAttributionCookie(cookieName);
+    const raw =
+      safeStorageGet(storageKey) ||
+      (cookie ? decodeURIComponent(cookie) : null);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -939,11 +950,17 @@ function readStoredAttribution<T>(storageKey: string): T | null {
 }
 
 export function getFirstTouchAttribution(): FirstTouchAttribution | null {
-  return readStoredAttribution<FirstTouchAttribution>(FIRST_TOUCH_STORAGE_KEY);
+  return readStoredAttribution<FirstTouchAttribution>(
+    FIRST_TOUCH_STORAGE_KEY,
+    FIRST_TOUCH_COOKIE_NAME,
+  );
 }
 
 export function getLastTouchAttribution(): LastTouchAttribution | null {
-  return readStoredAttribution<LastTouchAttribution>(LAST_TOUCH_STORAGE_KEY);
+  return readStoredAttribution<LastTouchAttribution>(
+    LAST_TOUCH_STORAGE_KEY,
+    LAST_TOUCH_COOKIE_NAME,
+  );
 }
 
 export interface CaptureAttributionOptions {

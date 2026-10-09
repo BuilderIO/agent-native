@@ -497,6 +497,22 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("keeps a first touch that survives only in its cookie", async () => {
+    const { cookieJson, localStorage, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?gclid=g-1&utm_source=google");
+    localStorage.removeItem("an_attribution");
+
+    const { getFirstTouchAttribution } = await revisit(
+      "https://plan.agent-native.com/?utm_source=newsletter",
+    );
+
+    expect(cookieJson("an_ft")).toMatchObject({
+      gclid: "g-1",
+      utm_source: "google",
+    });
+    expect(getFirstTouchAttribution()).toMatchObject({ gclid: "g-1" });
+  });
+
   it("keeps the first visit with a source and records later ones as last touch", async () => {
     const { cookieJson, revisit } = installBrowser();
     await revisit(

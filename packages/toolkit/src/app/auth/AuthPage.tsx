@@ -1014,17 +1014,21 @@ export function AuthPage(props: AuthPageProps) {
     } catch {
       // coercion-ok: attribution cookies are optional for authentication.
     }
-    const params = new URLSearchParams(window.location.search);
-    const resumeHref = signInJourney({
-      at: window.location.pathname,
-      continuation: params.get("c"),
-      legacyReturn: params.get("return"),
-      basePath: runtimeAppBasePath,
-      homePath,
-    }).resumeHref;
-    captureAttribution({
-      landingPath: new URL(resumeHref, window.location.origin).pathname,
-    });
+    // Capture is once per page load, so it must wait for a workspace's
+    // inferred base path or `landing_path` falls back to the wrong home.
+    if (runtimeBasePathResolved) {
+      const params = new URLSearchParams(window.location.search);
+      const resumeHref = signInJourney({
+        at: window.location.pathname,
+        continuation: params.get("c"),
+        legacyReturn: params.get("return"),
+        basePath: runtimeAppBasePath,
+        homePath,
+      }).resumeHref;
+      captureAttribution({
+        landingPath: new URL(resumeHref, window.location.origin).pathname,
+      });
+    }
     const identity = normalizeEmail(signupEmail);
     if (
       view !== "signup" ||
@@ -1044,7 +1048,15 @@ export function AuthPage(props: AuthPageProps) {
       },
       identity,
     );
-  }, [authMode, homePath, runtimeAppBasePath, signupEmail, trackingApp, view]);
+  }, [
+    authMode,
+    homePath,
+    runtimeAppBasePath,
+    runtimeBasePathResolved,
+    signupEmail,
+    trackingApp,
+    view,
+  ]);
 
   const localDevAllowed = React.useMemo(
     () =>

@@ -78,18 +78,17 @@ async function visitSignInPage(visit: Visit): Promise<void> {
     `${ORIGIN}${signInHref}${visit.search ? separator + visit.search : ""}`,
     visit.referrer,
   );
+  await renderSignInPage(propsFromHtml(getOnboardingHtml()));
+}
+
+async function renderSignInPage(props: AuthPageProps): Promise<void> {
   vi.resetModules();
   const { AuthPage } = await import("./AuthPage.js");
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
   await act(async () => {
-    root.render(
-      <AuthPage
-        {...propsFromHtml(getOnboardingHtml())}
-        identitySsoAuto={false}
-      />,
-    );
+    root.render(<AuthPage {...props} identitySsoAuto={false} />);
   });
   act(() => root.unmount());
   container.remove();
@@ -237,6 +236,33 @@ describe("AuthPage attribution", () => {
       msclkid: "ms-1",
       landing_path: "/",
       touched_at: "2026-10-06T12:00:00.000Z",
+    });
+  });
+
+  it("waits for a workspace's inferred base path before recording the landing path", async () => {
+    clearBrowserState();
+    enter("https://workspace.agent-native.com/clips/sign-in?gclid=g-ws");
+    const props = propsFromHtml(getOnboardingHtml());
+
+    await renderSignInPage({
+      ...props,
+      appBasePath: "",
+      workspaceRuntime: true,
+    });
+
+    expect(storedJson("an_attribution")).toMatchObject({
+      gclid: "g-ws",
+      landing_path: new URL(
+        signInJourney({
+          at: "/clips/sign-in",
+          basePath: "/clips",
+          homePath: props.homePath,
+        }).resumeHref,
+        "https://workspace.agent-native.com",
+      ).pathname,
+    });
+    expect(storedJson("an_attribution")).toMatchObject({
+      landing_path: expect.stringMatching(/^\/clips(\/|$)/),
     });
   });
 });
