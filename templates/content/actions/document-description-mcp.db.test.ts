@@ -822,6 +822,93 @@ describe("document descriptions through external MCP", () => {
     }
   });
 
+  it("uses the committed title when converting a page during a metadata update", async () => {
+    const page = await createPage({ title: "Before conversion" });
+    const metadata =
+      await import("../server/lib/document-metadata-updated-at.js");
+    const nextUpdatedAt = metadata.nextDocumentMetadataUpdatedAt;
+    let documentHeld!: () => void;
+    let releaseMetadata!: () => void;
+    const held = new Promise<void>((resolve) => (documentHeld = resolve));
+    const release = new Promise<void>((resolve) => (releaseMetadata = resolve));
+    const spy = vi
+      .spyOn(metadata, "nextDocumentMetadataUpdatedAt")
+      .mockImplementationOnce(async (args) => {
+        const updatedAt = await nextUpdatedAt(args);
+        documentHeld();
+        await release;
+        return updatedAt;
+      });
+    const { createContentDatabaseCore } =
+      await import("./create-content-database.js");
+    const update = callJson(ownerClient, "update-document", {
+      id: page.id,
+      title: "After metadata update",
+      description: "Converted guidance",
+    });
+    let conversion: ReturnType<typeof createContentDatabaseCore> | undefined;
+    const { default: postgres } = await import(
+      requireFromCore.resolve("postgres")
+    );
+    const observer = databaseUrl.startsWith("pglite:")
+      ? undefined
+      : postgres(databaseUrl, { max: 1 });
+    try {
+      await Promise.race([
+        held,
+        update.then(() => {
+          throw new Error("Metadata completed before holding its page lock");
+        }),
+      ]);
+      if (!observer) {
+        releaseMetadata();
+        await update;
+      }
+      let settled = false;
+      conversion = runWithRequestContext({ userEmail: owner }, () =>
+        createContentDatabaseCore({ documentId: page.id }),
+      );
+      void conversion.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+      if (observer) {
+        await expect
+          .poll(
+            async () => {
+              if (settled) return true;
+              const waiting = await observer.unsafe(
+                "SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%documents%' AND query LIKE '%for update%'",
+              );
+              return waiting.length > 0;
+            },
+            { timeout: 10_000 },
+          )
+          .toBe(true);
+      }
+      releaseMetadata();
+      const results = await Promise.allSettled([update, conversion]);
+      expect(results.map((result) => result.status)).toEqual([
+        "fulfilled",
+        "fulfilled",
+      ]);
+      const created = await conversion;
+      const document = await readRow(page.id);
+      expect(created.database.title).toBe(document.title);
+      expect(created.database.title).toBe("After metadata update");
+      expect(created.database.description).toBe("Converted guidance");
+    } finally {
+      releaseMetadata();
+      await Promise.allSettled([update, ...(conversion ? [conversion] : [])]);
+      spy.mockRestore();
+      if (observer) await observer.end();
+    }
+  });
+
   it("rejects unauthorized updates and external body replacement without applying either patch", async () => {
     const created = await createPage({
       title: "Private description",
