@@ -3,10 +3,26 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-09
+
+### Improved
+
+- Slide text editing keeps formatting controls responsive while you type.
+- The Slides chat stays responsive while you type on a slide.
+
+### Fixed
+
+- Crop animations respect active container-query styles
+- Crop edits preserve in-progress transitions and keep transforms aligned with animated font sizes.
+- Deck style tweaks save when edited from a ChatGPT widget.
+- Slides widget edits remain available after reopening a chat.
+
 ## 2026-10-08
 
 ### Improved
 
+- PowerPoint imports show a clear pending state while they finish.
+- Signup and login sessions are available in Analytics with all form inputs masked.
 - Alt-dragging several selected objects now duplicates them instead of moving the originals.
 - Clicking just outside a text box inside a group now selects the group, and filled shapes, images and tables no longer have an invisible click margin.
 - Snap guides span the objects they align and show equal spacing
@@ -16,6 +32,9 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Slide slash menus keep opening when the browser updates the caret late.
+- Slides keeps prompts ready, shows one provider retry hint, and blocks generation until a provider is connected.
+- Typing / in a slide text box reliably opens the slash-command menu.
 - CSS animations written in a slide's style block now play in the editor
 - Objects styled with the CSS rotate, scale and translate properties or a stylesheet rule now rotate, crop and drag without jumping, and the rotation field shows every angle from 0 to 360 degrees
 - PowerPoint and Google Slides export now keeps radial-gradient backgrounds, gradient headline text, and slide-number footers, and no longer turns inset or stacked shadows into stray glows.

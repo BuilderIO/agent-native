@@ -1073,10 +1073,7 @@ Respond to the fanout event.`,
       getSystemPrompt: async () => "system",
     });
 
-    const eventHandler = subscribeMock.mock.calls.find(
-      ([name]) => name === eventName,
-    )?.[1];
-    expect(eventHandler).toBeTypeOf("function");
+    const eventHandler = busEventHandler(eventName);
 
     triggerQueueMocks.enqueue.mockRejectedValueOnce(
       new Error("queue write failed"),

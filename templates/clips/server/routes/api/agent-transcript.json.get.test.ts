@@ -17,6 +17,7 @@ vi.mock("h3", () => ({
 
 vi.mock("../../lib/public-agent-context.js", () => ({
   applyAgentJsonHeaders: vi.fn(),
+  describeAgentAccessFailure: (failure: unknown) => failure,
   getServerAppBasePath: () => "",
   loadAgentTranscript: (...args: unknown[]) => mockLoadAgentTranscript(...args),
   loadPublicAgentAccess: (...args: unknown[]) =>
