@@ -47,7 +47,7 @@ describe("sanitizePromptProvenanceCandidates", () => {
     expect(result.messages).toEqual([
       {
         role: "user",
-        text: "api_key=[REDACTED] Authorization: [REDACTED] Bearer [REDACTED]",
+        text: "api_key=[REDACTED] Authorization: Bearer [REDACTED] Bearer [REDACTED]",
       },
     ]);
     expect(result.messages[0]?.text).not.toContain("example-value");
@@ -70,6 +70,32 @@ describe("sanitizePromptProvenanceCandidates", () => {
       api_key: "[REDACTED]",
       access_token: "[REDACTED]",
     });
+  });
+
+  it("redacts complete Basic, Digest, and Token authorization values", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      { role: "user", text: "Authorization: Basic fake-basic-value" },
+      {
+        role: "user",
+        text: 'Authorization: Digest username="fake;user", realm="fake-realm", nonce="fake-nonce"',
+      },
+      { role: "user", text: "Authorization: Token fake-token-value" },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "Authorization: Basic [REDACTED]",
+      "Authorization: Digest [REDACTED]",
+      "Authorization: Token [REDACTED]",
+    ]);
+    for (const value of [
+      "fake-basic-value",
+      "fake;user",
+      "fake-realm",
+      "fake-nonce",
+      "fake-token-value",
+    ]) {
+      expect(JSON.stringify(result)).not.toContain(value);
+    }
   });
 
   it("omits SQL and base64 payloads from extracted message text", () => {
@@ -127,6 +153,26 @@ describe("sanitizePromptProvenanceCandidates", () => {
       "[OMITTED_SQL]",
     ]);
     expect(JSON.stringify(result)).not.toContain("secret_column");
+  });
+
+  it("omits mid-sentence SQL while preserving ordinary selection instructions", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      {
+        role: "user",
+        text: "Can you check this: SELECT user_id, email FROM users WHERE plan = 'pro'?",
+      },
+      {
+        role: "user",
+        text: "Can you select one from the list, then compare retention by plan?",
+      },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "[OMITTED_SQL]",
+      "Can you select one from the list, then compare retention by plan?",
+    ]);
+    expect(JSON.stringify(result)).not.toContain("user_id");
+    expect(JSON.stringify(result)).not.toContain("pro");
   });
 
   it("reports message and per-message character truncation", () => {

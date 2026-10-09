@@ -168,13 +168,25 @@ describe("journey capture replay network relay", () => {
     );
 
     try {
-      expect([...(await socksConnect(socket, "recorded.com", 443))]).toEqual([
-        5, 0, 0, 1, 0, 0, 0, 0, 0, 0,
-      ]);
+      const read = socketReader(socket);
+      socket.write(Buffer.from([5, 1, 0]));
+      expect([...(await read(2))]).toEqual([5, 0]);
+      const hostname = Buffer.from("recorded.com");
+      const port = Buffer.alloc(2);
+      port.writeUInt16BE(443);
       const tunneledPayload = "x".repeat(2_048);
-      socket.write(
+      const tunneledRequest = Buffer.from(
         `GET /image.png HTTP/1.1\r\nHost: recorded.com\r\nX-Payload: ${tunneledPayload}\r\nConnection: close\r\n\r\n`,
       );
+      socket.write(
+        Buffer.concat([
+          Buffer.from([5, 1, 0, 3, hostname.byteLength]),
+          hostname,
+          port,
+          tunneledRequest,
+        ]),
+      );
+      expect([...(await read(10))]).toEqual([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
       let response = "";
       await new Promise<void>((resolve, reject) => {
         socket.on("data", (chunk) => (response += chunk.toString("utf8")));

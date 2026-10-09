@@ -207,6 +207,7 @@ function readSocket(socket: Socket): {
   read(byteLength: number): Promise<Buffer>;
   release(): void;
 } {
+  const maxBufferedBytes = 64 * 1024;
   let buffer = Buffer.alloc(0);
   let failure: Error | undefined;
   let wake: (() => void) | undefined;
@@ -217,7 +218,7 @@ function readSocket(socket: Socket): {
   };
   const onData = (chunk: Buffer) => {
     buffer = Buffer.concat([buffer, chunk]);
-    if (buffer.byteLength > 1_024) {
+    if (buffer.byteLength > maxBufferedBytes) {
       failure = new Error("replay_socks_handshake_invalid");
       socket.destroy();
     }
