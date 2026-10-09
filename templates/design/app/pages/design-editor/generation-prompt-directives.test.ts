@@ -17,6 +17,7 @@ import {
   designTemplateRefinementDirectives,
   designVariantGenerationDirectives,
   structuralReferenceDirectives,
+  variantContentDirective,
 } from "./generation-prompt-directives";
 import type { IntakeTopicCoverage } from "./intake-question-topics";
 
@@ -216,36 +217,10 @@ describe("designCanvasIntentDirectives", () => {
     expect(text).toContain("LinkedIn Single Image Ad, 1200×627px");
     expect(text).toContain("devices: []");
     expect(text).toContain("widths: [1200] and heights: [627]");
-    expect(text).toContain("do not add responsive breakpoints.");
-    expect(text).not.toContain("Capture additional device viewports");
     expect(text).not.toContain("After responsive app generation");
   });
 
-  it("keeps fixed-canvas variants on one exact-size canvas without generation screenshots", () => {
-    const text = designCanvasIntentDirectives(
-      "Create three LinkedIn ad variants",
-      "variants",
-    ).join("\n");
-
-    expect(text).toContain("Fixed canvas for every variant");
-    expect(text).toContain("Set every variant to width 1200 and height 627");
-    expect(text).toContain("responsive: false");
-    expect(text).not.toContain("generate-design");
-    expect(text).not.toContain("take-design-screenshot");
-  });
-
-  it("uses responsive frames rather than generation screenshots for app variants", () => {
-    const text = designCanvasIntentDirectives(
-      "Create three project dashboard concepts",
-      "variants",
-    ).join("\n");
-
-    expect(text).toContain("responsive mobile-first layout");
-    expect(text).toContain("present-design-variants");
-    expect(text).not.toContain("After generate-design succeeds");
-  });
-
-  it("keeps exact-size preset artwork fixed and ignores device variants", () => {
+  it("sends extra artwork versions to their own exact-size calls instead of device frames", () => {
     const text = designGenerationDirectives(
       "design-1",
       null,
@@ -253,9 +228,8 @@ describe("designCanvasIntentDirectives", () => {
       "Create a LinkedIn ad with desktop and mobile versions",
     ).join("\n");
     expect(text).toContain("Pass `devices: []` to `generate-design`");
-    expect(text).toContain("Ignore model-suggested device variants");
-    expect(text).toContain("do not add responsive breakpoints.");
-    expect(text).not.toContain("Capture additional device viewports");
+    expect(text).toContain("do not add responsive breakpoints");
+    expect(text).not.toContain("explicitly asks for device variants");
   });
 
   it("keeps responsive screenshots for app UI even when it mentions advertising", () => {
@@ -275,65 +249,63 @@ describe("designCanvasIntentDirectives", () => {
   });
 });
 
-describe("designVariantGenerationDirectives", () => {
-  it("requires complete HTML for every fixed-canvas variant and preserves the exact dimensions", () => {
+describe("variant content directives", () => {
+  const OMIT = "omit large content HTML";
+  const COMPLETE = "Give every variant complete self-contained HTML `content`";
+
+  it("allows direction-only variants for open-ended app exploration", () => {
     const text = designVariantGenerationDirectives(
       "design-1",
       null,
-      "Create three distinct LinkedIn ad variants",
+      "Explore 3 directions for a habit tracker app",
     ).join("\n");
-
-    expect(text).toContain(
-      "Every variant must include complete, self-contained, renderable HTML in its `content`",
-    );
-    expect(text).toContain(
-      "do not omit HTML or rely on the direction-only fallback",
-    );
-    expect(text).toContain("Fixed canvas for every variant");
-    expect(text).toContain("width 1200 and height 627");
-    expect(text).toContain("responsive: false");
-    expect(text).toContain(
-      "If an image attachment is present, inspect its pixels",
-    );
-    expect(text).not.toContain("omit large content HTML");
-    expect(text).not.toContain("take-design-screenshot");
+    expect(text).toContain(OMIT);
+    expect(text).not.toContain(COMPLETE);
   });
 
-  it("keeps full-HTML requirements in generation prompts that route to variants", () => {
-    const text = designGenerationDirectives(
-      "design-1",
-      null,
-      0,
-      "Create three distinct LinkedIn ad variants",
-    ).join("\n");
-
-    expect(text).toContain(
-      "Every variant must include complete, self-contained, renderable HTML",
-    );
-    expect(text).toContain("Fixed canvas for every variant");
-    expect(text).not.toContain("omit large content HTML");
-    expect(text).not.toContain("Generate one artwork canvas");
+  it.each([
+    ["a fixed-canvas brief", "Explore 3 directions for a LinkedIn ad", null],
+    ["an exact-size brief", "Show 3 options for a 300x250 ad", null],
+    [
+      "a linked design system",
+      "Explore 3 directions for a habit tracker app",
+      "system-1",
+    ],
+  ])("requires complete variant HTML for %s", (_label, prompt, systemId) => {
+    for (const text of [
+      designVariantGenerationDirectives("design-1", systemId, prompt),
+      designGenerationDirectives("design-1", systemId, 0, prompt),
+    ].map((directives) => directives.join("\n"))) {
+      expect(text).toContain(COMPLETE);
+      expect(text).not.toContain(OMIT);
+    }
   });
 
-  it("requires full HTML for every variant when the brief includes a reference image", () => {
-    const text = designGenerationDirectives(
-      "design-1",
-      null,
-      1,
-      "Create three different directions based on the attached reference image",
-    ).join("\n");
+  it("requires complete variant HTML when reference images are attached", () => {
+    expect(
+      variantContentDirective("Explore 3 directions for a todo app", null, 1),
+    ).toContain(COMPLETE);
+  });
 
-    expect(text).toContain('present-design-variants --designId="design-1"');
-    expect(text).toContain(
-      "Inspect the image and apply its visible structure to every variant",
-    );
-    expect(text).toContain(
-      "complete, self-contained, renderable HTML in every variant's `content`",
-    );
-    expect(text).not.toContain(
-      "Do NOT call `show-design-questions` or `present-design-variants`",
-    );
-    expect(text).not.toContain('generate-design --designId="design-1"');
+  it("keeps full HTML requirements in fixed-canvas and reference-image generation prompts", () => {
+    for (const directives of [
+      designGenerationDirectives(
+        "design-1",
+        null,
+        0,
+        "Explore 3 directions for a LinkedIn ad",
+      ),
+      designGenerationDirectives(
+        "design-1",
+        null,
+        1,
+        "Explore 3 directions for a todo app",
+      ),
+    ]) {
+      const text = directives.join("\n");
+      expect(text).toContain(COMPLETE);
+      expect(text).not.toContain(OMIT);
+    }
   });
 });
 

@@ -666,6 +666,7 @@ export function RunErrorRecoveryCard({
   info,
   onContinue,
   onRetry,
+  onRetryWithoutAttachments,
   onRetryWithoutAttachment,
   retryHasUnavailableAttachment = false,
   onFork,
@@ -678,6 +679,8 @@ export function RunErrorRecoveryCard({
   onContinue?: () => void;
   continueError?: string | null;
   onRetry: () => void;
+  /** Resends the rejected request without its attachments. */
+  onRetryWithoutAttachments?: () => void;
   onRetryWithoutAttachment?: () => void;
   retryHasUnavailableAttachment?: boolean;
   onFork?: () => void | boolean | Promise<void | boolean>;
@@ -696,7 +699,13 @@ export function RunErrorRecoveryCard({
     provisionAccount: true,
     trackingSource: "assistant_chat_reconnect_error",
   });
-  const canRecover = info.recoverable === true;
+  // Retrying or continuing sends the rejected attachment again.
+  const attachmentRejected = info.errorCode === "invalid_attachment";
+  const canRecover = info.recoverable === true && !attachmentRejected;
+  const retryWithoutAttachments =
+    onRetryWithoutAttachments ?? onRetryWithoutAttachment;
+  const canRetryWithoutAttachments =
+    attachmentRejected && retryWithoutAttachments;
   const isBuilderCreditsLimit = isCreditsLimitErrorCode(info.errorCode);
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
   const isProviderAuthError = isProviderAuthenticationError(
@@ -969,6 +978,18 @@ export function RunErrorRecoveryCard({
             <span className="truncate">{t("agentChat.common.continue")}</span>
           </button>
         )}
+        {canRetryWithoutAttachments && (
+          <button
+            type="button"
+            onClick={retryWithoutAttachments}
+            className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90"
+          >
+            <IconRefresh size={13} />
+            <span className="truncate">
+              {t("agentChat.recovery.retryWithoutAttachment")}
+            </span>
+          </button>
+        )}
         <div className="flex shrink-0 items-center gap-0.5">
           {canRetry && !retryHasUnavailableAttachment && (
             <button
@@ -1052,15 +1073,6 @@ export function RunErrorRecoveryCard({
           </button>
         </div>
       </div>
-      {info.errorCode === "invalid_attachment" && onRetryWithoutAttachment ? (
-        <button
-          type="button"
-          onClick={onRetryWithoutAttachment}
-          className="mt-2 inline-flex h-7 items-center rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-background/80 hover:text-foreground"
-        >
-          {t("agentChat.recovery.retryWithoutAttachment")}
-        </button>
-      ) : null}
       {shouldShowBuilderReconnect && builderReconnect.error && (
         <p
           {...SESSION_REPLAY_MASK_PROPS}

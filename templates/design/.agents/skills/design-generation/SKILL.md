@@ -394,7 +394,7 @@ screen name.
 
 Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **structurally and compositionally distinct** — different layout grammars, hierarchy, density, and focal points — never just color swaps. When a design system is linked, keep its tokens, typography, components, and imagery rules fixed across variants; vary those only when the user explicitly asks to explore a replacement system. Label the directions with concrete names ("Editorial split", not "Variant A").
 
-Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — the example above is desktop-sized. When the original brief specifies exact pixel dimensions, use that exact size on every variant; Design will preserve it even if a variant supplied another size. Static artwork has no responsive frames even if `responsive: true` is passed. When `content` is omitted, `present-design-variants` infers a size from the brief/label/description text and the width/height you pass still wins when given.
+Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — the example above is desktop-sized. When the original brief specifies exact pixel dimensions, use that exact size on every variant; Design will preserve it even if a variant supplied another size. Static artwork has no responsive frames even if `responsive: true` is passed. Omit `content` only for open-ended app exploration: a fixed canvas, attached reference image, layout spec, or linked design system rejects direction-only variants. When `content` is omitted, `present-design-variants` infers a size from the brief/label/description text and the width/height you pass still wins when given.
 
 Wait for the user's pick before refining. Once they choose, keep the selected
 screen, delete the unchosen variant screens with `delete-file`, and continue
@@ -430,8 +430,7 @@ Pass the `devices` param (`("mobile"|"tablet"|"desktop")[]`, default `["desktop"
 
 `canvasFrames` accepts exact `width`/`height` in px, so "create a 300x250
 ad" style requests work the same way — use the requested dimensions verbatim
-and pass `devices: []` by default. If the user asks for device variants,
-preserve exactly those devices. Keep each action prompt to one distinct exact
+and pass `devices: []`. Keep each action prompt to one distinct exact
 size; use separate calls for screens with different dimensions. This also
 applies to exact-size email and social assets. The editor's own Frame tool preset
 list (`shared/frame-size-presets.ts`) documents the

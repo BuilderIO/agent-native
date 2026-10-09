@@ -5015,14 +5015,6 @@ describe("live-client twins", () => {
     throw new Error(`unterminated body for ${name}`);
   };
 
-  const stringConst = (source: string, name: string): string => {
-    const match = new RegExp(`\\b${name}\\s*=\\s*\n?\\s*"([^"]*)"`).exec(
-      source,
-    );
-    expect(match, `${name} not found`).not.toBeNull();
-    return match![1]!;
-  };
-
   it("keeps clearAssistantDraftContent identical to the live client copy", () => {
     expect(
       functionBody(
@@ -5037,23 +5029,13 @@ describe("live-client twins", () => {
     );
   });
 
-  it("keeps the interrupted-tool-result marker identical across all three copies", () => {
-    const client = stringConst(
-      sourceOf("../client/sse-event-processor.ts"),
-      "INTERRUPTED_TOOL_RESULT",
-    );
+  it("keeps the interrupted-tool-result marker identical to the live client copy", async () => {
+    const [{ INTERRUPTED_TOOL_RESULT }, { INTERRUPTED_TOOL_RESULT_MARKER }] =
+      await Promise.all([
+        import("../client/sse-event-processor.js"),
+        import("./engine/translate-anthropic.js"),
+      ]);
 
-    expect(
-      stringConst(
-        sourceOf("./thread-data-builder.ts"),
-        "INTERRUPTED_TOOL_RESULT",
-      ),
-    ).toBe(client);
-    expect(
-      stringConst(
-        sourceOf("./production-agent.ts"),
-        "INTERRUPTED_TOOL_RESULT_MARKER",
-      ),
-    ).toBe(client);
+    expect(INTERRUPTED_TOOL_RESULT_MARKER).toBe(INTERRUPTED_TOOL_RESULT);
   });
 });

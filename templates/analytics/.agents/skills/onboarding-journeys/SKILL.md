@@ -47,6 +47,25 @@ only to the Design input, set `referenceOnly: true`, and omit the cohort metric
 fields. This annotation is for visual references and is not emitted by
 `get-onboarding-journey`.
 
+Saved outputs require source-confirmed completion events. Clips uses
+`recording_ready`; `recording_started`, transcript-only `recording_completed`,
+and `clip_viewed` are not saved outputs. Slides uses explicit
+`generation_completed`; `generation_request_accepted`,
+`generation_outcome_unresolved`, `generation_failed`, `generation_stuck`,
+`generation_cancelled`, and `generation_abandoned` remain distinct attempt
+steps. An unresolved event can carry `persisted_output: true`, but it still does
+not substitute for `generation_completed`. `deck_edited`, `output_viewed`, and
+current deck state also cannot substitute for that event. A missing terminal
+event stays absent. Generation and recording starts remain attempt steps, and
+retry attempts that reuse a deck's output ID remain separate by their exact
+attempt ID. A sessionless Clips completion or Slides lifecycle event is
+attached only when its exact output and attempt pair maps to one distinct
+eligible onboarding session (`recording_started` for Clips;
+`generation_started`, `generation_request_accepted`, or `output_viewed` for
+Slides); missing or ambiguous
+matches stay unattributed. Output and attempt IDs are never included in the
+returned tree.
+
 The journey projection also retains `integration_setup_exposed`,
 `integration_method_clicked`, and `integration_method_outcome` as separate
 `integration:<flow>:...` steps. These record setup exposure, the selected
@@ -145,9 +164,10 @@ chunk. Fix failures or report them; do not paint over a missing frame.
 the PNG. Every visible iframe must have a corresponding recorded child document
 by the requested replay time. If the child document is missing, the frame is
 listed as a failure with code `replay_iframe_content_unavailable` and counts in
-`diagnostics`. If unsupported 3D projection, rounded ancestor clipping, CSS
-clip paths, masks, or visibility-altering filters prevent the audit from
-verifying visibility, the frame is listed with code
+`diagnostics`. If unsupported 3D projection, rounded ancestor clipping,
+unsupported CSS `clip-path` shapes, unrecognized legacy CSS `clip` values,
+masks, or visibility-altering filters prevent the audit from verifying
+visibility, the frame is listed with code
 `replay_iframe_visibility_unverifiable`; do not treat uncertainty as either
 missing content or a successful audit. The check covers every visible iframe
 because replay can omit its original source attribute while rebuilding an

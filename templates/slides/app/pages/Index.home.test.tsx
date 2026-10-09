@@ -711,6 +711,39 @@ describe("Slides prompt-led home", () => {
     expect(attachments.commit).toHaveBeenCalledOnce();
   });
 
+  it("includes optional media-search fallback in the submitted agent context", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        "Create a product overview",
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    const submittedContext = agentSubmit.mock.calls[0][1] as string;
+    expect(submittedContext).toContain(
+      "Image and logo lookup with search-images or search-logos is optional enrichment.",
+    );
+    expect(submittedContext).toContain(
+      "If a provider is unconfigured or unavailable, the search returns no matches, or the action fails, continue with a useful deck",
+    );
+    expect(submittedContext).toContain(
+      "Do not stop generation or retry the lookup in a loop.",
+    );
+  });
+
   it("gives an explicitly selected target system priority over a reference deck's linked system", async () => {
     createDeck.mockReturnValue({ id: "new-deck" });
     defaultDesignSystems.systems = [{ id: "system-b", title: "System B" }];

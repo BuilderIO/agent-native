@@ -128,9 +128,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "agentChat.usage.inviteLinkCopied": "Invite link copied",
         "agentChat.recovery.copyDebug": "Copy debug info",
         "agentChat.recovery.copyFailed": "Copy failed",
-        "agentChat.recovery.retryWithoutAttachment": "Retry without attachment",
         "agentChat.recovery.retryAttachmentUnavailable":
           "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
+        "agentChat.recovery.retryWithoutAttachment": "Retry without attachment",
         "agentChat.recovery.credentialRejected":
           "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
         "agentChat.recovery.newChatHint":
@@ -666,6 +666,53 @@ describe("run recovery surfaces", () => {
     expect(button).toBeTruthy();
     await act(async () => button?.click());
     expect(onRetryWithoutAttachment).toHaveBeenCalledOnce();
+  });
+
+  it("offers only an attachment-free retry for a rejected attachment", async () => {
+    const onRetry = vi.fn();
+    const onRetryWithoutAttachments = vi.fn();
+    const onContinue = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The provider rejected this attachment.",
+              errorCode: "invalid_attachment",
+              runId: "run-attachment",
+              // A misreported retryable flag must not bring plain Retry back.
+              recoverable: true,
+            }}
+            onContinue={onContinue}
+            onRetry={onRetry}
+            onRetryWithoutAttachments={onRetryWithoutAttachments}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const buttons = Array.from(container.querySelectorAll("button"));
+    const retryWithout = buttons.find(
+      (button) => button.textContent?.trim() === "Retry without attachment",
+    );
+    expect(container.querySelector('button[aria-label="Retry"]')).toBeNull();
+    expect(
+      buttons.some((button) => button.textContent?.trim() === "Continue"),
+    ).toBe(false);
+    expect(
+      container.querySelector('button[aria-label="Copy debug info"]'),
+    ).not.toBeNull();
+
+    await act(async () => retryWithout?.click());
+    expect(onRetryWithoutAttachments).toHaveBeenCalledOnce();
+    expect(onRetry).not.toHaveBeenCalled();
+    expect(onContinue).not.toHaveBeenCalled();
   });
 
   it("gives Continue vertical padding and leaves icon actions unframed", async () => {

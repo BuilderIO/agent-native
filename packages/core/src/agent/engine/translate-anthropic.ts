@@ -115,6 +115,24 @@ export function unmatchedToolResultReplayText(part: {
   return `${UNMATCHED_TOOL_RESULT_REPLAY_PREFIX} [tool_use_id=${part.toolCallId}${err}] ${body}`;
 }
 
+/**
+ * Identity of a synthetic interrupted tool result in engine messages, thread
+ * data, and the client (`client/sse-event-processor.ts` matches it verbatim).
+ * The model never sees it bare: replay rewrites it to an error whose outcome
+ * is unknown, or the model treats it as "did not run" and repeats a write that
+ * may have landed.
+ */
+export const INTERRUPTED_TOOL_RESULT_MARKER =
+  "Interrupted before this tool returned a result.";
+const INTERRUPTED_TOOL_RESULT_FOR_MODEL = `${INTERRUPTED_TOOL_RESULT_MARKER} Its outcome is UNKNOWN: the tool may have run. Verify the current state before repeating any write.`;
+
+export function isInterruptedToolResult(content: unknown): boolean {
+  return (
+    typeof content === "string" &&
+    content.startsWith(INTERRUPTED_TOOL_RESULT_MARKER)
+  );
+}
+
 function interruptedToolResultPart(part: {
   id: string;
   name: string;
@@ -125,8 +143,7 @@ function interruptedToolResultPart(part: {
     toolCallId: part.id,
     toolName: part.name,
     toolInput: stringifyToolUseInputForGateway(part.input),
-    content:
-      "Interrupted before this tool returned a result; its outcome is unknown.",
+    content: INTERRUPTED_TOOL_RESULT_FOR_MODEL,
     isError: true,
   };
 }
@@ -229,13 +246,14 @@ export function backfillEngineMessagesToolResults(
           : stringifyToolUseInputForGateway(
               pendingLookup?.input ?? lookup?.input,
             );
+      const interrupted = part.content === INTERRUPTED_TOOL_RESULT_MARKER;
       const filled: EngineContentPart = {
         type: "tool-result",
         toolCallId: part.toolCallId,
         toolName,
         toolInput,
-        content: part.content,
-        ...(part.isError ? { isError: true } : {}),
+        content: interrupted ? INTERRUPTED_TOOL_RESULT_FOR_MODEL : part.content,
+        ...(part.isError || interrupted ? { isError: true } : {}),
         ...(part.images && part.images.length > 0
           ? { images: part.images }
           : {}),

@@ -64,6 +64,7 @@ function eventRow(
     timestamp: new Date(T0 + offsetSeconds * 1000).toISOString(),
     event_name: eventName,
     journey_kind: "onboarding",
+    template_name: "clips",
     path: null,
     flow: null,
     source: null,
@@ -131,14 +132,34 @@ describe("parseJourneyEventRow", () => {
   it("requires an id, a session, a name, and a readable timestamp", () => {
     expect(
       parseJourneyEventRow(
-        eventRow("s1", "signup", 0, { alias_id: "alias-pair-1" }),
+        eventRow("s1", "signup", 0, {
+          alias_id: "alias-pair-1",
+          output_id: "private-output-id",
+          generation_attempt_id: "private-attempt-id",
+        }),
       ),
     ).toMatchObject({
       sessionId: "s1",
       eventName: "signup",
+      templateName: "clips",
       tsMs: T0,
       aliasId: "alias-pair-1",
     });
+    const parsed = parseJourneyEventRow(
+      eventRow("s1", "signup", 0, {
+        output_id: "private-output-id",
+        generation_attempt_id: "private-attempt-id",
+      }),
+    );
+    expect(parsed).not.toHaveProperty("outputId");
+    expect(parsed).toHaveProperty("attemptId", null);
+    expect(
+      parseJourneyEventRow(
+        eventRow("s1", "generation_started", 0, {
+          attempt_id: "private-attempt-id",
+        }),
+      )?.attemptId,
+    ).toBe("private-attempt-id");
     for (const broken of [
       { ...eventRow("s1", "signup", 0), id: "" },
       { ...eventRow("s1", "signup", 0), session_id: null },
@@ -225,6 +246,74 @@ describe("getOnboardingJourney", () => {
       replayUrl: "https://analytics.example.test/sessions/rec-s1?atMs=1300",
     });
     expect(tree.nodes[0]!.examples[2]).toBeUndefined();
+  });
+
+  it("counts explicit saved outputs without exposing output or attempt ids", async () => {
+    const rows = journeyRows();
+    rows.push(
+      eventRow("s1", "generation_completed", 15, {
+        template_name: "slides",
+        output_type: "deck",
+        output_id: "private-output-id",
+        generation_attempt_id: "private-attempt-id",
+      }),
+    );
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({ rows, schema: [] });
+
+    const tree = (await getOnboardingJourney(scope, ARGS)) as JourneyTree;
+    const serialized = JSON.stringify(tree);
+
+    expect(tree.nodes.map((node) => node.key)).toContain(
+      "signup > step:role > onboarding:completed > output:generation_completed",
+    );
+    expect(serialized).not.toContain("private-output-id");
+    expect(serialized).not.toContain("private-attempt-id");
+    expect(serialized).not.toContain("output_id");
+    expect(serialized).not.toContain("generation_attempt_id");
+  });
+
+  it("keeps distinct consecutive Slides attempts in the tree without exposing ids", async () => {
+    const rows = journeyRows();
+    rows.push(
+      eventRow("s1", "generation_started", 11, {
+        template_name: "slides",
+        attempt_id: "private-attempt-one",
+      }),
+      eventRow("s1", "generation_started", 12, {
+        template_name: "slides",
+        attempt_id: "private-attempt-two",
+      }),
+      eventRow("s1", "generation_completed", 13, {
+        template_name: "slides",
+        attempt_id: "private-completion-attempt-one",
+      }),
+      eventRow("s1", "generation_completed", 14, {
+        template_name: "slides",
+        attempt_id: "private-completion-attempt-two",
+      }),
+    );
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({ rows, schema: [] });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      app: "slides",
+    })) as JourneyTree;
+    const serialized = JSON.stringify(tree);
+
+    expect(tree.nodes.map((node) => node.key)).toContain(
+      "signup > step:role > onboarding:completed > attempt:generation_started",
+    );
+    expect(tree.nodes.map((node) => node.key)).toContain(
+      "signup > step:role > onboarding:completed > attempt:generation_started > attempt:generation_started:2",
+    );
+    expect(tree.nodes.map((node) => node.key)).toContain(
+      "signup > step:role > onboarding:completed > attempt:generation_started > attempt:generation_started:2 > output:generation_completed > output:generation_completed:2",
+    );
+    expect(serialized).not.toContain("private-attempt-one");
+    expect(serialized).not.toContain("private-attempt-two");
+    expect(serialized).not.toContain("private-completion-attempt-one");
+    expect(serialized).not.toContain("private-completion-attempt-two");
+    expect(serialized).not.toContain("attempt_id");
   });
 
   it("reports later and no-later aggregates with a frozen, right-censored observation window", async () => {

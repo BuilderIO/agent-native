@@ -20,6 +20,7 @@ import {
   parseAgentQueuedMessage,
   parseAgentRunOptions,
   parseAgentThreadSnapshot,
+  persistableFilePart,
 } from "@agent-native/agentkit/protocol";
 
 import { projectRootAssistantMessages } from "../../agent/thread-message-projection.js";
@@ -280,6 +281,9 @@ function messagePart(
         : typeof part.mimeType === "string"
           ? { mediaType: part.mimeType }
           : {}),
+      ...(part.omitted === "inline-bytes"
+        ? { omitted: "inline-bytes" as const }
+        : {}),
     };
   }
   return {
@@ -1526,15 +1530,16 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
         ];
       }
       if (part.type === "file") {
-        const url = persistedFileUrl(part.url);
-        if (!url && !part.fileId) return [];
+        const stored = persistableFilePart(part);
+        if (!stored.url && !stored.fileId && !stored.omitted) return [];
         return [
           {
             type: "file",
-            name: part.name,
-            ...(part.mediaType ? { mediaType: part.mediaType } : {}),
-            ...(url ? { url } : {}),
-            ...(part.fileId ? { fileId: part.fileId } : {}),
+            name: stored.name,
+            ...(stored.mediaType ? { mediaType: stored.mediaType } : {}),
+            ...(stored.url ? { url: stored.url } : {}),
+            ...(stored.fileId ? { fileId: stored.fileId } : {}),
+            ...(stored.omitted ? { omitted: stored.omitted } : {}),
           },
         ];
       }

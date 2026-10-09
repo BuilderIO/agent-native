@@ -651,6 +651,33 @@ describe("createAgentNativeChatRuntime", () => {
     vi.useRealTimers();
   });
 
+  it("sends a continued turn's durable attachments when the turn is no longer in memory", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done", reason: "complete" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ threadId: "thread-reload" });
+    const attachment = {
+      type: "image",
+      name: "ad.png",
+      contentType: "image/png",
+      url: "https://files.example.test/ad.png",
+    };
+
+    const continuation = await session.continueTurn?.({
+      turnId: "turn-before-reload",
+      prompt: "Continue",
+      attachments: [attachment],
+    });
+    await drain(continuation!.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.attachments).toEqual([attachment]);
+  });
+
   it("keeps the original request context when a run-timeout stream closes without done", async () => {
     const fetchMock = vi
       .fn()
@@ -2250,8 +2277,9 @@ describe("createAgentNativeChatRuntime", () => {
     });
   });
 
-  it("keeps the initial prompt in history and excludes assistant reasoning", async () => {
-    const largeUserText = "u".repeat(140 * 1024);
+  it("keeps the initial ask over later text and excludes assistant reasoning", async () => {
+    const firstAsk = "a".repeat(100 * 1024);
+    const largeUserText = "u".repeat(160 * 1024);
     const largeAssistantReasoning = "r".repeat(140 * 1024);
     const fetchMock = vi
       .fn()
@@ -2266,6 +2294,11 @@ describe("createAgentNativeChatRuntime", () => {
     ).startTurn({
       prompt: "Continue",
       messages: [
+        {
+          id: "user-first",
+          role: "user",
+          content: [{ type: "text", text: firstAsk }],
+        },
         {
           id: "user-old",
           role: "user",
@@ -2300,7 +2333,7 @@ describe("createAgentNativeChatRuntime", () => {
     await drain(turn.events);
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
-    const structuredHistory = body.structuredHistory as Array<{
+    const history = body.structuredHistory as Array<{
       role: "user" | "assistant";
       content: Array<{
         type: string;
@@ -2309,17 +2342,12 @@ describe("createAgentNativeChatRuntime", () => {
         toolCallId?: string;
       }>;
     }>;
-    const parts = structuredHistory.flatMap((message) => message.content);
+    const parts = history.flatMap((message) => message.content);
     const historyBytes = new TextEncoder().encode(
       JSON.stringify(body.structuredHistory),
     ).byteLength;
 
     expect(historyBytes).toBeLessThanOrEqual(256 * 1024);
-    expect(JSON.stringify(body.history)).toContain(largeUserText);
-    expect(JSON.stringify(body.history)).not.toContain(largeAssistantReasoning);
-    expect(JSON.stringify(body.structuredHistory)).not.toContain(
-      largeAssistantReasoning,
-    );
     expect(parts).toContainEqual(
       expect.objectContaining({ type: "tool-call", id: "call-latest" }),
     );
@@ -2329,7 +2357,24 @@ describe("createAgentNativeChatRuntime", () => {
         toolCallId: "call-latest",
       }),
     );
-    expect(parts).toContainEqual({ type: "text", text: largeUserText });
+    expect(parts).toContainEqual({
+      type: "text",
+      text: "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+    });
+    expect(history.at(-1)).toEqual({
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+        },
+      ],
+    });
+    expect(parts).toContainEqual({ type: "text", text: firstAsk });
+    expect(parts).not.toContainEqual(
+      expect.objectContaining({ text: largeUserText }),
+    );
+    expect(JSON.stringify(body)).not.toContain("rrrr");
   });
 
   it("resends attachments when the user explicitly continues a stopped run", async () => {
@@ -3908,17 +3953,15 @@ describe("createAgentNativeChatRuntime", () => {
     );
   });
 
-  it("preserves the original brief in plain history without assistant reasoning", async () => {
+  it("preserves the original brief in bounded history without assistant reasoning", async () => {
     const originalBrief =
       "Create a LinkedIn ad at exactly 1200x627. Keep it on one static canvas.";
     const laterContext = Array.from({ length: 140 }, (_, index) => ({
       id: `assistant-context-${index}`,
       role: "assistant" as const,
       content: [
-        {
-          type: index % 2 === 0 ? ("text" as const) : ("reasoning" as const),
-          text: `Prior design context ${index}.`,
-        },
+        { type: "reasoning" as const, text: `Private scratch ${index}.` },
+        { type: "text" as const, text: `Prior design context ${index}.` },
       ],
     }));
     const currentFollowUp = "Make it more vivid.";
@@ -3951,21 +3994,153 @@ describe("createAgentNativeChatRuntime", () => {
     await drain(turn.events);
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
-    const history = body.history as Array<{
+    const history = body.structuredHistory as Array<{
       role: "user" | "assistant";
-      content: string;
+      content: Array<{ type: string; text?: string }>;
     }>;
-    const visibleText = history.map((message) => message.content);
+    const parts = history.flatMap((message) => message.content);
+    const visibleText = parts
+      .filter(
+        (part) =>
+          part.type === "text" &&
+          part.text !==
+            "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+      )
+      .map((part) => part.text);
+    const historyBytes = new TextEncoder().encode(
+      JSON.stringify(body.structuredHistory),
+    ).byteLength;
+    const plainHistoryText = (body.history as Array<{ content: string }>)
+      .map((message) => message.content)
+      .join("\n");
 
     expect(visibleText).toEqual([
       originalBrief,
-      ...laterContext
-        .filter((message) => message.content[0]!.type === "text")
-        .map((message) => message.content[0]!.text),
+      ...laterContext.slice(-127).map((message) => message.content[1]!.text),
     ]);
+    expect(visibleText).toHaveLength(128);
     expect(visibleText).not.toContain(currentFollowUp);
-    expect(visibleText).not.toContain("Prior design context 1.");
-    expect(body.structuredHistory).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("Private scratch");
+    expect(plainHistoryText).toContain(originalBrief);
+    expect(plainHistoryText).not.toContain(currentFollowUp);
+    expect(plainHistoryText).not.toContain("Private scratch");
+    expect(historyBytes).toBeLessThanOrEqual(256 * 1024);
+    expect(parts).toContainEqual({
+      type: "text",
+      text: "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+    });
+  });
+
+  it("keeps the first ask and earlier attachments through a 45-turn agentic thread", async () => {
+    const firstAsk = "LinkedIn ad 1200x627 PNG";
+    const messages: AgentChatRuntimeMessage[] = [
+      {
+        id: "user-0",
+        role: "user",
+        content: [
+          { type: "text", text: firstAsk },
+          {
+            type: "file",
+            filename: "brand.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/brand.png",
+          },
+          {
+            type: "image",
+            alt: "inline.png",
+            mediaType: "image/png",
+            data: "data:image/png;base64,SGVsbG8=",
+          },
+        ],
+      },
+    ];
+    for (let turn = 1; turn < 45; turn++) {
+      messages.push(
+        {
+          id: `user-${turn}`,
+          role: "user",
+          content: [
+            { type: "text", text: `Follow-up ${turn}` },
+            ...(turn === 20
+              ? [
+                  {
+                    type: "file" as const,
+                    filename: "logo.svg",
+                    mediaType: "image/svg+xml",
+                    url: "https://files.example.test/logo.svg",
+                  },
+                ]
+              : []),
+          ],
+        },
+        {
+          id: `assistant-${turn}`,
+          role: "assistant",
+          content: [
+            { type: "reasoning", text: `Scratch ${turn}` },
+            ...Array.from({ length: 12 }, (_, call) => [
+              {
+                type: "tool-call" as const,
+                toolCallId: `call-${turn}-${call}`,
+                toolName: "edit-design",
+                input: { step: call },
+              },
+              {
+                type: "tool-result" as const,
+                toolCallId: `call-${turn}-${call}`,
+                toolName: "edit-design",
+                result: { ok: true },
+              },
+            ]).flat(),
+            { type: "text", text: `Finished step ${turn}.` },
+          ],
+        },
+      );
+    }
+    const currentPrompt = "Make the headline bigger";
+    messages.push({
+      id: "user-current",
+      role: "user",
+      content: [{ type: "text", text: currentPrompt }],
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-45-turn-agentic",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({ prompt: currentPrompt, messages });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const history = body.structuredHistory as Array<{
+      role: "user" | "assistant";
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const texts = history
+      .flatMap((message) => message.content)
+      .flatMap((part) => (part.type === "text" ? [part.text] : []));
+    const serialized = JSON.stringify(body);
+
+    expect(texts).toContain(
+      `${firstAsk}\n[attached: brand.png image/png https://files.example.test/brand.png]\n[attached: inline.png image/png no durable URL available]`,
+    );
+    expect(texts).toContain(
+      "Follow-up 20\n[attached: logo.svg image/svg+xml https://files.example.test/logo.svg]",
+    );
+    expect(texts).not.toContain(currentPrompt);
+    expect(serialized).not.toContain("Scratch");
+    expect(serialized).not.toContain("base64,");
+    expect(
+      new TextEncoder().encode(JSON.stringify(history)).byteLength,
+    ).toBeLessThanOrEqual(256 * 1024);
+    expect(texts).toContain(
+      "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+    );
   });
 
   it("keeps the pending approval pair ahead of oversized continuation history", async () => {

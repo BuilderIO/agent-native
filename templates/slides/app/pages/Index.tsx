@@ -1442,6 +1442,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         ].join("\n")
       : [
           "This is a new deck. Keep it empty until generation begins; attached reference files must not seed it with imported slides.",
+          "Image and logo lookup with search-images or search-logos is optional enrichment. If a provider is unconfigured or unavailable, the search returns no matches, or the action fails, continue with a useful deck using native typography, diagrams, or rules. Do not stop generation or retry the lookup in a loop.",
           "Start a `manage-progress` run so progress appears in the app header. First make a compact outline and deck-level visual contract in working context, then add slides with `add-slide` one at a time so every generated slide preserves its per-slide Creative Context provenance.",
           "After reading any requested or attached reference material, but before adding the first slide, choose a concise, specific deck title from the user's request and source material. Never use the deck id, run id, file id, or another opaque alphanumeric token as the title. Call `patch-deck` with `deckId: \"" +
             deckId +

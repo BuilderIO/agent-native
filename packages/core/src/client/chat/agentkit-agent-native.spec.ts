@@ -2641,6 +2641,11 @@ describe("createAgentNativeAgentKitTransport", () => {
           },
           {
             type: "file",
+            name: "inline-secret.txt",
+            omitted: "inline-bytes",
+          },
+          {
+            type: "file",
             name: "remote.txt",
             url: "https://files.example.test/remote.txt",
           },
@@ -2663,6 +2668,8 @@ describe("createAgentNativeAgentKitTransport", () => {
       "do not persist raw data",
     );
     expect(JSON.stringify(saved.agentKit.messages)).not.toContain("c2VjcmV0");
+    expect(threadData).not.toContain("base64,");
+    expect(threadData).not.toContain("data:text");
     expect(JSON.stringify(saved.agentKit.messages)).not.toContain(
       "do not persist this metadata",
     );
@@ -2788,6 +2795,11 @@ describe("createAgentNativeAgentKitTransport", () => {
             type: "file",
             name: "durable-upload.txt",
             fileId: "upload-1",
+          },
+          {
+            type: "file",
+            name: "inline-secret.txt",
+            omitted: "inline-bytes",
           },
           {
             type: "file",

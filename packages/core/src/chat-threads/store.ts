@@ -26,7 +26,7 @@ import {
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
-import { stripInlineAttachmentPayloads } from "../shared/attachments.js";
+import { stripInlineBytes } from "../shared/inline-bytes.js";
 import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import { registerShareableResource } from "../sharing/registry.js";
 import { roleSatisfies, type ShareRole } from "../sharing/schema.js";
@@ -1037,17 +1037,14 @@ export async function forkThread(
     return null;
   }
   const id = opts?.id ?? generateId();
-  const copiedThreadData = forkThreadData(
-    source.threadData,
-    id,
-    snapshot?.fromMessageId,
-  );
   const threadData = JSON.stringify(
-    stripInlineAttachmentPayloads(JSON.parse(copiedThreadData)),
+    stripInlineBytes(
+      JSON.parse(
+        forkThreadData(source.threadData, id, snapshot?.fromMessageId),
+      ),
+      "placeholder",
+    ),
   );
-  if (containsInlineAttachmentPayload(JSON.parse(threadData))) {
-    throw new InlineAttachmentDataNotPersistableError();
-  }
   const now = Date.now();
   const title = source.title ? `${source.title} (fork)` : "";
   const client = getDbExec();
@@ -1455,8 +1452,9 @@ export async function updateThreadData(
       const current = await getThread(id);
       if (!current) return false;
 
-      const safeCurrentThreadData = stripInlineAttachmentPayloads(
+      const safeCurrentThreadData = stripInlineBytes(
         parseThreadData(current.threadData),
+        "placeholder",
       );
       const transformed = options.transformThreadData?.(
         JSON.stringify(safeCurrentThreadData),
@@ -1480,10 +1478,10 @@ export async function updateThreadData(
             annotationConflicts.push(conflict),
         },
       );
-      nextThreadData = JSON.stringify(merged);
-      if (containsInlineAttachmentPayload(merged)) {
-        throw new InlineAttachmentDataNotPersistableError();
-      }
+      // Client snapshots can predate their upload URL, so inline bytes become a
+      // visible placeholder rather than failing the save; legacy rows are
+      // scrubbed on their next write.
+      nextThreadData = JSON.stringify(stripInlineBytes(merged, "placeholder"));
       nextMessageCount = countThreadMessages(merged, messageCount);
 
       const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);

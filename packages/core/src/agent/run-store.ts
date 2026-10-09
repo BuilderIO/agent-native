@@ -16,6 +16,10 @@ import {
   recordServicePrincipalDenial,
 } from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
+import {
+  stripInlineBytes,
+  stripInlineBytesFromJson,
+} from "../shared/inline-bytes.js";
 import { isRequestedStopAbortReason } from "./abort-reasons.js";
 import {
   admitAutoContinue,
@@ -1733,7 +1737,7 @@ function staleRecoveryDispatchPayload(payload: string): string {
       return payload;
     }
     return JSON.stringify({
-      ...(parsed as Record<string, unknown>),
+      ...stripInlineBytes(parsed as Record<string, unknown>, "placeholder"),
       internalContinuation: true,
     });
   } catch {
@@ -2345,7 +2349,13 @@ export async function insertRunEvent(
         WHERE id = ? AND status <> 'running'
       )
       ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [runId, seq, Date.now(), eventData, runId],
+    args: [
+      runId,
+      seq,
+      Date.now(),
+      stripInlineBytesFromJson(eventData, "placeholder"),
+      runId,
+    ],
   });
 }
 
@@ -3249,6 +3259,11 @@ async function appendTerminalRunEvent(
   const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
   await client.execute({
     sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [runId, nextSeq, Date.now(), JSON.stringify(event)],
+    args: [
+      runId,
+      nextSeq,
+      Date.now(),
+      stripInlineBytesFromJson(JSON.stringify(event), "placeholder"),
+    ],
   });
 }

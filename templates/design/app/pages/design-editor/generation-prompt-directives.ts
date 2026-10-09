@@ -2,6 +2,7 @@ import { callAction } from "@agent-native/core/client/hooks";
 import type { TweakDefinition } from "@shared/api";
 import { resolveCanvasIntent } from "@shared/canvas-dimensions";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
+import { hasSpecifiedDesignPrompt } from "@shared/specified-design-prompt";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { agentChatContentFromImages } from "@/lib/chat-image-attachments";
@@ -172,8 +173,8 @@ export function designCanvasIntentDirectives(
       ];
     }
     return [
-      `Fixed canvas: ${canvas}. Generate one artwork canvas and pass \`devices: []\` to \`generate-design\` unless the user explicitly asks for device variants; then preserve exactly the requested devices and add no others.`,
-      `After generation, ${screenshot} Capture additional device viewports only when the user requested those variants.`,
+      `Fixed canvas: ${canvas}. Generate one artwork canvas and pass \`devices: []\` to \`generate-design\`. A fixed canvas never gets device breakpoints, so give any other requested size or version its own call at that exact size.`,
+      `After generation, ${screenshot}`,
     ];
   }
 
@@ -249,6 +250,18 @@ export function promptRequestsVariantExploration(prompt: string): boolean {
   );
 }
 
+export function variantContentDirective(
+  prompt?: string,
+  designSystemId?: string | null,
+  referenceImageCount = 0,
+): string {
+  return referenceImageCount > 0 ||
+    designSystemId ||
+    hasSpecifiedDesignPrompt(prompt)
+    ? "Give every variant complete self-contained HTML `content`: `present-design-variants` rejects direction-only variants for a fixed canvas, reference image, layout spec, or linked design system."
+    : "Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens.";
+}
+
 export function designVariantGenerationDirectives(
   designId: string,
   designSystemId?: string | null,
@@ -259,13 +272,9 @@ export function designVariantGenerationDirectives(
     WEBSITE_STYLE_REFERENCE_DIRECTIVE,
     ...designSystemGenerationDirectives(designSystemId),
     "The user's prompt already asks to explore multiple directions, so DO NOT call `show-design-questions` first and DO NOT call `generate-design` first.",
-    "Call `present-design-variants` with 2-5 concise directions (3 when unspecified), using clear labels, descriptions, accent colors, and feature bullets.",
-    "Every variant must include complete, self-contained, renderable HTML in its `content`. Keep each document compact, but do not omit HTML or rely on the direction-only fallback.",
-    "If an image attachment is present, inspect its pixels and apply its visible structure to every variant.",
+    `Call \`present-design-variants\` with 2-5 concise directions (3 when unspecified). ${variantContentDirective(prompt, designSystemId)}`,
     ...designCanvasIntentDirectives(prompt, "variants"),
-    "Wait for the user's chat pick. Delete each unchosen variant screen at most once, then call `get-design-snapshot` exactly once with `fileId` for the chosen screen.",
-    'Call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` only when a bounded complete-file replacement is needed. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit.',
-    "Do not repeat delete/snapshot cycles or call `generate-design` after a variant pick. Stop after the first successful `edit-design` save.",
+    'Wait for the user\'s chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save.',
     DESIGN_MUTATION_REQUIRED_DIRECTIVE,
   ];
 }
@@ -331,7 +340,7 @@ export function designGenerationDirectives(
   const shouldExploreVariants = promptRequestsVariantExploration(prompt ?? "");
   return [
     shouldExploreVariants
-      ? `Use the \`present-design-variants --designId="${designId}"\` action first. Every variant must include complete, self-contained, renderable HTML in its \`content\`. The design already exists - DO NOT call create-design.`
+      ? `Use the \`present-design-variants --designId="${designId}"\` action first. ${variantContentDirective(prompt, designSystemId, referenceImageCount)} The design already exists - DO NOT call create-design.`
       : `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
     WEBSITE_STYLE_REFERENCE_DIRECTIVE,
     ...designSystemGenerationDirectives(designSystemId),
@@ -339,11 +348,8 @@ export function designGenerationDirectives(
     ...(!shouldExploreVariants
       ? []
       : [
-          "If the user asked to explore variations, call `present-design-variants` with 2-5 concise directions.",
-          "Every variant must include complete, self-contained, renderable HTML in its `content`; keep each document compact, but do not omit HTML or rely on the direction-only fallback.",
-          "Wait for their chat pick. Delete each unchosen variant screen at most once, then call `get-design-snapshot` exactly once with `fileId` for the chosen screen.",
-          'Call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` only when a bounded complete-file replacement is needed. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit.',
-          "Do not repeat delete/snapshot cycles or call `generate-design` after a variant pick. Stop after the first successful `edit-design` save.",
+          `If the user asked to explore variations, call \`present-design-variants\` with 2-5 concise directions. ${variantContentDirective(prompt, designSystemId, referenceImageCount)}` +
+            ' Wait for their chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save. Otherwise generate one polished first direction.',
         ]),
     ...designCanvasIntentDirectives(
       prompt,

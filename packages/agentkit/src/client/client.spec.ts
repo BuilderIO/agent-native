@@ -19,6 +19,7 @@ import {
   AgentKitCapabilityError,
   AgentKitClient as AgentKitClientImplementation,
   AgentKitOperationError,
+  AgentKitUploadError,
   AgentRunHandle,
   AgentKitRunSlotBusyError,
 } from "./client.js";
@@ -946,6 +947,215 @@ describe("AgentKitClient", () => {
     finishUpload.resolve();
     await Promise.all([imageMessage, textMessage]);
     expect(queueOrder).toEqual(["Describe this image", "Follow up"]);
+    await client.shutdown();
+  });
+
+  it("shows no queued row until AI setup is ready and never queues when it fails", async () => {
+    const ready = Promise.withResolvers<void>();
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>();
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        assertAiSetupReady: () => ready.promise,
+        queueMessage,
+      },
+    });
+    const onLocalSubmit = vi.fn();
+
+    const queued = client.queueMessage({
+      threadId: "thread-1",
+      text: "Next",
+      onLocalSubmit,
+    });
+
+    await Promise.resolve();
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    expect(onLocalSubmit).not.toHaveBeenCalled();
+    const setupRequired = Object.assign(new Error("Connect AI first."), {
+      code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+    });
+    ready.reject(setupRequired);
+    await expect(queued).rejects.toBe(setupRequired);
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    expect(queueMessage).not.toHaveBeenCalled();
+    await client.shutdown();
+  });
+
+  it("uploads inline file parts before a queued message is stored", async () => {
+    const queuedRequest = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async (input) => ({
+        message: {
+          id: input.id ?? "queued-file",
+          threadId: input.threadId,
+          text: input.text,
+          createdAt: "2026-10-09T00:00:00.000Z",
+          attachments: input.attachments,
+        },
+      }),
+    );
+    const upload = vi.fn(async () => undefined);
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { attachments: true, messageQueue: true, uploads: true },
+        queueMessage: queuedRequest,
+        async createUpload() {
+          return {
+            uploadId: "upload-1",
+            method: "PUT",
+            url: "https://upload.example.test/photo.png",
+          };
+        },
+        async completeUpload() {
+          return {
+            type: "file",
+            name: "photo.png",
+            mediaType: "image/png",
+            url: "https://storage.example.test/photo.png",
+          };
+        },
+      },
+      upload,
+    });
+
+    await client.queueMessage({
+      threadId: "thread-1",
+      text: "Describe this",
+      attachments: [
+        {
+          type: "file",
+          name: "photo.png",
+          mediaType: "image/png",
+          url: "data:image/png;base64,SGVsbG8=",
+        },
+      ],
+    });
+
+    const request = queuedRequest.mock.calls[0]?.[0];
+    expect(request?.attachments).toEqual([
+      {
+        type: "file",
+        name: "photo.png",
+        mediaType: "image/png",
+        url: "https://storage.example.test/photo.png",
+      },
+    ]);
+    for (const serialized of [
+      JSON.stringify(request),
+      JSON.stringify(client.getThread("thread-1").queuedMessages),
+    ]) {
+      expect(serialized).not.toContain("base64,");
+      expect(serialized).not.toContain("data:image");
+    }
+    expect(upload).toHaveBeenCalledOnce();
+    await client.shutdown();
+  });
+
+  it("names a failed upload and keeps its uploaded siblings for reuse", async () => {
+    let nextUploadId = 0;
+    const tooLarge = Object.assign(
+      new Error("This file exceeds the 25 MB upload limit."),
+      { code: "upload_too_large", retryable: false },
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { uploads: true },
+        async createUpload() {
+          nextUploadId += 1;
+          return {
+            uploadId: `upload-${nextUploadId}`,
+            method: "PUT",
+            url: "https://upload.example.test/file",
+          };
+        },
+        async completeUpload({ uploadId }) {
+          return {
+            type: "file",
+            name: uploadId,
+            url: `https://storage.example.test/${uploadId}`,
+          };
+        },
+      },
+      upload: async (_target, file) => {
+        if (file.name === "huge.mov") throw tooLarge;
+      },
+    });
+    const file = (name: string) => ({
+      name,
+      mediaType: "application/octet-stream",
+      size: 1,
+      body: new Blob(["x"]),
+    });
+
+    const error = await client
+      .uploadFiles("thread-1", [file("notes.txt"), file("huge.mov")])
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(AgentKitUploadError);
+    const uploadError = error as AgentKitUploadError;
+    expect(uploadError.message).toBe(
+      "huge.mov: This file exceeds the 25 MB upload limit.",
+    );
+    expect(uploadError.failures).toEqual([
+      { index: 1, name: "huge.mov", error: tooLarge },
+    ]);
+    expect(uploadError.uploaded).toEqual([
+      {
+        index: 0,
+        part: {
+          type: "file",
+          name: "upload-1",
+          url: "https://storage.example.test/upload-1",
+        },
+      },
+    ]);
+    expect(uploadError.retryable).toBe(false);
+    await client.shutdown();
+  });
+
+  it("continues a stopped run with its turn's durable attachments, never bytes", async () => {
+    const continueRun = vi.fn<NonNullable<AgentTransport["continueRun"]>>(
+      async () => ({ runId: "run-2" }),
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([
+          protocolEvent(1, { type: "run.started" }),
+          protocolEvent(2, { type: "run.completed" }),
+        ]),
+        continueRun,
+      },
+    });
+    const durable = {
+      type: "file" as const,
+      name: "ad.png",
+      mediaType: "image/png",
+      url: "https://storage.example.test/ad.png",
+    };
+    const handle = await client.sendMessage({
+      threadId: "thread-1",
+      text: "LinkedIn ad 1200x627 PNG",
+      attachments: [
+        durable,
+        {
+          type: "file",
+          name: "inline.png",
+          mediaType: "image/png",
+          url: "data:image/png;base64,SGVsbG8=",
+        },
+        { type: "file", name: "lost.png", omitted: "inline-bytes" },
+      ],
+    });
+    await handle.completed;
+
+    await client.continueRun("thread-1", "run-1");
+
+    expect(continueRun.mock.calls[0]?.[0]).toEqual({
+      threadId: "thread-1",
+      runId: "run-1",
+      attachments: [durable],
+    });
     await client.shutdown();
   });
 
@@ -6848,10 +7058,15 @@ describe("AgentKitClient", () => {
     };
     const client = new AgentKitClient({ transport });
     const onLocalSubmit = vi.fn();
+    const reservation = client.reserveQueuedMessage(
+      { threadId: "thread-1", text: "Queue this follow-up immediately" },
+      onLocalSubmit,
+    );
     const submission = client.queueMessage({
       threadId: "thread-1",
-      text: "Queue this follow-up immediately",
-      onLocalSubmit,
+      text: reservation.text,
+      queuedMessageReservationId: reservation.id,
+      queuedWhileRunActive: true,
     });
 
     const optimistic = client.getThread("thread-1").queuedMessages[0];

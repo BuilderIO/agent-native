@@ -276,6 +276,7 @@ export interface AgentKitLabels {
   collapseMessage: string;
   previewAttachment: string;
   pastedText: string;
+  attachmentNotSaved: string;
   imagePreview: string;
   closePreview: string;
   dropFilesToAttach: string;
@@ -394,6 +395,7 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   collapseMessage: "Collapse",
   previewAttachment: "Preview {{name}}",
   pastedText: "Pasted text",
+  attachmentNotSaved: "Not saved with this chat",
   imagePreview: "Image preview",
   closePreview: "Close preview",
   dropFilesToAttach: "Drop files to attach",

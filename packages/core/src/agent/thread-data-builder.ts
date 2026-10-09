@@ -26,7 +26,10 @@ import {
 } from "../shared/agent-chat-run-not-started.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
-import { stringifyToolUseInputForGateway } from "./engine/translate-anthropic.js";
+import {
+  INTERRUPTED_TOOL_RESULT_MARKER as INTERRUPTED_TOOL_RESULT,
+  stringifyToolUseInputForGateway,
+} from "./engine/translate-anthropic.js";
 import type { EngineContentPart, EngineMessage } from "./engine/types.js";
 import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
 import type { ActiveRun } from "./run-manager.js";
@@ -67,8 +70,6 @@ interface BuildAssistantMessageOptions {
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
 type UserMessage = ReturnType<typeof buildUserMessage>;
 
-const INTERRUPTED_TOOL_RESULT =
-  "Interrupted before this tool returned a result.";
 const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 
 export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
