@@ -3648,6 +3648,82 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("maps a shared folded assistant snapshot to one durable reply on reload", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json({
+              id: "thread-folded",
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      id: "user-1",
+                      role: "user",
+                      status: "complete",
+                      content: [{ type: "text", text: "Write forty lines" }],
+                    },
+                    parentId: null,
+                  },
+                  {
+                    message: {
+                      id: "server-run-2",
+                      role: "assistant",
+                      status: { type: "complete", reason: "stop" },
+                      content: [
+                        { type: "text", text: "First half. Second half." },
+                      ],
+                      metadata: {
+                        runId: "run-2",
+                        custom: { foldedRunIds: ["run-1", "run-2"] },
+                      },
+                    },
+                    parentId: "user-1",
+                  },
+                ],
+                agentKit: {
+                  messages: [
+                    reloadedPrompt,
+                    {
+                      id: "assistant-shared",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [{ type: "text", text: "First half." }],
+                    },
+                  ],
+                  events: [],
+                  runs: ["run-1", "run-2"].map((id) => ({
+                    id,
+                    threadId: "thread-folded",
+                    status: "completed",
+                    startedAt: "2026-10-01T23:54:00.000Z",
+                    lastSequence: 0,
+                    activeMessageId: "assistant-shared",
+                  })),
+                  activeRunIds: [],
+                },
+              }),
+            }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-folded",
+    });
+
+    expect(
+      snapshot?.messages.map((message) => [
+        message.id,
+        message.parts.map((part) => (part.type === "text" ? part.text : "")),
+      ]),
+    ).toEqual([
+      ["user-1", ["Write forty lines"]],
+      ["assistant-shared", ["First half. Second half."]],
+    ]);
+    await transport.dispose();
+  });
+
   it("appends the continuation after a tool part the reloaded page already saved", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) =>
