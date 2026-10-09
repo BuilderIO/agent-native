@@ -20,9 +20,11 @@ import { renderFirstPartyAnalyticsBigQuerySql } from "./first-party-analytics-ba
 import { scopedAnalyticsSql } from "./first-party-analytics.js";
 
 it("preserves alert and panel results on seeded duplicate receipts", async () => {
-  const endpoint = new URL(
-    process.env.BIGQUERY_EMULATOR_URL || "http://127.0.0.1:19051",
-  );
+  if (!process.env.BIGQUERY_EMULATOR_URL)
+    throw new Error(
+      "BIGQUERY_EMULATOR_URL is required for the dedicated emulator proof",
+    );
+  const endpoint = new URL(process.env.BIGQUERY_EMULATOR_URL);
   if (!["127.0.0.1", "localhost", "[::1]"].includes(endpoint.hostname))
     throw new Error("This test only writes to a loopback emulator");
   const table = {
