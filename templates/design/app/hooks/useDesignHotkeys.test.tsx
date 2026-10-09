@@ -1068,7 +1068,7 @@ describe("useDesignHotkeys — selection alignment (Alt+A/D/W/S/H/V)", () => {
   });
 });
 
-describe("useDesignHotkeys — distribute (Ctrl+Alt+H/V) and Tidy up (Ctrl+Alt+T)", () => {
+describe("useDesignHotkeys — distribute and Tidy up", () => {
   it("Ctrl+Alt+H distributes horizontally and stays distinct from Alt+H align", async () => {
     const onDistributeSelection = vi.fn();
     const onAlignSelection = vi.fn();
@@ -1082,17 +1082,31 @@ describe("useDesignHotkeys — distribute (Ctrl+Alt+H/V) and Tidy up (Ctrl+Alt+T
     expect(onAlignSelection).not.toHaveBeenCalled();
   });
 
-  it("Ctrl+Alt+V distributes vertically and stays distinct from Alt+V align", async () => {
+  it("keeps Ctrl+Alt+V for vertical distribution on Apple platforms", async () => {
     const onDistributeSelection = vi.fn();
     const onAlignSelection = vi.fn();
-    await withHotkeys({ onDistributeSelection, onAlignSelection }, () => {
-      dispatchKey("v", { altKey: true, ctrlKey: true });
-    });
+    await withNavigatorPlatform("MacIntel", () =>
+      withHotkeys({ onDistributeSelection, onAlignSelection }, () => {
+        dispatchKey("v", { altKey: true, ctrlKey: true });
+      }),
+    );
     expect(onDistributeSelection).toHaveBeenCalledTimes(1);
     expect(onDistributeSelection.mock.calls[0]![0]).toMatchObject({
       axis: "vertical",
     });
     expect(onAlignSelection).not.toHaveBeenCalled();
+  });
+
+  it("keeps Ctrl+Alt+V for paste properties on non-Apple platforms", async () => {
+    const onDistributeSelection = vi.fn();
+    const onPasteProps = vi.fn();
+    await withNavigatorPlatform("Linux x86_64", () =>
+      withHotkeys({ onDistributeSelection, onPasteProps }, () => {
+        dispatchKey("v", { altKey: true, ctrlKey: true });
+      }),
+    );
+    expect(onPasteProps).toHaveBeenCalledTimes(1);
+    expect(onDistributeSelection).not.toHaveBeenCalled();
   });
 
   it("Ctrl+Alt+T fires Tidy up even without a meta/cmd key", async () => {
