@@ -62,14 +62,21 @@ export function renderRightRail({
           data-design-chrome-region="right-panel"
           className={rightInspectorPanelClassName(minimalUi)}
           style={
-            topBarVisible && !minimalUi
+            widgetEmbed && minimalUi
               ? {
                   width: rightSidebarWidth,
-                  top: TOP_BAR_HEIGHT_PX,
-                  bottom: 0,
+                  top: TOP_BAR_HEIGHT_PX + 12,
+                  bottom: 12,
                   height: "auto",
                 }
-              : { width: rightSidebarWidth }
+              : topBarVisible && !minimalUi
+                ? {
+                    width: rightSidebarWidth,
+                    top: TOP_BAR_HEIGHT_PX,
+                    bottom: 0,
+                    height: "auto",
+                  }
+                : { width: rightSidebarWidth }
           }
         >
           <div
@@ -141,9 +148,11 @@ export function renderRightRail({
         </div>
       ) : null}
 
-      {/* The widget's only persistent control sits in the bottom corner so it
-            never covers the page header the screen starts with. */}
-      {widgetEmbed && minimalUi && (!rightSidebarVisible || uiHidden) ? (
+      {/* Keep a fallback zoom control only when this widget has no top bar. */}
+      {widgetEmbed &&
+      minimalUi &&
+      !topBarVisible &&
+      (!rightSidebarVisible || uiHidden) ? (
         <div
           data-design-widget-zoom
           className="absolute bottom-3 right-3 z-[90] flex h-7 items-center rounded-md border border-border bg-[var(--design-editor-panel-bg)] px-0.5 shadow-md"

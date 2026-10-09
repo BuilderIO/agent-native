@@ -22,4 +22,22 @@ describe("isTopBarVisible", () => {
   ])("is absent in %s", (_name, override) => {
     expect(isTopBarVisible({ ...docked, ...override })).toBe(false);
   });
+
+  it("keeps the real top bar visible in a minimal MCP widget", () => {
+    expect(
+      isTopBarVisible({
+        embedded: true,
+        isVisualEditSurface: false,
+        minimalUi: true,
+        uiHidden: false,
+        widgetEmbed: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("respects the explicit hidden state in a widget", () => {
+    expect(
+      isTopBarVisible({ ...docked, widgetEmbed: true, uiHidden: true }),
+    ).toBe(false);
+  });
 });

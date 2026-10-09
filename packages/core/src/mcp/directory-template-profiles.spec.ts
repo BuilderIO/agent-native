@@ -10,6 +10,10 @@ import { CHATGPT_DIRECTORY_PROFILE as contentProfile } from "../../../../templat
 import { CHATGPT_DIRECTORY_PROFILE as designProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
 import { isActionHiddenFromEveryAgentSurface } from "../action.js";
+import listResourceShares from "../sharing/actions/list-resource-shares.js";
+import setResourceVisibility from "../sharing/actions/set-resource-visibility.js";
+import shareResource from "../sharing/actions/share-resource.js";
+import unshareResource from "../sharing/actions/unshare-resource.js";
 import {
   filterFrameworkToolGroups,
   type FrameworkToolGroup,
@@ -71,6 +75,13 @@ async function loadTemplateActions(appId: string) {
   const sharedActions =
     appId === "content"
       ? { "list-resource-suggestions": listResourceSuggestions }
+      : appId === "design"
+        ? {
+            "list-resource-shares": listResourceShares,
+            "share-resource": shareResource,
+            "unshare-resource": unshareResource,
+            "set-resource-visibility": setResourceVisibility,
+          }
       : {};
   const loadNames = [
     ...new Set([
@@ -312,6 +323,156 @@ describe("ChatGPT directory template profiles", () => {
         normalize({ ...args, designId: "design-outside-scope" }),
       ).toBeUndefined();
       expect(normalize({ ...args, replaceExisting: true })).toBeUndefined();
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "binds Design widget sharing and title renames to the granted design",
+    async () => {
+      const { actions } = await loadTemplateActions("design");
+      const resourceUri = "ui://design/shell-v69";
+      const resourceIds = {
+        designId: "design-123",
+        designResourceType: "design",
+      };
+      const profileWriteArguments =
+        designProfile.widgetWriteActionArguments ?? {};
+      const bindArguments = (name: string) => {
+        const rules = profileWriteArguments[
+          name as keyof typeof profileWriteArguments
+        ] as Record<string, unknown>;
+        return Object.fromEntries(
+          Object.entries(rules).map(([key, rule]) => [
+            key,
+            typeof rule === "string"
+              ? resourceIds[rule as keyof typeof resourceIds]
+              : rule,
+          ]),
+        );
+      };
+      const writeNames = [
+        "share-resource",
+        "unshare-resource",
+        "set-resource-visibility",
+        "update-design",
+      ];
+      const readArguments = {
+        resourceType: "design",
+        resourceId: "design-123",
+      };
+      const scope = createMcpDirectoryWidgetWriteCapability({
+        appId: "design",
+        resourceUri,
+        resourceIds,
+        userEmail: "reviewer@example.test",
+        orgId: "org-1",
+        expiresAtMs: Date.now() + 60_000,
+        readActionArguments: { "list-resource-shares": readArguments },
+        writeActionArguments: Object.fromEntries(
+          writeNames.map((name) => [name, bindArguments(name)]),
+        ),
+      });
+      expect(scope).toBeDefined();
+      if (!scope) throw new Error("Failed to create the Design widget grant.");
+
+      const normalizeWrite = (
+        actionName: string,
+        args: Record<string, unknown>,
+        userEmail = "reviewer@example.test",
+      ) =>
+        normalizeMcpDirectoryWidgetWriteActionArguments(scope, {
+          actionName,
+          appId: "design",
+          resourceUri,
+          userEmail,
+          orgId: "org-1",
+          args,
+          allowedArgumentNames: Object.keys(
+            profileWriteArguments[
+              actionName as keyof typeof profileWriteArguments
+            ] ?? {},
+          ),
+        });
+      const normalizeRead = (args: Record<string, unknown>) =>
+        normalizeMcpDirectoryWidgetReadActionArguments(scope, {
+          actionName: "list-resource-shares",
+          appId: "design",
+          resourceUri,
+          userEmail: "reviewer@example.test",
+          orgId: "org-1",
+          args,
+          allowedArgumentNames: Object.keys(readArguments),
+        });
+
+      expect(
+        actions["list-resource-shares"]?.tool?.parameters?.properties,
+      ).toHaveProperty("resourceId");
+      for (const actionName of writeNames.slice(0, 3)) {
+        const properties = actions[actionName]?.tool?.parameters?.properties;
+        expect(properties).toHaveProperty("resourceType");
+        expect(properties).toHaveProperty("resourceId");
+      }
+
+      expect(normalizeRead(readArguments)).toEqual(readArguments);
+      expect(
+        normalizeRead({ ...readArguments, resourceType: "content" }),
+      ).toBeUndefined();
+      expect(
+        normalizeRead({ ...readArguments, resourceId: "design-456" }),
+      ).toBeUndefined();
+
+      const argsByAction = {
+        "share-resource": {
+          ...readArguments,
+          principalType: "user",
+          principalId: "editor@example.test",
+          role: "viewer",
+        },
+        "unshare-resource": {
+          ...readArguments,
+          principalType: "user",
+          principalId: "editor@example.test",
+        },
+        "set-resource-visibility": {
+          ...readArguments,
+          visibility: "private",
+        },
+      };
+      for (const [actionName, args] of Object.entries(argsByAction)) {
+        expect(normalizeWrite(actionName, args)).toMatchObject(readArguments);
+        expect(
+          normalizeWrite(actionName, { ...args, resourceType: "content" }),
+        ).toBeUndefined();
+        expect(
+          normalizeWrite(actionName, { ...args, resourceId: "design-456" }),
+        ).toBeUndefined();
+      }
+      expect(
+        normalizeWrite("share-resource", {
+          ...argsByAction["share-resource"],
+          anotherDesignId: "design-456",
+        }),
+      ).toBeUndefined();
+      expect(
+        normalizeWrite(
+          "share-resource",
+          argsByAction["share-resource"],
+          "other@example.test",
+        ),
+      ).toBeUndefined();
+      expect(
+        normalizeWrite("update-design", {
+          id: "design-123",
+          title: "Renamed in the widget",
+        }),
+      ).toEqual({ id: "design-123", title: "Renamed in the widget" });
+      expect(
+        normalizeWrite("update-design", {
+          id: "design-456",
+          title: "Out of scope",
+        }),
+      ).toBeUndefined();
     },
     ACTION_REGISTRY_TEST_TIMEOUT_MS,
   );

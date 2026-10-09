@@ -79,6 +79,7 @@ import {
 import { resolveLocalhostSourceWriteContent } from "./editor-state";
 import { resolveLeftSidebarWidth } from "./left-sidebar-width";
 import { hasMinimalInspectorSelection } from "./minimal-inspector";
+import { shouldRenderDesignShareControl } from "./mcp-widget-write-capabilities";
 import { mergePresenceUsers } from "./presence-users";
 import { getDesignBottomToolbarMode } from "./tool-state";
 import { TOP_BAR_HEIGHT_PX, isTopBarVisible } from "./top-bar";
@@ -165,6 +166,7 @@ export function renderDesignEditorView({
     shellMode,
     embedded,
     isVisualEditSurface,
+    widgetEmbed,
     hostOwnsChrome,
     hostEmbeddedEditor,
     mode,
@@ -852,6 +854,7 @@ export function renderDesignEditorView({
     editorExportAndHandoff,
     editorSourceAndSync,
     design,
+    widgetEmbed,
   });
 
   const minimalUiToggle = (
@@ -917,8 +920,7 @@ export function renderDesignEditorView({
     editorLayerActions,
   });
 
-  // The controls below live in two places: the top bar (docked editor) and
-  // the minimal-UI right bar (which has no top bar). Build each once.
+  // Non-widget minimal UI has no top bar, so its floating bar reuses these controls.
   const presenceControl = hostEmbeddedEditor ? null : (
     <PresenceBar
       activeUsers={mergePresenceUsers(
@@ -958,8 +960,23 @@ export function renderDesignEditorView({
       </Button>
     ) : null;
 
-  const renderShareControl = (dense: boolean) =>
-    hostEmbeddedEditor ? null : canRenderAuthenticatedShare ? (
+  const renderShareControl = (dense: boolean) => {
+    if (hostEmbeddedEditor) return null;
+    if (widgetEmbed) {
+      if (
+        !shouldRenderDesignShareControl({
+          widgetEmbed,
+          canShareDesign,
+          canRenderAuthenticatedShare,
+        })
+      ) {
+        return null;
+      }
+    } else if (!canRenderAuthenticatedShare) {
+      return sessionResolved ? signedOutPersistenceActions : null;
+    }
+
+    return (
       <ShareButton
         resourceType="design"
         resourceId={id}
@@ -988,9 +1005,8 @@ export function renderDesignEditorView({
           "rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]",
         )}
       />
-    ) : sessionResolved ? (
-      signedOutPersistenceActions
-    ) : null;
+    );
+  };
 
   const localPreviewRow =
     activeScreenIsLocalSource &&
@@ -1093,6 +1109,7 @@ export function renderDesignEditorView({
     isVisualEditSurface,
     minimalUi,
     uiHidden,
+    widgetEmbed,
   });
   const topBarControlsVisible = !initialGenerationChromeLimited;
   // The mode switch used to live in the bottom toolbar, so it keeps that
@@ -1107,7 +1124,9 @@ export function renderDesignEditorView({
     }
     handleModeChange(next);
   };
-  const topBarActions = (
+  const topBarActions = widgetEmbed ? (
+    renderShareControl(true)
+  ) : (
     <>
       {renderPendingNodeRewriteControl(isMobileViewport)}
       {reviewFeedbackControl}
@@ -1373,18 +1392,24 @@ export function renderDesignEditorView({
             mode={mode}
             onModeChange={handleTopBarModeChange}
             modes={topBarShowsModes ? undefined : []}
+            center={widgetEmbed ? projectTitleControl : undefined}
+            widgetLayout={widgetEmbed}
             zoomControl={
               topBarControlsVisible && !responsiveInteractActive
                 ? renderZoomControl("topbar")
                 : null
             }
-            presence={topBarControlsVisible ? presenceControl : null}
+            presence={
+              topBarControlsVisible && !widgetEmbed ? presenceControl : null
+            }
             actions={topBarControlsVisible ? topBarActions : null}
             leftInset={chromeInsetLeft}
             narrowLeftInset={
               leftSidebarVisible ? DESIGN_CHROME_RAIL_WIDTH_PX : 0
             }
-            inspectorWidth={rightSidebarVisible ? rightSidebarWidth : undefined}
+            inspectorWidth={
+              rightSidebarVisible && !minimalUi ? rightSidebarWidth : undefined
+            }
           />
         ) : null}
         {renderLeftSidebar({

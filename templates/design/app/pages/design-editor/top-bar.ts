@@ -11,11 +11,15 @@ export function isTopBarVisible({
   isVisualEditSurface,
   minimalUi,
   uiHidden,
+  widgetEmbed = false,
 }: {
   embedded: boolean;
   isVisualEditSurface: boolean;
   minimalUi: boolean;
   uiHidden: boolean;
+  widgetEmbed?: boolean;
 }): boolean {
-  return !embedded && !isVisualEditSurface && !minimalUi && !uiHidden;
+  if (uiHidden || isVisualEditSurface) return false;
+  if (widgetEmbed) return true;
+  return !embedded && !minimalUi;
 }

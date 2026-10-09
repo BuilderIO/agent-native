@@ -17,6 +17,23 @@ export const CHATGPT_DIRECTORY_TOOL_NAMES = [
   "edit-design",
 ];
 
+const DESIGN_WIDGET_WRITE_ACTIONS = [
+  "update-design",
+  "update-file",
+  "create-file",
+  "share-resource",
+  "unshare-resource",
+  "set-resource-visibility",
+];
+
+function designWidgetTarget(designId: string, targetPath?: string) {
+  return {
+    targetPath: targetPath ?? `/design/${encodeURIComponent(designId)}`,
+    resourceIds: { designId, designResourceType: "design" },
+    writeActions: DESIGN_WIDGET_WRITE_ACTIONS,
+  };
+}
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -83,11 +100,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     "create-design": (_args: Record<string, unknown>, result: unknown) => {
       const designId = id(record(result).id, record(result).designId);
       return designId
-        ? {
-            targetPath: `/design/${encodeURIComponent(designId)}`,
-            resourceIds: { designId },
-            writeActions: ["update-design", "update-file", "create-file"],
-          }
+        ? designWidgetTarget(designId)
         : null;
     },
     "create-design-from-template": (
@@ -100,26 +113,21 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         args.targetDesignId,
       );
       return designId
-        ? {
-            targetPath: `/design/${encodeURIComponent(designId)}`,
-            resourceIds: { designId },
-            writeActions: ["update-design", "update-file", "create-file"],
-          }
+        ? designWidgetTarget(designId)
         : null;
     },
     "generate-design": (args: Record<string, unknown>, result: unknown) => {
       const designId = id(args.designId, record(result).designId);
       const screenId = designId ? generatedScreenId(designId, result) : null;
       return designId
-        ? {
-            targetPath: `/design/${encodeURIComponent(designId)}${
+        ? designWidgetTarget(
+            designId,
+            `/design/${encodeURIComponent(designId)}${
               screenId
                 ? `?editorView=overview&screen=${encodeURIComponent(screenId)}`
                 : ""
             }`,
-            resourceIds: { designId },
-            writeActions: ["update-design", "update-file", "create-file"],
-          }
+          )
         : null;
     },
     "present-design-variants": (
@@ -128,17 +136,17 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     ) => {
       const designId = id(args.designId, record(result).designId);
       return designId
-        ? {
-            targetPath: `/design/${encodeURIComponent(designId)}`,
-            resourceIds: { designId },
-            writeActions: ["update-design", "update-file", "create-file"],
-          }
+        ? designWidgetTarget(designId)
         : null;
     },
   },
   widgetReadActionArguments: {
     "get-design-snapshot": { designId: "designId" },
     "get-design": { id: "designId" },
+    "list-resource-shares": {
+      resourceType: "designResourceType",
+      resourceId: "designId",
+    },
   },
   widgetWriteActionArguments: {
     "create-file": {
@@ -166,7 +174,30 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       operationSource: { type: "actionSchema" as const },
       operationRevision: { type: "actionSchema" as const },
     },
+    "share-resource": {
+      resourceType: "designResourceType",
+      resourceId: "designId",
+      principalType: { type: "actionSchema" as const },
+      principalId: { type: "actionSchema" as const },
+      role: { type: "actionSchema" as const },
+      notify: { type: "actionSchema" as const },
+      resourceUrl: { type: "actionSchema" as const },
+      message: { type: "actionSchema" as const },
+    },
+    "unshare-resource": {
+      resourceType: "designResourceType",
+      resourceId: "designId",
+      principalType: { type: "actionSchema" as const },
+      principalId: { type: "actionSchema" as const },
+    },
+    "set-resource-visibility": {
+      resourceType: "designResourceType",
+      resourceId: "designId",
+      visibility: { type: "actionSchema" as const },
+    },
   },
+  widgetReadOnlyActions: ["list-resource-shares"],
+  widgetReadAuthenticatedActions: ["list-resource-shares"],
   widgetReadPublicActions: ["get-design"],
   keyToolNames: [
     "list-designs",
