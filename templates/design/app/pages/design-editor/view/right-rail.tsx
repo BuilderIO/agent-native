@@ -11,7 +11,7 @@ import {
   rightInspectorPanelClassName,
   shouldShowWidgetZoomFallback,
 } from "../minimal-inspector";
-import { TOP_BAR_HEIGHT_PX } from "../top-bar";
+import { minimalUiBarTopPaddingPx, TOP_BAR_HEIGHT_PX } from "../top-bar";
 
 export function renderRightRail({
   editorCore,
@@ -116,7 +116,10 @@ export function renderRightRail({
           data-design-minimal-ui
           className="pointer-events-none absolute inset-x-0 top-0 z-[90]"
         >
-          <div className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)] items-start gap-3 px-3 pt-3">
+          <div
+            className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)] items-start gap-3 px-3 pt-3"
+            style={{ paddingTop: minimalUiBarTopPaddingPx(widgetEmbed) }}
+          >
             {widgetEmbed ? (
               <div aria-hidden="true" />
             ) : (
