@@ -239,6 +239,24 @@ vi.mock("../server/embed-route.js", () => ({
     `/_agent-native/embed/start?ticket=${encodeURIComponent(ticket)}`,
 }));
 
+// The real write-scope builder, with a switch to make its scope unmintable.
+const writeScopeOverride = vi.hoisted(() => ({ unmintable: false }));
+vi.mock("../shared/embed-auth.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../shared/embed-auth.js")>();
+  return {
+    ...actual,
+    createMcpDirectoryWidgetWriteCapability: (
+      input: Parameters<
+        typeof actual.createMcpDirectoryWidgetWriteCapability
+      >[0],
+    ) =>
+      writeScopeOverride.unmintable
+        ? undefined
+        : actual.createMcpDirectoryWidgetWriteCapability(input),
+  };
+});
+
 const mockOAuthClients = vi.hoisted(() => new Map<string, any>());
 
 vi.mock("./oauth-store.js", () => ({
@@ -2742,6 +2760,102 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       });
     },
   );
+
+  describe("a widget scope that cannot be minted", () => {
+    const issuer = "https://content.agent-native.com";
+    const resource = `${issuer}${MCP_DIRECTORY_ROUTE_PREFIX}`;
+    const callCreate = async (
+      template: (typeof directoryWidgetTemplates)[number],
+    ) => {
+      const { host, config: templateConfig } =
+        await directoryWidgetTemplateConfig(template);
+      return callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 302,
+          method: "tools/call",
+          params: { name: template.toolName, arguments: {} },
+        },
+        {
+          headers: {
+            ...(await mcpAppsAuthHeaders({ resource, issuer })),
+            host,
+          },
+          config: templateConfig,
+          routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+        },
+      );
+    };
+    const contentTemplate = directoryWidgetTemplates.find(
+      (template) => template.appId === "content",
+    )!;
+
+    afterEach(() => {
+      writeScopeOverride.unmintable = false;
+    });
+
+    it("degrades to a read-only ticket when the write scope itself is unmintable", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        writeScopeOverride.unmintable = true;
+        embedSessionMocks.createEmbedSessionTicket.mockClear();
+
+        const created = await callCreate(contentTemplate);
+
+        expect(created.result.isError).not.toBe(true);
+        expect(
+          embedSessionMocks.createEmbedSessionTicket,
+        ).toHaveBeenCalledTimes(1);
+        const scope =
+          embedSessionMocks.createEmbedSessionTicket.mock.calls[0]?.[0]?.scope;
+        expect(isMcpDirectoryWidgetReadCapabilityScope(scope)).toBe(true);
+        expect(created.result._meta["agent-native/widgetSource"]).toMatchObject(
+          { sourceTicket: "minted-picker-ticket" },
+        );
+        expect(consoleError).toHaveBeenCalledWith(
+          expect.stringContaining("read-only widget session"),
+          expect.objectContaining({
+            message: expect.stringContaining("scoped capability"),
+          }),
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it("returns the tool result without a ticket instead of failing after the action ran", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        // Resource ids at the 256-character cap overflow the read scope as
+        // well as the write scope, so no widget capability can be built.
+        const id = "x".repeat(256);
+        embedSessionMocks.createEmbedSessionTicket.mockClear();
+
+        const created = await callCreate({
+          ...contentTemplate,
+          result: { id, spaceId: id },
+        } as unknown as typeof contentTemplate);
+
+        expect(created.result.isError).not.toBe(true);
+        expect(
+          embedSessionMocks.createEmbedSessionTicket,
+        ).not.toHaveBeenCalled();
+        expect(JSON.stringify(created.result)).not.toContain(
+          "minted-picker-ticket",
+        );
+        expect(consoleError).toHaveBeenCalledWith(
+          expect.stringContaining("without a session ticket"),
+          expect.anything(),
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+  });
 
   it("issues Content database row write grants for resource-bound actions", async () => {
     const createDatabase = defineAction({
