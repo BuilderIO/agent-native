@@ -103,6 +103,17 @@ type Scenario = (typeof SCENARIOS)[number];
 /** Scenarios whose net text change is zero: nothing may change at all. */
 const NET_NOOP = new Set<Scenario>(["noop", "typedelete", "clickout"]);
 const getSlashListbox = async (page: any, editor: any) => {
+  const editorHandle = await editor.elementHandle();
+  if (!editorHandle) throw new Error("slash menu editor is unavailable");
+  await page.waitForFunction(
+    (element: HTMLElement) => {
+      const listboxId = element.getAttribute("aria-controls");
+      const listbox = listboxId ? document.getElementById(listboxId) : null;
+      return listbox?.getAttribute("role") === "listbox";
+    },
+    editorHandle,
+    { timeout: 5_000 },
+  );
   const listboxId = await editor.getAttribute("aria-controls");
   if (!listboxId) throw new Error("slash menu did not expose its listbox");
   return page.locator(`[role="listbox"][id=${JSON.stringify(listboxId)}]`);
@@ -3031,10 +3042,11 @@ async function runAuthoringParityQa(
   const getEditor = (slideId: string) => page.locator(selectorFor(slideId));
   let currentCaseId = "setup";
   const waitForSlashOption = async (editor: any, caseId: string) => {
-    const listbox = await getSlashListbox(page, editor);
-    const listboxId = await listbox.getAttribute("id");
-    const option = listbox.locator('[role="option"]').first();
+    let listboxId: string | null = null;
     try {
+      const listbox = await getSlashListbox(page, editor);
+      listboxId = await listbox.getAttribute("id");
+      const option = listbox.locator('[role="option"]').first();
       await option.waitFor({ state: "visible", timeout: 3_000 });
     } catch {
       const state = await editor.evaluate(
