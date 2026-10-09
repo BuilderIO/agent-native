@@ -648,6 +648,28 @@ describe("buildSessionSteps", () => {
     });
   });
 
+  it("retains canonical identity and app on attempt-keyed steps", () => {
+    const selected = projectSessionSteps([
+      row("generation_started", 300, {
+        templateName: "slides",
+        authUserId: "canonical-person",
+        app: "slides",
+        attemptId: "private-attempt-id",
+      }),
+    ]);
+
+    expect(selected).toEqual([
+      {
+        key: "attempt:generation_started",
+        label: "Generation attempt started",
+        tsMs: 300,
+        authUserId: "canonical-person",
+        app: "slides",
+      },
+    ]);
+    expect(JSON.stringify(selected)).not.toContain("private-attempt-id");
+  });
+
   it("deduplicates legacy and canonical aliases and orders first-run Builder events", () => {
     const steps = buildSessionSteps([
       row("onboarding_method_outcome", 100, {

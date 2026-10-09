@@ -6,6 +6,7 @@ import { organizations } from "../../org/schema.js";
 import { listWorkspaceUserGroupsForOrg } from "../../workspace-connections/groups.js";
 import { assertAccess, resolveAccess } from "../access.js";
 import { requireShareableResource } from "../registry.js";
+import { assertWidgetShareReadGrant } from "../widget-grant.js";
 
 async function loadOrgDisplayNames(
   db: any,
@@ -79,6 +80,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args, context) => {
+    assertWidgetShareReadGrant(context, args);
     const reg = requireShareableResource(args.resourceType);
     const policy: {
       allowPublic: boolean;

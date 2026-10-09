@@ -768,6 +768,9 @@ export default {
       tools: "도구",
       tokens: "토큰",
       label: "디자인 작업공간",
+      account: "계정",
+      collapse: "사이드바 접기",
+      expand: "사이드바 펼치기",
     },
     breakpointBar: {
       base: "기본",
@@ -859,12 +862,10 @@ export default {
       "{{path}}이(가) 열린 이후 디스크에서 변경되었습니다. 화면을 새로고침한 후 다시 시도하세요.",
     applyToSourceError: "소스에 저장하지 못했습니다: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "토큰 가져오기",
       importTitle: "토큰 가져오기",
       importHint:
@@ -876,6 +877,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "붙여넣은 토큰 가져오기",
       importedCount: "{{count}}개 토큰을 가져왔습니다",
+      count: "토큰 {{count}}개",
+      search: "토큰 검색",
+      noMatches: "일치하는 토큰이 없습니다",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",

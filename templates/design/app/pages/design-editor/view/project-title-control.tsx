@@ -1,4 +1,5 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { IconChevronDown } from "@tabler/icons-react";
 import { useCallback, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -179,9 +180,10 @@ function ProjectTitleControl({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="-mx-1 min-w-0 flex-1 cursor-pointer truncate rounded px-1 text-left text-[13px] font-medium text-foreground/90 hover:bg-accent/50"
+            className="-mx-1 flex min-w-0 max-w-full cursor-pointer items-center gap-1 self-start rounded px-1 text-left text-xs leading-4 text-foreground hover:bg-accent/50"
           >
-            {design.title}
+            <span className="truncate">{design.title}</span>
+            <IconChevronDown className="size-3 shrink-0" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
