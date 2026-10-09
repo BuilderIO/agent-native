@@ -3103,6 +3103,44 @@ describe("session replay ingest parsing", () => {
     ).toBe("2026-07-05T12:00:00.000Z");
   });
 
+  it("stores client start times in the same canonical form used by journey links", async () => {
+    putPrivateBlobMock.mockResolvedValue(null);
+    const { db, inserts } = createReplayDbMock(replayIngestKeyDbResults(null));
+    const update = vi.fn(() => ({
+      set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+    }));
+    getDbMock.mockReturnValue({ ...db, update });
+    await recordSessionReplayChunks(
+      parseSessionReplayIngestPayload({
+        publicKey: "anpk_test",
+        replayId: "recording_1",
+        sessionId: "session_1",
+        userId: null,
+        anonymousId: "anon_1",
+        sequence: 0,
+        startedAt: "2026-10-01T14:00:00+02",
+        events: [{ type: 4, timestamp: 1 }],
+      }),
+      {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+        now: new Date("2026-10-01T13:00:00.000Z"),
+      },
+    );
+
+    const recordingInsert = inserts.find(
+      (entry) =>
+        typeof (entry.values as { clientRecordingId?: unknown })
+          ?.clientRecordingId === "string",
+    );
+    expect((recordingInsert?.values as { startedAt: string }).startedAt).toBe(
+      "2026-10-01T12:00:00.000Z",
+    );
+    expect(
+      (recordingInsert?.values as { clientStartedAt: string }).clientStartedAt,
+    ).toBe("2026-10-01T12:00:00.000Z");
+  });
+
   it("uploads replay chunks in the public key owner's org scope (anonymous ingest)", async () => {
     const originalNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";

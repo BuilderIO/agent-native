@@ -445,12 +445,14 @@ function replayIngestByteLength(
 }
 
 function replayTimestamp(value: unknown): string | null {
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === "number" || typeof value === "string") {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  if (typeof value === "number") {
     const d = new Date(value);
     return Number.isNaN(d.getTime()) ? null : d.toISOString();
   }
-  return null;
+  return canonicalReplayLinkTimestamp(value);
 }
 
 function replayMinIso(values: Array<string | null | undefined>): string | null {
