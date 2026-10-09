@@ -4229,6 +4229,12 @@ export function DesignCanvas({
           replayIframeEditorStateRef.current?.();
         }
         onElementSelect(e.data.payload, e.data.intent);
+        if (
+          e.data.trustedPointer === true &&
+          e.data.intent?.source === "pointer"
+        ) {
+          focusScrollSurfaceRef.current?.();
+        }
         return;
       }
       if (

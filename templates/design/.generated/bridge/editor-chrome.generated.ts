@@ -5806,6 +5806,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         payload: getElementInfo(el)
       };
       if (intent) message.intent = intent;
+      if (e?.isTrusted) message.trustedPointer = true;
       window.parent.postMessage(message, "*");
       var framework = frameworkDebugProvenance(el);
       if (framework.framework === "react" && (framework.method === "debug-stack" || framework.ownerMethod === "debug-stack")) {

@@ -690,10 +690,38 @@ test("physical oversized free layer stays beside an empty auto-layout target", a
     await page.mouse.up();
 
     await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toMatch(
-        /data-agent-native-node-id="plain-target"[\s\S]*data-agent-native-node-id="oversized-source"/,
-      );
+      .poll(
+        async () => {
+          const html = await indexHtml(page, designId);
+          return preview(page).evaluate((_body, documentHtml: string) => {
+            const parsed = new DOMParser().parseFromString(
+              documentHtml,
+              "text/html",
+            );
+            const source = parsed.querySelector(
+              '[data-agent-native-node-id="oversized-source"]',
+            ) as HTMLElement | null;
+            const target = parsed.querySelector(
+              '[data-agent-native-node-id="plain-target"]',
+            );
+            return {
+              sourceParent: source?.parentElement?.tagName ?? null,
+              targetParent: target?.parentElement?.tagName ?? null,
+              sourcePosition: source?.style.position ?? null,
+              sourceLeft: source?.style.left ?? null,
+              sourceTop: source?.style.top ?? null,
+            };
+          }, html);
+        },
+        { timeout: 5_000 },
+      )
+      .toEqual({
+        sourceParent: "BODY",
+        targetParent: "BODY",
+        sourcePosition: "",
+        sourceLeft: "",
+        sourceTop: "",
+      });
     await openEditor(page, designId);
     const state = await preview(page).evaluate(() => {
       const source = document.querySelector(

@@ -75,9 +75,10 @@ function layerTree(page: Page): Locator {
 
 function layerRowButton(page: Page, name: string): Locator {
   return layerTree(page)
-    .locator("[data-layer-row-button][data-layer-node-id]")
-    .filter({ has: page.locator(`span[title="${name}"]`) })
-    .first();
+    .locator("[data-layer-row-name]")
+    .getByText(name, { exact: true })
+    .first()
+    .locator("xpath=ancestor::button[@data-layer-row-button][1]");
 }
 
 function layerRow(page: Page, name: string): Locator {
@@ -479,6 +480,20 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
     const designId = await createDesignWithHtml(request, MOBILE_HOME_HTML);
     try {
       await gotoEditor(page, designId);
+      await expandAllLayers(page);
+      const cardButton = layerRowButton(page, "Card");
+      const cardLayerNodeId =
+        await cardButton.getAttribute("data-layer-node-id");
+      expect(cardLayerNodeId).toBeTruthy();
+      await cardButton.click();
+      const selectedCardButton = layerTree(page).locator(
+        `[data-layer-row-button][data-layer-node-id="${cardLayerNodeId}"]`,
+      );
+      const cardRow = selectedCardButton.locator(
+        "xpath=ancestor::*[@data-layer-row-content][1]",
+      );
+      await expect(cardRow).toHaveAttribute("data-layer-selection", "primary");
+
       const screenId: string = (await getDesign(page, designId)).files.find(
         (f: any) => f.filename === "index.html",
       ).id;

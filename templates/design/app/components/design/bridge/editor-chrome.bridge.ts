@@ -6716,11 +6716,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       type: string;
       payload: unknown;
       intent?: ReturnType<typeof selectionIntentFromEvent>;
+      trustedPointer?: boolean;
     } = {
       type: "element-select",
       payload: getElementInfo(el),
     };
     if (intent) message.intent = intent;
+    if (e?.isTrusted) message.trustedPointer = true;
     (window.parent as Window).postMessage(message, "*");
 
     var framework = frameworkDebugProvenance(el);

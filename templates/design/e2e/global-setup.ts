@@ -39,7 +39,7 @@ function formatLoopbackStartupError(stderr: string): string {
     : "\nProvider startup stderr was empty.";
 }
 
-async function startLoopbackProvider(port: number): Promise<void> {
+export async function startLoopbackProvider(port: number): Promise<void> {
   const runRoot = designE2eRunRoot(path.resolve(import.meta.dirname, ".."));
   if (!runRoot) throw new Error("loopback provider requires an E2E run root");
   const loopbackPidPath = path.join(runRoot, "loopback-provider.pid");
@@ -84,11 +84,6 @@ async function startLoopbackProvider(port: number): Promise<void> {
   child.once("close", () => {
     childClosed = true;
   });
-  if (!child.pid) {
-    throw new Error(
-      `loopback provider did not start${spawnError ? `: ${spawnError.message}` : ""}${formatLoopbackStartupError(stderrTail)}`,
-    );
-  }
   const processExit = () =>
     childExit ??
     (child.exitCode !== null || child.signalCode !== null
@@ -108,6 +103,12 @@ async function startLoopbackProvider(port: number): Promise<void> {
       const timeout = setTimeout(finish, 250);
       child.once("close", finish);
     });
+  if (!child.pid) {
+    await waitForChildClose();
+    throw new Error(
+      `loopback provider spawn failed: ${spawnError?.message ?? "process did not start"}${formatLoopbackStartupError(stderrTail)}`,
+    );
+  }
   const assertChildRunning = async () => {
     if (spawnError) {
       await waitForChildClose();
