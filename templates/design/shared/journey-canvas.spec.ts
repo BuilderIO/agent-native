@@ -1011,7 +1011,12 @@ describe("planJourneyCanvas", () => {
     expect(exampleHeader(1)).toContain(
       'title="UTC timestamp: 2026-10-01T17:51:39.308Z"',
     );
-    expect(exampleHeader(1)).toContain(">2026-10-01 UTC</p>");
+    expect(exampleHeader(1)).toMatch(
+      /<time[^>]*datetime="2026-10-01T17:51:39.308Z"[^>]*>2026-10-01 UTC<\/time>/,
+    );
+    expect(exampleHeader(1)).toMatch(
+      /<span class="date-kind"[^>]*>Event time \(UTC\)<\/span>/,
+    );
     expect(exampleHeader(1)).toContain(
       "Actor (recording): second-actor@example.test",
     );
