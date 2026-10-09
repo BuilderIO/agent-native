@@ -195,6 +195,7 @@ function decodeMetricResultCursor(value: string): MetricResultCursor | null {
     }
     return parsed as MetricResultCursor;
   } catch {
+    // coercion-ok: invalid cursor payloads are returned as absent and rejected by the action.
     return null;
   }
 }
