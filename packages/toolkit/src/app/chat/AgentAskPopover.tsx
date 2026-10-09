@@ -49,6 +49,7 @@ export function AgentAskPopover({
   return (
     <PromptBar
       autoFocus
+      requireAgentEngine
       attachmentsEnabled={false}
       draftScope={draftScope}
       initialText={prompt}

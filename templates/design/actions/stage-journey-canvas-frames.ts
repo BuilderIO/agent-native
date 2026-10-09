@@ -56,7 +56,13 @@ const frameSchema = z
       .trim()
       .min(1)
       .max(2_048)
-      .refine((value) => !value.includes("\u0000")),
+      .refine((value) => !value.includes("\u0000"))
+      .nullable(),
+    captureSourceFingerprint: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable()
+      .default(null),
     offsetMs: z.number().int().min(0).max(2_147_483_647),
     width: z.number().int().min(1).max(MAX_VIEWPORT_DIMENSION),
     height: z.number().int().min(1).max(MAX_VIEWPORT_DIMENSION),
@@ -100,7 +106,8 @@ type StageRow = {
   id: string;
   boardFileId: string;
   app: string;
-  route: string;
+  route: string | null;
+  captureSourceFingerprint: string | null;
   replayId: string;
   capturedAt: string;
   offsetMs: number;
@@ -214,7 +221,8 @@ function expiredStageRow(createdAt: string | null, now: number): boolean {
 function matchesStageFrame(
   row: {
     app: string;
-    route: string;
+    route: string | null;
+    captureSourceFingerprint: string | null;
     replayId: string;
     capturedAt: string;
     offsetMs: number;
@@ -230,6 +238,7 @@ function matchesStageFrame(
   return (
     row.app === marker &&
     row.route === frame.route &&
+    row.captureSourceFingerprint === frame.captureSourceFingerprint &&
     row.replayId === frame.replayId &&
     row.capturedAt === capturedAt &&
     row.offsetMs === frame.offsetMs &&
@@ -267,6 +276,7 @@ function stageColumns() {
     boardFileId: table.boardFileId,
     app: table.app,
     route: table.route,
+    captureSourceFingerprint: table.captureSourceFingerprint,
     replayId: table.replayId,
     capturedAt: table.capturedAt,
     offsetMs: table.offsetMs,
@@ -340,7 +350,7 @@ function exceedsStageQuota(args: {
 
 export default defineAction({
   description:
-    "Stage up to 8 native PNG frames for a Design journey storyboard. Use a stable importId and frameKey (`nodeKey` + NUL + `exampleIndex`) for resumable retries; the action stores only private blob handles and metadata, never PNG bytes in SQL. Each batch stays within 5 MiB, each import is capped at 256 MiB, and each Design at 512 MiB or 2,000 staged frames. Unpromoted frames expire after 7 days. The returned stagedFrameId is passed to create-journey-canvas for a zero-copy consume.",
+    "Stage up to 8 native PNG frames for a Design journey storyboard. Use a stable importId and frameKey (`nodeKey` + NUL + `exampleIndex`) for resumable retries; the action stores only private blob handles and metadata, never PNG bytes in SQL. Pass the current route when verified, or null when the replay export does not establish the route at this screenshot; never use a stale initial Meta href. A missing capture-source fingerprint is stored as null and does not block an otherwise valid private PNG. Each batch stays within 5 MiB, each import is capped at 256 MiB, and each Design at 512 MiB or 2,000 staged frames. Unpromoted frames expire after 7 days. The returned stagedFrameId is passed to create-journey-canvas for a zero-copy consume.",
   requiresAuth: true,
   maxBodyBytes: MAX_STAGE_BODY_BYTES,
   schema: inputSchema,
@@ -718,6 +728,8 @@ export default defineAction({
             sizeBytes: number;
             width: number;
             height: number;
+            route: string | null;
+            captureSourceFingerprint: string | null;
           }> = [];
           for (const prepared of preparedFrames) {
             const existing = activeById.get(prepared.id);
@@ -728,6 +740,8 @@ export default defineAction({
                 sizeBytes: existing.sizeBytes,
                 width: existing.viewportWidth,
                 height: existing.viewportHeight,
+                route: existing.route,
+                captureSourceFingerprint: existing.captureSourceFingerprint,
               });
               continue;
             }
@@ -743,6 +757,8 @@ export default defineAction({
                 capturedAt: prepared.capturedAt,
                 app: prepared.marker,
                 route: prepared.frame.route,
+                captureSourceFingerprint:
+                  prepared.frame.captureSourceFingerprint,
                 offsetMs: prepared.frame.offsetMs,
                 viewportWidth: prepared.frame.width,
                 viewportHeight: prepared.frame.height,
@@ -763,6 +779,7 @@ export default defineAction({
                 boardFileId: table.boardFileId,
                 app: table.app,
                 route: table.route,
+                captureSourceFingerprint: table.captureSourceFingerprint,
                 replayId: table.replayId,
                 capturedAt: table.capturedAt,
                 offsetMs: table.offsetMs,
@@ -807,6 +824,8 @@ export default defineAction({
               sizeBytes: persisted.sizeBytes,
               width: prepared.frame.width,
               height: prepared.frame.height,
+              route: prepared.frame.route,
+              captureSourceFingerprint: prepared.frame.captureSourceFingerprint,
             });
           }
 

@@ -1358,6 +1358,7 @@ function providerAuthFailureSettingKey(fingerprint: string): string {
 export async function getProviderCredentialAuthFailure(opts: {
   key?: string | null;
   value?: string | null;
+  throwOnReadError?: boolean;
 }): Promise<ProviderCredentialAuthFailure | null> {
   const key = opts.key?.trim().toUpperCase() ?? "";
   const fingerprint = providerCredentialFingerprint(key, opts.value);
@@ -1389,7 +1390,8 @@ export async function getProviderCredentialAuthFailure(opts: {
         typeof row.ownerEmail === "string" ? row.ownerEmail : undefined,
       orgId: typeof row.orgId === "string" ? row.orgId : undefined,
     };
-  } catch {
+  } catch (error) {
+    if (opts.throwOnReadError) throw error;
     return null;
   }
 }

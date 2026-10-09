@@ -8,6 +8,7 @@ import type {
   EngineEvent,
   EngineMessage,
 } from "./engine/types.js";
+import type { ProductionAgentOptions } from "./production-agent.js";
 
 const claimRunSlot = vi.hoisted(() => vi.fn());
 const turnLedger = vi.hoisted(() => vi.fn(async (): Promise<unknown[]> => []));
@@ -76,8 +77,19 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => ({
   })),
 }));
 
-const { AGENT_INTERNAL_CONTINUE_PROMPT, createProductionAgentHandler } =
-  await import("./production-agent.js");
+const {
+  AGENT_INTERNAL_CONTINUE_PROMPT,
+  createProductionAgentHandler: createProductionAgentHandlerWithSetupGate,
+} = await import("./production-agent.js");
+function createProductionAgentHandler(
+  options: Omit<ProductionAgentOptions, "assertAiSetupReady"> &
+    Partial<Pick<ProductionAgentOptions, "assertAiSetupReady">>,
+) {
+  return createProductionAgentHandlerWithSetupGate({
+    ...options,
+    assertAiSetupReady: options.assertAiSetupReady ?? (async () => {}),
+  });
+}
 const { createCallAgentScriptEntry } =
   await import("../server/agent-chat/script-entries.js");
 const { getThread } = await import("../chat-threads/store.js");
@@ -243,10 +255,40 @@ describe("an automatic continuation request", () => {
     expect(stream).toContain("There were 412 signups.");
   });
 
-  it("continues a run a person chose to continue in the same turn, without sending again", async () => {
+  it("requires setup before a person continues a stopped run in the same turn", async () => {
+    claimRunSlot.mockReset();
+    claimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const seen: EngineMessage[][] = [];
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: repeatingDelegationEngine(seen),
+      actions: {},
+      assertAiSetupReady,
+    });
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(autoContinueRequest({ continueOfRunId: "run-stopped" })),
+      ),
+    ).rejects.toBe(setupRequired);
+    turnLedger.mockReset();
+
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
+    expect(claimRunSlot).not.toHaveBeenCalled();
+    expect(turnLedger).not.toHaveBeenCalled();
+    expect(seen).toHaveLength(0);
+  });
+
+  it("continues a configured manual run in the same turn without sending it again", async () => {
     claimRunSlot.mockReset();
     claimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });
     turnLedger.mockResolvedValue(FINISHED_DELEGATION);
+    const assertAiSetupReady = vi.fn(async () => {});
     const callAgent = (await createCallAgentScriptEntry())["call-agent"]!;
     const sendAgain = vi.fn(async () => "a second remote task");
     const seen: EngineMessage[][] = [];
@@ -254,6 +296,7 @@ describe("an automatic continuation request", () => {
       systemPrompt: "Test",
       engine: repeatingDelegationEngine(seen),
       actions: { "call-agent": { ...callAgent, run: sendAgain } },
+      assertAiSetupReady,
     });
 
     const response = await runWithRequestContext(
@@ -263,6 +306,7 @@ describe("an automatic continuation request", () => {
     const stream = await new Response(response as ReadableStream).text();
     turnLedger.mockReset();
 
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
     expect(claimRunSlot).toHaveBeenCalledWith(
       "thread-auto",
       expect.any(String),

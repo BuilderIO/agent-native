@@ -2,17 +2,24 @@ export default {
   journeyCanvas: {
     observedSessionReference: "관찰된 세션 참조",
     sessionsOfAll: "세션 {count}개 · 전체의 {percent}",
+    sessionsOfAppRoot:
+      "세션 {count}개 · {app} 코호트의 {percent} (n={rootCount})",
     sessionsOfPrevious: "세션 {count}개 · 이전 단계의 {percent}",
     sessionsOfParent: "세션 {count}개 · {label}의 {percent}",
+    observedContinuation: "같은 녹화 · 예시 {fromExample} → 예시 {toExample}",
+    observedContinuationCompact: "예시 {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "세션 {count}개 · 이 단계의 {percent}",
     partialSample: "부분 샘플",
     continuedOnUnpictured:
       "표시되지 않은 경로에서 계속됨: {count} · 이 단계의 {percent}",
     noLaterStepObserved: "이후 단계가 관찰되지 않음",
-    examplePosition: "예시 {current}/{total}",
-    showExample: "예시 {current}/{total} 표시",
+    examplePosition: "갤러리 {current}/{total}",
+    sourceExampleLabel: "출처",
+    showExample: "원본 예시 {current} 표시",
     screenshotExamples: "스크린샷 예시",
-    screenshotAlt: "{label}, 예시 {current}/{total}, 캡처일 {date}",
+    screenshotAlt:
+      "{label}, 원본 예시 {source}, 갤러리 위치 {current}/{total}, 캡처일 {date}",
     screenshotMissing: "스크린샷이 캡처되지 않음",
     recordingUnavailable: "사용할 수 없음",
     eventTime: "이벤트 시간(UTC)",
@@ -44,11 +51,19 @@ export default {
     promptSource: "프롬프트(원문)",
     source: "출처",
     promptNotCaptured: "프롬프트가 캡처되지 않음",
+    actorUnavailable: "행위자 정보를 사용할 수 없음",
+    replayDetails: "리플레이 및 출처 세부정보",
+    sourceApp: "출처 앱",
+    route: "캡처 당시 현재 경로",
+    routeUnavailable: "사용할 수 없음",
+    captureSourceFingerprint: "캡처 소스 지문",
+    captureSourceUnavailable: "제공되지 않음",
+    recordingStarted: "녹화 시작",
+    appBandHeading: "{app} · 세션 {count}개",
     journeyTitleSummary: "{app} · {from}~{to} · 세션 {count}개{partial}",
+    journeyTitleAppBandsSummary: "{from}~{to} · 앱별 독립 코호트{partial}",
     sessionCount: "세션 {count}개",
     otherPaths: "기타 경로",
-    capturedDate: "캡처 날짜 {date}{examples}",
-    additionalExamples: " · 예시 {count}개",
     htmlLanguage: "ko-KR",
   },
   composer: { menu: { integrations: "연동" } },
@@ -273,6 +288,18 @@ export default {
       exportSvg: "SVG 내보내기",
       actionsPrefill: "검토 후 보내기",
       retry: "다시 시도",
+      currentDesign: "현재 Design",
+      chooseDesign: "Design (필요하면 어떤 Design을 사용할지 물어보세요)",
+      importFramePrompt:
+        "이 Figma 프레임을 {{destination}}으로 가져오고, 가져오지 못한 콘텐츠를 알려 주세요: {{url}}",
+      importFilePrompt:
+        "이 Figma 파일을 열고 최상위 프레임을 나열한 다음, 가져올 프레임을 물어보세요: {{url}}",
+      inspectFramePrompt:
+        "이 Figma 프레임의 구조, 구성 요소, 스타일, 재사용 가능한 토큰을 요약하세요: {{url}}",
+      inspectFilePrompt:
+        "이 Figma 파일의 구조, 구성 요소, 스타일, 재사용 가능한 토큰을 요약하세요: {{url}}",
+      exportSvgPrompt:
+        "현재 Design 화면을 Figma에서 사용할 SVG로 내보내고 정적 SVG 콘텐츠가 되는 부분을 알려 주세요.",
     },
   },
   common: {
@@ -996,6 +1023,8 @@ export default {
       "파일을 만들기 전에 생성이 중지되었습니다. 같은 프롬프트에서 계속하려면 다시 시도하세요.",
     generationStoppedCheckAgent:
       "파일을 만들기 전에 생성이 중지되었습니다. 에이전트 메시지를 확인하거나 다시 시도하세요.",
+    invalidCanvasDimensions:
+      "요청한 캔버스 크기는 지원되지 않습니다. 편집기 제한 내의 양수 픽셀 크기를 사용하세요.",
     notFound: "디자인을 찾을 수 없음",
     backToDesigns: "디자인으로 돌아가기",
     designNotFoundDescription: "이 디자인은 존재하지 않거나 삭제되었습니다.",

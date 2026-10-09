@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
 import { defineConfig, devices } from "@playwright/test";
@@ -42,6 +44,57 @@ const E2E_RESULTS_DIR = path.join(
   E2E_RUN_ID,
 );
 process.env.E2E_RUN_RESULTS_DIR ??= E2E_RESULTS_DIR; // guard:allow-env-mutation - teardown removes only this Playwright run
+const ATTACHMENT_STORAGE_HTTPS_PORT = Number(
+  process.env.E2E_ATTACHMENT_STORAGE_HTTPS_PORT ?? LOOPBACK_PORT + 1,
+);
+const ATTACHMENT_STORAGE_CONTROL_PORT = Number(
+  process.env.E2E_ATTACHMENT_STORAGE_CONTROL_PORT ?? LOOPBACK_PORT + 2,
+);
+const ATTACHMENT_STORAGE_URL = `https://127.0.0.1:${ATTACHMENT_STORAGE_HTTPS_PORT}`;
+const ATTACHMENT_STORAGE_TLS_DIR = path.join(
+  E2E_RUN_ROOT,
+  "attachment-storage-tls",
+);
+const ATTACHMENT_STORAGE_CERT = path.join(
+  ATTACHMENT_STORAGE_TLS_DIR,
+  "attachment-storage-ca.pem",
+);
+const ATTACHMENT_STORAGE_KEY = path.join(
+  ATTACHMENT_STORAGE_TLS_DIR,
+  "attachment-storage-key.pem",
+);
+if (USE_SIDEBAR_LOOPBACK) {
+  mkdirSync(ATTACHMENT_STORAGE_TLS_DIR, { recursive: true });
+  if (
+    !existsSync(ATTACHMENT_STORAGE_CERT) ||
+    !existsSync(ATTACHMENT_STORAGE_KEY)
+  ) {
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        ATTACHMENT_STORAGE_KEY,
+        "-out",
+        ATTACHMENT_STORAGE_CERT,
+        "-days",
+        "1",
+        "-subj",
+        "/CN=127.0.0.1",
+        "-addext",
+        "subjectAltName=IP:127.0.0.1",
+        "-addext",
+        "basicConstraints=critical,CA:TRUE",
+      ],
+      { stdio: "ignore" },
+    );
+    chmodSync(ATTACHMENT_STORAGE_KEY, 0o600);
+  }
+}
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 const SHOW_SECONDARY_PANELS_IN_E2E =
   process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS !== "0";
@@ -56,7 +109,11 @@ const ADVANCED_PANEL_SPEC_FILES = [
 ];
 
 const config = defineConfig({
-  metadata: { sidebarLoopbackPort: LOOPBACK_PORT },
+  metadata: {
+    sidebarLoopbackPort: LOOPBACK_PORT,
+    attachmentStorageHttpsPort: ATTACHMENT_STORAGE_HTTPS_PORT,
+    attachmentStorageControlPort: ATTACHMENT_STORAGE_CONTROL_PORT,
+  },
   testDir: "./e2e",
   testIgnore: SHOW_SECONDARY_PANELS_IN_E2E ? [] : ADVANCED_PANEL_SPEC_FILES,
   timeout: 90_000,
@@ -87,7 +144,7 @@ const config = defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: `APP_NAME=design AGENT_NATIVE_DESIGN_QA_LOCAL_UPLOADS=1 ${USE_SIDEBAR_LOOPBACK ? `AGENT_ENGINE=ai-sdk:openai AGENT_MODEL=agentkit-loopback OPENAI_API_KEY=sk-agentkit-loopback-not-a-real-key OPENAI_BASE_URL=http://127.0.0.1:${LOOPBACK_PORT}/v1 E2E_LOOPBACK_PORT=${LOOPBACK_PORT} ` : ""}${SECONDARY_PANELS_ENV}DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm exec agent-native dev --inspect=${INSPECT_PORT}`,
+        command: `APP_NAME=design AGENT_NATIVE_DESIGN_QA_LOCAL_UPLOADS=${USE_SIDEBAR_LOOPBACK ? "0" : "1"} ${USE_SIDEBAR_LOOPBACK ? `AGENT_ENGINE=ai-sdk:openai AGENT_MODEL=agentkit-loopback OPENAI_API_KEY=e2e-loopback-placeholder OPENAI_BASE_URL=http://127.0.0.1:${LOOPBACK_PORT}/v1 E2E_LOOPBACK_PORT=${LOOPBACK_PORT} E2E_ATTACHMENT_STORAGE_ENABLED=1 E2E_ATTACHMENT_STORAGE_URL=${JSON.stringify(ATTACHMENT_STORAGE_URL)} E2E_ATTACHMENT_STORAGE_HTTPS_PORT=${ATTACHMENT_STORAGE_HTTPS_PORT} E2E_ATTACHMENT_STORAGE_CONTROL_PORT=${ATTACHMENT_STORAGE_CONTROL_PORT} E2E_ATTACHMENT_STORAGE_CERT=${JSON.stringify(ATTACHMENT_STORAGE_CERT)} E2E_ATTACHMENT_STORAGE_KEY=${JSON.stringify(ATTACHMENT_STORAGE_KEY)} NODE_EXTRA_CA_CERTS=${JSON.stringify(ATTACHMENT_STORAGE_CERT)} ` : ""}${SECONDARY_PANELS_ENV}DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm exec agent-native dev --inspect=${INSPECT_PORT}`,
         url: BASE_URL,
         reuseExistingServer: false,
         timeout: 300_000,

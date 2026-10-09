@@ -300,7 +300,7 @@ test.describe("reparenting rules", () => {
       });
     expect(
       directParent,
-      "An object dropped within a frame's bounds should become its child.",
+      "Dropping a smaller object over a frame should place it inside the frame.",
     ).toBe("frame-a");
   });
 
@@ -384,7 +384,7 @@ test.describe("reparenting rules", () => {
       await expect
         .poll(chipParent, {
           message:
-            "Holding Space should keep the object in its current parent.",
+            "The layer should stay in its current parent while Space is held.",
         })
         .toBe("row");
     } finally {
@@ -501,7 +501,7 @@ test.describe("reparenting rules", () => {
       await expect
         .poll(chipParent, {
           message:
-            "Holding Space should keep the object in its current parent.",
+            "The layer should stay in its current parent while Space is held.",
         })
         .toBe("row");
     } finally {

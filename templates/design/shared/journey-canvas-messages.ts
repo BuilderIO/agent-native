@@ -1,13 +1,18 @@
 export interface JourneyCanvasMessages {
   observedSessionReference: string;
   sessionsOfAll: string;
+  sessionsOfAppRoot: string;
   sessionsOfPrevious: string;
   sessionsOfParent: string;
+  observedContinuation: string;
+  observedContinuationCompact: string;
+  observedBranchLabel: string;
   sessionsOfStep: string;
   partialSample: string;
   continuedOnUnpictured: string;
   noLaterStepObserved: string;
   examplePosition: string;
+  sourceExampleLabel: string;
   showExample: string;
   screenshotExamples: string;
   screenshotAlt: string;
@@ -41,28 +46,44 @@ export interface JourneyCanvasMessages {
   promptSource: string;
   source: string;
   promptNotCaptured: string;
+  actorUnavailable: string;
+  replayDetails: string;
+  sourceApp: string;
+  route: string;
+  routeUnavailable: string;
+  captureSourceFingerprint: string;
+  captureSourceUnavailable: string;
+  recordingStarted: string;
+  appBandHeading: string;
   journeyTitleSummary: string;
+  journeyTitleAppBandsSummary: string;
   sessionCount: string;
   otherPaths: string;
-  capturedDate: string;
-  additionalExamples: string;
   htmlLanguage: string;
 }
 
 export const enUSJourneyCanvasMessages: JourneyCanvasMessages = {
   observedSessionReference: "Observed session reference",
   sessionsOfAll: "{count} sessions · {percent} of all",
+  sessionsOfAppRoot:
+    "{count} sessions · {percent} of {app} cohort (n={rootCount})",
   sessionsOfPrevious: "{count} sessions · {percent} of previous",
   sessionsOfParent: "{count} sessions · {percent} of {label}",
+  observedContinuation:
+    "Same recording · example {fromExample} → example {toExample}",
+  observedContinuationCompact: "Ex. {fromExample} → {toExample}",
+  observedBranchLabel: "{label} · {percent}",
   sessionsOfStep: "{count} sessions · {percent} of this step",
   partialSample: "partial sample",
   continuedOnUnpictured:
     "{count} continued on unpictured paths · {percent} of this step",
   noLaterStepObserved: "No later step observed",
-  examplePosition: "Example {current} of {total}",
-  showExample: "Show example {current} of {total}",
+  examplePosition: "Gallery {current} of {total}",
+  sourceExampleLabel: "Source",
+  showExample: "Show source example {current}",
   screenshotExamples: "Screenshot examples",
-  screenshotAlt: "{label}, example {current} of {total}, captured {date}",
+  screenshotAlt:
+    "{label}, source example {source}, gallery position {current} of {total}, captured {date}",
   screenshotMissing: "No screenshot captured",
   recordingUnavailable: "unavailable",
   eventTime: "Event time (UTC)",
@@ -94,11 +115,20 @@ export const enUSJourneyCanvasMessages: JourneyCanvasMessages = {
   promptSource: "Prompt (source)",
   source: "Source",
   promptNotCaptured: "Prompt not captured",
+  actorUnavailable: "Actor unavailable",
+  replayDetails: "Replay and source details",
+  sourceApp: "Source app",
+  route: "Current route at capture",
+  routeUnavailable: "not available",
+  captureSourceFingerprint: "Capture-source fingerprint",
+  captureSourceUnavailable: "not provided",
+  recordingStarted: "Recording started",
+  appBandHeading: "{app} · {count} sessions",
   journeyTitleSummary: "{app} · {from} to {to} · {count} sessions{partial}",
+  journeyTitleAppBandsSummary:
+    "{from} to {to} · separate per-app cohorts{partial}",
   sessionCount: "{count} sessions",
   otherPaths: "Other paths",
-  capturedDate: "Captured {date}{examples}",
-  additionalExamples: " · {count} examples",
   htmlLanguage: "en-US",
 };
 

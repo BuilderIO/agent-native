@@ -69,6 +69,11 @@ const GROUP_IMAGE_SLIDE = `
     </div>
   </div>`;
 
+const ROTATING_TRANSITION_SLIDE = `
+  <div id="slide" class="fmd-slide" style="position:relative">
+    <div id="rotating" class="fmd-text-box" data-slide-object-id="rotating-1" style="position:absolute;left:600px;top:100px;width:100px;height:40px;font-size:24px;transform:rotate(20deg);transition:transform 1s linear">Rotating object</div>
+  </div>`;
+
 const TABLE_SLIDE = `
   <div class="fmd-slide" style="position:relative">
     <table id="table"><tbody><tr id="tr">
@@ -126,6 +131,7 @@ const BOX_RECTS: Record<string, Rect> = {
   imgGroup: { left: 100, top: 300, right: 500, bottom: 420 },
   memberImg: { left: 100, top: 300, right: 200, bottom: 400 },
   memberC: { left: 300, top: 300, right: 480, bottom: 340 },
+  rotating: { left: 600, top: 100, right: 700, bottom: 140 },
   container: { left: 60, top: 120, right: 960, bottom: 520 },
   left: { left: 60, top: 140, right: 460, bottom: 520 },
   chart: { left: 480, top: 140, right: 960, bottom: 520 },
@@ -1374,6 +1380,130 @@ describe("SlideEditor pointer pipeline on groups", () => {
 
     editor.click("slide", { x: 94, y: 120 });
     expect(editor.hasSelection()).toBe(false);
+  });
+});
+
+describe("SlideEditor rotate handle with transform transitions", () => {
+  it("settles preview and cancellation transforms while restoring the transition", async () => {
+    const editor = await mountEditor(ROTATING_TRANSITION_SLIDE);
+    const object = editor.el("rotating");
+    Object.defineProperty(object, "offsetWidth", {
+      configurable: true,
+      value: 100,
+    });
+    Object.defineProperty(object, "offsetHeight", {
+      configurable: true,
+      value: 40,
+    });
+    const originalTransform = object.style.getPropertyValue("transform");
+    const originalTransition = object.style.getPropertyValue("transition");
+    const setProperty = vi.spyOn(object.style, "setProperty");
+
+    editor.click("rotating", { x: 620, y: 110 });
+    const handle = document.querySelector<HTMLElement>(
+      "[data-slide-rotate-handle]",
+    );
+    expect(handle).not.toBeNull();
+
+    fireEvent.pointerDown(handle!, editor.init({ x: 650, y: 60 }));
+    fireEvent.pointerMove(window, editor.init({ x: 710, y: 120 }));
+
+    const previewTransform = object.style.getPropertyValue("transform");
+    expect(previewTransform).not.toBe(originalTransform);
+    const previewWrites = setProperty.mock.calls;
+    const previewSuppression = previewWrites.findIndex(
+      ([property, value, priority]) =>
+        property === "transition" &&
+        value === "none" &&
+        priority === "important",
+    );
+    const previewTransformWrite = previewWrites.findIndex(
+      ([property, value]) =>
+        property === "transform" && value === previewTransform,
+    );
+    expect(previewSuppression).toBeGreaterThanOrEqual(0);
+    expect(previewSuppression).toBeLessThan(previewTransformWrite);
+    expect(object.style.getPropertyValue("transition")).toBe(
+      originalTransition,
+    );
+
+    const cancelStart = setProperty.mock.calls.length;
+    fireEvent.pointerCancel(window, { pointerId: 1 });
+
+    expect(object.style.getPropertyValue("transform")).toBe(originalTransform);
+    expect(object.style.getPropertyValue("transition")).toBe(
+      originalTransition,
+    );
+    const cancelWrites = setProperty.mock.calls.slice(cancelStart);
+    const cancelSuppression = cancelWrites.findIndex(
+      ([property, value, priority]) =>
+        property === "transition" &&
+        value === "none" &&
+        priority === "important",
+    );
+    const cancelTransformWrite = cancelWrites.findIndex(
+      ([property, value]) =>
+        property === "transform" && value === originalTransform,
+    );
+    expect(cancelSuppression).toBeGreaterThanOrEqual(0);
+    expect(cancelSuppression).toBeLessThan(cancelTransformWrite);
+  });
+
+  it("rolls back when a newly matching important rule hides the preview rotation", async () => {
+    const onUpdateSlide = vi.fn();
+    const editor = await mountEditor(ROTATING_TRANSITION_SLIDE, {
+      onUpdateSlide,
+    });
+    const object = editor.el("rotating");
+    Object.defineProperty(object, "offsetWidth", {
+      configurable: true,
+      value: 100,
+    });
+    Object.defineProperty(object, "offsetHeight", {
+      configurable: true,
+      value: 40,
+    });
+    const originalStyle = Array.from(
+      { length: object.style.length },
+      (_, index) => {
+        const property = object.style.item(index);
+        return [
+          property,
+          object.style.getPropertyValue(property),
+          object.style.getPropertyPriority(property),
+        ];
+      },
+    );
+    const style = object.ownerDocument.createElement("style");
+    style.textContent =
+      '[style*="rotate("]:not([style*="rotate(20deg)"]) { transform: rotate(20deg) !important; }';
+    object.ownerDocument.head.append(style);
+
+    try {
+      editor.click("rotating", { x: 620, y: 110 });
+      const handle = document.querySelector<HTMLElement>(
+        "[data-slide-rotate-handle]",
+      );
+      expect(handle).not.toBeNull();
+
+      fireEvent.pointerDown(handle!, editor.init({ x: 650, y: 60 }));
+      fireEvent.pointerMove(window, editor.init({ x: 710, y: 120 }));
+      fireEvent.pointerUp(window, editor.init({ x: 710, y: 120 }));
+
+      expect(
+        Array.from({ length: object.style.length }, (_, index) => {
+          const property = object.style.item(index);
+          return [
+            property,
+            object.style.getPropertyValue(property),
+            object.style.getPropertyPriority(property),
+          ];
+        }),
+      ).toEqual(originalStyle);
+      expect(onUpdateSlide).not.toHaveBeenCalled();
+    } finally {
+      style.remove();
+    }
   });
 });
 

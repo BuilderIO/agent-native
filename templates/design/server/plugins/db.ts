@@ -492,7 +492,13 @@ ALTER COLUMN client_revision TYPE BIGINT USING client_revision::BIGINT`,
   },
   {
     version: 40,
-    name: "design-screen-restore-claims-and-replay-source-stage-id",
+    name: "design-board-replay-capture-provenance",
+    sql: `ALTER TABLE design_board_replay_screenshots ALTER COLUMN route DROP NOT NULL;
+ALTER TABLE design_board_replay_screenshots ADD COLUMN IF NOT EXISTS capture_source_fingerprint TEXT`,
+  },
+  {
+    version: 41,
+    name: "design-screen-restore-claims",
     sql: `CREATE TABLE IF NOT EXISTS design_screen_restore_claims (
     id TEXT PRIMARY KEY,
     design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
@@ -503,8 +509,7 @@ ALTER COLUMN client_revision TYPE BIGINT USING client_revision::BIGINT`,
     created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   );
   CREATE INDEX IF NOT EXISTS design_screen_restore_claims_design_source_idx
-    ON design_screen_restore_claims (design_id, source_file_id);
-  ALTER TABLE design_board_replay_screenshots ADD COLUMN IF NOT EXISTS source_stage_id TEXT`,
+    ON design_screen_restore_claims (design_id, source_file_id)`,
   },
 ];
 

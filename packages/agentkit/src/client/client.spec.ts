@@ -17,11 +17,28 @@ import {
 } from "../protocol/index.js";
 import {
   AgentKitCapabilityError,
-  AgentKitClient,
+  AgentKitClient as AgentKitClientImplementation,
+  AgentKitOperationError,
   AgentRunHandle,
   AgentKitRunSlotBusyError,
 } from "./client.js";
 import { hasActiveAgentRuns, type AgentThreadState } from "./state.js";
+
+class AgentKitClient extends AgentKitClientImplementation {
+  constructor(
+    options: ConstructorParameters<typeof AgentKitClientImplementation>[0],
+  ) {
+    super({
+      ...options,
+      transport: options.transport.assertAiSetupReady
+        ? options.transport
+        : {
+            ...options.transport,
+            assertAiSetupReady: async () => undefined,
+          },
+    });
+  }
+}
 
 function protocolEvent(
   sequence: number,
@@ -43,6 +60,7 @@ function protocolEvent(
 function createTransport(events: AgentEvent[]): AgentTransport {
   return {
     capabilities: { resumableRuns: true, messageQueue: true },
+    async assertAiSetupReady() {},
     async startRun() {
       return { runId: "run-1" };
     },
@@ -220,6 +238,69 @@ async function assistantPartsAfterToolHistory(input: {
 }
 
 describe("AgentKitClient", () => {
+  it("refuses dispatch when a transport has no AI readiness validator", async () => {
+    const startRun = vi.fn(async () => ({ runId: "run-1" }));
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      assertAiSetupReady: undefined,
+      startRun,
+    };
+    const client = new AgentKitClientImplementation({ transport });
+
+    await expect(
+      client.sendMessage({ threadId: "thread-1", text: "Blocked" }),
+    ).rejects.toBeInstanceOf(AgentKitOperationError);
+    await expect(
+      client.queueMessage({ threadId: "thread-1", text: "Blocked" }),
+    ).rejects.toBeInstanceOf(AgentKitOperationError);
+    expect(startRun).not.toHaveBeenCalled();
+  });
+
+  it("allows transports without shared AI setup only with an explicit opt-out", async () => {
+    const startRun = vi.fn(async () => ({ runId: "run-1" }));
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      assertAiSetupReady: undefined,
+      startRun,
+    };
+    const client = new AgentKitClientImplementation({
+      transport,
+      aiSetupReadiness: "not-applicable",
+    });
+
+    await client.sendMessage({ threadId: "thread-1", text: "Continue" });
+
+    expect(startRun).toHaveBeenCalledOnce();
+    await client.shutdown();
+  });
+
+  it("requires AI setup before a manual run continuation", async () => {
+    const setupRequired = new AgentKitOperationError(
+      "AI setup readiness validation",
+    );
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const continueRun = vi.fn(async () => ({ runId: "run-1" }));
+    const transport: AgentTransport = {
+      ...createTransport([
+        protocolEvent(1, { type: "run.started" }),
+        protocolEvent(2, { type: "run.completed" }),
+      ]),
+      assertAiSetupReady,
+      continueRun,
+    };
+    const client = new AgentKitClientImplementation({ transport });
+
+    await expect(client.continueRun("thread-1", "run-1")).rejects.toBe(
+      setupRequired,
+    );
+
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
+    expect(continueRun).not.toHaveBeenCalled();
+    await client.shutdown();
+  });
+
   it("bounds nested tool-history values before serializing them", async () => {
     const messages = await assistantPartsAfterToolHistory({
       toolInput: { nested: { text: "x".repeat(1024 * 1024) } },
@@ -653,6 +734,220 @@ describe("AgentKitClient", () => {
       await client.shutdown();
     },
   );
+
+  it("stores resized queued image payloads by URL instead of persisting base64", async () => {
+    const queuedRequest = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async (input) => ({
+        message: {
+          id: input.id ?? "queued-image",
+          threadId: input.threadId,
+          text: input.text,
+          createdAt: "2026-10-08T00:00:00.000Z",
+          requestAttachments: input.requestAttachments,
+        },
+      }),
+    );
+    const completeUpload = vi.fn(async () => ({
+      type: "file" as const,
+      name: "reference.png",
+      mediaType: "image/png",
+      url: "https://storage.example.test/optimized.png",
+    }));
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: {
+          attachments: true,
+          messageQueue: true,
+          uploads: true,
+        },
+        queueMessage: queuedRequest,
+        async createUpload() {
+          return {
+            uploadId: "upload-1",
+            method: "PUT",
+            url: "https://upload.example.test/optimized.png",
+          };
+        },
+        completeUpload,
+      },
+      upload: async () => undefined,
+    });
+
+    await client.queueMessage({
+      threadId: "thread-1",
+      text: "Describe this",
+      requestAttachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,SGVsbG8=",
+          referenceUrl: "https://storage.example.test/original.png",
+        },
+      ],
+    });
+
+    const request = queuedRequest.mock.calls[0]?.[0];
+    expect(request?.requestAttachments).toEqual([
+      {
+        type: "image",
+        name: "reference.png",
+        contentType: "image/png",
+        referenceUrl: "https://storage.example.test/original.png",
+        url: "https://storage.example.test/optimized.png",
+      },
+    ]);
+    expect(JSON.stringify(request)).not.toContain("SGVsbG8=");
+    expect(completeUpload).toHaveBeenCalledOnce();
+    await client.shutdown();
+  });
+
+  it("validates queued image size limits before decoding inline bytes", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>();
+    const upload = vi.fn(async () => undefined);
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { attachments: true, messageQueue: true, uploads: true },
+        queueMessage,
+      },
+      upload,
+    });
+    const atobMock = vi.spyOn(globalThis, "atob");
+
+    try {
+      await expect(
+        client.queueMessage({
+          threadId: "thread-1",
+          text: "Describe this",
+          requestAttachments: [
+            {
+              type: "image",
+              name: "oversized.png",
+              data: `data:image/png;base64,${"A".repeat(3_000_000)}`,
+            },
+          ],
+        }),
+      ).rejects.toThrow("bounded base64 raster image data URL");
+
+      expect(atobMock).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+      expect(queueMessage).not.toHaveBeenCalled();
+    } finally {
+      atobMock.mockRestore();
+      await client.shutdown();
+    }
+  });
+
+  it("validates aggregate queued image bytes before decoding any attachment", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>();
+    const upload = vi.fn(async () => undefined);
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { attachments: true, messageQueue: true, uploads: true },
+        queueMessage,
+      },
+      upload,
+    });
+    const atobMock = vi.spyOn(globalThis, "atob");
+
+    try {
+      await expect(
+        client.queueMessage({
+          threadId: "thread-1",
+          text: "Describe these",
+          requestAttachments: Array.from({ length: 3 }, (_, index) => ({
+            type: "image" as const,
+            name: `image-${index}.png`,
+            data: `data:image/png;base64,${"A".repeat(2_000_000)}`,
+          })),
+        }),
+      ).rejects.toThrow("aggregate inline image data exceeds");
+
+      expect(atobMock).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+      expect(queueMessage).not.toHaveBeenCalled();
+    } finally {
+      atobMock.mockRestore();
+      await client.shutdown();
+    }
+  });
+
+  it("reserves queue order before uploading a queued image", async () => {
+    const uploadStarted = Promise.withResolvers<void>();
+    const finishUpload = Promise.withResolvers<void>();
+    const queueOrder: string[] = [];
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: {
+          attachments: true,
+          messageQueue: true,
+          uploads: true,
+        },
+        async queueMessage(input) {
+          queueOrder.push(input.text);
+          return {
+            message: {
+              id: input.id ?? `queued-${input.text}`,
+              threadId: input.threadId,
+              text: input.text,
+              createdAt: "2026-10-08T00:00:00.000Z",
+              requestAttachments: input.requestAttachments,
+            },
+          };
+        },
+        async createUpload() {
+          return {
+            uploadId: "upload-image",
+            method: "PUT",
+            url: "https://upload.example.test/image.png",
+          };
+        },
+        async completeUpload() {
+          return {
+            type: "file",
+            name: "optimized.png",
+            mediaType: "image/png",
+            url: "https://storage.example.test/optimized.png",
+          };
+        },
+      },
+      upload: async () => {
+        uploadStarted.resolve();
+        await finishUpload.promise;
+      },
+    });
+
+    const imageMessage = client.queueMessage({
+      threadId: "thread-1",
+      text: "Describe this image",
+      requestAttachments: [
+        {
+          type: "image",
+          name: "optimized.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,SGVsbG8=",
+          referenceUrl: "https://storage.example.test/original.png",
+        },
+      ],
+    });
+    await uploadStarted.promise;
+    const textMessage = client.queueMessage({
+      threadId: "thread-1",
+      text: "Follow up",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(queueOrder).toEqual([]);
+
+    finishUpload.resolve();
+    await Promise.all([imageMessage, textMessage]);
+    expect(queueOrder).toEqual(["Describe this image", "Follow up"]);
+    await client.shutdown();
+  });
 
   it("does not acknowledge a message rejected by capability preflight", async () => {
     const startRun = vi.fn<AgentTransport["startRun"]>();

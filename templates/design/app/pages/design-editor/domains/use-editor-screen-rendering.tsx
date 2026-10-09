@@ -382,7 +382,12 @@ export function useEditorScreenRendering({
         !intent &&
         activeFileIdRef.current !== null &&
         screenId !== activeFileIdRef.current;
-      const droppedEcho = supersededEcho || inactiveScreenEcho;
+      const inactiveBreakpointEcho =
+        viewModeRef.current === "overview" &&
+        !intent &&
+        options.breakpointWidthPx !== activeBreakpointWidthStateRef.current;
+      const droppedEcho =
+        supersededEcho || inactiveScreenEcho || inactiveBreakpointEcho;
       if (!intent && droppedEcho) {
         return;
       }
@@ -564,20 +569,20 @@ export function useEditorScreenRendering({
   const [openZoomControl, setOpenZoomControl] = useState<
     "toolbar" | "inspector" | "topbar" | null
   >(null);
-  const [zoomInputValue, setZoomInputValue] = useState(zoomLabel);
+  const zoomInputDigits = String(Math.round(zoom));
+  const [zoomInputValue, setZoomInputValue] = useState(zoomInputDigits);
   useEffect(() => {
-    if (!openZoomControl) setZoomInputValue(zoomLabel);
-  }, [zoomLabel, openZoomControl]);
+    if (!openZoomControl) setZoomInputValue(zoomInputDigits);
+  }, [zoomInputDigits, openZoomControl]);
   const commitZoomInput = useCallback(() => {
-    const next = Number(zoomInputValue.replace("%", "").trim());
-    if (!Number.isFinite(next)) {
-      setZoomInputValue(zoomLabel);
+    if (zoomInputValue === "") {
+      setZoomInputValue(zoomInputDigits);
       return;
     }
     suppressOverviewPopForExplicitZoomRef.current = true;
-    setZoom(clampZoom(next));
+    setZoom(clampZoom(Number(zoomInputValue)));
     setOpenZoomControl(null);
-  }, [setZoom, zoomInputValue, zoomLabel]);
+  }, [setZoom, zoomInputValue, zoomInputDigits]);
   const renderEditableScreenContent = useCallback(
     (
       screen: OverviewScreenRendererArgs[0],
@@ -965,7 +970,6 @@ export function useEditorScreenRendering({
           lockedSelectors={getLayerSelectorsForFile(screen.id, lockedLayerIds)}
           hiddenSelectors={getLayerSelectorsForFile(screen.id, hiddenLayerIds)}
           onElementSelect={(info, intent) => {
-            activateResponsiveScope();
             handleIframeElementSelect(screen.id, info, intent, {
               breakpointWidthPx,
             });
@@ -1430,6 +1434,7 @@ export function useEditorScreenRendering({
     handleKScaleStyleBatchChange,
     handleApplyToSource,
     zoomLabel,
+    zoomInputDigits,
     openZoomControl,
     setOpenZoomControl,
     zoomInputValue,

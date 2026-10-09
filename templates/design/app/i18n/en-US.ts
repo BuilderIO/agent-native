@@ -225,6 +225,18 @@ export default {
       exportSvg: "Export SVG",
       actionsPrefill: "Review, then send",
       retry: "Retry",
+      currentDesign: "the current Design",
+      chooseDesign: "a Design (ask me which Design to use if needed)",
+      importFramePrompt:
+        "Import this Figma frame into {{destination}} and identify any content the importer could not carry over: {{url}}",
+      importFilePrompt:
+        "Open this Figma file, list its top-level frames, and ask me which frame to import: {{url}}",
+      inspectFramePrompt:
+        "Inspect this Figma frame and summarize its structure, components, styles, and reusable tokens: {{url}}",
+      inspectFilePrompt:
+        "Inspect this Figma file and summarize its structure, components, styles, and reusable tokens: {{url}}",
+      exportSvgPrompt:
+        "Export the current Design screen as SVG for use in Figma and identify which parts become static SVG content.",
     },
   },
   common: {
@@ -952,6 +964,8 @@ export default {
       "Generation stopped before creating files. Try again to continue from the same prompt.",
     generationStoppedCheckAgent:
       "Generation stopped before creating files. Check the agent message or try again.",
+    invalidCanvasDimensions:
+      "The requested canvas size isn't supported. Use positive pixel dimensions within the editor limits.",
     notFound: "Design not found",
     backToDesigns: "Back to designs",
     designNotFoundDescription:

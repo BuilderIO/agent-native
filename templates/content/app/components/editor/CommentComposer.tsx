@@ -611,7 +611,6 @@ export const CommentComposer = forwardRef<
         plusMenuMode="hidden"
         voiceEnabled={false}
         showModelSelector={false}
-        requireAgentEngine={false}
         modelStatusChecksEnabled={false}
         showAutoModelOption={false}
         layoutVariant="compact"

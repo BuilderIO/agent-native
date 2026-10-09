@@ -2,17 +2,25 @@ export default {
   journeyCanvas: {
     observedSessionReference: "Referência de sessão observada",
     sessionsOfAll: "{count} sessões · {percent} do total",
+    sessionsOfAppRoot:
+      "{count} sessões · {percent} da coorte de {app} (n={rootCount})",
     sessionsOfPrevious: "{count} sessões · {percent} da etapa anterior",
     sessionsOfParent: "{count} sessões · {percent} de {label}",
+    observedContinuation:
+      "Mesma gravação · exemplo {fromExample} → exemplo {toExample}",
+    observedContinuationCompact: "Ex. {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "{count} sessões · {percent} desta etapa",
     partialSample: "amostra parcial",
     continuedOnUnpictured:
       "Continuação em caminhos não exibidos: {count} · {percent} desta etapa",
     noLaterStepObserved: "Nenhuma etapa posterior observada",
-    examplePosition: "Exemplo {current} de {total}",
-    showExample: "Mostrar exemplo {current} de {total}",
+    examplePosition: "Galeria {current} de {total}",
+    sourceExampleLabel: "Origem",
+    showExample: "Mostrar exemplo de origem {current}",
     screenshotExamples: "Exemplos de captura de tela",
-    screenshotAlt: "{label}, exemplo {current} de {total}, capturado em {date}",
+    screenshotAlt:
+      "{label}, exemplo de origem {source}, posição na galeria {current} de {total}, capturado em {date}",
     screenshotMissing: "Nenhuma captura de tela registrada",
     recordingUnavailable: "indisponível",
     eventTime: "Horário do evento (UTC)",
@@ -45,11 +53,20 @@ export default {
     promptSource: "Prompt (origem)",
     source: "Origem",
     promptNotCaptured: "Prompt não capturado",
+    actorUnavailable: "Ator indisponível",
+    replayDetails: "Detalhes da reprodução e da origem",
+    sourceApp: "Aplicativo de origem",
+    route: "Rota atual no momento da captura",
+    routeUnavailable: "indisponível",
+    captureSourceFingerprint: "Impressão digital da origem da captura",
+    captureSourceUnavailable: "não fornecida",
+    recordingStarted: "Gravação iniciada",
+    appBandHeading: "{app} · {count} sessões",
     journeyTitleSummary: "{app} · {from} a {to} · {count} sessões{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} a {to} · coortes separadas por aplicativo{partial}",
     sessionCount: "{count} sessões",
     otherPaths: "Outros caminhos",
-    capturedDate: "Capturado em {date}{examples}",
-    additionalExamples: " · {count} exemplos",
     htmlLanguage: "pt-BR",
   },
   composer: { menu: { integrations: "Integrações" } },
@@ -277,6 +294,18 @@ export default {
       exportSvg: "Exportar SVG",
       actionsPrefill: "Revise e envie",
       retry: "Tentar novamente",
+      currentDesign: "o Design atual",
+      chooseDesign: "um Design (pergunte qual devo usar, se necessário)",
+      importFramePrompt:
+        "Importe este frame do Figma em {{destination}} e indique o conteúdo que não pôde ser mantido pelo importador: {{url}}",
+      importFilePrompt:
+        "Abra este arquivo do Figma, liste os frames de nível superior e pergunte qual deles devo importar: {{url}}",
+      inspectFramePrompt:
+        "Inspecione este frame do Figma e resuma sua estrutura, componentes, estilos e tokens reutilizáveis: {{url}}",
+      inspectFilePrompt:
+        "Inspecione este arquivo do Figma e resuma sua estrutura, componentes, estilos e tokens reutilizáveis: {{url}}",
+      exportSvgPrompt:
+        "Exporte a tela atual do Design como SVG para uso no Figma e indique quais partes se tornam conteúdo SVG estático.",
     },
   },
   common: {
@@ -1007,6 +1036,8 @@ export default {
       "A geração parou antes de criar arquivos. Tente novamente para continuar do mesmo prompt.",
     generationStoppedCheckAgent:
       "A geração parou antes de criar arquivos. Confira a mensagem do agente ou tente novamente.",
+    invalidCanvasDimensions:
+      "O tamanho de tela solicitado não é compatível. Use dimensões em pixels positivas dentro dos limites do editor.",
     notFound: "Design não encontrado",
     backToDesigns: "Voltar aos designs",
     designNotFoundDescription: "Este design não existe ou foi excluído.",

@@ -2,17 +2,25 @@ export default {
   journeyCanvas: {
     observedSessionReference: "Referencia de sesión observada",
     sessionsOfAll: "{count} sesiones · {percent} del total",
+    sessionsOfAppRoot:
+      "{count} sesiones · {percent} de la cohorte de {app} (n={rootCount})",
     sessionsOfPrevious: "{count} sesiones · {percent} del paso anterior",
     sessionsOfParent: "{count} sesiones · {percent} de {label}",
+    observedContinuation:
+      "Misma grabación · ejemplo {fromExample} → ejemplo {toExample}",
+    observedContinuationCompact: "Ej. {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "{count} sesiones · {percent} de este paso",
     partialSample: "muestra parcial",
     continuedOnUnpictured:
       "Continuaron por rutas no mostradas: {count} · {percent} de este paso",
     noLaterStepObserved: "No se observó ningún paso posterior",
-    examplePosition: "Ejemplo {current} de {total}",
-    showExample: "Mostrar ejemplo {current} de {total}",
+    examplePosition: "Galería {current} de {total}",
+    sourceExampleLabel: "Origen",
+    showExample: "Mostrar ejemplo de origen {current}",
     screenshotExamples: "Ejemplos de capturas",
-    screenshotAlt: "{label}, ejemplo {current} de {total}, capturado el {date}",
+    screenshotAlt:
+      "{label}, ejemplo de origen {source}, posición en galería {current} de {total}, capturado el {date}",
     screenshotMissing: "No se capturó ninguna captura",
     recordingUnavailable: "no disponible",
     eventTime: "Hora del evento (UTC)",
@@ -45,11 +53,20 @@ export default {
     promptSource: "Prompt (origen)",
     source: "Origen",
     promptNotCaptured: "No se capturó el prompt",
+    actorUnavailable: "Actor no disponible",
+    replayDetails: "Detalles de reproducción y origen",
+    sourceApp: "Aplicación de origen",
+    route: "Ruta actual en la captura",
+    routeUnavailable: "no disponible",
+    captureSourceFingerprint: "Huella de la fuente de captura",
+    captureSourceUnavailable: "no proporcionada",
+    recordingStarted: "Grabación iniciada",
+    appBandHeading: "{app} · {count} sesiones",
     journeyTitleSummary: "{app} · {from} a {to} · {count} sesiones{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} a {to} · cohortes separadas por aplicación{partial}",
     sessionCount: "{count} sesiones",
     otherPaths: "Otras rutas",
-    capturedDate: "Capturado el {date}{examples}",
-    additionalExamples: " · {count} ejemplos",
     htmlLanguage: "es-ES",
   },
   composer: { menu: { integrations: "Integraciones" } },
@@ -276,6 +293,18 @@ export default {
       exportSvg: "Exportar SVG",
       actionsPrefill: "Revisa y envía",
       retry: "Reintentar",
+      currentDesign: "el Diseño actual",
+      chooseDesign: "un Diseño (pregúntame cuál usar si hace falta)",
+      importFramePrompt:
+        "Importa este marco de Figma en {{destination}} e indica qué contenido no pudo conservar el importador: {{url}}",
+      importFilePrompt:
+        "Abre este archivo de Figma, enumera sus marcos de nivel superior y pregúntame cuál quiero importar: {{url}}",
+      inspectFramePrompt:
+        "Inspecciona este marco de Figma y resume su estructura, componentes, estilos y tokens reutilizables: {{url}}",
+      inspectFilePrompt:
+        "Inspecciona este archivo de Figma y resume su estructura, componentes, estilos y tokens reutilizables: {{url}}",
+      exportSvgPrompt:
+        "Exporta la pantalla de Design actual como SVG para usarla en Figma e indica qué partes pasan a ser contenido SVG estático.",
     },
   },
   common: {
@@ -1009,6 +1038,8 @@ export default {
       "La generación se detuvo antes de crear archivos. Inténtalo de nuevo para continuar desde el mismo prompt.",
     generationStoppedCheckAgent:
       "La generación se detuvo antes de crear archivos. Revisa el mensaje del agente o inténtalo de nuevo.",
+    invalidCanvasDimensions:
+      "El tamaño de lienzo solicitado no es compatible. Usa dimensiones en píxeles positivas dentro de los límites del editor.",
     notFound: "Diseño no encontrado",
     backToDesigns: "Volver a diseños",
     designNotFoundDescription: "Este diseño no existe o se ha eliminado.",

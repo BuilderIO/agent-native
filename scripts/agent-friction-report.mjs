@@ -688,18 +688,6 @@ const DESIGN_FEEDBACK_REGEX_CASES = [
   [false, "The design needs a little more contrast."],
 ];
 
-const FIGMA_PARITY_UNMEASURED_RE =
-  /\bwhere (?:is|are)\b[^.!?]{0,80}\b(?:measured|native|actual)\b[^.!?]{0,60}\b(?:figma|oracle|evidence|record)\b|\b(?:unmeasured|unverified|no\s+(?:native\s+)?(?:figma\s+)?evidence|without\s+(?:a\s+)?(?:native\s+)?figma\s+(?:measurement|oracle)|not\s+(?:a\s+)?figma\s+(?:oracle|measurement|evidence)|cannot be cited|can't be cited|don't\s+(?:claim|say|cite|treat)|do not\s+(?:claim|say|cite|treat)|does(?: not|n't)\s+(?:prove|establish))\b[^.!?]{0,120}\b(?:figma|parity|design behavior|oracle)\b|\b(?:figma|parity|design behavior|oracle)\b[^.!?]{0,120}\b(?:unmeasured|unverified|no\s+(?:native\s+)?(?:figma\s+)?evidence|without\s+(?:a\s+)?(?:native\s+)?figma\s+(?:measurement|oracle)|not\s+(?:a\s+)?figma\s+(?:oracle|measurement|evidence)|cannot be cited|can't be cited|don't\s+(?:claim|say|cite|treat)|do not\s+(?:claim|say|cite|treat)|does(?: not|n't)\s+(?:prove|establish))\b/i;
-const FIGMA_PARITY_UNMEASURED_REGEX_CASES = [
-  [true, "Don't claim Figma parity without a native Figma measurement."],
-  [true, "That Design behavior is unmeasured; the screenshot is not evidence."],
-  [true, "Where is the measured Figma oracle record for this behavior?"],
-  [true, "The old screenshot does not prove parity."],
-  [false, "The Figma icon is larger in the Design toolbar."],
-  [false, "The parity E2E test failed on CI."],
-  [false, "Figma behavior was measured against the current build."],
-];
-
 const FEEDBACK_EYES_RE =
   /(?:\b(?:no|not|zero|without|missing)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:put|add|place|react|mark)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:remove|clear|take off)\b[^.!?]{0,80}(?:\beyes?\b|👀)[^.!?]{0,80}\b(?:confiden\w*|sure|fix\w*)\b)/i;
 
@@ -2400,12 +2388,6 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
-    ...FIGMA_PARITY_UNMEASURED_REGEX_CASES.filter(
-      ([expected, message]) =>
-        FIGMA_PARITY_UNMEASURED_RE.test(message) !== expected,
-    ),
-  );
-  failures.push(
     ...FEEDBACK_EYES_REGEX_CASES.filter(
       ([expected, message]) => FEEDBACK_EYES_RE.test(message) !== expected,
     ),
@@ -2458,7 +2440,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FIGMA_PARITY_UNMEASURED_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -2543,13 +2525,6 @@ const PATTERNS = [
     re: FEEDBACK_NO_LOCAL_REPRO_RE,
   },
   {
-    key: "figma-parity-unmeasured",
-    label: "Had to correct a Design parity claim without native Figma evidence",
-    fixedBy:
-      ".agents/skills/design-figma-parity + parity oracle ledger and citation guard",
-    re: FIGMA_PARITY_UNMEASURED_RE,
-  },
-  {
     key: "false-done",
     label: "Reported done while still broken",
     fixedBy: ".agents/skills/verifying-changes (2026-07-31)",
@@ -2621,6 +2596,13 @@ const PATTERNS = [
     label: "Had to ask whether sibling call sites were swept",
     fixedBy: ".agents/skills/fix-at-the-boundary (2026-07-31)",
     re: /\b(any other (apps?|providers?|templates?|places?)|other (apps?|templates?) (that )?do(es)? this|same (bug|issue|thing) (in|across)|sweep of other|fix that too)\b/i,
+  },
+  {
+    key: "ai-gate-bypass",
+    label: "Had to repeat that prompts must not send without connected AI",
+    fixedBy:
+      "guard:chat-send-gate + shared readiness dispatch gate (2026-10-08)",
+    re: /\b(?:never|can(?:not|'t)|must not|should not|shouldn't)\b[^.!?\n]{0,100}\b(?:send|submit)\b[^.!?\n]{0,80}\b(?:prompt|message)s?\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,60}\b(?:AI|LLM|provider)\b|\b(?:send|submit)\b[^.!?\n]{0,80}\b(?:prompt|message)s?\b[^.!?\n]{0,60}\bwithout\b[^.!?\n]{0,40}\b(?:AI|LLM|provider)\b|\b(?:AI|LLM) provider\b[^.!?\n]{0,40}\b(?:not connected|not configured|missing)\b/i,
   },
   {
     key: "credential-wrong-namespace",

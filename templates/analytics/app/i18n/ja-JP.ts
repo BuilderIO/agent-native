@@ -689,6 +689,18 @@ export default {
     copied: "コピーされました",
     copy: "コピー",
     keyActions: "{{name}} キーアクション",
+    manageReplayOrigins: "リプレイオリジンを管理",
+    replayOriginsDescription:
+      "正確なHTTPSオリジンを1行に1つ追加します。既存のオリジンは保持されます。",
+    currentReplayOrigins: "現在許可されているオリジン",
+    anyReplayOriginAllowed:
+      "現在はすべてのオリジンが許可されています。オリジンを追加すると再生は一覧のみに制限されるため、このキーを使うすべてのアプリを追加してください。",
+    originsToAdd: "追加するオリジン",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "オリジンを追加",
+    addingReplayOrigins: "オリジンを追加中…",
+    replayOriginsUpdateFailed: "許可オリジンを更新できませんでした。",
+    cancel: "キャンセル",
     lastUsed: "最後に使用した{{date}}",
     neverUsed: "決して使われていない",
     revoking: "取り消し中...",

@@ -5,7 +5,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
-import { BuilderBMark } from "@agent-native/core/client/builder-mark";
 import { formatClientFailureReport } from "@agent-native/core/client/failure-report";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
@@ -373,7 +372,6 @@ export function BuilderConnectCta({
               </>
             ) : (
               <>
-                <BuilderBMark className="size-3.5" />
                 {reconnect
                   ? t("agentChat.recovery.reconnectBuilder")
                   : t("agentChat.setup.connectBuilder")}
@@ -618,10 +616,10 @@ export function BuilderSetupCard({
         sidebarLayout && "agent-builder-setup-card--sidebar",
         attached && "agent-builder-setup-card--attached",
         fullWidth
-          ? "w-full px-3 pb-2"
+          ? "w-full p-3"
           : sidebarLayout
-            ? "mx-auto w-full max-w-[42rem] px-3 pb-2"
-            : "mx-auto w-full max-w-[42rem] px-3 pb-2 sm:w-fit",
+            ? "mx-auto w-full max-w-[42rem] p-3"
+            : "mx-auto w-full max-w-[42rem] p-3 sm:w-fit",
       )}
     >
       <div
@@ -835,14 +833,14 @@ export function RunErrorRecoveryCard({
 
   if (isBuilderCreditsLimit) {
     return (
-      <div className="@container min-w-0 rounded-lg border border-border bg-card p-3 text-sm">
+      <div className="@container relative min-w-0 rounded-lg border border-border bg-card p-3 pe-11 text-sm">
         <div className="flex min-w-0 flex-col gap-3 @md:flex-row @md:items-center">
           <p className="w-full min-w-0 font-medium text-foreground @md:flex-1 @md:w-auto">
             {t("agentChat.errorMessages.creditsLimitReached", {
               defaultValue: "You've reached your AI credits limit.",
             })}
           </p>
-          <div className="flex w-full items-center gap-3 @md:w-auto">
+          <div className="flex w-full items-center @md:w-auto">
             <Button asChild size="sm">
               <a href={builderSubscriptionUrl} target="_blank" rel="noreferrer">
                 {t("agentChat.errorMessages.addCreditsInBuilder", {
@@ -851,16 +849,16 @@ export function RunErrorRecoveryCard({
                 <IconArrowUpRight />
               </a>
             </Button>
-            <button
-              type="button"
-              onClick={onDismiss}
-              aria-label={t("agentChat.common.dismiss")}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              <IconX size={14} />
-            </button>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={t("agentChat.common.dismiss")}
+          className="absolute end-2 top-2 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <IconX size={14} />
+        </button>
         <BuilderReferralInviteRow className="mt-3 border-t border-border/70 pt-3" />
       </div>
     );

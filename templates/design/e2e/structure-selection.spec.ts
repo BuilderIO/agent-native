@@ -336,8 +336,7 @@ test.describe("keyboard selection traversal", () => {
     const name = await selectedLayerName(page);
     expect(
       name,
-      `Figma: "You can double-click on the object or press the enter key to select one ` +
-        `level of nesting down." Selection stayed on "${name}".`,
+      `Enter should select one level down; selection stayed on "${name}".`,
     ).toMatch(/Kid/);
   });
 
@@ -352,7 +351,7 @@ test.describe("keyboard selection traversal", () => {
     const name = await selectedLayerName(page);
     expect(
       name,
-      `Figma: "\\" selects the parent. Selection is "${name}".`,
+      `The backslash shortcut selects the parent. Selection is "${name}".`,
     ).toBe("Wrap");
   });
 
@@ -366,7 +365,7 @@ test.describe("keyboard selection traversal", () => {
     await page.waitForTimeout(1500);
     await expect(
       page.locator('[role="treeitem"][aria-selected="true"]'),
-      `Figma: Esc is "select none". Selection is "${await selectedLayerName(page)}".`,
+      `Escape should clear selection. Selection is "${await selectedLayerName(page)}".`,
     ).toHaveCount(0);
   });
 
@@ -397,7 +396,7 @@ test.describe("keyboard selection traversal", () => {
     const name = await selectedLayerName(page);
     expect(
       name,
-      `Figma: "Press the Tab key to select the next sibling". Selection is "${name}".`,
+      `Tab should select the next sibling. Selection is "${name}".`,
     ).toBe("Kid Two");
   });
 
@@ -410,7 +409,7 @@ test.describe("keyboard selection traversal", () => {
     const name = await selectedLayerName(page);
     expect(
       name,
-      `Figma: "Shift + Tab to select the previous sibling". Selection is "${name}".`,
+      `Shift+Tab should select the previous sibling. Selection is "${name}".`,
     ).toBe("Kid One");
   });
 
@@ -1562,7 +1561,7 @@ test.describe("groups", () => {
     const expectedWidth = b.x + b.width - a.x;
     expect(
       group!.width,
-      `Figma: "Groups automatically adjust their bounds to fit the layers within." ` +
+      `Group bounds should enclose their children. ` +
         `Children span ${Math.round(expectedWidth)}px; the group measures ${Math.round(group!.width)}px.`,
     ).toBeCloseTo(expectedWidth, -1.4);
   });
@@ -2162,8 +2161,8 @@ test.describe("multi-selection", () => {
   });
 
   // Aspirational: no [data-smart-selection], [data-spacing-handle] or
-  // [data-smart-handle] exists in the app yet, so this specifies Figma
-  // smart-selection rather than guarding it.
+  // [data-smart-handle] exists in the app yet, so this remains a planned
+  // interaction rather than a guarded behavior.
   test.fixme("Smart selection exposes spacing handles for evenly spaced layers", async ({
     page,
   }) => {
@@ -2182,8 +2181,7 @@ test.describe("multi-selection", () => {
     );
     expect(
       handles,
-      `Figma: three evenly spaced layers get "a pink ring in the center" of each plus ` +
-        `"additional pink handles ... between each layer" for spacing. None appeared.`,
+      `The selected layers should expose spacing handles. None appeared.`,
     ).toBeGreaterThan(0);
   });
 });
@@ -2216,8 +2214,7 @@ test.describe("frames versus groups", () => {
     const after = styleOf(afterHtml, "wrap");
     expect(
       [styleNum(after, "width"), styleNum(after, "height")],
-      `Figma: "frames are layers whose size is explicitly set by you" — moving a child ` +
-        `must not resize the frame. It went ${wBefore}x${hBefore} → ` +
+      `Moving a child must not resize the frame. It went ${wBefore}x${hBefore} → ` +
         `${styleNum(after, "width")}x${styleNum(after, "height")}.`,
     ).toEqual([wBefore, hBefore]);
   });

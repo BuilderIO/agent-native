@@ -2,17 +2,24 @@ export default {
   journeyCanvas: {
     observedSessionReference: "देखे गए सत्र का संदर्भ",
     sessionsOfAll: "{count} सत्र · कुल का {percent}",
+    sessionsOfAppRoot: "{count} सत्र · {app} समूह का {percent} (n={rootCount})",
     sessionsOfPrevious: "{count} सत्र · पिछले चरण का {percent}",
     sessionsOfParent: "{count} सत्र · {label} का {percent}",
+    observedContinuation:
+      "वही रिकॉर्डिंग · उदाहरण {fromExample} → उदाहरण {toExample}",
+    observedContinuationCompact: "उदा. {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "{count} सत्र · इस चरण का {percent}",
     partialSample: "आंशिक नमूना",
     continuedOnUnpictured:
       "न दिखाए गए रास्तों पर जारी: {count} · इस चरण का {percent}",
     noLaterStepObserved: "इसके बाद कोई चरण नहीं देखा गया",
-    examplePosition: "उदाहरण {current}/{total}",
-    showExample: "उदाहरण {current}/{total} दिखाएँ",
+    examplePosition: "गैलरी {current}/{total}",
+    sourceExampleLabel: "स्रोत",
+    showExample: "स्रोत उदाहरण {current} दिखाएँ",
     screenshotExamples: "स्क्रीनशॉट उदाहरण",
-    screenshotAlt: "{label}, उदाहरण {current}/{total}, कैप्चर की तारीख {date}",
+    screenshotAlt:
+      "{label}, स्रोत उदाहरण {source}, गैलरी में स्थान {current}/{total}, कैप्चर की तारीख {date}",
     screenshotMissing: "कोई स्क्रीनशॉट कैप्चर नहीं हुआ",
     recordingUnavailable: "उपलब्ध नहीं",
     eventTime: "इवेंट समय (UTC)",
@@ -44,11 +51,20 @@ export default {
     promptSource: "Prompt (स्रोत)",
     source: "स्रोत",
     promptNotCaptured: "Prompt कैप्चर नहीं हुआ",
+    actorUnavailable: "कर्ता उपलब्ध नहीं",
+    replayDetails: "रीप्ले और स्रोत का विवरण",
+    sourceApp: "स्रोत ऐप",
+    route: "कैप्चर के समय वर्तमान मार्ग",
+    routeUnavailable: "उपलब्ध नहीं",
+    captureSourceFingerprint: "कैप्चर स्रोत फ़िंगरप्रिंट",
+    captureSourceUnavailable: "प्रदान नहीं किया गया",
+    recordingStarted: "रिकॉर्डिंग शुरू हुई",
+    appBandHeading: "{app} · {count} सत्र",
     journeyTitleSummary: "{app} · {from} से {to} · {count} सत्र{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} से {to} · ऐप के अनुसार अलग-अलग समूह{partial}",
     sessionCount: "{count} सत्र",
     otherPaths: "अन्य रास्ते",
-    capturedDate: "कैप्चर की तारीख {date}{examples}",
-    additionalExamples: " · {count} उदाहरण",
     htmlLanguage: "hi-IN",
   },
   composer: { menu: { integrations: "इंटीग्रेशन" } },
@@ -272,6 +288,18 @@ export default {
       exportSvg: "SVG export करें",
       actionsPrefill: "जाँचें, फिर भेजें",
       retry: "फिर कोशिश करें",
+      currentDesign: "मौजूदा Design",
+      chooseDesign: "एक Design (ज़रूरत हो तो पूछें कि कौन-सा Design इस्तेमाल करना है)",
+      importFramePrompt:
+        "इस Figma frame को {{destination}} में import करें और बताएँ कि importer कौन-सी सामग्री साथ नहीं ला सका: {{url}}",
+      importFilePrompt:
+        "यह Figma file खोलें, उसके शीर्ष-स्तर के frames की सूची दें, और पूछें कि कौन-सा frame import करना है: {{url}}",
+      inspectFramePrompt:
+        "इस Figma frame की संरचना, components, styles और दोबारा इस्तेमाल किए जा सकने वाले tokens का सार दें: {{url}}",
+      inspectFilePrompt:
+        "इस Figma file की संरचना, components, styles और दोबारा इस्तेमाल किए जा सकने वाले tokens का सार दें: {{url}}",
+      exportSvgPrompt:
+        "मौजूदा Design screen को Figma में इस्तेमाल के लिए SVG के रूप में export करें और बताएँ कि कौन-से हिस्से स्थिर SVG सामग्री बनेंगे।",
     },
   },
   common: {
@@ -993,6 +1021,8 @@ export default {
       "फ़ाइलें बनाने से पहले जनरेशन रुक गया। उसी प्रॉम्प्ट से जारी रखने के लिए फिर कोशिश करें।",
     generationStoppedCheckAgent:
       "फ़ाइलें बनाने से पहले जनरेशन रुक गया। एजेंट संदेश देखें या फिर कोशिश करें।",
+    invalidCanvasDimensions:
+      "अनुरोधित कैनवास आकार समर्थित नहीं है। संपादक की सीमाओं के भीतर सकारात्मक पिक्सेल आयामों का उपयोग करें।",
     notFound: "डिज़ाइन नहीं मिला",
     backToDesigns: "डिज़ाइन पर वापस जाएँ",
     designNotFoundDescription: "यह डिज़ाइन मौजूद नहीं है या हटा दिया गया है।",

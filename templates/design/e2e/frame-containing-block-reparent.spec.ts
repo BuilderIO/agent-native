@@ -176,7 +176,7 @@ async function previewFrame(page: Page) {
     );
 }
 
-// oracle: none - verifies the app's auto-layout move and persistence contract, not measured Figma parity.
+// Covers auto-layout movement and persistence through resize and reload.
 test("Layers moves a Frame into auto layout while keeping nested content anchored through resize and reload", async ({
   page,
 }) => {
