@@ -244,7 +244,6 @@ export function renderDesignEditorView({
     editorPreferences,
     setEditorPreferences,
     handleRequestTweaks,
-    files,
     getComponentExpectedFiles,
     pendingNodeRewriteByFile,
     documentColorFiles,

@@ -1397,7 +1397,6 @@ test.describe("groups", () => {
         undoPreservedGroup: true,
         redoRestoredTarget: true,
       });
-
     } finally {
       await postAction(page, "delete-design", { id });
     }

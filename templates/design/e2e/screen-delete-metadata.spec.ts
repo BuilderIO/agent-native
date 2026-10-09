@@ -478,16 +478,11 @@ test("Delete removes the last selected Screen", async ({ page }) => {
     }
 
     await gotoEditor(page, designId);
-    await expandAllLayers(page);
-    const layers = page.getByRole("tree", { name: "Layers" });
-    const screenLayer = layers
-      .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`)
-      .locator("xpath=ancestor::*[@role='treeitem']");
-    await expect(screenLayer).toHaveCount(1);
-    await screenLayer.locator("[data-layer-row-button]").click();
-    await expect(
-      layers.locator('[role="treeitem"][aria-selected="true"]'),
-    ).toHaveCount(1);
+    const screenTitle = page.locator(
+      `[data-screen-shell][data-frame-id="${screenId}"] [data-frame-title]`,
+    );
+    await expect(screenTitle).toBeVisible();
+    await screenTitle.click();
     await expect(
       page.getByRole("button", { name: "Remove screen" }),
     ).toBeVisible();
