@@ -7,6 +7,7 @@ export class ReplayScreenshotAssetError extends Error {
       | "duplicateCloneMarker"
       | "cloneRoot"
       | "cloneElement"
+      | "cloneStageFrame"
       | "clonePseudoElement" = "unsupportedAsset",
   ) {
     super("Replay contains media or images that cannot be captured safely");
@@ -1352,7 +1353,9 @@ export async function captureReplayScreenshot(
         const clonedFrame = clonedStageRoot.querySelector(
           `iframe[${REPLAY_SCREENSHOT_MARKER}="${stageFrameMarker}"]`,
         );
-        if (!clonedFrame) throw new ReplayScreenshotAssetError();
+        if (!clonedFrame) {
+          throw new ReplayScreenshotAssetError("cloneStageFrame");
+        }
         const image = clonedStageRoot.ownerDocument.createElement("img");
         image.alt = "";
         image.src = replayImageUrl;

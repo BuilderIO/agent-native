@@ -1005,7 +1005,7 @@ describe("session replay screenshot asset checks", () => {
     image.remove();
   });
 
-  it("captures the replay viewport, nested frames, and visible cursor overlay", async () => {
+  it("reports a missing cloned stage frame while capturing nested frames and cursor", async () => {
     const stage = document.createElement("div");
     stage.style.backgroundColor = "rgb(17, 34, 51)";
     const stageRoot = document.createElement("div");
@@ -1069,6 +1069,7 @@ describe("session replay screenshot asset checks", () => {
       element: HTMLElement;
       options: Record<string, any>;
     }> = [];
+    let omitStageFrame = true;
     html2canvasMock.mockImplementation(
       async (element: HTMLElement, options: Record<string, any>) => {
         captures.push({ element, options });
@@ -1096,6 +1097,7 @@ describe("session replay screenshot asset checks", () => {
         }
 
         const clonedStageRoot = stageRoot.cloneNode(true) as HTMLElement;
+        if (omitStageFrame) clonedStageRoot.querySelector("iframe")?.remove();
         await options.onclone?.(document, clonedStageRoot);
         expect(clonedStageRoot.querySelector(".replayer-mouse")).not.toBeNull();
         expect(clonedStageRoot.querySelector("iframe")).toBeNull();
@@ -1118,6 +1120,14 @@ describe("session replay screenshot asset checks", () => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:download");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
 
+    await expect(
+      downloadReplayScreenshot(stage, stageRoot, iframe, "replay.png"),
+    ).rejects.toMatchObject({ reason: "cloneStageFrame" });
+    expect(captures).toHaveLength(3);
+
+    captures.length = 0;
+    html2canvasMock.mockClear();
+    omitStageFrame = false;
     await downloadReplayScreenshot(stage, stageRoot, iframe, "replay.png");
 
     expect(captures).toHaveLength(3);
