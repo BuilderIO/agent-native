@@ -1457,6 +1457,37 @@ export default function DeckEditor() {
         toast.error(t("settings.saveFailed"));
         return;
       }
+      let retryQuestionCheck: Awaited<
+        ReturnType<typeof refetchPendingQuestionStatus>
+      >;
+      try {
+        retryQuestionCheck = await refetchPendingQuestionStatus();
+      } catch (error) {
+        console.error(
+          "Failed to recheck guided questions after saving the retry.",
+          error,
+        );
+        const rollback = await restoreFailedRetry();
+        toast.error(
+          rollback.persisted
+            ? t("deckEditor.generationOutcomeUnresolved")
+            : t("settings.saveFailed"),
+        );
+        return;
+      }
+      if (
+        retryQuestionCheck.status !== "none" ||
+        generationLifecyclePauseRef.current.waitingOnQuestions ||
+        generationLifecyclePauseRef.current.generating
+      ) {
+        const rollback = await restoreFailedRetry();
+        if (!rollback.persisted) {
+          toast.error(t("settings.saveFailed"));
+        } else if (retryQuestionCheck.status === "error") {
+          toast.error(t("deckEditor.generationOutcomeUnresolved"));
+        }
+        return;
+      }
       setSearchParams((current) => {
         const next = new URLSearchParams(current);
         next.set("generating", "1");

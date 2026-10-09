@@ -804,6 +804,69 @@ describe("DeckEditor generation signal wiring", () => {
     );
   });
 
+  it("rechecks guided questions after saving the retry context", async () => {
+    const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+    window.localStorage.setItem(
+      recoveryKey,
+      JSON.stringify({
+        kind: "generation_failure",
+        attemptId: "attempt-1",
+        failureCode: "no_output",
+      }),
+    );
+    Object.assign(mocks.deck.generationContext, {
+      generationAttemptId: "attempt-1",
+      generationStartedAt: Date.now(),
+      originalPrompt: "Original brief",
+      generationFailureCode: "no_output",
+      generationFailureAttemptId: "attempt-1",
+    });
+    let resolveRetryFlush!: () => void;
+    const retryFlush = new Promise<void>((resolve) => {
+      resolveRetryFlush = resolve;
+    });
+    mocks.flushDeckSave
+      .mockResolvedValueOnce(undefined)
+      .mockReturnValueOnce(retryFlush)
+      .mockResolvedValueOnce(undefined);
+    mocks.guidedQuestionRefetchPending
+      .mockReset()
+      .mockResolvedValueOnce({ status: "none" })
+      .mockResolvedValueOnce({ status: "pending" });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => expect(mocks.flushDeckSave).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+    await waitFor(() => expect(mocks.flushDeckSave).toHaveBeenCalledTimes(2));
+    expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(1);
+
+    mocks.guidedQuestionQuestions = [
+      { id: "q1", question: "What should the deck focus on?" },
+    ];
+    await act(async () => {
+      resolveRetryFlush();
+      await retryFlush;
+    });
+
+    await waitFor(() => expect(mocks.flushDeckSave).toHaveBeenCalledTimes(3));
+    expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(2);
+    expect(mocks.submitAndConfirm).not.toHaveBeenCalled();
+    expect(mocks.deck.generationContext).toMatchObject({
+      generationAttemptId: "attempt-1",
+      generationFailureCode: "no_output",
+      generationFailureAttemptId: "attempt-1",
+    });
+    expect(router.state.location.search).toBe("");
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
   it("rechecks guided questions that arrive while generation refresh is pending", async () => {
     let resolveRefresh!: (deck: typeof mocks.deck) => void;
     const refreshPromise = new Promise<typeof mocks.deck>((resolve) => {
