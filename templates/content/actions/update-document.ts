@@ -904,7 +904,11 @@ export default defineAction({
     let bodyIntentOutcome: BrowserDocumentUpdateResponse["bodyIntentOutcome"];
     let discardedEditorGeneration: number | undefined;
     let preservationRequired:
-      | { reason: "structure" | "provenance"; checkpointId: string }
+      | {
+          reason: "structure" | "provenance";
+          checkpointId: string;
+          mutationOwnerEmail?: string;
+        }
       | undefined;
     let creativeContext:
       | Awaited<ReturnType<typeof documentMutationCreativeContext>>
@@ -1097,7 +1101,11 @@ export default defineAction({
             operation: "update-document-preservation",
             now: nextDocumentUpdatedAt(historyBefore.updatedAt),
           });
-          preservationRequired = { reason, checkpointId };
+          preservationRequired = {
+            reason,
+            checkpointId,
+            mutationOwnerEmail: ownerEmail,
+          };
           if (args.browserSaveAttemptId && browserSavePayload) {
             await tx.insert(schema.documentBrowserSaveAttempts).values({
               id: randomUUID(),
@@ -1564,9 +1572,10 @@ export default defineAction({
                 currentAccess.role,
                 currentFavorite,
               ),
-              ...preservationRequired,
+              reason: preservationRequired.reason,
+              checkpointId: preservationRequired.checkpointId,
             } satisfies DocumentUpdatePreservationResponse,
-            ownerEmail,
+            preservationRequired.mutationOwnerEmail ?? currentOwnerEmail,
           );
         }
 

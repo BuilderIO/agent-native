@@ -398,6 +398,99 @@ describe("update-document compare-and-swap", () => {
     },
   );
 
+  it.each(["locked receipt", "rollback recovery"] as const)(
+    "scopes a preservation replay from %s to the current read owner",
+    async (replayKind) => {
+      const id = await createDocument({ content: "Original" });
+      const db = getDb();
+      await db.insert(schema.documentShares).values({
+        id: nextId("preservation-replay-share"),
+        resourceId: id,
+        principalType: "user",
+        principalId: EDITOR,
+        role: "editor",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+      const args = {
+        id,
+        content: "Preserved candidate",
+        baseRevision: documentRevisionToken(0, "Stale base"),
+        browserSaveAttemptId: nextId("preservation-replay-attempt"),
+      };
+      const preserved = await runWithRequestContext({ userEmail: EDITOR }, () =>
+        updateDocumentAction.run(args, {
+          caller: "frontend",
+          userEmail: EDITOR,
+        }),
+      );
+      expect(preserved).toMatchObject({ preservationRequired: true });
+      const attempts = await import("./_browser-document-save-attempt.js");
+      const earlyLookup = vi
+        .spyOn(attempts, "findBrowserSaveAttempt")
+        .mockResolvedValueOnce(null);
+      const transaction = db.transaction.bind(db);
+      const retryFailure = new Error("Fake aborted preservation retry");
+      const race = vi
+        .spyOn(db, "transaction")
+        .mockImplementationOnce(async (mutate: (tx: any) => Promise<void>) => {
+          let result;
+          if (replayKind === "locked receipt") {
+            result = await transaction(mutate);
+          } else {
+            try {
+              await transaction(async (tx: any) => {
+                await mutate(tx);
+                throw retryFailure;
+              });
+            } catch (error) {
+              if (error !== retryFailure) throw error;
+            }
+          }
+          await db
+            .update(schema.documents)
+            .set({ ownerEmail: VIEWER })
+            .where(eq(schema.documents.id, id));
+          if (replayKind === "rollback recovery") throw retryFailure;
+          return result;
+        });
+      try {
+        const replayed = await runWithRequestContext(
+          { userEmail: EDITOR },
+          () =>
+            updateDocumentAction.run(args, {
+              caller: "frontend",
+              actionName: "update-document",
+              userEmail: EDITOR,
+            }),
+        );
+        expect(replayed).toMatchObject({
+          preservationRequired: true,
+          checkpointId: (preserved as { checkpointId: string }).checkpointId,
+          document: { content: "Original", accessRole: "editor" },
+        });
+        const { queryAuditEvents } = await import("@agent-native/core/audit");
+        const events = await queryAuditEvents(
+          { userEmail: VIEWER },
+          { action: "update-document", targetType: "document", targetId: id },
+        );
+        expect(events).toHaveLength(1);
+        expect(events[0]).toMatchObject({
+          ownerEmail: VIEWER,
+          actorEmail: EDITOR,
+          status: "success",
+        });
+        expect(race).toHaveBeenCalledOnce();
+        expect(earlyLookup).toHaveBeenCalledTimes(
+          replayKind === "locked receipt" ? 2 : 3,
+        );
+      } finally {
+        race.mockRestore();
+        earlyLookup.mockRestore();
+      }
+    },
+  );
+
   it("keeps the saved snapshot when a move changes owner before the save locks the page", async () => {
     const id = await createDocument({ content: "Before" });
     const db = getDb();
