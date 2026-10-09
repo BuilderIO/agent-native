@@ -1106,6 +1106,11 @@ export default {
   sqlDashboard: {
     customRange: "Intervalo personalizado",
     allValues: "Todos",
+    searchValues: "Buscar valores",
+    noValuesFound: "Nenhum valor encontrado",
+    selectAll: "Selecionar tudo",
+    selectOnly: "Só",
+    selectOnlyValue: "Somente {{value}}",
     untitledDashboard: "Painel sem título",
     dashboardFallback: "painel",
     viewOnly: "Você tem acesso somente visualização a este painel.",

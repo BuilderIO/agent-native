@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { i18nCatalog } from "../../../i18n";
 import { DashboardFilterBar } from "./DashboardFilterBar";
 import type { DashboardFilter } from "./types";
 
@@ -37,10 +39,16 @@ function render(
 ) {
   act(() => {
     root.render(
-      <MemoryRouter initialEntries={[initialEntry]}>
-        <DashboardFilterBar filters={list} />
-        <SearchProbe />
-      </MemoryRouter>,
+      <AgentNativeI18nProvider
+        catalog={i18nCatalog}
+        initialLocale="en-US"
+        persistPreference={false}
+      >
+        <MemoryRouter initialEntries={[initialEntry]}>
+          <DashboardFilterBar filters={list} />
+          <SearchProbe />
+        </MemoryRouter>
+      </AgentNativeI18nProvider>,
     );
   });
 }
@@ -82,6 +90,34 @@ function popoverButton(text: string): HTMLButtonElement {
   );
   if (!button) throw new Error(`button ${text} not rendered`);
   return button;
+}
+
+function onlyButton(value: string): HTMLButtonElement {
+  const option = optionLabel(value).parentElement;
+  const button = [
+    ...(option?.querySelectorAll<HTMLButtonElement>("button") ?? []),
+  ].find((element) => element.textContent?.trim() === "Only");
+  if (!button) throw new Error(`Only button for ${value} not rendered`);
+  expect(button.getAttribute("aria-label")).toBe(`Only ${value}`);
+  return button;
+}
+
+function searchInput(): HTMLInputElement {
+  const input = popover().querySelector<HTMLInputElement>(
+    'input[role="searchbox"]',
+  );
+  if (!input) throw new Error("multi-select search input not rendered");
+  return input;
+}
+
+function setSearchQuery(value: string) {
+  const input = searchInput();
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value",
+  )?.set;
+  setter?.call(input, value);
+  act(() => input.dispatchEvent(new Event("input", { bubbles: true })));
 }
 
 describe("multi-select dashboard filter", () => {
@@ -153,5 +189,44 @@ describe("multi-select dashboard filter", () => {
     act(() => popoverButton("Clear all").click());
 
     expect(new URLSearchParams(search).get("f_plan")).toBe("__empty__");
+  });
+
+  it("selects all configured options and summarizes them as All", () => {
+    render();
+    act(() => trigger().click());
+    act(() => popoverButton("Select all").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe(
+      "free,self_serve,enterprise",
+    );
+    expect(trigger().textContent).toContain("All");
+    expect(optionCheckbox("Free").getAttribute("aria-checked")).toBe("true");
+    expect(optionCheckbox("Enterprise").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+  });
+
+  it("limits the selection to one option from its Only action", () => {
+    render("/dashboards/test?f_plan=free,self_serve");
+    act(() => trigger().click());
+    act(() => onlyButton("Enterprise").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe("enterprise");
+    expect(optionCheckbox("Free").getAttribute("aria-checked")).toBe("false");
+    expect(optionCheckbox("Enterprise").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+  });
+
+  it("searches option labels and reports when there are no matches", () => {
+    render();
+    act(() => trigger().click());
+    setSearchQuery("self");
+
+    expect(optionLabel("Self-Serve")).toBeTruthy();
+    expect(() => optionLabel("Free")).toThrow("option Free not rendered");
+
+    setSearchQuery("not a value");
+    expect(popover().textContent).toContain("No values found");
   });
 });
