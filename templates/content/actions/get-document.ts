@@ -300,29 +300,26 @@ export default defineAction({
         : deferFailure(
             getDocumentContextPath(doc, { databaseId: args.databaseId }),
           );
-    const readProperties = deferFailure(
-      Promise.all([
-        listPropertiesForDocument(doc, selectedDatabaseId, {
-          // A share authorizes the exact page and its membership-local fields,
-          // not the private database document that owns those definitions.
-          requireDatabaseAccess: hasPropertyDatabaseAccess,
-          database: propertyDatabase,
-        }),
-        // Reading the collection's own fields also takes resolveAccess on its
-        // document, which can refuse a document accessibleDocumentIds admits.
-        selectedDatabaseId && hasPropertyDatabaseAccess
-          ? assertAccess(
-              "document",
-              propertyDatabase!.documentId,
-              "viewer",
-              undefined,
-              { skipResourceBody: true },
-            )
-          : undefined,
-      ]),
-    );
     const bodyHydrationAccess = await readBodyHydrationAccess();
-    const [properties] = await readProperties();
+    const [properties] = await Promise.all([
+      listPropertiesForDocument(doc, selectedDatabaseId, {
+        // A share authorizes the exact page and its membership-local fields,
+        // not the private database document that owns those definitions.
+        requireDatabaseAccess: hasPropertyDatabaseAccess,
+        database: propertyDatabase,
+      }),
+      // Reading the collection's own fields also takes resolveAccess on its
+      // document, which can refuse a document accessibleDocumentIds admits.
+      selectedDatabaseId && hasPropertyDatabaseAccess
+        ? assertAccess(
+            "document",
+            propertyDatabase!.documentId,
+            "viewer",
+            undefined,
+            { skipResourceBody: true },
+          )
+        : undefined,
+    ]);
     const contextPath = readContextPath ? await readContextPath() : [];
     let isExternallyLinked = false;
     let hasBodyTarget = true;
