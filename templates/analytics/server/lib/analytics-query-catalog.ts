@@ -630,8 +630,8 @@ export function rankAnalyticsQueryCatalogPage(args: {
     trust: candidateTrustTier(candidate),
     rankingTier:
       candidate.kind === "data-dictionary" &&
-      candidate.approved === true &&
-      hasFullQueryCoverage(candidate)
+      (candidate.approved === true || candidate.sourceKind === "dbt") &&
+      hasExactQueryCoverage(candidate)
         ? 2
         : candidate.kind === "dashboard-panel" &&
             ((candidate.dashboardCertified &&
