@@ -192,6 +192,22 @@ describe("Agent-Native chat AI setup gate", () => {
     expect(credentialMocks.resolveSecret).toHaveBeenCalled();
   });
 
+  it("reports provider rejection marker read failures as unavailable", async () => {
+    credentialMocks.resolveSecret.mockResolvedValue({
+      value: "provider-key",
+      source: "user",
+      lookupFailed: false,
+    });
+    credentialMocks.authFailure.mockRejectedValueOnce(
+      new Error("settings store unavailable"),
+    );
+
+    await expect(isAgentChatAiSetupReady()).rejects.toMatchObject({
+      statusCode: 503,
+      statusMessage: "Could not read saved AI connections. Try again shortly.",
+    });
+  });
+
   it.each([
     ["Builder OAuth", "builder", true],
     ["Builder keys", "builder", true],
@@ -265,6 +281,7 @@ describe("Agent-Native chat AI setup gate", () => {
       expect(credentialMocks.authFailure).toHaveBeenCalledWith({
         key: "OPENAI_API_KEY",
         value: "sk-test-key",
+        throwOnReadError: true,
       });
     },
   );

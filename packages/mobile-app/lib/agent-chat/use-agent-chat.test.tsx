@@ -8,14 +8,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const createSessionMock = vi.hoisted(() => vi.fn());
 const fetchEligibilityMock = vi.hoisted(() => vi.fn(async () => true));
 const forkAndResubmitMock = vi.hoisted(() => vi.fn());
+const mobileLifecycle = vi.hoisted(() => ({
+  appStateListeners: new Set<(state: string) => void>(),
+  deviceEventListeners: new Map<string, Set<() => void>>(),
+}));
 
 vi.mock("expo/fetch", () => ({ fetch: vi.fn() }));
 vi.mock("react-native", () => ({
   AppState: {
     currentState: "active",
-    addEventListener: () => ({ remove: vi.fn() }),
+    addEventListener: (_event: string, listener: (state: string) => void) => {
+      mobileLifecycle.appStateListeners.add(listener);
+      return {
+        remove: vi.fn(() => mobileLifecycle.appStateListeners.delete(listener)),
+      };
+    },
   },
-  DeviceEventEmitter: { addListener: () => ({ remove: vi.fn() }) },
+  DeviceEventEmitter: {
+    addListener: (event: string, listener: () => void) => {
+      const listeners =
+        mobileLifecycle.deviceEventListeners.get(event) ?? new Set();
+      listeners.add(listener);
+      mobileLifecycle.deviceEventListeners.set(event, listeners);
+      return {
+        remove: vi.fn(() => listeners.delete(listener)),
+      };
+    },
+  },
 }));
 vi.mock("@/lib/analytics", () => ({ trackMobileEvent: vi.fn() }));
 vi.mock("@/lib/session-token-store", () => ({ getSessionToken: vi.fn() }));
@@ -44,7 +63,10 @@ import { createAgentThreadState } from "@agent-native/agentkit";
 import type { AgentEvent } from "@agent-native/agentkit/protocol";
 import { invalidateAgentEngineReadiness } from "@agent-native/core/client/agent-engine-readiness";
 
-import { DEFAULT_CHAT_BASE_URL } from "./api";
+import {
+  AGENT_ENGINE_CONFIGURED_CHANGED_EVENT,
+  DEFAULT_CHAT_BASE_URL,
+} from "./api";
 import type { ChatAttachment } from "./types";
 import { useAgentChat, type AgentChatController } from "./use-agent-chat";
 
@@ -53,6 +75,8 @@ const readinessTestSource = {
 };
 
 beforeEach(() => {
+  mobileLifecycle.appStateListeners.clear();
+  mobileLifecycle.deviceEventListeners.clear();
   fetchEligibilityMock.mockReset();
   fetchEligibilityMock.mockImplementation(async () => true);
   invalidateAgentEngineReadiness(readinessTestSource);
@@ -65,6 +89,21 @@ beforeEach(() => {
     })),
   );
 });
+
+function emitDeviceEvent(event: string) {
+  act(() => {
+    for (const listener of mobileLifecycle.deviceEventListeners.get(event) ??
+      []) {
+      listener();
+    }
+  });
+}
+
+function emitAppState(state: string) {
+  act(() => {
+    for (const listener of mobileLifecycle.appStateListeners) listener(state);
+  });
+}
 
 type Root = {
   render(node: ReturnType<typeof createElement>): void;
@@ -574,6 +613,67 @@ describe("useAgentChat readiness gate", () => {
     });
   });
 
+  it("refreshes readiness on setup completion without remounting or losing the prompt", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    fetchEligibilityMock
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true);
+    const client = createSendClient();
+    createSessionMock.mockReturnValue({
+      client,
+      dispose: vi.fn(async () => {}),
+    });
+    mounted = mountAgentChat();
+    await vi.waitFor(() =>
+      expect(mounted?.chat?.chatEligibility).toBe("missing"),
+    );
+
+    await act(async () => {
+      await expect(
+        mounted?.chat?.send("Keep this connected draft"),
+      ).resolves.toBe(false);
+    });
+    expect(mounted?.chat?.errorCode).toBe("missing_api_key");
+    expect(client.sendMessage).not.toHaveBeenCalled();
+
+    emitDeviceEvent(AGENT_ENGINE_CONFIGURED_CHANGED_EVENT);
+    await vi.waitFor(() =>
+      expect(mounted?.chat?.chatEligibility).toBe("eligible"),
+    );
+    expect(mounted?.chat?.errorCode).toBeNull();
+    expect(client.sendMessage).not.toHaveBeenCalled();
+
+    act(() => mounted?.chat?.retry());
+    await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledOnce());
+    expect(client.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      text: "Keep this connected draft",
+    });
+  });
+
+  it("rechecks readiness when the app resumes", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    fetchEligibilityMock
+      .mockRejectedValueOnce(new Error("status unavailable"))
+      .mockResolvedValueOnce(true);
+    const client = createSendClient();
+    createSessionMock.mockReturnValue({
+      client,
+      dispose: vi.fn(async () => {}),
+    });
+    mounted = mountAgentChat();
+    await vi.waitFor(() =>
+      expect(mounted?.chat?.chatEligibility).toBe("unavailable"),
+    );
+
+    emitAppState("background");
+    emitAppState("active");
+    await vi.waitFor(() =>
+      expect(mounted?.chat?.chatEligibility).toBe("eligible"),
+    );
+    expect(fetchEligibilityMock).toHaveBeenCalledTimes(2);
+  });
+
   it("blocks unavailable retry, continue, and regenerate paths", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     fetchEligibilityMock.mockResolvedValueOnce(true);
@@ -704,6 +804,68 @@ describe("useAgentChat readiness gate", () => {
       );
     });
     expect(client.sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it("runs a pending fork retry only once while the retry is in flight", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    fetchEligibilityMock.mockResolvedValueOnce(true);
+    const client = createSendClient();
+    createSessionMock.mockReturnValue({
+      client,
+      dispose: vi.fn(async () => {}),
+    });
+    mounted = mountAgentChat();
+    await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
+
+    await act(async () => {
+      await mounted?.chat?.send("Original prompt");
+    });
+    await vi.waitFor(() => expect(mounted?.chat?.isStreaming).toBe(false));
+    const sourceMessageId = mounted?.chat?.messages[0]?.id;
+    expect(sourceMessageId).toBeTruthy();
+
+    fetchEligibilityMock.mockResolvedValueOnce(false);
+    forkAndResubmitMock.mockImplementationOnce(
+      async (
+        _client: unknown,
+        _threadId: string,
+        _messageId: string,
+        beforeFork: () => Promise<void>,
+      ) => {
+        await beforeFork();
+        throw new Error("The readiness check should block this fork.");
+      },
+    );
+    await expect(
+      mounted?.chat?.regenerateMessage(sourceMessageId!),
+    ).rejects.toMatchObject({ code: "missing_api_key" });
+    expect(forkAndResubmitMock).toHaveBeenCalledOnce();
+
+    const forkResult = deferred<{ id: string }>();
+    fetchEligibilityMock.mockResolvedValueOnce(true);
+    forkAndResubmitMock.mockImplementationOnce(
+      async (
+        _client: unknown,
+        _threadId: string,
+        _messageId: string,
+        beforeFork: () => Promise<void>,
+      ) => {
+        await beforeFork();
+        return forkResult.promise;
+      },
+    );
+    act(() => {
+      mounted?.chat?.retry();
+      mounted?.chat?.retry();
+    });
+    await vi.waitFor(() =>
+      expect(forkAndResubmitMock).toHaveBeenCalledTimes(2),
+    );
+    forkResult.resolve({ id: "retried-fork" });
+    await vi.waitFor(() =>
+      expect(mounted?.chat?.threadId).toBe("retried-fork"),
+    );
+    expect(forkAndResubmitMock).toHaveBeenCalledTimes(2);
   });
 
   it("shows the missing-provider error instead of submitting when readiness is missing", async () => {

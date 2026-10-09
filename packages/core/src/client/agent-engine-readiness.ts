@@ -43,6 +43,8 @@ const AGENT_ENGINE_STATUS_PATH = "/_agent-native/agent-engine/status";
 const CHAT_API_PATH_SUFFIX = "/_agent-native/agent-chat";
 const AGENT_ENGINE_READINESS_TTL_MS = 10_000;
 const MAX_READINESS_STORES = 128;
+const sourceIdentityTokens = new WeakMap<object, number>();
+let nextSourceIdentityToken = 1;
 
 interface ReadinessSubscriber {
   listener: () => void;
@@ -111,6 +113,72 @@ function canonicalStatusUrl(url: string): string {
   }
 }
 
+function sourceIdentityToken(value: object): number {
+  let token = sourceIdentityTokens.get(value);
+  if (token === undefined) {
+    token = nextSourceIdentityToken++;
+    sourceIdentityTokens.set(value, token);
+  }
+  return token;
+}
+
+function normalizedHeaderEntries(headers: HeadersInit): [string, string[]][] {
+  const entries: [string, string][] = [];
+  if (Array.isArray(headers)) {
+    for (const [name, value] of headers) {
+      entries.push([name.toLowerCase(), value.trim()]);
+    }
+  } else if (typeof (headers as Headers).forEach === "function") {
+    (headers as Headers).forEach((value, name) => {
+      entries.push([name.toLowerCase(), value.trim()]);
+    });
+  } else {
+    for (const [name, value] of Object.entries(
+      headers as Record<string, string>,
+    )) {
+      entries.push([name.toLowerCase(), value.trim()]);
+    }
+  }
+
+  const valuesByName = new Map<string, string[]>();
+  for (const [name, value] of entries) {
+    const values = valuesByName.get(name) ?? [];
+    values.push(value);
+    valuesByName.set(name, values);
+  }
+  return [...valuesByName]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, values]) => [name, values]);
+}
+
+function readinessSourceKey(
+  statusUrl: string,
+  source?: AgentEngineReadinessSource,
+): string {
+  const fetcher = source?.fetch ?? globalThis.fetch;
+  const fetcherKey =
+    typeof fetcher === "function" ? sourceIdentityToken(fetcher) : null;
+  const credentials = source?.credentials ?? "same-origin";
+  let headersKey = "";
+  if (typeof source?.headers === "function") {
+    // A header factory may return caller-specific auth. Keep its stores
+    // private to the source object even when the URL and fetcher are shared.
+    headersKey = `factory:${sourceIdentityToken(source)}:${sourceIdentityToken(source.headers)}`;
+  } else if (source?.headers) {
+    try {
+      headersKey = JSON.stringify(normalizedHeaderEntries(source.headers));
+    } catch {
+      headersKey = `headers:${sourceIdentityToken(source.headers as object)}`;
+    }
+  }
+  return JSON.stringify([
+    canonicalStatusUrl(statusUrl),
+    fetcherKey,
+    credentials,
+    headersKey,
+  ]);
+}
+
 export function agentEngineStatusUrlForChatApi(apiUrl?: string): string {
   if (!apiUrl) return agentNativePath(AGENT_ENGINE_STATUS_PATH);
   try {
@@ -145,7 +213,7 @@ function storeFor(
   pruneIdleStores(now);
   const statusUrl =
     source?.statusUrl ?? agentNativePath(AGENT_ENGINE_STATUS_PATH);
-  const key = canonicalStatusUrl(statusUrl);
+  const key = readinessSourceKey(statusUrl, source);
   let store = stores.get(key);
   if (!store) {
     store = {

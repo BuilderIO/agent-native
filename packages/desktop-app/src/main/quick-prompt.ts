@@ -95,11 +95,13 @@ function resizeQuickPromptWindow(
 function syncQuickPromptWindowSize(window: BrowserWindow): void {
   resizeQuickPromptWindow(
     window,
-    quickPromptPickerOpen
-      ? QUICK_PROMPT_PICKER_SIZE
-      : quickPromptSetupRequired
-        ? QUICK_PROMPT_SETUP_SIZE
-        : QUICK_PROMPT_COMPACT_SIZE,
+    !quickPromptShouldBeVisible
+      ? QUICK_PROMPT_COMPACT_SIZE
+      : quickPromptPickerOpen
+        ? QUICK_PROMPT_PICKER_SIZE
+        : quickPromptSetupRequired
+          ? QUICK_PROMPT_SETUP_SIZE
+          : QUICK_PROMPT_COMPACT_SIZE,
   );
 }
 
@@ -128,7 +130,6 @@ function hideQuickPrompt(options: { restoreFocus?: boolean } = {}): void {
   quickPromptPreviousFocusedWindow = null;
   quickPromptShouldBeVisible = false;
   quickPromptPickerOpen = false;
-  quickPromptSetupRequired = false;
 
   window.hide();
   setQuickPromptWindowChrome(window, false);

@@ -105,16 +105,29 @@ export async function isAgentChatAiSetupReady(input?: {
         value.source === "workspace" ||
         value.source === "env"),
   );
-  const providerReadiness = await Promise.all(
-    providerCandidates.map(async ({ key, value }) => ({
-      key,
-      resolved: value,
-      usable: !(await getProviderCredentialAuthFailure({
+  let providerReadiness: Array<{
+    key: string;
+    resolved: (typeof providerCandidates)[number]["value"];
+    usable: boolean;
+  }>;
+  try {
+    providerReadiness = await Promise.all(
+      providerCandidates.map(async ({ key, value }) => ({
         key,
-        value: value.value!.trim(),
+        resolved: value,
+        usable: !(await getProviderCredentialAuthFailure({
+          key,
+          value: value.value!.trim(),
+          throwOnReadError: true,
+        })),
       })),
-    })),
-  );
+    );
+  } catch {
+    throw createError({
+      statusCode: 503,
+      statusMessage: "Could not read saved AI connections. Try again shortly.",
+    });
+  }
   if (providerReadiness.some((candidate) => candidate.usable)) return true;
   const customEndpointIsConfigured = resolved.some(
     ({ key, value }) =>

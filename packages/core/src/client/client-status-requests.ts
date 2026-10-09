@@ -12,6 +12,7 @@ declare global {
 }
 
 type CacheEntry = {
+  url: string;
   expiresAt: number;
   result: ClientStatusResult<unknown>;
 };
@@ -26,6 +27,7 @@ interface ClientStatusRequestOptions {
 
 const RESULT_TTL_MS = 500;
 const AGENT_ENGINE_STATUS_TTL_MS = 10_000;
+const MAX_STATUS_CACHE_ENTRIES = 128;
 /**
  * One signed-in session answer serves the whole page load: the shell's
  * bootstrap read, analytics, and every `useSession` consumer share it for this
@@ -40,10 +42,12 @@ const SESSION_STATUS_PATH = "/_agent-native/auth/session";
 const AGENT_ENGINE_STATUS_PATH = "/_agent-native/agent-engine/status";
 const cache = new Map<string, CacheEntry>();
 const requests = new Map<string, Promise<ClientStatusResult<unknown>>>();
+const requestUrls = new Map<string, string>();
 const supersededRequests = new WeakSet<object>();
 const freshRequests = new WeakSet<object>();
 const requestControllers = new Map<string, AbortController>();
-const requestGenerations = new Map<string, number>();
+const requestSourceTokens = new WeakMap<object, number>();
+let nextRequestSourceToken = 1;
 let invalidationListenersInstalled = false;
 // Endpoint statuses expire on focus and visibility; the session read only on
 // a full invalidation, so it has its own generation.
@@ -71,9 +75,79 @@ function statusCacheKey(url: string): string {
   }
 }
 
+function requestSourceToken(value: object): number {
+  let token = requestSourceTokens.get(value);
+  if (token === undefined) {
+    token = nextRequestSourceToken++;
+    requestSourceTokens.set(value, token);
+  }
+  return token;
+}
+
+function normalizedHeaderEntries(headers: HeadersInit): [string, string[]][] {
+  const entries: [string, string][] = [];
+  if (Array.isArray(headers)) {
+    for (const [name, value] of headers) {
+      entries.push([name.toLowerCase(), value.trim()]);
+    }
+  } else if (typeof (headers as Headers).forEach === "function") {
+    (headers as Headers).forEach((value, name) => {
+      entries.push([name.toLowerCase(), value.trim()]);
+    });
+  } else {
+    for (const [name, value] of Object.entries(
+      headers as Record<string, string>,
+    )) {
+      entries.push([name.toLowerCase(), value.trim()]);
+    }
+  }
+
+  const valuesByName = new Map<string, string[]>();
+  for (const [name, value] of entries) {
+    const values = valuesByName.get(name) ?? [];
+    values.push(value);
+    valuesByName.set(name, values);
+  }
+  return [...valuesByName]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, values]) => [name, values]);
+}
+
+function headersCacheScope(headers: HeadersInit | undefined): string {
+  if (headers === undefined) return "";
+  try {
+    return JSON.stringify(normalizedHeaderEntries(headers));
+  } catch {
+    return `identity:${requestSourceToken(headers as object)}`;
+  }
+}
+
+function statusRequestKey(
+  url: string,
+  options?: ClientStatusRequestOptions,
+): string {
+  const fetcher = options?.fetch ?? globalThis.fetch;
+  const fetcherToken =
+    typeof fetcher === "function" ? requestSourceToken(fetcher) : null;
+  return JSON.stringify([
+    url,
+    fetcherToken,
+    options?.credentials ?? "same-origin",
+    headersCacheScope(options?.headers),
+  ]);
+}
+
 function pruneExpiredStatusCache(now: number): void {
   for (const [key, entry] of cache) {
     if (entry.expiresAt <= now) cache.delete(key);
+  }
+  if (cache.size <= MAX_STATUS_CACHE_ENTRIES) return;
+  const oldestEntries = [...cache.entries()].sort(
+    (left, right) => left[1].expiresAt - right[1].expiresAt,
+  );
+  for (const [key] of oldestEntries) {
+    if (cache.size <= MAX_STATUS_CACHE_ENTRIES) break;
+    cache.delete(key);
   }
 }
 
@@ -83,8 +157,10 @@ function expireClientStatusCache(): void {
   const engineStatusUrl = statusCacheKey(
     agentNativePath(AGENT_ENGINE_STATUS_PATH),
   );
-  for (const url of cache.keys()) {
-    if (url !== sessionUrl && url !== engineStatusUrl) cache.delete(url);
+  for (const [key, entry] of cache) {
+    if (entry.url !== sessionUrl && entry.url !== engineStatusUrl) {
+      cache.delete(key);
+    }
   }
 }
 
@@ -137,7 +213,8 @@ async function fetchClientStatus<T>(
   if (agentNativeApiDisabledReason()) return { state: "unavailable" };
   installInvalidationListeners();
   const url = options?.url ?? agentNativePath(path);
-  const key = statusCacheKey(url);
+  const canonicalUrl = statusCacheKey(url);
+  const key = statusRequestKey(canonicalUrl, options);
   pruneExpiredStatusCache(Date.now());
   const cached = cache.get(key);
   if (!options?.fresh && cached && cached.expiresAt > Date.now()) {
@@ -154,14 +231,12 @@ async function fetchClientStatus<T>(
   }
   if (options?.fresh) {
     if (pending) supersededRequests.add(pending);
-    requestGenerations.set(key, (requestGenerations.get(key) ?? 0) + 1);
   }
 
   const sessionRead = path === SESSION_STATUS_PATH;
   const currentGeneration = () =>
     sessionRead ? sessionGeneration : statusGeneration;
   const requestGeneration = currentGeneration();
-  const requestUrlGeneration = requestGenerations.get(key) ?? 0;
   const controller =
     typeof AbortController === "undefined" ? null : new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -202,10 +277,10 @@ async function fetchClientStatus<T>(
       }
       if (
         currentGeneration() === requestGeneration &&
-        (requestGenerations.get(key) ?? 0) === requestUrlGeneration &&
         result.state === "available"
       ) {
         cache.set(key, {
+          url: canonicalUrl,
           expiresAt:
             Date.now() +
             (sessionRead && isSignedInSession(result.value)
@@ -215,18 +290,23 @@ async function fetchClientStatus<T>(
                 : RESULT_TTL_MS),
           result,
         });
+        pruneExpiredStatusCache(Date.now());
       }
       return result;
     })
     .finally(() => {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
-      if (requests.get(key) === request) requests.delete(key);
+      if (requests.get(key) === request) {
+        requests.delete(key);
+        requestUrls.delete(key);
+      }
       if (requestControllers.get(key) === controller) {
         requestControllers.delete(key);
       }
     });
 
   requests.set(key, request);
+  requestUrls.set(key, canonicalUrl);
   if (options?.fresh) freshRequests.add(request);
   if (controller) requestControllers.set(key, controller);
   return request as Promise<ClientStatusResult<T>>;
@@ -234,17 +314,22 @@ async function fetchClientStatus<T>(
 
 export function invalidateClientStatusRequest(path: string): void {
   const url = agentNativePath(path);
-  const key = statusCacheKey(url);
+  const canonicalUrl = statusCacheKey(url);
   if (path === SESSION_STATUS_PATH && typeof window !== "undefined") {
     delete window.__agentNativeSessionBootstrap;
   }
-  requestGenerations.set(key, (requestGenerations.get(key) ?? 0) + 1);
-  cache.delete(key);
-  const pending = requests.get(key);
-  if (pending) supersededRequests.add(pending);
-  requestControllers.get(key)?.abort();
-  requestControllers.delete(key);
-  requests.delete(key);
+  for (const [key, entry] of cache) {
+    if (entry.url === canonicalUrl) cache.delete(key);
+  }
+  for (const [key, requestUrl] of requestUrls) {
+    if (requestUrl !== canonicalUrl) continue;
+    const pending = requests.get(key);
+    if (pending) supersededRequests.add(pending);
+    requestControllers.get(key)?.abort();
+    requestControllers.delete(key);
+    requests.delete(key);
+    requestUrls.delete(key);
+  }
 }
 
 /**
@@ -252,7 +337,10 @@ export function invalidateClientStatusRequest(path: string): void {
  * refreshing on the same event share that read instead of starting another.
  */
 export function expireClientStatusResult(path: string): void {
-  cache.delete(statusCacheKey(agentNativePath(path)));
+  const url = statusCacheKey(agentNativePath(path));
+  for (const [key, entry] of cache) {
+    if (entry.url === url) cache.delete(key);
+  }
 }
 
 export function invalidateClientStatusRequests(): void {
@@ -270,6 +358,7 @@ export function invalidateClientStatusRequests(): void {
   }
   requestControllers.clear();
   requests.clear();
+  requestUrls.clear();
 }
 
 export function fetchAgentEngineStatus<T = unknown>(options?: {

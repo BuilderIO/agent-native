@@ -15,7 +15,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { AppState } from "react-native";
+import { AppState, DeviceEventEmitter } from "react-native";
 
 import { trackMobileEvent } from "@/lib/analytics";
 
@@ -35,6 +35,7 @@ import {
   fetchNavigateCommand,
   getMobileAgentChatHeaders,
   newThreadId,
+  AGENT_ENGINE_CONFIGURED_CHANGED_EVENT,
   type MobileChatEligibility,
 } from "./api";
 import {
@@ -288,6 +289,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   const retryPendingForkRef = useRef<
     ((pending: { messageId: string; text?: string }) => Promise<void>) | null
   >(null);
+  const pendingForkRetryInFlightRef = useRef(false);
   const runIdsRef = useRef(new Map<string, string>());
   const assistantIdsByRunRef = useRef(new Map<string, string>());
   const processedEventIdsRef = useRef(new Map<string, Set<string>>());
@@ -358,6 +360,23 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   useEffect(() => {
     void checkChatEligibility(true);
   }, [baseUrl, checkChatEligibility]);
+
+  useEffect(() => {
+    const setupChangedSubscription = DeviceEventEmitter.addListener(
+      AGENT_ENGINE_CONFIGURED_CHANGED_EVENT,
+      refreshChatEligibility,
+    );
+    const appStateSubscription = AppState.addEventListener(
+      "change",
+      (nextState) => {
+        if (nextState === "active") refreshChatEligibility();
+      },
+    );
+    return () => {
+      setupChangedSubscription.remove();
+      appStateSubscription.remove();
+    };
+  }, [refreshChatEligibility]);
 
   const getSession = useCallback(
     (targetBaseUrl: string, scope?: { type: string; id: string }) => {
@@ -1517,8 +1536,15 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   );
 
   const retryPendingFork = useCallback(
-    (pending: { messageId: string; text?: string }) =>
-      forkResubmitForMessage(pending.messageId, pending.text),
+    async (pending: { messageId: string; text?: string }) => {
+      if (pendingForkRetryInFlightRef.current) return;
+      pendingForkRetryInFlightRef.current = true;
+      try {
+        await forkResubmitForMessage(pending.messageId, pending.text);
+      } finally {
+        pendingForkRetryInFlightRef.current = false;
+      }
+    },
     [forkResubmitForMessage],
   );
   retryPendingForkRef.current = retryPendingFork;

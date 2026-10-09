@@ -1,4 +1,5 @@
 const AGENT_ENGINE_STATUS_CACHE_TTL_MS = 1000;
+const AGENT_ENGINE_STATUS_IN_FLIGHT_TTL_MS = 10_000;
 const MAX_AGENT_ENGINE_STATUS_CACHE_ENTRIES = 2048;
 
 interface StatusCacheEntry<T> {
@@ -14,10 +15,10 @@ function pruneStatusCache(now: number): void {
   }
 
   if (statusByIdentity.size <= MAX_AGENT_ENGINE_STATUS_CACHE_ENTRIES) return;
-  const settledEntries = [...statusByIdentity.entries()]
-    .filter(([, entry]) => Number.isFinite(entry.expiresAt))
-    .sort((left, right) => left[1].expiresAt - right[1].expiresAt);
-  for (const [key] of settledEntries) {
+  const oldestEntries = [...statusByIdentity.entries()].sort(
+    (left, right) => left[1].expiresAt - right[1].expiresAt,
+  );
+  for (const [key] of oldestEntries) {
     if (statusByIdentity.size <= MAX_AGENT_ENGINE_STATUS_CACHE_ENTRIES) break;
     statusByIdentity.delete(key);
   }
@@ -44,11 +45,17 @@ export function memoizeAgentEngineStatus<T>(
   if (existing && existing.expiresAt > Date.now()) return existing.request;
 
   const entry: StatusCacheEntry<T> = {
-    expiresAt: Number.POSITIVE_INFINITY,
+    expiresAt: now + AGENT_ENGINE_STATUS_IN_FLIGHT_TTL_MS,
     request: Promise.resolve(undefined as T),
   };
-  entry.request = Promise.resolve()
-    .then(load)
+  let timeout!: ReturnType<typeof setTimeout>;
+  const timedOut = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(
+      () => reject(new Error("Agent engine status lookup timed out")),
+      AGENT_ENGINE_STATUS_IN_FLIGHT_TTL_MS,
+    );
+  });
+  entry.request = Promise.race([Promise.resolve().then(load), timedOut])
     .then((value) => {
       entry.expiresAt = Date.now() + AGENT_ENGINE_STATUS_CACHE_TTL_MS;
       pruneStatusCache(Date.now());
@@ -57,7 +64,8 @@ export function memoizeAgentEngineStatus<T>(
     .catch((error) => {
       if (statusByIdentity.get(key) === entry) statusByIdentity.delete(key);
       throw error;
-    });
+    })
+    .finally(() => clearTimeout(timeout));
   statusByIdentity.set(key, entry as StatusCacheEntry<unknown>);
   return entry.request;
 }

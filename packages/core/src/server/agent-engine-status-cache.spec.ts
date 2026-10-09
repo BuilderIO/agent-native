@@ -76,6 +76,26 @@ describe("memoizeAgentEngineStatus", () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
+  it("times out and evicts a hung in-flight status lookup", async () => {
+    const pending = memoizeAgentEngineStatus(
+      { userEmail: "steve@example.test", orgId: "org-1" },
+      () => new Promise<{ chatEligible: boolean }>(() => undefined),
+    );
+    const rejection = expect(pending).rejects.toThrow(
+      "Agent engine status lookup timed out",
+    );
+
+    await vi.advanceTimersByTimeAsync(10_001);
+    await rejection;
+    expect(
+      getMemoizedAgentEngineStatus({
+        userEmail: "steve@example.test",
+        orgId: "org-1",
+      }),
+    ).toBeUndefined();
+    expect(getAgentEngineStatusCacheSizeForTests()).toBe(0);
+  });
+
   it("evicts expired identities when later status requests arrive", async () => {
     await memoizeAgentEngineStatus(
       { userEmail: "inactive@example.test", orgId: "org-1" },

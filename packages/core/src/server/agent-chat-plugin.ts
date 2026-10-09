@@ -7235,7 +7235,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
               if (
                 !ownerContext.anonymous &&
-                (mutation.type === "append" || mutation.type === "moveToTop")
+                (mutation.type === "append" ||
+                  mutation.type === "moveToTop" ||
+                  mutation.type === "claim")
               ) {
                 await runWithRequestContext({ userEmail: owner, orgId }, () =>
                   requireAgentChatAiSetup(),

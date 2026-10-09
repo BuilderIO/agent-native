@@ -281,6 +281,78 @@ describe("useAgentEngineConfigured", () => {
     }
   });
 
+  it("isolates readiness by transport and auth scope at a shared status URL", async () => {
+    const statusUrl =
+      "https://shared.example.test/_agent-native/agent-engine/status";
+    const scopedFetch = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const authorization = new Headers(init?.headers).get("authorization");
+        return jsonResponse({
+          chatEligible: authorization === "Bearer user-a",
+        });
+      },
+    );
+    const sourceA = {
+      statusUrl,
+      fetch: scopedFetch as typeof fetch,
+      headers: { Authorization: "Bearer user-a" },
+      credentials: "include" as const,
+    };
+    const sourceB = {
+      statusUrl,
+      fetch: scopedFetch as typeof fetch,
+      headers: { Authorization: "Bearer user-b" },
+      credentials: "include" as const,
+    };
+
+    await expect(
+      Promise.all([
+        ensureAgentEngineReadiness({ source: sourceA }),
+        ensureAgentEngineReadiness({ source: sourceB }),
+      ]),
+    ).resolves.toEqual(["configured", "missing"]);
+    expect(scopedFetch).toHaveBeenCalledTimes(2);
+    expect(getAgentEngineReadiness(sourceA)).toBe("configured");
+    expect(getAgentEngineReadiness(sourceB)).toBe("missing");
+
+    const equivalentSource = {
+      ...sourceA,
+      headers: { authorization: "Bearer user-a" },
+    };
+    await expect(
+      ensureAgentEngineReadiness({ source: equivalentSource }),
+    ).resolves.toBe("configured");
+    expect(scopedFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps readiness stores separate for different fetchers at the same URL", async () => {
+    const statusUrl =
+      "https://shared.example.test/_agent-native/agent-engine/status";
+    const sourceA = {
+      statusUrl,
+      fetch: vi.fn(async () =>
+        jsonResponse({ chatEligible: true }),
+      ) as typeof fetch,
+    };
+    const sourceB = {
+      statusUrl,
+      fetch: vi.fn(async () =>
+        jsonResponse({ chatEligible: false }),
+      ) as typeof fetch,
+    };
+
+    await expect(
+      Promise.all([
+        ensureAgentEngineReadiness({ source: sourceA }),
+        ensureAgentEngineReadiness({ source: sourceB }),
+      ]),
+    ).resolves.toEqual(["configured", "missing"]);
+    expect(sourceA.fetch).toHaveBeenCalledOnce();
+    expect(sourceB.fetch).toHaveBeenCalledOnce();
+    expect(getAgentEngineReadiness(sourceA)).toBe("configured");
+    expect(getAgentEngineReadiness(sourceB)).toBe("missing");
+  });
+
   it("rechecks readiness after a missing-key event", async () => {
     let engineFetchCount = 0;
     let resolvers: Array<(response: Response) => void> = [];
