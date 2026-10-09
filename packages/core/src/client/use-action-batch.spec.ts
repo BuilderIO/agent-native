@@ -17,6 +17,11 @@ import {
 import { callAction } from "./use-action.js";
 
 const BATCH_URL = "/_agent-native/actions/get-actions-batch";
+// What a server without the batch action answers: the body names the route.
+const MISSING_BATCH_ROUTE = {
+  error:
+    "Cannot find any route matching /_agent-native/actions/get-actions-batch",
+};
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -204,7 +209,7 @@ describe("action GET batching", () => {
   it("falls back to single GETs when the batch endpoint is missing", async () => {
     const { calls } = stubFetch((call) =>
       call.url === BATCH_URL
-        ? jsonResponse({ error: "Not found" }, { status: 404 })
+        ? jsonResponse(MISSING_BATCH_ROUTE, { status: 404 })
         : jsonResponse({ url: call.url }),
     );
 
@@ -223,7 +228,7 @@ describe("action GET batching", () => {
   it("stops trying the batch after the endpoint is missing", async () => {
     const { calls } = stubFetch((call) =>
       call.url === BATCH_URL
-        ? jsonResponse({ error: "Not found" }, { status: 404 })
+        ? jsonResponse(MISSING_BATCH_ROUTE, { status: 404 })
         : jsonResponse({ url: call.url }),
     );
     await Promise.all([
@@ -241,6 +246,71 @@ describe("action GET batching", () => {
       "/_agent-native/actions/get-c",
       "/_agent-native/actions/get-d",
     ]);
+  });
+
+  it("sends each call alone when the batch is too large, and batches again on the next tick", async () => {
+    let tooLarge = true;
+    const { calls } = stubFetch((call) => {
+      if (call.url !== BATCH_URL) return jsonResponse({ url: call.url });
+      if (tooLarge) {
+        return jsonResponse(
+          { error: "Request body too large" },
+          { status: 413 },
+        );
+      }
+      return batchResponses(call, (index) => ({
+        status: 200,
+        body: { index },
+      }));
+    });
+
+    const first = await Promise.all([
+      callAction("get-a", {}, { method: "GET" }),
+      callAction("get-b", {}, { method: "GET" }),
+    ]);
+    expect(first).toEqual([
+      { url: "/_agent-native/actions/get-a" },
+      { url: "/_agent-native/actions/get-b" },
+    ]);
+    expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
+      `POST ${BATCH_URL}`,
+      "GET /_agent-native/actions/get-a",
+      "GET /_agent-native/actions/get-b",
+    ]);
+
+    tooLarge = false;
+    calls.length = 0;
+    await Promise.all([
+      callAction("get-c", {}, { method: "GET" }),
+      callAction("get-d", {}, { method: "GET" }),
+    ]);
+    expect(calls.map((call) => call.method)).toEqual(["POST"]);
+  });
+
+  it("splits a batch by body size, so no POST body nears the route's limit", async () => {
+    const { calls } = stubFetch((call) =>
+      call.url === BATCH_URL
+        ? batchResponses(call, (index) => ({ status: 200, body: { index } }))
+        : jsonResponse({}),
+    );
+    const padding = "x".repeat(12 * 1024);
+
+    const results = await Promise.all(
+      Array.from({ length: 50 }, (_, index) =>
+        callAction("get-long", { q: `${padding}${index}` }, { method: "GET" }),
+      ),
+    );
+
+    const posts = calls.filter((call) => call.url === BATCH_URL);
+    expect(posts.length).toBeGreaterThan(1);
+    expect(
+      posts.reduce((sum, call) => sum + (call.body?.requests?.length ?? 0), 0),
+    ).toBe(50);
+    for (const post of posts) {
+      const bytes = new TextEncoder().encode(JSON.stringify(post.body));
+      expect(bytes.byteLength).toBeLessThan(256 * 1024);
+    }
+    expect(results).toHaveLength(50);
   });
 
   it("keeps one request per call inside an embed", async () => {

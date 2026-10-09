@@ -1,8 +1,13 @@
 import {
+  ACTION_BATCH_ACTION_NAME,
   ACTION_BATCH_MAX_REQUESTS,
   type ActionBatchItemResult,
   type ActionBatchResponse,
 } from "../shared/action-batch.js";
+
+// The batch route refuses bodies over 256 KiB with 413. Chunks stop well below
+// that, so a long query string costs a smaller batch, not a failed one.
+const BATCH_MAX_BODY_BYTES = 192 * 1024;
 
 /**
  * Same-tick coalescing for action GETs. Calls made in one synchronous run,
@@ -80,14 +85,35 @@ function flush(): void {
     else groups.set(key, [item]);
   }
   for (const group of groups.values()) {
-    for (
-      let start = 0;
-      start < group.length;
-      start += ACTION_BATCH_MAX_REQUESTS
-    ) {
-      sendGroup(group.slice(start, start + ACTION_BATCH_MAX_REQUESTS));
-    }
+    for (const chunk of batchChunks(group)) sendGroup(chunk);
   }
+}
+
+function batchChunks(group: PendingGet[]): PendingGet[][] {
+  const chunks: PendingGet[][] = [];
+  let chunk: PendingGet[] = [];
+  let bytes = 0;
+  for (const item of group) {
+    const itemBytes = new TextEncoder().encode(
+      JSON.stringify(batchEntry(item)),
+    ).byteLength;
+    const full =
+      chunk.length === ACTION_BATCH_MAX_REQUESTS ||
+      bytes + itemBytes > BATCH_MAX_BODY_BYTES;
+    if (full && chunk.length > 0) {
+      chunks.push(chunk);
+      chunk = [];
+      bytes = 0;
+    }
+    chunk.push(item);
+    bytes += itemBytes + 1;
+  }
+  if (chunk.length > 0) chunks.push(chunk);
+  return chunks;
+}
+
+function batchEntry(item: PendingGet): { action: string; query: string } {
+  return { action: item.request.name, query: item.request.query };
 }
 
 function sendGroup(items: PendingGet[]): void {
@@ -96,6 +122,12 @@ function sendGroup(items: PendingGet[]): void {
     return;
   }
   void sendBatch(items);
+}
+
+function sendEachSingle(items: PendingGet[]): void {
+  for (const item of items) {
+    if (!item.settled) sendSingle(item);
+  }
 }
 
 function sendSingle(item: PendingGet): void {
@@ -113,12 +145,7 @@ async function sendBatch(items: PendingGet[]): Promise<void> {
     response = await fetch(batchUrl, {
       method: "POST",
       headers,
-      body: JSON.stringify({
-        requests: items.map((item) => ({
-          action: item.request.name,
-          query: item.request.query,
-        })),
-      }),
+      body: JSON.stringify({ requests: items.map(batchEntry) }),
       cache: "no-store",
     });
     text = await response.text();
@@ -127,14 +154,19 @@ async function sendBatch(items: PendingGet[]): Promise<void> {
     return;
   }
 
-  // An app whose server does not serve the batch action answers 404 or 405.
-  // Its calls then take the single-GET path, and later ticks skip the batch
-  // rather than paying a failed POST each time.
+  // A server without the batch action answers 404 or 405 with a body that
+  // names the route. Later ticks then skip the batch rather than paying a
+  // failed POST each time. Any other answer of that kind is transient: only
+  // this batch falls back, and the next tick batches again.
   if (response.status === 404 || response.status === 405) {
     batchUnsupported = true;
-    for (const item of items) {
-      if (!item.settled) sendSingle(item);
-    }
+    sendEachSingle(items);
+    return;
+  }
+  // Over the route's body limit: this batch's calls go out alone, and batching
+  // stays on for later ticks.
+  if (response.status === 413) {
+    sendEachSingle(items);
     return;
   }
 
