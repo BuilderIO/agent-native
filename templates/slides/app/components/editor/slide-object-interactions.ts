@@ -1876,8 +1876,6 @@ function stylesheetValuePaints(
   try {
     style.setProperty(property, probe, style.getPropertyPriority(property));
     return computed.getPropertyValue(property) !== before;
-  } catch {
-    return false;
   } finally {
     style.cssText = originalCssText;
   }
