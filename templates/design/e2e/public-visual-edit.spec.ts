@@ -1001,6 +1001,9 @@ test.describe.serial("public visual edit", () => {
       await expect(resizeHandle).toBeVisible({ timeout: 15_000 });
       const nextResizeBox = await resizeHandle.boundingBox();
       expect(nextResizeBox).toBeTruthy();
+      await signedOut.page.evaluate(() => {
+        (window as any).__bridge = [];
+      });
       await signedOut.page.mouse.move(
         (nextResizeBox?.x ?? 0) + (nextResizeBox?.width ?? 0) / 2,
         (nextResizeBox?.y ?? 0) + (nextResizeBox?.height ?? 0) / 2,
