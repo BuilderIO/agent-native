@@ -307,11 +307,11 @@ test.describe.serial("public visual edit", () => {
       urlPath?: string;
     };
     createdDesignId = opened.designId;
-    expect(opened.createdDesign).toBe(true);
-    if (!createdDesignId) throw new Error("open-visual-edit returned no ID");
-    if (!opened.urlPath) throw new Error("open-visual-edit returned no URL");
-
     try {
+      expect(opened.createdDesign).toBe(true);
+      if (!createdDesignId) throw new Error("open-visual-edit returned no ID");
+      if (!opened.urlPath) throw new Error("open-visual-edit returned no URL");
+
       await page.goto(
         `${BASE_URL}${opened.urlPath}&editorView=overview&zoom=50`,
         { waitUntil: "domcontentloaded" },
@@ -400,9 +400,12 @@ test.describe.serial("public visual edit", () => {
         `[visual-edit-iframe-timing] bridge-ready=${timing.bridgeReadyMs}ms full-load-after-ready=${timing.fullLoadAfterReadyMs}ms`,
       );
     } finally {
-      await page.request.post(appPath("/_agent-native/actions/delete-design"), {
-        data: { id: createdDesignId },
-      });
+      if (createdDesignId) {
+        await page.request.post(
+          appPath("/_agent-native/actions/delete-design"),
+          { data: { id: createdDesignId } },
+        );
+      }
     }
   });
 
@@ -1540,19 +1543,30 @@ test.describe.serial("public visual edit", () => {
       permissions: ["localNetworkAccess"],
     });
     const ownerSnapshotStatuses: number[] = [];
-    let ownerSnapshotPublished = false;
-    let ownerSnapshotPublicationCount = 0;
+    const ownerSnapshotPublicationCounts = new Map<string, number>();
     page.on("response", (response) => {
       if (response.url().includes("/publish-visual-edit-snapshot")) {
         ownerSnapshotStatuses.push(response.status());
         void response
           .json()
-          .then((body: { published?: boolean }) => {
-            if (body.published === true) {
-              ownerSnapshotPublished = true;
-              ownerSnapshotPublicationCount += 1;
-            }
-          })
+          .then(
+            (body: {
+              designId?: string;
+              fileId?: string;
+              published?: boolean;
+            }) => {
+              if (
+                body.designId === collaborationDesignId &&
+                body.fileId &&
+                body.published === true
+              ) {
+                ownerSnapshotPublicationCounts.set(
+                  body.fileId,
+                  (ownerSnapshotPublicationCounts.get(body.fileId) ?? 0) + 1,
+                );
+              }
+            },
+          )
           .catch(() => {});
       }
     });
@@ -1569,9 +1583,14 @@ test.describe.serial("public visual edit", () => {
     await expect(
       ownerFrame.getByRole("heading", { name: "Local visual edit" }),
     ).toBeVisible({ timeout: 30_000 });
-    await expect.poll(() => ownerSnapshotPublished).toBe(true);
+    await expect
+      .poll(
+        () => ownerSnapshotPublicationCounts.get(collaborationScreenId) ?? 0,
+      )
+      .toBeGreaterThan(0);
     const ownerSecondFrame = designFrame(page, collaborationSecondScreenId);
-    const ownerPublicationsBeforeSecondScreen = ownerSnapshotPublicationCount;
+    const secondScreenPublicationsBeforeSelection =
+      ownerSnapshotPublicationCounts.get(collaborationSecondScreenId) ?? 0;
     const secondOwnerScreenRow = page
       .locator("[data-screen-row]")
       .filter({ hasText: "Localhost settings" });
@@ -1581,8 +1600,12 @@ test.describe.serial("public visual edit", () => {
       ownerSecondFrame.getByRole("heading", { name: "Local visual edit" }),
     ).toBeVisible({ timeout: 30_000 });
     await expect
-      .poll(() => ownerSnapshotPublicationCount, { timeout: 15_000 })
-      .toBeGreaterThan(ownerPublicationsBeforeSecondScreen);
+      .poll(
+        () =>
+          ownerSnapshotPublicationCounts.get(collaborationSecondScreenId) ?? 0,
+        { timeout: 15_000 },
+      )
+      .toBeGreaterThan(secondScreenPublicationsBeforeSelection);
     const firstOwnerScreenRow = page
       .locator("[data-screen-row]")
       .filter({ hasText: "Localhost home" });
