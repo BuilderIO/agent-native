@@ -23,8 +23,8 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 - Use actions for data and sharing; respect ownable access checks. Provider actions are shortcuts: for broad/absence-sensitive Gong work stage and reduce raw data with `query-staged-dataset` or a Data Program.
 - Reports/alerts use SQL actions and cap at five recipients. Store large payloads in file/blob storage, not SQL or app state.
 - Never invent data or source semantics. For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
-- External MCP callers use direct cataloged actions for bounded reads and allowlisted mutations; use `ask_app` for interpretation, source selection, multi-step work, or unsupported actions.
-- Public-key replay origins are org- or owner-scoped: use `list-analytics-public-keys` to inspect safe metadata and `update-analytics-public-key` to append exact HTTPS origins. An empty list accepts any origin; adding the first origin restricts replay to the list, so include every app that needs replay. Existing origins and key settings are preserved; reread the list action to verify the saved allowlist.
+- For MCP, use allowlisted cataloged actions; use `ask_app` for interpretation or multi-step work.
+- Replay-key actions: `list-analytics-public-keys` reads metadata; `update-analytics-public-key` appends origins (first origin restricts it).
 
 ## Sessions and state
 
