@@ -3,7 +3,7 @@ import {
   isLocalDatabase,
 } from "@agent-native/core/db";
 import type { RecurringSweepContext } from "@agent-native/core/server";
-import { and, inArray, lt, sql } from "drizzle-orm";
+import { and, gt, inArray, lt, sql } from "drizzle-orm";
 
 import {
   JOURNEY_STAGED_REPLAY_MAX_AGE_MS,
@@ -13,6 +13,7 @@ import { getDb, schema } from "../db/index.js";
 import {
   deleteVisualEditSnapshotBlobs,
   queueVisualEditSnapshotBlobCleanupInTransaction,
+  VISUAL_EDIT_SNAPSHOT_BLOB_CLEANUP_BATCH_SIZE,
 } from "./visual-edit-snapshot-blobs.js";
 
 const CLEANUP_BATCH_SIZE = 100;
@@ -98,7 +99,35 @@ export async function sweepExpiredJourneyCanvasStages(
     .from(table)
     .where(and(lt(table.createdAt, cutoff), STAGED_ID_PREDICATE))
     .limit(1);
-  const blobCleanupPending = await deleteVisualEditSnapshotBlobs([]);
+  const cleanupTable = schema.designVisualEditSnapshotBlobCleanup;
+  let cleanupCursor: string | undefined;
+  while (Date.now() < deadlineAt) {
+    options.signal?.throwIfAborted();
+    const batch = cleanupCursor
+      ? await getDb()
+          .select({ blobHandle: cleanupTable.blobHandle })
+          .from(cleanupTable)
+          .where(gt(cleanupTable.blobHandle, cleanupCursor))
+          .orderBy(cleanupTable.blobHandle)
+          .limit(VISUAL_EDIT_SNAPSHOT_BLOB_CLEANUP_BATCH_SIZE)
+      : await getDb()
+          .select({ blobHandle: cleanupTable.blobHandle })
+          .from(cleanupTable)
+          .orderBy(cleanupTable.blobHandle)
+          .limit(VISUAL_EDIT_SNAPSHOT_BLOB_CLEANUP_BATCH_SIZE);
+    if (!batch.length) break;
+    cleanupCursor = batch[batch.length - 1]!.blobHandle;
+    await deleteVisualEditSnapshotBlobs(
+      batch.map(({ blobHandle }) => blobHandle),
+    );
+  }
+  const blobCleanupPending =
+    (
+      await getDb()
+        .select({ blobHandle: cleanupTable.blobHandle })
+        .from(cleanupTable)
+        .limit(1)
+    ).length > 0;
   return {
     rowsRemoved,
     blobsQueued,

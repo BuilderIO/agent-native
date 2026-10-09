@@ -609,6 +609,7 @@ export default defineAction({
       outcome = await withDesignSourceMutationTransaction(
         input.designId,
         async (tx) => {
+          await assertAccess("design", input.designId, "editor");
           const now = Date.now();
           const [requestedRows, stagedRows] = await Promise.all([
             tx

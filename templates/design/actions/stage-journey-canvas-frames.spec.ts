@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   queueStagedCleanup: vi.fn(),
   withDesignMutation: vi.fn(),
   verificationMismatch: false,
+  stageInsertCount: 0,
   selectCount: 0,
   transactionSelectCount: 0,
   inDesignMutation: false,
@@ -185,6 +186,7 @@ describe("stage-journey-canvas-frames", () => {
     mocks.deleteStagedBlobs.mockReset().mockResolvedValue(false);
     mocks.queueStagedCleanup.mockReset().mockResolvedValue(undefined);
     mocks.verificationMismatch = false;
+    mocks.stageInsertCount = 0;
     mocks.selectCount = 0;
     mocks.transactionSelectCount = 0;
     mocks.inDesignMutation = false;
@@ -223,17 +225,20 @@ describe("stage-journey-canvas-frames", () => {
         };
         return builder;
       }),
-      insert: vi.fn(() => ({
-        values: vi.fn((row: Record<string, unknown>) => ({
-          onConflictDoNothing: vi.fn(() => ({
-            returning: vi.fn(async () => {
-              if (mocks.row) return [];
-              mocks.row = { ...row };
-              return [{ id: row.id }];
-            }),
+      insert: vi.fn(() => {
+        mocks.stageInsertCount += 1;
+        return {
+          values: vi.fn((row: Record<string, unknown>) => ({
+            onConflictDoNothing: vi.fn(() => ({
+              returning: vi.fn(async () => {
+                if (mocks.row) return [];
+                mocks.row = { ...row };
+                return [{ id: row.id }];
+              }),
+            })),
           })),
-        })),
-      })),
+        };
+      }),
       delete: vi.fn(() => ({
         where: vi.fn(async () => {
           mocks.row = null;
@@ -431,6 +436,27 @@ describe("stage-journey-canvas-frames", () => {
     expect(mocks.row).toBeNull();
     expect(mocks.discardPrivateBlobs).toHaveBeenCalledWith([
       expect.objectContaining({ id: "uploaded-before-quota-race" }),
+    ]);
+  });
+
+  it("rechecks editor access under the mutation lock before inserting staged rows", async () => {
+    mocks.assertAccess
+      .mockResolvedValueOnce({
+        resource: {
+          ownerEmail: "owner@example.test",
+          visibility: "private",
+          orgId: null,
+        },
+      })
+      .mockRejectedValueOnce(new Error("editor access was revoked"));
+
+    await expect(run(input())).rejects.toThrow("editor access was revoked");
+
+    expect(mocks.assertAccess).toHaveBeenCalledTimes(2);
+    expect(mocks.stageInsertCount).toBe(0);
+    expect(mocks.row).toBeNull();
+    expect(mocks.discardPrivateBlobs).toHaveBeenCalledWith([
+      expect.objectContaining({ id: "private-blob-1" }),
     ]);
   });
 

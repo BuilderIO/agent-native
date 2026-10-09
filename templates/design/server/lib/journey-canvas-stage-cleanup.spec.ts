@@ -157,6 +157,37 @@ describe("journey canvas staged frame cleanup", () => {
     expect(remaining.rows).toEqual([]);
   });
 
+  it("drains the private blob cleanup queue across its bounded batches", async () => {
+    const rowCount = 130;
+    const values = Array.from({ length: rowCount }, (_, index) => {
+      const base = index * 3;
+      return `($${base + 1}, $${base + 2}, $${base + 3})`;
+    });
+    const args = Array.from({ length: rowCount }, (_, index) => [
+      `jcu_expired-unique-${index}`,
+      privateHandle(`expired-unique-${index}`),
+      expiredAt,
+    ]).flat();
+    await getDbExec().execute({
+      sql: `INSERT INTO design_board_replay_screenshots (id, blob_handle, created_at)
+            VALUES ${values.join(", ")}`,
+      args,
+    });
+
+    const result = await sweepExpiredJourneyCanvasStages();
+
+    expect(result).toEqual({
+      rowsRemoved: rowCount,
+      blobsQueued: rowCount,
+      cleanupPending: false,
+    });
+    expect(deletePrivateBlob).toHaveBeenCalledTimes(rowCount);
+    const remaining = await getDbExec().execute({
+      sql: "SELECT blob_handle FROM design_visual_edit_snapshot_blob_cleanup",
+    });
+    expect(remaining.rows).toEqual([]);
+  });
+
   it("reports remaining rows when the sweep deadline has elapsed", async () => {
     await getDbExec().execute({
       sql: `INSERT INTO design_board_replay_screenshots (id, blob_handle, created_at)
