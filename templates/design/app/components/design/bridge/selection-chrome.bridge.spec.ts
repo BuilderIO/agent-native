@@ -2,6 +2,8 @@ import { chromium } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
+import { mixedElementFromSelection } from "../edit-panel/selection-helpers";
+import type { ElementInfo } from "../types";
 
 function hydratedEditorChromeBridgeScript(): string {
   return editorChromeBridgeScript
@@ -51,6 +53,23 @@ const SELECTED_SVG_MEASUREMENT_FIXTURE = `<!doctype html><html><body style="marg
   <div id="hovered" data-agent-native-node-id="hovered"
        style="position:absolute;left:519px;top:400px;width:200px;height:120px;background:#ccc"></div>
 </body></html>`;
+
+const STYLESHEET_VECTOR_GRADIENT_FIXTURE = `<!doctype html><html><head><style>
+  #gradient-a { --an-vector-fill-gradient: linear-gradient(90deg, rgb(255 0 0), rgb(0 0 255)); }
+  #gradient-b { --an-vector-fill-gradient: linear-gradient(90deg, rgb(0 128 0), rgb(255 255 0)); }
+</style></head><body style="margin:0">
+  <svg id="gradient-a" data-agent-native-node-id="gradient-a" data-an-primitive="pasted-svg" width="120" height="80" viewBox="0 0 120 80">
+    <path d="M0 0h120v80H0z" fill="#f00" />
+  </svg>
+  <svg id="gradient-b" data-agent-native-node-id="gradient-b" data-an-primitive="pasted-svg" width="120" height="80" viewBox="0 0 120 80">
+    <path d="M0 0h120v80H0z" fill="#0f0" />
+  </svg>
+</body></html>`;
+
+type GradientSelectionWindow = Window & {
+  __gradientSelections?: { payload: ElementInfo }[];
+  __gradientMeasurements?: { payload: ElementInfo; correlationId: string }[];
+};
 
 type MeasurementTestWindow = Window & {
   __measurementBoundsReads?: { selected: number; hovered: number };
@@ -115,6 +134,104 @@ async function select(page: import("@playwright/test").Page, selector: string) {
 }
 
 describe("editor chrome selection overlays", () => {
+  it("publishes stylesheet-backed vector gradients on select and refresh", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(STYLESHEET_VECTOR_GRADIENT_FIXTURE);
+      await page.evaluate(() => {
+        const testWindow = window as GradientSelectionWindow;
+        testWindow.__gradientSelections = [];
+        testWindow.__gradientMeasurements = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "element-select" && event.data.payload) {
+            testWindow.__gradientSelections?.push(event.data);
+          }
+          if (
+            event.data?.type === "agent-native:selection-measured" &&
+            event.data.payload
+          ) {
+            testWindow.__gradientMeasurements?.push(event.data);
+          }
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      await select(page, "#gradient-a");
+      await page.waitForFunction(
+        () => (window as GradientSelectionWindow).__gradientSelections?.length,
+      );
+      const firstSelection = await page.evaluate(() => {
+        const testWindow = window as GradientSelectionWindow;
+        const payload = testWindow.__gradientSelections?.[0]?.payload;
+        const actual = getComputedStyle(
+          document.querySelector("#gradient-a path")!,
+        )
+          .getPropertyValue("--an-vector-fill-gradient")
+          .trim();
+        return { payload, actual };
+      });
+
+      expect(
+        firstSelection.payload?.computedStyles["--an-vector-fill-gradient"],
+      ).toBe(firstSelection.actual);
+      expect(
+        firstSelection.payload?.inlineStyles?.["--an-vector-fill-gradient"],
+      ).toBeUndefined();
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "agent-native:measure-selection",
+            screenId: "selection-chrome",
+            correlationId: "gradient-refresh",
+            selector: "#gradient-a",
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          (window as GradientSelectionWindow).__gradientMeasurements?.length,
+      );
+      const measurement = await page.evaluate(
+        () => (window as GradientSelectionWindow).__gradientMeasurements?.[0],
+      );
+      expect(measurement?.correlationId).toBe("gradient-refresh");
+      expect(
+        measurement?.payload.computedStyles["--an-vector-fill-gradient"],
+      ).toBe(firstSelection.actual);
+
+      await select(page, "#gradient-b");
+      await page.waitForFunction(
+        () =>
+          (window as GradientSelectionWindow).__gradientSelections?.length ===
+          2,
+      );
+      const secondSelection = await page.evaluate(() => {
+        const testWindow = window as GradientSelectionWindow;
+        const payload = testWindow.__gradientSelections?.[1]?.payload;
+        const actual = getComputedStyle(
+          document.querySelector("#gradient-b path")!,
+        )
+          .getPropertyValue("--an-vector-fill-gradient")
+          .trim();
+        return { payload, actual };
+      });
+      expect(
+        secondSelection.payload?.computedStyles["--an-vector-fill-gradient"],
+      ).toBe(secondSelection.actual);
+      expect(
+        mixedElementFromSelection([
+          firstSelection.payload!,
+          secondSelection.payload!,
+        ])?.computedStyles["--an-vector-fill-gradient"],
+      ).toBe("Mixed");
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("publishes viewport-relative Position for a fixed node after document scroll", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

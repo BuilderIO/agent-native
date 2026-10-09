@@ -5254,6 +5254,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!/(^|,)\\s*text\\s*(,|$)/i.test(backgroundClip) && /(^|,)\\s*text\\s*(,|$)/i.test(webkitBackgroundClip)) {
         backgroundClip = webkitBackgroundClip;
       }
+      var vectorFillGradient = paintCs.getPropertyValue("--an-vector-fill-gradient").trim();
       return {
         color: cs.color,
         backgroundColor: cs.backgroundColor,
@@ -5338,6 +5339,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         outlineColor: cs.outlineColor,
         outlineOffset: cs.outlineOffset,
         fill: paintCs.fill,
+        ...vectorFillGradient ? { "--an-vector-fill-gradient": vectorFillGradient } : {},
         fillOpacity: paintCs.fillOpacity,
         stroke: strokeCs.stroke,
         strokeWidth: strokeCs.strokeWidth,

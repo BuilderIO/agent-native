@@ -6022,6 +6022,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       backgroundClip = webkitBackgroundClip;
     }
+    var vectorFillGradient = paintCs
+      .getPropertyValue("--an-vector-fill-gradient")
+      .trim();
     return {
       color: cs.color,
       backgroundColor: cs.backgroundColor,
@@ -6106,6 +6109,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       outlineColor: cs.outlineColor,
       outlineOffset: cs.outlineOffset,
       fill: paintCs.fill,
+      ...(vectorFillGradient
+        ? { "--an-vector-fill-gradient": vectorFillGradient }
+        : {}),
       fillOpacity: paintCs.fillOpacity,
       stroke: strokeCs.stroke,
       strokeWidth: strokeCs.strokeWidth,
