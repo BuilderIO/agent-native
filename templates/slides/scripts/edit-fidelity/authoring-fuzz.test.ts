@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 
 import {
   assertAuthoringPersistence,
@@ -29,6 +29,7 @@ import {
 import type { Snapshot } from "./lib/in-page.ts";
 import {
   canReuseAuthoringFuzzCleanupPage,
+  ActionHttpError,
   ActionRequestTimeoutError,
   ActionTransportError,
   CouldNotRun,
@@ -38,7 +39,9 @@ import {
   rethrowIfHarnessUnavailable,
   runSetupActionAsCouldNotRun,
   runSetupAsCouldNotRun,
+  shouldLookUpAuthoringFuzzScratchDeck,
   shouldUseFreshBrowserPageForCleanup,
+  withTimeout,
 } from "./run-outcomes.ts";
 
 it("keeps authoring page setup errors out of seed regression results", async () => {
@@ -312,6 +315,60 @@ it("does not reuse closed or crashed authoring cleanup pages", () => {
   expect(canReuseAuthoringFuzzCleanupPage(false, false)).toBe(true);
   expect(canReuseAuthoringFuzzCleanupPage(true, false)).toBe(false);
   expect(canReuseAuthoringFuzzCleanupPage(false, true)).toBe(false);
+});
+
+it("only retries scratch-deck lookup when a create failure could have committed", () => {
+  expect(shouldLookUpAuthoringFuzzScratchDeck(false, null, null)).toBe(false);
+  expect(shouldLookUpAuthoringFuzzScratchDeck(true, "deck-1", null)).toBe(
+    false,
+  );
+  expect(
+    shouldLookUpAuthoringFuzzScratchDeck(
+      true,
+      null,
+      new ActionHttpError("create-deck", 422),
+    ),
+  ).toBe(false);
+  expect(
+    shouldLookUpAuthoringFuzzScratchDeck(
+      true,
+      null,
+      new ActionHttpError("create-deck", 500),
+    ),
+  ).toBe(true);
+  expect(
+    shouldLookUpAuthoringFuzzScratchDeck(
+      true,
+      null,
+      new ActionRequestTimeoutError("create-deck request timed out"),
+    ),
+  ).toBe(true);
+  expect(
+    shouldLookUpAuthoringFuzzScratchDeck(
+      true,
+      null,
+      new ActionTransportError("create-deck transport failure"),
+    ),
+  ).toBe(true);
+});
+
+it("bounds failure diagnostics when a browser evaluation never resolves", async () => {
+  vi.useFakeTimers();
+  try {
+    const diagnostics = withTimeout(
+      "authoring diagnostics",
+      10,
+      new Promise<never>(() => {}),
+    );
+    const rejected = expect(diagnostics).rejects.toThrow(
+      "authoring diagnostics timed out after 10ms",
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    await rejected;
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("requires a markdown shortcut to add its result markup", () => {
@@ -1071,6 +1128,18 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
       "step 12",
     ),
   ).toBe(false);
+  for (const requestAgeMs of [9_000, 10_000]) {
+    expect(
+      isExpectedSaveReloadWatchedRequestAbort(
+        "/_agent-native/browser-sessions/session-id/requests/claim",
+        "Load request cancelled",
+        "save/reload",
+        "POST",
+        true,
+        requestAgeMs,
+      ),
+    ).toBe(false);
+  }
 });
 
 it("ignores only WebKit CORS console errors for pending claim requests canceled by reload", () => {

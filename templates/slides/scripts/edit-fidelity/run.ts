@@ -72,13 +72,16 @@ import { readValueOption } from "./run-options.ts";
 import {
   ActionTransportError,
   ActionRequestTimeoutError,
+  ActionHttpError,
   canReuseAuthoringFuzzCleanupPage,
   CouldNotRun,
   getHarnessUnavailableError,
   isPlaywrightTargetTransportFailure,
   runSetupActionAsCouldNotRun,
   runSetupAsCouldNotRun,
+  shouldLookUpAuthoringFuzzScratchDeck,
   shouldUseFreshBrowserPageForCleanup,
+  withTimeout,
 } from "./run-outcomes.ts";
 
 /**
@@ -737,7 +740,7 @@ async function action<T = any>(
         `${method === "GET" ? "GET " : ""}${name} request ${res.text}`,
       );
     }
-    throw new Error(`${name} returned HTTP ${res.status}`);
+    throw new ActionHttpError(name, res.status);
   }
   try {
     return JSON.parse(res.text);
@@ -948,24 +951,28 @@ async function openSlide(
       if (attempt < 2) continue;
       let pageState: unknown;
       try {
-        pageState = await page.evaluate(() => ({
-          url: location.href,
-          readyState: document.readyState,
-          title: document.title,
-          bodyText: document.body.innerText.slice(0, 500),
-          mainCanvasCount: document.querySelectorAll(
-            '[data-main-slide-canvas="true"]',
-          ).length,
-          slideCanvases: Array.from(
-            document.querySelectorAll<HTMLElement>(
-              '[data-main-slide-canvas="true"] [data-slide-canvas]',
-            ),
-          ).map((element) => ({
-            id: element.dataset.slideCanvas,
-            width: element.getBoundingClientRect().width,
-            height: element.getBoundingClientRect().height,
+        pageState = await withTimeout(
+          "canvas wait diagnostics",
+          2_000,
+          page.evaluate(() => ({
+            url: location.href,
+            readyState: document.readyState,
+            title: document.title,
+            bodyText: document.body.innerText.slice(0, 500),
+            mainCanvasCount: document.querySelectorAll(
+              '[data-main-slide-canvas="true"]',
+            ).length,
+            slideCanvases: Array.from(
+              document.querySelectorAll<HTMLElement>(
+                '[data-main-slide-canvas="true"] [data-slide-canvas]',
+              ),
+            ).map((element) => ({
+              id: element.dataset.slideCanvas,
+              width: element.getBoundingClientRect().width,
+              height: element.getBoundingClientRect().height,
+            })),
           })),
-        }));
+        );
       } catch (diagnosticError) {
         pageState = `unavailable: ${String(diagnosticError)}`;
       }
@@ -5033,6 +5040,7 @@ async function runAuthoringFuzzQa(
     let deckId: string | null = null;
     let authoringSucceeded = false;
     let createAttempted = false;
+    let createError: unknown = null;
     let seedHarnessUnavailable: CouldNotRun | null = null;
     const unavailableCleanupPages = new Set<Page>();
     const scratchTitle = `[edit-fidelity] authoring fuzz ${seed} ${randomUUID()}`;
@@ -5083,6 +5091,9 @@ async function runAuthoringFuzzQa(
                   : {}),
               },
             ],
+          }).catch((error: unknown) => {
+            createError = error;
+            throw error;
           });
         },
       );
@@ -5305,7 +5316,13 @@ async function runAuthoringFuzzQa(
         return createdRecoveryPage;
       };
       try {
-        if (createAttempted && !deckId) {
+        if (
+          shouldLookUpAuthoringFuzzScratchDeck(
+            createAttempted,
+            deckId,
+            createError,
+          )
+        ) {
           try {
             // A timed-out create can commit after the client stops waiting.
             const recovery = await retryAuthoringFuzzScratchDeckLookup(

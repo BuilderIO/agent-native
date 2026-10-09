@@ -4,6 +4,15 @@ export class ActionTransportError extends Error {}
 
 export class ActionRequestTimeoutError extends Error {}
 
+export class ActionHttpError extends Error {
+  constructor(
+    readonly actionName: string,
+    readonly status: number,
+  ) {
+    super(`${actionName} returned HTTP ${status}`);
+  }
+}
+
 const PLAYWRIGHT_TARGET_TRANSPORT_FAILURE =
   /Execution context was destroyed|frame was detached|Target page, context or browser has been closed|Target crashed|Page crashed|Navigation failed because page crashed|Protocol error \([^)]*\): Target closed|Cannot find context with specified id/i;
 
@@ -73,6 +82,40 @@ export function canReuseAuthoringFuzzCleanupPage(
   pageUnavailable: boolean,
 ) {
   return !pageClosed && !pageUnavailable;
+}
+
+export function shouldLookUpAuthoringFuzzScratchDeck(
+  createAttempted: boolean,
+  deckId: string | null,
+  createError: unknown,
+) {
+  if (!createAttempted || deckId) return false;
+  return !(
+    createError instanceof ActionHttpError &&
+    createError.status >= 400 &&
+    createError.status < 500
+  );
+}
+
+export async function withTimeout<T>(
+  label: string,
+  timeoutMs: number,
+  pending: Promise<T>,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      pending,
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
 }
 
 export function rethrowIfHarnessUnavailable(error: unknown): void {
