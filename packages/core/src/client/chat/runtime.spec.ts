@@ -23,7 +23,6 @@ import type { AgentChatRuntime as AgentChatRuntimeFromClientBarrel } from "../in
 import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index.js";
 import {
   createAgentNativeChatRuntime as createAgentNativeChatRuntimeImpl,
-  createAgentNativeChatRuntime,
   createHttpAgentChatRuntime,
   type AgentChatRuntime,
   type AgentChatRuntimeEvent,

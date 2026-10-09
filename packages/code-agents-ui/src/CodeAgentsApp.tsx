@@ -13,6 +13,7 @@ import {
   type ChatFirstOpenAppDetail,
 } from "@agent-native/core/client/chat-first-state";
 import { usePollLoop } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { createPollEngine } from "@agent-native/core/shared";
 import type { AppConfig } from "@agent-native/shared-app-config";
 import {
@@ -851,6 +852,7 @@ export default function CodeAgentsApp({
   onRunsChange,
   onSelectedRunChange,
 }: CodeAgentsAppProps) {
+  const t = useT();
   const [selectedGoalId, setSelectedGoalId] = useState<CodeAgentGoalId>("task");
   const selectedGoal =
     getCodeAgentGoal(selectedGoalId) ?? getDefaultCodeAgentGoal();
@@ -2331,10 +2333,17 @@ export default function CodeAgentsApp({
       return;
     }
     if (providerGate.blocked && !activeNewSessionExtension) {
-      toast("Connect a model provider first", {
-        description: providerGate.description,
-        duration: 3600,
-      });
+      toast(
+        t("agentChat.setup.connectToStart", {
+          defaultValue: "Connect a model provider first",
+        }),
+        {
+          description: t("agentChat.setup.builderOrOwnKeys", {
+            defaultValue: providerGate.description,
+          }),
+          duration: 3600,
+        },
+      );
       return;
     }
     const typedGoal =
@@ -4019,6 +4028,7 @@ function CodeAgentComposer({
   plusMenuModeOverride?: "full" | "upload-only";
   draftScopeOverride?: string;
 }) {
+  const t = useT();
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const availableModels = groupCodeAgentModelOptions(modelOptions);
   const availableAgents = terminalAgent
@@ -4077,8 +4087,13 @@ function CodeAgentComposer({
           if (readiness === "missing") onDisabledClick?.();
           toast(
             readiness === "missing"
-              ? "Connect AI before sending."
-              : "Could not verify the AI connection. Try again.",
+              ? t("agentChat.setup.connectToChat", {
+                  defaultValue: "Connect AI before sending.",
+                })
+              : t("agentChat.composer.submitFailed", {
+                  defaultValue:
+                    "Could not verify the AI connection. Try again.",
+                }),
             { duration: 3200 },
           );
         },
@@ -4280,21 +4295,34 @@ function ProviderGateNotice({
   }>;
   onConnectLocalRuntime?: (engine: string) => void;
 }) {
+  const t = useT();
   return (
     <CodeProviderNotice
       className="code-agents-provider-gate"
-      title="Connect AI"
-      description={message ?? builderConnectFlow.error ?? description}
+      title={t("agentChat.setup.connectAi", { defaultValue: "Connect AI" })}
+      description={
+        message ??
+        builderConnectFlow.error ??
+        t("agentChat.setup.builderOrOwnKeys", { defaultValue: description })
+      }
       builderConnectFlow={builderConnectFlow}
       primaryActionLabel={
-        connecting ? "Signing in to Builder.io…" : "Use Builder.io"
+        connecting
+          ? t("agentChat.composer.connectingBuilder", {
+              defaultValue: "Signing in to Builder.io…",
+            })
+          : t("agentChat.composer.connectBuilder", {
+              defaultValue: "Use Builder.io",
+            })
       }
       primaryDisabled={connecting || builderConnectFlow.connecting}
       onPrimaryAction={onConnectBuilder}
       bouncePulse={bouncePulse}
       localRuntimeOptions={localRuntimeOptions}
       onConnectLocalRuntime={onConnectLocalRuntime}
-      secondaryActionLabel="Custom keys"
+      secondaryActionLabel={t("agentChat.composer.addOwnKeys", {
+        defaultValue: "Custom keys",
+      })}
       onOpenSettings={onOpenSettings}
     />
   );

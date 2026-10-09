@@ -1,4 +1,5 @@
 import { mergeCodeAgentTranscriptEvents } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 import {
   IconEye,
@@ -35,6 +36,7 @@ export function SessionWatchPanel({
   sourceRunId?: string | null;
   onClose: () => void;
 }) {
+  const t = useT();
   const [events, setEvents] = useState<CodeAgentTranscriptEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -157,8 +159,13 @@ export function SessionWatchPanel({
         (readiness) => {
           toast(
             readiness === "missing"
-              ? "Connect AI before sending."
-              : "Could not verify the AI connection. Try again.",
+              ? t("agentChat.setup.connectToChat", {
+                  defaultValue: "Connect AI before sending.",
+                })
+              : t("agentChat.composer.submitFailed", {
+                  defaultValue:
+                    "Could not verify the AI connection. Try again.",
+                }),
             { duration: 3200 },
           );
         },
