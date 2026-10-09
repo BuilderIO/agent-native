@@ -26,6 +26,7 @@ import {
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
 import {
+  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_HEADERS,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -2221,15 +2222,15 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     );
 
     expect(recovery.headers.get("cache-control")).toBe(
-      DISABLED_SSR_CACHE_HEADERS["cache-control"],
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
     );
     expect(recovery.headers.get("cdn-cache-control")).toBe(
-      DISABLED_SSR_CACHE_HEADERS["cdn-cache-control"],
+      DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
     );
     expect(recovery.headers.get("netlify-cdn-cache-control")).toBe(
-      DISABLED_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
+      DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
     );
-    expect(recovery.headers.get("netlify-vary")).toBeNull();
+    expect(recovery.headers.get("netlify-vary")).toBe("query=_routes|index");
     expect(await recovery.clone().text()).toContain("GET /inbox/</body>");
 
     recoveryUrl.searchParams.set(CHUNK_RECOVERY_QUERY_PARAM, "arbitrary");
@@ -2240,9 +2241,9 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     );
 
     expect(arbitrary.headers.get("cache-control")).toBe(
-      DISABLED_SSR_CACHE_HEADERS["cache-control"],
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
     );
-    expect(arbitrary.headers.get("netlify-vary")).toBeNull();
+    expect(arbitrary.headers.get("netlify-vary")).toBe("query=_routes|index");
   });
 
   it("normalizes the recovery path before serving the generated static shell", async () => {
@@ -2278,10 +2279,15 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(response.headers.get("speculation-rules")).toBe(
       '"/docs/_agent-native/speculation-rules.json"',
     );
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
-    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
-    expect(response.headers.get("netlify-vary")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(response.headers.get("cdn-cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
+    );
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
+    );
     expect(requestedPaths).toEqual([
       `/docs${CHUNK_RECOVERY_PATH_SUFFIX}`,
       "/index.html",
@@ -2307,7 +2313,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });
 
-  it("does not cache query-sensitive recovery-path responses", async () => {
+  it("revalidates query-sensitive recovery-path responses in browsers", async () => {
     vi.stubEnv("NETLIFY", "true");
     const source = generateWorkerEntry([], []);
     const worker = await importGeneratedWorker(source, {
@@ -2324,15 +2330,15 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     const response = await worker.fetch(new Request(recoveryUrl), {}, {});
 
     expect(response.headers.get("cache-control")).toBe(
-      DISABLED_SSR_CACHE_HEADERS["cache-control"],
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
     );
     expect(response.headers.get("cdn-cache-control")).toBe(
-      DISABLED_SSR_CACHE_HEADERS["cdn-cache-control"],
+      DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
     );
     expect(response.headers.get("netlify-cdn-cache-control")).toBe(
-      DISABLED_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
+      DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
     );
-    expect(response.headers.get("netlify-vary")).toBeNull();
+    expect(response.headers.get("netlify-vary")).toBe("query");
     expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });
 

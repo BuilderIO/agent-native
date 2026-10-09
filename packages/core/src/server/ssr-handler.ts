@@ -4,8 +4,8 @@ import { createRequestHandler } from "react-router";
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
+  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SPECULATION_RULES_PATH,
-  DISABLED_SSR_CACHE_HEADERS as NO_STORE_SSR_CACHE_HEADERS,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -252,8 +252,8 @@ function isSsrHtmlOrDataResponse(
  * │ Normal SSR HTML / React Router `.data` responses get the same public       │
  * │ stale-while-revalidate policy for ALL visitors, authenticated or not, so   │
  * │ the edge serves one shared copy and never stampedes origin. The one fixed  │
- * │ recovery alias is no-store at every cache layer, so stale shells cannot    │
- * │ trap a failed chunk recovery in either the browser or the CDN.             │
+ * │ recovery alias always revalidates in browsers while retaining the shared   │
+ * │ CDN cache, which Netlify invalidates on deploy.                             │
  * │                                                                            │
  * │ DO NOT reintroduce per-user / cookie-based cache variation here (no        │
  * │ `private`, no `Vary: Cookie`, no "authenticated → don't                    │
@@ -294,10 +294,7 @@ function applyDefaultSsrCacheHeader(
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) {
     if (isRecoveryAlias) {
-      for (const [name, value] of Object.entries(NO_STORE_SSR_CACHE_HEADERS)) {
-        headers.set(name, value);
-      }
-      headers.delete("netlify-vary");
+      headers.set("cache-control", CHUNK_RECOVERY_BROWSER_CACHE_CONTROL);
     }
     return;
   }
@@ -328,21 +325,17 @@ function applyDefaultSsrCacheHeader(
     else headers.delete("vary");
   }
 
-  const cacheHeaders = isRecoveryAlias
-    ? NO_STORE_SSR_CACHE_HEADERS
-    : resolveSsrCacheHeaders();
-  for (const [name, value] of Object.entries(cacheHeaders)) {
+  for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     headers.set(name, value);
   }
+  const cacheKeyHeaders = resolveSsrCacheKeyHeaders(undefined, {
+    varyByQuery,
+  });
+  const netlifyVary = cacheKeyHeaders["netlify-vary"];
+  if (netlifyVary) headers.set("netlify-vary", netlifyVary);
+  else headers.delete("netlify-vary");
   if (isRecoveryAlias) {
-    headers.delete("netlify-vary");
-  } else {
-    const cacheKeyHeaders = resolveSsrCacheKeyHeaders(undefined, {
-      varyByQuery,
-    });
-    const netlifyVary = cacheKeyHeaders["netlify-vary"];
-    if (netlifyVary) headers.set("netlify-vary", netlifyVary);
-    else headers.delete("netlify-vary");
+    headers.set("cache-control", CHUNK_RECOVERY_BROWSER_CACHE_CONTROL);
   }
 }
 

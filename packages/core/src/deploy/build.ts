@@ -48,8 +48,8 @@ import {
 } from "../server/cookie-namespace.js";
 import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
+  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SPECULATION_RULES_PATH,
-  DISABLED_SSR_CACHE_HEADERS,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -2023,7 +2023,7 @@ function injectHeadScript(html, script) {
 
 // Resolved from AGENT_NATIVE_SSR_CACHE at build time.
 const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
-const CHUNK_RECOVERY_CACHE_HEADERS = ${JSON.stringify(DISABLED_SSR_CACHE_HEADERS)};
+const CHUNK_RECOVERY_BROWSER_CACHE_CONTROL = ${JSON.stringify(CHUNK_RECOVERY_BROWSER_CACHE_CONTROL)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const SSR_QUERY_CACHE_KEY_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_KEY_HEADER)};
 const CHUNK_RECOVERY_PATH_SUFFIX = ${JSON.stringify(CHUNK_RECOVERY_PATH_SUFFIX)};
@@ -2125,10 +2125,7 @@ function applyDefaultSsrCacheHeader(headers, status, pathname, isRecoveryAlias =
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) {
     if (isRecoveryAlias) {
-      for (const [name, value] of Object.entries(CHUNK_RECOVERY_CACHE_HEADERS)) {
-        headers.set(name, value);
-      }
-      headers.delete("netlify-vary");
+      headers.set("cache-control", CHUNK_RECOVERY_BROWSER_CACHE_CONTROL);
     }
     return;
   }
@@ -2147,20 +2144,18 @@ function applyDefaultSsrCacheHeader(headers, status, pathname, isRecoveryAlias =
     else headers.delete("vary");
   }
 
-  const cacheHeaders = isRecoveryAlias ? CHUNK_RECOVERY_CACHE_HEADERS : SSR_CACHE_HEADERS;
-  for (const [name, value] of Object.entries(cacheHeaders)) {
+  for (const [name, value] of Object.entries(SSR_CACHE_HEADERS)) {
     headers.set(name, value);
   }
+  const netlifyVary = varyByQuery
+    ? SSR_CACHE_KEY_HEADERS["netlify-vary"]
+      ? "query"
+      : undefined
+    : SSR_CACHE_KEY_HEADERS["netlify-vary"];
+  if (netlifyVary) headers.set("netlify-vary", netlifyVary);
+  else headers.delete("netlify-vary");
   if (isRecoveryAlias) {
-    headers.delete("netlify-vary");
-  } else {
-    const netlifyVary = varyByQuery
-      ? SSR_CACHE_KEY_HEADERS["netlify-vary"]
-        ? "query"
-        : undefined
-      : SSR_CACHE_KEY_HEADERS["netlify-vary"];
-    if (netlifyVary) headers.set("netlify-vary", netlifyVary);
-    else headers.delete("netlify-vary");
+    headers.set("cache-control", CHUNK_RECOVERY_BROWSER_CACHE_CONTROL);
   }
 }
 
