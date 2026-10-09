@@ -4781,6 +4781,44 @@ describe("Brain connector smoke coverage", () => {
     ).toBeUndefined();
   });
 
+  it("keeps the cursor so a summary Zoom fails with 503 is retried", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({ meetings: [] });
+        }
+        if (url.pathname === "/v2/meetings/meeting_summaries") {
+          return Response.json({
+            summaries: [zoomSummaryListItem("kept-uuid", 222, "Pricing sync")],
+          });
+        }
+        return Response.json(
+          { message: "Service unavailable" },
+          { status: 503 },
+        );
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-summary-503-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: { includeSummaries: true } }),
+      cursorJson: JSON.stringify({ from: "2026-05-01" }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result.status).toBe("error");
+    expect(source.lastError).toContain("status 503");
+    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
+      from: "2026-05-01",
+    });
+  });
+
   it("dedupes account-wide Zoom recordings across query chunks", async () => {
     const meetings = Array.from({ length: 1_001 }, (_, index) => ({
       uuid: `meeting-${index}`,

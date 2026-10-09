@@ -87,9 +87,9 @@ re-imported. Turning the flag on rewinds the next sync to the `lookbackDays`
 window; every rewind keeps an older cursor that is held back for a pending
 transcript. A summary Zoom refuses (trashed, deleted) is recorded in
 `summaryFetchFailures` and the rest still import; the run ends as an error
-with `lastError` naming the first failure, and the cursor advances. Auth and
-missing-scope errors (401, code 4711) instead fail the whole run and keep the
-cursor. Run stats report `summariesListed`, `summariesSkippedByFilter`,
+with `lastError` naming the first failure, and the cursor advances. Auth,
+missing-scope, timeout, and server errors (401, code 4711, 408, 5xx) instead
+fail the whole run and keep the cursor, so the next sync retries them. Run stats report `summariesListed`, `summariesSkippedByFilter`,
 `summariesAlreadyImported`, `summariesFetched`, `emptySummaries`,
 `summaryCapturesCreated`, and `summaryFetchFailures`.
 

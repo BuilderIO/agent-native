@@ -3368,11 +3368,14 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           );
         } catch (error) {
           // One summary Zoom refuses (trashed, deleted) must not block the
-          // rest. Auth and missing-scope errors fail every summary, so they
-          // stay run-level and keep the cursor for the retry.
+          // rest. Auth, missing-scope, timeout, and server errors are not
+          // about that summary, so they stay run-level and keep the cursor;
+          // skipping them would advance past a summary Zoom can still return.
           if (
             !(error instanceof ZoomHttpError) ||
             error.status === 401 ||
+            error.status === 408 ||
+            error.status >= 500 ||
             error.zoomCode === "4711"
           ) {
             throw error;
