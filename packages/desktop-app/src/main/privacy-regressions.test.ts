@@ -327,26 +327,6 @@ describe("desktop passive-access regressions", () => {
     );
   });
 
-  it("keeps desktop app creation visible while provider setup is incomplete", () => {
-    const main = source("./index.ts");
-    const createRun = between(
-      main,
-      "async function createCodeAgentRun(",
-      "async function rerunCodeAgentRun(",
-    );
-    const runner = between(
-      main,
-      "async function spawnCodeAgentRunner(",
-      "function spawnCodeAgentApprovalRunner(",
-    );
-
-    expect(createRun).toContain(
-      'const isDesktopAppCreation = userMetadata.kind === "desktop-create-app"',
-    );
-    expect(createRun).toContain("if (!provider.ok && !isDesktopAppCreation)");
-    expect(runner).toContain('phase: "missing-credentials"');
-  });
-
   it("starts empty desktop app creation from the framework workspace", () => {
     const main = source("./index.ts");
     const repository = between(

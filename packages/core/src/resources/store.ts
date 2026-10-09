@@ -1198,6 +1198,25 @@ async function _doEnsureTable(): Promise<void> {
     );
   });
 
+  // The (path, owner) unique index uses the default operator class, which a
+  // prefix LIKE cannot use under a non-C collation; the trigger dispatcher
+  // reads jobs/ by prefix every few seconds.
+  //
+  // NOT built CONCURRENTLY: this ensure path runs at release over the pooled
+  // Neon endpoint, where a transaction-pooled connection returns from
+  // `CREATE INDEX CONCURRENTLY` without creating anything (see the matching
+  // note in chat-threads/store.ts). A plain build is the form that lands.
+  await ensureIndexExists(
+    "resources_path_pattern_idx",
+    `CREATE INDEX IF NOT EXISTS resources_path_pattern_idx ON resources (path text_pattern_ops)`,
+  ).catch((err) => {
+    // coercion-ok: absence of an index degrades latency, never correctness
+    console.warn(
+      "[resources] could not ensure resources_path_pattern_idx; prefix reads such as the jobs/ fingerprint will full-scan:",
+      (err as Error)?.message ?? err,
+    );
+  });
+
   // Migrate both shipped paths without touching edited copies. The legacy
   // path wins duplicate-name resolution in existing workspaces.
   // This marker stays separate from the shared seed version so it cannot
@@ -2650,23 +2669,93 @@ export async function resourceEffectiveContext(
   };
 }
 
-export async function resourceListAllOwners(
+function resourceFingerprint(
+  rows: Array<{
+    id: string;
+    owner: string;
+    path: string;
+    updatedAt: number;
+    contentMd5: string;
+  }>,
+  localResources: ResourceMeta[],
+): string {
+  const sqlPart = rows
+    .map(
+      (row) =>
+        `${row.id}|${row.owner}|${row.path}|${row.updatedAt}|${row.contentMd5}`,
+    )
+    .sort()
+    .join("\n");
+  // Local metadata carries the file's content hash, not just its mtime.
+  const localPart = localResources
+    .map(
+      (resource) =>
+        `${resource.path}@${resource.updatedAt}@${resource.metadata ?? ""}`,
+    )
+    .sort()
+    .join("\n");
+  return crypto
+    .createHash("sha256")
+    .update(`${sqlPart}\n--\n${localPart}`)
+    .digest("hex");
+}
+
+/**
+ * A cheap change detector for everything `resourceListAllOwners(pathPrefix)`
+ * reads: any insert, update, delete, move or snapshot restore of a SQL row
+ * changes it, including a same-size edit in the same millisecond. Content is
+ * hashed in the database, so only short per-row digests are transferred.
+ * Local workspace files are tracked by path, modification time and content
+ * hash. Equal to
+ * the fingerprint `resourceListAllOwnersWithFingerprint` returns for the same
+ * state.
+ */
+export async function resourceFingerprintAllOwners(
   pathPrefix: string,
-  options: { includeShadowedWorkspaceRows?: boolean } = {},
-): Promise<Resource[]> {
+  options: { timeoutMs?: number } = {},
+): Promise<string> {
   await ensureTable();
-  const client = getDbExec();
-  const { rows } = await client.execute({
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id, owner, path, updated_at, md5(COALESCE(content, '')) AS content_md5 FROM resources WHERE path LIKE ? ESCAPE '!'`,
+    args: [prefixLike(pathPrefix)],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
+  });
+  return resourceFingerprint(
+    rows.map((row) => ({
+      id: row.id as string,
+      owner: row.owner as string,
+      path: row.path as string,
+      updatedAt: Number(row.updated_at),
+      contentMd5: row.content_md5 as string,
+    })),
+    await localWorkspaceResourceMetas(pathPrefix),
+  );
+}
+
+async function readAllOwners(pathPrefix: string): Promise<{
+  rows: Record<string, unknown>[];
+  localMetas: ResourceMeta[];
+  localResources: Resource[];
+}> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
     sql: `SELECT * FROM resources WHERE path LIKE ? ESCAPE '!'`,
     args: [prefixLike(pathPrefix)],
   });
+  const localMetas = await localWorkspaceResourceMetas(pathPrefix);
   const localResources = (
-    await Promise.all(
-      (
-        await localWorkspaceResourceMetas(pathPrefix)
-      ).map((resource) => resourceGet(resource.id)),
-    )
+    await Promise.all(localMetas.map((resource) => resourceGet(resource.id)))
   ).filter((resource): resource is Resource => !!resource);
+  return { rows, localMetas, localResources };
+}
+
+function mergeAllOwners(
+  rows: Record<string, unknown>[],
+  localResources: Resource[],
+  includeShadowedWorkspaceRows: boolean | undefined,
+): Resource[] {
   const localPaths = new Set(localResources.map((resource) => resource.path));
   return [
     ...localResources,
@@ -2674,11 +2763,51 @@ export async function resourceListAllOwners(
       .map(rowToResource)
       .filter(
         (resource) =>
-          options.includeShadowedWorkspaceRows ||
+          includeShadowedWorkspaceRows ||
           resource.owner !== WORKSPACE_OWNER ||
           !localPaths.has(resource.path),
       ),
   ];
+}
+
+export async function resourceListAllOwners(
+  pathPrefix: string,
+  options: { includeShadowedWorkspaceRows?: boolean } = {},
+): Promise<Resource[]> {
+  const { rows, localResources } = await readAllOwners(pathPrefix);
+  return mergeAllOwners(
+    rows,
+    localResources,
+    options.includeShadowedWorkspaceRows,
+  );
+}
+
+/**
+ * `resourceListAllOwners` plus the fingerprint of exactly the rows that one
+ * read returned, so a later `resourceFingerprintAllOwners` match proves the
+ * list is unchanged.
+ */
+export async function resourceListAllOwnersWithFingerprint(
+  pathPrefix: string,
+): Promise<{ resources: Resource[]; fingerprint: string }> {
+  const { rows, localMetas, localResources } = await readAllOwners(pathPrefix);
+  const fingerprint = resourceFingerprint(
+    rows.map((row) => ({
+      id: row.id as string,
+      owner: row.owner as string,
+      path: row.path as string,
+      updatedAt: Number(row.updated_at),
+      contentMd5: crypto
+        .createHash("md5")
+        .update((row.content as string | null) ?? "", "utf8")
+        .digest("hex"),
+    })),
+    localMetas,
+  );
+  return {
+    resources: mergeAllOwners(rows, localResources, false),
+    fingerprint,
+  };
 }
 
 export async function resourceMove(

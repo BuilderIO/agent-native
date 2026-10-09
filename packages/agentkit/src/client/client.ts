@@ -12,6 +12,7 @@ import type {
   AgentEvent,
   AgentMessage,
   AgentQueuedMessage,
+  AgentRequestAttachment,
   AgentRequestContext,
   AgentRunSnapshot,
   AgentRunOptions,
@@ -42,7 +43,9 @@ import {
   AgentKitProtocolError,
   createRequestAbortedError,
   createAgentKitProtocolVersionOffer,
+  isInlineDataUrl,
   parseAgentEvent,
+  parseStartRunInput,
   projectAgentCapabilities,
   resumeEntryFromApproval,
 } from "../protocol/index.js";
@@ -82,6 +85,12 @@ interface TerminalRunCatchUp {
 export interface AgentKitClientOptions {
   transport: AgentTransport;
   /**
+   * Defaults to required so user-started dispatches fail closed when a
+   * transport cannot validate provider readiness. Use `not-applicable` only
+   * for transports whose readiness is owned elsewhere or has no shared setup.
+   */
+  aiSetupReadiness?: "required" | "not-applicable";
+  /**
    * Borrowed transports are never disposed by the client and are the safe
    * default for shared application services. Choose `owned` only when this
    * client created the transport exclusively for its own lifecycle.
@@ -116,6 +125,30 @@ export interface AgentKitUploadFile {
   body: Blob;
 }
 
+function requestAttachmentFile(
+  attachment: AgentRequestAttachment,
+): AgentKitUploadFile | null {
+  if (!attachment.data) return null;
+  const match = attachment.data.match(
+    /^data:(image\/(?:gif|jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/i,
+  );
+  if (!match) {
+    throw new AgentProtocolValidationError(
+      "requestAttachments.data",
+      "expected a base64 raster image data URL",
+    );
+  }
+  const mediaType = match[1]!.toLowerCase();
+  const binary = atob(match[2]!);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return {
+    name: attachment.name,
+    mediaType,
+    size: bytes.byteLength,
+    body: new Blob([bytes], { type: mediaType }),
+  };
+}
+
 export type AgentKitUploadDriver = (
   target: AgentUploadTarget,
   file: AgentKitUploadFile,
@@ -137,6 +170,7 @@ export interface SendMessageInput {
   threadId: ThreadId;
   text: string;
   attachments?: FilePart[];
+  requestAttachments?: AgentRequestAttachment[];
   options?: AgentRunOptions;
   metadata?: Record<string, unknown>;
   /** Whether to queue when a run is active. Defaults to true. */
@@ -188,6 +222,14 @@ function metadataRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function selectedEngineForDispatch(input: {
+  metadata?: Record<string, unknown>;
+  options?: AgentRunOptions;
+}): string | undefined {
+  const engine = input.metadata?.engine ?? input.options?.metadata?.engine;
+  return typeof engine === "string" ? engine : undefined;
 }
 
 function sameQueuedMessageIds(
@@ -315,6 +357,11 @@ export interface AgentKitController {
     input?: ListThreadsInput,
     context?: AgentRequestContext,
   ): Promise<ListThreadsResult>;
+  /** Checks provider readiness before a user-initiated fork-and-resend. */
+  assertAiSetupReady(
+    input?: { engine?: string },
+    context?: AgentRequestContext,
+  ): Promise<void>;
   sendMessage(
     input: SendMessageInput,
     context?: AgentRequestContext,
@@ -548,6 +595,40 @@ export class AgentKitOperationError extends Error {
   public constructor(public readonly operation: string) {
     super(`This AgentKit controller does not support ${operation}.`);
     this.name = "AgentKitOperationError";
+  }
+}
+
+export interface AgentKitUploadFailure {
+  index: number;
+  name: string;
+  error: unknown;
+}
+
+/**
+ * One or more files in an upload batch failed. Each failed file is named, and
+ * the siblings that did upload are kept so a retry can reuse them instead of
+ * leaving them orphaned in storage.
+ */
+export class AgentKitUploadError extends Error {
+  public readonly code = "upload_failed" as const;
+  public readonly retryable: boolean;
+
+  public constructor(
+    public readonly failures: AgentKitUploadFailure[],
+    public readonly uploaded: Array<{ index: number; part: FilePart }>,
+  ) {
+    super(
+      failures
+        .map(({ name, error }) => {
+          const reason = error instanceof Error ? error.message.trim() : "";
+          return reason ? `${name}: ${reason}` : name;
+        })
+        .join("\n"),
+    );
+    this.name = "AgentKitUploadError";
+    this.retryable = failures.every(
+      ({ error }) => errorProperty(error, "retryable") === true,
+    );
   }
 }
 
@@ -2040,6 +2121,9 @@ export class AgentKitClient implements AgentKitController {
     report: AgentStreamIntegrityReport,
   ) => void;
   private readonly upload: AgentKitUploadDriver;
+  private readonly aiSetupReadiness: NonNullable<
+    AgentKitClientOptions["aiSetupReadiness"]
+  >;
   private readonly ownsTransport: boolean;
   private readonly retainActiveRunsOnThreadRelease: boolean;
   private readonly listeners = new Set<AgentKitListener>();
@@ -2080,6 +2164,7 @@ export class AgentKitClient implements AgentKitController {
 
   public constructor(options: AgentKitClientOptions) {
     this.transport = options.transport;
+    this.aiSetupReadiness = options.aiSetupReadiness ?? "required";
     this.ownsTransport = options.transportOwnership === "owned";
     this.retainActiveRunsOnThreadRelease =
       options.retainActiveRunsOnThreadRelease ?? false;
@@ -2611,14 +2696,35 @@ export class AgentKitClient implements AgentKitController {
     return result;
   }
 
+  public async assertAiSetupReady(
+    input?: { engine?: string; threadId?: ThreadId },
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const assertReady = this.transport.assertAiSetupReady;
+    if (!assertReady) {
+      if (this.aiSetupReadiness === "not-applicable") return;
+      throw new AgentKitOperationError("AI setup readiness validation");
+    }
+    const requestContext = this.createRequestContext(context);
+    await this.invokeRequest(requestContext, (request) =>
+      assertReady(input ?? {}, request),
+    );
+    this.assertActive();
+  }
+
   public async sendMessage(
     input: SendMessageInput,
     context?: AgentRequestContext,
   ): Promise<AgentRunHandle> {
     this.assertActive();
+    await this.assertAiSetupReady(
+      { engine: selectedEngineForDispatch(input), threadId: input.threadId },
+      context,
+    );
     const requestContext = this.createRequestContext(context);
     await this.ensureCapabilities(requestContext);
-    if (input.attachments?.length) {
+    if (input.attachments?.length || input.requestAttachments?.length) {
       await this.requireCapability("attachments", requestContext);
     }
     if (input.options?.model) {
@@ -2687,6 +2793,9 @@ export class AgentKitClient implements AgentKitController {
           {
             threadId: input.threadId,
             messages,
+            ...(input.requestAttachments?.length
+              ? { requestAttachments: input.requestAttachments }
+              : {}),
             options: input.options,
             metadata: input.metadata,
           },
@@ -3028,7 +3137,7 @@ export class AgentKitClient implements AgentKitController {
     this.assertActive();
     const requestContext = this.createRequestContext(context);
     await this.requireCapability("uploads", requestContext);
-    return Promise.all(
+    const results = await Promise.allSettled(
       files.map(async (file) => {
         const target = await this.createUpload(
           threadId,
@@ -3067,6 +3176,22 @@ export class AgentKitClient implements AgentKitController {
         }
       }),
     );
+    const failures: AgentKitUploadFailure[] = [];
+    const uploaded: Array<{ index: number; part: FilePart }> = [];
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") {
+        uploaded.push({ index, part: result.value });
+      } else {
+        failures.push({
+          index,
+          name: files[index]!.name,
+          error: result.reason,
+        });
+      }
+    });
+    if (this.disposed && failures.length) throw failures[0]!.error;
+    if (failures.length) throw new AgentKitUploadError(failures, uploaded);
+    return uploaded.map(({ part }) => part);
   }
 
   public async createUpload(
@@ -3125,11 +3250,89 @@ export class AgentKitClient implements AgentKitController {
     this.assertActive();
   }
 
+  private async queueSafeRequestAttachments(
+    threadId: ThreadId,
+    attachments: AgentRequestAttachment[] | undefined,
+    context: AgentRequestContext,
+  ): Promise<AgentRequestAttachment[] | undefined> {
+    if (!attachments?.length) return undefined;
+    parseStartRunInput({
+      threadId,
+      messages: [],
+      requestAttachments: attachments,
+    });
+    const uploads = attachments.map(requestAttachmentFile);
+    if (!uploads.some(Boolean)) return attachments;
+    const uploaded = await this.uploadFiles(
+      threadId,
+      uploads.filter((file): file is AgentKitUploadFile => file !== null),
+      context,
+    );
+    let uploadIndex = 0;
+    return attachments.map((attachment, index) => {
+      const file = uploads[index];
+      if (!file) return attachment;
+      const result = uploaded[uploadIndex++];
+      if (!result?.url) {
+        throw new TypeError(
+          `Queued image ${attachment.name} did not receive a durable URL.`,
+        );
+      }
+      const { data: _data, ...reference } = attachment;
+      return { ...reference, url: result.url };
+    });
+  }
+
+  /** Queued rows are stored, so inline file bytes become durable uploads first. */
+  private async queueSafeFileParts(
+    threadId: ThreadId,
+    attachments: FilePart[] | undefined,
+    context: AgentRequestContext,
+  ): Promise<FilePart[] | undefined> {
+    if (!attachments?.some((part) => isInlineDataUrl(part.url))) {
+      return attachments;
+    }
+    const inline = await Promise.all(
+      attachments.flatMap((part) => {
+        if (!isInlineDataUrl(part.url)) return [];
+        return [
+          fetch(part.url).then(async (response) => {
+            const body = await response.blob();
+            const mediaType =
+              part.mediaType ?? (body.type || "application/octet-stream");
+            return {
+              name: part.name,
+              mediaType,
+              size: body.size,
+              body,
+            } satisfies AgentKitUploadFile;
+          }),
+        ];
+      }),
+    );
+    const uploaded = await this.uploadFiles(threadId, inline, context);
+    let uploadIndex = 0;
+    return attachments.map((part) => {
+      if (!isInlineDataUrl(part.url)) return part;
+      const durable = uploaded[uploadIndex++];
+      if (!durable?.url && !durable?.fileId) {
+        throw new TypeError(
+          `Queued file ${part.name} did not receive a durable reference.`,
+        );
+      }
+      return durable;
+    });
+  }
+
   public async queueMessage(
     input: SendMessageInput,
     context?: AgentRequestContext,
   ): Promise<AgentQueuedMessage> {
     this.assertActive();
+    await this.assertAiSetupReady(
+      { engine: selectedEngineForDispatch(input), threadId: input.threadId },
+      context,
+    );
     const threadAtSubmit = this.getThread(input.threadId);
     const runWasActive =
       input.queuedWhileRunActive || hasActiveAgentRuns(threadAtSubmit);
@@ -3139,6 +3342,9 @@ export class AgentKitClient implements AgentKitController {
     if (!queueMessage) {
       throw new AgentKitCapabilityError("messageQueue");
     }
+    // The row appears right after the readiness gate; capability and upload
+    // checks run inside the serialized queue write and roll the row back on
+    // failure.
     const optimisticMessage: AgentQueuedMessage = {
       id: this.createId("queued-message"),
       threadId: input.threadId,
@@ -3164,19 +3370,52 @@ export class AgentKitClient implements AgentKitController {
     });
     try {
       input.onLocalSubmit?.();
-      await this.requireCapability("messageQueue", requestContext);
-      if (input.attachments?.length) {
-        await this.requireCapability("attachments", requestContext);
-      }
       return await this.enqueueQueueMutation(input.threadId, async () => {
         this.assertActive();
+        await this.requireCapability("messageQueue", requestContext);
+        if (input.attachments?.length || input.requestAttachments?.length) {
+          await this.requireCapability("attachments", requestContext);
+        }
+        const requestAttachments = await this.queueSafeRequestAttachments(
+          input.threadId,
+          input.requestAttachments,
+          requestContext,
+        );
+        const attachments = await this.queueSafeFileParts(
+          input.threadId,
+          input.attachments,
+          requestContext,
+        );
+        if (requestAttachments?.length || attachments !== input.attachments) {
+          const durable = (message: AgentQueuedMessage) =>
+            message.id === optimisticMessage.id
+              ? {
+                  ...message,
+                  attachments,
+                  ...(requestAttachments?.length ? { requestAttachments } : {}),
+                }
+              : message;
+          const thread = this.getThread(input.threadId);
+          this.setThread(input.threadId, {
+            ...thread,
+            queuedMessages: thread.queuedMessages.map(durable),
+          });
+          const queueOverride = this.queuedMessageOverrides.get(input.threadId);
+          if (queueOverride) {
+            this.queuedMessageOverrides.set(input.threadId, {
+              messages: queueOverride.messages.map(durable),
+              removedIds: queueOverride.removedIds,
+            });
+          }
+        }
         const result = await this.invokeRequest(requestContext, (context) =>
           queueMessage(
             {
               threadId: input.threadId,
               id: optimisticMessage.id,
               text: input.text,
-              attachments: input.attachments,
+              attachments,
+              ...(requestAttachments?.length ? { requestAttachments } : {}),
               metadata: input.metadata,
               options: input.options,
             },
@@ -3309,11 +3548,19 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
   ): Promise<void> {
     this.assertActive();
+    await this.assertAiSetupReady({ threadId }, context);
+    // A user-initiated continuation starts work, so it follows the same setup
+    // gate as a new prompt. Automatic run continuations use the transport path.
     const continueRun = this.transport.continueRun;
     if (!continueRun) throw new AgentKitOperationError("run continuation");
+    const attachments = this.continuationAttachments(threadId, runId);
     const result = await this.invokeRequest(
       this.createRequestContext(context),
-      (request) => continueRun({ threadId, runId }, request),
+      (request) =>
+        continueRun(
+          { threadId, runId, ...(attachments.length ? { attachments } : {}) },
+          request,
+        ),
     );
     this.assertActive();
     this.markRunStarted(threadId, result.runId);
@@ -3321,6 +3568,34 @@ export class AgentKitClient implements AgentKitController {
       threadId,
       result.runId,
       this.consume(threadId, result.runId),
+    );
+  }
+
+  /**
+   * The durable attachments of the turn a continued run belongs to. A runtime
+   * that no longer holds that turn in memory (a reload, another tab) would
+   * otherwise continue without the images the user asked about.
+   */
+  private continuationAttachments(
+    threadId: ThreadId,
+    runId: RunId,
+  ): FilePart[] {
+    const thread = this.getThread(threadId);
+    const submittedId = this.submittedUserMessages.get(
+      this.runKey(threadId, runId),
+    );
+    const message =
+      (submittedId &&
+        thread.messages.find((candidate) => candidate.id === submittedId)) ||
+      [...thread.messages].reverse().find(({ role }) => role === "user");
+    return (
+      message?.parts.filter(
+        (part): part is FilePart =>
+          part.type === "file" &&
+          !part.omitted &&
+          (part.fileId !== undefined ||
+            (part.url !== undefined && !isInlineDataUrl(part.url))),
+      ) ?? []
     );
   }
 
@@ -3980,6 +4255,15 @@ export class AgentKitClient implements AgentKitController {
           }
           if (!terminalEvent) {
             if (this.hasTerminalRunCatchUp(threadId, runId)) {
+              if (attempt < this.reconnectAttempts) {
+                attempt += 1;
+                this.setConnection("reconnecting");
+                await this.waitForReconnect(
+                  this.reconnectDelay(attempt),
+                  abortController.signal,
+                );
+                continue;
+              }
               this.reportIntegrity({
                 code: "run_missing_terminal",
                 threadId,
@@ -4111,6 +4395,9 @@ export class AgentKitClient implements AgentKitController {
     duration: number,
     signal: AbortSignal,
   ): Promise<void> {
+    if (signal.aborted) {
+      return Promise.reject(signal.reason ?? this.abortError());
+    }
     return new Promise((resolve, reject) => {
       const onAbort = () => {
         clearTimeout(timeout);

@@ -439,7 +439,6 @@ const editor = {
   pageBodySyncing: "لا يزال محتوى هذه الصفحة قيد المزامنة",
   pageBodySyncingDescription:
     "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة محتوى الصفحة، حتى لا تتم الكتابة فوق المحتوى الحالي.",
-  createCollection: "إنشاء مجموعة",
   creatingDatabase: "جارٍ إنشاء مجموعة مضمنة...",
   databaseCreated: "تم إنشاء المجموعة",
   emptyBlockPlaceholder: 'اضغط على "/" للأوامر',
@@ -790,10 +789,12 @@ const editor = {
     linkToNotionPage: "رابط إلى صفحة الفكرة",
     localFile: "الملف المحلي",
     morePageActions: "المزيد من إجراءات الصفحة",
+    formatting: "التنسيق",
     noPagesFound: "لم يتم العثور على صفحات",
     notifications: "الإخطارات",
     notionSync: "مزامنة الفكرة",
     openInNotion: "فتح في Notion",
+    openInAgentNative: "فتح في Agent-Native",
     orgCanFindAndView: "يمكن لأي شخص في مؤسستك البحث والعرض",
     orgLinkCanView: "يمكن لأي شخص في مؤسستك لديه الرابط العرض",
     pin: "تثبيت",
@@ -1473,6 +1474,11 @@ const overrides = {
     resize: "تغيير حجم الشريط الجانبي",
     expand: "توسيع الشريط الجانبي",
     failedCreatePage: "فشل إنشاء الصفحة",
+    failedCreatePageDraftDescription:
+      "تم حفظ مسودتك في هذا المتصفح. يمكنك إعادة محاولة إنشاء الصفحة أو حذف المسودة.",
+    discardFailedCreatePageQuestion: "هل تريد إلغاء الإنشاء المعلّق؟",
+    discardFailedCreatePageDescription:
+      "سيؤدي ذلك إلى مسح الإنشاء المعلّق وأي مسودة غير محفوظة. إذا كانت الصفحة محفوظة بالفعل، فستبقى في مساحة عملك.",
     failedDeletePage: "فشل حذف الصفحة",
     failedPermanentDeletePage: "فشل حذف الصفحة نهائيًا",
     failedRestorePage: "فشل استعادة الصفحة",

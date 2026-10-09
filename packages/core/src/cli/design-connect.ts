@@ -193,6 +193,9 @@ async function resolveBridgeToken(
 }
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+const DESIGN_SCOPED_READ_ONLY_PREVIEW_TOKEN_DOMAIN =
+  "agent-native-design-public-preview-v1\0";
+const DESIGN_SCOPED_READ_ONLY_PREVIEW_TOKEN_PREFIX = "design-public-preview-v1";
 const LIVE_EDIT_CAPABILITY_DOMAIN = "agent-native-live-edit-design-v1\0";
 const LIVE_EDIT_REGISTRATION_CAPABILITY_DOMAIN =
   "agent-native-live-edit-registration-v1\0";
@@ -215,6 +218,46 @@ export function deriveDesignPreviewToken(bridgeToken: string): string {
     .update(PREVIEW_TOKEN_DOMAIN)
     .update(bridgeToken)
     .digest("hex");
+}
+
+export function deriveDesignScopedReadOnlyPreviewToken(
+  bridgeToken: string,
+  designId: string,
+): string {
+  const encodedDesignId = Buffer.from(designId, "utf8").toString("base64url");
+  const signature = crypto
+    .createHmac("sha256", bridgeToken)
+    .update(DESIGN_SCOPED_READ_ONLY_PREVIEW_TOKEN_DOMAIN)
+    .update(designId)
+    .digest("hex");
+  return `${DESIGN_SCOPED_READ_ONLY_PREVIEW_TOKEN_PREFIX}.${encodedDesignId}.${signature}`;
+}
+
+function designIdFromScopedReadOnlyPreviewToken(
+  bridgeToken: string,
+  token: string,
+): string | null {
+  const [prefix, encodedDesignId, signature, extra] = token.split(".");
+  if (
+    prefix !== DESIGN_SCOPED_READ_ONLY_PREVIEW_TOKEN_PREFIX ||
+    !encodedDesignId ||
+    !signature ||
+    extra !== undefined
+  ) {
+    return null;
+  }
+  const designId = Buffer.from(encodedDesignId, "base64url").toString("utf8");
+  if (
+    !designId ||
+    Buffer.from(designId, "utf8").toString("base64url") !== encodedDesignId ||
+    !constantTimeTokenMatches(
+      token,
+      deriveDesignScopedReadOnlyPreviewToken(bridgeToken, designId),
+    )
+  ) {
+    return null;
+  }
+  return designId;
 }
 
 export function deriveDesignScopedLiveEditCapability(
@@ -1262,7 +1305,7 @@ function keyedFrameNavigation(
   requestUrl: URL,
   referer: string | undefined,
   bridgeUrl: string,
-): { bridgeKey: string; previewToken: string } | null {
+): { bridgeKey: string } | null {
   const origin = new URL(bridgeUrl).origin;
   const candidates: URL[] = [];
   if (requestUrl.origin === origin) candidates.push(requestUrl);
@@ -1277,10 +1320,7 @@ function keyedFrameNavigation(
   for (const url of candidates) {
     const bridgeKey = bridgeKeyFromUrl(url);
     if (!bridgeKey) continue;
-    return {
-      bridgeKey,
-      previewToken: url.searchParams.get("previewToken")?.trim() ?? "",
-    };
+    return { bridgeKey };
   }
   return null;
 }
@@ -2827,14 +2867,20 @@ export async function startDesignConnectBridge(
         explicitPreviewToken ||
         readRequestCookie(req, PREVIEW_SESSION_COOKIE_NAME) ||
         "";
-      const previewTokenValid = constantTimeTokenMatches(
-        providedPreviewToken,
-        previewToken,
-      );
-      const explicitPreviewTokenValid = constantTimeTokenMatches(
-        explicitPreviewToken,
-        previewToken,
-      );
+      const scopedReadOnlyPreviewDesignId =
+        designIdFromScopedReadOnlyPreviewToken(
+          bridgeToken,
+          providedPreviewToken,
+        );
+      const previewTokenValid =
+        constantTimeTokenMatches(providedPreviewToken, previewToken) ||
+        scopedReadOnlyPreviewDesignId !== null;
+      const explicitPreviewTokenValid =
+        constantTimeTokenMatches(explicitPreviewToken, previewToken) ||
+        designIdFromScopedReadOnlyPreviewToken(
+          bridgeToken,
+          explicitPreviewToken,
+        ) !== null;
       const corsApproved = configureBridgeCors(
         req,
         res,
@@ -2852,6 +2898,19 @@ export async function startDesignConnectBridge(
             ? {}
             : { ok: false, error: "origin is not allowed by this bridge" },
         );
+        return;
+      }
+      if (
+        scopedReadOnlyPreviewDesignId !== null &&
+        req.method &&
+        !["GET", "HEAD"].includes(req.method) &&
+        pathname !== "/live-edit-bridge"
+      ) {
+        req.resume();
+        sendJson(res, 403, {
+          ok: false,
+          error: "design-scoped read-only preview tokens cannot mutate the app",
+        });
         return;
       }
       const rejectInvalidPreviewToken = (): boolean => {
@@ -2977,6 +3036,8 @@ export async function startDesignConnectBridge(
             if (
               !designId ||
               !bridgeKey ||
+              (scopedReadOnlyPreviewDesignId !== null &&
+                scopedReadOnlyPreviewDesignId !== designId) ||
               (!isValidLiveEditCapability(req, designId) &&
                 !isValidLiveEditRegistrationCapability(req, designId))
             ) {
@@ -3325,8 +3386,11 @@ export async function startDesignConnectBridge(
               includeEditorBridge ? editorBridgeScript : "",
               targetPath,
               requestedBridgeKey
-                ? { bridgeKey: requestedBridgeKey, previewToken }
-                : { previewToken },
+                ? {
+                    bridgeKey: requestedBridgeKey,
+                    previewToken: providedPreviewToken,
+                  }
+                : { previewToken: providedPreviewToken },
             );
             sendText(
               res,
@@ -3337,7 +3401,7 @@ export async function startDesignConnectBridge(
                 : "text/html; charset=utf-8",
               [
                 ...snapshot.setCookieHeaders,
-                previewSessionSetCookie(previewToken),
+                previewSessionSetCookie(providedPreviewToken),
               ],
               BRIDGE_FRAME_HEADERS,
             );
@@ -3658,9 +3722,7 @@ export async function startDesignConnectBridge(
                 const next = new URL("/live-edit", manifest.bridgeUrl);
                 next.searchParams.set("url", targetUrl);
                 next.searchParams.set("bridgeKey", keyed.bridgeKey);
-                if (keyed.previewToken) {
-                  next.searchParams.set("previewToken", keyed.previewToken);
-                }
+                next.searchParams.set("previewToken", providedPreviewToken);
                 res.writeHead(302, {
                   location: next.toString(),
                   ...BRIDGE_FRAME_HEADERS,
@@ -3736,10 +3798,16 @@ export async function startDesignConnectBridge(
                         );
                       })(),
                       keyed
-                        ? { bridgeKey: keyed.bridgeKey, previewToken }
+                        ? {
+                            bridgeKey: keyed.bridgeKey,
+                            previewToken: providedPreviewToken,
+                          }
                         : method === "GET"
-                          ? { recoverTargetUrl: targetUrl, previewToken }
-                          : { previewToken },
+                          ? {
+                              recoverTargetUrl: targetUrl,
+                              previewToken: providedPreviewToken,
+                            }
+                          : { previewToken: providedPreviewToken },
                     ),
                   )
                 : proxied.body;
@@ -3768,7 +3836,7 @@ export async function startDesignConnectBridge(
             const rewrittenResourceText = opaqueFrameJavaScript
               ? addOpaqueFrameJavaScriptResourceTokens(
                   responseText,
-                  previewToken,
+                  providedPreviewToken,
                 )
               : responseText;
             const opaqueFrameResponseBody = shouldRewriteOpaqueFrameResources
@@ -3776,7 +3844,7 @@ export async function startDesignConnectBridge(
                   opaqueFrameStylesheet
                     ? addOpaqueFrameResourceTokens(
                         rewrittenResourceText,
-                        previewToken,
+                        providedPreviewToken,
                       )
                     : rewrittenResourceText,
                 )
@@ -3842,9 +3910,20 @@ export async function startDesignConnectBridge(
     const isViteHmrSocket = readHeader(req, "sec-websocket-protocol")
       .split(",")
       .some((protocol) => protocol.trim() === "vite-hmr");
-    if (!constantTimeTokenMatches(providedPreviewToken, previewToken)) {
+    const scopedReadOnlyPreviewDesignId =
+      designIdFromScopedReadOnlyPreviewToken(bridgeToken, providedPreviewToken);
+    if (
+      !constantTimeTokenMatches(providedPreviewToken, previewToken) &&
+      scopedReadOnlyPreviewDesignId === null
+    ) {
       clientSocket.end(
         "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+      );
+      return;
+    }
+    if (scopedReadOnlyPreviewDesignId !== null && !isViteHmrSocket) {
+      clientSocket.end(
+        "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
       );
       return;
     }
@@ -3918,7 +3997,7 @@ export async function startDesignConnectBridge(
             const payload = webSocketDataBuffer(data);
             const rewritten = isBinary
               ? undefined
-              : rewriteViteHmrUpdate(payload, previewToken);
+              : rewriteViteHmrUpdate(payload, providedPreviewToken);
             browserSocket.send(rewritten ?? payload, { binary: isBinary });
           });
           browserSocket.once("close", () => upstreamSocket.terminate());

@@ -156,6 +156,10 @@ export const AGENT_CHAT_DURABLE_BACKGROUND_ENV =
  */
 export const AGENT_CHAT_BACKGROUND_RUN_FIELD = "__backgroundRun";
 
+/** Analytics-only source context captured before the run leaves its browser request. */
+export const AGENT_CHAT_BROWSER_SESSION_ID_FIELD =
+  "__agentNativeBrowserSessionId";
+
 export function isHostedRuntimeForDurableBackground(): boolean {
   if (process.env.NETLIFY_LOCAL === "true") return false;
   if (process.env.NETLIFY === "false") return false;

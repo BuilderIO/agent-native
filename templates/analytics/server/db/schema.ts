@@ -786,6 +786,25 @@ export const sessionRecordingShares = createSharesTable(
   "session_recording_shares",
 );
 
+export const sessionRecordingSessionAssociations = table(
+  "session_recording_session_associations",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id")
+      .notNull()
+      .references(() => sessionRecordings.id, { onDelete: "cascade" }),
+    sessionId: text("session_id").notNull(),
+  },
+  (association) => ({
+    recordingSessionUnique: uniqueIndex(
+      "session_recording_session_associations_recording_session_idx",
+    ).on(association.recordingId, association.sessionId),
+    sessionRecordingIdx: index(
+      "session_recording_session_associations_session_recording_idx",
+    ).on(association.sessionId, association.recordingId),
+  }),
+);
+
 export const sessionReplayChunks = table(
   "session_replay_chunks",
   {

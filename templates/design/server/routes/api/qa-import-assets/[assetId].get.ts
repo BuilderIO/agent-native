@@ -1,0 +1,78 @@
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
+
+import {
+  getSession,
+  isSessionResolutionUnavailable,
+  streamFile,
+} from "@agent-native/core/server";
+import {
+  defineEventHandler,
+  getRouterParam,
+  setResponseHeader,
+  setResponseStatus,
+} from "h3";
+
+import {
+  isLocalImportAssetUploadEnabled,
+  localImportAssetAssetMimeType,
+  localImportAssetAssetPaths,
+} from "../../../lib/local-import-asset-upload.js";
+
+export default defineEventHandler(async (event) => {
+  if (!isLocalImportAssetUploadEnabled()) {
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
+  }
+  const session = await getSession(event);
+  if (!session?.email) {
+    if (isSessionResolutionUnavailable(event)) {
+      setResponseStatus(event, 503);
+      setResponseHeader(event, "Retry-After", "5");
+      return { error: "Session unavailable" };
+    }
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+
+  const assetId = getRouterParam(event, "assetId") ?? "";
+  const filepaths = localImportAssetAssetPaths(session.email, assetId);
+  const mimeType = localImportAssetAssetMimeType(assetId);
+  if (filepaths.length === 0 || !mimeType) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid asset id" };
+  }
+  let filepath: string | null = null;
+  for (const candidate of filepaths) {
+    try {
+      const info = await stat(candidate);
+      if (!info.isFile()) continue;
+      filepath = candidate;
+      break;
+    } catch (error) {
+      const code =
+        error instanceof Error && "code" in error ? error.code : undefined;
+      if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
+    }
+  }
+  if (!filepath) {
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
+  }
+
+  setResponseHeader(event, "Content-Type", mimeType);
+  if (mimeType === "image/svg+xml") {
+    setResponseHeader(
+      event,
+      "Content-Security-Policy",
+      "default-src 'none'; script-src 'none'; object-src 'none'; base-uri 'none'; sandbox",
+    );
+  }
+  setResponseHeader(
+    event,
+    "Cache-Control",
+    "private, max-age=31536000, immutable",
+  );
+  setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+  return streamFile(createReadStream(filepath));
+});

@@ -449,6 +449,7 @@ const enUS = {
     zoomMeetingTopicsDescription:
       "One full meeting title per line. Titles must match exactly (capitals don't matter), so use IDs when you can.",
     zoomLookbackDays: "Lookback days",
+    zoomIncludeSummaries: "Import AI Companion summaries",
     invalidZoomMeetingIds:
       "Not valid Zoom meeting IDs: {{entries}}. Use the number from the meeting invite, like 123 4567 8901.",
     zoomDescription:
@@ -7235,6 +7236,7 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingTopicsDescription:
         "عنوان اجتماع كامل واحد في كل سطر. يجب أن تتطابق العناوين تمامًا (لا يهم حجم الأحرف)، لذا استخدم المعرّفات متى أمكن.",
       zoomLookbackDays: "عدد أيام الرجوع",
+      zoomIncludeSummaries: "استيراد ملخصات AI Companion",
       invalidZoomMeetingIds:
         "معرّفات اجتماعات Zoom غير صالحة: {{entries}}. استخدم الرقم الموجود في دعوة الاجتماع، مثل 123 4567 8901.",
       zoomDescription:
@@ -7250,6 +7252,7 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingTopicsDescription:
         "Ein vollständiger Meeting-Titel pro Zeile. Titel müssen genau übereinstimmen (Groß- und Kleinschreibung egal), verwende daher nach Möglichkeit IDs.",
       zoomLookbackDays: "Rückblick in Tagen",
+      zoomIncludeSummaries: "AI Companion-Zusammenfassungen importieren",
       invalidZoomMeetingIds:
         "Keine gültigen Zoom-Meeting-IDs: {{entries}}. Verwende die Nummer aus der Meeting-Einladung, z. B. 123 4567 8901.",
       zoomDescription:
@@ -7265,6 +7268,7 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingTopicsDescription:
         "Un título de reunión completo por línea. Los títulos deben coincidir exactamente (sin importar mayúsculas), así que usa ID siempre que puedas.",
       zoomLookbackDays: "Días hacia atrás",
+      zoomIncludeSummaries: "Importar resúmenes de AI Companion",
       invalidZoomMeetingIds:
         "ID de reunión de Zoom no válidos: {{entries}}. Usa el número de la invitación, como 123 4567 8901.",
       zoomDescription:
@@ -7280,6 +7284,7 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingTopicsDescription:
         "Un titre de réunion complet par ligne. Les titres doivent correspondre exactement (sans tenir compte des majuscules) ; utilisez donc les ID si possible.",
       zoomLookbackDays: "Jours d'historique",
+      zoomIncludeSummaries: "Importer les résumés AI Companion",
       invalidZoomMeetingIds:
         "ID de réunion Zoom non valides : {{entries}}. Utilisez le numéro de l'invitation, par exemple 123 4567 8901.",
       zoomDescription:
@@ -7295,6 +7300,7 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingTopicsDescription:
         "हर पंक्ति में एक पूरा मीटिंग शीर्षक। शीर्षक बिल्कुल मेल खाना चाहिए (बड़े-छोटे अक्षर से फर्क नहीं पड़ता), इसलिए जहाँ हो सके ID इस्तेमाल करें।",
       zoomLookbackDays: "पीछे देखने के दिन",
+      zoomIncludeSummaries: "AI Companion सारांश इंपोर्ट करें",
       invalidZoomMeetingIds:
         "अमान्य Zoom मीटिंग ID: {{entries}}। आमंत्रण में दिया नंबर इस्तेमाल करें, जैसे 123 4567 8901।",
       zoomDescription:
@@ -7310,6 +7316,7 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingTopicsDescription:
         "1 行に 1 つ、ミーティング名を正確に入力します（大文字と小文字は区別しません）。可能な場合は ID を使用してください。",
       zoomLookbackDays: "さかのぼる日数",
+      zoomIncludeSummaries: "AI Companion の要約をインポート",
       invalidZoomMeetingIds:
         "無効な Zoom ミーティング ID: {{entries}}。招待に記載された番号（例: 123 4567 8901）を使用してください。",
       zoomDescription:
@@ -7325,6 +7332,7 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingTopicsDescription:
         "한 줄에 하나씩 전체 회의 제목을 입력하세요. 제목은 정확히 일치해야 하므로(대소문자 무관) 가능하면 ID를 사용하세요.",
       zoomLookbackDays: "조회 기간(일)",
+      zoomIncludeSummaries: "AI Companion 요약 가져오기",
       invalidZoomMeetingIds:
         "유효하지 않은 Zoom 회의 ID: {{entries}}. 초대장의 번호(예: 123 4567 8901)를 사용하세요.",
       zoomDescription:
@@ -7340,6 +7348,7 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingTopicsDescription:
         "Um título de reunião completo por linha. Os títulos precisam corresponder exatamente (maiúsculas não importam), então use IDs sempre que possível.",
       zoomLookbackDays: "Dias de retrospectiva",
+      zoomIncludeSummaries: "Importar resumos do AI Companion",
       invalidZoomMeetingIds:
         "IDs de reunião do Zoom inválidos: {{entries}}. Use o número do convite, como 123 4567 8901.",
       zoomDescription:
@@ -7355,6 +7364,7 @@ const zoomSourceLocalizationOverrides: Partial<
       zoomMeetingTopicsDescription:
         "每行一个完整的会议标题。标题必须完全匹配（不区分大小写），因此尽量使用 ID。",
       zoomLookbackDays: "回溯天数",
+      zoomIncludeSummaries: "导入 AI Companion 摘要",
       invalidZoomMeetingIds:
         "无效的 Zoom 会议 ID：{{entries}}。请使用会议邀请中的号码，例如 123 4567 8901。",
       zoomDescription:

@@ -688,18 +688,6 @@ const DESIGN_FEEDBACK_REGEX_CASES = [
   [false, "The design needs a little more contrast."],
 ];
 
-const FIGMA_PARITY_UNMEASURED_RE =
-  /\bwhere (?:is|are)\b[^.!?]{0,80}\b(?:measured|native|actual)\b[^.!?]{0,60}\b(?:figma|oracle|evidence|record)\b|\b(?:unmeasured|unverified|no\s+(?:native\s+)?(?:figma\s+)?evidence|without\s+(?:a\s+)?(?:native\s+)?figma\s+(?:measurement|oracle)|not\s+(?:a\s+)?figma\s+(?:oracle|measurement|evidence)|cannot be cited|can't be cited|don't\s+(?:claim|say|cite|treat)|do not\s+(?:claim|say|cite|treat)|does(?: not|n't)\s+(?:prove|establish))\b[^.!?]{0,120}\b(?:figma|parity|design behavior|oracle)\b|\b(?:figma|parity|design behavior|oracle)\b[^.!?]{0,120}\b(?:unmeasured|unverified|no\s+(?:native\s+)?(?:figma\s+)?evidence|without\s+(?:a\s+)?(?:native\s+)?figma\s+(?:measurement|oracle)|not\s+(?:a\s+)?figma\s+(?:oracle|measurement|evidence)|cannot be cited|can't be cited|don't\s+(?:claim|say|cite|treat)|do not\s+(?:claim|say|cite|treat)|does(?: not|n't)\s+(?:prove|establish))\b/i;
-const FIGMA_PARITY_UNMEASURED_REGEX_CASES = [
-  [true, "Don't claim Figma parity without a native Figma measurement."],
-  [true, "That Design behavior is unmeasured; the screenshot is not evidence."],
-  [true, "Where is the measured Figma oracle record for this behavior?"],
-  [true, "The old screenshot does not prove parity."],
-  [false, "The Figma icon is larger in the Design toolbar."],
-  [false, "The parity E2E test failed on CI."],
-  [false, "Figma behavior was measured against the current build."],
-];
-
 const FEEDBACK_EYES_RE =
   /(?:\b(?:no|not|zero|without|missing)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:put|add|place|react|mark)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:remove|clear|take off)\b[^.!?]{0,80}(?:\beyes?\b|👀)[^.!?]{0,80}\b(?:confiden\w*|sure|fix\w*)\b)/i;
 
@@ -2222,6 +2210,77 @@ const FEEDBACK_RELEASE_COVERAGE_REGEX_CASES = [
   [false, `${"deployment ".repeat(4000)}${"failure ".repeat(4000)}`],
 ];
 
+const ATTACHED_BLOCK =
+  /<(in-app-browser-context|user_message_metadata|environment_context|user_instructions|turn_aborted|task-notification|system-reminder|skill|image)\b[\s\S]*?(<\/\1>|\/>|$)/g;
+const E2E_PLATFORM = String.raw`(?:e2e|end[- ]to[- ]end|playwright)`;
+const E2E_TEST_KIND = String.raw`(?:tests?|specs?|failures?|runs?|bugs?)`;
+const E2E_ISSUE_FANOUT_RE = new RegExp(
+  [
+    String.raw`\bissues?\b[^.!?;,\n]{0,80}\b(?:for|per)\s+(?:each|every)\b[^.!?;,\n]{0,80}\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b${E2E_TEST_KIND}\b`,
+    String.raw`\b(?:for|with)\s+(?:each|every)\b[^.!?;,\n]{0,80}\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b${E2E_TEST_KIND}\b[ \t]*,?[ \t]*(?:(?:a|an?|one)\s+)?(?:new|separate|individual|own)\s+(?:issues?|tickets?)\b`,
+    String.raw`\b(?:for|with)\s+(?:each|every)\b[^.!?;,\n]{0,80}\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b${E2E_TEST_KIND}\b[ \t]*,?[ \t]*\n[ \t]*\b(?:(?:a|an?|one)\s+)?(?:new|separate|individual|own)\s+(?:issues?|tickets?)\b`,
+    String.raw`\b(?:each|every)\b[^.!?;,\n]{0,80}\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b${E2E_TEST_KIND}\b[^.!?;,\n]{0,40}\b(?:gets?|got|has|had|receives?|received|creates?|created|opens?|opened|files?|filed|generates?|generated|produces?|produced|triggers?|triggered)\b[^.!?;,\n]{0,40}\b(?:(?:its|their|a|an?|one)\s+)?(?:own|separate|individual|new|single|one)\s+(?:issues?|tickets?)\b`,
+    String.raw`\b(?:one|an?)\s+(?:issues?|tickets?)\b[^.!?;,\n]{0,40}\bper\s+${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b${E2E_TEST_KIND}\b`,
+    String.raw`\b(?:one|an?)\s+(?:issues?|tickets?)\b[^.!?;,\n]{0,40}\bper\s+${E2E_TEST_KIND}\b[^.!?;,\n]{0,80}\b${E2E_PLATFORM}\b`,
+    String.raw`\bduplicate\s+(?:issues?|tickets?)\b[^.!?;,\n]{0,60}\b(?:for|about|from|on)\b[^.!?;,\n]{0,40}\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b${E2E_TEST_KIND}\b`,
+    String.raw`\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b${E2E_TEST_KIND}\b[^.!?;,\n]{0,60}\b(?:create|open|file|generate|produce|get|have)\b[^.!?;,\n]{0,60}\b(?:separate|duplicate|individual)\s+(?:issues?|tickets?)\b`,
+    String.raw`\b(?:too many|flood\w*|overload\w*)\b[^.!?;,\n]{0,60}\b(?:issues?|tickets?)\b[^.!?;,\n]{0,60}\b(?:for|from|in)\b[^.!?;,\n]{0,20}\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b${E2E_TEST_KIND}\b`,
+    String.raw`\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b${E2E_TEST_KIND}\b[^.!?;,\n]{0,60}\b(?:create|open|file|generate|produce)\b[^.!?;,\n]{0,40}\b(?:too many|flood\w*|overload\w*)\b[^.!?;,\n]{0,40}\b(?:issues?|tickets?)\b`,
+    String.raw`\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b(?:tests?|specs?|runs?)\b[^.!?;,\n]{0,20}\b(?:fail|fails|failed|failing|failure|failures)\b[ \t]*,?[ \t]*(?:please[ \t]+)?(?:don['’]t|do not|stop|shouldn't|should not)\b[^.!?;,\n]{0,80}\b100\b[^.!?;,\n]{0,40}\b(?:issues?|tickets?)\b[.!?]?[ \t]*(?:just|only|exactly)\s+(?:one|a single)\b`,
+    String.raw`\b${E2E_PLATFORM}\b[^.!?;,\n]{0,40}\b(?:tests?|specs?|runs?)\b[^.!?;,\n]{0,20}\b(?:fail|fails|failed|failing|failure|failures)\b\s*\n\s*(?:please\s+)?(?:don['’]t|do not|stop|shouldn't|should not)\b[^.!?;,\n]{0,80}\b100\b[^.!?;,\n]{0,40}\b(?:issues?|tickets?)\b[.!?]?[ \t]*(?:\n[ \t]*)?(?:just|only|exactly)\s+(?:one|a single)\b`,
+    String.raw`\b(?:don['’]t|do not|stop|shouldn't|should not)\b[^.!?;,\n]{0,80}\b100\b[^.!?;,\n]{0,40}\b(?:issues?|tickets?)\b[^.!?;,\n]{0,20}\b(?:for|during|from)\b[^.!?;,\n]{0,10}\b(?:failed|failing|flaky|red)\s+${E2E_PLATFORM}\b[^.!?;,\n]{0,20}\b(?:tests?|specs?|runs?)\b|\b(?:don['’]t|do not|stop|shouldn't|should not)\b[^.!?;,\n]{0,80}\b100\b[^.!?;,\n]{0,40}\b(?:issues?|tickets?)\b[^.!?;,\n]{0,20}\b(?:for|during|from)\b[^.!?;,\n]{0,10}\b${E2E_PLATFORM}\b[^.!?;,\n]{0,20}\b(?:tests?|specs?|runs?)\b[^.!?;,\n]{0,20}\b(?:fail|fails|failed|failing|failure|failures)\b`,
+  ].join("|"),
+  "i",
+);
+const E2E_ISSUE_FANOUT_REGEX_CASES = [
+  [true, "When an E2E test fails, don't open up 100 issues. Just one."],
+  [true, "When an E2E test fails, don’t open up 100 issues. Just one."],
+  [true, "Stop opening 100 issues for failed Playwright runs."],
+  [true, "Stop creating a separate issue for every Design E2E spec."],
+  [true, "Please don't open an issue for every failing E2E test."],
+  [true, "Each Playwright test got its own issue."],
+  [true, "Stop filing one issue per E2E test."],
+  [true, "There are multiple duplicate tickets for Playwright failures."],
+  [true, "E2E tests open separate issues for each failure."],
+  [true, "For every E2E failure, a new issue was filed."],
+  [false, "The E2E suite had 100 failing tests."],
+  [false, "There are 100 issues in this unrelated database test."],
+  [false, "The E2E run reported multiple issues across different defects."],
+  [false, "The E2E suite is green, but a separate issue tracks billing."],
+  [false, "The E2E suite is green, don't open 100 issues for billing."],
+  [false, "The E2E tests passed, please don't open 100 issues for billing."],
+  [false, "Every E2E test passed, and billing has one issue."],
+  [false, "Don't open 100 issues for billing, the E2E tests passed."],
+  [
+    false,
+    "The E2E tests failed in Design, and don't open 100 issues for unrelated billing alerts.",
+  ],
+  [false, "Every E2E test passed, and a separate issue tracks billing."],
+  [false, "Closed 100 issues this sprint and the E2E suite is green now."],
+  [false, "The Design E2E failure is tracked in one issue."],
+];
+const E2E_ISSUE_FANOUT_NORMALIZATION_CASES = [
+  [false, "The E2E suite is green.\nA separate issue tracks billing."],
+  [false, "The E2E suite is green.\nDuplicate ticket opened for billing."],
+  [false, "The E2E tests are green\nThey create separate issues for billing."],
+  [false, "The E2E run was green\nWhy are there 100 issues for billing?"],
+  [
+    false,
+    "With every E2E failure resolved, the suite is green\nA new issue tracks billing.",
+  ],
+  [false, "The E2E test failed\nDon't open 100 issues for billing."],
+  [false, "The E2E test failed\nDon't open 100 issues for billing. Just one."],
+  [true, "When an E2E test fails,\ndon't open 100 issues. Just one."],
+  [true, "When an E2E test fails\ndon't open 100 issues. Just one."],
+  [true, "When an E2E test fails\nplease don't open 100 issues. Just one."],
+  [true, "When an E2E test fails\nplease don’t open 100 issues. Just one."],
+  [true, "For every E2E failure,\na new issue was filed."],
+  [true, "For every E2E failure\na new issue was filed."],
+];
+const LEGACY_LINE_NORMALIZATION_CASES = [
+  [true, "Signup pages should always show\nthe WebGL wave, not this graphic."],
+];
+
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
     ([expected, message]) =>
@@ -2273,6 +2332,27 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...E2E_ISSUE_FANOUT_REGEX_CASES.filter(
+      ([expected, message]) => E2E_ISSUE_FANOUT_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...E2E_ISSUE_FANOUT_NORMALIZATION_CASES.filter(
+      ([expected, message]) =>
+        E2E_ISSUE_FANOUT_RE.test(
+          textForPattern(normalizeHumanText(message), true),
+        ) !== expected,
+    ),
+  );
+  failures.push(
+    ...LEGACY_LINE_NORMALIZATION_CASES.filter(
+      ([expected, message]) =>
+        AUTH_PAGE_BACKGROUND_REGRESSION_RE.test(
+          textForPattern(normalizeHumanText(message)),
+        ) !== expected,
+    ),
+  );
+  failures.push(
     ...FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.filter(
       ([expected, message]) =>
         FEEDBACK_NO_LOCAL_REPRO_RE.test(message) !== expected,
@@ -2305,12 +2385,6 @@ if (process.argv.includes("--self-test")) {
     ...DESIGN_FEEDBACK_REGEX_CASES.filter(
       ([expected, message]) =>
         DESIGN_FEEDBACK_SCOPE_RE.test(message) !== expected,
-    ),
-  );
-  failures.push(
-    ...FIGMA_PARITY_UNMEASURED_REGEX_CASES.filter(
-      ([expected, message]) =>
-        FIGMA_PARITY_UNMEASURED_RE.test(message) !== expected,
     ),
   );
   failures.push(
@@ -2366,7 +2440,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FIGMA_PARITY_UNMEASURED_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -2451,13 +2525,6 @@ const PATTERNS = [
     re: FEEDBACK_NO_LOCAL_REPRO_RE,
   },
   {
-    key: "figma-parity-unmeasured",
-    label: "Had to correct a Design parity claim without native Figma evidence",
-    fixedBy:
-      ".agents/skills/design-figma-parity + parity oracle ledger and citation guard",
-    re: FIGMA_PARITY_UNMEASURED_RE,
-  },
-  {
     key: "false-done",
     label: "Reported done while still broken",
     fixedBy: ".agents/skills/verifying-changes (2026-07-31)",
@@ -2529,6 +2596,13 @@ const PATTERNS = [
     label: "Had to ask whether sibling call sites were swept",
     fixedBy: ".agents/skills/fix-at-the-boundary (2026-07-31)",
     re: /\b(any other (apps?|providers?|templates?|places?)|other (apps?|templates?) (that )?do(es)? this|same (bug|issue|thing) (in|across)|sweep of other|fix that too)\b/i,
+  },
+  {
+    key: "ai-gate-bypass",
+    label: "Had to repeat that prompts must not send without connected AI",
+    fixedBy:
+      "guard:chat-send-gate + shared readiness dispatch gate (2026-10-08)",
+    re: /\b(?:never|can(?:not|'t)|must not|should not|shouldn't)\b[^.!?\n]{0,100}\b(?:send|submit)\b[^.!?\n]{0,80}\b(?:prompt|message)s?\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,60}\b(?:AI|LLM|provider)\b|\b(?:send|submit)\b[^.!?\n]{0,80}\b(?:prompt|message)s?\b[^.!?\n]{0,60}\bwithout\b[^.!?\n]{0,40}\b(?:AI|LLM|provider)\b|\b(?:AI|LLM) provider\b[^.!?\n]{0,40}\b(?:not connected|not configured|missing)\b/i,
   },
   {
     key: "credential-wrong-namespace",
@@ -2649,6 +2723,14 @@ const PATTERNS = [
     re: /\b(?:too many|so many|stop asking|spam(?:ming|med)?|carpet|blast(?:ed|ing)?|barrage|flood(?:ed|ing)?)\b[^.!?\n]{0,80}\b(?:questions?|asks?|replies|messages?|threads?)\b|\b(?:questions?|asks?|replies|messages?)\b[^.!?\n]{0,60}\b(?:odd|weird|strange|pointless|useless|low[- ]value|generic|templated|robotic|noisy|annoying)\b|\b(?:don['’]?t|do not|stop|quit)\b[^.!?\n]{0,60}\b(?:ask(?:ing)?|reply(?:ing)?|post(?:ing)?)\b[^.!?\n]{0,60}\b(?:every|each|all)\b[^.!?\n]{0,40}\b(?:thread|report|message|item)\b/i,
   },
   {
+    key: "e2e-issue-fanout",
+    label: "Had to stop per-test E2E issue creation",
+    fixedBy:
+      ".agents/skills/review-latest-feedback/references/ci-red-report.md (2026-10-08)",
+    re: E2E_ISSUE_FANOUT_RE,
+    lineSensitive: true,
+  },
+  {
     key: "feedback-channel-coverage",
     label: "Had to ask for another feedback channel to be scanned",
     fixedBy:
@@ -2722,8 +2804,6 @@ const PATTERNS = [
 
 const AUTHORED_BY_AGENT =
   /<(subagent_notification|codex_delegation)\b|^\s*(The following is the Codex agent history|Claude here\s*[—-]\s*watchdog)/i;
-const ATTACHED_BLOCK =
-  /<(in-app-browser-context|user_message_metadata|environment_context|user_instructions|turn_aborted|task-notification|system-reminder|skill|image)\b[\s\S]*?(<\/\1>|\/>|$)/g;
 
 const args = process.argv.slice(2);
 const weeks = Number(valueOf("--weeks") ?? 8);
@@ -2799,7 +2879,8 @@ async function scan(file, read) {
     if (!at || at < cutoff) continue;
     messages += 1;
     for (const pattern of selected) {
-      if (!pattern.re.test(text)) continue;
+      if (!pattern.re.test(textForPattern(text, pattern.lineSensitive)))
+        continue;
       const week = weekOf(at);
       const bucket = counts.get(pattern.key);
       bucket.set(week, (bucket.get(week) ?? 0) + 1);
@@ -2809,10 +2890,25 @@ async function scan(file, read) {
   }
 }
 
+function normalizeHumanText(raw) {
+  return String(raw ?? "")
+    .replace(ATTACHED_BLOCK, " ")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+}
+
+function textForPattern(text, lineSensitive = false) {
+  return lineSensitive
+    ? text.replace(/, *\n */g, ", ")
+    : text.replace(/\s+/g, " ");
+}
+
 function humanText(raw) {
   const raw_ = String(raw ?? "");
   if (AUTHORED_BY_AGENT.test(raw_)) return null;
-  const text = raw_.replace(ATTACHED_BLOCK, " ").replace(/\s+/g, " ").trim();
+  const text = normalizeHumanText(raw_);
   if (!text || text.startsWith("<")) return null;
   return text.length > 2 ? text : null;
 }

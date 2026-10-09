@@ -611,14 +611,10 @@ function FlexContainerControls({
         }}
         onPaddingLinkedChange={(linked) => {
           setPaddingLinked(linked);
-          // Linking is a display-mode choice, not a style edit. Figma keeps
-          // asymmetric padding intact when the sides are linked and only
-          // equalizes an axis after the user edits that linked field. The old
-          // eager average destroyed all four authored values immediately and
-          // produced four source commits/undo entries just from clicking the
-          // link icon. AutoLayoutMatrix intentionally displays left/top as
-          // each linked axis's representative value and applies both sides on
-          // the next real field edit, so no style write belongs here.
+          // Linking changes the display mode without committing a style edit.
+          // Asymmetric values remain intact until the user edits a linked
+          // field; eagerly averaging them here would destroy the authored
+          // values and create history entries from a display-only action.
         }}
         onMarginChange={(nextMargin, meta, changedSides) => {
           const patch = spacingStylesForSides(
@@ -964,7 +960,7 @@ export function LayoutContextProperties({
         {/* design-editor single-row-per-axis: [W | value | Fixed/Hug/Fill ▾]
             with the full sizing menu (modes + min/max + variable) per axis,
             plus a chain-link aspect-ratio lock at the FAR RIGHT of the row
-            (Figma parity — the constrain-proportions link sits after both W
+            (the constrain-proportions link sits after both W
             and H, not between them). */}
         <InspectorGrid className="items-start" layout="action-pair">
           <InspectorGridCell

@@ -165,7 +165,7 @@ describe("factory-automation-form destination gating", () => {
     expect(omitNullDestination("")).toBe("");
   });
 
-  it("points workspace connect at Dispatch admin integrations", () => {
+  it("points workspace connect at Dispatch Settings integrations", () => {
     expect(
       dispatchIntegrationsHref([
         {
@@ -174,7 +174,7 @@ describe("factory-automation-form destination gating", () => {
           href: "https://beta.dispatch.agent-native.com/overview",
         },
       ]),
-    ).toBe("https://beta.dispatch.agent-native.com/admin/integrations");
+    ).toBe("https://beta.dispatch.agent-native.com/settings/integrations");
     expect(
       dispatchIntegrationsHref([
         {
@@ -183,13 +183,15 @@ describe("factory-automation-form destination gating", () => {
           url: "https://beta.dispatch.agent-native.com/overview",
         },
       ]),
-    ).toBe("https://beta.dispatch.agent-native.com/admin/integrations");
-    expect(dispatchIntegrationsHref([])).toBe("/dispatch/admin/integrations");
+    ).toBe("https://beta.dispatch.agent-native.com/settings/integrations");
+    expect(dispatchIntegrationsHref([])).toBe(
+      "/dispatch/settings/integrations",
+    );
     expect(
       dispatchIntegrationsHref([
         { id: "dispatch", isDispatch: true, path: "/dispatch" },
       ]),
-    ).toBe("/dispatch/admin/integrations");
+    ).toBe("/dispatch/settings/integrations");
   });
 });
 

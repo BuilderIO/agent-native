@@ -3484,7 +3484,7 @@ describe("TiptapComposer slash commands", () => {
 
     expect(editor.textContent).toBe("");
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(onSubmissionPendingChange).toHaveBeenLastCalledWith(true);
+    expect(onSubmissionPendingChange).not.toHaveBeenCalled();
     act(() => focusRef.current?.setText("follow-up prompt"));
 
     await act(async () => {
@@ -3500,6 +3500,7 @@ describe("TiptapComposer slash commands", () => {
       expect.objectContaining({ intent: "immediate" }),
     );
     expect(editor.textContent).toBe("follow-up prompt");
+    expect(onSubmissionPendingChange).toHaveBeenLastCalledWith(true);
     await act(async () => resolveSubmit());
     expect(editor.textContent).toBe("follow-up prompt");
     expect(onSubmissionPendingChange).toHaveBeenLastCalledWith(false);
@@ -3942,6 +3943,7 @@ describe("TiptapComposer slash commands", () => {
 
   it("restores a prompt when async preflight declines it", async () => {
     const onBeforeSubmit = vi.fn(async () => false);
+    const onSubmissionPendingChange = vi.fn();
     const onSubmit = vi.fn();
     const focusRef = React.createRef<TiptapComposerHandle>();
 
@@ -3956,6 +3958,7 @@ describe("TiptapComposer slash commands", () => {
           React.createElement(TiptapComposer, {
             focusRef,
             onBeforeSubmit,
+            onSubmissionPendingChange,
             onSubmit,
             clearOnSubmitImmediately: true,
             includeDefaultSlashSkills: false,
@@ -3978,6 +3981,7 @@ describe("TiptapComposer slash commands", () => {
     });
 
     expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSubmissionPendingChange).not.toHaveBeenCalled();
     expect(
       container.querySelector('[contenteditable="true"]')?.textContent,
     ).toBe("keep this prompt");

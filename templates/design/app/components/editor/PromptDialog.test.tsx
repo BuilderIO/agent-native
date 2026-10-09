@@ -32,6 +32,7 @@ interface ComposerStubProps {
   draftScope?: string;
   initialText?: string;
   initialTextKey?: string | number;
+  requireAgentEngine?: boolean;
   composerRef?: React.Ref<{ focus: () => void }>;
   layoutVariant?: string;
   onTextChange?: (text: string) => void;
@@ -273,6 +274,12 @@ async function renderPopover(props: Record<string, unknown>) {
 }
 
 describe("PromptPopover lazy editor composer", () => {
+  it("forwards the shared AI readiness gate to its composer", async () => {
+    await renderPopover({ requireAgentEngine: true });
+
+    expect(mockComposer.current?.requireAgentEngine).toBe(true);
+  });
+
   it("keeps the composer area visible while the lazy chunk loads", async () => {
     let resolveComposer!: (module: {
       default: React.ComponentType<PromptComposerProps>;

@@ -85,6 +85,7 @@ interface SlashCommandMenuProps {
   documentId?: string;
   contentSpaceId?: string;
   suggesting?: boolean;
+  directoryWidgetEditing?: boolean;
   onDraftCommitted?: () => boolean | void | Promise<boolean | void>;
   onDraftPersisted?: (markdown: string) => boolean | Promise<boolean>;
   notionPageId?: string | null;
@@ -171,6 +172,7 @@ export interface CommandItem {
   shortcut?: string;
   icon: React.ElementType;
   suggestionSafe?: boolean;
+  directoryWidgetSafe?: boolean;
   preserveSlashRange?: boolean;
   action: (
     editor: Editor,
@@ -196,6 +198,14 @@ export function slashCommandsForMode<T extends { suggestionSafe?: boolean }>(
 ): T[] {
   return suggesting
     ? commands.filter((command) => command.suggestionSafe === true)
+    : [...commands];
+}
+
+export function slashCommandsForDirectoryWidget<
+  T extends { directoryWidgetSafe?: boolean },
+>(commands: readonly T[], directoryWidgetEditing: boolean): T[] {
+  return directoryWidgetEditing
+    ? commands.filter((command) => command.directoryWidgetSafe === true)
     : [...commands];
 }
 
@@ -321,6 +331,7 @@ export function buildHeadingCommands(
   return headingCommandMetadata.map((heading) => ({
     ...heading,
     suggestionSafe: true,
+    directoryWidgetSafe: true,
     action: (editor) => {
       const chain = editor.chain().focus();
       return behavior === "toggle"
@@ -706,6 +717,7 @@ export function SlashCommandMenu({
   documentId,
   contentSpaceId,
   suggesting = false,
+  directoryWidgetEditing = false,
   notionPageId,
   onDraftCommitted,
   onDraftPersisted,
@@ -1224,7 +1236,7 @@ export function SlashCommandMenu({
   const blockCommands = [
     ...(isTurnInto ? turnIntoCommands : commands).map(localizeCommand),
     ...equationCommands,
-  ];
+  ].map((command) => ({ ...command, directoryWidgetSafe: true }));
   const uniqueRegistryCommands = excludeCommandsWithDuplicateTitles(
     blockCommands,
     registryCommands,
@@ -1240,24 +1252,25 @@ export function SlashCommandMenu({
     cmd.title.toLowerCase().includes(normalizedQuery) ||
     cmd.description.toLowerCase().includes(normalizedQuery) ||
     cmd.searchText?.toLowerCase().includes(normalizedQuery);
-  const availableAiCommands = slashCommandsForMode(aiCommands, suggesting);
+  const availableAiCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(aiCommands, suggesting);
   const availableBlockCommands = slashCommandsForMode(
-    blockCommands,
+    slashCommandsForDirectoryWidget(blockCommands, directoryWidgetEditing),
     suggesting,
   );
-  const availableRegistryCommands = slashCommandsForMode(
-    uniqueRegistryCommands,
-    suggesting,
-  );
-  const availableLocalComponentCommands = slashCommandsForMode(
-    localComponentCommands,
-    suggesting,
-  );
-  const availablePageCommands = slashCommandsForMode(pageCommands, suggesting);
-  const availableMediaCommands = slashCommandsForMode(
-    mediaCommands,
-    suggesting,
-  );
+  const availableRegistryCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(uniqueRegistryCommands, suggesting);
+  const availableLocalComponentCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(localComponentCommands, suggesting);
+  const availablePageCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(pageCommands, suggesting);
+  const availableMediaCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(mediaCommands, suggesting);
   const filteredAiCommands = availableAiCommands.filter(commandMatchesQuery);
   const filteredBlockCommands =
     availableBlockCommands.filter(commandMatchesQuery);
@@ -1635,6 +1648,7 @@ export function SlashCommandMenu({
             >
               <PromptComposer
                 autoFocus
+                requireAgentEngine
                 disabled={isGenerating}
                 placeholder={t("editor.describeWhatToGenerate")}
                 draftScope={`content:generate:${documentId ?? "document"}`}

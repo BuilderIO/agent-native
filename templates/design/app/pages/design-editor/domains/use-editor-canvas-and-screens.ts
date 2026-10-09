@@ -117,6 +117,7 @@ export function useEditorCanvasAndScreens({
     t,
     id,
     session,
+    widgetEmbed,
     isSignedIn,
     initialSearchParams,
     queryClient,
@@ -200,6 +201,7 @@ export function useEditorCanvasAndScreens({
     liveFrameGeometryRef,
     boardFileId,
     overviewScreens,
+    designSourceType,
     handleScreenRuntimeLayerSnapshot,
   } = editorFilesAndSaving;
   const {
@@ -277,6 +279,21 @@ export function useEditorCanvasAndScreens({
     [boardFileContent],
   );
 
+  // A widget's first fit runs before the responsive frames are measured, so it
+  // frames them at their unmeasured height. Fit again once, when the first
+  // measurement lands, unless the viewer has already moved the camera.
+  const widgetOpenFitRef = useRef<{
+    command: DesignEditorCommand;
+    signature: string;
+    appliedAtMs: number;
+  } | null>(null);
+  const breakpointHeightsSignature = useMemo(
+    () =>
+      JSON.stringify(overviewScreens.map((screen) => screen.breakpointHeights)),
+    [overviewScreens],
+  );
+  const breakpointHeightsSignatureRef = useRef(breakpointHeightsSignature);
+  breakpointHeightsSignatureRef.current = breakpointHeightsSignature;
   useEffect(() => {
     if (!id) return;
     if (initialSearchCommandAppliedForIdRef.current === id) return;
@@ -291,8 +308,37 @@ export function useEditorCanvasAndScreens({
     const applied = applyDesignEditorCommand(command);
     if (applied) {
       initialSearchCommandAppliedForIdRef.current = id;
+      if (widgetEmbed) {
+        widgetOpenFitRef.current = {
+          command,
+          signature: breakpointHeightsSignatureRef.current,
+          appliedAtMs: Date.now(),
+        };
+      }
     }
-  }, [applyDesignEditorCommand, id, initialSearchParams]);
+  }, [applyDesignEditorCommand, id, initialSearchParams, widgetEmbed]);
+  useEffect(() => {
+    const pending = widgetOpenFitRef.current;
+    if (!pending || pending.signature === breakpointHeightsSignature) return;
+    widgetOpenFitRef.current = null;
+    if (Date.now() - pending.appliedAtMs > 5_000) return;
+    applyDesignEditorCommand(pending.command);
+  }, [applyDesignEditorCommand, breakpointHeightsSignature]);
+  useEffect(() => {
+    if (!widgetEmbed) return;
+    const release = () => {
+      widgetOpenFitRef.current = null;
+    };
+    window.addEventListener("wheel", release, { capture: true, once: true });
+    window.addEventListener("pointerdown", release, {
+      capture: true,
+      once: true,
+    });
+    return () => {
+      window.removeEventListener("wheel", release, { capture: true });
+      window.removeEventListener("pointerdown", release, { capture: true });
+    };
+  }, [widgetEmbed]);
 
   useEffect(() => {
     if (!id || !canEditDesign) return;
@@ -443,12 +489,23 @@ export function useEditorCanvasAndScreens({
       return runDuplicateScreen(
         {
           canEditDesign,
+          widgetEmbed,
           createFileAsync,
           deleteFileAsync: deleteFileMutation.mutateAsync,
           designDataJsonRef,
           duplicateRecoveryRef,
           displayedCanvasFrameGeometryById,
           files,
+          getCurrentScreenContentForDuplicate: (targetScreenId) => {
+            const sourceType = resolveOverviewScreenSourceType(
+              overviewScreens.find((screen) => screen.id === targetScreenId),
+              designSourceType,
+            );
+            if (sourceType !== "inline") {
+              return files.find((file) => file.id === targetScreenId)?.content;
+            }
+            return historySourceReaderRef.current(targetScreenId);
+          },
           focusCreatedScreen,
           id,
           liveFrameGeometryRef,
@@ -469,9 +526,11 @@ export function useEditorCanvasAndScreens({
     },
     [
       canEditDesign,
+      widgetEmbed,
       createFileAsync,
       deleteFileMutation,
       displayedCanvasFrameGeometryById,
+      designSourceType,
       files,
       focusCreatedScreen,
       recordFileCreationHistoryEntry,
@@ -1113,9 +1172,22 @@ export function useEditorCanvasAndScreens({
     [getUnprojectedScreenContent, id],
   );
   const getProjectionContentForScreen = useCallback(
-    (screenId: string) =>
-      liveScreenSnapshotsById[screenId]?.html ?? getScreenContent(screenId),
-    [getScreenContent, liveScreenSnapshotsById],
+    (screenId: string) => {
+      const sourceType = resolveOverviewScreenSourceType(
+        overviewScreens.find((screen) => screen.id === screenId),
+        designSourceType,
+      );
+      return sourceType === "inline"
+        ? getScreenContent(screenId)
+        : (liveScreenSnapshotsById[screenId]?.html ??
+            getScreenContent(screenId));
+    },
+    [
+      designSourceType,
+      getScreenContent,
+      liveScreenSnapshotsById,
+      overviewScreens,
+    ],
   );
 
   historySourceReaderRef.current = getProjectionContentForScreen;

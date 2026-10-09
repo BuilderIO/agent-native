@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-08
+
+### Removed
+
+- Removed the deprecated standalone integrations page; legacy links now open the Settings integrations tab.
+
 ## 2026-10-06
 
 ### Fixed

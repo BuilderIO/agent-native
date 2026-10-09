@@ -189,6 +189,7 @@ import {
   sendLinkedScreenPreviewStyleChange,
 } from "./multi-screen/linked-screen-preview";
 import type { KScaleStyleChange } from "./multi-screen/types";
+import { PIXEL_GRID_BACKGROUND_IMAGE, PIXEL_GRID_ZOOM } from "./pixel-grid";
 import {
   getIframePaintRetentionStyle,
   SCALED_IFRAME_PAINT_RETENTION_STYLE,
@@ -618,10 +619,15 @@ interface DesignCanvasProps {
   /** Read-only localhost bridge credential. Filesystem write tokens never enter
    * this browser component. */
   previewToken?: string;
+  localhostPreviewUnavailable?: boolean;
+  localhostPreviewUnavailablePublic?: boolean;
+  onRetryLocalhostPreview?: () => void;
+  localhostPreviewRetryPending?: boolean;
   liveEditCapability?: string;
   liveEditRegistrationCapability?: string;
   publicVisualEdit?: boolean;
   zoom: number;
+  pixelGridEnabled?: boolean;
   onZoomChange?: (zoom: number) => void;
   deviceFrame: DeviceFrameType;
   embeddedFrame?: {
@@ -838,6 +844,7 @@ interface DesignCanvasProps {
   hiddenSelectors?: string[];
   clearSelectionRequest?: number;
   registerRuntimeBridge?: boolean;
+  registerLiveEditPreview?: boolean;
   onExitPinMode?: () => void;
   designId?: string;
   reviewCanPost?: boolean;
@@ -1311,9 +1318,14 @@ export function DesignCanvas({
   onRuntimeVerificationSnapshot,
   fusionUrl,
   previewToken,
+  localhostPreviewUnavailable = false,
+  localhostPreviewUnavailablePublic = false,
+  onRetryLocalhostPreview,
+  localhostPreviewRetryPending = false,
   liveEditCapability,
   liveEditRegistrationCapability,
   zoom,
+  pixelGridEnabled = true,
   onZoomChange,
   deviceFrame,
   embeddedFrame,
@@ -1387,6 +1399,7 @@ export function DesignCanvas({
   hiddenSelectors = NO_SELECTORS,
   onExitPinMode,
   registerRuntimeBridge = true,
+  registerLiveEditPreview = registerRuntimeBridge,
   designId,
   publicVisualEdit = false,
   reviewCanPost = false,
@@ -1536,8 +1549,8 @@ export function DesignCanvas({
   // visual, OUTER scale the bridge running INSIDE the iframe has no way to
   // observe. `editorChromeScaleX/Y` is the only channel that tells the bridge
   // what scale its own chrome (selection borders, resize handles, spacing
-  // overlays) must counter-scale by to stay a constant on-screen size, Figma-
-  // style, instead of visually shrinking/growing with content as the user
+  // overlays) must counter-scale by to stay a constant on-screen size instead
+  // of visually shrinking/growing with content as the user
   // zooms. The overview caller already folds its own zoom into the
   // editorChromeScaleX/Y it passes down for exactly this reason; this
   // component must do the same with its OWN `zoom` prop for single-view,
@@ -2082,6 +2095,12 @@ export function DesignCanvas({
   );
   const rawExternalPreviewUrl = useMemo(() => {
     if (snapshotOnly && sourceType === "localhost") return null;
+    if (
+      sourceType === "localhost" &&
+      (!connectionId || !bridgeUrl || !effectivePreviewToken)
+    ) {
+      return null;
+    }
     const overrideUrl = getExternalPreviewUrl(previewUrlOverride ?? "");
     if (overrideUrl) return overrideUrl;
     const contentUrl = getExternalPreviewUrl(
@@ -2102,6 +2121,9 @@ export function DesignCanvas({
     return null;
   }, [
     content,
+    bridgeUrl,
+    connectionId,
+    effectivePreviewToken,
     fusionUrl,
     previewUrlOverride,
     renderedContent,
@@ -2339,7 +2361,7 @@ export function DesignCanvas({
   }, [externalPreviewUrl, runtimeVerificationRequest]);
   const waitingForEditableExternalSnapshot = false;
   const waitingForLiveEditBridge =
-    registerRuntimeBridge &&
+    registerLiveEditPreview &&
     usesLiveEditInjectedBridge &&
     !liveEditBridgeRegistered;
   const showProactiveLocalNetworkAccessPrompt =
@@ -2491,7 +2513,7 @@ export function DesignCanvas({
   const attemptBridgeRegistration =
     useCallback(async (): Promise<BridgeRegistrationAttemptResult> => {
       if (
-        !registerRuntimeBridge ||
+        !registerLiveEditPreview ||
         !usesLiveEditInjectedBridge ||
         !bridgeUrl ||
         !effectivePreviewToken ||
@@ -2698,10 +2720,10 @@ export function DesignCanvas({
       connectionId,
       publicVisualEdit,
       screenId,
-      registerRuntimeBridge,
+      registerLiveEditPreview,
     ]);
   useEffect(() => {
-    if (!registerRuntimeBridge) {
+    if (!registerLiveEditPreview) {
       bridgeRegistrationAttemptGenerationRef.current += 1;
       bridgeRegistrationControllerRef.current?.abort();
       bridgeRegistrationControllerRef.current = null;
@@ -2764,7 +2786,7 @@ export function DesignCanvas({
     bridgeUrl,
     liveEditBridgeKey,
     effectivePreviewToken,
-    registerRuntimeBridge,
+    registerLiveEditPreview,
     scheduleBridgeRegistrationRetry,
     usesLiveEditInjectedBridge,
   ]);
@@ -7562,7 +7584,8 @@ export function DesignCanvas({
           onDismiss={handleDismissLocalNetworkAccessPrompt}
         />
       ) : null}
-      {waitingForEditableExternalSnapshot ||
+      {localhostPreviewUnavailable ||
+      waitingForEditableExternalSnapshot ||
       liveEditBridgeConfigurationPending ||
       (waitingForLiveEditBridge && !bridgeRegistrationFailedForCurrentKey) ||
       sameOriginBridgePending ||
@@ -7570,7 +7593,38 @@ export function DesignCanvas({
         liveEditSameInstanceStalledError?.bridgeKey !== liveEditBridgeKey) ||
       liveEditRegistrationFailurePending ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
-          {bridgeConnectionLostError?.bridgeKey === liveEditBridgeKey ? (
+          {localhostPreviewUnavailable ? (
+            <div
+              className="pointer-events-auto flex max-w-[28rem] flex-col items-center gap-2 rounded-md border bg-card px-4 py-3 shadow-sm"
+              role="alert"
+            >
+              <div className="flex items-center gap-1.5 font-medium text-foreground">
+                <IconPlugConnectedX className="size-4 shrink-0 text-destructive" />
+                {t(
+                  "designCanvas.localBridge.previewCredentialsUnavailableTitle",
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {t(
+                  localhostPreviewUnavailablePublic
+                    ? "designCanvas.localBridge.publicPreviewUnavailableDescription"
+                    : "designCanvas.localBridge.previewCredentialsUnavailableDescription",
+                )}
+              </div>
+              {onRetryLocalhostPreview && !localhostPreviewUnavailablePublic ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={onRetryLocalhostPreview}
+                  disabled={localhostPreviewRetryPending}
+                >
+                  <IconRefresh className="size-3.5" />
+                  {t("designCanvas.localBridge.previewCredentialsRetry")}
+                </Button>
+              ) : null}
+            </div>
+          ) : bridgeConnectionLostError?.bridgeKey === liveEditBridgeKey ? (
             <div className="pointer-events-auto flex max-w-[28rem] flex-col items-center gap-2 rounded-md border bg-card px-4 py-3 shadow-sm">
               <div className="flex items-center gap-1.5 font-medium text-foreground">
                 <IconPlugConnectedX className="size-4 shrink-0 text-destructive" />
@@ -7839,6 +7893,26 @@ export function DesignCanvas({
       <DeviceFrame type={deviceFrame}>{iframeElement}</DeviceFrame>
     );
 
+  // Sized to the on-screen box and counter-scaled so tiles are `scale` px
+  // with 1px lines; the zoom layer itself is a CSS transform scale.
+  const pixelGridScale = zoom / 100;
+  const pixelGridOverlay =
+    pixelGridEnabled && zoom >= PIXEL_GRID_ZOOM ? (
+      <div
+        aria-hidden="true"
+        data-pixel-grid
+        className="pointer-events-none absolute left-0 top-0 z-[80] opacity-60"
+        style={{
+          width: `${pixelGridScale * 100}%`,
+          height: `${pixelGridScale * 100}%`,
+          transform: `scale(${1 / pixelGridScale})`,
+          transformOrigin: "top left",
+          backgroundImage: PIXEL_GRID_BACKGROUND_IMAGE,
+          backgroundSize: `${pixelGridScale}px ${pixelGridScale}px`,
+        }}
+      />
+    ) : null;
+
   return (
     <div
       ref={scrollContainerRef}
@@ -7883,6 +7957,7 @@ export function DesignCanvas({
               }}
             >
               {wrappedContent}
+              {pixelGridOverlay}
             </div>
           </div>
         </div>
@@ -7932,6 +8007,7 @@ export function DesignCanvas({
           }}
         >
           {wrappedContent}
+          {pixelGridOverlay}
         </div>
       ) : (
         <div className="relative flex items-center justify-center min-h-full">
@@ -7947,6 +8023,7 @@ export function DesignCanvas({
             }}
           >
             {wrappedContent}
+            {pixelGridOverlay}
           </div>
         </div>
       )}

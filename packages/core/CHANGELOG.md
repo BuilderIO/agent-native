@@ -51,6 +51,90 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.206.0
+
+### Minor Changes
+
+- e88f35c: Prevent new AI chat work from dispatching without an eligible provider, and provide a consistent Connect AI flow.
+
+  `createProductionAgentHandler` now requires the `assertAiSetupReady` callback. Existing callers must provide a readiness assertion before upgrading; refusals can use the existing `onRunNotStarted` callback to retain the user's prompt and retry context.
+
+  AgentKit transports must provide `assertAiSetupReady`, or clients for transports where shared Agent-Native provider setup does not apply must set `aiSetupReadiness: "not-applicable"` explicitly.
+
+- 02fc73f: Support artifact-scoped write capabilities for editable MCP app widgets.
+- 58b7507: Refresh Builder and BYOK model catalogs, including Claude Haiku 5.5, current provider IDs, and model picker options.
+- f6a7c17: Allow query-token routes to bypass session auth only when their handler's credential is present, while retaining workspace-app checks for session requests.
+
+### Patch Changes
+
+- 4ae41fd: Correct the bundled Automations, Recurring Jobs, and Workflow Connectors docs: document webhook triggers and Run now, point to Settings › Automations, describe how condition failures are recorded, narrow what fire-test exercises, and use the n8n integration's `N8N_WEBHOOK_CREDENTIAL` key.
+- 9e2d5f5: Record scheduled automation runs under the automation's stored owner and scope so personal jobs show their scheduled and manual executions together in Past runs.
+
+  Return that same stored-owner scope to Dispatch's automation list so personal jobs with legacy execution organization metadata query their personal run history.
+
+  Add an opt-in maintenance backfill that moves completed misfiled history, including skipped runs, to personal scope only when execution traces identify one stable job id and the matching stored owner.
+
+- d6f1e18: Keep inline attachment bytes out of durable chat payloads, reject data URLs in queued file references, and distinguish stored references from unreadable malformed uploads.
+- 0b1175a: Attach browser session context to Builder lifecycle tracking.
+- e6a3764: Serve the Builder Code starter's home page again. Since the Nitro update, the `[...page]` catch-all no longer matches `/`, so the starter's root returned "Cannot find any route matching [GET] /".
+- 72e4ca7: Remove retired Design workflow guidance from generated templates.
+- 80e66f8: Persist a sanitized first-prompt title for chat threads without replacing an existing title, hide prompt context from extracted previews, match context tags by exact name, and remove unused browser-installer dependencies from serverless functions.
+- 599ea41: Connect tokens work again in an organization whose A2A secret matches the deployment's `A2A_SECRET`. Tokens from the `/mcp/connect` terminal flow and from "Generate a static token" lost their subject there and got a bare 401 at `/mcp` and the action routes, while OAuth connectors kept working. Connect now always mints an MCP OAuth access token, bound to the audience `verifyAuth` accepts, so tokens minted through a deployment alias or under a base path verify too. `verifyAuth` classifies a bearer by the credential it claims to be: every credential the app issued, including connect tokens in the earlier A2A format, is verified and admitted through one path before any cross-app A2A rule runs. Earlier-format connect tokens verify only with the deployment `A2A_SECRET`, and their stored row supplies their identity.
+
+  A refused bearer token now says why. The 401 body carries a `reason` (`invalid`, `revoked`, `unknown-connect-token`, `identity-mismatch`, `not-member`, `email-retired`, or `service-principal-inactive`) and a message naming the reconnect URL. On `/mcp` the `WWW-Authenticate` challenge adds `error="invalid_token"` and the same `error_description`. Org service tokens now carry service identity assurance, not user assurance, and are signed with a credential version that earlier releases refuse, so a rollback cannot admit one as a person. `create-org-service-token` binds the token to the app it was called through, including from the CLI, and refuses to mint when neither the request nor `APP_URL` names the app, instead of guessing a URL the app would then refuse.
+
+- 58b7507: Show custom-agent model choices using the active engine's supported models and label Builder fallbacks clearly.
+- 0889356: Redirect the deprecated Dispatch integrations route into Settings and preserve mounted OAuth return paths.
+- af6c95a: Event automations created on another server instance now start receiving events within about 5 seconds instead of up to a minute. The trigger dispatcher re-checks its cached list of event automations with a cheap fingerprint read of `jobs/` (a digest of each row's id, owner, path, write time and content hash; content is hashed in the database) at most every 5 seconds, and reads the full list only when the fingerprint changed. `hasEventAutomation` answers "no" from that fingerprint instead of a full read. Adds `resourceFingerprintAllOwners` and `resourceListAllOwnersWithFingerprint` to the resource store; each full read carries the fingerprint of exactly the rows it returned.
+- 3f0fe0f: Let an app open the extension iframe's `img-src` and `media-src` to remote origins.
+
+  The sandboxed extension iframe shipped `img-src 'self' data: blob:` and `media-src 'self' data: blob:`, so an extension could not show a product photo, avatar, or CDN asset without proxying the bytes through the app. `extensions.iframeImageSources` and `extensions.iframeMediaSources` (env `AGENT_NATIVE_EXTENSION_IFRAME_IMAGE_SOURCES` / `AGENT_NATIVE_EXTENSION_IFRAME_MEDIA_SOURCES`) now replace those two lists, comma-separated, defaulting to the previous values. Each entry is validated as a single CSP source expression, so a configured value cannot terminate the directive and append a new one. `connect-src` stays `'self'`. A remote image or media origin is an explicit egress permission: the browser requests that URL, so it can carry data out of the sandbox. API calls still go through the permission-gated host bridge.
+
+  The configured lists reach every extension frame: the server render route, and the client-rendered `srcDoc` frames in `ExtensionViewer` and `InlineExtensionFrame`, which read them from the authenticated `/_agent-native/extensions/iframe/display-sources` endpoint. The lists are validated again wherever the policy is built, so a resolved config mutated after validation cannot inject a directive, and a client that cannot load valid lists falls back to the default policy.
+
+- 4ccff57: Allow apps to opt into a fallback permission role for active members with no app-role assignments and an exemption for organization owners/admins. Membership checks remain required; organization permission overrides apply to assigned and fallback roles, while opted-in owners/admins bypass app-permission checks.
+- b10b188: Queue an event for every matching automation even when one of their queue writes fails. A single failed enqueue used to abort the fan-out, silently dropping the event for every later automation; each match is now attempted, and the failures are surfaced once with the first failing path.
+- af6c95a: Event automations no longer stop firing in a serverless instance whose startup database read timed out. The trigger dispatcher now does no database work at plugin init: it loads which events have automations when the first event is emitted, retries that load on the next event after a failure instead of treating it as "no automations", and reloads it every minute so automations created on another instance are picked up. Adds `subscribeAll` to the event bus and `hasEventAutomation` to `@agent-native/core/triggers`.
+- Release all public npm packages with a patch version bump.
+- 792ba44: Mask run failure messages and diagnostic details in session replays, preserving the default privacy marker with app-specific text selectors.
+- 8f0ffa5: Preserve browser session correlation across signup and same-origin agent chat, resolve onboarding identity before handoff, keep credential and local endpoint outcomes accurate through dismissals and pending saves, and preserve attempts across idle session rotation.
+- 6e9fccf: Scope first-run onboarding event dedupe to the analytics session and allow later step views to be observed.
+- d6f1e18: Hydrate readable images and documents from owned storage URLs into model requests and report attachment processing failures to the model.
+  Send resized image payloads through their durable URLs so multiple references stay within the request's inline data limit.
+- 51d58ed: Support pglite:memory: and pglite:/memory: as in-memory PGlite data dirs in the runtime client, matching the drizzle-kit config path.
+- d6f1e18: Preserve image MIME types through shared chat attachments, report active engine configuration errors instead of treating them as missing provider credentials, validate queued image sizes before decoding, keep legacy queued messages readable, and avoid misleading storage setup guidance for generic upload failures.
+- 6897c01: Preserve browser session attribution for Google OAuth signups.
+- be0d784: Add opt-in, privacy-masked session replay for signup and login pages.
+- 7869c35: Preserve app and template attribution when provisioning Builder accounts in one click.
+- 98e7e9c: Keep agent run and tool failure messages out of server Analytics, Monitoring, and optional OpenTelemetry exports, including gateway captures and exception flood summaries. Preserve error codes, causes, exception types, HTTP statuses, and stack frames for diagnosis while retaining local owner-scoped run and trace details.
+- 42658bc: Allow exact dynamic public route patterns for token-verified framework endpoints.
+- 116fdc9: Allow authenticated organization service identities to read org-visible resources in their own organization.
+- 74512d9: Remove server source maps from Nitro output before creating serverless function bundles.
+- 113e8af: Export `hasSessionHint()` from `@agent-native/core/client/use-session`, so an app can start a read that needs a signed-in visitor alongside the session check instead of after it. It reads the same cookie, with the same rule, as the early session read.
+
+  Also export `isSessionFromFirstRead()`, which says whether the session the tab holds answered the page load's own session read. A read started before the session was known carried the same cookies only while it holds; after a retry or an invalidation, another tab may have switched accounts, so the app should drop that read rather than show it.
+
+- 217260d: Start a signed-in visitor's early session read from the top of `<head>`, before the page's stylesheets and module preloads, instead of from the body after them, where it waited for every stylesheet to load. `AppProviders` reports the read during the server render, so pages that skip the session check still start none.
+
+  Toolkit now requires `@agent-native/core` 0.205.1 or later, the first release that exports `@agent-native/core/shared/ssr-session-bootstrap-slot`, which `AppProviders` imports.
+
+- 72e4ca7: Expose recorded session-resolution failures so routes can return retryable responses instead of treating outages as anonymous access.
+- f3d2b81: Recover completed chat runs when terminal replay is briefly incomplete, keep invalid gateway requests from retrying as transient errors, classify completion timeouts with a stable error code, preserve retries for no-detail transient gateway codes, continue recoverable run timeouts, and reject partial completion when a stream ends cleanly after timeout.
+- fb94f8d: Export the concurrent index and in-process sweep helpers for bounded, lazy
+  maintenance work.
+- 6e9fccf: Improve onboarding telemetry attribution and setup completion redirects.
+- de15567: Export the pinned recorder URL used by cooperative session replay iframes.
+- 7e103bd: Use the HTTP access gate's application identity when explaining access, so standalone apps check permissions and resource shares without requiring a workspace app registration.
+- Updated dependencies [e88f35c]
+- Updated dependencies [d6f1e18]
+- Updated dependencies [116fdc9]
+- Updated dependencies [80e66f8]
+- Updated dependencies
+- Updated dependencies [d6f1e18]
+- Updated dependencies [f3d2b81]
+  - @agent-native/agentkit@0.206.0
+  - @agent-native/recap-cli@0.5.68
+
 ## 0.205.0
 
 ### Minor Changes
@@ -165,7 +249,7 @@
 - 044bbd7: Stop `manage-jobs` create from replacing an existing job file, and record a `job-fields-dropped` audit event when a write to a `jobs/` file removes its frontmatter fields.
 - Release all public npm packages with a patch version bump.
 - dc2b350: Expose verified directory widget read scope to frontend actions for safe read-only embeds.
-- d0fab3d: Add Design parity evidence and CI failure triage guidance to shipped feedback skills.
+- d0fab3d: Add Design regression evidence and CI failure triage guidance to shipped feedback skills.
 - Updated dependencies
   - @agent-native/agentkit@0.203.1
   - @agent-native/recap-cli@0.5.65
@@ -1384,7 +1468,7 @@
   "Connect Builder.io".
 - 5ede9f7: Keep editor recovery bases stable and combine non-overlapping concurrent edits before asking the user to recover a draft.
   Keep optional Node SQLite cache code from breaking Cloudflare Pages bundles.
-- b6857ea: Improve Design review comments with Figma-style reactions, filtering, reopen and undo controls, image attachments, mentions, and movable canvas pins.
+- b6857ea: Improve Design review comments with reactions, filtering, reopen and undo controls, image attachments, mentions, and movable canvas pins.
 - d157801: `pnpm action db-query` now forwards to the running local dev server instead
   of failing when PGlite's single-process lock is already held by `pnpm dev`.
   The forwarded query runs through the same validation and row scoping as the
@@ -2628,208 +2712,10 @@
 - ca7360e: Clarify the email sign-in action and keep magic-link onboarding as the default entry view.
 - 04b27f9: Use custom app names and optional logos in social OG images while preserving Agent-Native branding for first-party templates.
 - 46e4ada: Refuse to save failed provider and web responses as durable workspace exports.
-- 841c741: Fix two Figma auto-layout rules the REST importer could not express in CSS.
+- 841c741: Improve Design file conversion. The import paths now retain additional layout, transform, text, image, vector, gradient, opacity, and effect data. Unsupported constructs use the conversion fallbacks, and the import report records omissions and approximations.
 
-  Figma allows a negative `itemSpacing`, which overlaps auto-layout children. CSS
-  rejects a negative `gap` outright, so the declaration was dropped and silently
-  fell back to 0. On the Positivus landing page the contact block overlaps its
-  children by -367px; losing that overflowed the row, and because CSS flex items
-  shrink by default while Figma never shrinks a FIXED or HUG child, the overflow
-  was redistributed and both children came out the wrong width (1240px rendered
-  as 825px, 692px as 415px) with the illustration thrown outside its card.
+- 841c741: `fingerprintMedia` no longer imports `node:crypto`. It is re-exported from the `ingestion` barrel, so browser builds can load the converters. It now uses `@noble/hashes`, verified to produce the same SHA-256 digest.
 
-  A negative `itemSpacing` is now reproduced as a negative margin on every child
-  after the first, and children whose main-axis sizing is not FILL are pinned
-  with `flex-shrink: 0`. Measured against Figma's own geometry for those nodes,
-  every box now matches to within 0.1px.
-
-- 841c741: Fix a set of Figma import defects that silently dropped or reshaped content,
-  found by measuring 26 real designs against Figma's own render of each node.
-
-  Across that corpus the import diff falls to 3.1% overall, 0.78% with text boxes
-  excluded and 0.44% excluding image fills as well — what remains is Chromium and
-  Figma hinting glyphs and scaling bitmaps differently, not the conversion. The
-  export hop costs under 2.4% on every design. Per node, 23 of the 26 designs have
-  nothing off by more than 1.5px, and every offender in the other three is one
-  glyph: a hugging box holding a `%`, which Google Fonts' Inter draws wider than
-  the Inter Figma bundles.
-
-  A child set to FILL along an axis its auto-layout parent HUGS now keeps the
-  size Figma resolved for it. Figma treats that pair by falling back to the
-  child's own size, but `flex-grow: 1; flex-basis: 0%` in an auto-sized flex
-  container resolves to zero — so the child disappeared and every later sibling
-  slid up by its height. A 343x240 photo vanished from a real landing page this
-  way.
-
-  An auto-layout frame that HUGS an axis but has no children now keeps the size
-  Figma resolved for it. Figma does not collapse an empty hug frame, so it still
-  reports real dimensions; mapping that to `width: auto` collapsed it to nothing,
-  which deleted a 685x456 image placeholder from a real hero section and let its
-  FILL sibling take the whole row, so the heading stopped wrapping too.
-
-  Mirrored nodes are no longer rendered as half turns. Figma's `rotation` field
-  is a decomposition that cannot tell a flip from a 180-degree rotation — both
-  report pi — so a horizontally mirrored group picked up a vertical flip it does
-  not have, and everything inside it landed on the wrong side. The transform now
-  comes from `relativeTransform`'s own 2x2 block as a CSS `matrix()`, which
-  carries mirroring and skew as well as rotation.
-
-  Three auto-layout rules now match Figma's own resolution rather than the raw
-  field values. A row aligned SPACE_BETWEEN no longer also emits `itemSpacing` as
-  a CSS gap — Figma ignores that field in this mode but still reports it, and CSS
-  distributes space on top of a gap rather than instead of it. A negative
-  `itemSpacing` is clamped so the children still fill their container, which is
-  where Figma stops an overlap — the same rule the `.fig` walker already used,
-  rather than a second one, and applied on a FILL axis as well as a FIXED one
-  since a FILL axis takes its parent's definite size. And a rotated auto-layout
-  child now occupies its rotated footprint: a CSS transform does not change
-  layout size, so a vertical rule stored as a wide line turned 90 degrees was
-  taking its full pre-rotation width out of the row.
-
-  Three more sizing rules now follow Figma. A HUG container holding a cross-axis
-  FILL child uses the size Figma resolved: a FILL child does not feed Figma's
-  hug, while CSS still feeds its max-content into the container's shrink-to-fit
-  width, so a card column came out 76px too wide and moved every sibling. A FILL
-  child is allowed to shrink below its own content (`min-width: 0`), which is
-  what Figma's FILL does. And a zero-thickness LINE is placed from its own size
-  rather than the already-rotated bounding box — requiring both dimensions to be
-  positive pushed every rotated rule onto the fallback and squared its rotation.
-
-  Break characters Figma does not lay out as breaks no longer become lines.
-  Figma's stored text can carry them: a real footer holds "Get started for
-  free.\rAdd your whole team as your needs grow." and Figma draws it as ONE
-  flowing paragraph, wrapping at the width, while a heading holding "Customise
-  it\rto your needs" renders "Customise it to / your needs". Both formats say so
-  and neither walker was reading it — REST `lineTypes` and kiwi `textData.lines`
-  hold one entry per line Figma actually laid out. Measured across every
-  break-bearing text node in the corpus that count is never wrong, while counting
-  break characters overstates it on 8 of 20 REST nodes and 17 of 18 kiwi ones.
-  Mapping one such CR to a newline made a footer a line taller and, because its
-  column is vertically centred, moved all 61 nodes in it.
-
-  Trailing whitespace goes for the same reason: Figma neither draws it nor lets
-  it widen a hugging box, while `pre-wrap` does both. Of the 943 hugging text
-  nodes in the corpus the only three wider than Figma's own box are the three
-  whose text ends in a space — the other 940 average 0.02px of error.
-
-  Angular (conic) gradients now sweep the way Figma sweeps them. Figma computes
-  the sweep in the node's normalized space — the box treated as a unit square,
-  then stretched — while CSS `conic-gradient()` sweeps at a true uniform angular
-  rate in real pixels; the two agree only on the axes, so a non-square tile
-  landed its mid-sweep colours visibly early. Drawing the gradient into a square
-  and scaling that square to the box reproduces Figma's definition exactly.
-
-  Zero-thickness vector geometry renders again. The SVG spec says a viewBox with
-  a zero width or height DISABLES rendering of the element, so a stroked path
-  whose own box is 20x0 — a horizontal rule, or the arrow inside a "Learn more"
-  button — disappeared silently. A collapsed axis now takes the stroke's own
-  width, with the geometry centred on it.
-
-  Figma's image CROP is now honoured. `scaleMode: STRETCH` with an
-  `imageTransform` is Figma's Crop mode: the matrix picks a sub-rectangle of the
-  image and stretches that to fill the box. The transform was being discarded and
-  the whole image drawn instead, which reads as the artwork zoomed out — every
-  illustration on a real services page came out visibly smaller than Figma draws
-  it, and it was the largest non-text difference left on that page (4.04% ->
-  3.52%). A rotated or skewed crop still takes the raster fallback, which is
-  exact where a stretch would be wrong.
-
-  A hugging TEXT box now takes Figma's rounded width as a minimum. Figma rounds
-  every hugging text box to a whole pixel and lays its siblings out against that;
-  hugging to our own fractional width makes each label a fraction narrower, and
-  in a row of them the fractions add up — a nav came out 5px short across six
-  items, moving every one of them. As a minimum rather than a fixed width:
-  pinning the width forces the text to wrap wherever our advances run a hair
-  wider than Figma's, which is a different layout entirely.
-
-  The height is a minimum only where the text can wrap. Figma lays a hugging box
-  out at `round(lines * lineHeight)` — 206 of the 207 hug-both nodes in the
-  corpus with a fractional line height — and it rounds DOWN as often as up, so a
-  minimum could never reach it. Text hugging BOTH axes cannot wrap, so its line
-  count is fixed by the break characters and always matches Figma's; there the
-  rounded height is taken outright. Two Space Grotesk headings at 38.28px line
-  height hugged to 38.28 each where Figma laid out 38, and the 0.56px each pushed
-  their whole column down.
-
-  Diamond gradients are now drawn as the four-pointed shape Figma draws, instead
-  of being approximated by an ellipse. The falloff is an L1 distance, which is
-  linear inside each quadrant, so four quadrant-tiled linear gradients reproduce
-  it exactly rather than approximately.
-
-  An image fallback's overflowing ink no longer takes layout space. The `<img>`
-  is sized from render bounds so an OUTSIDE stroke or shadow is drawn at its
-  natural size instead of squished into the smaller geometric box, but Figma
-  stacks siblings against the geometric box and paints the ink outside it. A
-  horizontal LINE is the extreme case — its box is zero-height and the stroke is
-  entirely overflow, so every rule on a page pushed everything below it down a
-  pixel.
-
-  `downscaleImageToFit` is new in `ingestion`: it re-encodes an image to fit a
-  byte budget, keeping the aspect ratio, for callers that must inline one. The
-  Figma SVG export used it to stop dropping a page's 11.5MB hero shot, which had
-  been leaving a hole in the exported file — over a budget is a reason to send
-  fewer pixels, not to send nothing.
-
-  Icon-font glyphs no longer import as `.notdef` boxes. A Private Use Area
-  codepoint means nothing outside the font that assigned it, and fonts reach an
-  imported screen by family name from Google Fonts, which serves none of these
-  icon fonts — so Chromium drew a hollow box beside all 16 nav items of a real
-  admin dashboard, where Figma draws an icon. Such a text node now takes the
-  rendered-PNG fallback the walker already uses for anything it cannot express
-  (0.97% -> 0.83% on that design). The `.fig` walker has no render to fall back
-  on, so it drops the glyph and records the reason against the node instead.
-
-- 841c741: Match Figma's nearest-neighbour sampling when a Figma image fill is magnified.
-
-  Figma upscales an image fill with nearest-neighbour sampling; a browser upscales
-  with bilinear smoothing. Measured across a checkerboard edge on a 16x16 fill
-  blown up to 180x90, Figma steps from `rgb(119,73,132)` to `rgb(227,78,52)` in
-  ONE pixel while the import ramped across twelve, so every low-resolution fill —
-  a pattern, an icon, pixel art, a placeholder — imported blurred.
-
-  `mapFigmaNodeToHtml` now takes `imageFillSizes` (imageRef -> the image's own
-  pixel size) and asks for `image-rendering: pixelated` only when the box is
-  meaningfully larger than the image. Only when magnified: `pixelated` is nearest
-  in both directions and a photo scaled down that way aliases badly. Without a
-  size the fill still renders, just smoothed.
-
-  The Figma importer supplies it for free from the bytes it already downloads to
-  mirror into storage. The `fills-effects` fidelity case went 14.33% -> 12.07%,
-  and the scanline across that edge now matches Figma's within 1/255 per channel.
-
-- 841c741: `fingerprintMedia` no longer imports `node:crypto`. It is re-exported from the
-  `ingestion` barrel, so that one import made the whole barrel — the Figma
-  converters included — fail to load in a browser. It now uses `@noble/hashes`,
-  verified to produce the same SHA-256 digest.
-- 841c741: Figma REST import fidelity: four measured corrections found by pixel-diffing
-  the mapper's output against Figma's own renders.
-  - Rotated nodes tilted the wrong way. `relativeTransform`'s 2x2 block is
-    already CSS's own rotation matrix in the same y-down space, so the CSS angle
-    is `rotation`, not `-rotation`; negating it doubled the error.
-  - Children of a rotated node were positioned and sized from
-    `absoluteBoundingBox`, which is measured in already-rotated absolute space
-    and inflated to the rotated AABB. Geometry now comes from
-    `relativeTransform` + `size` (the node's true pre-rotation box in its
-    parent's own frame) whenever Figma returns them.
-  - Linear gradients used the wrong angle on any non-square box. Figma evaluates
-    the gradient in normalized space, so the CSS angle follows the iso-line
-    normal `(du/w, dv/h)`, not the scaled handle vector `(du*w, dv*h)`.
-  - Per-paint `opacity` on an IMAGE fill was dropped, because CSS background
-    layers have no per-layer opacity. Such a paint (and anything Figma stacks
-    above it) now renders as an absolutely-positioned overlay div.
-
-  Also: layer/background blur radius is scaled by a fitted 0.45x instead of 1:1,
-  and `textAutoResize: TRUNCATE` now renders its ellipsis instead of clipping
-  silently.
-
-- 841c741: Figma REST import now reconstructs real vector geometry. Vectors and boolean
-  operations that carry `fillGeometry`/`strokeGeometry` are emitted as inline
-  `<svg><path>` markup with their own solid and gradient paints, and reported as
-  `exact` fidelity instead of `image-fallback`. Nodes without geometry keep the
-  rendered-PNG fallback.
-- 7379c91: Export the fitted Figma blur-radius constant so the REST and `.fig` import
-  walkers share one value, and stop the fidelity report from describing a text
-  layer's drop shadow as a `text-shadow` when it is emitted as a `box-shadow`.
 - 0705e7f: fix Builder OAuth callbacks for apps hosted on Builder Cloud origins
 - 9f31e60: fix password actions for framework sessions without a Better Auth session
 - 5f9ca21: Keep completed chat responses static when a new run starts and keep stopped-response actions available.
@@ -2948,7 +2834,7 @@
   A single wheel notch saturated the hook's ±50px delta clamp and landed on
   `exp(0.5)`, so every detent multiplied zoom by ~1.65× regardless of how far the
   wheel actually turned. Wheel and pinch now run through separate curves — a
-  notch is a Figma-sized 1.1× step, finger separation keeps the exponential — and
+  notch is a 1.1× step, finger separation keeps the exponential — and
   the device is latched per gesture rather than guessed per event, because macOS
   ramps an accelerated wheel up from pinch-sized deltas.
 
@@ -3942,11 +3828,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - Updated dependencies [10de7b9]
   - @agent-native/recap-cli@0.5.6
   - @agent-native/toolkit@0.16.9
-
-## 0.166.0
-
-### Minor Changes
-
-- c50b009: Allow request action resolvers to preserve the default tool-loading surface.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

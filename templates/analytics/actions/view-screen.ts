@@ -294,7 +294,8 @@ export default defineAction({
               visitorType:
                 params.visitorType === "internal" ||
                 params.visitorType === "work" ||
-                params.visitorType === "personal"
+                params.visitorType === "personal" ||
+                params.visitorType === "anonymous"
                   ? params.visitorType
                   : undefined,
               sort: SESSION_SORTS.has(params.sort ?? "")

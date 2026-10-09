@@ -15,6 +15,7 @@ import {
 } from "../server/lib/onboarding-journey.js";
 
 const MAX_WINDOW_DAYS = 90;
+const MAX_DEPTH = 40;
 
 function resolveScope() {
   const userEmail = getRequestUserEmail();
@@ -33,7 +34,7 @@ const isoDate = z
 
 export default defineAction({
   description:
-    'Build the onboarding journey tree for a date window: per-session step sequences (signup, onboarding questions, setup method, app entry, first action, first output) folded into a prefix tree. format "tree" returns { window, app, rootN, coverage, nodes }: each node has n, pctOfRoot, pctOfParent, dropoffN/dropoffPct (sessions whose last observed step is that node, not a confirmed exit) and example sessions with recordingId, offsetMs to seek to, and the recording\'s viewport. format "summary" returns the same counts as an indented text outline with no examples. Check coverage.truncated first: true means counts are a partial sample or the node list was cut (see notes). Use it to plan onboarding storyboards or find where new users stop; feed the tree to the journey:capture CLI to render frames.',
+    'Return an access-scoped per-session onboarding tree through explicit saved-output events, preserving session counts and direct-parent denominators. followUpMode "session" keeps existing bounded same-session counts. "person" adds aggregate-only activity joined by direct canonical auth_user_id across first-party sessions and apps over a fixed 30-day horizon. It separates selected-session activity, outside-session/app activity and their overlap, no activity after a fully observed horizon, right-censoring, unknown identity, identity coverage, and read completeness. Its minute-aligned observationWatermark freezes event and receive time. Unknown identity and sessions without a selected step never count as inactive; no-activity is window-bounded evidence, not permanent churn. Output and attempt IDs are never returned. Check coverage.truncated before interpreting counts.',
   schema: z.object({
     dateFrom: isoDate.describe(
       "Inclusive UTC start date, YYYY-MM-DD. Sessions that began earlier appear mid-journey, so start a day before the period you care about.",
@@ -55,6 +56,13 @@ export default defineAction({
       .describe(
         'Builder-employee scope, as in the onboarding metrics: "exclude_builder" (default), "only_builder", or "all". Test identities are always excluded.',
       ),
+    followUpMode: z
+      .enum(["session", "person"])
+      .optional()
+      .default("session")
+      .describe(
+        'Follow-up grain: "session" (default) keeps existing same-session counts; "person" adds a scoped 30-day cross-session, cross-app estimate joined only by direct canonical auth_user_id.',
+      ),
     format: z
       .enum(["tree", "summary"])
       .optional()
@@ -70,17 +78,17 @@ export default defineAction({
       .optional()
       .default(60)
       .describe(
-        "Most nodes returned, largest first. When the tree has more, coverage.truncated is true and notes says how many were cut. Defaults to 60.",
+        "Most nodes in each independently counted tree, largest first. When a tree has more, coverage.truncated is true and notes says how many were cut. Defaults to 60.",
       ),
     maxDepth: z.coerce
       .number()
       .int()
       .min(1)
-      .max(20)
+      .max(MAX_DEPTH)
       .optional()
       .default(8)
       .describe(
-        "Steps kept per session before sessions are folded into the deeperN count of the node at this depth. Defaults to 8.",
+        `Steps kept per session, at most ${MAX_DEPTH}. Sessions that continue beyond the requested depth appear in node.deeperN and set coverage.truncated. Defaults to 8.`,
       ),
     minNodeSessions: z.coerce
       .number()
@@ -183,6 +191,7 @@ export default defineAction({
         dateTo: args.dateTo,
         app: args.app,
         emailFilter: args.emailFilter,
+        followUpMode: args.followUpMode,
         format: args.format,
         maxNodes: args.maxNodes,
         maxDepth: args.maxDepth,

@@ -144,6 +144,17 @@ describe("isResumableEngineError", () => {
     }
   });
 
+  it("keeps invalid requests terminal when their message says timeout", () => {
+    expect(
+      isResumableEngineError(
+        new EngineError("Invalid request timed out", {
+          errorCode: "invalid_request",
+          providerRetryable: false,
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it("inspects nested cause chains for transport markers", () => {
     const inner = new Error("ECONNRESET while streaming");
     const outer = new Error("wrapper error");

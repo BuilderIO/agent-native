@@ -31,6 +31,10 @@ const threadStoreMocks = vi.hoisted(() => ({
   updateThreadData: vi.fn(),
 }));
 
+const setupGateMocks = vi.hoisted(() => ({
+  requireAgentChatAiSetup: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+
 const handlerHarness = vi.hoisted(() => ({
   options: [] as Array<{
     actions: Record<string, unknown>;
@@ -128,6 +132,12 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
       threadStoreMocks.updateThreadData(...args),
   };
 });
+
+vi.mock("./agent-chat-ai-setup.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./agent-chat-ai-setup.js")>()),
+  requireAgentChatAiSetup: (...args: unknown[]) =>
+    setupGateMocks.requireAgentChatAiSetup(...args),
+}));
 
 import {
   createAgentChatPlugin,
@@ -398,6 +408,83 @@ async function fetchWithRequestContext(
 }
 
 describe("agent chat queued-message route", () => {
+  it("rejects data URL attachment references before durable queue mutation", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-queued-data-url";
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: {
+            type: "append",
+            message: {
+              id: "queued-data-url",
+              threadId,
+              text: "Inspect this image",
+              createdAt: new Date().toISOString(),
+              requestAttachments: [
+                {
+                  type: "image",
+                  name: "screen.png",
+                  url: "data:image/png;base64,iVBORw==",
+                },
+              ],
+            },
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid queue mutation" });
+    expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+  });
+
+  it("requires AI setup before claiming a queued prompt for dispatch", async () => {
+    const h3App = await mountResourceRoutes();
+    const setupRequired = Object.assign(new Error("Connect AI first"), {
+      statusCode: 403,
+      data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+    });
+    setupGateMocks.requireAgentChatAiSetup.mockRejectedValueOnce(setupRequired);
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: "thread-claim-gate",
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/thread-claim-gate/queued",
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: {
+            type: "claim",
+            messageId: "queued-claim-gate",
+            claimId: "claim-gate",
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(403);
+    expect(setupGateMocks.requireAgentChatAiSetup).toHaveBeenCalledOnce();
+    expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+  });
+
   it("returns a typed conflict when a claimed queue item was removed", async () => {
     const h3App = await mountResourceRoutes();
     const threadId = "thread-claim-race";
@@ -714,7 +801,7 @@ describe("agent chat resource route organization scopes", () => {
 
   it("inherits the active request organization when no resolver is configured", async () => {
     const h3App = await mountResourceRoutes();
-    expect(mocks.resourceListAllOwners).toHaveBeenCalledWith("jobs/");
+    expect(mocks.resourceListAllOwners).not.toHaveBeenCalledWith("jobs/");
     const resourceList = mocks.resourceList.getMockImplementation()!;
     const resourceListContexts: Array<{
       orgId: string | undefined;
@@ -1456,7 +1543,7 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).toContain("<skills-summary>");
     expect(prompt).toContain("Prefer concise updates.");
     expect(prompt).toContain(
-      'Read with `docs-search --slug "skill-deep-review"` before starting a task it applies to; reuse that page for subsequent steps in this turn.',
+      'Read with `docs-search --slug "skill-deep-review"` before starting a task it applies to; reuse that page for the rest of the conversation.',
     );
     expect(prompt).toContain("do not repeat an equivalent docs-search lookup");
     expect(prompt).toContain("Do not use MCP resource reads for these skills.");

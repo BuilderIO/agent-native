@@ -337,7 +337,7 @@ describe("boardObjectEntryToHtmlFragment — line / arrow / path", () => {
     expect(fragment).toContain("#2563eb");
   });
 
-  it("defaults a line's stroke to solid black at 1px (Figma parity), not the theme accent at 3px", () => {
+  it("defaults a line's stroke to solid black at 1px, not the theme accent at 3px", () => {
     const entry: BoardObjectEntry = {
       id: "line-default",
       kind: "line",
