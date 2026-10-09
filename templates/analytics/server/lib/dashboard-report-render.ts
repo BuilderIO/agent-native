@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/server";
 
 import { resolveDualAxis } from "../../app/pages/adhoc/sql-dashboard/dual-axis";
+import { MULTI_SELECT_EMPTY } from "../../app/pages/adhoc/sql-dashboard/filter-vars";
 import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import {
   pivotRows,
@@ -97,7 +98,10 @@ export function reportPanelVariables(
 ): Record<string, string> {
   const vars: Record<string, string> = { ...snapshot.variables };
   for (const [key, value] of Object.entries(snapshot.filters)) {
-    if (key.startsWith("f_")) vars[key.slice(2)] = value;
+    // A cleared multi-select is saved as the marker; the dashboard applies no filter for it, so the report must not either.
+    if (key.startsWith("f_")) {
+      vars[key.slice(2)] = value === MULTI_SELECT_EMPTY ? "" : value;
+    }
   }
   return vars;
 }
@@ -1111,7 +1115,9 @@ export async function renderReportEmail(args: {
     // `tab` rides along in a subscription's saved filters, but a report renders
     // every tab's panels on purpose, so listing it would claim a filter that
     // was not applied.
-    .filter(([key, value]) => value && key !== "tab")
+    .filter(
+      ([key, value]) => value && key !== "tab" && value !== MULTI_SELECT_EMPTY,
+    )
     .map(
       ([key, value]) =>
         `${key.startsWith("f_") ? key.slice(2) : key}: ${value}`,

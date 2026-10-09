@@ -293,18 +293,26 @@ function collectDashboardConfigIssues(
       }
       const id = typeof f.id === "string" ? f.id.trim() : "";
       if (!id) return dashboardIssue(`config.filters[${i}].id is required`);
-      if (f.type === "multi-select" && Array.isArray(f.options)) {
-        // The selection is comma-joined in the URL and MULTI_SELECT_EMPTY is reserved, so either would corrupt the value.
-        const badIndex = (
-          f.options as Array<{ value?: unknown } | null>
-        ).findIndex(
+      if (f.type === "multi-select") {
+        // The selection is comma-joined in the URL, so a value cannot be empty or contain ",". MULTI_SELECT_EMPTY is reserved for the cleared state.
+        const options = Array.isArray(f.options)
+          ? (f.options as Array<{ value?: unknown } | null>)
+          : [];
+        const badIndex = options.findIndex(
           (option) =>
             typeof option?.value === "string" &&
-            (option.value.includes(",") || option.value === MULTI_SELECT_EMPTY),
+            (option.value === "" ||
+              option.value.includes(",") ||
+              option.value === MULTI_SELECT_EMPTY),
         );
         if (badIndex !== -1) {
           return dashboardIssue(
-            `config.filters[${i}].options[${badIndex}].value cannot contain "," or be "${MULTI_SELECT_EMPTY}" in a multi-select filter`,
+            `config.filters[${i}].options[${badIndex}].value must be non-empty, cannot contain ",", and cannot be "${MULTI_SELECT_EMPTY}" in a multi-select filter`,
+          );
+        }
+        if (f.default === MULTI_SELECT_EMPTY) {
+          return dashboardIssue(
+            `config.filters[${i}].default cannot be "${MULTI_SELECT_EMPTY}" in a multi-select filter`,
           );
         }
       }

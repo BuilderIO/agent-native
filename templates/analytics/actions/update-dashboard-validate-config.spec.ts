@@ -184,6 +184,21 @@ describe("validateDashboardConfig multi-select options", () => {
     );
   });
 
+  it("rejects an empty option value, which the URL cannot represent", () => {
+    expect(validateDashboardConfig(withOptions([""]))).toContain(
+      "must be non-empty",
+    );
+  });
+
+  it("rejects the reserved empty marker as a default", () => {
+    const base = withOptions(["free"]);
+    const config = {
+      ...base,
+      filters: [{ ...base.filters[0], default: "__empty__" }],
+    };
+    expect(validateDashboardConfig(config)).toContain("default cannot be");
+  });
+
   it("rejects the reserved empty marker as an option value", () => {
     expect(validateDashboardConfig(withOptions(["__empty__"]))).toContain(
       "__empty__",

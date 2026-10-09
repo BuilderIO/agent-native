@@ -809,3 +809,16 @@ describe("renderReportEmail", () => {
     expect(rendered.html).toContain("Failed to load native binding");
   });
 });
+
+describe("reportPanelVariables multi-select", () => {
+  it("maps a cleared multi-select marker to an empty variable, as the dashboard does", async () => {
+    const { reportPanelVariables } = await import("./dashboard-report-render");
+    const vars = reportPanelVariables({
+      variables: {},
+      filters: { f_plan: "__empty__", f_tier: "free" },
+    } as unknown as Parameters<typeof reportPanelVariables>[0]);
+
+    expect(vars.plan).toBe("");
+    expect(vars.tier).toBe("free");
+  });
+});
