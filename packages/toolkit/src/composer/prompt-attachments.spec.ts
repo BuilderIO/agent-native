@@ -19,6 +19,49 @@ function pngBytes(width: number, height: number, byteLength = 24): Uint8Array {
   return bytes;
 }
 
+function exifJpegBytes(
+  width: number,
+  height: number,
+  orientation?: number,
+  byteLength = 3 * 1024 * 1024,
+  littleEndian = true,
+): Uint8Array {
+  const bytes = new Uint8Array(byteLength);
+  const tiffOffset = 12;
+  const ifdOffset = 20;
+  const entriesStart = ifdOffset + 2;
+  const app1PayloadBytes = orientation === undefined ? 20 : 32;
+  const app1Length = app1PayloadBytes + 2;
+  const frameOffset = 4 + app1Length;
+  bytes.set([0xff, 0xd8, 0xff, 0xe1, app1Length >> 8, app1Length & 0xff], 0);
+  bytes.set([0x45, 0x78, 0x69, 0x66, 0x00, 0x00], 6);
+  bytes.set(littleEndian ? [0x49, 0x49] : [0x4d, 0x4d], tiffOffset);
+  const view = new DataView(bytes.buffer);
+  view.setUint16(tiffOffset + 2, 42, littleEndian);
+  view.setUint32(tiffOffset + 4, 8, littleEndian);
+  view.setUint16(ifdOffset, orientation === undefined ? 0 : 1, littleEndian);
+  if (orientation !== undefined) {
+    view.setUint16(entriesStart, 0x0112, littleEndian);
+    view.setUint16(entriesStart + 2, 3, littleEndian);
+    view.setUint32(entriesStart + 4, 1, littleEndian);
+    view.setUint16(entriesStart + 8, orientation, littleEndian);
+    view.setUint32(entriesStart + 12, 0, littleEndian);
+  } else {
+    view.setUint32(entriesStart, 0, littleEndian);
+  }
+  bytes.set([0xff, 0xc0, 0x00, 0x11, 0x08], frameOffset);
+  view.setUint16(frameOffset + 5, height);
+  view.setUint16(frameOffset + 7, width);
+  bytes.set(
+    [
+      0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x00, 0x03, 0x11, 0x00, 0xff, 0xda,
+      0x00, 0x02,
+    ],
+    frameOffset + 9,
+  );
+  return bytes;
+}
+
 describe("prompt attachment helpers", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -178,6 +221,105 @@ describe("prompt attachment helpers", () => {
       resizeQuality: "high",
     });
     expect(bitmap.close).toHaveBeenCalledOnce();
+  });
+
+  it.each([1, 2, 3, 4, 5, 6, 7, 8])(
+    "uses displayed JPEG dimensions for EXIF orientation %i in both TIFF byte orders",
+    async (orientation) => {
+      const swapsAxes = orientation >= 5;
+      const expectedSize = swapsAxes
+        ? { resizeWidth: 1536, resizeHeight: 2048 }
+        : { resizeWidth: 2048, resizeHeight: 1536 };
+      const bitmap = {
+        width: expectedSize.resizeWidth,
+        height: expectedSize.resizeHeight,
+        close: vi.fn(),
+      } as unknown as ImageBitmap;
+      const createBitmap = vi
+        .fn()
+        .mockResolvedValue(bitmap) as typeof createImageBitmap;
+      vi.stubGlobal("createImageBitmap", createBitmap);
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+        clearRect: vi.fn(),
+        drawImage: vi.fn(),
+        save: vi.fn(),
+        fillRect: vi.fn(),
+        restore: vi.fn(),
+      } as unknown as CanvasRenderingContext2D);
+      vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+        (callback) => callback(new Blob(["x"], { type: "image/png" })),
+      );
+
+      for (const littleEndian of [true, false]) {
+        const file = new File(
+          [exifJpegBytes(4032, 3024, orientation, undefined, littleEndian)],
+          "portrait-reference.jpg",
+          { type: "image/jpeg" },
+        );
+
+        const attachment = await readAgentPromptAttachment(file);
+
+        expect(createBitmap).toHaveBeenLastCalledWith(file, {
+          ...expectedSize,
+          resizeQuality: "high",
+        });
+        expect(attachment.dataUrl).toMatch(/^data:image\/png;base64,/);
+      }
+      expect(bitmap.close).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("defaults missing EXIF orientation and skips malformed EXIF", async () => {
+    const bitmap = {
+      width: 2048,
+      height: 1536,
+      close: vi.fn(),
+    } as unknown as ImageBitmap;
+    const createBitmap = vi
+      .fn()
+      .mockResolvedValue(bitmap) as typeof createImageBitmap;
+    vi.stubGlobal("createImageBitmap", createBitmap);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+      save: vi.fn(),
+      fillRect: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      (callback) => callback(new Blob(["x"], { type: "image/png" })),
+    );
+
+    const noOrientation = new File(
+      [exifJpegBytes(4032, 3024)],
+      "no-orientation.jpg",
+      { type: "image/jpeg" },
+    );
+    const attachment = await readAgentPromptAttachment(noOrientation);
+    expect(attachment.dataUrl).toMatch(/^data:image\/png;base64,/);
+    expect(createBitmap).toHaveBeenLastCalledWith(noOrientation, {
+      resizeWidth: 2048,
+      resizeHeight: 1536,
+      resizeQuality: "high",
+    });
+
+    const invalidOrientation = new File(
+      [exifJpegBytes(4032, 3024, 9)],
+      "invalid-orientation.jpg",
+      { type: "image/jpeg" },
+    );
+    const truncatedExifBytes = exifJpegBytes(4032, 3024, 6);
+    truncatedExifBytes[4] = 0;
+    truncatedExifBytes[5] = 8;
+    const truncatedExif = new File([truncatedExifBytes], "truncated-exif.jpg", {
+      type: "image/jpeg",
+    });
+
+    for (const malformed of [invalidOrientation, truncatedExif]) {
+      const result = await readAgentPromptAttachment(malformed);
+      expect(result.dataUrl).toBeUndefined();
+    }
+    expect(createBitmap).toHaveBeenCalledTimes(1);
   });
 
   it("formats attachments with escaped XML attributes", () => {

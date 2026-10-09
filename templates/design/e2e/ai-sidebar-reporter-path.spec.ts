@@ -77,6 +77,54 @@ function padPngToBytes(source: Buffer, targetBytes: number): Buffer {
   ]);
 }
 
+function addExifOrientationAndPadJpeg(
+  source: Buffer,
+  targetBytes: number,
+  orientation: number,
+): Buffer {
+  if (source[0] !== 0xff || source[1] !== 0xd8) {
+    throw new Error("JPEG fixture has no start marker.");
+  }
+  const exifSegment = Buffer.alloc(36);
+  exifSegment.set([0xff, 0xe1], 0);
+  exifSegment.writeUInt16BE(34, 2);
+  exifSegment.write("Exif\0\0", 4, "binary");
+  exifSegment.write("II", 10, "ascii");
+  exifSegment.writeUInt16LE(42, 12);
+  exifSegment.writeUInt32LE(8, 14);
+  exifSegment.writeUInt16LE(1, 18);
+  exifSegment.writeUInt16LE(0x0112, 20);
+  exifSegment.writeUInt16LE(3, 22);
+  exifSegment.writeUInt32LE(1, 24);
+  exifSegment.writeUInt16LE(orientation, 28);
+  exifSegment.writeUInt32LE(0, 32);
+  const oriented = Buffer.concat([
+    source.subarray(0, 2),
+    exifSegment,
+    source.subarray(2),
+  ]);
+  const endOffset = oriented.lastIndexOf(Buffer.from([0xff, 0xd9]));
+  if (endOffset < 2) throw new Error("JPEG fixture has no end marker.");
+  const comments: Buffer[] = [];
+  let paddedLength = oriented.byteLength;
+  while (paddedLength < targetBytes) {
+    const payloadLength = Math.max(
+      0,
+      Math.min(65_533, targetBytes - paddedLength - 4),
+    );
+    const comment = Buffer.alloc(payloadLength + 4, 0x78);
+    comment.set([0xff, 0xfe], 0);
+    comment.writeUInt16BE(payloadLength + 2, 2);
+    comments.push(comment);
+    paddedLength += comment.byteLength;
+  }
+  return Buffer.concat([
+    oriented.subarray(0, endOffset),
+    ...comments,
+    oriented.subarray(endOffset),
+  ]);
+}
+
 test.use({
   viewport: { width: 2800, height: 1200 },
   ignoreHTTPSErrors: true,
@@ -1095,4 +1143,155 @@ test("Design editor sidebar applies a same-thread edit and persists it", async (
     "48px",
     { timeout: 30_000 },
   );
+});
+
+// oracle: none — verifies EXIF-oriented image decoding and model transport, not visual/Figma parity.
+test("Design chat preserves EXIF-rotated JPEG dimensions and orientation", async ({
+  page,
+}) => {
+  // oracle: none — verifies EXIF-oriented image decoding and model transport, not visual/Figma parity.
+  test.skip(
+    process.env.E2E_AI_SIDEBAR_LOOPBACK !== "1",
+    "requires E2E_AI_SIDEBAR_LOOPBACK=1",
+  );
+  await page.context().addInitScript(() => {
+    if (location.origin === "null") return;
+    const selection = JSON.stringify({
+      model: "agentkit-loopback",
+      engine: "ai-sdk:openai",
+      effort: "medium",
+    });
+    localStorage.setItem(
+      "agent-native:chat-models:selection:design",
+      selection,
+    );
+    localStorage.setItem("agent-native:chat-models:selection", selection);
+  });
+
+  const { designId, fileId } = await createDesign(page);
+  await configureProvider(page, designId, fileId, "observe");
+  const { sidebarComposer, sidebarPrompt } = await openSidebarComposer(
+    page,
+    designId,
+    fileId,
+  );
+  const sourceBase64 = await page.evaluate(async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 4000;
+    canvas.height = 3000;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not create JPEG fixture canvas.");
+    context.fillStyle = "#ff0000";
+    context.fillRect(0, 0, 2000, 1500);
+    context.fillStyle = "#00ff00";
+    context.fillRect(2000, 0, 2000, 1500);
+    context.fillStyle = "#0000ff";
+    context.fillRect(0, 1500, 2000, 1500);
+    context.fillStyle = "#ffff00";
+    context.fillRect(2000, 1500, 2000, 1500);
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (result) =>
+          result ? resolve(result) : reject(new Error("JPEG encoding failed.")),
+        "image/jpeg",
+        0.98,
+      );
+    });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 32_768) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 32_768));
+    }
+    return btoa(binary);
+  });
+  const originalBytes = addExifOrientationAndPadJpeg(
+    Buffer.from(sourceBase64, "base64"),
+    3_000_000,
+    6,
+  );
+  const imageInput = sidebarComposer.locator('input[type="file"][multiple]');
+  await sidebarComposer
+    .getByRole("button", { name: "Add context", exact: true })
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Upload File", exact: true })
+    .click();
+  await imageInput.setInputFiles({
+    name: "rotated-reference.jpg",
+    mimeType: "image/jpeg",
+    buffer: originalBytes,
+  });
+  await expect(
+    sidebarComposer.getByRole("button", {
+      name: "Remove rotated-reference.jpg",
+    }),
+  ).toBeVisible();
+  await sidebarPrompt.fill(IMAGE_PROMPT);
+  await sidebarPrompt.press("Enter");
+
+  await expect
+    .poll(async () => (await readProviderProof(page)).imageSha256Seen.length, {
+      timeout: 45_000,
+      intervals: [250, 500, 1_000],
+    })
+    .toBe(1);
+  const providerPort = test.info().config.metadata
+    .sidebarLoopbackPort as number;
+  const stateResponse = await page.request.get(
+    `http://127.0.0.1:${providerPort}/__state`, // e2e-harness-ignore: read full model input from the separate loopback provider.
+  );
+  const state = (await stateResponse.json()) as {
+    imageDataUrlsSeen: string[];
+    imageSha256Seen: string[];
+    requestSummaries: Array<{ userMessages: string[] }>;
+  };
+  expect(state.imageDataUrlsSeen).toHaveLength(1);
+  const [imageHeader, imageBase64] = state.imageDataUrlsSeen[0]!.split(",", 2);
+  expect(imageHeader).toBe("data:image/png;base64");
+  const resizedBytes = Buffer.from(imageBase64!, "base64");
+  const resizedSha256 = createHash("sha256").update(resizedBytes).digest("hex");
+  expect(state.imageSha256Seen).toEqual([resizedSha256]);
+  const transformed = await page.evaluate(async (dataUrl) => {
+    const blob = await (await fetch(dataUrl)).blob();
+    const bitmap = await createImageBitmap(blob);
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not inspect resized JPEG output.");
+    context.drawImage(bitmap, 0, 0);
+    const sample = (x: number, y: number) =>
+      Array.from(context.getImageData(x, y, 1, 1).data).slice(0, 3);
+    const result = {
+      width: bitmap.width,
+      height: bitmap.height,
+      topLeft: sample(32, 32),
+      topRight: sample(bitmap.width - 32, 32),
+      bottomLeft: sample(32, bitmap.height - 32),
+      bottomRight: sample(bitmap.width - 32, bitmap.height - 32),
+    };
+    bitmap.close();
+    return result;
+  }, state.imageDataUrlsSeen[0]!);
+  expect(transformed).toMatchObject({ width: 1536, height: 2048 });
+  expect(transformed.topLeft[2]).toBeGreaterThan(transformed.topLeft[0] + 40);
+  expect(transformed.topLeft[2]).toBeGreaterThan(transformed.topLeft[1] + 40);
+  expect(transformed.topRight[0]).toBeGreaterThan(transformed.topRight[1] + 40);
+  expect(transformed.bottomLeft[0]).toBeGreaterThan(
+    transformed.bottomLeft[2] + 40,
+  );
+  expect(transformed.bottomLeft[1]).toBeGreaterThan(
+    transformed.bottomLeft[2] + 40,
+  );
+  expect(transformed.bottomRight[1]).toBeGreaterThan(
+    transformed.bottomRight[0] + 40,
+  );
+  expect(transformed.bottomRight[1]).toBeGreaterThan(
+    transformed.bottomRight[2] + 40,
+  );
+  const providerText = state.requestSummaries
+    .flatMap((summary) => summary.userMessages)
+    .join("\n");
+  expect(providerText).not.toContain("<chat-attachment-read-error");
+  expect(providerText).not.toContain("<chat-attachment-processing-error");
 });

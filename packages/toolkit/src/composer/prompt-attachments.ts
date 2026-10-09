@@ -255,6 +255,8 @@ async function readRasterImageDimensions(
       0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce,
       0xcf,
     ]);
+    let jpegDimensions: { width: number; height: number } | null = null;
+    let orientation = 1;
     let offset = 2;
     while (offset + 3 < bytes.length) {
       if (bytes[offset] !== 0xff) {
@@ -274,17 +276,94 @@ async function readRasterImageDimensions(
       }
       const segmentLength = view.getUint16(offset + 2);
       if (segmentLength < 2 || offset + 2 + segmentLength > bytes.length) break;
+      if (marker === 0xe1) {
+        const exifOrientation = readJpegExifOrientation(
+          bytes,
+          view,
+          offset,
+          segmentLength,
+        );
+        if (exifOrientation === null) return null;
+        if (exifOrientation !== undefined) orientation = exifOrientation;
+      }
       if (startOfFrameMarkers.has(marker) && segmentLength >= 7) {
-        return dimensions(
+        jpegDimensions = dimensions(
           view.getUint16(offset + 7),
           view.getUint16(offset + 5),
         );
       }
       offset += 2 + segmentLength;
     }
+    if (jpegDimensions) {
+      return orientation >= 5 && orientation <= 8
+        ? dimensions(jpegDimensions.height, jpegDimensions.width)
+        : jpegDimensions;
+    }
   }
 
   return null;
+}
+
+function readJpegExifOrientation(
+  bytes: Uint8Array,
+  view: DataView,
+  markerOffset: number,
+  segmentLength: number,
+): number | null | undefined {
+  const segmentEnd = markerOffset + 2 + segmentLength;
+  const exifOffset = markerOffset + 4;
+  if (exifOffset + 4 > segmentEnd) return undefined;
+  if (
+    bytes[exifOffset] !== 0x45 ||
+    bytes[exifOffset + 1] !== 0x78 ||
+    bytes[exifOffset + 2] !== 0x69 ||
+    bytes[exifOffset + 3] !== 0x66
+  ) {
+    return undefined;
+  }
+  if (
+    exifOffset + 6 > segmentEnd ||
+    bytes[exifOffset + 4] !== 0x00 ||
+    bytes[exifOffset + 5] !== 0x00
+  ) {
+    return null;
+  }
+
+  const tiffOffset = exifOffset + 6;
+  if (tiffOffset + 8 > segmentEnd) return null;
+  const littleEndian =
+    bytes[tiffOffset] === 0x49 && bytes[tiffOffset + 1] === 0x49;
+  if (
+    !littleEndian &&
+    !(bytes[tiffOffset] === 0x4d && bytes[tiffOffset + 1] === 0x4d)
+  ) {
+    return null;
+  }
+  if (view.getUint16(tiffOffset + 2, littleEndian) !== 42) return null;
+
+  const relativeIfdOffset = view.getUint32(tiffOffset + 4, littleEndian);
+  if (relativeIfdOffset < 8) return null;
+  const ifdOffset = tiffOffset + relativeIfdOffset;
+  if (ifdOffset + 2 > segmentEnd) return null;
+  const entryCount = view.getUint16(ifdOffset, littleEndian);
+  const entriesStart = ifdOffset + 2;
+  if (entriesStart + entryCount * 12 > segmentEnd) return null;
+
+  for (let index = 0; index < entryCount; index += 1) {
+    const entryOffset = entriesStart + index * 12;
+    if (view.getUint16(entryOffset, littleEndian) === 0x0112) {
+      if (
+        view.getUint16(entryOffset + 2, littleEndian) !== 3 ||
+        view.getUint32(entryOffset + 4, littleEndian) !== 1
+      ) {
+        return null;
+      }
+      const orientation = view.getUint16(entryOffset + 8, littleEndian);
+      return orientation >= 1 && orientation <= 8 ? orientation : null;
+    }
+  }
+
+  return 1;
 }
 
 function canvasToBlob(
