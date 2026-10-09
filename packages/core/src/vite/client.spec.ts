@@ -3513,6 +3513,35 @@ describe("Vite CSS build defaults", () => {
   });
 });
 
+describe("Vite barrel loading", () => {
+  it("enables Rolldown lazy barrel loading for builds", () => {
+    const config = defineConfig() as any;
+
+    expect(config.build.rolldownOptions.experimental.lazyBarrel).toBe(true);
+  });
+
+  it("keeps an app's own Rolldown options, including opting out", async () => {
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+    const treeshake = { moduleSideEffects: false };
+
+    const config = (await configPlugin.config(
+      {
+        build: {
+          rolldownOptions: {
+            treeshake,
+            experimental: { lazyBarrel: false },
+          },
+        },
+      },
+      { command: "build", mode: "production" },
+    )) as any;
+
+    expect(config.build.rolldownOptions.treeshake).toEqual(treeshake);
+    expect(config.build.rolldownOptions.experimental.lazyBarrel).toBe(false);
+  });
+});
+
 describe("Vite SSR stubs", () => {
   it("exports common browser-only names from the generated stub module", async () => {
     const plugins = (defineConfig({ ssrStubs: ["yjs"] }).plugins ?? [])

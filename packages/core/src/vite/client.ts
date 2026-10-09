@@ -4977,6 +4977,16 @@ function createAgentNativeConfig(
     },
     build: {
       ...userBuild,
+      // Named imports from side-effect-free barrels such as @tabler/icons-react
+      // otherwise make Rolldown parse every re-exported module (6k+ icons) in
+      // both the client and SSR builds before tree-shaking drops them.
+      rolldownOptions: {
+        ...userConfig.build?.rolldownOptions,
+        experimental: {
+          lazyBarrel: true,
+          ...userConfig.build?.rolldownOptions?.experimental,
+        },
+      },
       outDir: options.outDir ?? userConfig.build?.outDir ?? "dist/spa",
       cssMinify: userConfig.build?.cssMinify ?? "esbuild",
       cssTarget: userConfig.build?.cssTarget ?? ["es2020", "safari18"],
