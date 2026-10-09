@@ -982,6 +982,8 @@ test("fast-tests gates the selected browser checks on their actual job results",
       ? undefined
       : fastTestsJobStart + 1 + nextJobIndex;
   const fastTestsJob = workflow.slice(fastTestsJobStart, fastTestsJobEnd);
+  assert.ok(fastTestsJob.includes("    name: Fast tests\n"));
+  assert.ok(fastTestsJob.includes("    if: always()\n"));
   const needsStart = fastTestsJob.indexOf("    needs:");
   const needsEnd = fastTestsJob.indexOf("    if:", needsStart);
   assert.ok(needsStart >= 0 && needsEnd > needsStart);
@@ -995,7 +997,19 @@ test("fast-tests gates the selected browser checks on their actual job results",
   );
   assert.match(
     fastTestsJob,
-    /if \[ "\$DESIGN_CANVAS_E2E" = "true" \]; then\s+if \[ "\$DESIGN_CANVAS_RESULT" != "success" \]; then\s+echo "::error::Design canvas interaction acceptance did not succeed \(\$DESIGN_CANVAS_RESULT\)"\s+exit 1\s+fi/,
+    /if \[\[ "\$result" == "skipped" \]\]; then\s+record_failure "\$job" "was unexpectedly skipped/,
+  );
+  assert.match(
+    fastTestsJob,
+    /elif \[\[ "\$result" != "success" \]\]; then\s+record_failure "\$job" "did not succeed/,
+  );
+  assert.match(
+    fastTestsJob,
+    /if \[\[ "\$DESIGN_CANVAS_E2E" == "true" \]\]; then\s+require_success "design-canvas-interaction-acceptance" "\$DESIGN_CANVAS_RESULT"/,
+  );
+  assert.match(
+    fastTestsJob,
+    /elif \[\[ "\$DESIGN_CANVAS_RESULT" != "skipped" && "\$DESIGN_CANVAS_RESULT" != "success" \]\]; then\s+record_failure "design-canvas-interaction-acceptance"/,
   );
   assert.ok(
     fastTestsJob.includes(
@@ -1004,7 +1018,21 @@ test("fast-tests gates the selected browser checks on their actual job results",
   );
   assert.match(
     fastTestsJob,
-    /if \[ "\$PRE_AUTH_REPLAY_E2E" = "true" \]; then\s+if \[ "\$PRE_AUTH_REPLAY_RESULT" != "success" \]; then\s+echo "::error::pre-auth session replay smoke did not succeed \(\$PRE_AUTH_REPLAY_RESULT\)"\s+exit 1\s+fi/,
+    /if \[\[ "\$PRE_AUTH_REPLAY_E2E" == "true" \]\]; then\s+require_success "pre-auth-session-replay-smoke" "\$PRE_AUTH_REPLAY_RESULT"/,
+  );
+  assert.match(
+    fastTestsJob,
+    /elif \[\[ "\$PRE_AUTH_REPLAY_E2E" == "false" \]\]; then\s+if \[\[ "\$PRE_AUTH_REPLAY_RESULT" != "skipped" \]\]; then\s+record_failure "pre-auth-session-replay-smoke" "ran outside its selected paths \(expected skipped, received \$PRE_AUTH_REPLAY_RESULT\)"/,
+  );
+  assert.ok(fastTestsJob.includes("This job summarizes upstream tests"));
+  assert.ok(
+    fastTestsJob.includes(
+      'actions_run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"',
+    ),
+  );
+  assert.match(
+    fastTestsJob,
+    /for failure in "\$\{failures\[@\]\}"; do\s+echo "::error::\$failure\. Actions run: \$actions_run_url"/,
   );
 });
 
