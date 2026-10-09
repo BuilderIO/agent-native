@@ -175,8 +175,14 @@ export function useAgentNativeEmbeddedBrowserSession({
   const onBrowserSessionErrorRef = useRef(browserSession?.onError);
   onBrowserSessionErrorRef.current = browserSession?.onError;
   const reportBrowserSessionError = useCallback(
-    (error: unknown, source: AgentNativeBrowserSessionBridgeErrorSource) =>
-      onBrowserSessionErrorRef.current?.(error, source),
+    (error: unknown, source: AgentNativeBrowserSessionBridgeErrorSource) => {
+      const onError = onBrowserSessionErrorRef.current;
+      if (onError) {
+        onError(error, source);
+        return;
+      }
+      console.error(`[Agent-Native browser session] ${source} failed:`, error);
+    },
     [],
   );
 

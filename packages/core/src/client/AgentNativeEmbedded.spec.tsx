@@ -21,7 +21,7 @@ function Harness({
   onReady,
 }: {
   fetch: typeof fetch;
-  onError: (error: unknown, source: "heartbeat" | "poll") => void;
+  onError?: (error: unknown, source: "heartbeat" | "poll") => void;
   onReady: () => void;
 }) {
   useAgentNativeEmbeddedBrowserSession({
@@ -54,6 +54,7 @@ describe("useAgentNativeEmbeddedBrowserSession", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.restoreAllMocks();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -118,5 +119,61 @@ describe("useAgentNativeEmbeddedBrowserSession", () => {
     expect(nextErrorHandler).toHaveBeenCalled();
     expect(firstErrorHandler).not.toHaveBeenCalled();
     expect(deleteRequests).toBe(0);
+  });
+
+  it("logs browser session errors when no error callback is configured", async () => {
+    let failRequests = false;
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const fetchMock = vi.fn(
+      async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ): Promise<Response> => {
+        const url = String(input);
+        if (init?.method === "DELETE") return response({ ok: true });
+        if (failRequests) {
+          return {
+            ok: false,
+            status: 503,
+            json: async () => {
+              throw new SyntaxError("Unexpected token <");
+            },
+          } as Response;
+        }
+        if (url.endsWith("/requests/claim")) {
+          return response({ ok: true, request: null });
+        }
+        return response({
+          ok: true,
+          session: { sessionId: "embedded-session", active: true },
+        });
+      },
+    );
+    const onReady = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <Harness
+          fetch={fetchMock as unknown as typeof fetch}
+          onReady={onReady}
+        />,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(onReady).toHaveBeenCalledTimes(1);
+
+    failRequests = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20);
+    });
+
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /\[Agent-Native browser session\] (heartbeat|poll) failed:/,
+      ),
+      expect.anything(),
+    );
   });
 });
