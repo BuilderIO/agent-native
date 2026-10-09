@@ -38,6 +38,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "downloadRoute.downloadStarted": "Download started",
       "downloadRoute.downloadAgain": "Didn't work? Try downloading again",
       "downloadRoute.retry": "Try again",
+      "downloadRoute.mountError":
+        "Clips could not find its workspace path. Ask your workspace admin to check the app mount configuration.",
       "downloadRoute.stable": "Stable",
       "downloadRoute.nightly": "Nightly",
       "downloadRoute.allPlatforms": "All platforms",
@@ -185,9 +187,6 @@ describe("Clips download page", () => {
   });
 
   it("keeps the route available when the workspace mount cannot be resolved", async () => {
-    const reload = vi
-      .spyOn(window.location, "reload")
-      .mockImplementation(() => {});
     appBasePathMock.mockImplementation(() => {
       throw new WorkspaceAppMountResolutionError("Workspace mount is unknown");
     });
@@ -201,16 +200,16 @@ describe("Clips download page", () => {
     });
     await flushEffects();
 
-    expect(container.textContent).toContain("Try again");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Ask your workspace admin to check the app mount configuration.",
+    );
     expect(container.querySelector("header a[href]")).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    act(() => {
-      Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent?.includes("Try again"))
-        ?.click();
-    });
-    expect(reload).toHaveBeenCalledTimes(1);
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("Try again"),
+      ),
+    ).toBe(false);
   });
 
   it("confirms the download and offers a retry link after clicking", () => {

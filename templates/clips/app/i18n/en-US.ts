@@ -690,6 +690,8 @@ const messages = {
     switchToNightly: "Switch to Nightly builds",
     switchToStable: "Switch to stable builds",
     retry: "Try again",
+    mountError:
+      "Clips could not find its workspace path. Ask your workspace admin to check the app mount configuration.",
     heroDescription:
       "A menu-bar recorder for screen, camera, and screen + camera. One-click start, draggable camera bubble, instant-share link when you stop.",
     versionReleased: "Version {{version}} — released {{date}}",

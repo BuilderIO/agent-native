@@ -189,8 +189,10 @@ function primaryDownloadButton(
   variant: PlatformVariant,
   manifest: Manifest | null,
   manifestError: boolean,
+  mountResolutionError: boolean,
   downloadLabel: string,
   retryLabel: string,
+  mountErrorLabel: string,
   onRetry: () => void,
   downloadStarted: boolean,
   downloadStartedLabel: string,
@@ -220,6 +222,13 @@ function primaryDownloadButton(
     return <Skeleton className="h-12 w-[252px] rounded-md" />;
   }
   if (manifestError) {
+    if (mountResolutionError) {
+      return (
+        <p role="alert" className="max-w-sm text-sm text-muted-foreground">
+          {mountErrorLabel}
+        </p>
+      );
+    }
     return (
       <Button
         size="lg"
@@ -372,10 +381,6 @@ export default function DownloadPage() {
 
   const retryManifest = () => {
     setConfirmedDownload(null);
-    if (mountResolutionError) {
-      window.location.reload();
-      return;
-    }
     setManifestRequest((request) => request + 1);
   };
 
@@ -466,8 +471,10 @@ export default function DownloadPage() {
                 primary,
                 manifest,
                 manifestError,
+                mountResolutionError,
                 downloadLabel,
                 t("downloadRoute.retry"),
+                t("downloadRoute.mountError"),
                 retryManifest,
                 primaryDownloadStarted,
                 downloadStartedLabel,

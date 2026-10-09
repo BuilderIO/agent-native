@@ -770,6 +770,8 @@ const messages = {
     switchToNightly: "Mudar para builds Nightly",
     switchToStable: "Mudar para builds estáveis",
     retry: "Tentar novamente",
+    mountError:
+      "O Clips não conseguiu encontrar seu caminho neste workspace. Peça ao administrador do workspace para verificar a configuração do caminho do app.",
     heroDescription:
       "Um gravador de barra de menu para tela, câmera e tela + câmera. Iniciar com um clique, bolha de câmera arrastável, link de compartilhamento instantâneo quando você parar.",
     versionReleased: "Versão {{version}} — lançada {{date}}",

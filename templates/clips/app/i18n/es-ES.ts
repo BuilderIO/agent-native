@@ -775,6 +775,8 @@ const messages = {
     switchToNightly: "Cambiar a compilaciones Nightly",
     switchToStable: "Cambiar a compilaciones estables",
     retry: "Intentar de nuevo",
+    mountError:
+      "Clips no pudo encontrar su ruta en este espacio de trabajo. Pide al administrador del espacio que revise la configuración de la ruta de la aplicación.",
     heroDescription:
       "Una grabadora de barra de menú para pantalla, cámara y pantalla + cámara. Inicio con un clic, burbuja de cámara que se puede arrastrar, enlace para compartir instantáneamente cuando se detiene.",
     versionReleased: "Versión {{version}} - lanzada {{date}}",
