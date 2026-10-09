@@ -4,7 +4,7 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { organizations } from "../../org/schema.js";
 import { listWorkspaceUserGroupsForOrg } from "../../workspace-connections/groups.js";
-import { resolveAccess } from "../access.js";
+import { assertAccess, resolveAccess } from "../access.js";
 import { requireShareableResource } from "../registry.js";
 
 async function loadOrgDisplayNames(
@@ -72,13 +72,13 @@ async function loadGroupDisplayNames(
 
 export default defineAction({
   description:
-    "List the current visibility and share grants on a shareable resource. Any read access is sufficient.",
+    "List the current visibility and share grants on a shareable resource. Ordinary reads require resource access; widget reads require admin access.",
   schema: z.object({
     resourceType: z.string(),
     resourceId: z.string(),
   }),
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, context) => {
     const reg = requireShareableResource(args.resourceType);
     const policy: {
       allowPublic: boolean;
@@ -91,12 +91,17 @@ export default defineAction({
         ? { supportsGroupShares: true }
         : {}),
     };
-    const access = await resolveAccess(
-      args.resourceType,
-      args.resourceId,
-      undefined,
-      { skipResourceBody: true },
-    );
+    const access = context?.mcpDirectoryWidgetReadOnly
+      ? await assertAccess(
+          args.resourceType,
+          args.resourceId,
+          "admin",
+          undefined,
+          { skipResourceBody: true },
+        )
+      : await resolveAccess(args.resourceType, args.resourceId, undefined, {
+          skipResourceBody: true,
+        });
     if (!access)
       return { ownerEmail: null, visibility: null, shares: [], policy };
 

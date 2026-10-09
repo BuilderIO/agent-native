@@ -10,10 +10,6 @@ import { CHATGPT_DIRECTORY_PROFILE as contentProfile } from "../../../../templat
 import { CHATGPT_DIRECTORY_PROFILE as designProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
 import { isActionHiddenFromEveryAgentSurface } from "../action.js";
-import listResourceShares from "../sharing/actions/list-resource-shares.js";
-import setResourceVisibility from "../sharing/actions/set-resource-visibility.js";
-import shareResource from "../sharing/actions/share-resource.js";
-import unshareResource from "../sharing/actions/unshare-resource.js";
 import {
   filterFrameworkToolGroups,
   type FrameworkToolGroup,
@@ -27,8 +23,13 @@ import {
 import { resolveAgentChatMcpOptions } from "../server/agent-chat/mcp-options.js";
 import {
   createMcpDirectoryWidgetWriteCapability,
+  normalizeMcpDirectoryWidgetReadActionArguments,
   normalizeMcpDirectoryWidgetWriteActionArguments,
 } from "../shared/embed-auth.js";
+import listResourceShares from "../sharing/actions/list-resource-shares.js";
+import setResourceVisibility from "../sharing/actions/set-resource-visibility.js";
+import shareResource from "../sharing/actions/share-resource.js";
+import unshareResource from "../sharing/actions/unshare-resource.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import {
   createMCPServerForRequest,
@@ -82,7 +83,7 @@ async function loadTemplateActions(appId: string) {
             "unshare-resource": unshareResource,
             "set-resource-visibility": setResourceVisibility,
           }
-      : {};
+        : {};
   const loadNames = [
     ...new Set([
       ...toolNames,

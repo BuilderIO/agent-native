@@ -78,8 +78,8 @@ import {
 } from "./editor-helpers";
 import { resolveLocalhostSourceWriteContent } from "./editor-state";
 import { resolveLeftSidebarWidth } from "./left-sidebar-width";
-import { hasMinimalInspectorSelection } from "./minimal-inspector";
 import { shouldRenderDesignShareControl } from "./mcp-widget-write-capabilities";
+import { hasMinimalInspectorSelection } from "./minimal-inspector";
 import { mergePresenceUsers } from "./presence-users";
 import { getDesignBottomToolbarMode } from "./tool-state";
 import { TOP_BAR_HEIGHT_PX, isTopBarVisible } from "./top-bar";
@@ -1392,7 +1392,7 @@ export function renderDesignEditorView({
             mode={mode}
             onModeChange={handleTopBarModeChange}
             modes={topBarShowsModes ? undefined : []}
-            center={widgetEmbed ? projectTitleControl : undefined}
+            center={widgetEmbed && minimalUi ? projectTitleControl : undefined}
             widgetLayout={widgetEmbed}
             zoomControl={
               topBarControlsVisible && !responsiveInteractActive

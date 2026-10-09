@@ -246,7 +246,7 @@ function ProjectTitleControl({
                 {t("designEditor.fileMenu.delete")}
               </DropdownMenuItem>
             </>
-          )}
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
       <input

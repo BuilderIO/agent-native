@@ -74,17 +74,13 @@ describe("Design ChatGPT directory widget targets", () => {
       "list-resource-shares",
     );
     expect(
-      CHATGPT_DIRECTORY_PROFILE.widgetWriteActionArguments[
-        "share-resource"
-      ],
+      CHATGPT_DIRECTORY_PROFILE.widgetWriteActionArguments["share-resource"],
     ).toMatchObject({
       resourceType: "designResourceType",
       resourceId: "designId",
     });
     expect(
-      CHATGPT_DIRECTORY_PROFILE.widgetWriteActionArguments[
-        "unshare-resource"
-      ],
+      CHATGPT_DIRECTORY_PROFILE.widgetWriteActionArguments["unshare-resource"],
     ).toMatchObject({
       resourceType: "designResourceType",
       resourceId: "designId",

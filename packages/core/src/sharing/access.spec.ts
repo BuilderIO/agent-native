@@ -1128,6 +1128,15 @@ describe("shareable resource access helpers", () => {
         ],
       });
       await expect(
+        listResourceShares.run(
+          {
+            resourceType,
+            resourceId: "doc-actions",
+          },
+          { caller: "mcp-widget", mcpDirectoryWidgetReadOnly: true },
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
         setResourceVisibility.run({
           resourceType,
           resourceId: "doc-actions",
@@ -1141,6 +1150,28 @@ describe("shareable resource access helpers", () => {
           visibility: "private",
         }),
       ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        listResourceShares.run(
+          {
+            resourceType,
+            resourceId: "doc-actions",
+          },
+          { caller: "mcp-widget", mcpDirectoryWidgetReadOnly: true },
+        ),
+      ).resolves.toMatchObject({
+        ownerEmail,
+        role: "owner",
+        shares: [
+          {
+            principalType: "user",
+            principalId: viewerEmail,
+            role: "viewer",
+          },
+        ],
+      });
     });
 
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {

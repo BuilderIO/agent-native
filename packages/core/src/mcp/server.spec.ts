@@ -17,6 +17,10 @@ import { defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
+import listResourceShares from "../sharing/actions/list-resource-shares.js";
+import setResourceVisibility from "../sharing/actions/set-resource-visibility.js";
+import shareResource from "../sharing/actions/share-resource.js";
+import unshareResource from "../sharing/actions/unshare-resource.js";
 import {
   createMCPServerForRequest,
   selectMcpDirectoryWidgetReadActions,
@@ -900,10 +904,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             ...Object.keys(profile.widgetWriteActionArguments ?? {}),
           ]),
         ];
-        const sharedActions =
-          appId === "content"
+        const sharedActions = {
+          "list-resource-shares": listResourceShares,
+          "set-resource-visibility": setResourceVisibility,
+          "share-resource": shareResource,
+          "unshare-resource": unshareResource,
+          ...(appId === "content"
             ? { "list-resource-suggestions": listResourceSuggestions }
-            : {};
+            : {}),
+        };
         const modules = Object.fromEntries(
           await Promise.all(
             actionNames.map(async (name) => {

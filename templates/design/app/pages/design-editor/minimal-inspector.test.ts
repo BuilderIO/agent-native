@@ -168,4 +168,11 @@ describe("DesignEditor minimal inspector wiring", () => {
     expect(editorSource).toContain("rightInspectorPanelClassName");
     expect(editorSource).toContain("rightInspectorPanelClassName(minimalUi)");
   });
+
+  it("renders the widget title in one place when minimal UI is disabled", () => {
+    expect(editorSource).toContain(
+      "widgetEmbed && minimalUi ? projectTitleControl : undefined",
+    );
+    expect(editorSource).toContain("projectTitleControl,");
+  });
 });

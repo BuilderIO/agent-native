@@ -99,9 +99,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   widgetTargets: {
     "create-design": (_args: Record<string, unknown>, result: unknown) => {
       const designId = id(record(result).id, record(result).designId);
-      return designId
-        ? designWidgetTarget(designId)
-        : null;
+      return designId ? designWidgetTarget(designId) : null;
     },
     "create-design-from-template": (
       args: Record<string, unknown>,
@@ -112,9 +110,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         record(result).designId,
         args.targetDesignId,
       );
-      return designId
-        ? designWidgetTarget(designId)
-        : null;
+      return designId ? designWidgetTarget(designId) : null;
     },
     "generate-design": (args: Record<string, unknown>, result: unknown) => {
       const designId = id(args.designId, record(result).designId);
@@ -135,9 +131,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       result: unknown,
     ) => {
       const designId = id(args.designId, record(result).designId);
-      return designId
-        ? designWidgetTarget(designId)
-        : null;
+      return designId ? designWidgetTarget(designId) : null;
     },
   },
   widgetReadActionArguments: {
