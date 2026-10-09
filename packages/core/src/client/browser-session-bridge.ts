@@ -688,12 +688,12 @@ export function createAgentNativeBrowserSessionBridge(
                 options,
                 currentSessionId ?? fallbackSessionId ?? undefined,
               ),
-              resolveDirectActionManifest(options).catch(() => []),
+              resolveDirectActionManifest(options),
               resolveWebMcpTools(options),
             ])
           : Promise.all([
               requestAgentNativeHostContext(hostOptions),
-              requestAgentNativeHostActions(hostOptions).catch(() => []),
+              requestAgentNativeHostActions(hostOptions),
               resolveWebMcpTools(options),
             ]);
         const [context, actions, webmcpTools] = await awaitWithAbort(
