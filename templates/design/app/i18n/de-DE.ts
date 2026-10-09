@@ -2,6 +2,8 @@ export default {
   journeyCanvas: {
     observedSessionReference: "Beobachtete Sitzungsreferenz",
     sessionsOfAll: "{count} Sitzungen · {percent} aller",
+    sessionsOfAppRoot:
+      "{count} Sitzungen · {percent} der {app}-Kohorte (n={rootCount})",
     sessionsOfPrevious: "{count} Sitzungen · {percent} des vorherigen Schritts",
     sessionsOfParent: "{count} Sitzungen · {percent} von {label}",
     sessionsOfStep: "{count} Sitzungen · {percent} dieses Schritts",
@@ -45,11 +47,17 @@ export default {
     promptSource: "Prompt (Quelle)",
     source: "Quelle",
     promptNotCaptured: "Prompt nicht erfasst",
+    actorUnavailable: "Akteur nicht verfügbar",
+    replayDetails: "Replay- und Quelldetails",
+    sourceApp: "Quell-App",
+    route: "Erfasste Route",
+    recordingStarted: "Aufzeichnung gestartet",
+    appBandHeading: "{app} · {count} Sitzungen",
     journeyTitleSummary: "{app} · {from} bis {to} · {count} Sitzungen{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} bis {to} · getrennte Kohorten je App{partial}",
     sessionCount: "{count} Sitzungen",
     otherPaths: "Andere Pfade",
-    capturedDate: "Aufgenommen am {date}{examples}",
-    additionalExamples: " · {count} Beispiele",
     htmlLanguage: "de-DE",
   },
   composer: { menu: { integrations: "Integrationen" } },

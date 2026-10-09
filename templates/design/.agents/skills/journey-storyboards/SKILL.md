@@ -64,6 +64,16 @@ Options: `designId` (refresh that design), `cardWidth` (default 360),
 `maxExamplesPerNode` (default 3, at most 6), `includeScreenshotless` (default false).
 Each call accepts at most 1,000 journey nodes and 900 frame entries, with a
 256 MiB total screenshot-byte limit.
+For independent app trees on one board, set `layoutMode: "appBands"`,
+`tree.app: "all"`, app-prefixed node keys such as `clips::...`, and
+`tree.appRootN` to the root denominator for each app. The layout places each
+tree in its own side-by-side band, keeps edges within that app, and labels root
+percentages against that app's denominator. It never adds app populations
+together. The main role/setup path is placed at the top of its band before
+independent route components; edges and cohort counts remain unchanged. The
+default `layoutMode: "tree"` draws one tree or forest as before.
+App-band percentages must match `n / appRootN[app]`; do not pass a global
+denominator for per-app roots.
 `locale` selects the translated labels inside each standalone storyboard card;
 it defaults to `en-US`.
 `allowEncryptedPublicUploadFallback` defaults to `false`; set it to `true` only
@@ -86,6 +96,7 @@ configured public-upload provider.
 ## What you get
 
 - Card height follows each frame's real aspect ratio (clamped to 0.5 to 2, letterboxed, never stretched or cropped). Extra examples stack behind the front card.
+- Cards keep the event/replay UTC date, recorded actor, observed state, and prompt preview visible. Technical replay, source, route, capture, actor-source, and evidence metadata lives in a keyboard-accessible disclosure; the full prompt opens separately in place.
 - A step with no frame is left off and listed in `skippedNodes`; its children re-attach to the nearest drawn ancestor with a dashed arrow and a recomputed percent. Tell the user which steps are missing instead of calling the storyboard complete.
 - A neutral "No later step observed" stub shows the session count and
   percentage of that step for sessions whose last observed step is the node.
