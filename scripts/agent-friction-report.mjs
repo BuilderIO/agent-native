@@ -2294,6 +2294,10 @@ const FEEDBACK_REPLY_DETAIL_OMISSION =
     .source;
 const FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION =
   "\\b(?:don['’]t|do not|shouldn['’]t|should not)\\s+(?:make|keep|write|use)\\s+(?:them|it|replies?|responses?)\\b[^.!?;]{0,40}\\bless\\s+(?:technical|detail)\\b";
+const FEEDBACK_REPLY_DETAIL_ISSUE_RE = new RegExp(
+  FEEDBACK_REPLY_DETAIL_ISSUE,
+  "i",
+);
 // Negated requests and praise are not corrections about excessive detail.
 const FEEDBACK_REPLY_DETAIL_NON_CORRECTION = [
   "\\b" +
@@ -2372,32 +2376,127 @@ const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
     ")",
   "i",
 );
-const FEEDBACK_REPLY_DETAIL_WINDOW_SIZE = 512;
-const FEEDBACK_REPLY_DETAIL_WINDOW_STEP = 128;
 const FEEDBACK_REPLY_DETAIL_CONTEXT_RE = new RegExp(
   "\\b" + FEEDBACK_REPLY_CONTEXT + "\\b",
   "i",
 );
 const FEEDBACK_REPLY_DETAIL_CANDIDATE_RE =
   /\b(?:too|overly|excessively|less|should(?:n['’]t|\s+not)?|do\s+not|don['’]t|avoid|skip|omit|remove|leave\s+out|stop|no|without|free\s+of|concise|brief|plain\s+(?:english|language)|high[- ]level)\b/i;
+const FEEDBACK_REPLY_DETAIL_CANDIDATE_SCAN_RE = new RegExp(
+  FEEDBACK_REPLY_DETAIL_CANDIDATE_RE.source,
+  "gi",
+);
+const FEEDBACK_REPLY_DETAIL_NON_CORRECTION_SCAN_RE = new RegExp(
+  `(?=(?:${FEEDBACK_REPLY_DETAIL_NON_CORRECTION}))`,
+  "gi",
+);
+const FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION_SCAN_RE = new RegExp(
+  `(?=${FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION})`,
+  "gi",
+);
+const FEEDBACK_REPLY_DETAIL_BOUNDARY_SCAN_RE =
+  /[.!?;]|,(?!\s*(?:or|nor)\b)|\bbut\b/gi;
+const FEEDBACK_REPLY_DETAIL_END_SCAN_RE = /[.!?;,]/g;
+const FEEDBACK_REPLY_DETAIL_SENTENCE_END_SCAN_RE = /[.!?]/g;
+const FEEDBACK_REPLY_DETAIL_SENTENCE_BUT_RETRACTION_SCAN_RE = new RegExp(
+  `[.!?]\\s*but\\s*(?=${FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION})`,
+  "gi",
+);
 
 function hasFeedbackReplyDetailCorrection(message) {
   const input = textForPattern(message, true);
+  if (!FEEDBACK_REPLY_DETAIL_CANDIDATE_RE.test(input)) return false;
 
-  // Bound each regex scan so long messages cannot trigger repeated backtracking.
-  for (
-    let start = 0;
-    start < input.length;
-    start += FEEDBACK_REPLY_DETAIL_WINDOW_STEP
-  ) {
-    const window = input.slice(
-      start,
-      start + FEEDBACK_REPLY_DETAIL_WINDOW_SIZE,
-    );
-    if (
-      !FEEDBACK_REPLY_DETAIL_CONTEXT_RE.test(window) ||
-      !FEEDBACK_REPLY_DETAIL_CANDIDATE_RE.test(window)
+  const candidates = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_CANDIDATE_SCAN_RE),
+  ];
+  const boundaries = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_BOUNDARY_SCAN_RE),
+  ].map(({ index }) => index);
+  const ends = [...input.matchAll(FEEDBACK_REPLY_DETAIL_END_SCAN_RE)].map(
+    ({ index }) => index,
+  );
+  const nonCorrections = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_NON_CORRECTION_SCAN_RE),
+  ].map(({ index }) => index);
+  const styleRetractions = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION_SCAN_RE),
+  ].map(({ index }) => index);
+  const sentenceEnds = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_SENTENCE_END_SCAN_RE),
+  ].map(({ index }) => index);
+  const sentenceButRetractions = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_SENTENCE_BUT_RETRACTION_SCAN_RE),
+  ].map(({ index }) => index);
+
+  let boundaryIndex = 0;
+  let endIndex = 0;
+  let nonCorrectionIndex = 0;
+  let styleRetractionIndex = 0;
+  let sentenceEndIndex = 0;
+  let sentenceButRetractionIndex = 0;
+  for (const candidate of candidates) {
+    while (
+      boundaryIndex < boundaries.length &&
+      boundaries[boundaryIndex] < candidate.index
     ) {
+      boundaryIndex += 1;
+    }
+    while (endIndex < ends.length && ends[endIndex] < candidate.index) {
+      endIndex += 1;
+    }
+
+    const boundary = boundaries[boundaryIndex - 1] ?? 0;
+    const lastEnd = ends[endIndex - 1] ?? -1;
+    if (boundary < lastEnd) continue;
+
+    while (
+      nonCorrectionIndex < nonCorrections.length &&
+      nonCorrections[nonCorrectionIndex] < boundary
+    ) {
+      nonCorrectionIndex += 1;
+    }
+    const nextEnd = ends[endIndex] ?? input.length;
+    if (nonCorrections[nonCorrectionIndex] <= nextEnd) continue;
+
+    while (
+      styleRetractionIndex < styleRetractions.length &&
+      styleRetractions[styleRetractionIndex] < boundary
+    ) {
+      styleRetractionIndex += 1;
+    }
+    while (
+      sentenceEndIndex < sentenceEnds.length &&
+      sentenceEnds[sentenceEndIndex] < candidate.index
+    ) {
+      sentenceEndIndex += 1;
+    }
+    const nextSentenceEnd = sentenceEnds[sentenceEndIndex] ?? input.length;
+    while (
+      sentenceButRetractionIndex < sentenceButRetractions.length &&
+      sentenceButRetractions[sentenceButRetractionIndex] < candidate.index
+    ) {
+      sentenceButRetractionIndex += 1;
+    }
+    if (styleRetractions[styleRetractionIndex] <= nextSentenceEnd) continue;
+    if (
+      sentenceButRetractions[sentenceButRetractionIndex] === nextSentenceEnd
+    ) {
+      const previousSentenceEnd = sentenceEnds[sentenceEndIndex - 1] ?? -1;
+      const sentenceStart = previousSentenceEnd + 1;
+      const previousSentence = input.slice(sentenceStart, nextSentenceEnd);
+      const issue = FEEDBACK_REPLY_DETAIL_ISSUE_RE.exec(previousSentence);
+      if (issue && sentenceStart + issue.index === candidate.index) continue;
+    }
+
+    // Bound each regex scan around a possible correction and retain context.
+    const start = Math.max(0, candidate.index - 384);
+    const end = Math.min(
+      input.length,
+      candidate.index + candidate[0].length + 384,
+    );
+    const window = input.slice(start, end);
+    if (!FEEDBACK_REPLY_DETAIL_CONTEXT_RE.test(window)) {
       continue;
     }
 
@@ -2408,6 +2507,17 @@ function hasFeedbackReplyDetailCorrection(message) {
 
   return false;
 }
+const FEEDBACK_REPLY_DETAIL_PATTERN = {
+  lineSensitive: true,
+  matches: hasFeedbackReplyDetailCorrection,
+};
+
+function matchesPattern(pattern, text) {
+  return pattern.matches
+    ? pattern.matches(text)
+    : pattern.re.test(textForPattern(text, pattern.lineSensitive));
+}
+
 const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "When you reply, don't include all those technical details."],
   [true, "Too much technical detail in replies."],
@@ -2455,6 +2565,24 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [false, "Don’t skip technical details in your reply."],
   [false, "Replies are not too technical."],
   [false, "Replies aren't too technical."],
+  [false, "Replies are too technical. But don't make replies less technical."],
+  [
+    false,
+    "Replies are not too technical. Replies are too technical. But don't make replies less technical.",
+  ],
+  [
+    true,
+    "Replies are too technical. But don't make replies less technical; don't include commit hashes.",
+  ],
+  [
+    false,
+    `Replies are too technical ${"background ".repeat(40)}but don't make replies less technical.`,
+  ],
+  [
+    false,
+    `Replies are too technical, ${"background ".repeat(40)}but don't make replies less technical.`,
+  ],
+  [false, "Replies are too technical; but don't make replies less technical."],
   [
     true,
     "Replies aren't too technical. Please stop including CI results in replies.",
@@ -2475,10 +2603,24 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
     true,
     "Replies are not too technical but don't include commit hashes in replies.",
   ],
+  [
+    true,
+    `Replies are not too technical ${"background ".repeat(40)}but don't include commit hashes in replies.`,
+  ],
   [false, "Reply once there are no CI results yet."],
   [false, "Reply once there are\nno CI results yet."],
   [false, "Reply after CI is green; don't post until deployment is done."],
   [true, "Keep replies high level; do not mention commit hashes."],
+  [true, `${"x".repeat(440)} Replies are too technical.`],
+  [
+    false,
+    `${"x".repeat(440)} There are no technical details in replies, which is exactly what we want.`,
+  ],
+  [false, `${"x".repeat(440)} Don't make replies less technical.`],
+  [
+    false,
+    `${"x".repeat(440)} Nice work. Keep the replies high-level like this one.`,
+  ],
   [false, "CI results and branch details are useful."],
 ];
 
@@ -2495,18 +2637,33 @@ if (process.argv.includes("--self-test")) {
   failures.push(
     ...FEEDBACK_REPLY_DETAIL_REGEX_CASES.filter(
       ([expected, message]) =>
-        hasFeedbackReplyDetailCorrection(message) !== expected,
+        matchesPattern(FEEDBACK_REPLY_DETAIL_PATTERN, message) !== expected,
     ),
   );
   const stressMessage = "reply and but ".repeat(7_000);
   const stressCorrection = `${stressMessage}reply too technical`;
+  const stressNegation = "Replies are not too technical. ".repeat(3_500);
   const stressStart = process.hrtime.bigint();
-  const stressMatched = hasFeedbackReplyDetailCorrection(stressMessage);
-  const stressCorrectionMatched =
-    hasFeedbackReplyDetailCorrection(stressCorrection);
+  const stressMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    stressMessage,
+  );
+  const stressCorrectionMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    stressCorrection,
+  );
+  const stressNegationMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    stressNegation,
+  );
   const stressDurationMs =
     Number(process.hrtime.bigint() - stressStart) / 1_000_000;
-  if (!stressCorrectionMatched || stressMatched || stressDurationMs > 2_000) {
+  if (
+    !stressCorrectionMatched ||
+    stressMatched ||
+    stressNegationMatched ||
+    stressDurationMs > 2_000
+  ) {
     failures.push([
       false,
       `Long feedback message took ${stressDurationMs.toFixed(1)} ms or matched unexpectedly`,
@@ -2907,9 +3064,7 @@ const PATTERNS = [
     label: "Had to correct overly technical feedback replies",
     fixedBy:
       ".agents/skills/review-latest-feedback + address-feedback-with-replies (concise, plain-language replies, 2026-10-09)",
-    // Exclude neutral requests like "please reply with technical details."
-    re: FEEDBACK_REPLY_DETAIL_RE,
-    lineSensitive: true,
+    ...FEEDBACK_REPLY_DETAIL_PATTERN,
   },
   {
     key: "pr-review-handoff",
@@ -3109,8 +3264,7 @@ async function scan(file, read) {
     if (!at || at < cutoff) continue;
     messages += 1;
     for (const pattern of selected) {
-      if (!pattern.re.test(textForPattern(text, pattern.lineSensitive)))
-        continue;
+      if (!matchesPattern(pattern, text)) continue;
       const week = weekOf(at);
       const bucket = counts.get(pattern.key);
       bucket.set(week, (bucket.get(week) ?? 0) + 1);
