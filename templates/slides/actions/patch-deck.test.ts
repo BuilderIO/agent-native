@@ -2373,6 +2373,25 @@ describe("run() — asynchronous layout fit metadata", () => {
     ).toBe(false);
   });
 
+  it("renames through the widget but leaves deck access to the share actions", () => {
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        { op: "patch-deck-fields", fields: { title: "Renamed" } },
+      ]),
+    ).toBe(true);
+    for (const fields of [{ visibility: "public" }, { shareToken: "token" }]) {
+      for (const options of [undefined, { tweakDefinitions: [] }]) {
+        expect(
+          isMcpWidgetPatchAllowed(
+            "mcp-widget-write",
+            [{ op: "patch-deck-fields", fields }],
+            options,
+          ),
+        ).toBe(false);
+      }
+    }
+  });
+
   it.each([
     ["source-import metadata", { rewriteSource: true }],
     [
