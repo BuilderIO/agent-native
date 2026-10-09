@@ -6275,6 +6275,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     var selectionGeneration = 0;
     var selectionChromeHidden = false;
     var hoveredEl = null;
+    var measurementModifierActive = false;
+    var measurementTargetEl = null;
     var highlightOverlayStyle = "default";
     var activeNodeHtmlPreview = null;
     var lastHoverInfoPostedEl = null;
@@ -9891,6 +9893,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       positionMultiSelectionBounds();
       positionGradientOverlay();
       refreshFrameNameLabels();
+      refreshMeasurements();
       syncOverlayObservers();
     }
     var refreshOverlaysScheduled = false;
@@ -9910,6 +9913,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     var observedResizeEls = [];
     var observedMutationRoot = null;
     var observedMutationTarget = null;
+    var observedMutationMeasurementTarget = null;
+    var observedMutationMeasurementParent = null;
     var observedMutationPaintServers = [];
     var observedMutationPaintParents = [];
     function ensureOverlayObservers() {
@@ -9950,6 +9955,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (overlayMutationObserver) {
         var nextRoot = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl.parentElement || selectedEl : null;
         var nextTarget = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl : null;
+        var nextMeasurementTarget = measurementModifierActive && measurementTargetEl && document.documentElement.contains(measurementTargetEl) ? measurementTargetEl : null;
+        var nextMeasurementParent = nextMeasurementTarget ? nextMeasurementTarget.parentElement : null;
         var nextPaintServers = nextTarget ? cornerRadiusReferencedPaintElements(nextTarget) : [];
         var nextPaintParents = [];
         nextPaintServers.forEach(function(server) {
@@ -9964,7 +9971,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var paintParentsChanged = nextPaintParents.length !== observedMutationPaintParents.length || nextPaintParents.some(function(parent, index) {
           return observedMutationPaintParents[index] !== parent;
         });
-        if (nextRoot !== observedMutationRoot || nextTarget !== observedMutationTarget || paintServersChanged || paintParentsChanged) {
+        if (nextRoot !== observedMutationRoot || nextTarget !== observedMutationTarget || nextMeasurementTarget !== observedMutationMeasurementTarget || nextMeasurementParent !== observedMutationMeasurementParent || paintServersChanged || paintParentsChanged) {
           overlayMutationObserver.disconnect();
           if (nextRoot) {
             overlayMutationObserver.observe(nextRoot, {
@@ -9979,6 +9986,16 @@ export const editorChromeBridgeScript: string = `"use strict";
                 subtree: selectedEl.tagName.toLowerCase() === "svg"
               });
             }
+          }
+          if (nextMeasurementTarget && nextMeasurementTarget !== nextRoot && nextMeasurementTarget !== nextTarget) {
+            overlayMutationObserver.observe(nextMeasurementTarget, {
+              attributes: true
+            });
+          }
+          if (nextMeasurementParent && nextMeasurementParent !== nextRoot && nextMeasurementParent !== nextTarget && nextMeasurementParent !== nextMeasurementTarget) {
+            overlayMutationObserver.observe(nextMeasurementParent, {
+              attributes: true
+            });
           }
           nextPaintServers.forEach(function(server) {
             if (server !== nextRoot && server !== nextTarget) {
@@ -9998,6 +10015,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           });
           observedMutationRoot = nextRoot;
           observedMutationTarget = nextTarget;
+          observedMutationMeasurementTarget = nextMeasurementTarget;
+          observedMutationMeasurementParent = nextMeasurementParent;
           observedMutationPaintServers = nextPaintServers;
           observedMutationPaintParents = nextPaintParents;
         }
@@ -10053,6 +10072,13 @@ export const editorChromeBridgeScript: string = `"use strict";
     function hideMeasurements() {
       measurementOverlay.style.display = "none";
       measurementOverlay.innerHTML = "";
+    }
+    function refreshMeasurements() {
+      if (!measurementModifierActive || !selectedEl || !measurementTargetEl || selectedEl === measurementTargetEl || !document.documentElement.contains(selectedEl) || !document.documentElement.contains(measurementTargetEl)) {
+        hideMeasurements();
+        return;
+      }
+      showMeasurements(selectedEl, measurementTargetEl);
     }
     function addMeasurementLine(x1, y1, x2, y2, label, dashed) {
       var horizontal = y1 === y2;
@@ -21318,6 +21344,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     );
     function handleShieldPointerMove(e) {
       if (readOnly || interactionMode) return;
+      measurementModifierActive = Boolean(e.altKey);
       var isAltSpacingRegionPointerMove = Boolean(
         e.altKey && spacingKeyFromTarget(
           e.target && e.target.nodeType === 1 ? e.target : null
@@ -21331,16 +21358,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         e.metaKey || e.ctrlKey
       );
       if (!hoveredEl) {
+        measurementTargetEl = null;
         highlightOverlay.style.display = "none";
         if (!spacingDrag && !isAltSpacingRegionPointerMove) {
           scheduleSpacingHoverClear(e);
         }
         hideMeasurements();
+        syncOverlayObservers();
         lastHoverInfoPostedEl = null;
         return;
       }
-      if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
+      if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]")) {
+        measurementTargetEl = null;
+        hideMeasurements();
+        syncOverlayObservers();
         return;
+      }
       if (!spacingDrag) {
         var hoveringSelectedSpacingSurface = Boolean(
           selectedEl && hoveredEl && (hoveredEl === selectedEl || selectedEl.contains && selectedEl.contains(hoveredEl))
@@ -21365,11 +21398,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       } else {
         positionOverlay(highlightOverlay, hoveredEl);
       }
-      if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
-        showMeasurements(selectedEl, hoveredEl);
-      } else {
-        hideMeasurements();
-      }
+      measurementTargetEl = e.altKey && selectedEl && hoveredEl !== selectedEl ? hoveredEl : null;
+      syncOverlayObservers();
+      refreshMeasurements();
       if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
         lastHoverInfoPostedEl = hoveredEl;
         var info = getLightElementInfo(hoveredEl);
@@ -21441,6 +21472,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         clearHoverGate();
+        measurementModifierActive = false;
+        measurementTargetEl = null;
         if (!spacingDrag) {
           scheduleSpacingHoverClear(e);
         }
@@ -21457,6 +21490,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       "keyup",
       function(e) {
         if (e.key === "Alt") {
+          measurementModifierActive = false;
+          measurementTargetEl = null;
           hideMeasurements();
           lastHoverInfoPostedEl = hoveredEl;
           window.parent.postMessage(
@@ -21502,6 +21537,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "measurement-modifier-release") {
+        measurementModifierActive = false;
+        measurementTargetEl = null;
         hideMeasurements();
         lastHoverInfoPostedEl = hoveredEl;
         window.parent.postMessage(

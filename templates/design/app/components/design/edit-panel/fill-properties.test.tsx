@@ -28,6 +28,7 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
 import type { ElementInfo } from "../types";
 import {
   baseFillLayerSourceProps,
@@ -510,6 +511,70 @@ describe("FillProperties base row — image layer prop wiring", () => {
 
     expect(markup).toContain('aria-label="editPanel.labels.addFill"');
     expect(markup).toContain("Click + to replace mixed content");
+  });
+
+  it("does not treat mixed CSS backgrounds as mixed vector fill", () => {
+    const el = element({
+      tagName: "path",
+      primitiveKind: "path",
+      computedStyles: {
+        fill: "rgb(217 217 217)",
+        backgroundColor: "Mixed",
+        backgroundImage: "Mixed",
+        backgroundPosition: "Mixed",
+        backgroundRepeat: "Mixed",
+        backgroundSize: "Mixed",
+      },
+      inlineStyles: { fill: "Mixed" },
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).not.toContain("Click + to replace mixed content");
+  });
+
+  it("replaces mixed vector fills with a solid fill", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: element({
+            tagName: "path",
+            primitiveKind: "path",
+            computedStyles: { fill: "Mixed" },
+            inlineStyles: { fill: "Mixed" },
+          }),
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+
+    const addFill = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="editPanel.labels.addFill"]',
+    );
+    expect(addFill).not.toBeNull();
+    await act(async () => addFill?.click());
+
+    expect(onStylesChange).toHaveBeenCalledWith(
+      { fill: DEFAULT_SHAPE_FILL },
+      undefined,
+    );
+    expect(onStyleChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    host.remove();
   });
 });
 

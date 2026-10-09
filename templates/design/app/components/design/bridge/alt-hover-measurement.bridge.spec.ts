@@ -87,6 +87,148 @@ async function measure(hovered: Box) {
   }
 }
 
+async function measureAfterSelectedElementMoves() {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page: Page = await browser.newPage({
+      viewport: { width: 1000, height: 800 },
+    });
+    await page.setContent(
+      `<!doctype html><html><body style="margin:0">${box("hovered", {
+        left: 519,
+        top: 400,
+        width: 200,
+        height: 120,
+      })}${box("selected", {
+        left: 200,
+        top: 200,
+        width: 200,
+        height: 120,
+      })}</body></html>`,
+    );
+    await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+    await page.evaluate(() => {
+      window.postMessage(
+        {
+          type: "select-element",
+          selector: '[data-agent-native-node-id="selected"]',
+        },
+        "*",
+      );
+    });
+    await page.waitForTimeout(50);
+    await page.keyboard.down("Alt");
+    await page.mouse.move(520, 410, { steps: 3 });
+    await page.waitForTimeout(50);
+
+    await page.evaluate(() => {
+      document
+        .querySelector<HTMLElement>('[data-agent-native-node-id="selected"]')!
+        .style.setProperty("top", "220px");
+    });
+    await page.waitForFunction(
+      () => {
+        const overlay = document.querySelector(
+          "[data-agent-native-measurement-overlay]",
+        );
+        return [...(overlay?.children ?? [])].some(
+          (node) => node.textContent === "60",
+        );
+      },
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    return await page.evaluate(() => {
+      const overlay = document.querySelector(
+        "[data-agent-native-measurement-overlay]",
+      )!;
+      const nodes = [...overlay.children] as HTMLElement[];
+      return {
+        labels: nodes
+          .map((node) => node.textContent)
+          .filter(Boolean)
+          .sort(),
+        dashed: nodes.filter((node) => node.style.cssText.includes("dashed"))
+          .length,
+      };
+    });
+  } finally {
+    await browser.close();
+  }
+}
+
+async function measureAfterHoveredElementMoves() {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page: Page = await browser.newPage({
+      viewport: { width: 1000, height: 800 },
+    });
+    await page.setContent(
+      `<!doctype html><html><body style="margin:0">${box("hovered", {
+        left: 519,
+        top: 400,
+        width: 200,
+        height: 120,
+      })}${box("selected", {
+        left: 200,
+        top: 200,
+        width: 200,
+        height: 120,
+      })}</body></html>`,
+    );
+    await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+    await page.evaluate(() => {
+      window.postMessage(
+        {
+          type: "select-element",
+          selector: '[data-agent-native-node-id="selected"]',
+        },
+        "*",
+      );
+    });
+    await page.waitForTimeout(50);
+    await page.keyboard.down("Alt");
+    await page.mouse.move(520, 410, { steps: 3 });
+    await page.waitForTimeout(50);
+
+    await page.evaluate(() => {
+      document
+        .querySelector<HTMLElement>('[data-agent-native-node-id="hovered"]')!
+        .style.setProperty("top", "420px");
+    });
+    await page.waitForFunction(
+      () => {
+        const overlay = document.querySelector(
+          "[data-agent-native-measurement-overlay]",
+        );
+        return [...(overlay?.children ?? [])].some(
+          (node) => node.textContent === "100",
+        );
+      },
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    return await page.evaluate(() => {
+      const overlay = document.querySelector(
+        "[data-agent-native-measurement-overlay]",
+      )!;
+      const nodes = [...overlay.children] as HTMLElement[];
+      return {
+        labels: nodes
+          .map((node) => node.textContent)
+          .filter(Boolean)
+          .sort(),
+        dashed: nodes.filter((node) => node.style.cssText.includes("dashed"))
+          .length,
+      };
+    });
+  } finally {
+    await browser.close();
+  }
+}
+
 describe("Alt-hover measurement", () => {
   it("shows both gaps with dashed runs to a diagonal neighbour", async () => {
     expect(
@@ -110,5 +252,19 @@ describe("Alt-hover measurement", () => {
     expect(
       await measure({ left: 350, top: 280, width: 200, height: 120 }),
     ).toEqual({ labels: ["150", "150", "80", "80"], dashed: 0 });
+  });
+
+  it("updates the measurements after the selected element moves", async () => {
+    expect(await measureAfterSelectedElementMoves()).toEqual({
+      labels: ["119", "60"],
+      dashed: 2,
+    });
+  });
+
+  it("updates the measurements after the hovered element moves", async () => {
+    expect(await measureAfterHoveredElementMoves()).toEqual({
+      labels: ["100", "119"],
+      dashed: 2,
+    });
   });
 }, 60_000);

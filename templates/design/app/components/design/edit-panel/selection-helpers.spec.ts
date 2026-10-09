@@ -87,6 +87,21 @@ describe("mixedElementFromSelection", () => {
     expect(merged?.computedStyles.opacity).toBe("1");
   });
 
+  it("treats equivalent inline paint spellings as one shared value", () => {
+    const a = makeElement({
+      computedStyles: { fill: "rgb(217, 217, 217)" },
+      inlineStyles: { fill: "#d9d9d9" },
+    });
+    const b = makeElement({
+      computedStyles: { fill: "rgb(217 217 217)" },
+      inlineStyles: { fill: "rgb(217 217 217)" },
+    });
+    const merged = mixedElementFromSelection([a, b]);
+
+    expect(merged?.computedStyles.fill).toBe("rgb(217, 217, 217)");
+    expect(merged?.inlineStyles?.fill).toBe("#d9d9d9");
+  });
+
   it("keeps authored sizing only when every selected element agrees", () => {
     const a = makeElement({
       authoredSizeStyles: { width: "240px", height: "auto" },

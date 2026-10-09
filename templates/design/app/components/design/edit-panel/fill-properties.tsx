@@ -269,11 +269,12 @@ export function FillProperties({
   );
   const fillIsMixed =
     isMixedValue(fillValue) ||
-    isMixedValue(styles.backgroundImage) ||
-    isMixedValue(styles.backgroundSize) ||
-    isMixedValue(styles.backgroundRepeat) ||
-    isMixedValue(styles.backgroundPosition) ||
-    (isTextFillElement && isMixedValue(styles.backgroundClip));
+    (!isVectorFillElement &&
+      (isMixedValue(styles.backgroundImage) ||
+        isMixedValue(styles.backgroundSize) ||
+        isMixedValue(styles.backgroundRepeat) ||
+        isMixedValue(styles.backgroundPosition) ||
+        (isTextFillElement && isMixedValue(styles.backgroundClip))));
   const hasBackgroundLayer =
     !isVectorFillElement && backgroundLayers.length > 0;
   const authoredFill = authoredFillValue?.trim().toLowerCase();
@@ -418,6 +419,14 @@ export function FillProperties({
       return;
     }
     if (fillIsMixed) {
+      if (isVectorFillElement) {
+        commitStylePatch(
+          { fill: DEFAULT_SHAPE_FILL },
+          onStyleChange,
+          onStylesChange,
+        );
+        return;
+      }
       const replacement: Record<string, string> = isTextFillElement
         ? {
             color: "#000000", // guard:allow-raw-color — a concrete fallback for mixed text paint.

@@ -1,3 +1,5 @@
+import { parseCssColorExtended, rgbaToHex } from "@shared/color-utils";
+
 import type { ElementInfo } from "../types";
 
 export const MIXED_VALUE = "Mixed";
@@ -10,6 +12,34 @@ export function sameOrMixed(values: string[]): string {
   if (values.length === 0) return "";
   const first = values[0] ?? "";
   return values.every((value) => value === first) ? first : MIXED_VALUE;
+}
+
+const COLOR_STYLE_PROPERTIES = new Set([
+  "backgroundcolor",
+  "bordercolor",
+  "color",
+  "fill",
+  "floodcolor",
+  "lightingcolor",
+  "outlinecolor",
+  "stopcolor",
+  "stroke",
+  "textdecorationcolor",
+]);
+
+function sameOrMixedColorStyle(property: string, values: string[]): string {
+  const propertyKey = property.replaceAll("-", "").toLowerCase();
+  if (!COLOR_STYLE_PROPERTIES.has(propertyKey) || values.length === 0) {
+    return sameOrMixed(values);
+  }
+  const keys = values.map((value) => {
+    const parsed = parseCssColorExtended(value.trim());
+    return parsed ? rgbaToHex(parsed, true).toUpperCase() : undefined;
+  });
+  const firstKey = keys[0];
+  return firstKey && keys.every((key) => key === firstKey)
+    ? (values[0] ?? "")
+    : sameOrMixed(values);
 }
 
 function sameStructure<T>(a: T | undefined, b: T | undefined): boolean {
@@ -34,7 +64,10 @@ export function mixedElementFromSelection(
   const computedStyles = Object.fromEntries(
     Array.from(styleKeys).map((key) => [
       key,
-      sameOrMixed(elements.map((element) => element.computedStyles[key] ?? "")),
+      sameOrMixedColorStyle(
+        key,
+        elements.map((element) => element.computedStyles[key] ?? ""),
+      ),
     ]),
   );
   const inlineStyleKeys = new Set<string>();
@@ -48,7 +81,8 @@ export function mixedElementFromSelection(
       ? Object.fromEntries(
           Array.from(inlineStyleKeys).map((key) => [
             key,
-            sameOrMixed(
+            sameOrMixedColorStyle(
+              key,
               elements.map((element) => element.inlineStyles?.[key] ?? ""),
             ),
           ]),
