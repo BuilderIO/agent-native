@@ -2048,9 +2048,15 @@ describe("browser analytics pageviews", () => {
       "https://analytics.example.test/config-track",
       "https://analytics.example.test/api/analytics/replay",
     ],
+    [
+      "custom analytics path",
+      "https://analytics.example.test/v1/events",
+      "https://analytics.example.test/api/analytics/replay",
+    ],
     ["relative SSR track", "/ssr-track", "/api/analytics/replay"],
     ["relative build track", "/build-track", "/api/analytics/replay"],
     ["relative config track", "/config-track", "/api/analytics/replay"],
+    ["relative custom analytics path", "/v1/events", "/api/analytics/replay"],
   ])(
     "starts replay from server-injected %s config and attaches active replay fields",
     async (_label, trackingEndpoint, replayEndpoint) => {
@@ -2128,6 +2134,57 @@ describe("browser analytics pageviews", () => {
       llm_model: "gpt-5.5",
       llm_connection_source: "env",
       llm_connection_env_var: "OPENAI_API_KEY",
+    });
+  });
+
+  it("waits for replay startup before sending the initial pageview", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "user@example.com",
+        userId: "user-1",
+        orgId: "org-1",
+      },
+    });
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      agentNativeAnalyticsPublicKey: "anpk_runtime_test",
+      agentNativeAnalyticsEndpoint: "https://analytics.example.test/track",
+    };
+    let finishReplayStart: (() => void) | undefined;
+    replayMock.startSessionReplay.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishReplayStart = () => resolve({ started: true });
+        }),
+    );
+    const { configureTracking, setTrackingIdentity } = await freshAnalytics();
+    setTrackingIdentity({ id: "user-1", email: "user@example.com" }, "org-1");
+
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      errorCapture: false,
+      webVitals: false,
+    });
+    await tick();
+    expect(replayMock.startSessionReplay).toHaveBeenCalled();
+
+    const readPageviews = () =>
+      analyticsCalls
+        .map(([, init]) => JSON.parse(String(init.body)))
+        .filter((body) => body.event === "pageview");
+    expect(readPageviews()).toHaveLength(0);
+
+    replayMock.getSessionReplayContext.mockReturnValue({
+      active: true,
+      replayId: "replay-test",
+      startedAt: "2026-10-09T18:00:00.000Z",
+    });
+    finishReplayStart?.();
+    await tick();
+    expect(readPageviews()[0]?.properties).toMatchObject({
+      sessionReplayId: "replay-test",
+      sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
     });
   });
 

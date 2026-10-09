@@ -43,6 +43,7 @@ import {
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { clientBuildId } from "./build-compatibility.js";
 import { clientFailureContext } from "./failure-report.js";
+import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
 import { scheduleAfterPaint } from "./use-after-paint.js";
 export {
   clearAnalyticsSessionId,
@@ -239,6 +240,7 @@ const AGENT_CHAT_TRACKING_STATE_KEY = Symbol.for(
 );
 const AGENT_CHAT_LIFECYCLE_DEDUPE_TTL_MS = 10 * 60 * 1_000;
 const MAX_AGENT_CHAT_LIFECYCLE_DEDUPE_KEYS = 1_000;
+const PAGEVIEW_STARTUP_WAIT_MS = 250;
 
 const LLM_CONNECTION_STORAGE_KEY = "agent-native.llm_connection_status";
 const LLM_CONNECTION_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -1443,10 +1445,6 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
     if (options.authSessionRefresh !== false) {
       installTrackingAuthSessionRefresh();
     }
-    if (options.pageviewTracking !== false) {
-      installPageviewTracking();
-      if (options.webVitals !== false) installWebVitalsTracking();
-    }
     maybeInstallSessionReplay(
       options.sessionReplay,
       {
@@ -1455,6 +1453,10 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
       },
       _trackingContentCaptureEnabled,
     );
+    if (options.pageviewTracking !== false) {
+      installPageviewTracking();
+      if (options.webVitals !== false) installWebVitalsTracking();
+    }
     maybeInstallErrorCapture(options.errorCapture);
   }
 }
@@ -1727,7 +1729,7 @@ function configuredSessionReplayOptions(
     env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
     (publicKey ? AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT : undefined);
   const endpoint = trackingEndpoint
-    ? replayEndpointFromTrackingEndpoint(trackingEndpoint)
+    ? (replayEndpointFromAnalyticsEndpoint(trackingEndpoint) ?? undefined)
     : undefined;
   const withTrackingDefaults = (
     options: SessionReplayOptions,
@@ -1812,58 +1814,6 @@ function replayExtraPropertiesWithDefaults(
       isQaTrackingIdentity(identity) ? null : identity,
     );
   };
-}
-
-function replayEndpointFromTrackingEndpoint(value: string): string | undefined {
-  try {
-    const url = new URL(value);
-    if (url.pathname.endsWith("/api/analytics/track")) {
-      url.pathname = url.pathname.replace(
-        /\/api\/analytics\/track$/,
-        "/api/analytics/replay",
-      );
-      return url.toString();
-    }
-    if (url.pathname.endsWith("/ssr-track")) {
-      url.pathname = url.pathname.replace(
-        /\/ssr-track$/,
-        "/api/analytics/replay",
-      );
-      return url.toString();
-    }
-    if (
-      url.pathname.endsWith("/build-track") ||
-      url.pathname.endsWith("/config-track")
-    ) {
-      url.pathname = url.pathname.replace(
-        /\/(?:build-track|config-track)$/,
-        "/api/analytics/replay",
-      );
-      return url.toString();
-    }
-    if (url.pathname.endsWith("/track")) {
-      url.pathname = url.pathname.replace(/\/track$/, "/api/analytics/replay");
-      return url.toString();
-    }
-  } catch {
-    // Fall through to relative-path handling below.
-  }
-  if (value.endsWith("/api/analytics/track")) {
-    return value.replace(/\/api\/analytics\/track$/, "/api/analytics/replay");
-  }
-  if (value.endsWith("/ssr-track")) {
-    return value.replace(/\/ssr-track$/, "/api/analytics/replay");
-  }
-  if (value.endsWith("/build-track") || value.endsWith("/config-track")) {
-    return value.replace(
-      /\/(?:build-track|config-track)$/,
-      "/api/analytics/replay",
-    );
-  }
-  if (value.endsWith("/track")) {
-    return value.replace(/\/track$/, "/api/analytics/replay");
-  }
-  return undefined;
 }
 
 function maybeInstallSessionReplay(
@@ -2247,6 +2197,7 @@ function schedulePageview(reason: string): void {
     _llmConnectionBootRefresh && !_llmConnectionStatus
       ? _llmConnectionBootRefresh
       : null;
+  const replayStart = _sessionReplayStartPromise;
   const pendingStartupContext: Array<Promise<void>> = [];
   if (_llmConnectionRefresh && !_llmConnectionStatus) {
     pendingStartupContext.push(_llmConnectionRefresh);
@@ -2255,17 +2206,30 @@ function schedulePageview(reason: string): void {
     pendingStartupContext.push(_trackingSessionRefresh);
   }
   if (deferredBootRefresh !== null) {
-    if (pendingStartupContext.length > 0) {
+    if (pendingStartupContext.length > 0 || replayStart) {
       const timeout = new Promise<void>((resolve) =>
-        window.setTimeout(resolve, 250),
+        window.setTimeout(resolve, PAGEVIEW_STARTUP_WAIT_MS),
       );
+      const startupContext = [
+        ...pendingStartupContext,
+        ...(replayStart ? [replayStart.then(() => undefined)] : []),
+      ];
       void Promise.all([
         deferredBootRefresh,
-        Promise.race([Promise.allSettled(pendingStartupContext), timeout]),
+        Promise.race([Promise.allSettled(startupContext), timeout]),
       ]).finally(run);
       return;
     }
     void deferredBootRefresh.finally(run);
+    return;
+  }
+  if (replayStart) {
+    const timeout = new Promise<void>((resolve) =>
+      window.setTimeout(resolve, PAGEVIEW_STARTUP_WAIT_MS),
+    );
+    void Promise.race([replayStart.then(() => undefined), timeout]).finally(
+      run,
+    );
     return;
   }
   if (typeof queueMicrotask === "function") {

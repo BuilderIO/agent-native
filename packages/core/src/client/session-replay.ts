@@ -17,6 +17,7 @@ import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
+import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
 import {
   SESSION_REPLAY_BLOCK_ATTRIBUTE,
   SESSION_REPLAY_MASK_ATTRIBUTE,
@@ -848,32 +849,6 @@ function readFirstEnvNumber(keys: string[]): number | undefined {
     if (value !== undefined) return value;
   }
   return undefined;
-}
-
-function replayEndpointFromAnalyticsEndpoint(value: string): string | null {
-  try {
-    const url = new URL(value);
-    if (url.pathname.endsWith("/api/analytics/track")) {
-      url.pathname = url.pathname.replace(
-        /\/api\/analytics\/track$/,
-        "/api/analytics/replay",
-      );
-      return url.toString();
-    }
-    if (url.pathname.endsWith("/track")) {
-      url.pathname = url.pathname.replace(/\/track$/, "/api/analytics/replay");
-      return url.toString();
-    }
-  } catch {
-    // Fall through to the relative path cases below.
-  }
-  if (value.endsWith("/api/analytics/track")) {
-    return value.replace(/\/api\/analytics\/track$/, "/api/analytics/replay");
-  }
-  if (value.endsWith("/track")) {
-    return value.replace(/\/track$/, "/api/analytics/replay");
-  }
-  return null;
 }
 
 function defaultReplayEndpoint(): string {
