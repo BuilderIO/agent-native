@@ -555,6 +555,20 @@ describe("run trace metadata", () => {
       });
     });
 
+    it("records assignments when an active experiment has no model override", async () => {
+      mockResolveActiveExperimentConfig.mockResolvedValue({
+        configs: {},
+        assignments,
+      });
+
+      await firstPrompt();
+
+      expect(instrumented.at(-1)?.metadata).toMatchObject({
+        modelSelectionSource: "default",
+        experimentAssignments: assignments,
+      });
+    });
+
     it("does not assign or attribute a variant when the request pins a model", async () => {
       await firstPrompt({}, { model: "gpt-6-luna" });
 

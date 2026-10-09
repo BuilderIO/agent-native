@@ -9932,7 +9932,9 @@ export function resolveAgentExperimentSelection(options: {
   const model = resolveAgentExperimentModelOverride(options);
   return {
     ...(model ? { model } : {}),
-    assignments: model ? [...options.assignments] : [],
+    assignments: isConcreteModelSelection(options.requestModel)
+      ? []
+      : [...options.assignments],
   };
 }
 
@@ -10743,13 +10745,13 @@ export function createProductionAgentHandler(
                 : undefined,
             assignments: expConfig.assignments,
           });
+          experimentAssignments = experimentSelection.assignments;
           if (experimentSelection.model) {
             effectiveModel = normalizeModelForEngine(
               engine,
               experimentSelection.model,
             );
             modelSelectionSource = "experiment";
-            experimentAssignments = experimentSelection.assignments;
           }
         }
       }

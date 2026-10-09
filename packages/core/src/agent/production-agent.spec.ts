@@ -495,7 +495,7 @@ describe("resolveAgentExperimentModelOverride", () => {
     ).toBe("gpt-5-6-luna");
   });
 
-  it("records assignments only when the experiment supplies the selected model", () => {
+  it("records assignments unless the request pins a model", () => {
     const assignments = [
       { experimentId: "experiment-1", variantId: "variant-b" },
     ];
@@ -514,6 +514,12 @@ describe("resolveAgentExperimentModelOverride", () => {
         assignments,
       }),
     ).toEqual({ model: "gpt-5-6-luna", assignments });
+    expect(
+      resolveAgentExperimentSelection({
+        requestModel: "auto",
+        assignments,
+      }),
+    ).toEqual({ assignments });
   });
 });
 
