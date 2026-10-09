@@ -8,6 +8,10 @@ import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
+import {
+  annotateScreenHtmlForPersist,
+  normalizeScreenHtml,
+} from "../shared/screen-annotation.js";
 import { designConnectionIdsFromData } from "../shared/source-mode.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 
@@ -104,6 +108,12 @@ const agentDataOperationSchema = z
     }
   });
 
+const screenRestoreClaimReferenceSchema = z.object({
+  claimId: z.string().min(1).max(128),
+  sourceFileId: z.string().min(1).max(256),
+  targetFileId: z.string().min(1).max(256),
+});
+
 type DataOperation = z.infer<typeof dataOperationSchema>;
 
 type DataOperationRevisions = Record<string, number>;
@@ -131,6 +141,121 @@ function affectedRowCount(result: unknown): number | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => sameJsonValue(value, right[index]))
+    );
+  }
+  if (isRecord(left) || isRecord(right)) {
+    if (!isRecord(left) || !isRecord(right)) return false;
+    const leftKeys = Object.keys(left).sort();
+    const rightKeys = Object.keys(right).sort();
+    return (
+      leftKeys.length === rightKeys.length &&
+      leftKeys.every(
+        (key, index) =>
+          key === rightKeys[index] && sameJsonValue(left[key], right[key]),
+      )
+    );
+  }
+  return false;
+}
+
+type ConnectionAssignment = {
+  map: "screenMetadata" | "localhostScreens";
+  fileId: string;
+  connectionId: string;
+};
+
+function connectionAssignments(data: unknown): ConnectionAssignment[] {
+  let parsed = data;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed) as unknown;
+    } catch {
+      return [];
+    }
+  }
+  if (!isRecord(parsed)) return [];
+  const assignments: ConnectionAssignment[] = [];
+  for (const map of ["screenMetadata", "localhostScreens"] as const) {
+    const entries = parsed[map];
+    if (!isRecord(entries)) continue;
+    for (const [fileId, metadata] of Object.entries(entries)) {
+      if (
+        isRecord(metadata) &&
+        typeof metadata.connectionId === "string" &&
+        metadata.connectionId.length > 0
+      ) {
+        assignments.push({ map, fileId, connectionId: metadata.connectionId });
+      }
+    }
+  }
+  return assignments;
+}
+
+function connectionAssignmentKey(
+  assignment: Pick<ConnectionAssignment, "map" | "fileId">,
+): string {
+  return `${assignment.map}\u0000${assignment.fileId}`;
+}
+
+interface ScreenRestoreClaimSnapshot {
+  filename: string;
+  fileType: string;
+  content: string;
+  screenMetadata?: Record<string, unknown>;
+  localhostScreen?: Record<string, unknown>;
+}
+
+function parseScreenRestoreClaimSnapshot(
+  raw: string,
+): ScreenRestoreClaimSnapshot | null {
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (
+      !isRecord(value) ||
+      typeof value.filename !== "string" ||
+      typeof value.fileType !== "string" ||
+      typeof value.content !== "string" ||
+      (value.screenMetadata !== undefined && !isRecord(value.screenMetadata)) ||
+      (value.localhostScreen !== undefined && !isRecord(value.localhostScreen))
+    ) {
+      return null;
+    }
+    const hasConnection = [value.screenMetadata, value.localhostScreen].some(
+      (metadata) =>
+        isRecord(metadata) &&
+        typeof metadata.connectionId === "string" &&
+        metadata.connectionId.length > 0,
+    );
+    if (!hasConnection) return null;
+    return value as unknown as ScreenRestoreClaimSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+function restoredContentMatchesClaim(
+  storedContent: string,
+  snapshot: ScreenRestoreClaimSnapshot,
+): boolean {
+  const sourceCandidates = [snapshot.content];
+  if (snapshot.fileType === "html") {
+    sourceCandidates.push(normalizeScreenHtml(snapshot.content).content);
+  }
+  return sourceCandidates.some(
+    (candidate) =>
+      annotateScreenHtmlForPersist(candidate, snapshot.fileType) ===
+      storedContent,
+  );
 }
 
 function parsePersistedDataRecord(
@@ -313,6 +438,14 @@ export default defineAction({
         .describe(
           "Atomic path-addressed set/delete operations for design data. Safe to CAS-retry across concurrent writers. Geometry values must be numbers, not strings.",
         ),
+      restoreClaims: z
+        .array(screenRestoreClaimReferenceSchema)
+        .min(1)
+        .max(100)
+        .optional()
+        .describe(
+          "Server-issued one-use proof for restoring connection metadata after deleting a Screen.",
+        ),
       operationSource: z
         .string()
         .trim()
@@ -369,6 +502,40 @@ export default defineAction({
             "operationSource and operationRevision require dataOperations.",
         });
       }
+      if (value.restoreClaims) {
+        if (!value.dataOperations || !hasSource || !hasRevision) {
+          context.addIssue({
+            code: "custom",
+            path: ["restoreClaims"],
+            message:
+              "Restore claims require path operations with an operation source and revision.",
+          });
+        }
+        if (value.data !== undefined) {
+          context.addIssue({
+            code: "custom",
+            path: ["restoreClaims"],
+            message: "Restore claims cannot be used with a snapshot update.",
+          });
+        }
+        const claimIds = new Set<string>();
+        const targetIds = new Set<string>();
+        for (const claim of value.restoreClaims) {
+          if (
+            claimIds.has(claim.claimId) ||
+            targetIds.has(claim.targetFileId)
+          ) {
+            context.addIssue({
+              code: "custom",
+              path: ["restoreClaims"],
+              message: "Restore claims and target files must be unique.",
+            });
+            break;
+          }
+          claimIds.add(claim.claimId);
+          targetIds.add(claim.targetFileId);
+        }
+      }
     }),
   agentInputSchema: z.object({
     id: z.string().describe("Design ID"),
@@ -400,6 +567,7 @@ export default defineAction({
       description,
       data,
       dataOperations,
+      restoreClaims,
       operationSource,
       operationRevision,
       projectType,
@@ -436,6 +604,7 @@ export default defineAction({
       description === undefined &&
       data === undefined &&
       dataOperations === undefined &&
+      restoreClaims === undefined &&
       projectType === undefined &&
       designSystemId === undefined
     ) {
@@ -457,7 +626,11 @@ export default defineAction({
       return updates;
     };
 
-    if (data === undefined && dataOperations === undefined) {
+    if (
+      data === undefined &&
+      dataOperations === undefined &&
+      restoreClaims === undefined
+    ) {
       await db
         .update(schema.designs)
         .set(staticUpdates())
@@ -467,160 +640,394 @@ export default defineAction({
 
     const maxAttempts = dataOperations ? MAX_DATA_CAS_ATTEMPTS : 1;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const [existing] = await db
-        .select({
-          data: schema.designs.data,
-          dataOperationRevisions: schema.designs.dataOperationRevisions,
-        })
-        .from(schema.designs)
-        .where(eq(schema.designs.id, id));
-      if (!existing) {
-        throw new Error(`Design not found: ${id}`);
-      }
-
-      let nextData: string;
-      let nextOperationRevisions: string | undefined;
-      if (dataOperations) {
-        if (operationSource !== undefined && operationRevision !== undefined) {
-          const revisions = parseDataOperationRevisions(
-            id,
-            existing.dataOperationRevisions,
-          );
-          if ((revisions[operationSource] ?? -1) >= operationRevision) {
-            return { id, updated: true, stale: true };
-          }
-          nextOperationRevisions = JSON.stringify(
-            withDataOperationRevision(
-              revisions,
-              operationSource,
-              operationRevision,
-            ),
-          );
+      const result = await db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select({
+            data: schema.designs.data,
+            dataOperationRevisions: schema.designs.dataOperationRevisions,
+          })
+          .from(schema.designs)
+          .where(eq(schema.designs.id, id));
+        if (!existing) {
+          throw new Error(`Design not found: ${id}`);
         }
-        nextData = applyDataOperations(id, existing.data, dataOperations);
-      } else {
-        const incomingParsed = JSON.parse(data!);
-        nextData = isRecord(incomingParsed)
-          ? JSON.stringify({
-              ...parsePersistedDataRecord(id, existing.data),
-              ...incomingParsed,
+
+        let nextData: string;
+        let nextOperationRevisions: string | undefined;
+        if (dataOperations) {
+          if (
+            operationSource !== undefined &&
+            operationRevision !== undefined
+          ) {
+            const revisions = parseDataOperationRevisions(
+              id,
+              existing.dataOperationRevisions,
+            );
+            if ((revisions[operationSource] ?? -1) >= operationRevision) {
+              return {
+                kind: "done" as const,
+                value: { id, updated: true, stale: true },
+              };
+            }
+            nextOperationRevisions = JSON.stringify(
+              withDataOperationRevision(
+                revisions,
+                operationSource,
+                operationRevision,
+              ),
+            );
+          }
+          nextData = applyDataOperations(id, existing.data, dataOperations);
+        } else {
+          const incomingParsed = JSON.parse(data!);
+          nextData = isRecord(incomingParsed)
+            ? JSON.stringify({
+                ...parsePersistedDataRecord(id, existing.data),
+                ...incomingParsed,
+              })
+            : data!;
+        }
+
+        const allowedRestoreAssignments = new Map<string, string>();
+        const restoreClaimsToConsume: Array<{
+          id: string;
+          targetFileId: string;
+          consumedAt: string | null;
+          restoredFileId: string | null;
+        }> = [];
+        if (restoreClaims?.length) {
+          const claimIds = restoreClaims.map((claim) => claim.claimId);
+          const targetFileIds = restoreClaims.map(
+            (claim) => claim.targetFileId,
+          );
+          const claimRows = await tx
+            .select({
+              id: schema.designScreenRestoreClaims.id,
+              designId: schema.designScreenRestoreClaims.designId,
+              sourceFileId: schema.designScreenRestoreClaims.sourceFileId,
+              snapshot: schema.designScreenRestoreClaims.snapshot,
+              consumedAt: schema.designScreenRestoreClaims.consumedAt,
+              restoredFileId: schema.designScreenRestoreClaims.restoredFileId,
             })
-          : data!;
-      }
-      const existingConnectionIds = new Set(
-        designConnectionIdsFromData(existing.data),
-      );
-      const addedConnectionIds = [
-        ...new Set(
-          designConnectionIdsFromData(nextData).filter(
-            (connectionId) => !existingConnectionIds.has(connectionId),
-          ),
-        ),
-      ];
-      if (addedConnectionIds.length > 0 && access?.role !== "owner") {
-        const connectionScope = await resolveLocalhostConnectionScope().catch(
-          () =>
+            .from(schema.designScreenRestoreClaims)
+            .where(
+              and(
+                eq(schema.designScreenRestoreClaims.designId, id),
+                inArray(schema.designScreenRestoreClaims.id, claimIds),
+              ),
+            );
+          const files = await tx
+            .select({
+              id: schema.designFiles.id,
+              designId: schema.designFiles.designId,
+              filename: schema.designFiles.filename,
+              fileType: schema.designFiles.fileType,
+              content: schema.designFiles.content,
+            })
+            .from(schema.designFiles)
+            .where(
+              and(
+                eq(schema.designFiles.designId, id),
+                inArray(schema.designFiles.id, targetFileIds),
+              ),
+            );
+          const claimById = new Map(
+            claimRows.map((claim) => [claim.id, claim]),
+          );
+          const fileById = new Map(files.map((file) => [file.id, file]));
+          const nextRecord = parsePersistedDataRecord(id, nextData);
+          const nextScreenMetadata = isRecord(nextRecord.screenMetadata)
+            ? nextRecord.screenMetadata
+            : {};
+          const nextLocalhostScreens = isRecord(nextRecord.localhostScreens)
+            ? nextRecord.localhostScreens
+            : {};
+
+          for (const reference of restoreClaims) {
+            const claim = claimById.get(reference.claimId);
+            const file = fileById.get(reference.targetFileId);
+            const snapshot = claim
+              ? parseScreenRestoreClaimSnapshot(claim.snapshot)
+              : null;
+            if (
+              !claim ||
+              claim.designId !== id ||
+              claim.sourceFileId !== reference.sourceFileId ||
+              !file ||
+              file.designId !== id ||
+              !snapshot ||
+              file.filename !== snapshot.filename ||
+              file.fileType !== snapshot.fileType ||
+              !restoredContentMatchesClaim(file.content, snapshot) ||
+              (claim.consumedAt !== null &&
+                claim.restoredFileId !== reference.targetFileId)
+            ) {
+              fail(
+                "This Screen restore is no longer valid. Recreate the Screen and try again.",
+                {
+                  errorCode: "screen_restore_claim_invalid",
+                  statusCode: 403,
+                },
+              );
+            }
+
+            const snapshotMaps = [
+              ["screenMetadata", snapshot.screenMetadata, nextScreenMetadata],
+              [
+                "localhostScreens",
+                snapshot.localhostScreen,
+                nextLocalhostScreens,
+              ],
+            ] as const;
+            for (const [mapName, expected, nextMap] of snapshotMaps) {
+              const hasValue = Object.prototype.hasOwnProperty.call(
+                nextMap,
+                reference.targetFileId,
+              );
+              if (
+                expected === undefined
+                  ? hasValue
+                  : !hasValue ||
+                    !sameJsonValue(nextMap[reference.targetFileId], expected)
+              ) {
+                fail(
+                  "This Screen restore does not match its deleted metadata.",
+                  {
+                    errorCode: "screen_restore_metadata_mismatch",
+                    statusCode: 403,
+                  },
+                );
+              }
+              if (
+                isRecord(expected) &&
+                typeof expected.connectionId === "string" &&
+                expected.connectionId.length > 0
+              ) {
+                allowedRestoreAssignments.set(
+                  connectionAssignmentKey({
+                    map: mapName,
+                    fileId: reference.targetFileId,
+                  }),
+                  expected.connectionId,
+                );
+              }
+            }
+            restoreClaimsToConsume.push({
+              id: claim.id,
+              targetFileId: reference.targetFileId,
+              consumedAt: claim.consumedAt,
+              restoredFileId: claim.restoredFileId,
+            });
+          }
+        }
+
+        const existingAssignments = new Map(
+          connectionAssignments(existing.data).map((assignment) => [
+            connectionAssignmentKey(assignment),
+            assignment.connectionId,
+          ]),
+        );
+        const nextAssignments = connectionAssignments(nextData);
+        const addedAssignments = nextAssignments.filter(
+          (assignment) =>
+            existingAssignments.get(connectionAssignmentKey(assignment)) !==
+            assignment.connectionId,
+        );
+        const requiredScopeIds = new Set<string>();
+        for (const assignment of addedAssignments) {
+          if (
+            allowedRestoreAssignments.get(
+              connectionAssignmentKey(assignment),
+            ) !== assignment.connectionId
+          ) {
+            requiredScopeIds.add(assignment.connectionId);
+          }
+        }
+        const existingConnectionIds = new Set(
+          designConnectionIdsFromData(existing.data),
+        );
+        const nextConnectionIds = designConnectionIdsFromData(nextData);
+        const addedConnectionIds = nextConnectionIds.filter(
+          (connectionId) => !existingConnectionIds.has(connectionId),
+        );
+        const nextRoot = parsePersistedDataRecord(id, nextData).connectionId;
+        const existingRoot = parsePersistedDataRecord(
+          id,
+          existing.data,
+        ).connectionId;
+        if (
+          typeof nextRoot === "string" &&
+          nextRoot.length > 0 &&
+          nextRoot !== existingRoot
+        ) {
+          requiredScopeIds.add(nextRoot);
+        }
+        for (const connectionId of addedConnectionIds) {
+          const occurrences = nextAssignments.filter(
+            (assignment) => assignment.connectionId === connectionId,
+          );
+          if (
+            occurrences.length === 0 ||
+            occurrences.some(
+              (assignment) =>
+                allowedRestoreAssignments.get(
+                  connectionAssignmentKey(assignment),
+                ) !== connectionId,
+            )
+          ) {
+            requiredScopeIds.add(connectionId);
+          }
+        }
+        const requiredConnectionIds = [...requiredScopeIds];
+        if (requiredConnectionIds.length > 0 && access?.role !== "owner") {
+          const connectionScope = await resolveLocalhostConnectionScope().catch(
+            (error: unknown) => {
+              if (
+                error instanceof Error &&
+                error.message === "no authenticated user"
+              ) {
+                fail(
+                  "Only local app connections in your workspace can be added to this design.",
+                  {
+                    errorCode: "localhost_connection_scope_required",
+                    statusCode: 403,
+                  },
+                );
+              }
+              throw error;
+            },
+          );
+          const ownedConnections = await tx
+            .select({ id: schema.designLocalhostConnections.id })
+            .from(schema.designLocalhostConnections)
+            .where(
+              and(
+                inArray(
+                  schema.designLocalhostConnections.id,
+                  requiredConnectionIds,
+                ),
+                eq(
+                  schema.designLocalhostConnections.ownerEmail,
+                  connectionScope.ownerEmail,
+                ),
+                connectionScope.orgId
+                  ? eq(
+                      schema.designLocalhostConnections.orgId,
+                      connectionScope.orgId,
+                    )
+                  : isNull(schema.designLocalhostConnections.orgId),
+              ),
+            );
+          const ownedConnectionIds = new Set(
+            ownedConnections.map((connection) => connection.id),
+          );
+          if (
+            requiredConnectionIds.some(
+              (connectionId) => !ownedConnectionIds.has(connectionId),
+            )
+          ) {
             fail(
               "Only local app connections in your workspace can be added to this design.",
               {
-                errorCode: "localhost_connection_scope_required",
+                errorCode: "localhost_connection_scope_mismatch",
                 statusCode: 403,
               },
-            ),
+            );
+          }
+        }
+
+        const touchedMaps = dataOperations
+          ? new Set(dataOperations.map((operation) => operation.path[0]))
+          : (() => {
+              const parsed = JSON.parse(data!);
+              return new Set(isRecord(parsed) ? Object.keys(parsed) : []);
+            })();
+        const touchedCanvasFrameIds = dataOperations
+          ? (() => {
+              const ids = dataOperations
+                .filter(
+                  (operation) =>
+                    operation.path[0] === "canvasFrames" &&
+                    operation.path.length > 1,
+                )
+                .map((operation) => operation.path[1]!);
+              return ids.length > 0 ? new Set(ids) : undefined;
+            })()
+          : undefined;
+        validatePersistedDataSnapshot(
+          nextData,
+          id,
+          touchedMaps,
+          touchedCanvasFrameIds,
         );
-        const ownedConnections = await db
-          .select({ id: schema.designLocalhostConnections.id })
-          .from(schema.designLocalhostConnections)
+
+        const revisionCondition =
+          operationSource !== undefined
+            ? existing.dataOperationRevisions == null
+              ? isNull(schema.designs.dataOperationRevisions)
+              : eq(
+                  schema.designs.dataOperationRevisions,
+                  existing.dataOperationRevisions,
+                )
+            : undefined;
+        const updateResult = await tx
+          .update(schema.designs)
+          .set({
+            ...staticUpdates(),
+            data: nextData,
+            ...(nextOperationRevisions === undefined
+              ? {}
+              : { dataOperationRevisions: nextOperationRevisions }),
+          })
           .where(
             and(
-              inArray(schema.designLocalhostConnections.id, addedConnectionIds),
-              eq(
-                schema.designLocalhostConnections.ownerEmail,
-                connectionScope.ownerEmail,
-              ),
-              connectionScope.orgId
-                ? eq(
-                    schema.designLocalhostConnections.orgId,
-                    connectionScope.orgId,
-                  )
-                : isNull(schema.designLocalhostConnections.orgId),
+              eq(schema.designs.id, id),
+              existing.data == null
+                ? isNull(schema.designs.data)
+                : eq(schema.designs.data, existing.data),
+              ...(revisionCondition ? [revisionCondition] : []),
             ),
           );
-        const ownedConnectionIds = new Set(
-          ownedConnections.map((connection) => connection.id),
-        );
-        if (addedConnectionIds.some((id) => !ownedConnectionIds.has(id))) {
-          fail(
-            "Only local app connections in your workspace can be added to this design.",
-            {
-              errorCode: "localhost_connection_scope_mismatch",
-              statusCode: 403,
-            },
+        const affected = affectedRowCount(updateResult);
+        if (affected === undefined) {
+          throw new Error(
+            "The Postgres update did not report an affected-row count for the design data update.",
           );
         }
-      }
-      const touchedMaps = dataOperations
-        ? new Set(dataOperations.map((operation) => operation.path[0]))
-        : (() => {
-            const parsed = JSON.parse(data!);
-            return new Set(isRecord(parsed) ? Object.keys(parsed) : []);
-          })();
-      const touchedCanvasFrameIds = dataOperations
-        ? (() => {
-            const ids = dataOperations
-              .filter(
-                (operation) =>
-                  operation.path[0] === "canvasFrames" &&
-                  operation.path.length > 1,
-              )
-              .map((operation) => operation.path[1]!);
-            return ids.length > 0 ? new Set(ids) : undefined;
-          })()
-        : undefined;
-      validatePersistedDataSnapshot(
-        nextData,
-        id,
-        touchedMaps,
-        touchedCanvasFrameIds,
-      );
 
-      const revisionCondition =
-        operationSource !== undefined
-          ? existing.dataOperationRevisions == null
-            ? isNull(schema.designs.dataOperationRevisions)
-            : eq(
-                schema.designs.dataOperationRevisions,
-                existing.dataOperationRevisions,
-              )
-          : undefined;
-      const updateResult = await db
-        .update(schema.designs)
-        .set({
-          ...staticUpdates(),
-          data: nextData,
-          ...(nextOperationRevisions === undefined
-            ? {}
-            : { dataOperationRevisions: nextOperationRevisions }),
-        })
-        .where(
-          and(
-            eq(schema.designs.id, id),
-            existing.data == null
-              ? isNull(schema.designs.data)
-              : eq(schema.designs.data, existing.data),
-            ...(revisionCondition ? [revisionCondition] : []),
-          ),
-        );
-      const affected = affectedRowCount(updateResult);
-      if (affected === undefined) {
-        throw new Error(
-          "The Postgres update did not report an affected-row count for the design data update.",
-        );
-      }
+        if (affected > 0) {
+          const consumedAt = new Date().toISOString();
+          for (const claim of restoreClaimsToConsume) {
+            if (claim.consumedAt !== null) continue;
+            const consumeResult = await tx
+              .update(schema.designScreenRestoreClaims)
+              .set({ consumedAt, restoredFileId: claim.targetFileId })
+              .where(
+                and(
+                  eq(schema.designScreenRestoreClaims.id, claim.id),
+                  eq(schema.designScreenRestoreClaims.designId, id),
+                  isNull(schema.designScreenRestoreClaims.consumedAt),
+                ),
+              );
+            if (affectedRowCount(consumeResult) !== 1) {
+              fail(
+                "This Screen restore was already used. Recreate the Screen and try again.",
+                {
+                  errorCode: "screen_restore_claim_used",
+                  statusCode: 403,
+                },
+              );
+            }
+          }
+          return {
+            kind: "done" as const,
+            value: { id, updated: true, changed: true },
+          };
+        }
+        return { kind: "retry" as const };
+      });
 
-      if (affected > 0) {
-        return { id, updated: true, changed: true };
-      }
+      if (result.kind === "done") return result.value;
     }
 
     if (dataOperations) {

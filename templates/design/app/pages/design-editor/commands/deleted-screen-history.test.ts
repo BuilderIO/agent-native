@@ -89,6 +89,7 @@ describe("screen deletion history identity", () => {
     const createFile = vi.fn(async () => ({ id: "unexpected-restored-id" }));
     const deleteFile = vi.fn(async () => ({ deleted: true }));
     const queryClient = {
+      cancelQueries: vi.fn(async () => []),
       invalidateQueries: vi.fn(),
     } as unknown as QueryClient;
     const genericErrorMessage = "Localized generic error";
@@ -223,6 +224,7 @@ describe("screen deletion history identity", () => {
       canvasFrames: {},
     });
     const queryClient = {
+      cancelQueries: vi.fn(async () => []),
       invalidateQueries: vi.fn(),
     } as unknown as QueryClient;
     const genericErrorMessage = "Localized generic error";
@@ -537,6 +539,7 @@ describe("screen deletion history identity", () => {
       },
     });
     const queryClient = {
+      cancelQueries: vi.fn(async () => []),
       invalidateQueries: vi.fn(),
       setQueryData: vi.fn(),
     } as unknown as QueryClient;
@@ -1009,6 +1012,7 @@ describe("screen deletion history identity", () => {
     };
     const queryClient = {
       getQueryData: vi.fn(() => originalDesignQuery),
+      cancelQueries: vi.fn(async () => []),
       invalidateQueries: vi.fn(),
       setQueryData: vi.fn(),
     } as unknown as QueryClient;
@@ -1195,6 +1199,7 @@ describe("screen deletion history identity", () => {
     ]);
     const queryClient = {
       getQueryData: vi.fn(() => ({ files: [file] })),
+      cancelQueries: vi.fn(async () => []),
       invalidateQueries: vi.fn(),
       setQueryData: vi.fn(),
     } as unknown as QueryClient;
@@ -1382,6 +1387,7 @@ describe("screen deletion history identity", () => {
     const originalDesignQuery = { files: [file] };
     const queryClient = {
       getQueryData: vi.fn(() => originalDesignQuery),
+      cancelQueries: vi.fn(async () => []),
       invalidateQueries: vi.fn(),
       setQueryData: vi.fn(),
     } as unknown as QueryClient;

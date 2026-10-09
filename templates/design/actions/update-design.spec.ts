@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+
 type Predicate =
   | { kind: "eq"; left: unknown; right: unknown }
   | { kind: "and"; conditions: Predicate[] }
@@ -18,6 +20,23 @@ interface DesignRow {
   data: string | null;
   dataOperationRevisions: string | null;
   updatedAt: string;
+}
+
+interface RestoreClaimRow {
+  id: string;
+  designId: string;
+  sourceFileId: string;
+  snapshot: string;
+  consumedAt: string | null;
+  restoredFileId: string | null;
+}
+
+interface DesignFileRow {
+  id: string;
+  designId: string;
+  filename: string;
+  fileType: string;
+  content: string;
 }
 
 type ResultShape =
@@ -43,6 +62,8 @@ const mocks = vi.hoisted(() => {
     releaseGatedReads: null as (() => void) | null,
     resultShape: "changes" as ResultShape,
     connections: [] as ConnectionRow[],
+    restoreClaims: [] as RestoreClaimRow[],
+    designFiles: [] as DesignFileRow[],
     resolveScope: vi.fn(),
   };
 
@@ -119,18 +140,37 @@ vi.mock("../server/db/index.js", () => {
       ownerEmail: "connections.ownerEmail",
       orgId: "connections.orgId",
     },
+    designScreenRestoreClaims: {
+      id: "restoreClaims.id",
+      designId: "restoreClaims.designId",
+      sourceFileId: "restoreClaims.sourceFileId",
+      snapshot: "restoreClaims.snapshot",
+      consumedAt: "restoreClaims.consumedAt",
+      restoredFileId: "restoreClaims.restoredFileId",
+    },
+    designFiles: {
+      id: "designFiles.id",
+      designId: "designFiles.designId",
+      filename: "designFiles.filename",
+      fileType: "designFiles.fileType",
+      content: "designFiles.content",
+    },
   };
 
   const matches = (
     predicate: Predicate,
-    row: DesignRow | ConnectionRow,
+    row: DesignRow | ConnectionRow | RestoreClaimRow | DesignFileRow,
   ): boolean => {
     if (predicate.kind === "and") {
       return predicate.conditions.every((condition) => matches(condition, row));
     }
     if (predicate.kind === "inArray") {
       return (
-        predicate.value === schema.designLocalhostConnections.id &&
+        [
+          schema.designLocalhostConnections.id,
+          schema.designScreenRestoreClaims.id,
+          schema.designFiles.id,
+        ].includes(predicate.value as string) &&
         predicate.values.includes(row.id)
       );
     }
@@ -146,6 +186,9 @@ vi.mock("../server/db/index.js", () => {
           "dataOperationRevisions" in row && row.dataOperationRevisions === null
         );
       }
+      if (predicate.value === schema.designScreenRestoreClaims.consumedAt) {
+        return "consumedAt" in row && row.consumedAt === null;
+      }
       return true;
     }
     if (predicate.left === schema.designLocalhostConnections.id) {
@@ -156,6 +199,24 @@ vi.mock("../server/db/index.js", () => {
     }
     if (predicate.left === schema.designLocalhostConnections.orgId) {
       return "orgId" in row && row.orgId === predicate.right;
+    }
+    if (
+      predicate.left === schema.designScreenRestoreClaims.id ||
+      predicate.left === schema.designFiles.id
+    ) {
+      return "id" in row && row.id === predicate.right;
+    }
+    if (
+      predicate.left === schema.designScreenRestoreClaims.designId ||
+      predicate.left === schema.designFiles.designId
+    ) {
+      return "designId" in row && row.designId === predicate.right;
+    }
+    if (predicate.left === schema.designScreenRestoreClaims.consumedAt) {
+      return "consumedAt" in row && row.consumedAt === predicate.right;
+    }
+    if (predicate.left === schema.designScreenRestoreClaims.sourceFileId) {
+      return "sourceFileId" in row && row.sourceFileId === predicate.right;
     }
     if (predicate.left === schema.designs.id) {
       return row.id === predicate.right;
@@ -180,6 +241,16 @@ vi.mock("../server/db/index.js", () => {
             matches(predicate, connection),
           );
         }
+        if (table === schema.designScreenRestoreClaims) {
+          return mocks.state.restoreClaims.filter((claim) =>
+            matches(predicate, claim),
+          );
+        }
+        if (table === schema.designFiles) {
+          return mocks.state.designFiles.filter((file) =>
+            matches(predicate, file),
+          );
+        }
         const snapshot = { ...mocks.state.row };
         await mocks.waitAtReadGate();
         return matches(predicate, snapshot)
@@ -195,9 +266,19 @@ vi.mock("../server/db/index.js", () => {
     }),
   });
 
-  const update = () => ({
+  const update = (table: unknown) => ({
     set: (updates: Partial<DesignRow>) => ({
       where: async (predicate: Predicate) => {
+        if (table === schema.designScreenRestoreClaims) {
+          let affected = 0;
+          for (const claim of mocks.state.restoreClaims) {
+            if (matches(predicate, claim)) {
+              Object.assign(claim, updates);
+              affected += 1;
+            }
+          }
+          return { changes: affected };
+        }
         const affected = matches(predicate, mocks.state.row) ? 1 : 0;
         if (affected > 0) Object.assign(mocks.state.row, updates);
         switch (mocks.state.resultShape) {
@@ -224,7 +305,7 @@ vi.mock("../server/db/index.js", () => {
   const db = {
     select,
     update,
-    transaction: async (run: (transaction: typeof tx) => Promise<void>) =>
+    transaction: async (run: (transaction: typeof tx) => Promise<unknown>) =>
       run(tx),
   };
 
@@ -258,6 +339,8 @@ describe("update-design data concurrency", () => {
     mocks.state.resultShape = "changes";
     mocks.assertAccess.mockResolvedValue(undefined);
     mocks.state.connections = [];
+    mocks.state.restoreClaims = [];
+    mocks.state.designFiles = [];
     mocks.state.resolveScope.mockReset();
     mocks.state.resolveScope.mockResolvedValue({
       ownerEmail: "editor@example.com",
@@ -302,6 +385,61 @@ describe("update-design data concurrency", () => {
     });
 
     expect(JSON.parse(mocks.state.row.data!)).toEqual(BASE_DATA);
+  });
+
+  it("rejects assigning a foreign connection to another Screen in the same design", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "owner-connection",
+        ownerEmail: "design-owner@example.com",
+        orgId: null,
+      },
+    ];
+    mocks.state.row.data = JSON.stringify({
+      ...BASE_DATA,
+      screenMetadata: {
+        ...BASE_DATA.screenMetadata,
+        "frame-a": { title: "A", connectionId: "owner-connection" },
+      },
+    });
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-b"],
+            value: { title: "B", connectionId: "owner-connection" },
+          },
+        ],
+      } as never),
+    ).rejects.toMatchObject({
+      message:
+        "Only local app connections in your workspace can be added to this design.",
+      statusCode: 403,
+    });
+  });
+
+  it("does not turn a connection-scope service failure into an authorization error", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    mocks.state.resolveScope.mockRejectedValueOnce(
+      new Error("workspace lookup unavailable"),
+    );
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-a"],
+            value: { title: "A", connectionId: "editor-connection" },
+          },
+        ],
+      } as never),
+    ).rejects.toThrow("workspace lookup unavailable");
   });
 
   it("allows a shared editor to add their own localhost connection", async () => {
@@ -351,6 +489,144 @@ describe("update-design data concurrency", () => {
     expect(
       JSON.parse(mocks.state.row.data!).screenMetadata["frame-a"].connectionId,
     ).toBe("owner-connection");
+  });
+
+  it("allows exact one-use restoration of deleted Screen connection metadata", async () => {
+    const snapshot = {
+      filename: "restored.html",
+      fileType: "html",
+      content: "<html><body><main>Restored</main></body></html>",
+      screenMetadata: {
+        title: "Restored",
+        connectionId: "owner-connection",
+      },
+    };
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "owner-connection",
+        ownerEmail: "design-owner@example.com",
+        orgId: null,
+      },
+    ];
+    mocks.state.restoreClaims = [
+      {
+        id: "restore-claim-1",
+        designId: "design-1",
+        sourceFileId: "deleted-file-1",
+        snapshot: JSON.stringify(snapshot),
+        consumedAt: null,
+        restoredFileId: null,
+      },
+    ];
+    mocks.state.designFiles = [
+      {
+        id: "restored-file-1",
+        designId: "design-1",
+        filename: snapshot.filename,
+        fileType: snapshot.fileType,
+        content: annotateScreenHtmlForPersist(
+          snapshot.content,
+          snapshot.fileType,
+        ),
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "restored-file-1"],
+            value: snapshot.screenMetadata,
+          },
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-b"],
+            value: { title: "B", connectionId: "owner-connection" },
+          },
+        ],
+        restoreClaims: [
+          {
+            claimId: "restore-claim-1",
+            sourceFileId: "deleted-file-1",
+            targetFileId: "restored-file-1",
+          },
+        ],
+        operationSource: "undo-session",
+        operationRevision: 1,
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "localhost_connection_scope_mismatch",
+      statusCode: 403,
+    });
+    expect(mocks.state.restoreClaims[0]?.consumedAt).toBeNull();
+
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "restored-file-1"],
+            value: snapshot.screenMetadata,
+          },
+        ],
+        restoreClaims: [
+          {
+            claimId: "restore-claim-1",
+            sourceFileId: "deleted-file-1",
+            targetFileId: "restored-file-1",
+          },
+        ],
+        operationSource: "undo-session",
+        operationRevision: 1,
+      } as never),
+    ).resolves.toMatchObject({ changed: true });
+    expect(mocks.state.restoreClaims[0]).toMatchObject({
+      restoredFileId: "restored-file-1",
+    });
+    expect(mocks.state.restoreClaims[0]?.consumedAt).toEqual(
+      expect.any(String),
+    );
+
+    mocks.state.designFiles.push({
+      id: "restored-file-2",
+      designId: "design-1",
+      filename: snapshot.filename,
+      fileType: snapshot.fileType,
+      content: annotateScreenHtmlForPersist(
+        snapshot.content,
+        snapshot.fileType,
+      ),
+    });
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "restored-file-2"],
+            value: snapshot.screenMetadata,
+          },
+        ],
+        restoreClaims: [
+          {
+            claimId: "restore-claim-1",
+            sourceFileId: "deleted-file-1",
+            targetFileId: "restored-file-2",
+          },
+        ],
+        operationSource: "undo-session",
+        operationRevision: 2,
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "screen_restore_claim_invalid",
+      statusCode: 403,
+    });
   });
 
   it("rejects one ambiguous legacy snapshot instead of silently losing a concurrent frame edit", async () => {

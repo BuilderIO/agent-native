@@ -38,6 +38,7 @@ import { getDesignDataRecord } from "../design-data-geometry-utils";
 import { type UndoRedoOrderKind } from "../editor-state";
 import {
   type ContentHistoryChange,
+  type FileDeletionRestoreClaim,
   type FileDeletionHistorySnapshot,
 } from "../history";
 import {
@@ -971,11 +972,15 @@ export function useEditorEditCommands({
   );
 
   const applyDesignDataHistoryChanges = useCallback(
-    (changes: readonly ContentHistoryChange[], direction: "undo" | "redo") => {
+    (
+      changes: readonly ContentHistoryChange[],
+      direction: "undo" | "redo",
+      restoreClaims?: readonly FileDeletionRestoreClaim[],
+    ) => {
       const operations = changes.flatMap(
         (change) => change.designDataChange?.[direction] ?? [],
       );
-      if (operations.length === 0) return true;
+      if (operations.length === 0) return !restoreClaims?.length;
       if (!id) return false;
       const nextData = applyDesignDataOperations(
         designDataJsonRef.current,
@@ -1010,7 +1015,9 @@ export function useEditorEditCommands({
           ? { ...old, data: JSON.stringify(nextData) }
           : old,
       );
-      return enqueueFrameGeometryDataSave(operations);
+      return enqueueFrameGeometryDataSave(operations, {
+        restoreClaims: direction === "undo" ? restoreClaims : undefined,
+      });
     },
     [enqueueFrameGeometryDataSave, id, queryClient],
   );

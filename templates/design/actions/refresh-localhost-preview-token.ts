@@ -101,7 +101,7 @@ export default defineAction({
             designId,
             allowPublicViewer: true,
           })
-        : await resolveLocalhostConnectionScope();
+        : await resolveLocalhostConnectionScope({ designId });
     const { ownerEmail, orgId } = connectionScope;
     const connections = await getDb()
       .select({
@@ -125,14 +125,6 @@ export default defineAction({
     const connectionById = new Map(
       connections.map((connection) => [connection.id, connection]),
     );
-    for (const requestedId of requestedConnectionIds) {
-      const connection = connectionById.get(requestedId);
-      if (!connection?.previewToken && !connection?.bridgeToken) {
-        throw new Error(
-          `The localhost connection "${requestedId}" has no preview token. Run design connect again, then retry.`,
-        );
-      }
-    }
 
     const previewTokenFor = (connection: {
       bridgeToken?: string | null;
@@ -142,78 +134,56 @@ export default defineAction({
         ? derivePreviewToken(connection.bridgeToken)
         : connection.previewToken;
 
-    if (connectionId) {
-      const connection = connectionById.get(connectionId);
-      if (!connection) {
-        throw new Error(
-          `The localhost connection "${connectionId}" could not be found.`,
-        );
-      }
-      return {
-        previewToken: previewTokenFor(connection),
-        ...(connection.bridgeToken
-          ? {
-              ...(canIssueLiveEditCapability
-                ? {
-                    liveEditCapability: deriveLiveEditCapability(
+    const credentialsFor = (connection: (typeof connections)[number]) => ({
+      previewToken: previewTokenFor(connection)!,
+      ...(connection.bridgeToken
+        ? {
+            ...(canIssueLiveEditCapability
+              ? {
+                  liveEditCapability: deriveLiveEditCapability(
+                    connection.bridgeToken,
+                    designId,
+                  ),
+                }
+              : {}),
+            ...(canIssueRegistrationCapability
+              ? {
+                  liveEditRegistrationCapability:
+                    deriveLiveEditRegistrationCapability(
                       connection.bridgeToken,
                       designId,
                     ),
-                  }
-                : {}),
-              ...(canIssueRegistrationCapability
-                ? {
-                    liveEditRegistrationCapability:
-                      deriveLiveEditRegistrationCapability(
-                        connection.bridgeToken,
-                        designId,
-                      ),
-                  }
-                : {}),
-            }
-          : {}),
-        bridgeUrl: connection.bridgeUrl,
-      };
-    }
+                }
+              : {}),
+          }
+        : {}),
+      bridgeUrl: connection.bridgeUrl,
+    });
 
-    if (connections.length === 0) {
-      throw new Error(
-        "The localhost connections have no preview tokens. Run design connect again, then retry.",
-      );
+    if (connectionId) {
+      const connection = connectionById.get(connectionId);
+      if (
+        !connection ||
+        (!connection.previewToken && !connection.bridgeToken)
+      ) {
+        throw new Error(
+          `The localhost connection "${connectionId}" has no preview token. Run design connect again, then retry.`,
+        );
+      }
+      return credentialsFor(connection);
     }
 
     return {
       connections: Object.fromEntries(
-        requestedConnectionIds.map((requestedId) => {
-          const connection = connectionById.get(requestedId)!;
-          return [
-            requestedId,
-            {
-              previewToken: previewTokenFor(connection)!,
-              ...(connection.bridgeToken
-                ? {
-                    ...(canIssueLiveEditCapability
-                      ? {
-                          liveEditCapability: deriveLiveEditCapability(
-                            connection.bridgeToken,
-                            designId,
-                          ),
-                        }
-                      : {}),
-                    ...(canIssueRegistrationCapability
-                      ? {
-                          liveEditRegistrationCapability:
-                            deriveLiveEditRegistrationCapability(
-                              connection.bridgeToken,
-                              designId,
-                            ),
-                        }
-                      : {}),
-                  }
-                : {}),
-              bridgeUrl: connection.bridgeUrl,
-            },
-          ];
+        requestedConnectionIds.flatMap((requestedId) => {
+          const connection = connectionById.get(requestedId);
+          if (
+            !connection ||
+            (!connection.previewToken && !connection.bridgeToken)
+          ) {
+            return [];
+          }
+          return [[requestedId, credentialsFor(connection)] as const];
         }),
       ),
     };

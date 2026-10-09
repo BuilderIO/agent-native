@@ -51,6 +51,7 @@ const mocks = vi.hoisted(() => {
   txSnapshotSelectChain.where.mockReturnValue(txSnapshotSelectChain);
 
   const txDeleteChain = { where: vi.fn() };
+  const txInsertChain = { values: vi.fn() };
   const txUpdateChain = { set: vi.fn(), where: vi.fn() };
   txUpdateChain.set.mockReturnValue(txUpdateChain);
 
@@ -65,6 +66,7 @@ const mocks = vi.hoisted(() => {
       return txSelectChain;
     }),
     delete: vi.fn(() => txDeleteChain),
+    insert: vi.fn(() => txInsertChain),
     update: vi.fn(() => txUpdateChain),
     execute: vi.fn().mockResolvedValue({ rows: [] }),
   };
@@ -90,6 +92,7 @@ const mocks = vi.hoisted(() => {
       email: "orgMembers.email",
     },
     txDeleteChain,
+    txInsertChain,
     txUpdateChain,
     accessFilter: vi.fn(() => ({ access: true })),
     assertAccess: vi.fn(),
@@ -167,6 +170,15 @@ vi.mock("../server/db/index.js", () => ({
       designId: "visualEditSnapshots.designId",
       fileId: "visualEditSnapshots.fileId",
       blobHandle: "visualEditSnapshots.blobHandle",
+    },
+    designScreenRestoreClaims: {
+      id: "designScreenRestoreClaims.id",
+      designId: "designScreenRestoreClaims.designId",
+      sourceFileId: "designScreenRestoreClaims.sourceFileId",
+      snapshot: "designScreenRestoreClaims.snapshot",
+      consumedAt: "designScreenRestoreClaims.consumedAt",
+      restoredFileId: "designScreenRestoreClaims.restoredFileId",
+      createdAt: "designScreenRestoreClaims.createdAt",
     },
   },
 }));
@@ -266,6 +278,7 @@ describe("delete-file", () => {
     mocks.txShareSelectChain.for.mockResolvedValue([]);
     mocks.txMemberSelectChain.for.mockResolvedValue([]);
     mocks.txSnapshotSelectChain.for.mockResolvedValue([]);
+    mocks.txInsertChain.values.mockResolvedValue([]);
     mocks.deleteVisualEditSnapshotBlobs.mockReset();
     mocks.txSelectChain.limit.mockResolvedValue([]);
     mocks.txDesignSelectChain.from.mockReturnValue(mocks.txDesignSelectChain);
@@ -695,6 +708,7 @@ describe("delete-file", () => {
       },
     });
     expect(data.updatedAt).toBe(mocks.designUpdatedAt);
+    expect(mocks.tx.insert).not.toHaveBeenCalled();
   });
 
   it("returns the authoritative locked file snapshot for session undo", async () => {
@@ -744,6 +758,50 @@ describe("delete-file", () => {
           screenMetadata: { title: "Delete" },
         },
       ],
+    });
+  });
+
+  it("stores a server-owned restore claim for deleted connection metadata", async () => {
+    mocks.designData.screenMetadata["file-b"] = {
+      title: "Delete",
+      connectionId: "screen-connection",
+    };
+    mocks.designData.localhostScreens["file-b"] = {
+      sourceType: "localhost",
+      connectionId: "localhost-connection",
+    };
+
+    const result = await action.run({ id: "file-b" });
+    const deletedFile = result.deletedFiles[0];
+    const [claim] = mocks.txInsertChain.values.mock.calls[0] as [
+      {
+        id: string;
+        designId: string;
+        sourceFileId: string;
+        snapshot: string;
+      },
+    ];
+
+    expect(deletedFile).toMatchObject({
+      restoreClaimId: claim.id,
+      restoreSourceFileId: "file-b",
+    });
+    expect(claim).toMatchObject({
+      designId: "design_123",
+      sourceFileId: "file-b",
+    });
+    expect(JSON.parse(claim.snapshot)).toEqual({
+      filename: "b.html",
+      fileType: "html",
+      content: "<main>Delete</main>",
+      screenMetadata: {
+        title: "Delete",
+        connectionId: "screen-connection",
+      },
+      localhostScreen: {
+        sourceType: "localhost",
+        connectionId: "localhost-connection",
+      },
     });
   });
 

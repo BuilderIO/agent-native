@@ -302,6 +302,27 @@ export const designVisualEditSnapshotBlobCleanup = table(
   },
 );
 
+export const designScreenRestoreClaims = table(
+  "design_screen_restore_claims",
+  {
+    id: text("id").primaryKey(),
+    designId: text("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    sourceFileId: text("source_file_id").notNull(),
+    snapshot: text("snapshot").notNull(),
+    consumedAt: text("consumed_at"),
+    restoredFileId: text("restored_file_id"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (t) => [
+    index("design_screen_restore_claims_design_source_idx").on(
+      t.designId,
+      t.sourceFileId,
+    ),
+  ],
+);
+
 export const designBoardReplayScreenshots = table(
   "design_board_replay_screenshots",
   {

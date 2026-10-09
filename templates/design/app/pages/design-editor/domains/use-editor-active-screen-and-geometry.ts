@@ -79,7 +79,10 @@ import {
   quantizeCanvasFrameGeometryForPersist,
   sanitizeCanvasFrameGeometryForPersist,
 } from "../geometry-persistence";
-import { type ContentHistoryChange } from "../history";
+import {
+  type ContentHistoryChange,
+  type FileDeletionRestoreClaim,
+} from "../history";
 import {
   screenRootFrameRenderingOptions,
   setScreenRootDefaultHeightMode,
@@ -120,6 +123,79 @@ import type { EditorCore } from "./use-editor-core";
 import type { EditorFilesAndSaving } from "./use-editor-files-and-saving";
 import type { EditorGenerationAndAccess } from "./use-editor-generation-and-access";
 import type { EditorHistory } from "./use-editor-history";
+
+export function createFrameGeometryDataSavePayload(input: {
+  id: string;
+  dataOperations: readonly DesignDataOperation[];
+  operationSource: string;
+  operationRevision: number;
+  restoreClaims?: readonly FileDeletionRestoreClaim[];
+}): Record<string, unknown> {
+  const { id, dataOperations, operationSource, operationRevision } = input;
+  return {
+    id,
+    dataOperations,
+    operationSource,
+    operationRevision,
+    ...(input.restoreClaims?.length
+      ? {
+          restoreClaims: input.restoreClaims.map((claim) => ({ ...claim })),
+        }
+      : {}),
+  };
+}
+
+export interface PendingFrameGeometryRestoreClaim {
+  designId: string;
+  claim: FileDeletionRestoreClaim;
+  revision: number;
+}
+
+export function stageFrameGeometryRestoreClaims(
+  pending: readonly PendingFrameGeometryRestoreClaim[],
+  designId: string,
+  claims: readonly FileDeletionRestoreClaim[],
+  revision: number,
+): PendingFrameGeometryRestoreClaim[] {
+  const staged = [...pending];
+  const stagedKeys = new Set(
+    pending.map(({ designId: stagedDesignId, claim }) =>
+      JSON.stringify([stagedDesignId, claim.claimId]),
+    ),
+  );
+  for (const claim of claims) {
+    const key = JSON.stringify([designId, claim.claimId]);
+    if (stagedKeys.has(key)) continue;
+    staged.push({ designId, claim: { ...claim }, revision });
+    stagedKeys.add(key);
+  }
+  return staged;
+}
+
+export function frameGeometryRestoreClaimsThroughRevision(
+  pending: readonly PendingFrameGeometryRestoreClaim[],
+  designId: string,
+  revision: number,
+): FileDeletionRestoreClaim[] {
+  return pending
+    .filter((item) => item.designId === designId && item.revision <= revision)
+    .map(({ claim }) => claim);
+}
+
+export function acknowledgeFrameGeometryRestoreClaims(
+  pending: readonly PendingFrameGeometryRestoreClaim[],
+  designId: string,
+  acknowledgedClaims: readonly FileDeletionRestoreClaim[],
+): PendingFrameGeometryRestoreClaim[] {
+  const acknowledgedIds = new Set(
+    acknowledgedClaims.map((claim) => claim.claimId),
+  );
+  if (acknowledgedIds.size === 0) return [...pending];
+  return pending.filter(
+    (item) =>
+      item.designId !== designId || !acknowledgedIds.has(item.claim.claimId),
+  );
+}
 
 export function useEditorActiveScreenAndGeometry({
   editorCore,
@@ -284,6 +360,9 @@ export function useEditorActiveScreenAndGeometry({
     previousGeometry: CanvasFrameGeometryById;
   } | null>(null);
   const frameGeometryOperationRevisionRef = useRef(0);
+  const pendingFrameGeometryRestoreClaimsRef = useRef<
+    PendingFrameGeometryRestoreClaim[]
+  >([]);
   const frameGeometryMutationChainRef = useRef<Promise<void>>(
     Promise.resolve(),
   );
@@ -349,11 +428,31 @@ export function useEditorActiveScreenAndGeometry({
     });
   }, [boardFileContent, boardFileId, canEditDesign, queueFileContentSave]);
 
+  const acknowledgeFrameGeometryOutboxEntry = useCallback(
+    async (entry: Parameters<typeof acknowledgeOutboxEntry>[0]) => {
+      await acknowledgeOutboxEntry(entry);
+      pendingFrameGeometryRestoreClaimsRef.current =
+        acknowledgeFrameGeometryRestoreClaims(
+          pendingFrameGeometryRestoreClaimsRef.current,
+          entry.designId,
+          Array.isArray(entry.payload.restoreClaims)
+            ? (entry.payload.restoreClaims as FileDeletionRestoreClaim[])
+            : [],
+        );
+    },
+    [acknowledgeOutboxEntry],
+  );
+
   const createFrameGeometryOutboxEntry = useCallback(
     (dataOperations: readonly DesignDataOperation[], revision: number) => {
       if (!id || shellMode) return null;
       const compacted = compactDesignDataOperations(dataOperations);
       if (compacted.length === 0) return null;
+      const restoreClaims = frameGeometryRestoreClaimsThroughRevision(
+        pendingFrameGeometryRestoreClaimsRef.current,
+        id,
+        revision,
+      );
       return createDesignSaveOutboxEntry({
         designId: id,
         actorScope: designSaveActorScope,
@@ -361,24 +460,35 @@ export function useEditorActiveScreenAndGeometry({
         resourceId: id,
         operationSource: designSaveOperationSourceRef.current,
         operationRevision: revision,
-        payload: {
+        payload: createFrameGeometryDataSavePayload({
           id,
           dataOperations: compacted,
           operationSource: designSaveOperationSourceRef.current,
           operationRevision: revision,
-        },
+          restoreClaims,
+        }),
       });
     },
     [designSaveActorScope, id, shellMode],
   );
 
   const enqueueFrameGeometryDataSave = useCallback(
-    (dataOperations: DesignDataOperation[]) => {
+    (
+      dataOperations: DesignDataOperation[],
+      options?: { restoreClaims?: readonly FileDeletionRestoreClaim[] },
+    ) => {
       if (!id || !canEditDesignRef.current || dataOperations.length === 0) {
         return false;
       }
       const revision = frameGeometryOperationRevisionRef.current + 1;
       frameGeometryOperationRevisionRef.current = revision;
+      pendingFrameGeometryRestoreClaimsRef.current =
+        stageFrameGeometryRestoreClaims(
+          pendingFrameGeometryRestoreClaimsRef.current,
+          id,
+          options?.restoreClaims ?? [],
+          revision,
+        );
       pendingFrameGeometryOperationsForUnloadRef.current =
         stagePendingDesignDataOperations(
           pendingFrameGeometryOperationsForUnloadRef.current,
@@ -404,7 +514,7 @@ export function useEditorActiveScreenAndGeometry({
                 pendingFrameGeometryOperationsForUnloadRef.current,
                 revision,
               );
-            await acknowledgeOutboxEntry(outboxEntry);
+            await acknowledgeFrameGeometryOutboxEntry(outboxEntry);
           } catch {
             void queryClient.invalidateQueries({
               queryKey: ["action", "get-design"],
@@ -421,7 +531,7 @@ export function useEditorActiveScreenAndGeometry({
       return true;
     },
     [
-      acknowledgeOutboxEntry,
+      acknowledgeFrameGeometryOutboxEntry,
       createFrameGeometryOutboxEntry,
       id,
       journalOutboxEntry,
@@ -528,7 +638,7 @@ export function useEditorActiveScreenAndGeometry({
     ): boolean =>
       runPersistFrameGeometrySave(
         {
-          acknowledgeOutboxEntry,
+          acknowledgeOutboxEntry: acknowledgeFrameGeometryOutboxEntry,
           boardFileId,
           canEditDesignRef,
           createFrameGeometryOutboxEntry,
@@ -545,7 +655,7 @@ export function useEditorActiveScreenAndGeometry({
         keepalive,
       ),
     [
-      acknowledgeOutboxEntry,
+      acknowledgeFrameGeometryOutboxEntry,
       boardFileId,
       createFrameGeometryOutboxEntry,
       enqueueFrameGeometryDataSave,
@@ -935,7 +1045,7 @@ export function useEditorActiveScreenAndGeometry({
         );
         if (!attempt.accepted) return;
         void attempt.completion
-          .then(() => acknowledgeOutboxEntry(entry))
+          .then(() => acknowledgeFrameGeometryOutboxEntry(entry))
           .catch(warnChangesWillRetry);
         return;
       }
@@ -947,7 +1057,7 @@ export function useEditorActiveScreenAndGeometry({
       flushPendingFrameGeometrySave();
     };
   }, [
-    acknowledgeOutboxEntry,
+    acknowledgeFrameGeometryOutboxEntry,
     createFrameGeometryOutboxEntry,
     flushPendingFrameGeometrySave,
     journalOutboxEntry,

@@ -142,6 +142,8 @@ describe("screen deletion metadata history", () => {
               geometry: frame,
               screenMetadata: sourceMetadata,
               localhostScreen: sourceMetadata,
+              restoreClaimId: "restore-claim-1",
+              restoreSourceFileId: deletedId,
               variantMemberships: [
                 {
                   setId: "settings",
@@ -246,10 +248,8 @@ describe("screen deletion metadata history", () => {
         return { id: restoredId };
       }),
     } as any;
-    runUndo({
-      activeEditorDragRef: ref(false),
-      activeFile: { ...file, id: "tablet-screen" },
-      applyDesignDataHistoryChanges: (
+    const applyDesignDataHistoryChanges = vi.fn(
+      (
         changes: readonly ContentHistoryChange[],
         direction: "undo" | "redo",
       ) => {
@@ -262,6 +262,11 @@ describe("screen deletion metadata history", () => {
         );
         return true;
       },
+    );
+    runUndo({
+      activeEditorDragRef: ref(false),
+      activeFile: { ...file, id: "tablet-screen" },
+      applyDesignDataHistoryChanges,
       canEditDesign: true,
       clipboardPasteRedoStackRef: ref([]),
       clipboardPasteUndoStackRef: ref([]),
@@ -315,6 +320,17 @@ describe("screen deletion metadata history", () => {
     );
     expect(restoredContent).toHaveBeenCalledWith(
       expect.stringContaining("Server version captured under the delete lock"),
+    );
+    expect(applyDesignDataHistoryChanges).toHaveBeenCalledWith(
+      expect.any(Array),
+      "undo",
+      [
+        {
+          claimId: "restore-claim-1",
+          sourceFileId: deletedId,
+          targetFileId: restoredId,
+        },
+      ],
     );
 
     expect(designDataJsonRef.current).toMatchObject({

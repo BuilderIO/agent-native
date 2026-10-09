@@ -69,7 +69,6 @@ async function zoomTo100(page: Page) {
   await expect(zoom).toHaveText(/100%/);
 }
 
-// oracle: none - verifies persisted Screen state after undo.
 test("Undo restores deleted Screen metadata and variant membership", async ({
   page,
 }) => {
@@ -386,7 +385,6 @@ test("Undo restores deleted Screen metadata and variant membership", async ({
   }
 });
 
-// oracle: none - verifies deletion of every selected Screen.
 test("Delete removes all selected Screens", async ({ page }) => {
   test.setTimeout(120_000);
   const created = await action(page, "create-design", {
@@ -450,6 +448,57 @@ test("Delete removes all selected Screens", async ({ page }) => {
         );
       })
       .toEqual([false, false]);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("Delete removes the last selected Screen", async ({ page }) => {
+  test.setTimeout(120_000);
+  const created = await action(page, "create-design", {
+    title: `Delete final Screen ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId = created.id ?? created.data?.id;
+  if (typeof designId !== "string") {
+    throw new Error("create-design did not return an id");
+  }
+
+  try {
+    const file = await action(page, "create-file", {
+      designId,
+      filename: "index.html",
+      content: ALPHA_HTML,
+      fileType: "html",
+    });
+    const screenId = file.id ?? file.data?.id;
+    if (typeof screenId !== "string") {
+      throw new Error("create-file did not return a Screen id");
+    }
+
+    await gotoEditor(page, designId);
+    await expandAllLayers(page);
+    const layers = page.getByRole("tree", { name: "Layers" });
+    const screenLayer = layers
+      .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`)
+      .locator("xpath=ancestor::*[@role='treeitem']");
+    await expect(screenLayer).toHaveCount(1);
+    await screenLayer.locator("[data-layer-row-button]").click();
+    await expect(
+      layers.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.getByRole("button", { name: "Remove screen" }),
+    ).toBeVisible();
+
+    await page.keyboard.press("Delete");
+    await expect
+      .poll(async () => {
+        const files = (await readDesign(page, designId)).files ?? [];
+        return files.some((candidate) => candidate.id === screenId);
+      })
+      .toBe(false);
     await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});

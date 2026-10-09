@@ -248,7 +248,7 @@ describe("refresh-localhost-preview-token", () => {
 
     expect(mocks.eq).toHaveBeenCalledWith("ownerEmail", "editor@example.com");
     expect(mocks.eq).toHaveBeenCalledWith("orgId", "editor-org");
-    expect(mocks.resolveScope).toHaveBeenCalledWith();
+    expect(mocks.resolveScope).toHaveBeenCalledWith({ designId: "design_1" });
   });
 
   it("refreshes a shared editor's own localhost connection", async () => {
@@ -288,6 +288,92 @@ describe("refresh-localhost-preview-token", () => {
 
     expect(mocks.eq).toHaveBeenCalledWith("ownerEmail", "editor@example.com");
     expect(mocks.eq).toHaveBeenCalledWith("orgId", "editor-org");
+    expect(mocks.resolveScope).toHaveBeenCalledWith({ designId: "design_1" });
+    expect(mocks.eq).not.toHaveBeenCalledWith(
+      "ownerEmail",
+      "design-owner@example.com",
+    );
+  });
+
+  it("resolves the design scope for a capability-only visual-edit caller", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "editor",
+      resource: {
+        ownerEmail: "design-owner@example.com",
+        orgId: "design-org",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "conn_2",
+        }),
+      },
+    });
+    mocks.resolveScope.mockResolvedValueOnce({
+      ownerEmail: "design-owner@example.com",
+      orgId: "design-org",
+    });
+    mocks.connections = [
+      {
+        id: "conn_2",
+        previewToken: "owner-preview",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+    ];
+
+    await expect(
+      action.run({ designId: "design_1", connectionId: "conn_2" }),
+    ).resolves.toMatchObject({ previewToken: "owner-preview" });
+
+    expect(mocks.resolveScope).toHaveBeenCalledWith({ designId: "design_1" });
+    expect(mocks.eq).toHaveBeenCalledWith(
+      "ownerEmail",
+      "design-owner@example.com",
+    );
+    expect(mocks.eq).toHaveBeenCalledWith("orgId", "design-org");
+  });
+
+  it("returns caller-owned preview credentials when other Screens use another scope", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "editor",
+      resource: {
+        ownerEmail: "design-owner@example.com",
+        orgId: "design-org",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "owner-connection",
+          screenMetadata: {
+            editorScreen: { connectionId: "editor-connection" },
+          },
+        }),
+      },
+    });
+    mocks.resolveScope.mockResolvedValueOnce({
+      ownerEmail: "editor@example.com",
+      orgId: "editor-org",
+    });
+    mocks.connections = [
+      {
+        id: "editor-connection",
+        previewToken: "editor-preview",
+        bridgeUrl: "http://127.0.0.1:7332",
+      },
+    ];
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionIds: ["owner-connection", "editor-connection"],
+      }),
+    ).resolves.toEqual({
+      connections: {
+        "editor-connection": {
+          previewToken: "editor-preview",
+          bridgeUrl: "http://127.0.0.1:7332",
+        },
+      },
+    });
+
+    expect(mocks.resolveScope).toHaveBeenCalledWith({ designId: "design_1" });
+    expect(mocks.eq).toHaveBeenCalledWith("ownerEmail", "editor@example.com");
     expect(mocks.eq).not.toHaveBeenCalledWith(
       "ownerEmail",
       "design-owner@example.com",

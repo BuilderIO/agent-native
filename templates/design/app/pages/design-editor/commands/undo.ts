@@ -46,6 +46,7 @@ import type {
   ContentHistorySelectionAfterMap,
   FileCreationHistoryEntry,
   FileDeletionHistoryEntry,
+  FileDeletionRestoreClaim,
   FileDeletionHistorySnapshot,
   GeometryHistoryEntry,
   GeometryHistorySelection,
@@ -360,6 +361,25 @@ function fileDeletionMetadataRestoreChanges(
   return { changes, skippedVariantMemberships };
 }
 
+function fileDeletionRestoreClaims(
+  original: FileDeletionHistoryEntry,
+  restored: FileDeletionHistoryEntry,
+): FileDeletionRestoreClaim[] {
+  return original.files.flatMap((file, index) => {
+    const targetFile = restored.files[index];
+    if (!targetFile || !file.restoreClaimId || !file.restoreSourceFileId) {
+      return [];
+    }
+    return [
+      {
+        claimId: file.restoreClaimId,
+        sourceFileId: file.restoreSourceFileId,
+        targetFileId: targetFile.id,
+      },
+    ];
+  });
+}
+
 export interface UndoArgs {
   activeEditorDragRef: RefObject<boolean>;
   activeFile: DesignFile;
@@ -398,6 +418,7 @@ export interface UndoArgs {
   applyDesignDataHistoryChanges?: (
     changes: readonly ContentHistoryChange[],
     direction: "undo" | "redo",
+    restoreClaims?: readonly FileDeletionRestoreClaim[],
   ) => boolean;
   canEditDesign: boolean;
   allowPendingLiveEdits?: boolean;
@@ -1615,11 +1636,15 @@ export function runUndo({
         designDataJsonRef.current,
         missingFileIds,
       );
+      const restoreClaims = fileDeletionRestoreClaims(original, restored);
       if (
         metadataRestore.changes.length > 0 &&
         (!applyDesignDataHistoryChanges ||
-          applyDesignDataHistoryChanges(metadataRestore.changes, "undo") ===
-            false)
+          applyDesignDataHistoryChanges(
+            metadataRestore.changes,
+            "undo",
+            restoreClaims,
+          ) === false)
       ) {
         throw new Error(t("common.genericError"));
       }

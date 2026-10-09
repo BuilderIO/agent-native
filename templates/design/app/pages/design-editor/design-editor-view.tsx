@@ -1182,10 +1182,7 @@ export function renderDesignEditorView({
     onAddLocalhostScreen: canEditDesign
       ? handleOpenAddLocalhostScreen
       : undefined,
-    onRemoveScreen:
-      canEditDesign && files.length > 1
-        ? handleRemoveSelectedScreen
-        : undefined,
+    onRemoveScreen: canEditDesign ? handleRemoveSelectedScreen : undefined,
     screenSourcePending: updateScreenSourceMutation.isPending,
     screenBreakpointControls,
     pageStyles,
