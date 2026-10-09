@@ -681,7 +681,7 @@ describe("session replay iframe recording", () => {
     await page.close();
   }, 30_000);
 
-  it("ignores a hidden backface iframe with no hit-test points", async () => {
+  it("does not treat an empty backface hit-test grid as proof", async () => {
     const page = await browser.newPage();
     await page.setContent(
       '<!doctype html><iframe id="replay" style="width:300px;height:200px;border:0"></iframe>',
@@ -756,6 +756,7 @@ describe("session replay iframe recording", () => {
     expect(result.audit).toEqual({
       visibleIframeCount: 0,
       unavailableIframeCount: 0,
+      unverifiableIframeCount: 1,
     });
     await page.close();
   }, 30_000);

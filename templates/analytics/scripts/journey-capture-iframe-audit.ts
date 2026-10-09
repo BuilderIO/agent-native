@@ -311,7 +311,6 @@ export function auditReplayIframeContent({
     clipLocalBound,
     clipLocalAxis,
     hasVisibleArea,
-    hasHitTestedPoint,
     hasRoundedCornerOverlap,
   ]: [
     (
@@ -329,7 +328,6 @@ export function auditReplayIframeContent({
       maximum: number,
     ) => Point[],
     (polygon: Point[]) => boolean,
-    (frame: HTMLIFrameElement, owner: Document, polygon: Point[]) => boolean,
     (
       polygon: Point[],
       geometry: BoxGeometry,
@@ -376,21 +374,6 @@ export function auditReplayIframeContent({
         false,
       ),
     (polygon) => polygon.length >= 3 && Math.abs(polygonArea(polygon)) > 1e-4,
-    (frame, owner, polygon) => {
-      const left = Math.min(...polygon.map((point) => point.x));
-      const top = Math.min(...polygon.map((point) => point.y));
-      const right = Math.max(...polygon.map((point) => point.x));
-      const bottom = Math.max(...polygon.map((point) => point.y));
-      const sampleCount = 25;
-      for (let row = 0; row < sampleCount; row += 1) {
-        const y = top + ((row + 0.5) / sampleCount) * (bottom - top);
-        for (let column = 0; column < sampleCount; column += 1) {
-          const x = left + ((column + 0.5) / sampleCount) * (right - left);
-          if (owner.elementsFromPoint(x, y).includes(frame)) return true;
-        }
-      }
-      return false;
-    },
     (polygon, geometry, ancestor, styles) => {
       if (polygon.length < 3) return false;
       const local = polygon.map((point) => pointToLocal(geometry, point));
@@ -693,14 +676,6 @@ export function auditReplayIframeContent({
       }
 
       if (frameGeometry.uncertain) {
-        const hasHit = hasHitTestedPoint(frame, owner, visiblePolygon);
-        if (
-          !hasHit &&
-          frameStyle.backfaceVisibility === "hidden" &&
-          frameStyle.pointerEvents !== "none"
-        ) {
-          continue;
-        }
         unverifiableIframeCount += 1;
         continue;
       }
