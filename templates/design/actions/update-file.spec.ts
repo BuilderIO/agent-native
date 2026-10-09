@@ -357,6 +357,36 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     expect(await hasCollabState(FILE_ID)).toBe(true);
   });
 
+  it("rejects syncCollab:false for widget content writes instead of reporting a skipped stale mirror as success", async () => {
+    const original = buildDoc();
+    await applyText(FILE_ID, buildDoc(" live-edit-"), "content", "agent");
+    designFilesStore.rows.get(FILE_ID)!.content = buildDoc(" mirror-advanced-");
+    const sqlContentBefore = designFilesStore.rows.get(FILE_ID)!.content;
+
+    await expect(
+      updateFileAction.run(
+        {
+          id: FILE_ID,
+          content: buildDoc(" caller-stale-mirror-"),
+          syncCollab: false,
+          expectedVersionHash: sourceContentHash(original),
+        } as never,
+        widgetWriteContext as never,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_sync_required",
+      statusCode: 400,
+    });
+
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(sqlContentBefore);
+    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toContain(
+      "live-edit-",
+    );
+    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).not.toContain(
+      "caller-stale-mirror-",
+    );
+  });
+
   it("tags the live-document update with the saving tab so its own tab can ignore the echo and peers see a human edit", async () => {
     collabDocs.mutationSources.length = 0;
     await updateFileAction.run(

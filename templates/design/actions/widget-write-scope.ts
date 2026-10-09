@@ -4,7 +4,11 @@ import type { ActionRunContext } from "@agent-native/core/action";
 export function assertDesignWidgetFileWriteScope(
   designId: string,
   context: ActionRunContext | undefined,
-  write?: { content?: string; expectedVersionHash?: string },
+  write?: {
+    content?: string;
+    expectedVersionHash?: string;
+    syncCollab?: boolean;
+  },
 ): void {
   const grant = context?.mcpDirectoryWidgetWrite;
   if (!grant) return;
@@ -18,6 +22,12 @@ export function assertDesignWidgetFileWriteScope(
     throw new ActionContractError(
       "Widget content updates require expectedVersionHash from a current file read.",
       { errorCode: "mcp_widget_expected_version_required", statusCode: 400 },
+    );
+  }
+  if (write?.content !== undefined && write.syncCollab === false) {
+    throw new ActionContractError(
+      "Widget content updates cannot disable collaboration sync.",
+      { errorCode: "mcp_widget_sync_required", statusCode: 400 },
     );
   }
 }

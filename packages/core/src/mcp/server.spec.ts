@@ -2404,7 +2404,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
   });
 
-  it("fails closed when a directory OAuth credential has no signed grant time", async () => {
+  it("returns directory action results without a widget when OAuth has no signed grant time", async () => {
     process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
     const resource = `https://design.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`;
     const issuer = "https://design.agent-native.com";
@@ -2428,18 +2428,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(typeof jose.decodeJwt(token).iat).toBe("number");
     expect(jose.decodeJwt(token).grant_created_at_ms).toBeUndefined();
 
-    const getDesign = defineAction({
-      description: "Read one design.",
-      parameters: {
-        type: "object",
-        properties: { designId: { type: "string" } },
-        required: ["designId"],
-      },
-      readOnly: true,
-      http: { method: "GET" },
-      requiresAuth: true,
+    const createDesignRun = vi.fn(async () => ({ designId: "design-42" }));
+    const createDesign = defineAction({
+      description: "Create one editable design.",
+      parameters: {},
       mcpAnnotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         destructiveHint: false,
         openWorldHint: false,
       },
@@ -2449,29 +2443,54 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           title: "Design",
           html: "<!doctype html><html><body>Design</body></html>",
         },
+        structuredContent: true,
       },
-      run: async (args: Record<string, unknown>) => ({
-        designId: args.designId,
-      }),
+      run: createDesignRun,
+    });
+    const updateFile = defineAction({
+      description: "Update one file within a design.",
+      schema: z.object({ id: z.string(), content: z.string() }),
+      http: { method: "POST" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ updated: true }),
     });
     const directoryConfig = {
       ...config,
       catalogMode: "directory" as const,
       appId: "design",
       directoryProfile: {
-        connectorCatalog: ["get-design"],
+        connectorCatalog: ["create-design"],
         widgetDomain: "https://design.agent-native.com",
         widgetTargets: {
-          "get-design": () => ({
-            targetPath: "/design/design-42",
-            resourceIds: { designId: "design-42" },
-          }),
+          "create-design": (_args: unknown, result: unknown) => {
+            const designId = (result as { designId?: unknown }).designId;
+            return typeof designId === "string"
+              ? {
+                  targetPath: `/design/${encodeURIComponent(designId)}`,
+                  resourceIds: { designId },
+                  writeActions: ["update-file"],
+                }
+              : null;
+          },
         },
-        widgetReadActionArguments: {
-          "get-design": { designId: "designId" },
+        widgetWriteActionArguments: {
+          "update-file": {
+            id: {
+              type: "actionSchemaResourceBound" as const,
+              resourceKey: "designId",
+            },
+            content: { type: "actionSchema" as const },
+          },
         },
       },
-      actions: { "get-design": getDesign },
+      widgetDomain: "https://design.agent-native.com",
+      actions: { "create-design": createDesign },
+      widgetWriteActions: { "update-file": updateFile },
     };
 
     const listed = await callWeb(
@@ -2487,7 +2506,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(
       listed.result.tools.map((tool: { name: string }) => tool.name),
-    ).toContain("get-design");
+    ).toContain("create-design");
 
     const called = await callWeb(
       {
@@ -2495,8 +2514,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         id: 148,
         method: "tools/call",
         params: {
-          name: "get-design",
-          arguments: { designId: "design-42" },
+          name: "create-design",
+          arguments: {},
         },
       },
       {
@@ -2509,7 +2528,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
     );
 
-    expect(called.result.isError).toBe(true);
+    expect(createDesignRun).toHaveBeenCalledOnce();
+    expect(called.result.isError).not.toBe(true);
+    expect(called.result.structuredContent).toMatchObject({
+      designId: "design-42",
+    });
+    expect(called.result._meta?.["agent-native/embedStart"]).toBeUndefined();
     expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
   });
 

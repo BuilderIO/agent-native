@@ -3351,8 +3351,13 @@ export async function createMCPServerForRequest(
             });
             directoryLinkUrl = linked?.url ?? undefined;
           }
+          const trustedCredentialIssuedAtMs =
+            effectiveIdentity?.mcpCredentialIssuedAtMs;
           const directoryWidget =
-            directoryCatalog && mcpAppResourceCandidate
+            directoryCatalog &&
+            mcpAppResourceCandidate &&
+            typeof trustedCredentialIssuedAtMs === "number" &&
+            Number.isSafeInteger(trustedCredentialIssuedAtMs)
               ? mcpDirectoryWidgetCapabilityForTool(
                   config,
                   mcpAppResourceCandidate,

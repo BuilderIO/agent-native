@@ -216,6 +216,7 @@ export default defineAction({
     assertDesignWidgetFileWriteScope(file.designId, context, {
       content,
       expectedVersionHash,
+      syncCollab,
     });
 
     await assertAccess("design", file.designId, "editor");
