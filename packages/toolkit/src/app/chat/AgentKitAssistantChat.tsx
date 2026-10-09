@@ -2341,6 +2341,13 @@ const AgentKitAssistantChatBody = forwardRef<
           }
         }
       }
+      const inlineImageDataChars = requestAttachments.reduce(
+        (total, attachment) => total + (attachment.data?.length ?? 0),
+        0,
+      );
+      if (inlineImageDataChars > MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS) {
+        throw new Error(t("agentChat.composer.requestTooLarge"));
+      }
       composerOptions.validateSubmission?.();
       const selectionChangedDuringSubmission =
         selectionRevision !== selectionRevisionRef.current ||

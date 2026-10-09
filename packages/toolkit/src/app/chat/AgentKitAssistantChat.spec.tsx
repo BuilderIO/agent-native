@@ -3290,6 +3290,48 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toBeUndefined();
   });
 
+  it("rejects oversized aggregate inline images before sending without storage", async () => {
+    const bitmap = {
+      width: 2560,
+      height: 1440,
+      close: vi.fn(),
+    } as unknown as ImageBitmap;
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+      save: vi.fn(),
+      fillRect: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      (callback, type) =>
+        callback(
+          new Blob([new Uint8Array(2 * 1024 * 1024)], {
+            type: type ?? "image/png",
+          }),
+        ),
+    );
+    chatMocks.fileUploadStatus = {
+      data: { configured: false },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+    await mount(baseProps());
+    const files = ["reference-1.png", "reference-2.png", "reference-3.png"].map(
+      (name) => new File([largePngBytes()], name, { type: "image/png" }),
+    );
+
+    await expect(
+      chatMocks.composerProps.onSubmit("Use these references", files, [], {
+        intent: "immediate",
+      }),
+    ).rejects.toThrow("agentChat.composer.requestTooLarge");
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("localizes unsupported upload errors instead of exposing the HTTP status", async () => {
     const fetch = vi
       .spyOn(globalThis, "fetch")
