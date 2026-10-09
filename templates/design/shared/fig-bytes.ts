@@ -122,6 +122,8 @@ export function utf8ByteLength(text: string): number {
 }
 
 export function bytesToBase64(bytes: Uint8Array): string {
+  const native = (bytes as { toBase64?: () => string }).toBase64;
+  if (typeof native === "function") return native.call(bytes);
   let binary = "";
   const CHUNK = 0x8000;
   for (let i = 0; i < bytes.length; i += CHUNK) {
