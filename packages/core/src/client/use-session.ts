@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { createContext, useContext, useSyncExternalStore } from "react";
 
 import type { AuthSession, AuthSessionResponse } from "../server/auth.js";
 import { navigateForSession as navigateForSessionOnce } from "../shared/ssr-session-bootstrap.js";
@@ -17,6 +17,18 @@ export {
   hasSessionHint,
   isSessionNavigationPending,
 } from "../shared/ssr-session-bootstrap.js";
+
+/**
+ * True while the app tree is mounted hidden ahead of the session read (a hinted
+ * load). Identity-scoped onboarding reads and their events hold until it clears,
+ * so they never record under the anonymous fallback identity. Other effects in
+ * the tree run during the preload; each one must be safe before the session.
+ */
+export const SessionPreloadContext = createContext(false);
+
+export function useSessionPreloading(): boolean {
+  return useContext(SessionPreloadContext);
+}
 
 /**
  * What the session endpoint said that the page acted on: a signed-out body,

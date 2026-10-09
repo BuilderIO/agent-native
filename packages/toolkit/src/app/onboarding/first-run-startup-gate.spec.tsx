@@ -37,6 +37,7 @@ vi.mock("./FirstRunOnboarding.js", () => ({
   ),
 }));
 
+import { SessionPreloadContext } from "@agent-native/core/client/use-session";
 import { FIRST_RUN_ONBOARDING_COOKIE } from "@agent-native/core/shared/first-run-onboarding";
 
 import {
@@ -89,6 +90,28 @@ describe("FirstRunOnboardingStartupGate", () => {
     container.remove();
     vi.unstubAllGlobals();
     document.cookie = `${FIRST_RUN_ONBOARDING_COOKIE}=; Max-Age=0; path=/`;
+  });
+
+  it("holds the status read while the session preloads, then reads once it resolves", async () => {
+    mocks.fetchStatus.mockResolvedValue(false);
+    const renderGate = (preloading: boolean) =>
+      act(() => {
+        root.render(
+          <SessionPreloadContext.Provider value={preloading}>
+            <FirstRunOnboardingStartupGate>
+              <div data-testid="app-content">app</div>
+            </FirstRunOnboardingStartupGate>
+          </SessionPreloadContext.Provider>,
+        );
+      });
+
+    renderGate(true);
+    await act(async () => {});
+    expect(mocks.fetchStatus).not.toHaveBeenCalled();
+
+    renderGate(false);
+    await act(async () => {});
+    expect(mocks.fetchStatus).toHaveBeenCalledTimes(1);
   });
 
   it("skips the status round trip when the server has no first-run cookie", () => {
