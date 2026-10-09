@@ -472,7 +472,7 @@ export default defineAction({
       "Update a page's or database's metadata while preserving omitted fields. Use id and description to replace or clear page guidance. For body changes, use get-document followed by edit-document with its revision protocol.",
   },
   schema: z.object({
-    id: z.string().optional().describe("Document ID (required)"),
+    id: z.string().describe("Document ID (required)"),
     title: z.string().optional().describe("New title"),
     content: z.string().optional().describe("New markdown content"),
     description: z
@@ -1566,7 +1566,7 @@ export default defineAction({
               ),
               ...preservationRequired,
             } satisfies DocumentUpdatePreservationResponse,
-            currentOwnerEmail,
+            ownerEmail,
           );
         }
 

@@ -323,6 +323,15 @@ describe("document descriptions through external MCP", () => {
       openWorldHint: false,
     });
     expect(tool?.inputSchema.properties).toHaveProperty("description");
+    expect(tool?.inputSchema.required).toContain("id");
+    expect(
+      (
+        await ownerClient.callTool({
+          name: "update-document",
+          arguments: { description: "Missing document ID" },
+        })
+      ).isError,
+    ).toBe(true);
     expect(
       (await readOnlyClient.listTools()).tools.map((entry) => entry.name),
     ).not.toContain("update-document");

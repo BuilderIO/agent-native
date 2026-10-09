@@ -372,7 +372,7 @@ describe("update-document compare-and-swap", () => {
                   },
                 },
           );
-          if (responseKind === "saved") {
+          if (responseKind === "saved" || responseKind === "preservation") {
             const { queryAuditEvents } =
               await import("@agent-native/core/audit");
             const events = await queryAuditEvents(
