@@ -5,6 +5,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { stripInlineBytesFromJson } from "../shared/inline-bytes.js";
 
 export const MAX_AGENT_TEAM_CONTINUATIONS = 60;
 
@@ -324,7 +325,7 @@ export async function persistAgentTeamRunEventIfCurrent(input: {
       input.runId,
       input.seq,
       Date.now(),
-      input.eventData,
+      stripInlineBytesFromJson(input.eventData, "placeholder"),
       input.runId,
     ],
   });

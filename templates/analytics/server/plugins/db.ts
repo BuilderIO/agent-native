@@ -1721,6 +1721,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       name: "bigquery-cache-forced-refresh-kind",
       sql: `ALTER TABLE bigquery_cache ADD COLUMN IF NOT EXISTS refresh_forced BOOLEAN NOT NULL DEFAULT FALSE`,
     },
+    {
+      version: 161,
+      name: "session-recording-session-associations",
+      sql: `CREATE TABLE IF NOT EXISTS session_recording_session_associations (
+      id TEXT PRIMARY KEY,
+      recording_id TEXT NOT NULL REFERENCES session_recordings(id) ON DELETE CASCADE,
+      session_id TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS session_recording_session_associations_recording_session_idx
+      ON session_recording_session_associations (recording_id, session_id);
+    CREATE INDEX IF NOT EXISTS session_recording_session_associations_session_recording_idx
+      ON session_recording_session_associations (session_id, recording_id)`,
+    },
   ],
   { table: "analytics_migrations" },
 );
