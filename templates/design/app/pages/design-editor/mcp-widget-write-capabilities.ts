@@ -8,10 +8,15 @@ export interface DesignEditorWriteCapabilities {
 
 export function applyMcpDirectoryWidgetWritePolicy(
   capabilities: DesignEditorWriteCapabilities,
+  isDirectoryWidget: boolean,
   isWritableWidget: boolean,
 ): DesignEditorWriteCapabilities {
-  if (!isWritableWidget) return capabilities;
-  return { ...capabilities, canEditDesign: true };
+  if (!isDirectoryWidget) return capabilities;
+  // The scoped ticket narrows writes; the resolved design role still grants them.
+  return {
+    ...capabilities,
+    canEditDesign: capabilities.canEditDesign && isWritableWidget,
+  };
 }
 
 export function applyMcpDirectoryWidgetReadOnlyPolicy(

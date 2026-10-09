@@ -702,6 +702,7 @@ export function useEditorGenerationAndAccess({
         canCommentDesign: roleCanCommentDesign,
         canRenderAuthenticatedShare: isSignedIn || roleCanEditDesign,
       },
+      writableWidget || readOnlyWidget,
       writableWidget && !visualEditAccessLost,
     ),
     readOnlyWidget,

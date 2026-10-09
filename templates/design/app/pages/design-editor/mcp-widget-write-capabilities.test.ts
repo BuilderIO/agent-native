@@ -32,33 +32,61 @@ describe("MCP directory widget write capabilities", () => {
     ).toBe(editableDesignCapabilities);
   });
 
-  it("enables Design editing only for an explicitly writable widget", () => {
-    const viewerCapabilities = {
-      canEditDesign: false,
-      canEditLiveScreens: false,
-      publicVisualEdit: false,
-      canCommentDesign: false,
-      canRenderAuthenticatedShare: false,
-    };
+  it.each(["viewer", "commenter"] as const)(
+    "does not elevate a %s to design editor with a widget write grant",
+    (role) => {
+      const roleCapabilities = {
+        canEditDesign: false,
+        canEditLiveScreens: role === "viewer" || role === "commenter",
+        publicVisualEdit: false,
+        canCommentDesign: role === "commenter",
+        canRenderAuthenticatedShare: true,
+      };
 
+      expect(
+        applyMcpDirectoryWidgetWritePolicy(roleCapabilities, true, true),
+      ).toEqual(roleCapabilities);
+    },
+  );
+
+  it.each(["editor", "owner"] as const)(
+    "preserves %s edit access when the widget has a write grant",
+    () => {
+      expect(
+        applyMcpDirectoryWidgetWritePolicy(
+          editableDesignCapabilities,
+          true,
+          true,
+        ),
+      ).toEqual(editableDesignCapabilities);
+    },
+  );
+
+  it("does not grant edit access to a directory widget without a write ticket", () => {
     expect(
-      applyMcpDirectoryWidgetWritePolicy(viewerCapabilities, true),
-    ).toEqual({ ...viewerCapabilities, canEditDesign: true });
-    expect(applyMcpDirectoryWidgetWritePolicy(viewerCapabilities, false)).toBe(
-      viewerCapabilities,
-    );
+      applyMcpDirectoryWidgetWritePolicy(
+        editableDesignCapabilities,
+        true,
+        false,
+      ),
+    ).toMatchObject({ canEditDesign: false });
+  });
+
+  it("keeps ordinary editor permissions unchanged outside directory widgets", () => {
+    expect(
+      applyMcpDirectoryWidgetWritePolicy(
+        editableDesignCapabilities,
+        false,
+        false,
+      ),
+    ).toBe(editableDesignCapabilities);
   });
 
   it("still blocks every write when a read-only widget policy applies", () => {
     const writeGrant = applyMcpDirectoryWidgetWritePolicy(
-      {
-        canEditDesign: false,
-        canEditLiveScreens: false,
-        publicVisualEdit: false,
-        canCommentDesign: false,
-        canRenderAuthenticatedShare: false,
-      },
+      editableDesignCapabilities,
       true,
+      false,
     );
 
     expect(applyMcpDirectoryWidgetReadOnlyPolicy(writeGrant, true)).toEqual({
