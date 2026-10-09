@@ -9,8 +9,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { EditPanel } from "./EditPanel";
 import { useEditorScreenInspector } from "../../pages/design-editor/domains/use-editor-screen-inspector";
+import { EditPanel } from "./EditPanel";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
