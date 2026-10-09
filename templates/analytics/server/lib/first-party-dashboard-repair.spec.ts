@@ -63,6 +63,7 @@ import {
   FIRST_PARTY_BIGQUERY_RETENTION_SQL,
   FIRST_PARTY_BIGQUERY_WAU_SQL,
   FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+  FIRST_PARTY_BIGQUERY_DASHBOARD_IDS,
   LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
   LEGACY_NEW_VS_RECURRING_USERS_SQL,
   PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
@@ -1213,34 +1214,37 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     );
   });
 
-  it("moves the view-reading BigQuery wau query onto the date-range function", async () => {
-    const weekly = requiredFirstPartyPanel("wau-over-time");
-    const row = legacyRow({
-      id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
-      config: JSON.stringify({
-        panels: [
-          {
-            ...weekly,
-            source: "bigquery",
-            sql: PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL,
-          },
-        ],
-      }),
-    });
-    const mocks = createDb(row);
-    dbMocks.getDb.mockReturnValue(mocks.db);
+  it.each(FIRST_PARTY_BIGQUERY_DASHBOARD_IDS)(
+    "moves %s's view-reading BigQuery wau query onto the date-range function",
+    async (id) => {
+      const weekly = requiredFirstPartyPanel("wau-over-time");
+      const row = legacyRow({
+        id,
+        config: JSON.stringify({
+          panels: [
+            {
+              ...weekly,
+              source: "bigquery",
+              sql: PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL,
+            },
+          ],
+        }),
+      });
+      const mocks = createDb(row);
+      dbMocks.getDb.mockReturnValue(mocks.db);
 
-    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
-      true,
-    );
+      await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+        true,
+      );
 
-    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
-      [{ config: string }]
-    >;
-    expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
-      FIRST_PARTY_BIGQUERY_WAU_SQL,
-    );
-  });
+      const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+        [{ config: string }]
+      >;
+      expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
+        FIRST_PARTY_BIGQUERY_WAU_SQL,
+      );
+    },
+  );
 
   it("repairs the previous canonical BigQuery wau query with the current activity filter", async () => {
     const weekly = requiredFirstPartyPanel("wau-over-time");
@@ -1633,7 +1637,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     expect(mocks.dashboardSelectWhere).toHaveBeenCalledWith({
       type: "inArray",
       column: "id",
-      values: [FIRST_PARTY_DASHBOARD_ID, FIRST_PARTY_BIGQUERY_DASHBOARD_ID],
+      values: [FIRST_PARTY_DASHBOARD_ID, ...FIRST_PARTY_BIGQUERY_DASHBOARD_IDS],
     });
     expect(mocks.update).not.toHaveBeenCalled();
   });

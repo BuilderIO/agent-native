@@ -22,6 +22,11 @@ import {
 export const FIRST_PARTY_BIGQUERY_DASHBOARD_ID =
   "agent-native-templates-first-party-bigquery-v2";
 
+export const FIRST_PARTY_BIGQUERY_DASHBOARD_IDS = [
+  FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+  "agent-native-templates-first-party-bigquery-v3",
+];
+
 const BIGQUERY_SESSION_STATUS_EVENT_FILTER =
   "event_name IN ('session status', 'session_status')";
 const BIGQUERY_SIGNED_IN_ACTIVITY_FILTER = `(((${BIGQUERY_SESSION_STATUS_EVENT_FILTER} AND signed_in = 'true') OR (event_name = 'app_entered' AND NULLIF(user_id, '') IS NOT NULL)) AND NULLIF(user_key, '') IS NOT NULL)`;
@@ -863,7 +868,7 @@ export function repairKnownFirstPartyDashboardQueries(
   dashboardId: string,
   config: Record<string, unknown>,
 ): { config: Record<string, unknown>; changed: boolean } {
-  if (dashboardId === FIRST_PARTY_BIGQUERY_DASHBOARD_ID) {
+  if (FIRST_PARTY_BIGQUERY_DASHBOARD_IDS.includes(dashboardId)) {
     const historical = repairFingerprintedPanelQueries(
       config,
       ORIGIN_MAIN_PANEL_REPLACEMENTS.filter(
