@@ -1,16 +1,20 @@
 import type { Document } from "@shared/api";
 import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  clearDocumentCreateIntent,
   clearDocumentCreationConfirmed,
   clearDocumentCreationPending,
+  DocumentCreateIntentStorageError,
   getDocumentCreationBaseline,
   isDocumentCreationConfirmed,
   isDocumentCreationPending,
   markDocumentCreationConfirmed,
   markDocumentCreationPending,
+  readDocumentCreateIntents,
   shouldCreateDocumentOptimistically,
+  writeDocumentCreateIntent,
 } from "./optimistic-document";
 
 function document(): Document {
@@ -28,7 +32,88 @@ function document(): Document {
   };
 }
 
+function memoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() {
+      return values.size;
+    },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => [...values.keys()][index] ?? null,
+    removeItem: (key) => values.delete(key),
+    setItem: (key, value) => values.set(key, String(value)),
+  };
+}
+
 describe("optimistic document creation", () => {
+  beforeEach(() => {
+    vi.stubGlobal("window", { localStorage: memoryStorage() });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("persists create intents only when explicitly written and scopes them to the actor", () => {
+    const actor = { accountId: " Writer@Example.com ", orgId: " org-1 " };
+    const otherActor = { accountId: "writer@example.com", orgId: "org-2" };
+    const intent = {
+      id: "page-1",
+      parentId: "parent-1",
+      spaceId: "space-1",
+      filesDatabaseId: "files-db-1",
+      createdAt: "2026-10-08T12:00:00.000Z",
+    };
+
+    expect(readDocumentCreateIntents(actor)).toEqual([]);
+    expect(window.localStorage.length).toBe(0);
+
+    writeDocumentCreateIntent(actor, intent);
+
+    expect(readDocumentCreateIntents(actor)).toEqual([intent]);
+    expect(readDocumentCreateIntents(otherActor)).toEqual([]);
+    expect(window.localStorage.length).toBe(1);
+  });
+
+  it("replaces an intent by ID and clears it without disturbing other intents", () => {
+    const actor = { accountId: "writer@example.com", orgId: null };
+    const first = {
+      id: "page-1",
+      parentId: null,
+      spaceId: null,
+      createdAt: "2026-10-08T12:00:00.000Z",
+    };
+    const second = {
+      id: "page-2",
+      parentId: "parent-1",
+      spaceId: "space-1",
+      createdAt: "2026-10-08T12:01:00.000Z",
+    };
+
+    writeDocumentCreateIntent(actor, first);
+    writeDocumentCreateIntent(actor, second);
+    writeDocumentCreateIntent(actor, { ...first, parentId: "parent-2" });
+
+    expect(readDocumentCreateIntents(actor)).toEqual([
+      second,
+      { ...first, parentId: "parent-2" },
+    ]);
+    expect(clearDocumentCreateIntent(actor, first.id)).toBe(true);
+    expect(readDocumentCreateIntents(actor)).toEqual([second]);
+    expect(clearDocumentCreateIntent(actor, second.id)).toBe(true);
+    expect(readDocumentCreateIntents(actor)).toEqual([]);
+    expect(window.localStorage.length).toBe(0);
+    expect(clearDocumentCreateIntent(actor, second.id)).toBe(false);
+  });
+
+  it("rejects malformed create intent records instead of treating them as absent", () => {
+    const actor = { accountId: "writer@example.com", orgId: null };
+    const key = "content-document-create-intent-v1:writer%40example.com:";
+    window.localStorage.setItem(key, JSON.stringify([{ id: "page-1" }]));
+
+    expect(() => readDocumentCreateIntents(actor)).toThrow(
+      DocumentCreateIntentStorageError,
+    );
+  });
+
   it("marks only the optimistic cache record as pending", () => {
     const queryClient = new QueryClient();
     const otherQueryClient = new QueryClient();

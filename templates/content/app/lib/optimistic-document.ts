@@ -14,6 +14,177 @@ const documentCreationStates = new WeakMap<
   DocumentCreationState
 >();
 
+export type DocumentCreateIntentScope = {
+  accountId: string;
+  orgId: string | null;
+};
+
+export type DocumentCreateIntent = {
+  id: string;
+  parentId: string | null;
+  spaceId: string | null;
+  filesDatabaseId?: string;
+  createdAt: string;
+};
+
+export class DocumentCreateIntentStorageError extends Error {
+  constructor(
+    readonly code:
+      | "unavailable"
+      | "read_failed"
+      | "write_failed"
+      | "invalid_entry",
+    readonly cause?: unknown,
+  ) {
+    super(`Document create intent ${code.replace(/_/g, " ")}.`);
+    this.name = "DocumentCreateIntentStorageError";
+  }
+}
+
+const DOCUMENT_CREATE_INTENTS_PREFIX = "content-document-create-intent-v1:";
+
+function normalizeDocumentCreateIntentScope(
+  scope: DocumentCreateIntentScope,
+): DocumentCreateIntentScope {
+  const accountId = scope.accountId.trim().toLowerCase();
+  const orgId = scope.orgId?.trim() || null;
+  if (!accountId) {
+    throw new DocumentCreateIntentStorageError("invalid_entry");
+  }
+  return { accountId, orgId };
+}
+
+function documentCreateIntentsKey(scope: DocumentCreateIntentScope): string {
+  const normalized = normalizeDocumentCreateIntentScope(scope);
+  return (
+    DOCUMENT_CREATE_INTENTS_PREFIX +
+    [normalized.accountId, normalized.orgId ?? ""]
+      .map(encodeURIComponent)
+      .join(":")
+  );
+}
+
+function documentCreateIntentStorage(): Storage {
+  try {
+    if (typeof window === "undefined") throw new Error("No browser window.");
+    return window.localStorage;
+  } catch (cause) {
+    throw new DocumentCreateIntentStorageError("unavailable", cause);
+  }
+}
+
+function isDocumentCreateIntent(value: unknown): value is DocumentCreateIntent {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const intent = value as Partial<DocumentCreateIntent>;
+  const keys = Object.keys(intent);
+  return Boolean(
+    keys.every((key) =>
+      ["id", "parentId", "spaceId", "filesDatabaseId", "createdAt"].includes(
+        key,
+      ),
+    ) &&
+    typeof intent.id === "string" &&
+    intent.id.trim() &&
+    (intent.parentId === null ||
+      (typeof intent.parentId === "string" && intent.parentId.trim())) &&
+    (intent.spaceId === null ||
+      (typeof intent.spaceId === "string" && intent.spaceId.trim())) &&
+    (intent.filesDatabaseId === undefined ||
+      (typeof intent.filesDatabaseId === "string" &&
+        intent.filesDatabaseId.trim())) &&
+    typeof intent.createdAt === "string" &&
+    Number.isFinite(Date.parse(intent.createdAt)),
+  );
+}
+
+function normalizeDocumentCreateIntent(
+  intent: DocumentCreateIntent,
+): DocumentCreateIntent {
+  if (!isDocumentCreateIntent(intent)) {
+    throw new DocumentCreateIntentStorageError("invalid_entry");
+  }
+  return {
+    id: intent.id,
+    parentId: intent.parentId,
+    spaceId: intent.spaceId,
+    ...(intent.filesDatabaseId
+      ? { filesDatabaseId: intent.filesDatabaseId }
+      : {}),
+    createdAt: intent.createdAt,
+  };
+}
+
+function readStoredDocumentCreateIntents(
+  storage: Storage,
+  key: string,
+): DocumentCreateIntent[] {
+  let raw: string | null;
+  try {
+    raw = storage.getItem(key);
+  } catch (cause) {
+    throw new DocumentCreateIntentStorageError("read_failed", cause);
+  }
+  if (raw === null) return [];
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (cause) {
+    throw new DocumentCreateIntentStorageError("invalid_entry", cause);
+  }
+  if (!Array.isArray(parsed) || !parsed.every(isDocumentCreateIntent)) {
+    throw new DocumentCreateIntentStorageError("invalid_entry");
+  }
+  return parsed.map(normalizeDocumentCreateIntent);
+}
+
+export function writeDocumentCreateIntent(
+  scope: DocumentCreateIntentScope,
+  intent: DocumentCreateIntent,
+): void {
+  const normalizedIntent = normalizeDocumentCreateIntent(intent);
+  const key = documentCreateIntentsKey(scope);
+  const storage = documentCreateIntentStorage();
+  const intents = readStoredDocumentCreateIntents(storage, key).filter(
+    (current) => current.id !== normalizedIntent.id,
+  );
+  try {
+    storage.setItem(key, JSON.stringify([...intents, normalizedIntent]));
+  } catch (cause) {
+    throw new DocumentCreateIntentStorageError("write_failed", cause);
+  }
+}
+
+export function readDocumentCreateIntents(
+  scope: DocumentCreateIntentScope,
+): DocumentCreateIntent[] {
+  return readStoredDocumentCreateIntents(
+    documentCreateIntentStorage(),
+    documentCreateIntentsKey(scope),
+  );
+}
+
+export function clearDocumentCreateIntent(
+  scope: DocumentCreateIntentScope,
+  id: string,
+): boolean {
+  if (!id.trim()) {
+    throw new DocumentCreateIntentStorageError("invalid_entry");
+  }
+  const key = documentCreateIntentsKey(scope);
+  const storage = documentCreateIntentStorage();
+  const intents = readStoredDocumentCreateIntents(storage, key);
+  const remaining = intents.filter((intent) => intent.id !== id);
+  if (remaining.length === intents.length) return false;
+  try {
+    if (remaining.length === 0) storage.removeItem(key);
+    else storage.setItem(key, JSON.stringify(remaining));
+  } catch (cause) {
+    throw new DocumentCreateIntentStorageError("write_failed", cause);
+  }
+  return true;
+}
+
 function creationStateFor(queryClient: QueryClient) {
   let state = documentCreationStates.get(queryClient);
   if (state) return state;

@@ -1,8 +1,9 @@
+import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { Document } from "@shared/api";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
-import { useNavigate } from "react-router";
+import { useCallback, useMemo, useRef } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -22,6 +23,8 @@ import {
   clearDocumentCreationConfirmed,
   markDocumentCreationConfirmed,
   markDocumentCreationPending,
+  clearDocumentCreateIntent,
+  writeDocumentCreateIntent,
 } from "@/lib/optimistic-document";
 
 const LIST_DOCUMENTS_QUERY_KEY = [
@@ -43,8 +46,19 @@ export function useCreatePage(opts?: {
   awaitPersist?: boolean;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const locationRef = useRef(location);
+  locationRef.current = location;
   const t = useT();
   const queryClient = useQueryClient();
+  const { session } = useSession();
+  const createIntentScope = useMemo(
+    () =>
+      session?.email
+        ? { accountId: session.email, orgId: session.orgId ?? null }
+        : null,
+    [session?.email, session?.orgId],
+  );
   const createDocument = useCreateDocument();
   const contentSpacesQuery = useContentSpaces();
   const [storedSpaceId] = useLocalStorage<string | null>(
@@ -114,6 +128,17 @@ export function useCreatePage(opts?: {
       }
 
       const persist = async () => {
+        if (createIntentScope && shouldNavigate) {
+          writeDocumentCreateIntent(createIntentScope, {
+            id,
+            parentId: parentId ?? null,
+            spaceId: spaceId ?? null,
+            ...(selectedSpace?.filesDatabaseId
+              ? { filesDatabaseId: selectedSpace.filesDatabaseId }
+              : {}),
+            createdAt: now,
+          });
+        }
         const created = await createDocument.mutateAsync({
           id,
           title: "",
@@ -121,13 +146,23 @@ export function useCreatePage(opts?: {
           spaceId,
         });
         const confirmed = markDocumentCreationConfirmed(queryClient, created);
+        if (createIntentScope && shouldNavigate) {
+          try {
+            clearDocumentCreateIntent(createIntentScope, created.id);
+          } catch (error) {
+            console.error(
+              "Could not clear the pending Content create intent.",
+              error,
+            );
+          }
+        }
         queryClient.setQueryData(
           ["action", "get-document", { id: created.id }],
           confirmed,
         );
         if (
           !shouldNavigate ||
-          window.location.pathname !== `/page/${created.id}`
+          locationRef.current.pathname !== `/page/${created.id}`
         ) {
           clearDocumentCreationConfirmed(queryClient, { id: created.id });
         }
@@ -200,6 +235,7 @@ export function useCreatePage(opts?: {
     },
     [
       createDocument,
+      createIntentScope,
       navigate,
       onAfterNavigate,
       queryClient,

@@ -7,6 +7,32 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+const actionEffects = vi.hoisted(() => ({
+  recordGenerationCreativeContext: vi.fn(async () => undefined),
+  track: vi.fn(),
+  writeAppState: vi.fn(async () => undefined),
+}));
+
+vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/application-state")
+  >()),
+  writeAppState: actionEffects.writeAppState,
+}));
+
+vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
+  track: actionEffects.track,
+}));
+
+vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/creative-context/server")
+  >()),
+  recordGenerationCreativeContext:
+    actionEffects.recordGenerationCreativeContext,
+}));
+
 vi.mock("./_local-file-documents.js", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("./_local-file-documents.js")>();
@@ -144,6 +170,113 @@ describe("space-aware document writers", () => {
         }),
       ),
     ).rejects.toThrow("parent Content space");
+  });
+
+  it("replays a committed optimistic page create without duplicating creation effects", async () => {
+    const parent = await runWithRequestContext({ userEmail: OWNER }, () =>
+      createDocument.run({ title: "Retry parent" }),
+    );
+    await getDb().insert(schema.documentShares).values({
+      id: "retry-parent-member-share",
+      resourceId: parent.id,
+      principalType: "user",
+      principalId: MEMBER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+
+    const input = {
+      id: "optimistic-create-retry",
+      title: "Original title",
+      content: "Original body",
+      description: "Original description",
+      parentId: parent.id,
+      contextModeOverride: "off" as const,
+    };
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.track.mockClear();
+    actionEffects.writeAppState.mockClear();
+    actionEffects.writeAppState.mockRejectedValueOnce(
+      new Error("refresh signal unavailable"),
+    );
+
+    const create = () =>
+      runWithRequestContext({ userEmail: MEMBER }, () =>
+        createDocument.run(input),
+      );
+    await expect(create()).rejects.toThrow("refresh signal unavailable");
+
+    const [createdRow] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, input.id));
+    expect(createdRow).toMatchObject({
+      id: input.id,
+      title: input.title,
+      content: input.content,
+      ownerEmail: OWNER,
+      parentId: parent.id,
+      createdBy: MEMBER,
+      creationRequestDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Edited title", content: "Typed after create" })
+      .where(eq(schema.documents.id, input.id));
+
+    const replayed = await create();
+    expect(replayed).toMatchObject({
+      id: input.id,
+      title: "Edited title",
+      content: "Typed after create",
+    });
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, input.id)),
+    ).resolves.toHaveLength(1);
+    await expect(filesMemberships(input.id)).resolves.toHaveLength(1);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documentShares)
+        .where(eq(schema.documentShares.resourceId, input.id)),
+    ).resolves.toHaveLength(1);
+    expect(actionEffects.writeAppState).toHaveBeenCalledTimes(2);
+    expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(actionEffects.track).toHaveBeenCalledTimes(1);
+
+    const conflicts = [
+      () =>
+        runWithRequestContext({ userEmail: MEMBER }, () =>
+          createDocument.run({ ...input, title: "Different original title" }),
+        ),
+      () =>
+        runWithRequestContext({ userEmail: MEMBER }, () =>
+          createDocument.run({ ...input, spaceId: "different-space" }),
+        ),
+      () =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          createDocument.run(input),
+        ),
+    ];
+    for (const conflict of conflicts) {
+      await expect(conflict()).rejects.toMatchObject({
+        errorCode: "DOCUMENT_ID_CONFLICT",
+        statusCode: 409,
+        message: "This document ID is already in use.",
+      });
+    }
+    expect(actionEffects.writeAppState).toHaveBeenCalledTimes(2);
+    expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(actionEffects.track).toHaveBeenCalledTimes(1);
   });
 
   it("lets ordinary organization members create root pages and databases while guests remain read-only", async () => {

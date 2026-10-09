@@ -3054,14 +3054,23 @@ describe("document editor layout", () => {
     expect(documentEditorSource).toContain(
       "clearDocumentCreationConfirmed(queryClient, currentDocument);",
     );
-    expect(documentEditorSource).toContain(
-      "const hasCollaborationSeedBody = !isEffectivelyEmptyDocumentContent(\n    document.content,\n  );",
-    );
-    expect(documentEditorSource).toContain(
+    expect(documentEditorSource).not.toContain(
       "const canEditWithoutCollaboration =\n    (creationAwaitingFirstRead ||\n      holdCollaborationForCreationSave ||\n      (collabEnabled && !hasCollaborationSeedBody)) &&\n    !collabSynced;",
     );
     expect(documentEditorSource).toContain(
+      "const canEditWithoutCollaboration =\n    (creationAwaitingFirstRead || holdCollaborationForCreationSave) &&\n    !collabSynced;",
+    );
+    expect(documentEditorSource).not.toContain(
       "const collabDocumentId =\n    collabEnabled &&\n    hasCollaborationSeedBody &&\n    !creationAwaitingFirstRead &&\n    !holdCollaborationForCreationSave &&\n    !isDocumentCreationPending(queryClient, document)",
+    );
+    expect(documentEditorSource).toContain(
+      "const collabDocumentId =\n    collabEnabled &&\n    !creationAwaitingFirstRead &&\n    !holdCollaborationForCreationSave &&\n    !isDocumentCreationPending(queryClient, document)",
+    );
+    expect(documentEditorSource).toContain(
+      "const creationSelectionForDocument =\n    creationCollaborationSelection?.documentId === documentId\n      ? creationCollaborationSelection.selection\n      : null;",
+    );
+    expect(documentEditorSource).toContain(
+      "isSuggesting\n    ? suggestionInitialSelection\n    : (creationSelectionForDocument ?? suggestionInitialSelection)",
     );
     expect(documentEditorSource).toContain("docId: collabDocumentId,");
     expect(documentEditorSource).toContain("const collabEditorEnabled =");

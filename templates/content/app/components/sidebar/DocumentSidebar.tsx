@@ -50,6 +50,7 @@ import {
   contentSidebarOrderedItems,
   type ContentFilesSidebarRenderReorder,
 } from "@/components/editor/database/sidebar";
+import { readPageDraftJournal } from "@/components/editor/page-draft-journal";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   AlertDialog,
@@ -148,9 +149,12 @@ import {
 import {
   clearDocumentCreationConfirmed,
   clearDocumentCreationPending,
+  clearDocumentCreateIntent,
   markDocumentCreationConfirmed,
   markDocumentCreationPending,
+  readDocumentCreateIntents,
   shouldCreateDocumentOptimistically,
+  writeDocumentCreateIntent,
 } from "@/lib/optimistic-document";
 import {
   readSidebarLayoutHint,
@@ -1008,6 +1012,8 @@ export function DocumentSidebar({
 }: DocumentSidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const locationRef = useRef(location);
+  locationRef.current = location;
   const queryClient = useQueryClient();
   const t = useT();
   const searchTriggerRef = useRef<HTMLButtonElement>(null);
@@ -1494,6 +1500,7 @@ export function DocumentSidebar({
   } | null>(null);
   const confirmedDeleteIdRef = useRef<string | null>(null);
   const pendingOptimisticCreationIdsRef = useRef(new Set<string>());
+  const restoredCreateIntentsRef = useRef(new Set<string>());
   const settleOptimisticListRefresh = useCallback(
     (id: string) => {
       pendingOptimisticCreationIdsRef.current.delete(id);
@@ -1672,6 +1679,160 @@ export function DocumentSidebar({
     [navigate],
   );
 
+  useEffect(() => {
+    if (!session?.email) return;
+    const scope = {
+      accountId: session.email,
+      orgId: session.orgId ?? null,
+    };
+    let intents;
+    try {
+      intents = readDocumentCreateIntents(scope);
+    } catch (error) {
+      console.error("Could not read pending Content page creations.", error);
+      toast.error(t("sidebar.failedCreatePage"), {
+        description:
+          error instanceof Error ? error.message : t("empty.genericError"),
+      });
+      return;
+    }
+
+    for (const intent of intents) {
+      const restoreKey = `${scope.accountId}:${scope.orgId ?? ""}:${intent.id}`;
+      if (restoredCreateIntentsRef.current.has(restoreKey)) continue;
+      restoredCreateIntentsRef.current.add(restoreKey);
+
+      let journal = null;
+      try {
+        journal = readPageDraftJournal({
+          accountId: scope.accountId,
+          orgId: scope.orgId,
+          documentId: intent.id,
+        });
+      } catch (error) {
+        console.error(
+          "Could not read the draft for a pending Content page.",
+          error,
+        );
+        toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+      }
+
+      const documentQueryKey = ["action", "get-document", { id: intent.id }];
+      const cached = queryClient.getQueryData<Document>(documentQueryKey);
+      const tempDoc = markDocumentCreationPending(queryClient, {
+        ...(cached?.id === intent.id ? cached : {}),
+        id: intent.id,
+        parentId: intent.parentId,
+        title: journal?.snapshot.title ?? cached?.title ?? "",
+        content: journal?.snapshot.content ?? cached?.content ?? "",
+        icon: cached?.icon ?? null,
+        position: cached?.position ?? 9999,
+        isFavorite: cached?.isFavorite ?? false,
+        hideFromSearch: cached?.hideFromSearch ?? false,
+        visibility: cached?.visibility ?? "private",
+        accessRole: cached?.accessRole ?? "owner",
+        canEdit: cached?.canEdit ?? true,
+        canManage: cached?.canManage ?? true,
+        createdAt: intent.createdAt,
+        updatedAt: cached?.updatedAt ?? intent.createdAt,
+      });
+      pendingOptimisticCreationIdsRef.current.add(intent.id);
+      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
+        const docs: Document[] =
+          old?.documents ?? (Array.isArray(old) ? old : []);
+        const documents = docs.some((item) => item.id === tempDoc.id)
+          ? docs.map((item) => (item.id === tempDoc.id ? tempDoc : item))
+          : [...docs, tempDoc];
+        return withDocumentsCacheShape(old, documents);
+      });
+      queryClient.setQueryData(documentQueryKey, tempDoc);
+      seedCreatedDocumentNavigation(
+        queryClient,
+        tempDoc,
+        intent.filesDatabaseId ?? null,
+      );
+      if (intent.filesDatabaseId) {
+        const optimisticItem: ContentDatabaseItem = {
+          id: `optimistic-${intent.id}`,
+          databaseId: intent.filesDatabaseId,
+          document: tempDoc,
+          position: tempDoc.position,
+          properties: [],
+        };
+        queryClient.setQueryData<ContentDatabaseResponse>(
+          contentDatabaseByIdQueryKey(intent.filesDatabaseId),
+          (current) =>
+            applyOptimisticItemToContentDatabase(current, optimisticItem),
+        );
+      }
+
+      const retryToastId = `create-page-retry-${intent.id}`;
+      let retrying = false;
+      const retry = async () => {
+        if (retrying) return;
+        retrying = true;
+        try {
+          const created = await createDocument.mutateAsync({
+            id: intent.id,
+            title: "",
+            parentId: intent.parentId ?? undefined,
+            spaceId: intent.parentId
+              ? undefined
+              : (intent.spaceId ?? undefined),
+          });
+          const confirmed = markDocumentCreationConfirmed(queryClient, created);
+          queryClient.setQueryData(
+            ["action", "get-document", { id: created.id }],
+            confirmed,
+          );
+          try {
+            clearDocumentCreateIntent(scope, intent.id);
+          } catch (error) {
+            console.error(
+              "Could not clear the confirmed Content create intent.",
+              error,
+            );
+          }
+          if (locationRef.current.pathname !== `/page/${created.id}`) {
+            clearDocumentCreationConfirmed(queryClient, { id: created.id });
+          }
+          void queryClient.invalidateQueries(documentQueryFilter(intent.id));
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-documents"],
+          });
+          settleOptimisticListRefresh(intent.id);
+          if (intent.filesDatabaseId) {
+            void queryClient.invalidateQueries({
+              queryKey: contentDatabaseByIdQueryKey(intent.filesDatabaseId),
+            });
+          }
+          toast.dismiss(retryToastId);
+        } catch (error) {
+          toast.error(t("sidebar.failedCreatePage"), {
+            id: retryToastId,
+            description:
+              error instanceof Error ? error.message : t("empty.genericError"),
+            duration: Infinity,
+            action: {
+              label: t("root.searchRetry"),
+              onClick: () => void retry(),
+            },
+          });
+        } finally {
+          retrying = false;
+        }
+      };
+      void retry();
+    }
+  }, [
+    createDocument,
+    queryClient,
+    session?.email,
+    session?.orgId,
+    settleOptimisticListRefresh,
+    t,
+  ]);
+
   const handleCreatePage = useCallback(
     async (
       parentId?: string,
@@ -1762,6 +1923,20 @@ export function DocumentSidebar({
       onNavigate?.();
 
       const persistCreatedPage = async () => {
+        if (session?.email) {
+          writeDocumentCreateIntent(
+            { accountId: session.email, orgId: session.orgId ?? null },
+            {
+              id,
+              parentId: parentId ?? null,
+              spaceId: parentId ? null : (rootSpaceId ?? null),
+              ...(rootFilesDatabaseId
+                ? { filesDatabaseId: rootFilesDatabaseId }
+                : {}),
+              createdAt: now,
+            },
+          );
+        }
         const created = await createDocument.mutateAsync({
           id,
           title: "",
@@ -1770,6 +1945,19 @@ export function DocumentSidebar({
         });
         const nextId = created?.id || id;
         const confirmed = markDocumentCreationConfirmed(queryClient, created);
+        if (session?.email) {
+          try {
+            clearDocumentCreateIntent(
+              { accountId: session.email, orgId: session.orgId ?? null },
+              id,
+            );
+          } catch (error) {
+            console.error(
+              "Could not clear the confirmed Content create intent.",
+              error,
+            );
+          }
+        }
         queryClient.setQueryData(
           ["action", "get-document", { id: nextId }],
           confirmed,
@@ -1778,7 +1966,7 @@ export function DocumentSidebar({
           queryClient.removeQueries(documentQueryFilter(id));
           navigateToDocument(nextId);
         }
-        if (window.location.pathname !== `/page/${nextId}`) {
+        if (locationRef.current.pathname !== `/page/${nextId}`) {
           clearDocumentCreationConfirmed(queryClient, { id: nextId });
         }
         void queryClient.invalidateQueries(documentQueryFilter(nextId));
@@ -1834,6 +2022,8 @@ export function DocumentSidebar({
       queryClient,
       revealParentForCreation,
       selectedSpace?.id,
+      session?.email,
+      session?.orgId,
       settleOptimisticListRefresh,
       t,
     ],
@@ -1923,7 +2113,7 @@ export function DocumentSidebar({
         queryClient.removeQueries(documentQueryFilter(id));
         removeCreatedDocumentNavigation(queryClient, tempDoc);
         settleOptimisticListRefresh(id);
-        if (window.location.pathname === `/page/${id}`) {
+        if (locationRef.current.pathname === `/page/${id}`) {
           void navigate(previousPath, {
             replace: true,
             flushSync: true,

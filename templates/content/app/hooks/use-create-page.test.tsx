@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   isDocumentCreationConfirmed,
   isDocumentCreationPending,
+  readDocumentCreateIntents,
 } from "@/lib/optimistic-document";
 
 const mocks = vi.hoisted(() => {
@@ -29,6 +30,11 @@ const mocks = vi.hoisted(() => {
     getQueryData,
     invalidateQueries,
     navigate: vi.fn(),
+    location: {
+      pathname: "/page/existing-page",
+      search: "?view=table",
+      hash: "#details",
+    },
     queryClient,
     removeCreatedDocumentNavigation: vi.fn(),
     removeQueries,
@@ -44,12 +50,14 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => mocks.queryClient,
 }));
 
-vi.mock("react-router", () => ({
-  useLocation: () => ({
-    pathname: "/page/existing-page",
-    search: "?view=table",
-    hash: "#details",
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useSession: () => ({
+    session: { email: "writer@example.test", orgId: "org" },
   }),
+}));
+
+vi.mock("react-router", () => ({
+  useLocation: () => mocks.location,
   useNavigate: () => mocks.navigate,
 }));
 
@@ -90,6 +98,10 @@ describe("useCreatePage", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
+    mocks.location.pathname = "/page/existing-page";
+    mocks.location.search = "?view=table";
+    mocks.location.hash = "#details";
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -98,6 +110,7 @@ describe("useCreatePage", () => {
   afterEach(() => {
     act(() => root.unmount());
     window.history.replaceState({}, "", "/");
+    window.localStorage.clear();
     container.remove();
   });
 
@@ -139,6 +152,17 @@ describe("useCreatePage", () => {
     expect(
       isDocumentCreationPending(mocks.queryClient as never, optimisticDocument),
     ).toBe(true);
+    expect(
+      readDocumentCreateIntents({
+        accountId: "writer@example.test",
+        orgId: "org",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        id: documentId,
+        createdAt: expect.any(String),
+      }),
+    ]);
 
     const persistedDocument: Document = {
       id: documentId,
@@ -155,7 +179,8 @@ describe("useCreatePage", () => {
     };
 
     await act(async () => {
-      window.history.replaceState({}, "", `/page/${documentId}`);
+      window.history.replaceState({}, "", `/content/page/${documentId}`);
+      mocks.location.pathname = `/page/${documentId}`;
       resolveCreation(persistedDocument);
       await Promise.resolve();
     });
@@ -181,6 +206,12 @@ describe("useCreatePage", () => {
         confirmedDocument,
       ),
     ).toBe(true);
+    expect(
+      readDocumentCreateIntents({
+        accountId: "writer@example.test",
+        orgId: "org",
+      }),
+    ).toEqual([]);
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["action", "get-document"],
       predicate: expect.any(Function),
@@ -261,6 +292,17 @@ describe("useCreatePage", () => {
         flushSync: true,
       },
     );
+    expect(
+      readDocumentCreateIntents({
+        accountId: "writer@example.test",
+        orgId: "org",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        id: "slash-page-id",
+        parentId: "parent-page",
+      }),
+    ]);
 
     const [toastMessage, toastOptions] = mocks.toastError.mock
       .calls[0] as unknown as [
@@ -277,7 +319,8 @@ describe("useCreatePage", () => {
     expect(toastOptions.action.label).toBe("database.retry");
 
     await act(async () => {
-      window.history.replaceState({}, "", "/page/slash-page-id");
+      window.history.replaceState({}, "", "/content/page/slash-page-id");
+      mocks.location.pathname = "/page/slash-page-id";
       await toastOptions.action.onClick();
     });
 
@@ -306,6 +349,12 @@ describe("useCreatePage", () => {
         confirmedDocument!,
       ),
     ).toBe(true);
+    expect(
+      readDocumentCreateIntents({
+        accountId: "writer@example.test",
+        orgId: "org",
+      }),
+    ).toEqual([]);
   });
 
   it("removes an optimistic list when no prior list snapshot existed", async () => {

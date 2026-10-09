@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { defineAction, embedApp } from "@agent-native/core";
 import { ActionContractError } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
@@ -58,6 +60,55 @@ function nanoid(size = 12): string {
   const bytes = crypto.getRandomValues(new Uint8Array(size));
   for (const byte of bytes) id += chars[byte % chars.length];
   return id;
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function creationRequestDigest(input: unknown): string {
+  return createHash("sha256").update(canonicalJson(input)).digest("hex");
+}
+
+function documentIdConflict(): never {
+  throw new ActionContractError("This document ID is already in use.", {
+    errorCode: "DOCUMENT_ID_CONFLICT",
+    statusCode: 409,
+  });
+}
+
+function matchesDocumentCreationRequest(
+  document: typeof schema.documents.$inferSelect | undefined,
+  expected: {
+    actor: string;
+    ownerEmail: string;
+    orgId: string | null;
+    spaceId: string;
+    parentId: string | null;
+    requestDigest: string | null;
+  },
+): document is typeof schema.documents.$inferSelect {
+  return Boolean(
+    document &&
+    !document.trashedAt &&
+    document.createdBy === expected.actor &&
+    document.ownerEmail === expected.ownerEmail &&
+    document.orgId === expected.orgId &&
+    document.spaceId === expected.spaceId &&
+    document.parentId === expected.parentId &&
+    (!expected.requestDigest ||
+      document.creationRequestDigest === expected.requestDigest),
+  );
 }
 
 const reuseLabelSchema = z
@@ -174,6 +225,70 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (args, ctx) => {
+    const title = args.title;
+    let content = args.content || "";
+    const description = args.description?.trim() ?? "";
+    if (title && content && !args.preserveLeadingTitleHeading) {
+      const h1Match = content.match(/^#\s+(.+?)(\r?\n|$)/);
+      if (
+        h1Match &&
+        h1Match[1].trim().toLowerCase() === title.trim().toLowerCase()
+      ) {
+        content = content.slice(h1Match[0].length).trimStart();
+      }
+    }
+
+    let parentId = args.parentId || null;
+    const icon = args.icon
+      ? serializeIconValue(parseIconValue(args.icon))
+      : null;
+    const currentUserEmail = getRequestUserEmail();
+    if (!currentUserEmail) {
+      throw new ActionContractError("Not authenticated.", {
+        errorCode: "NOT_AUTHENTICATED",
+        statusCode: 401,
+      });
+    }
+    const actor = requireDocumentRequestActor(ctx);
+    const hasCallerSuppliedId = Boolean(args.id);
+    const id = args.id || nanoid();
+    const requestDigest = hasCallerSuppliedId
+      ? creationRequestDigest({
+          id,
+          actor,
+          parentId: args.parentId ?? null,
+          spaceId: args.spaceId ?? null,
+          spaceName: args.spaceName?.trim() ?? null,
+          title,
+          content,
+          description,
+          icon,
+          preserveLeadingTitleHeading: args.preserveLeadingTitleHeading,
+          contextPackId: args.contextPackId ?? null,
+          contextModeOverride: args.contextModeOverride ?? null,
+          reuseLabels: args.reuseLabels ?? [],
+        })
+      : null;
+    const db = getDb();
+
+    if (hasCallerSuppliedId) {
+      const [existing] = await db
+        .select({
+          createdBy: schema.documents.createdBy,
+          creationRequestDigest: schema.documents.creationRequestDigest,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id))
+        .limit(1);
+      if (
+        existing &&
+        (existing.createdBy !== actor ||
+          existing.creationRequestDigest !== requestDigest)
+      ) {
+        documentIdConflict();
+      }
+    }
+
     const hasCreativeContextInput = Boolean(
       args.contextPackId ||
       args.contextModeOverride ||
@@ -211,32 +326,10 @@ export default defineAction({
               label: "Net-new document",
             },
           ];
-    const title = args.title;
-
-    let content = args.content || "";
-    const description = args.description?.trim() ?? "";
-    if (title && content && !args.preserveLeadingTitleHeading) {
-      const h1Match = content.match(/^#\s+(.+?)(\r?\n|$)/);
-      if (
-        h1Match &&
-        h1Match[1].trim().toLowerCase() === title.trim().toLowerCase()
-      ) {
-        content = content.slice(h1Match[0].length).trimStart();
-      }
-    }
-
-    let parentId = args.parentId || null;
-    const icon = args.icon
-      ? serializeIconValue(parseIconValue(args.icon))
-      : null;
-    const currentUserEmail = getRequestUserEmail();
-    if (!currentUserEmail) throw new Error("no authenticated user");
-    const actor = requireDocumentRequestActor(ctx);
     let ownerEmail = currentUserEmail;
     let orgId = getRequestOrgId() ?? null;
     let visibility: "private" | "org" | "public" = "private";
     let hideFromSearch = 0;
-    const db = getDb();
     let rootSpaceId: string | null = null;
     let inheritedRole: "owner" | ShareRole = "owner";
     let inheritedShares: Array<{
@@ -356,14 +449,21 @@ export default defineAction({
     }
 
     const now = new Date().toISOString();
-    const id = args.id || nanoid();
     await verifyPrivateIconAssignment({
       icon,
       userEmail: currentUserEmail,
       orgId,
     });
 
-    await withPositionLock(
+    const creationScope = {
+      actor,
+      ownerEmail,
+      orgId,
+      spaceId,
+      parentId,
+      requestDigest,
+    };
+    const created = await withPositionLock(
       documentsPositionScope(ownerEmail, parentId),
       async () => {
         const maxPos = await db
@@ -383,25 +483,45 @@ export default defineAction({
 
         const position = nextAppendPosition(maxPos[0]?.max);
 
-        await db.transaction(async (tx) => {
-          await tx.insert(schema.documents).values({
-            id,
-            spaceId,
-            ownerEmail,
-            orgId,
-            parentId,
-            title,
-            content,
-            description,
-            icon,
-            position,
-            isFavorite: 0,
-            hideFromSearch,
-            visibility,
-            ...documentCreationAttribution(actor),
-            createdAt: now,
-            updatedAt: now,
-          });
+        return db.transaction(async (tx) => {
+          const [inserted] = await tx
+            .insert(schema.documents)
+            .values({
+              id,
+              spaceId,
+              ownerEmail,
+              orgId,
+              parentId,
+              title,
+              content,
+              description,
+              icon,
+              position,
+              isFavorite: 0,
+              hideFromSearch,
+              visibility,
+              creationRequestDigest: requestDigest,
+              ...documentCreationAttribution(actor),
+              createdAt: now,
+              updatedAt: now,
+            })
+            .onConflictDoNothing({ target: schema.documents.id })
+            .returning({ id: schema.documents.id });
+          if (!inserted) {
+            const [existing] = await tx
+              .select()
+              .from(schema.documents)
+              .where(eq(schema.documents.id, id))
+              .limit(1);
+            if (
+              !hasCallerSuppliedId ||
+              !matchesDocumentCreationRequest(existing, creationScope)
+            ) {
+              documentIdConflict();
+            }
+            return false;
+          }
+
           await syncPrivateIconReference(
             tx as unknown as ReturnType<typeof getDb>,
             {
@@ -442,6 +562,7 @@ export default defineAction({
             userEmail: currentUserEmail,
             orgId: orgId ?? undefined,
           });
+          return true;
         });
       },
     );
@@ -449,35 +570,37 @@ export default defineAction({
     const [doc] = await db
       .select()
       .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.id, id),
-          eq(schema.documents.ownerEmail, ownerEmail),
-        ),
-      );
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
-    if (creativeContextProvenance) {
-      await recordGenerationCreativeContext({
-        appId: "content",
-        artifactType: "document",
-        artifactId: doc.id,
-        ...creativeContextProvenance,
-        elementProvenance: elementProvenanceFor(doc.id),
-      });
+      .where(eq(schema.documents.id, id))
+      .limit(1);
+    if (!matchesDocumentCreationRequest(doc, creationScope)) {
+      documentIdConflict();
     }
 
-    track(
-      "document_created",
-      {
-        app_name: "content",
-        template_name: "content",
-        output_id: doc.id,
-        output_type: "document",
-        content_present: Boolean(content),
-      },
-      ctx,
-    );
+    if (created) {
+      if (creativeContextProvenance) {
+        await recordGenerationCreativeContext({
+          appId: "content",
+          artifactType: "document",
+          artifactId: doc.id,
+          ...creativeContextProvenance,
+          elementProvenance: elementProvenanceFor(doc.id),
+        });
+      }
+
+      track(
+        "document_created",
+        {
+          app_name: "content",
+          template_name: "content",
+          output_id: doc.id,
+          output_type: "document",
+          content_present: Boolean(content),
+        },
+        ctx,
+      );
+    }
+
+    await writeAppState("refresh-signal", { ts: Date.now() });
 
     const revision = documentRevisionToken(doc.bodyRevision, doc.content ?? "");
 

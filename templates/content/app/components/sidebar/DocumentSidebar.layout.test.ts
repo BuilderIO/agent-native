@@ -284,7 +284,7 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).toContain("navigate(previousPath, {");
     expect(sidebar).toContain(
-      "if (window.location.pathname === `/page/${id}`)",
+      "if (locationRef.current.pathname === `/page/${id}`)",
     );
     expect(sidebar).toContain(
       "pendingOptimisticCreationIdsRef.current.add(id)",

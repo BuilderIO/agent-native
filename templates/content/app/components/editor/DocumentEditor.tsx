@@ -313,6 +313,7 @@ import {
 } from "./useDocumentReconcileRecovery";
 import { canProjectAcceptedSuggestion, VisualEditor } from "./VisualEditor";
 import type {
+  VisualEditorInitialSelection,
   VisualEditorSuggestion,
   VisualEditorHistoryController,
   VisualEditorHistoryState,
@@ -2657,7 +2658,29 @@ function PageEditorSessionBody({
     | null
   >(null);
   const [creationCollaborationSelection, setCreationCollaborationSelection] =
-    useState<VisualEditorSelectionSnapshot | null>(null);
+    useState<{
+      documentId: string;
+      selection: VisualEditorSelectionSnapshot;
+    } | null>(null);
+  const handleInitialSelectionApplied = useCallback(
+    (selection: VisualEditorInitialSelection) => {
+      setCreationCollaborationSelection((current) =>
+        current?.selection === selection ? null : current,
+      );
+    },
+    [],
+  );
+  const creationSelectionForDocument =
+    creationCollaborationSelection?.documentId === documentId
+      ? creationCollaborationSelection.selection
+      : null;
+  const visualEditorInitialSelection = isSuggesting
+    ? suggestionInitialSelection
+    : (creationSelectionForDocument ?? suggestionInitialSelection);
+  const onVisualEditorInitialSelectionApplied =
+    !isSuggesting && creationSelectionForDocument
+      ? handleInitialSelectionApplied
+      : undefined;
   const [, setCreationCollaborationReleaseVersion] = useState(0);
   const suggestionBaseRef = useRef<SuggestionDraftSession | null>(null);
   const createdSuggestionOperationsRef = useRef(
@@ -3301,12 +3324,8 @@ function PageEditorSessionBody({
   );
   const showLocalCreationDraft =
     creationAwaitingFirstRead || holdCollaborationForCreationSave;
-  const hasCollaborationSeedBody = !isEffectivelyEmptyDocumentContent(
-    document.content,
-  );
   const collabDocumentId =
     collabEnabled &&
-    hasCollaborationSeedBody &&
     !creationAwaitingFirstRead &&
     !holdCollaborationForCreationSave &&
     !isDocumentCreationPending(queryClient, document)
@@ -3338,9 +3357,7 @@ function PageEditorSessionBody({
   const collabInitializationFailed =
     collabEnabled && collabInitialization.status === "error";
   const canEditWithoutCollaboration =
-    (creationAwaitingFirstRead ||
-      holdCollaborationForCreationSave ||
-      (collabEnabled && !hasCollaborationSeedBody)) &&
+    (creationAwaitingFirstRead || holdCollaborationForCreationSave) &&
     !collabSynced;
   const editorCanEdit =
     canEdit &&
@@ -4693,7 +4710,9 @@ function PageEditorSessionBody({
 
         const selection =
           editorSelectionControllerRef.current?.captureSelection();
-        if (selection) setCreationCollaborationSelection(selection);
+        if (selection) {
+          setCreationCollaborationSelection({ documentId, selection });
+        }
         clearDocumentCreationConfirmed(queryClient, currentDocument);
         setCreationCollaborationReleaseVersion((version) => version + 1);
         return;
@@ -6032,6 +6051,7 @@ function PageEditorSessionBody({
       );
       setEditingSuggestionId(existing?.session.existingSuggestion?.id ?? null);
       if (existing) setSelectedSuggestionId(null);
+      setCreationCollaborationSelection(null);
       setIsSuggesting(true);
       return true;
     },
@@ -6120,6 +6140,7 @@ function PageEditorSessionBody({
       setEditingSuggestionId(null);
       setSuggestionInitialSelection(null);
       setSuggestionAmendmentConflict(false);
+      setCreationCollaborationSelection(null);
       setIsSuggesting(true);
       setSuggestionPersistenceRevision((revision) => revision + 1);
     },
@@ -9268,9 +9289,9 @@ function PageEditorSessionBody({
                                   ? handleSuggestionReplacementIntent
                                   : undefined
                               }
-                              initialSelection={
-                                creationCollaborationSelection ??
-                                suggestionInitialSelection
+                              initialSelection={visualEditorInitialSelection}
+                              onInitialSelectionApplied={
+                                onVisualEditorInitialSelectionApplied
                               }
                               onSuggestionAnchorsChange={
                                 handleSuggestionAnchorsChange
