@@ -1099,7 +1099,12 @@ export function parseSubmitChatMessage(
       : null;
   if (!raw) return null;
   const message = typeof raw.message === "string" ? raw.message : "";
-  if (!message) return null;
+  // A prefill may carry only context: the composer then shows a chip and no text.
+  const contextOnlyPrefill =
+    raw.submit === false &&
+    typeof raw.context === "string" &&
+    raw.context.trim().length > 0;
+  if (!message && !contextOnlyPrefill) return null;
   const imageSources = [
     ...(Array.isArray(raw.images) ? raw.images : []),
     ...(Array.isArray(raw.referenceImagePaths) ? raw.referenceImagePaths : []),
@@ -1232,6 +1237,7 @@ function sendToAgentChatInternal(
     sendToBuilderChat({
       message: opts.message,
       context: opts.context,
+      contextLabel: opts.contextLabel,
       submit: opts.submit,
       ...(requestMode ? { mode: requestMode, requestMode } : {}),
     });

@@ -1473,9 +1473,22 @@ const AgentKitAssistantChatBody = forwardRef<
   );
   const [setupBouncePulse, setSetupBouncePulse] = useState(0);
   const previousPrefillRevisionRef = useRef(prefillRevision);
+  // Hidden items belong to one composer scope. Re-hydrate them during render
+  // when the scope changes, so an effect never persists the old scope's items
+  // under the new one.
+  const hiddenContextScope = props.tabId ?? threadId;
   const [contextItems, setContextItems] = useState<AgentChatContextItem[]>(() =>
-    readAssistantChatHiddenContext(props.tabId ?? threadId),
+    readAssistantChatHiddenContext(hiddenContextScope),
   );
+  const [hiddenContextScopeState, setHiddenContextScopeState] =
+    useState(hiddenContextScope);
+  if (hiddenContextScopeState !== hiddenContextScope) {
+    setHiddenContextScopeState(hiddenContextScope);
+    setContextItems((items) => [
+      ...items.filter((item) => !item.hidden),
+      ...readAssistantChatHiddenContext(hiddenContextScope),
+    ]);
+  }
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelectionContext | null>(null);
   const pendingSelectionRef = useRef<PendingSelectionContext | null>(null);
@@ -1860,10 +1873,10 @@ const AgentKitAssistantChatBody = forwardRef<
 
   useEffect(() => {
     writeAssistantChatHiddenContext(
-      props.tabId ?? threadId,
+      hiddenContextScope,
       contextItems.filter((item) => item.hidden),
     );
-  }, [contextItems, props.tabId, threadId]);
+  }, [contextItems, hiddenContextScope]);
 
   useEffect(() => {
     if (seenEventsRef.current.threadId !== threadId) {

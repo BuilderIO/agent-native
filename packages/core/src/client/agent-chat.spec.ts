@@ -1354,6 +1354,30 @@ describe("sendToAgentChat", () => {
     ]);
   });
 
+  it("parses a context-only prefill and rejects an empty submitted message", () => {
+    sendToAgentChat({
+      message: "",
+      context: '{"movieId":969681}',
+      contextLabel: "Spider-Man: Brand New Day",
+      submit: false,
+    });
+    const prefill = parentPostMessageSpy.mock.calls[0][0];
+    expect(
+      parseSubmitChatMessage({ data: prefill } as MessageEvent),
+    ).toMatchObject({
+      message: "",
+      contextLabel: "Spider-Man: Brand New Day",
+      submit: false,
+    });
+
+    parentPostMessageSpy.mockClear();
+    sendToAgentChat({ message: "", context: "Hidden context" });
+    const submitted = parentPostMessageSpy.mock.calls[0][0];
+    expect(
+      parseSubmitChatMessage({ data: submitted } as MessageEvent),
+    ).toBeNull();
+  });
+
   it("generates distinct tabIds across calls", () => {
     const id1 = sendToAgentChat({ message: "a" });
     const id2 = sendToAgentChat({ message: "b" });

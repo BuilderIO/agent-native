@@ -129,12 +129,14 @@ export function clearAssistantChatComposerDraft(scope?: string | null): void {
 const ASSISTANT_CHAT_HIDDEN_CONTEXT_PREFIX =
   "agent-chat-composer-hidden-context:";
 
+// Bounds stay off the stored shape: the writer persists whatever the caller
+// staged, so a length cap here would make a saved entry unreadable on mount.
 const hiddenContextEnvelopeSchema = z.object({
   version: z.literal(1),
   items: z.array(
     z.object({
-      key: z.string().min(1).max(200),
-      title: z.string().max(2048),
+      key: z.string().min(1),
+      title: z.string(),
       context: z.string().min(1),
     }),
   ),
@@ -170,9 +172,29 @@ export function readAssistantChatHiddenContext(
     return [];
   }
   if (stored === null) return [];
-  return hiddenContextEnvelopeSchema
-    .parse(JSON.parse(stored))
-    .items.map((item) => ({ ...item, hidden: true as const }));
+  const items = parseHiddenContextEnvelope(stored);
+  if (items) return items.map((item) => ({ ...item, hidden: true as const }));
+  // Discard the unreadable entry so it cannot fail every later mount. The draft text is stored separately and still restores.
+  try {
+    storage.removeItem(key);
+  } catch {
+    // coercion-ok: browser storage may be unavailable; the bad entry is then ignored on each read.
+  }
+  return [];
+}
+
+function parseHiddenContextEnvelope(
+  stored: string,
+): z.infer<typeof hiddenContextEnvelopeSchema>["items"] | null {
+  let json: unknown;
+  try {
+    json = JSON.parse(stored);
+  } catch {
+    // coercion-ok: a corrupt entry is unreadable; the caller discards it.
+    return null;
+  }
+  const result = hiddenContextEnvelopeSchema.safeParse(json);
+  return result.success ? result.data.items : null;
 }
 
 export function writeAssistantChatHiddenContext(

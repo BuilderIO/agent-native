@@ -707,6 +707,8 @@ import {
   appendAgentChatContextToMessage,
   createAgentNativeAgentKitTransport,
   publishAgentChatContextItems,
+  readAssistantChatHiddenContext,
+  writeAssistantChatHiddenContext,
 } from "@agent-native/core/client/agent-chat";
 import {
   deleteClientAppState,
@@ -1874,6 +1876,36 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
     expect(chatMocks.history.beginSubmission).toHaveBeenCalledOnce();
     expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("does not carry hidden prefill context into another thread on the same composer", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps({ tabId: "tab-a" }), ref);
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        {
+          key: "prefill-context-a",
+          title: "prefill-context-a",
+          context: "Thread A cast",
+          hidden: true,
+        },
+        { focus: false },
+      ),
+    );
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat {...baseProps({ tabId: "tab-b" })} ref={ref} />,
+      );
+    });
+    expect(chatMocks.composerProps.contextItems).toEqual([]);
+    expect(readAssistantChatHiddenContext("tab-b")).toEqual([]);
+    expect(readAssistantChatHiddenContext("tab-a")).toEqual([
+      expect.objectContaining({
+        key: "prefill-context-a",
+        context: "Thread A cast",
+      }),
+    ]);
+    writeAssistantChatHiddenContext("tab-a", []);
   });
 
   it("keeps hidden prefill context out of the shared context store", async () => {

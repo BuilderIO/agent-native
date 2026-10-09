@@ -148,3 +148,27 @@ describe("hidden composer context", () => {
     expect(readAssistantChatHiddenContext("thread-a")).toEqual([]);
   });
 });
+
+describe("hidden composer context recovery", () => {
+  it("discards an unreadable entry instead of failing the read", () => {
+    const key = `agent-chat-composer-hidden-context:${encodeURIComponent("thread-c")}`;
+    window.localStorage.setItem(key, "{not json");
+
+    expect(readAssistantChatHiddenContext("thread-c")).toEqual([]);
+    expect(window.localStorage.getItem(key)).toBeNull();
+  });
+
+  it("reads back a label longer than the old title cap", () => {
+    const item = {
+      key: "prefill-context-long",
+      title: "x".repeat(3000),
+      context: "Cast: Tom Holland",
+    };
+    writeAssistantChatHiddenContext("thread-d", [item]);
+
+    expect(readAssistantChatHiddenContext("thread-d")).toEqual([
+      { ...item, hidden: true },
+    ]);
+    writeAssistantChatHiddenContext("thread-d", []);
+  });
+});

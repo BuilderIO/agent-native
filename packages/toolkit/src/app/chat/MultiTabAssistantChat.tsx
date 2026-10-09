@@ -134,7 +134,8 @@ interface PendingDelivery {
 function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
   if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
   if (!send.submit) {
-    ref.prefillMessage(send.message);
+    // A context-only prefill has no text; it must not clear the user's draft.
+    if (send.message) ref.prefillMessage(send.message);
     if (send.prefillContext) ref.setComposerContextItem(send.prefillContext);
     return;
   }
