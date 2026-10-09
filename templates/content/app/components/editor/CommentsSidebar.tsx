@@ -1619,10 +1619,14 @@ export function CommentsSidebar({
           description: error instanceof Error ? error.message : undefined,
         });
       }
-      if (outcome === "busy") {
-        // Restored before the delete: a delete whose response is lost may
-        // still have removed the reply, and a leftover reply is visible.
-        replyDrafts.restoreSubmittedDraft(thread.threadId, reply.operationId);
+      // Taken back only once the draft holds the reply again, and restored
+      // before the delete: a delete whose response is lost may still have
+      // removed the reply, and a leftover reply is visible. A reply typed
+      // meanwhile keeps the draft, so the posted one stays.
+      if (
+        outcome === "busy" &&
+        replyDrafts.restoreSubmittedDraft(thread.threadId, reply.operationId)
+      ) {
         try {
           await deleteComment.mutateAsync({ id: reply.id, documentId });
         } catch (error) {

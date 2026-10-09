@@ -129,6 +129,24 @@ describe("suggestionLineExcerpt", () => {
     });
   });
 
+  it("shows every line of a replacement that adds lines", () => {
+    const before = "Ship on Friday.\n\nReview on Monday.\n";
+    const after = before.replace(
+      "Friday.",
+      "Thursday.\n\nDemo on Friday.\n\nRetro after.",
+    );
+    const operation = markdownSuggestionOperation(before, after)!;
+
+    expect(
+      suggestionLineExcerpt([
+        operation,
+      ] as unknown as ResourceSuggestion["operations"]),
+    ).toEqual({
+      before: "Ship on Friday.",
+      after: "Ship on Thursday.\nDemo on Friday.\nRetro after.",
+    });
+  });
+
   it("declines operations it cannot place, rather than guessing", () => {
     const operation = markdownSuggestionOperation("One two", "One three")!;
     expect(

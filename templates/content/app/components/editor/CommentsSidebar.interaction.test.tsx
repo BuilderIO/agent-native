@@ -553,6 +553,21 @@ describe("comment review interactions", () => {
     expect(replyDraft.draft.text).toBe(sent);
   });
 
+  it("keeps a busy AI reply when a newer reply was typed while it was sent", async () => {
+    let answer!: (outcome: "busy") => void;
+    const start = vi.fn(
+      () => new Promise<"busy">((resolve) => (answer = resolve)),
+    );
+    const sending = sendAiReply(start);
+    await vi.waitFor(() => expect(start).toHaveBeenCalled());
+    act(() => replyDraft.setText("a newer thought"));
+    await act(async () => answer("busy"));
+    await sending;
+
+    expect(actions.remove).not.toHaveBeenCalled();
+    expect(replyDraft.draft.text).toBe("a newer thought");
+  });
+
   it("keeps an AI reply when starting AI fails, since the request may have been saved", async () => {
     await sendAiReply(vi.fn().mockRejectedValue(new Error("network lost")));
 
