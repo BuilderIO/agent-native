@@ -2281,7 +2281,7 @@ const LEGACY_LINE_NORMALIZATION_CASES = [
   [true, "Signup pages should always show\nthe WebGL wave, not this graphic."],
 ];
 const FEEDBACK_REPLY_CONTEXT =
-  /(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)/i
+  /(?:reply|repl(?:y|ies)|responses?|status\s+updates?|feedback\s+updates?)/i
     .source;
 const FEEDBACK_REPLY_DETAIL_ISSUE =
   /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|less\s+technical|less\s+detail|(?:should\s+not|shouldn't)\s+(?:(?:include|contain|have)\s+)?(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|should\s+(?:include|contain|have)\s+no\s+(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|(?:without|free\s+of)\s+(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information))/i
@@ -2348,6 +2348,7 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "Replies are too technical."],
   [true, "Leave out publisher details from replies."],
   [true, "Don't include commit hashes or CI results in replies."],
+  [true, "Don't include commit hashes in responses."],
   [true, "Replies should not include any more technical details."],
   [true, "Do not include additional technical details in replies."],
   [true, "Do not mention CI in replies."],
