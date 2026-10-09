@@ -2286,7 +2286,10 @@ const FEEDBACK_REPLY_CONTEXT =
 const FEEDBACK_REPLY_DETAIL_ISSUE_BASE =
   /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+jargon[- ]heavy|overly\s+jargon[- ]heavy|excessively\s+jargon[- ]heavy|too\s+much\s+jargon|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|too\s+many\s+commit\s+hashes?|less\s+technical|less\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|more\s+concise|more\s+succinct|succinct|briefer|shorter|shorten|trim|simplify|(?:should\s+not|shouldn't)\s+(?:(?:include|contain|have)\s+)?(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|should\s+(?:include|contain|have)\s+no\s+(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|(?:without|free\s+of)\s+(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information))/i
     .source;
-const FEEDBACK_REPLY_DETAIL_ISSUE = `(?:${FEEDBACK_REPLY_DETAIL_ISSUE_BASE}|verbose|too\\s+(?:wordy|long)|less\\s+wordy)`;
+const FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE =
+  /keep\s+(?:(?:technical|implementation|internal|deployment|all|any|the)\s+){0,2}(?:details?|information)\s+out\s+of/i
+    .source;
+const FEEDBACK_REPLY_DETAIL_ISSUE = `(?:${FEEDBACK_REPLY_DETAIL_ISSUE_BASE}|${FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE}|verbose|too\\s+(?:wordy|long)|less\\s+wordy)`;
 const FEEDBACK_REPLY_DETAIL_HIGH_LEVEL_REQUEST =
   "\\b(?:keep|make|write|use)\\s+(?:(?:the|a|an|my|your|our|these|those)\\s+)?(?:(?:(?:feedback\\s+)?(?:repl(?:y|ies)|responses?|updates?)\\s+(?:at\\s+(?:a\\s+)?)?high[- ]level)|(?:high[- ]level\\s+(?:feedback\\s+)?(?:repl(?:y|ies)|responses?|updates?)))(?:\\s+(?:like|as)\\s+(?:this|that|these|those|it))?\\b";
 const FEEDBACK_REPLY_DETAIL_TARGET =
@@ -2297,6 +2300,18 @@ const FEEDBACK_REPLY_DETAIL_OTHER_SURFACE =
 const FEEDBACK_REPLY_DETAIL_OMISSION =
   /(?:(?:don['’]t|do not|shouldn['’]t|should not)\s+(?:include|mention|say|write|share|post|list|describe|cover|discuss|add|use|quote|give|put|provide)|(?:avoid|skip|omit|remove)(?:\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using|giving|putting|providing))?|leave out|stop\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using|giving|putting|providing))/i
     .source;
+const FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION =
+  "(?:\\b(?:for\\s+(?:example|instance|illustration)|as\\s+an?\\s+(?:example|illustration)|such\\s+as)|\\b(?:examples?|samples?|illustrations?)(?:\\s+(?:instruction|request|sentence|reply|response|correction))?\\s*:|\\be\\.g\\.)[^.!?;]{0,100}\\b" +
+  FEEDBACK_REPLY_DETAIL_OMISSION +
+  "\\b\\s+(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
+  FEEDBACK_REPLY_DETAIL_TARGET +
+  "\\b[^.!?;]{0,100}\\b" +
+  FEEDBACK_REPLY_CONTEXT +
+  "\\b";
+const FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION_RE = new RegExp(
+  FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION,
+  "i",
+);
 const FEEDBACK_REPLY_DETAIL_CROSS_CLAUSE_OMISSION_RE = new RegExp(
   "\\b" +
     FEEDBACK_REPLY_CONTEXT +
@@ -2319,6 +2334,14 @@ const FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION_WITH_OMISSION_RE = new RegExp(
     FEEDBACK_REPLY_DETAIL_TARGET,
   "gi",
 );
+const FEEDBACK_REPLY_DETAIL_CROSS_CLAUSE_NEGATED_OMISSION_RE = new RegExp(
+  "\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?;]{0,100}(?:,\\s*|;\\s*|\\b(?:but|and)\\b\\s+)" +
+    "(?:please\\s+)?(?:don['’]t|do\\s+not|shouldn['’]t|should\\s+not)\\s+" +
+    "(?:skip|omit|avoid|remove|leave\\s+out)\\b",
+  "i",
+);
 const FEEDBACK_REPLY_DETAIL_ISSUE_RE = new RegExp(
   FEEDBACK_REPLY_DETAIL_ISSUE,
   "i",
@@ -2326,8 +2349,10 @@ const FEEDBACK_REPLY_DETAIL_ISSUE_RE = new RegExp(
 // Negated requests and praise are not corrections about excessive detail.
 const FEEDBACK_REPLY_DETAIL_NON_CORRECTION = [
   "\\b(?:api|server|http|endpoint|webhook|provider)\\s+responses?\\b",
+  "\\bresponses?\\s+to\\s+(?:an?\\s+)?(?:the\\s+)?(?:api|server|endpoint|webhook|provider)\\b",
   "\\b(?:reply|replies|respond)\\s+(?:feature|endpoint)\\b",
   "(?:\\b(?:for\\s+(?:example|instance|illustration)s?|as\\s+an?\\s+(?:example|illustration)|such\\s+as)\\b|\\b(?:examples?|samples?|illustrations?)(?:\\s+(?:instruction|request|sentence|reply|response|correction))?\\s*:|\\be\\.g\\.)[^.!?;]{0,100}\\b(?:reply|respond|answer|write|use)\\b[^.!?;]{0,100}\\b(?:plain\\s+english|plain[- ]language)\\b",
+  FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION,
   "\\b(?:i|we)\\s+(?:don['’]t|do\\s+not|wouldn['’]t|would\\s+not)\\s+(?:think|believe|say|feel)\\b[^.!?;,]{0,100}\\b" +
     FEEDBACK_REPLY_CONTEXT +
     "\\b[^.!?;,]{0,100}\\b" +
@@ -2373,13 +2398,20 @@ const FEEDBACK_REPLY_DETAIL_NON_CORRECTION = [
     "\\b[^.!?;]{0,100}\\b" +
     FEEDBACK_REPLY_CONTEXT +
     "\\b",
+  "\\b(?:don['’]t|do not|shouldn['’]t|should not)\\s+" +
+    FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE +
+    "\\b[^.!?;]{0,40}\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b",
   "\\b(?:keep|make|write|use)\\b[^.!?;]{0,100}\\b" +
     FEEDBACK_REPLY_CONTEXT +
     "\\b[^.!?;]{0,100}\\b(?:at\\s+)?(?:a\\s+)?high[- ]level\\b[^.!?;]{0,80}\\b(?:like|as)\\s+(?:this|that|these|those|it)\\b",
 ].join("|");
+const FEEDBACK_REPLY_DETAIL_NON_CORRECTION_RE_SOURCE =
+  FEEDBACK_REPLY_DETAIL_NON_CORRECTION;
 const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
   "(?:^|[.!?;]|,(?!\\s*(?:or|nor)\\b)|\\b(?:but|and)\\b)\\s*(?![^.!?;,]*(?:" +
-    FEEDBACK_REPLY_DETAIL_NON_CORRECTION +
+    FEEDBACK_REPLY_DETAIL_NON_CORRECTION_RE_SOURCE +
     "))[^.!?;,]*?(?:" +
     [
       "\\b" +
@@ -2453,7 +2485,7 @@ const FEEDBACK_REPLY_DETAIL_MATCH_SCAN_RE = new RegExp(
   "gi",
 );
 const FEEDBACK_REPLY_DETAIL_NON_CORRECTION_RE = new RegExp(
-  FEEDBACK_REPLY_DETAIL_NON_CORRECTION,
+  FEEDBACK_REPLY_DETAIL_NON_CORRECTION_RE_SOURCE,
   "i",
 );
 const FEEDBACK_REPLY_DETAIL_COMMA_ASIDE_RE = new RegExp(
@@ -2488,7 +2520,7 @@ const FEEDBACK_REPLY_DETAIL_CONTEXT_RE = new RegExp(
   "i",
 );
 const FEEDBACK_REPLY_DETAIL_CANDIDATE_RE =
-  /\b(?:too|overly|excessively|less|should(?:n['’]t|\s+not)?|do\s+not|don['’]t|avoid|skip|omit|remove|leave\s+out|stop|no|without|free\s+of|concise|succinct|briefer|brief|short|shorten|shorter|trim|simplify|verbose|wordy|long|non[- ]?technical|plain\s+(?:english|language)|jargon(?:[- ]heavy)?|high[- ]level)\b/i;
+  /\b(?:too|overly|excessively|less|should(?:n['’]t|\s+not)?|do\s+not|don['’]t|avoid|skip|omit|remove|leave\s+out|stop|keep|no|without|free\s+of|concise|succinct|briefer|brief|short|shorten|shorter|trim|simplify|verbose|wordy|long|non[- ]?technical|plain\s+(?:english|language)|jargon(?:[- ]heavy)?|high[- ]level)\b/i;
 const FEEDBACK_REPLY_DETAIL_SIGNAL_RE =
   /\b(?:technical|implementation|internal|deployment|detailed|details?|information|jargon|commit|branch|ci|publisher|run|workflow|hash(?:es)?|results?|verbose|wordy|long|shorten|shorter|trim|simplify|succinct|briefer|concise|brief|short|non[- ]?technical|plain\s+(?:english|language)|high[- ]level)\b/i;
 const FEEDBACK_REPLY_DETAIL_SCAN_BUCKET_SIZE = 256;
@@ -2496,8 +2528,12 @@ const FEEDBACK_REPLY_DETAIL_CANDIDATE_SCAN_RE = new RegExp(
   FEEDBACK_REPLY_DETAIL_CANDIDATE_RE.source,
   "gi",
 );
+const FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION_SCAN_RE = new RegExp(
+  FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION,
+  "gi",
+);
 const FEEDBACK_REPLY_DETAIL_NON_CORRECTION_SCAN_RE = new RegExp(
-  `(?=(?:${FEEDBACK_REPLY_DETAIL_NON_CORRECTION}))`,
+  `(?=(?:${FEEDBACK_REPLY_DETAIL_NON_CORRECTION_RE_SOURCE}))`,
   "gi",
 );
 const FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION_SCAN_RE = new RegExp(
@@ -2519,12 +2555,25 @@ function hasFeedbackReplyDetailCorrection(message) {
   const input = textForPattern(message, true);
   if (!FEEDBACK_REPLY_DETAIL_CANDIDATE_RE.test(input)) return false;
   if (!FEEDBACK_REPLY_DETAIL_SIGNAL_RE.test(input)) return false;
-  if (FEEDBACK_REPLY_DETAIL_CROSS_CLAUSE_OMISSION_RE.test(input)) return true;
+  const crossClauseOmission =
+    FEEDBACK_REPLY_DETAIL_CROSS_CLAUSE_OMISSION_RE.exec(input);
+  if (
+    crossClauseOmission &&
+    !FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION_RE.test(crossClauseOmission[0]) &&
+    !FEEDBACK_REPLY_DETAIL_CROSS_CLAUSE_NEGATED_OMISSION_RE.test(
+      crossClauseOmission[0],
+    )
+  ) {
+    return true;
+  }
   if (FEEDBACK_REPLY_DETAIL_AFFIRMATIVE_FOLLOWUP_RE.test(input)) return true;
   if (FEEDBACK_REPLY_DETAIL_PRONOUN_FOLLOWUP_RE.test(input)) return true;
 
   const candidates = [
     ...input.matchAll(FEEDBACK_REPLY_DETAIL_CANDIDATE_SCAN_RE),
+  ];
+  const exampleOmissions = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION_SCAN_RE),
   ];
   const boundaries = [
     ...input.matchAll(FEEDBACK_REPLY_DETAIL_BOUNDARY_SCAN_RE),
@@ -2548,12 +2597,24 @@ function hasFeedbackReplyDetailCorrection(message) {
   let boundaryIndex = 0;
   let endIndex = 0;
   let nonCorrectionIndex = 0;
+  let exampleOmissionIndex = 0;
   let styleRetractionIndex = 0;
   let sentenceEndIndex = 0;
   let sentenceButRetractionIndex = 0;
   let lastScannedBucket = -1;
   let lastScannedBoundary = -1;
   for (const candidate of candidates) {
+    while (
+      exampleOmissionIndex < exampleOmissions.length &&
+      exampleOmissions[exampleOmissionIndex].index +
+        exampleOmissions[exampleOmissionIndex][0].length <=
+        candidate.index
+    ) {
+      exampleOmissionIndex += 1;
+    }
+    if (exampleOmissions[exampleOmissionIndex]?.index <= candidate.index) {
+      continue;
+    }
     while (
       boundaryIndex < boundaries.length &&
       boundaries[boundaryIndex] < candidate.index
@@ -2835,6 +2896,11 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "Reply after deployment; keep it concise."],
   [true, "Don't include commit hashes or CI results in replies."],
   [true, "Don't include commit hashes in feedback responses."],
+  [false, "For example, don't include commit hashes in replies."],
+  [false, "E.g., don't include commit hashes in replies."],
+  [true, "Keep technical details out of the reply."],
+  [false, "Don't keep technical details out of the reply."],
+  [false, "Responses to the API are too technical."],
   [true, "Replies should not include any more technical details."],
   [true, "Do not include additional technical details in replies."],
   [true, "Do not mention CI in replies."],
