@@ -153,7 +153,9 @@ export function stripRejectedRestoreClaimAssignments(
       const metadata = { ...operation.value };
       delete metadata.connectionId;
       removedAssignment = true;
-      return [{ ...operation, value: metadata }];
+      return Object.keys(metadata).length > 0
+        ? [{ ...operation, value: metadata }]
+        : [];
     }
     return [operation];
   });
@@ -164,10 +166,13 @@ export function stripRejectedRestoreClaimAssignments(
  * Drop a rejected restore's connection assignment while preserving its other
  * metadata and geometry writes so the rest of the queued save can proceed.
  */
-export function reconcileRejectedRestoreClaimOutboxEntry(
+export function reconcileRejectedRestoreClaimOutboxEntryResult(
   entry: DesignSaveOutboxEntry,
   rejectedTargetFileIds?: readonly string[],
-): DesignSaveOutboxEntry | null {
+):
+  | { kind: "updated"; entry: DesignSaveOutboxEntry }
+  | { kind: "empty" }
+  | null {
   const claims = entry.payload.restoreClaims;
   const operations = entry.payload.dataOperations;
   if (!Array.isArray(claims) || !Array.isArray(operations)) return null;
@@ -185,9 +190,8 @@ export function reconcileRejectedRestoreClaimOutboxEntry(
     operations,
     rejectedClaims,
   );
-  if (!reconciliation.removed || reconciliation.operations.length === 0) {
-    return null;
-  }
+  if (!reconciliation.removed) return null;
+  if (reconciliation.operations.length === 0) return { kind: "empty" };
 
   const payload = { ...entry.payload };
   const remainingClaims = claims.filter(
@@ -196,10 +200,27 @@ export function reconcileRejectedRestoreClaimOutboxEntry(
   if (remainingClaims.length === 0) delete payload.restoreClaims;
   else payload.restoreClaims = remainingClaims;
   return {
-    ...entry,
-    payload: { ...payload, dataOperations: reconciliation.operations },
-    updatedAt: Date.now(),
+    kind: "updated",
+    entry: {
+      ...entry,
+      payload: { ...payload, dataOperations: reconciliation.operations },
+      updatedAt: Date.now(),
+    },
   };
+}
+
+/**
+ * Backward-compatible entry view for callers that acknowledge empty results.
+ */
+export function reconcileRejectedRestoreClaimOutboxEntry(
+  entry: DesignSaveOutboxEntry,
+  rejectedTargetFileIds?: readonly string[],
+): DesignSaveOutboxEntry | null {
+  const result = reconcileRejectedRestoreClaimOutboxEntryResult(
+    entry,
+    rejectedTargetFileIds,
+  );
+  return result?.kind === "updated" ? result.entry : null;
 }
 
 const DATABASE_NAME = "agent-native-design-save-outbox";
@@ -567,16 +588,24 @@ async function drainEntries(
           error,
           entry.payload.restoreClaims,
         );
-        const reconciled = reconcileRejectedRestoreClaimOutboxEntry(
+        const reconciled = reconcileRejectedRestoreClaimOutboxEntryResult(
           entry,
           rejectedTargetFileIds,
         );
-        if (reconciled) {
-          await storage.putLatest(reconciled);
+        if (reconciled?.kind === "updated") {
+          await storage.putLatest(reconciled.entry);
           result.rebased.push({ entry, error });
           if (typeof console !== "undefined") {
             console.warn(
               `[design-save-outbox] removed rejected Screen restore connection metadata from ${entry.actionName} ${entry.resourceId}`,
+            );
+          }
+        } else if (reconciled?.kind === "empty") {
+          await storage.deleteIfRevision(entry);
+          result.rebased.push({ entry, error });
+          if (typeof console !== "undefined") {
+            console.warn(
+              `[design-save-outbox] discarded an empty reconciled save for ${entry.actionName} ${entry.resourceId}`,
             );
           }
         } else {

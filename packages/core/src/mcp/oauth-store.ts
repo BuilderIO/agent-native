@@ -185,7 +185,7 @@ export interface OAuthRefreshTokenRow {
   orgDomain: string | null;
   scope: string;
   resource: string;
-  createdAt: number | null;
+  grantCreatedAtMs: number | null;
   expiresAt: number | null;
   lastUsedAt: number | null;
   revokedAt: number | null;
@@ -297,7 +297,7 @@ function mapRefreshRow(row: any): OAuthRefreshTokenRow {
     orgDomain: row.org_domain ?? row.orgDomain ?? null,
     scope: row.scope,
     resource: row.resource,
-    createdAt: numOrNull(row.created_at ?? row.createdAt),
+    grantCreatedAtMs: numOrNull(row.created_at ?? row.createdAt),
     expiresAt: refreshTokenExpiryFromRow(row),
     lastUsedAt: numOrNull(row.last_used_at ?? row.lastUsedAt),
     revokedAt: numOrNull(row.revoked_at ?? row.revokedAt),
@@ -515,12 +515,12 @@ export async function createOAuthRefreshToken(
     orgDomain?: string | null;
     scope: string;
     resource: string;
+    grantCreatedAtMs: number | null;
   },
   db?: DbExec,
 ): Promise<OAuthRefreshTokenRow> {
   if (!db) await ensureTable();
   const client = db ?? getDbExec();
-  const now = Date.now();
   const row: OAuthRefreshTokenRow = {
     id: randomUUID(),
     tokenHash: hashOAuthToken(params.refreshToken),
@@ -531,7 +531,8 @@ export async function createOAuthRefreshToken(
     orgDomain: params.orgDomain ?? null,
     scope: params.scope,
     resource: params.resource,
-    createdAt: now,
+    // This is the authorization grant's immutable timestamp, not row-creation time.
+    grantCreatedAtMs: params.grantCreatedAtMs,
     expiresAt: null,
     lastUsedAt: null,
     revokedAt: null,
@@ -549,7 +550,7 @@ export async function createOAuthRefreshToken(
       row.orgDomain,
       row.scope,
       row.resource,
-      row.createdAt,
+      row.grantCreatedAtMs,
       row.expiresAt,
       row.lastUsedAt,
       row.revokedAt,
@@ -600,7 +601,6 @@ export async function rotateOAuthRefreshToken(
     ...old,
     id: randomUUID(),
     tokenHash: newHash,
-    createdAt: now,
     expiresAt: null,
     lastUsedAt: null,
     revokedAt: null,
@@ -618,7 +618,7 @@ export async function rotateOAuthRefreshToken(
       next.orgDomain,
       next.scope,
       next.resource,
-      next.createdAt,
+      next.grantCreatedAtMs,
       next.expiresAt,
       next.lastUsedAt,
       next.revokedAt,

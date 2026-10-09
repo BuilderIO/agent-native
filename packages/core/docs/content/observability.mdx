@@ -421,14 +421,17 @@ Spans are finished with OK/ERROR status and record a fixed code-derived message 
 
 Core also records metrics once the host registers a meter provider with `registerObservabilityProvider()` from `@agent-native/core/server`. Metrics are recorded for every request and run, with no sampling:
 
-| Instrument                              | Attributes                                                                                   |
-| --------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
-| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
-| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
-| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
-| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
-| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+| Instrument                                  | Attributes                                                                                   |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`              | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `agent_native.http.server.handoff.duration` | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`          | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`                 | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`                   | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`                   | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures`     | `error.type`, `agent_native.telemetry.signal`                                                |
+
+`agent_native.http.server.handoff.duration` has the same attributes and buckets as `http.server.request.duration`, but it ends when the response hook hands the response back to the runtime instead of when the hook starts. When its percentiles pull away from `http.server.request.duration`'s, finished responses are being held, for example by an inline telemetry flush. The gap is a signal, not any one request's wait, since the two percentiles can come from different requests. Without `waitUntil`, core records the sample after that flush, so it reaches the back end with the next one.
 
 On metrics, `gen_ai.tool.name` is a framework action's name or `other`, and `gen_ai.request.model` is the model id only when the engine lists it as supported, otherwise `_OTHER`. App-defined tools and caller-supplied model ids therefore cannot create unbounded series; spans keep the exact values.
 
@@ -472,9 +475,11 @@ A later call replaces the earlier provider. The returned function unregisters th
 
 ### Flushing on serverless {#otel-flush}
 
-Serverless functions freeze between invocations, so an SDK's export timer may never fire. When a registered provider implements `forceFlush()`, core calls it from the response hook after every request and waits for it. Each flush races one shared 2-second timeout, so telemetry never holds a response longer than that.
+Serverless functions freeze between invocations, so an SDK's export timer may never fire. When a registered provider implements `forceFlush()`, core calls it from the response hook after every request and waits for it. Each flush races one shared 2-second timeout, so telemetry never holds a response longer than that. When the platform provides `waitUntil` (Cloudflare, or the Netlify invocation context), core hands the flush to it and sends the response first instead of waiting.
 
-When a flush fails or times out, core stops waiting for it and adds 1 to `agent_native.telemetry.flush_failures`, which the next flush exports. A timed-out export keeps running and can still arrive, unless the runtime freezes the process first. The failure's `error.type` is `timeout`, `suspended` when the runtime froze the process mid-flush, or the error's name.
+Core calls a meter provider's `forceFlush()` at most once every 10 seconds per process and skips it on the requests in between. Each metric export re-sends every series the process holds, so this keeps upload volume from growing with request rate. Skipped points are not lost: the next export carries them, unless the instance never serves another request. A tracer provider is flushed on every request.
+
+When a flush fails or times out, core stops waiting for it and adds 1 to `agent_native.telemetry.flush_failures`, which the next flush exports. A timed-out export keeps running and can still arrive, unless the runtime freezes the process first. The failure's `error.type` is `timeout`, `suspended` when the runtime froze the process mid-flush, or the error's name. Because a collector that keeps timing out never receives that counter, core also writes one `agent-native.telemetry_flush_failed` line to the function log per signal and error type in each process.
 
 On a long-running server, a flush after every response means one export per request. Register providers without `forceFlush()` there and let the SDK's own timers export. `isServerlessRuntime()` from `@agent-native/core/server` tells the two apart. It is true on Netlify, Vercel, AWS Lambda, and Cloudflare.
 

@@ -72,7 +72,7 @@
     "generic-mcp"
   ],
   "chatgpt": {
-    "version": "1.0.0",
+    "version": "1.0.1",
     "interface": {
       "displayName": "Agent-Native Design",
       "shortDescription": "Interactive prototypes",

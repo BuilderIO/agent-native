@@ -32,8 +32,8 @@ export function shouldDeferLineupRecenterToCameraCommand(args: {
 }
 
 /**
- * Screen a focused first layout lands on: the selected one, else the one the
- * route asked for, else the active one, else the first.
+ * Screen a focused first layout lands on: the route target, else the selected
+ * one, else the active one, else the first.
  */
 export function resolveFocusedLineupScreenId(args: {
   screenIds: readonly string[];
@@ -43,8 +43,8 @@ export function resolveFocusedLineupScreenId(args: {
 }): string | null {
   const known = new Set(args.screenIds);
   const preferred = [
-    ...args.selectedScreenIds,
     args.requestedScreenId,
+    ...args.selectedScreenIds,
     args.activeScreenId,
   ].find((id): id is string => Boolean(id) && known.has(id as string));
   return preferred ?? args.screenIds[0] ?? null;
@@ -62,6 +62,21 @@ export function getFocusedLineupScale(args: {
   maxScale: number;
 }): number {
   const fit = args.availableWidth / Math.max(1, args.frameWidth);
+  return Math.max(args.minScale, Math.min(args.maxScale, fit));
+}
+
+export function getFocusedLineupFitScale(args: {
+  frameWidth: number;
+  frameHeight: number;
+  availableWidth: number;
+  availableHeight: number;
+  minScale: number;
+  maxScale: number;
+}): number {
+  const fit = Math.min(
+    args.availableWidth / Math.max(1, args.frameWidth),
+    args.availableHeight / Math.max(1, args.frameHeight),
+  );
   return Math.max(args.minScale, Math.min(args.maxScale, fit));
 }
 

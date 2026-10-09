@@ -921,6 +921,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}}개의 이미지{{plural}}를 로드하려면 Figma 접근이 필요합니다.",
       figmaPasteImagesDontShowAgain: "다시 표시하지 않기",
+      figmaPasteUploadImage: "이미지 업로드",
+      figmaPasteUploadImageFor: "“{{name}}” 업로드",
+      figmaPasteImageFallbackName: "이미지 {{index}}",
+      figmaPasteUploadImageSuccess: "이미지를 채웠습니다",
+      figmaPasteUploadImageInvalid:
+        "SVG, PNG, JPG 같은 이미지 파일을 선택하세요.",
+      figmaPasteUploadImageError: "이미지를 채우지 못했습니다",
       figmaHydrationDialogTitle: "Figma를 연결하여 이미지 로드",
       figmaHydrationDialogDescription:
         "Figma 액세스 토큰을 입력하여 가져온 화면{{screensPlural}}의 누락된 이미지 {{count}}개{{plural}}를 로드하세요.",
@@ -1606,6 +1613,7 @@ export default {
     fork: "분기",
     fullView: "전체 보기",
     preview: "미리보기",
+    focusScreen: "화면에 포커스",
     openAndDuplicate:
       "{{display}} 선택. 집중 스크롤에는 상호작용 모드를 사용하세요.",
     openAndPreview:

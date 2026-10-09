@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import type { ActionRunContext } from "@agent-native/core/action";
 import { QueryClient } from "@tanstack/react-query";
 import { transformSync } from "esbuild";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,7 +27,7 @@ const mocks = vi.hoisted(() => {
       fileType: "designFiles.fileType",
       content: "designFiles.content",
     },
-    designs: { id: "designs.id" },
+    designs: { id: "designs.id", data: "designs.data" },
     designScreenRestoreClaims: {
       id: "designScreenRestoreClaims.id",
       designId: "designScreenRestoreClaims.designId",
@@ -36,12 +37,18 @@ const mocks = vi.hoisted(() => {
     },
   };
 
+  const designRow: Record<string, unknown> = {
+    id: "design-1",
+    data: "{}",
+  };
   const matchingRows = (condition = whereCondition, table = selectedTable) => {
     const conditions = condition?.and ?? (condition ? [condition] : []);
     const sourceRows =
       table === schema.designScreenRestoreClaims
         ? restoreClaimRows
-        : existingRows;
+        : table === schema.designs
+          ? [designRow]
+          : existingRows;
     return sourceRows.filter((row) =>
       conditions.every((condition) => {
         const column = String(condition.left).split(".").pop();
@@ -56,6 +63,7 @@ const mocks = vi.hoisted(() => {
     from: vi.fn(),
     where: vi.fn(),
     limit: vi.fn(),
+    for: vi.fn(),
     then: vi.fn(),
   };
   selectChain.from.mockImplementation((table) => {
@@ -67,6 +75,7 @@ const mocks = vi.hoisted(() => {
     return selectChain;
   });
   selectChain.limit.mockImplementation(() => Promise.resolve(matchingRows()));
+  selectChain.for.mockImplementation(() => selectChain);
   selectChain.then.mockImplementation((resolve, reject) =>
     Promise.resolve(matchingRows()).then(resolve, reject),
   );
@@ -85,9 +94,17 @@ const mocks = vi.hoisted(() => {
   });
   updateChain.where.mockImplementation((condition) => {
     whereCondition = condition;
-    return updatedTable === schema.designScreenRestoreClaims
-      ? updateChain
-      : Promise.resolve(undefined);
+    if (updatedTable === schema.designScreenRestoreClaims) return updateChain;
+    if (updatedTable === schema.designs) {
+      const [row] = matchingRows(whereCondition, updatedTable);
+      if (row) {
+        Object.assign(row, updateValues);
+        if (typeof updateValues.data === "string") {
+          designData = JSON.parse(updateValues.data) as Record<string, unknown>;
+        }
+      }
+    }
+    return Promise.resolve(undefined);
   });
   updateChain.returning.mockImplementation(() => {
     const [row] = matchingRows(whereCondition, updatedTable);
@@ -138,6 +155,7 @@ const mocks = vi.hoisted(() => {
     getDesignData: () => designData,
     setDesignData: (data: Record<string, unknown>) => {
       designData = data;
+      designRow.data = JSON.stringify(data);
     },
     assertAccess: vi.fn().mockResolvedValue(undefined),
     track: vi.fn(),
@@ -261,6 +279,104 @@ describe("create-file: node-id annotation", () => {
       expect.any(String),
       insertedValues.content,
     );
+  });
+
+  it("copies Screen metadata from a verified source into the server-created file", async () => {
+    mocks.setExistingRows([
+      {
+        id: "source",
+        designId: "design-1",
+        filename: "source.html",
+        fileType: "html",
+      },
+    ]);
+    mocks.setDesignData({
+      screenMetadata: {
+        source: { sourceType: "localhost", connectionId: "connection-1" },
+      },
+      localhostScreens: {
+        source: { url: "http://localhost:5173", connectionId: "connection-1" },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "source copy.html",
+      content: "<main>Copy</main>",
+      fileType: "html",
+      duplicateSourceFileId: "source",
+    });
+
+    expect(mocks.getDesignData()).toMatchObject({
+      screenMetadata: {
+        source: { sourceType: "localhost", connectionId: "connection-1" },
+        [result.id]: {
+          sourceType: "localhost",
+          connectionId: "connection-1",
+        },
+      },
+      localhostScreens: {
+        source: { url: "http://localhost:5173", connectionId: "connection-1" },
+        [result.id]: {
+          url: "http://localhost:5173",
+          connectionId: "connection-1",
+        },
+      },
+    });
+  });
+
+  it("rejects a duplicate source from a different design", async () => {
+    mocks.setExistingRows([
+      {
+        id: "source",
+        designId: "another-design",
+        filename: "source.html",
+        fileType: "html",
+      },
+    ]);
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        filename: "source copy.html",
+        content: "<main>Copy</main>",
+        fileType: "html",
+        duplicateSourceFileId: "source",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "design_duplicate_source_not_found",
+      statusCode: 404,
+    });
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+  });
+
+  it("rejects widget screen creation outside the scoped design", async () => {
+    const context: ActionRunContext = {
+      caller: "mcp-widget-write",
+      mcpDirectoryWidgetWrite: {
+        appId: "design",
+        resourceIds: { designId: "design-1" },
+        actionNames: ["create-file"],
+      },
+    };
+
+    await expect(
+      action.run(
+        {
+          designId: "design-elsewhere",
+          filename: "new-screen.html",
+          content: "<main>New screen</main>",
+          fileType: "html",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_resource_mismatch",
+      statusCode: 403,
+    });
+
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
   });
 
   it("stamps the body of a new blank screen before persistence", async () => {

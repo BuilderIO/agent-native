@@ -1320,7 +1320,9 @@ function ScreenGeometryProperties({
                     : t("editPanel.screenSource.update")}
                 </Button>
               </div>
-              {localhostConnections.length > 1 ? (
+              {localhostConnections.length > 1 ||
+              (!selectedScreenSource?.connectionId &&
+                localhostConnections.length > 0) ? (
                 <Select
                   value={connectionDraft}
                   onValueChange={(next) => {

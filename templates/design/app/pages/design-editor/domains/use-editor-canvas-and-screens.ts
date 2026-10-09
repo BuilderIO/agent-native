@@ -117,6 +117,7 @@ export function useEditorCanvasAndScreens({
     t,
     id,
     session,
+    widgetEmbed,
     isSignedIn,
     initialSearchParams,
     queryClient,
@@ -444,6 +445,7 @@ export function useEditorCanvasAndScreens({
       return runDuplicateScreen(
         {
           canEditDesign,
+          widgetEmbed,
           createFileAsync,
           deleteFileAsync: deleteFileMutation.mutateAsync,
           designDataJsonRef,
@@ -480,6 +482,7 @@ export function useEditorCanvasAndScreens({
     },
     [
       canEditDesign,
+      widgetEmbed,
       createFileAsync,
       deleteFileMutation,
       displayedCanvasFrameGeometryById,

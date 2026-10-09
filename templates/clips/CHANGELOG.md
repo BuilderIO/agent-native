@@ -3,16 +3,36 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-09
+
+### Improved
+
+- Clips share links now guide agents to read full transcripts and inspect video frames, with distinct recovery steps for private clips, expired links, and unavailable video.
+
+### Fixed
+
+- Agents can read clip transcripts and inspect video frames from shared links, with clear guidance when a private clip needs a Share with agents link.
+- Agents now get clear recovery steps when clip frames are still processing or stored media cannot be fetched.
+
 ## 2026-10-08
 
 ### Improved
 
+- Opening Clips now goes directly to the recordings library.
+- Signup and login sessions are available in Analytics with all form inputs masked.
+- Skip setup to start recording; storage setup remains available after a recording finishes.
+- The Clips agent can add split markers at timestamps so segments can be edited independently
 - You can skip setup and start recording clips without connecting storage.
 - The storage setup screen no longer lists example S3 providers.
 - The video editor confirms when edits save to a clip and provides a clear way back to its viewer.
 
 ### Fixed
 
+- Clip uploads recover more reliably from temporary server interruptions
+- Clips blocks chat prompts until an AI provider is connected.
+- Clips marks recordings as failed when storage setup is missing, even if upload progress cannot be repaired.
+- Clips respects Skip after storage connects and gives accurate guidance when Builder does not respond
+- Recording edits, audio cleanup, and desktop dictation recover reliably after interruptions.
 - First-run storage setup remains available when the status check fails.
 
 ## 2026-10-07

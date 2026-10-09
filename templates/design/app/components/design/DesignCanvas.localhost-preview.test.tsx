@@ -18,6 +18,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 import { i18nCatalog } from "../../i18n";
+import { shouldShowLocalhostPreviewRecovery } from "../../pages/design-editor/domains/localhost-preview-recovery";
 import {
   getDesignCanvasIframeAllow,
   getLocalNetworkAccessPermissionState,
@@ -1979,6 +1980,75 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
     ).find((button) => button.textContent?.includes("Retry credentials"));
     expect((readyRetryButton as HTMLButtonElement).disabled).toBe(false);
     await act(async () => readyRetryButton?.click());
+    expect(retryLocalhostPreview).toHaveBeenCalledOnce();
+  });
+
+  it("renders recovery UI for refresh failures and legacy screens without a connection id", async () => {
+    const retryLocalhostPreview = vi.fn();
+    const renderRecoveryCanvas = ({
+      connectionId,
+      refreshFailed,
+    }: {
+      connectionId?: string;
+      refreshFailed: boolean;
+    }) => {
+      const unavailable = shouldShowLocalhostPreviewRecovery({
+        sourceType: "localhost",
+        connectionId,
+        snapshotOnly: false,
+        refreshFailed,
+        hasUsablePreviewCredentials: false,
+        connectionUnavailable: false,
+        canEdit: true,
+        publicUnavailable: false,
+        publicVisualEdit: false,
+      });
+
+      return (
+        <DesignCanvas
+          content="http://localhost:5173/settings"
+          contentKey="screen-settings"
+          screenId="screen-settings"
+          sourceType="localhost"
+          connectionId={connectionId}
+          localhostPreviewUnavailable={unavailable}
+          onRetryLocalhostPreview={retryLocalhostPreview}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />
+      );
+    };
+
+    await act(async () =>
+      root.render(
+        renderRecoveryCanvas({
+          connectionId: "local-connection",
+          refreshFailed: true,
+        }),
+      ),
+    );
+
+    expect(container.textContent).toContain(
+      "Local preview credentials are unavailable",
+    );
+
+    await act(async () =>
+      root.render(renderRecoveryCanvas({ refreshFailed: false })),
+    );
+
+    expect(container.textContent).toContain(
+      "Reconnect this Screen's localhost connection in the inspector, then retry.",
+    );
+    const retryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Retry credentials"),
+    );
+    expect(retryButton).toBeTruthy();
+    await act(async () => retryButton?.click());
     expect(retryLocalhostPreview).toHaveBeenCalledOnce();
   });
 

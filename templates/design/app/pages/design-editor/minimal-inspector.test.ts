@@ -6,6 +6,7 @@ import {
   hasMinimalInspectorSelection,
   rightInspectorCanvasInset,
   rightInspectorPanelClassName,
+  shouldAutoOpenMobileInspector,
 } from "./minimal-inspector";
 import { readDesignEditorSource } from "./read-design-editor-source";
 
@@ -36,6 +37,17 @@ describe("rightInspectorCanvasInset", () => {
         visible: true,
         width: 240,
         widgetEmbed: true,
+      }),
+    ).toBe(0);
+  });
+
+  it("reserves nothing when minimal UI floats the inspector over the canvas", () => {
+    expect(
+      rightInspectorCanvasInset({
+        visible: true,
+        width: 240,
+        widgetEmbed: false,
+        minimalUi: true,
       }),
     ).toBe(0);
   });
@@ -80,6 +92,35 @@ describe("hasMinimalInspectorSelection", () => {
         selectedScreenGeometry: { id: "screen-1", width: 1440, height: 900 },
       }),
     ).toBe(true);
+  });
+});
+
+describe("shouldAutoOpenMobileInspector", () => {
+  it("opens the overlay when a selected element needs its style panel", () => {
+    expect(
+      shouldAutoOpenMobileInspector({
+        minimalUi: true,
+        isMobileViewport: true,
+        hasSelection: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not open before selection or outside minimal mobile mode", () => {
+    expect(
+      shouldAutoOpenMobileInspector({
+        minimalUi: true,
+        isMobileViewport: true,
+        hasSelection: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoOpenMobileInspector({
+        minimalUi: true,
+        isMobileViewport: false,
+        hasSelection: true,
+      }),
+    ).toBe(false);
   });
 });
 

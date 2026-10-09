@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
@@ -11,6 +12,7 @@ import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 import { designConnectionIdsFromData } from "../shared/source-mode.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
+import { assertDesignWidgetWriteScope } from "./widget-write-scope.js";
 
 const MAX_DATA_CAS_ATTEMPTS = 5;
 const MAX_DATA_OPERATION_SOURCES = 128;
@@ -24,6 +26,23 @@ const FORBIDDEN_DATA_PATH_SEGMENTS = new Set([
   "constructor",
   "prototype",
 ]);
+const WIDGET_CANVAS_FRAME_KEYS = new Set([
+  "x",
+  "y",
+  "width",
+  "height",
+  "rotation",
+  "z",
+]);
+const WIDGET_SCREEN_METADATA_KEYS = new Set([
+  "width",
+  "height",
+  "heightPinned",
+  "heightMode",
+  "breakpointHeights",
+]);
+const WIDGET_LOCALHOST_SCREEN_KEYS = new Set(["width", "height"]);
+const WIDGET_LAYOUT_GRID_KEYS = new Set(["kind", "size", "visible"]);
 
 function tweakDefinitionsWriteError(value: unknown): string | null {
   return tweakDefinitionsSchema.safeParse(value).success
@@ -228,6 +247,129 @@ function parseScreenRestoreClaimSnapshot(
   }
 }
 
+function widgetDataOperationError(): ActionContractError {
+  return new ActionContractError(
+    "This Design widget write capability does not permit this design data path.",
+    { errorCode: "mcp_widget_data_path_not_allowed", statusCode: 403 },
+  );
+}
+
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  allowedKeys: ReadonlySet<string>,
+): boolean {
+  return Object.keys(value).every((key) => allowedKeys.has(key));
+}
+
+function validWidgetMetadataEntry(
+  value: unknown,
+  allowedKeys: ReadonlySet<string>,
+): value is Record<string, unknown> {
+  if (!isRecord(value) || !hasOnlyKeys(value, allowedKeys)) return false;
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "width" || key === "height") {
+      if (typeof entry !== "number" || !Number.isFinite(entry)) return false;
+    } else if (key === "heightPinned") {
+      if (typeof entry !== "boolean") return false;
+    } else if (
+      key === "heightMode" &&
+      entry !== "auto" &&
+      entry !== "fixed" &&
+      entry !== "hug"
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function assertWidgetDataOperations(
+  operations: readonly DataOperation[],
+): void {
+  for (const operation of operations) {
+    const [map, entryId, field, ...rest] = operation.path;
+    if (rest.length > 0) throw widgetDataOperationError();
+
+    if (map === "canvasFrames") {
+      if (!entryId || (!field && operation.path.length > 2)) {
+        throw widgetDataOperationError();
+      }
+      if (operation.path.length === 2 && operation.op === "set") {
+        if (
+          !isRecord(operation.value) ||
+          !hasOnlyKeys(operation.value, WIDGET_CANVAS_FRAME_KEYS) ||
+          designDataWriteError(operation.path, operation.value)
+        ) {
+          throw widgetDataOperationError();
+        }
+      } else if (
+        operation.path.length === 3 &&
+        (!field || !WIDGET_CANVAS_FRAME_KEYS.has(field))
+      ) {
+        throw widgetDataOperationError();
+      } else if (
+        operation.path.length === 3 &&
+        operation.op === "set" &&
+        designDataWriteError(operation.path, operation.value)
+      ) {
+        throw widgetDataOperationError();
+      }
+      continue;
+    }
+
+    if (map === "screenMetadata" || map === "localhostScreens") {
+      const allowedKeys =
+        map === "screenMetadata"
+          ? WIDGET_SCREEN_METADATA_KEYS
+          : WIDGET_LOCALHOST_SCREEN_KEYS;
+      if (!entryId || operation.path.length > 3) {
+        throw widgetDataOperationError();
+      }
+      if (operation.path.length === 2 && operation.op === "set") {
+        if (
+          !validWidgetMetadataEntry(operation.value, allowedKeys) ||
+          designDataWriteError(operation.path, operation.value)
+        ) {
+          throw widgetDataOperationError();
+        }
+      } else if (
+        operation.path.length === 3 &&
+        (!field || !allowedKeys.has(field))
+      ) {
+        throw widgetDataOperationError();
+      } else if (
+        operation.path.length === 3 &&
+        operation.op === "set" &&
+        !validWidgetMetadataEntry({ [field!]: operation.value }, allowedKeys)
+      ) {
+        throw widgetDataOperationError();
+      }
+      continue;
+    }
+
+    if (
+      map === "layoutGrids" &&
+      entryId &&
+      operation.path.length === 2 &&
+      (operation.op === "delete" ||
+        (isRecord(operation.value) &&
+          hasOnlyKeys(operation.value, WIDGET_LAYOUT_GRID_KEYS) &&
+          Object.keys(operation.value).length ===
+            WIDGET_LAYOUT_GRID_KEYS.size &&
+          operation.value.kind === "uniform" &&
+          typeof operation.value.size === "number" &&
+          Number.isFinite(operation.value.size) &&
+          operation.value.size >= 1 &&
+          operation.value.size <= 1000 &&
+          typeof operation.value.visible === "boolean"))
+    ) {
+      continue;
+    }
+
+    throw widgetDataOperationError();
+  }
+}
+
 function parsePersistedDataRecord(
   designId: string,
   raw: string | null | undefined,
@@ -416,14 +558,6 @@ export default defineAction({
         .describe(
           "Server-issued one-use proof for restoring connection metadata after deleting a Screen.",
         ),
-      duplicateSourceFileId: z
-        .string()
-        .min(1)
-        .max(256)
-        .optional()
-        .describe(
-          "Existing Screen whose localhost connection metadata is being copied into its duplicate.",
-        ),
       operationSource: z
         .string()
         .trim()
@@ -514,14 +648,6 @@ export default defineAction({
           targetIds.add(claim.targetFileId);
         }
       }
-      if (value.duplicateSourceFileId && !value.dataOperations) {
-        context.addIssue({
-          code: "custom",
-          path: ["dataOperations"],
-          message:
-            "Screen duplication requires path-addressed data operations.",
-        });
-      }
     }),
   agentInputSchema: z.object({
     id: z.string().describe("Design ID"),
@@ -554,7 +680,6 @@ export default defineAction({
       data,
       dataOperations,
       restoreClaims,
-      duplicateSourceFileId,
       operationSource,
       operationRevision,
       projectType,
@@ -562,6 +687,21 @@ export default defineAction({
     },
     context,
   ) => {
+    if (context?.caller === "mcp-widget-write") {
+      assertDesignWidgetWriteScope(id, context, {
+        actionName: "update-design",
+      });
+      if (
+        data !== undefined ||
+        description !== undefined ||
+        projectType !== undefined ||
+        designSystemId !== undefined
+      ) {
+        throw widgetDataOperationError();
+      }
+      if (dataOperations) assertWidgetDataOperations(dataOperations);
+    }
+
     if (data !== undefined) {
       let parsedSnapshot: unknown;
       try {
@@ -691,50 +831,6 @@ export default defineAction({
             assignment.connectionId,
         );
         const allowedRestoreAssignments = new Map<string, string>();
-        const allowedDuplicateAssignments = new Set<string>();
-        if (duplicateSourceFileId && access?.role !== "owner") {
-          const sourceAssignments = new Map(
-            connectionAssignments(existing.data)
-              .filter(
-                (assignment) => assignment.fileId === duplicateSourceFileId,
-              )
-              .map((assignment) => [assignment.map, assignment.connectionId]),
-          );
-          const duplicateCandidates = addedAssignments.filter(
-            (assignment) =>
-              assignment.fileId !== duplicateSourceFileId &&
-              sourceAssignments.get(assignment.map) === assignment.connectionId,
-          );
-          const duplicateFileIds = [
-            duplicateSourceFileId,
-            ...new Set(
-              duplicateCandidates.map((assignment) => assignment.fileId),
-            ),
-          ];
-          if (duplicateCandidates.length > 0) {
-            const duplicateFiles = await tx
-              .select({ id: schema.designFiles.id })
-              .from(schema.designFiles)
-              .where(
-                and(
-                  eq(schema.designFiles.designId, id),
-                  inArray(schema.designFiles.id, duplicateFileIds),
-                ),
-              );
-            const persistedFileIds = new Set(
-              duplicateFiles.map((file) => file.id),
-            );
-            if (persistedFileIds.has(duplicateSourceFileId)) {
-              for (const assignment of duplicateCandidates) {
-                if (persistedFileIds.has(assignment.fileId)) {
-                  allowedDuplicateAssignments.add(
-                    connectionAssignmentKey(assignment),
-                  );
-                }
-              }
-            }
-          }
-        }
         const restoreClaimsToConsume: Array<{
           id: string;
           targetFileId: string;
@@ -857,10 +953,7 @@ export default defineAction({
           if (
             allowedRestoreAssignments.get(
               connectionAssignmentKey(assignment),
-            ) !== assignment.connectionId &&
-            !allowedDuplicateAssignments.has(
-              connectionAssignmentKey(assignment),
-            )
+            ) !== assignment.connectionId
           ) {
             requiredScopeIds.add(assignment.connectionId);
           }
@@ -894,10 +987,7 @@ export default defineAction({
               (assignment) =>
                 allowedRestoreAssignments.get(
                   connectionAssignmentKey(assignment),
-                ) !== connectionId &&
-                !allowedDuplicateAssignments.has(
-                  connectionAssignmentKey(assignment),
-                ),
+                ) !== connectionId,
             )
           ) {
             requiredScopeIds.add(connectionId);

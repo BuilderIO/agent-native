@@ -48,6 +48,16 @@ function renderUrlInspector(props: {
     onSettled?: () => void,
   ) => void;
   screenSourcePending?: boolean;
+  selectedScreenSource?: {
+    sourceType: "static" | "url";
+    url?: string;
+    connectionId?: string;
+  };
+  localhostConnections?: Array<{
+    id: string;
+    name?: string | null;
+    devServerUrl?: string | null;
+  }>;
 }) {
   act(() =>
     root.render(
@@ -65,7 +75,9 @@ function renderUrlInspector(props: {
           sourceType: "url",
           url: "http://localhost:5173/students",
           connectionId: "localhost-1",
+          ...props.selectedScreenSource,
         }}
+        localhostConnections={props.localhostConnections}
         viewMode="overview"
         mode="edit"
         onStyleChange={vi.fn()}
@@ -76,6 +88,39 @@ function renderUrlInspector(props: {
     ),
   );
 }
+
+it("offers an available connection to repair a legacy localhost Screen", async () => {
+  const onScreenSourceChange = vi.fn();
+  renderUrlInspector({
+    onScreenSourceChange,
+    selectedScreenSource: {
+      sourceType: "url",
+      url: "http://localhost:5173/students",
+    },
+    localhostConnections: [{ id: "localhost-1", name: "Local app" }],
+  });
+
+  const connection = container.querySelector<HTMLButtonElement>(
+    '[role="combobox"]',
+  );
+  expect(connection).not.toBeNull();
+  await act(() => connection!.click());
+
+  const option = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((item) => item.textContent === "Local app");
+  expect(option).toBeDefined();
+  await act(() => option!.click());
+
+  expect(onScreenSourceChange).toHaveBeenCalledWith(
+    "screen-1",
+    {
+      sourceType: "url",
+      url: "http://localhost:5173/students",
+      connectionId: "localhost-1",
+    },
+  );
+});
 
 function screenInspectorDependencies(
   updateScreenSourceMutation: unknown,

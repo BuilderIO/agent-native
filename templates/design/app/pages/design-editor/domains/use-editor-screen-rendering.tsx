@@ -51,6 +51,7 @@ import {
   shouldUseOverviewRuntimeReplacement,
 } from "../selection-state";
 import { resolveToolAfterSelection } from "../tool-state";
+import { shouldShowLocalhostPreviewRecovery } from "./localhost-preview-recovery";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorClipboard } from "./use-editor-clipboard";
@@ -669,20 +670,25 @@ export function useEditorScreenRendering({
         screenPreviewToken &&
         (screenLiveEditRegistrationCapability ?? screenLiveEditCapability),
       );
-      const localhostPreviewUnavailable = Boolean(
-        !screenSnapshotOnly &&
-        screenSourceType === "localhost" &&
-        refreshedLocalhostConnection?.status === "unavailable" &&
-        (canEditDesign ||
-          canEditLiveScreen(screen.id) ||
-          (publicVisualEdit &&
-            refreshedLocalhostConnection.errorCode ===
-              "public_localhost_preview_unavailable")),
-      );
       const localhostPreviewUnavailablePublic = Boolean(
         refreshedLocalhostConnection?.errorCode ===
         "public_localhost_preview_unavailable",
       );
+      const localhostPreviewUnavailable = shouldShowLocalhostPreviewRecovery({
+        sourceType: screenSourceType,
+        connectionId: screen.connectionId,
+        snapshotOnly: screenSnapshotOnly,
+        refreshFailed: localhostPreviewTokenQuery.isError,
+        hasUsablePreviewCredentials: Boolean(
+          screen.connectionId && screenBridgeUrl && screenPreviewToken,
+        ),
+        connectionUnavailable:
+          refreshedLocalhostConnection?.status === "unavailable",
+        canEdit: canEditDesign || canEditLiveScreen(screen.id),
+        publicUnavailable:
+          publicVisualEdit && localhostPreviewUnavailablePublic,
+        publicVisualEdit,
+      });
       const screenSnapshot = liveScreenSnapshotsById[screen.id]?.html;
       const useRuntimeReplacement = shouldUseOverviewRuntimeReplacement({
         sourceType: screenSourceType,
@@ -1128,6 +1134,7 @@ export function useEditorScreenRendering({
       publicVisualEditConnectionId,
       localhostPreviewTokenQuery.data?.previewToken,
       localhostPreviewTokenQuery.data?.connections,
+      localhostPreviewTokenQuery.isError,
       localhostPreviewTokenQuery.isFetching,
       designAccessRole,
       scheduleVisualEditSnapshotPublication,

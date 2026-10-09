@@ -901,6 +901,12 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} 张图片{{plural}}需要 Figma 访问权限才能加载。",
       figmaPasteImagesDontShowAgain: "不再显示",
+      figmaPasteUploadImage: "上传图片",
+      figmaPasteUploadImageFor: "上传“{{name}}”",
+      figmaPasteImageFallbackName: "图片 {{index}}",
+      figmaPasteUploadImageSuccess: "已填充图片",
+      figmaPasteUploadImageInvalid: "请选择图片文件，例如 SVG、PNG 或 JPG。",
+      figmaPasteUploadImageError: "无法填充该图片",
       figmaHydrationDialogTitle: "连接 Figma 以加载图片",
       figmaHydrationDialogDescription:
         "输入您的 Figma 访问令牌，以加载已导入屏幕{{screensPlural}}中缺少的 {{count}} 张图片{{plural}}。",
@@ -1553,6 +1559,7 @@ export default {
     fork: "分支",
     fullView: "完整视图",
     preview: "预览",
+    focusScreen: "聚焦屏幕",
     openAndDuplicate: "选择 {{display}}。使用互动模式进行聚焦滚动。",
     openAndPreview: "选择 {{display}}。使用互动模式进行聚焦滚动。",
     doubleClickToEdit: "使用互动模式进行聚焦滚动",

@@ -196,6 +196,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.identity).toEqual({
       userEmail: "alice@builder.io",
       identityAssurance: "user",
+      mcpCredentialIssuedAtMs: expect.any(Number),
       orgId: "org-builder",
       orgDomain: "builder.io",
     });
@@ -413,6 +414,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.identity).toEqual({
       userEmail: "a@example.com",
       identityAssurance: "user",
+      mcpCredentialIssuedAtMs: expect.any(Number),
       orgId: null,
       orgDomain: "builder.io",
     });
@@ -452,6 +454,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.identity).toEqual({
       userEmail: "ci@example.com",
       identityAssurance: "user",
+      mcpCredentialIssuedAtMs: expect.any(Number),
       orgId: "org_legacy",
       orgDomain: undefined,
     });
@@ -475,6 +478,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.identity).toEqual({
       userEmail: "ci@example.com",
       identityAssurance: "user",
+      mcpCredentialIssuedAtMs: expect.any(Number),
       orgId: null,
       orgDomain: undefined,
     });
@@ -589,6 +593,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.identity).toEqual({
       userEmail: "svc-ci@service.org_123",
       identityAssurance: "service",
+      mcpCredentialIssuedAtMs: expect.any(Number),
       orgId: "org_123",
       orgDomain: undefined,
     });

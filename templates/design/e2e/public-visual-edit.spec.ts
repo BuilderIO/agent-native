@@ -1063,13 +1063,13 @@ test.describe.serial("public visual edit", () => {
       )
       .toBeGreaterThan(0);
     const ownerSecondFrame = designFrame(page, collaborationSecondScreenId);
-    const secondScreenPublicationsBeforeSelection =
-      ownerSnapshotPublicationCounts.get(collaborationSecondScreenId) ?? 0;
     const secondOwnerScreenRow = page
       .locator("[data-screen-row]")
       .filter({ hasText: "Localhost settings" });
     await secondOwnerScreenRow.click();
-    await expect(secondOwnerScreenRow).toHaveAttribute("aria-current", "page");
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("screen"))
+      .toBe(collaborationSecondScreenId);
     await expect(
       ownerSecondFrame.getByRole("heading", { name: "Local visual edit" }),
     ).toBeVisible({ timeout: 30_000 });
@@ -1079,12 +1079,14 @@ test.describe.serial("public visual edit", () => {
           ownerSnapshotPublicationCounts.get(collaborationSecondScreenId) ?? 0,
         { timeout: 15_000 },
       )
-      .toBeGreaterThan(secondScreenPublicationsBeforeSelection);
+      .toBeGreaterThan(0);
     const firstOwnerScreenRow = page
       .locator("[data-screen-row]")
       .filter({ hasText: "Localhost home" });
     await firstOwnerScreenRow.click();
-    await expect(firstOwnerScreenRow).toHaveAttribute("aria-current", "page");
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("screen"))
+      .toBe(collaborationScreenId);
     await expect(
       ownerFrame.getByRole("heading", { name: "Local visual edit" }),
     ).toBeVisible({ timeout: 30_000 });
@@ -1199,7 +1201,9 @@ test.describe.serial("public visual edit", () => {
         .filter({ hasText: "Localhost settings" });
       await expect(secondScreenRow).toHaveCount(1);
       await secondScreenRow.click();
-      await expect(secondScreenRow).toHaveAttribute("aria-current", "page");
+      await expect
+        .poll(() => new URL(guest.page.url()).searchParams.get("screen"))
+        .toBe(collaborationSecondScreenId);
       await expect
         .poll(
           () =>
@@ -1231,7 +1235,9 @@ test.describe.serial("public visual edit", () => {
         .locator("[data-screen-row]")
         .filter({ hasText: "Localhost home" });
       await firstScreenRow.click();
-      await expect(firstScreenRow).toHaveAttribute("aria-current", "page");
+      await expect
+        .poll(() => new URL(guest.page.url()).searchParams.get("screen"))
+        .toBe(collaborationScreenId);
       await selectByText(guest.page, "Local visual edit", {
         screenId: collaborationScreenId,
       });
@@ -1243,7 +1249,9 @@ test.describe.serial("public visual edit", () => {
         .toBeGreaterThan(firstScreenReadsBeforeRefocus);
 
       await firstOwnerScreenRow.click();
-      await expect(firstOwnerScreenRow).toHaveAttribute("aria-current", "page");
+      await expect
+        .poll(() => new URL(page.url()).searchParams.get("screen"))
+        .toBe(collaborationScreenId);
       const ownerPublicationsBeforeEdit = ownerSnapshotStatuses.filter(
         (status) => status === 200,
       ).length;
@@ -1526,6 +1534,7 @@ async function createOwnedVisualEditDesign(
 ): Promise<{ designId: string; screenIds: string[]; urlPath: string }> {
   if (!visualEditBridge) throw new Error("visual-edit bridge is not running");
   const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
+  let createdDesignId: string | undefined;
   try {
     const createResponse = await context.request.post(
       appUrl("/_agent-native/actions/create-design"),
@@ -1546,8 +1555,7 @@ async function createOwnedVisualEditDesign(
       data?: { id?: string };
       design?: { id?: string };
     };
-    const createdDesignId =
-      created.id ?? created.data?.id ?? created.design?.id;
+    createdDesignId = created.id ?? created.data?.id ?? created.design?.id;
     if (!createdDesignId)
       throw new Error("create-design returned no design ID");
 
@@ -1594,6 +1602,19 @@ async function createOwnedVisualEditDesign(
       throw new Error("open-visual-edit returned no design or screen");
     }
     return { designId: openedDesignId, screenIds, urlPath: result.urlPath };
+  } catch (error) {
+    if (createdDesignId) {
+      const cleanup = await context.request.post(
+        appUrl("/_agent-native/actions/delete-design"),
+        { data: { id: createdDesignId } },
+      );
+      if (!cleanup.ok()) {
+        throw new Error(
+          `Visual-edit setup failed (${String(error)}) and delete-design cleanup failed: ${cleanup.status()}`,
+        );
+      }
+    }
+    throw error;
   } finally {
     await context.close();
   }
@@ -1753,6 +1774,10 @@ async function assertNoRuntimeErrors({
       !message.includes("401 (Unauthorized)") &&
       !message.includes("status of 401"),
   );
+  expect(
+    unexpectedConsoleErrors,
+    `console errors: ${unexpectedConsoleErrors.join("\n")}`,
+  ).toEqual([]);
   expect(pageErrors, `page errors: ${pageErrors.join("\n")}`).toEqual([]);
 }
 

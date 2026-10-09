@@ -2,9 +2,10 @@
 name: onboarding-journeys
 description: >-
   Build the onboarding journey tree (signup to first output, with % splits,
-  last-observed-step counts, and example replays) and render a screenshot per
-  step. Use when asked for an onboarding storyboard, where users stop being
-  observed, or frames for each onboarding step.
+  last-observed-step counts, window-bounded later activity, and example
+  replays) and render a screenshot per step. Use when asked for an onboarding
+  storyboard, each cohort's last recorded step or later activity within a
+  window, or frames for each onboarding step.
 scope: dev
 ---
 
@@ -21,7 +22,9 @@ The pipeline runs without a UI. Codex does all four steps from the terminal:
 3. Call Design's `create-journey-canvas` with
    `{ title, tree, frames: [{ nodeKey, exampleIndex, imageUrl?, attachmentRef?, width, height, capturedAt }], designId? }`
    -> `{ designId, url, nodeCount, frameCount }`. Build `frames` from
-   `frames/manifest.json`.
+   `frames/manifest.json`. Design reads event timestamps and replay offsets from
+   `tree`; keep `sourceEventAt`, `replayAt`, and `capturedAt` in the capture
+   manifest.
 4. Lay out and review the canvas.
 
 ## The tree
@@ -34,7 +37,8 @@ window, `app`, `maxDepth`, `minNodeSessions` (small branches merge into an
 ```ts
 type JourneyExample = { sessionId: string; recordingId: string | null; ts: string; offsetMs: number | null; viewport: { width: number; height: number } | null; viewportReason?: string; replayUrl?: string };
 type JourneyNode = { key: string; label: string; parentKey: string | null; depth: number; kind: "step" | "other"; n: number; pctOfRoot: number; pctOfParent: number; dropoffN: number; dropoffPct: number; deeperN: number; examples: JourneyExample[] };
-type JourneyTree = { window: { from: string; to: string }; app: string; rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number; truncated: boolean }; nodes: JourneyNode[]; standaloneSetup?: { rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number; truncated: boolean }; nodes: JourneyNode[] }; notes?: string[] };
+type JourneyFollowup = { status: "complete" | "incomplete"; incompleteReason?: "journey_event_read_truncated" | "journey_event_read_invalid" | "journey_event_read_may_have_shifted" | "terminal_cohort_query_too_large" | "followup_aggregate_truncated" | "followup_aggregate_invalid" | "terminal_cohort_mismatch"; observationCutoff: string; observationFollowupDurationMs: { min: number; max: number; mean: number } | null; rightCensoredAtWindowEnd: true; coverage: { journeyEventRead: { rows: number; pages: number; truncated: boolean; paginationConsistency: "stable" | "may_have_shifted" }; followupAggregateRead: { rows: number | null; queries: number; truncated: boolean }; cohortSessions: number | null }; laterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null }; noLaterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null } };
+type JourneyTree = { window: { from: string; to: string }; app: string; rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number; truncated: boolean }; nodes: JourneyNode[]; followUp: JourneyFollowup; standaloneSetup?: { rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number; truncated: boolean }; nodes: JourneyNode[] }; notes?: string[] };
 ```
 
 Analytics returns cohort nodes with counts. When extending a Design storyboard
@@ -63,6 +67,28 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   exit: a blocked tracker or an event outside the window reads the same.
   `deeperN` counts sessions with a later observed step that is not represented
   as a child, including paths past `maxDepth` or a node-list cap.
+- `followUp` groups onboarding sessions by the key of their terminal selected
+  step. `laterRecordedActivityWithinWindow` counts sessions with any later
+  native Analytics event in the same session; `noLaterRecordedActivityWithinWindow`
+  counts the remaining sessions. The read applies the same authenticated
+  user/org scope, date window, app, identity bridge, test exclusion, and
+  Builder.io email filter as the journey read. It uses one
+  frozen `observationCutoff` for every event page and the single aggregate
+  query. `observationFollowupDurationMs`
+  summarizes the time from each terminal selected step to that cutoff.
+  `rightCensoredAtWindowEnd: true` means the no-later count is right-censored:
+  no later event was recorded before the cutoff; this is not an abandonment or
+  churn outcome. The aggregate contains counts only and does not expose the
+  session IDs or member identity keys used internally. The consistency field
+  reports `may_have_shifted` when the event read uses multiple `OFFSET` pages;
+  a late-arriving event can change page membership inside a historical window
+  too. If either read truncates, page boundaries may have shifted, or the
+  terminal cohort cannot be covered in one query under the 800,000-character
+  SQL limit or 50,000-token parser limit, `status` is `incomplete` and all new
+  cohort counts and follow-up duration are `null`; `incompleteReason`
+  identifies the limiting read. Do not report percentages from that partial
+  result. Existing journey counts and denominators remain independent of this
+  follow-up read.
 - `maxDepth` defaults to 8 and is bounded at 40. Request `maxDepth: 40` for a
   deeper pass. When sessions continue past the requested depth,
   `coverage.truncated` is true and the boundary node's `deeperN` says how many
@@ -114,6 +140,19 @@ and `manifest.json` with `frames`, `failures` (explicit, with a reason), and
 bounded batches only through the requested offsets and validates every fetched
 chunk. Fix failures or report them; do not paint over a missing frame.
 
+`sourceEventAt` preserves the JourneyTree example's original event timestamp;
+`replayAt` is `startedAt + offsetMs`, and `capturedAt` is when the CLI rendered
+the PNG. Every visible iframe must have a corresponding recorded child document
+by the requested replay time. If the child document is missing, the frame is
+listed as a failure with code `replay_iframe_content_unavailable` and counts in
+`diagnostics`. If unsupported 3D projection, rounded ancestor clipping, CSS
+clip paths, masks, or visibility-altering filters prevent the audit from
+verifying visibility, the frame is listed with code
+`replay_iframe_visibility_unverifiable`; do not treat uncertainty as either
+missing content or a successful audit. The check covers every visible iframe
+because replay can omit its original source attribute while rebuilding an
+isolated frame.
+
 Authenticate to the deployed app, never a local database: run
 `npx -y @agent-native/core@latest connect https://analytics.agent-native.com --client codex`
 (the CLI reads the bearer it writes to `~/.codex/config.toml`), or pass
@@ -126,6 +165,9 @@ remote images and fonts are not fetched. The output manifest marks this as
 `remoteAssets: "not-fetched"`. Keep recorded URLs and CSS intact for rrweb
 playback; network controls belong at the capture boundary. `--upload` stores
 PNGs through the private upload action, which checks recording access again.
+Design's own sandboxed template previews opt into the cooperative iframe
+recorder, so their child DOM can be replayed without granting the parent access
+to the preview document or credentials.
 
 Viewport comes from the recording's first rrweb Meta event, stored by replay
 ingest in `session_recordings.metadata.viewport` (`first` and `last`). Older

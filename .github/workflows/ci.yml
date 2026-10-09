@@ -230,12 +230,7 @@ jobs:
           pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
 
       - name: Allow the downloaded Chromium sandbox
-        run: |
-          if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" == "1" ]]; then
-            browser_path="$HOME/.cache/ms-playwright/**/chrome-headless-shell"
-            printf 'abi <abi/4.0>,\ninclude <tunables/global>\n\nprofile design-playwright-chromium %s flags=(unconfined) {\n  userns,\n}\n' "$browser_path" | sudo tee /etc/apparmor.d/design-playwright-chromium >/dev/null
-            sudo apparmor_parser -r /etc/apparmor.d/design-playwright-chromium
-          fi
+        uses: ./.github/actions/allow-playwright-sandbox
 
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
@@ -331,12 +326,7 @@ jobs:
           pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
 
       - name: Allow the downloaded Chromium sandbox
-        run: |
-          if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" == "1" ]]; then
-            browser_path="$HOME/.cache/ms-playwright/**/chrome-headless-shell"
-            printf 'abi <abi/4.0>,\ninclude <tunables/global>\n\nprofile design-playwright-chromium %s flags=(unconfined) {\n  userns,\n}\n' "$browser_path" | sudo tee /etc/apparmor.d/design-playwright-chromium >/dev/null
-            sudo apparmor_parser -r /etc/apparmor.d/design-playwright-chromium
-          fi
+        uses: ./.github/actions/allow-playwright-sandbox
 
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
@@ -470,6 +460,9 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell chromium
 
+      - name: Allow the downloaded Chromium sandbox
+        uses: ./.github/actions/allow-playwright-sandbox
+
       - name: Run focused Screen selection history regressions
         if: startsWith(matrix.shard, 'screen-history-')
         working-directory: templates/design
@@ -482,7 +475,7 @@ jobs:
               grep='undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id|undo restores a child layer with its additive Screen selection|marquee-selecting child elements after a Screen pick deletes only the elements|undoing a canvas element click restores its explicit Screen target for Delete|failed Screen deletion keeps the explicit Screen target for retry'
               ;;
             screen-history-2)
-              grep='a newer layer selection survives failed Screen deletion settlement|Shift-marquee adds a hit Screen to the existing Delete selection|a newer Screen pick survives failed Screen deletion settlement|a newer sidebar Screen selection survives failed Screen deletion settlement|Select All Screens survives failed Screen deletion settlement'
+              grep='a newer layer selection survives failed Screen deletion settlement|Shift-picking a Screen extends the Delete selection in All screens|a newer Screen pick survives failed Screen deletion settlement|a newer sidebar Screen selection survives failed Screen deletion settlement|Select All Screens survives failed Screen deletion settlement'
               ;;
             screen-history-3)
               grep='deleting a selected child layer keeps its owning Screen|marquee selection persists and deletes Screens after a prior layer selection|deep-select marquee over a Screen deletes only the child|Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete|Shift-marquee reselecting an owner Screen makes Delete target the Screen'
@@ -593,6 +586,9 @@ jobs:
 
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell chromium
+
+      - name: Allow the downloaded Chromium sandbox
+        uses: ./.github/actions/allow-playwright-sandbox
 
       - name: Run changed Design E2E specs
         working-directory: templates/design

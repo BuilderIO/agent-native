@@ -27,6 +27,7 @@ import {
 } from "../shared/html-integrity.js";
 import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import { assertDesignWidgetWriteScope } from "./widget-write-scope.js";
 
 const CREATED_SCREEN_WIDTH = 1440;
 const CREATED_SCREEN_HEIGHT = 1024;
@@ -82,6 +83,14 @@ export default defineAction({
       .describe(
         "One-use authorization for restoring a previously deleted Screen.",
       ),
+    duplicateSourceFileId: z
+      .string()
+      .min(1)
+      .max(256)
+      .optional()
+      .describe(
+        "Screen in this design to copy metadata from while duplicating.",
+      ),
     fileType: z
       .enum(["html", "css", "jsx", "asset"])
       .optional()
@@ -89,9 +98,34 @@ export default defineAction({
       .describe("Type of file"),
   }),
   run: async (
-    { designId, filename, content, fileType, restoreClaimId },
+    {
+      designId,
+      filename,
+      content,
+      fileType,
+      restoreClaimId,
+      duplicateSourceFileId,
+    },
     context,
   ) => {
+    assertDesignWidgetWriteScope(designId, context, {
+      actionName: "create-file",
+    });
+    if (context?.caller === "mcp-widget-write" && duplicateSourceFileId) {
+      fail(
+        "This Design widget write capability does not permit copying Screen metadata.",
+        {
+          errorCode: "mcp_widget_data_path_not_allowed",
+          statusCode: 403,
+        },
+      );
+    }
+    if (restoreClaimId && duplicateSourceFileId) {
+      fail("A Screen cannot be restored and duplicated in the same request.", {
+        errorCode: "screen_create_proof_conflict",
+        statusCode: 400,
+      });
+    }
     if (
       filename.includes("..") ||
       filename.includes("/") ||
@@ -253,6 +287,84 @@ export default defineAction({
           );
         }
 
+        let duplicateDesignData: string | undefined;
+        if (duplicateSourceFileId) {
+          if (fileType !== "html" && fileType !== "jsx") {
+            fail("Only a Screen can be duplicated.", {
+              errorCode: "design_duplicate_source_invalid",
+              statusCode: 400,
+            });
+          }
+          const [sourceFile] = await tx
+            .select({
+              id: schema.designFiles.id,
+              fileType: schema.designFiles.fileType,
+            })
+            .from(schema.designFiles)
+            .where(
+              and(
+                eq(schema.designFiles.designId, designId),
+                eq(schema.designFiles.id, duplicateSourceFileId),
+              ),
+            )
+            .limit(1);
+          if (
+            !sourceFile ||
+            (sourceFile.fileType !== "html" && sourceFile.fileType !== "jsx") ||
+            sourceFile.fileType !== fileType
+          ) {
+            fail("The Screen to duplicate is no longer available.", {
+              errorCode: "design_duplicate_source_not_found",
+              statusCode: 404,
+            });
+          }
+
+          const [design] = await tx
+            .select({ data: schema.designs.data })
+            .from(schema.designs)
+            .where(eq(schema.designs.id, designId))
+            .for("update");
+          if (!design) {
+            fail("Design not found.", {
+              errorCode: "not_found",
+              statusCode: 404,
+            });
+          }
+          let parsedData: unknown;
+          try {
+            parsedData = JSON.parse(design.data);
+          } catch {
+            fail("Design data must be valid JSON.", {
+              errorCode: "invalid_design_data",
+              statusCode: 400,
+            });
+          }
+          if (!isRecord(parsedData)) {
+            fail("Design data must be a JSON object.", {
+              errorCode: "invalid_design_data",
+              statusCode: 400,
+            });
+          }
+          const nextData = { ...parsedData };
+          let copiedMetadata = false;
+          for (const mapName of [
+            "screenMetadata",
+            "localhostScreens",
+          ] as const) {
+            const currentMap = isRecord(parsedData[mapName])
+              ? parsedData[mapName]
+              : {};
+            const sourceMetadata = currentMap[duplicateSourceFileId];
+            if (!isRecord(sourceMetadata)) continue;
+            nextData[mapName] = {
+              ...currentMap,
+              [id]: { ...sourceMetadata },
+            };
+            copiedMetadata = true;
+          }
+          if (copiedMetadata) duplicateDesignData = JSON.stringify(nextData);
+        }
+
         await tx.insert(schema.designFiles).values({
           id,
           designId,
@@ -286,7 +398,12 @@ export default defineAction({
 
         await tx
           .update(schema.designs)
-          .set({ updatedAt: now })
+          .set({
+            updatedAt: now,
+            ...(duplicateDesignData === undefined
+              ? {}
+              : { data: duplicateDesignData }),
+          })
           .where(eq(schema.designs.id, designId));
         return {
           id,
