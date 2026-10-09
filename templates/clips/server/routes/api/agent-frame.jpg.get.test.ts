@@ -171,6 +171,10 @@ describe("agent-frame.jpg route", () => {
     const result = (await handler(event as any)) as Record<string, unknown>;
 
     expect(result.redactionPending).toBe(true);
+    expect(result).toMatchObject({
+      failureKind: "processing",
+      nextStep: expect.stringContaining("redactions"),
+    });
     expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 409);
     expect(mockLoadRecordingMediaFile).not.toHaveBeenCalled();
   });
@@ -227,6 +231,27 @@ describe("agent-frame.jpg route", () => {
       expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
     },
   );
+
+  it("returns a terminal frame failure without loading media for failed clips", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: { id: "failed-clip", status: "failed" },
+      }),
+    });
+
+    const event = makeEvent({ id: "failed-clip", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(409);
+    expect(result).toMatchObject({
+      failureKind: "processing",
+      error: expect.stringContaining("recording failed"),
+      nextStep: expect.stringContaining("Do not request frame URLs again"),
+    });
+    expect(mockLoadRecordingMediaFile).not.toHaveBeenCalled();
+    expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
+  });
 
   it("does not fetch a screenshot while its clip is still processing", async () => {
     mockLoadPublicAgentAccess.mockResolvedValue({
@@ -439,6 +464,28 @@ describe("agent-frame.jpg route", () => {
     const result = await handler(event as any);
 
     expect(event.status).toBe(403);
+    expect(result).toMatchObject({
+      failureKind: "media",
+      nextStep: expect.stringContaining("media-storage issue"),
+    });
+    expect((result as { nextStep: string }).nextStep).not.toContain(
+      "Retry once",
+    );
+    expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
+  });
+
+  it("classifies unauthorized stored-media access as a media failure", async () => {
+    mockLoadRecordingMediaFile.mockRejectedValue(
+      new RecordingMediaFetchError(
+        "Recording media fetch failed: HTTP 401 Unauthorized",
+        401,
+      ),
+    );
+
+    const event = makeEvent({ id: "rec-1", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(401);
     expect(result).toMatchObject({
       failureKind: "media",
       nextStep: expect.stringContaining("media-storage issue"),

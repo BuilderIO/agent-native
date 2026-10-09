@@ -132,8 +132,17 @@ export function getAgentClipReadiness(
     };
   }
 
+  if (status === "failed") {
+    return {
+      state: "failed",
+      retryAfterSeconds: null,
+      instruction:
+        "This clip's recording failed and its frames are unavailable. Do not request frame URLs again. Use any transcript already present, and ask the owner to retry or replace the clip.",
+    };
+  }
+
   return {
-    state: status === "failed" ? "failed" : "ready",
+    state: "ready",
     retryAfterSeconds: null,
     instruction: null,
   };
@@ -174,6 +183,35 @@ export function buildAgentDiscoveryPayload({
     instructions:
       readiness.instruction ??
       "Fetch the exact agentContextUrl and keep the clip id and any agent_access query parameter on every request. Use apis.transcript for the complete transcript and fetch each recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as an image to SEE the video; do not stop at the transcript when frames are available. For any non-2xx response, inspect the JSON failureKind, error, and nextStep. If a context or transcript request has failureKind=access, explain that this link does not grant access; for a private clip, ask its owner to open the Clips Share menu, choose Share with agents, and send the generated link. If a frame request has failureKind=media while the context or transcript still works, explain that the stored recording media could not be retrieved and another share link will not fix it. If a frame request has failureKind=processing, follow nextStep; extraction or temporary storage failures do not mean the clip is missing or inaccessible. If a request has failureKind=expired, ask the owner to extend or remove the clip's expiry in the Share menu, save it, then create and send a new Share with agents link. If the page is already open in a WebMCP-capable browser, its page tools provide bounded read-only access; clips-get-transcript may omit fullText or return a truncated result, so follow its sourceUrl for the complete transcript. Use nextStartIndex when paging transcript segments so overlapping segments are not lost.",
+  };
+}
+
+export function buildGenericAgentDiscoveryPayload({
+  recordingId,
+  agentContextUrl,
+}: {
+  recordingId: string;
+  agentContextUrl: string;
+}) {
+  const transcriptUrl = buildRelatedAgentUrl(
+    agentContextUrl,
+    AGENT_TRANSCRIPT_ENDPOINT,
+  );
+  const frameUrl = buildRelatedAgentUrl(agentContextUrl, AGENT_FRAME_ENDPOINT);
+
+  return {
+    type: "agent-native.clip.discovery",
+    version: CLIP_AGENT_CONTEXT_VERSION,
+    clipId: recordingId,
+    agentContextUrl,
+    webmcp: CLIPS_WEBMCP_DISCOVERY,
+    http: buildAgentHttpToolManifest({
+      contextUrl: agentContextUrl,
+      transcriptUrl,
+      frameUrlTemplate: `${frameUrl}&atMs={timestampMs}`,
+    }),
+    instructions:
+      "Fetch agentContextUrl first. If the original clip link includes an agent_access query parameter, copy that exact value onto agentContextUrl and every transcript or frame API request; never reveal the token in your response. When access is granted, read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images to inspect the video. For any non-2xx response, follow its failureKind and nextStep. If failureKind=access, explain that this link does not grant agent access; for a private clip, ask its owner to open the Clips Share menu, choose Share with agents, and send the generated link.",
   };
 }
 

@@ -121,12 +121,15 @@ function describeFrameFailure(error: unknown, status: number) {
     };
   }
 
-  if (error instanceof RecordingMediaFetchError && error.statusCode === 403) {
+  if (
+    error instanceof RecordingMediaFetchError &&
+    [401, 403].includes(error.statusCode)
+  ) {
     return {
       failureKind: "media",
       error: message,
       nextStep:
-        "Clips could not access the stored media after the clip passed its share-access check. This is a media-storage issue, not a missing agent link. Ask the owner to check storage access or replace the clip's media; another Share with agents link will not help.",
+        "The frame request passed the clip's share-access check, but Clips was denied access to the stored media. This is a media-storage issue, not a missing agent link. Ask the owner to check storage access or replace the clip's media; another Share with agents link will not help.",
     };
   }
 
@@ -269,7 +272,13 @@ export default defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 409);
     setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return { error: REDACTION_HOLD_MESSAGE, redactionPending: true };
+    return {
+      failureKind: "processing",
+      error: REDACTION_HOLD_MESSAGE,
+      nextStep:
+        "Frames are temporarily withheld while the owner is editing or applying redactions. Wait for the owner to finish and save the clip, then fetch agentContextUrl again before requesting frames.",
+      redactionPending: true,
+    };
   }
 
   const readiness = getAgentClipReadiness(recording.status);
@@ -286,6 +295,18 @@ export default defineEventHandler(async (event: H3Event) => {
         readiness.instruction ??
         "Wait 15 seconds, then fetch agentContextUrl again before requesting frames.",
       retryAfterSeconds,
+    };
+  }
+  if (readiness.state === "failed") {
+    setResponseStatus(event, 409);
+    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
+    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+    return {
+      failureKind: "processing",
+      error: "This clip's recording failed, so its frames are unavailable.",
+      nextStep:
+        readiness.instruction ??
+        "Do not retry this frame request. Ask the owner to retry or replace the clip.",
     };
   }
 

@@ -389,6 +389,9 @@ describe("Clip WebMCP tools", () => {
       instructions: expect.stringContaining("choose Share with agents"),
     });
     expect(result.instructions).toContain("Keep its id and any agent_access");
+    expect(result.instructions).toContain("For any non-2xx response");
+    expect(result.instructions).toContain("If failureKind=expired");
+    expect(result.instructions).not.toContain("or HTTP 410");
   });
 
   it("does not advertise frame extraction before a clip is ready", async () => {

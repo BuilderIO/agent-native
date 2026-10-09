@@ -40,6 +40,25 @@ describe("agent clip context helpers", () => {
     ]);
   });
 
+  it("does not offer frame inspection for a failed recording", () => {
+    const payload = buildAgentDiscoveryPayload({
+      recordingId: "rec-1",
+      title: "Clip",
+      status: "failed",
+      agentContextUrl:
+        "https://clips.example.com/api/agent-context.json?id=rec-1",
+    });
+
+    expect(payload.agentReadiness).toMatchObject({
+      state: "failed",
+      instruction: expect.stringContaining("frames are unavailable"),
+    });
+    expect(payload.instructions).toContain("Do not request frame URLs again");
+    expect(
+      payload.http.tools.some((tool) => tool.name === "clips-get-frame"),
+    ).toBe(false);
+  });
+
   it("scopes private agent access tokens separately from media tokens", () => {
     expect(agentAccessTokenResourceId("rec-1")).toBe(
       "clip-agent-context:rec-1",
