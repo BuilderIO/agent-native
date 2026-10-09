@@ -22,6 +22,8 @@ export default {
       "{label}、ソース例{source}、ギャラリー位置 {current}/{total}、撮影日 {date}",
     screenshotMissing: "スクリーンショット未取得",
     recordingUnavailable: "利用不可",
+    recordingGap: "記録の空白",
+    recordingGapDuration: "記録の空白 · {duration}",
     eventTime: "イベント時刻（UTC）",
     generationCompletedEvent: "generation_completed イベント（UTC）",
     replayObservation: "リプレイ観測",
