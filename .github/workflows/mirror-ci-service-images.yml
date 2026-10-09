@@ -3,6 +3,8 @@ name: Mirror CI service images
 # Copies the Postgres service images CI uses into GHCR. Docker Hub limits
 # anonymous pulls per runner IP, and that limit fails jobs while their service
 # containers start, before any step runs. Jobs pull from the mirror instead.
+# The copy reads from AWS's public mirror of the Docker official images,
+# because Docker Hub rate-limits this job's anonymous reads too.
 
 on:
   push:
@@ -24,6 +26,7 @@ jobs:
     env:
       REGISTRY: ghcr.io/builderio/agent-native-ci-postgres
       IMAGES: postgres:17-alpine postgres:18-alpine
+      SOURCE: public.ecr.aws/docker/library
     steps:
       - name: Log in to GHCR
         env:
@@ -36,7 +39,7 @@ jobs:
           for image in $IMAGES; do
             tag="${image#postgres:}"
             for attempt in 1 2 3 4 5; do
-              if docker buildx imagetools create --tag "$REGISTRY:$tag" "docker.io/library/$image"; then
+              if docker buildx imagetools create --tag "$REGISTRY:$tag" "$SOURCE/$image"; then
                 break
               fi
               if [ "$attempt" -eq 5 ]; then
