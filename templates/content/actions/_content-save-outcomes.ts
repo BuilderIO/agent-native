@@ -1,5 +1,6 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import type { ActionRunContext } from "@agent-native/core/action";
-import { getRequestContext } from "@agent-native/core/server/request-context";
 import { ForbiddenError } from "@agent-native/core/sharing";
 import { countOutcome } from "@agent-native/core/tracking";
 
@@ -128,15 +129,17 @@ export function recordContentSaveOutcome(
 }
 
 const outcomeSymbol = Symbol("contentSaveOutcome");
-const requestOutcomes = new WeakMap<object, Map<string, ContentSaveOutcome>>();
+const auditOutcomes = new AsyncLocalStorage<{ outcome?: ContentSaveOutcome }>();
 
-export function contentSaveOutcomeForArgs(args: {
-  id?: unknown;
-}): ContentSaveOutcome | undefined {
-  const request = getRequestContext();
-  return request && typeof args.id === "string"
-    ? requestOutcomes.get(request)?.get(args.id)
-    : undefined;
+export function contentSaveAuditOutcome(): ContentSaveOutcome | undefined {
+  return auditOutcomes.getStore()?.outcome;
+}
+
+export function scopeContentSaveAudit<Args, Result>(
+  run: (args: Args, ctx?: ActionRunContext) => Result,
+): (args: Args, ctx?: ActionRunContext) => Result {
+  // Scope begins before action validation, and lasts through its audit recorder.
+  return (args, ctx) => auditOutcomes.run({}, () => run(args, ctx));
 }
 
 export function scopeContentSaveOutcome<T extends object>(
@@ -241,17 +244,9 @@ function observeContentSaveOutcome<Args, Result extends object>(
         measurement.history_effect = "none";
         measurement.stale_base = "unknown";
       }
-      const request = getRequestContext();
-      const id =
-        args && typeof args === "object" && "id" in args ? args.id : undefined;
-      if (request && typeof id === "string") {
-        let outcomes = requestOutcomes.get(request);
-        if (!outcomes) {
-          outcomes = new Map();
-          requestOutcomes.set(request, outcomes);
-        }
-        outcomes.set(id, measurement.outcome);
-      }
+      const audit = auditOutcomes.getStore();
+      if (operation === "update_document" && audit)
+        audit.outcome = measurement.outcome;
       recordContentSaveOutcome(operation, measurement);
     }
   };

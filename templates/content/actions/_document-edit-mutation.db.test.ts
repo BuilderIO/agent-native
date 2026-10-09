@@ -83,6 +83,66 @@ afterAll(() => {
 const ctx = { caller: "mcp" as const, userEmail: OWNER };
 
 describe("revisioned document edit mutation", () => {
+  it("counts a linked-local source write once as applied when its History transaction fails", async () => {
+    const db = getDb();
+    await db
+      .update(schema.documents)
+      .set({
+        sourceMode: "local-files",
+        sourceKind: "file",
+        sourcePath: "fixture.md",
+      })
+      .where(eq(schema.documents.id, DOCUMENT_ID));
+    const linkedLocal = await import("./_linked-local-document-edit.js");
+    const sourceWrite = vi
+      .spyOn(linkedLocal, "editLinkedLocalDocumentThroughBrowser")
+      .mockResolvedValueOnce({
+        status: "persisted",
+        content: "omega beta",
+        title: "Integrity test",
+        path: "fixture.md",
+        runtime: "browser",
+      });
+    const error = new Error("injected History failure");
+    const transaction = vi
+      .spyOn(db, "transaction")
+      .mockRejectedValueOnce(error);
+    try {
+      const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+        editDocument.run(
+          { id: DOCUMENT_ID, find: "alpha", replace: "omega", reuseLabels: [] },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+      expect(sourceWrite).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({
+        applied: 1,
+        persistence: "source-persisted/history-pending",
+        path: "fixture.md",
+        error: error.message,
+      });
+      expect((await db.select().from(schema.documents))[0].content).toBe(
+        "alpha beta",
+      );
+      expect(await db.select().from(schema.documentVersions)).toHaveLength(0);
+      await deliverTelemetry();
+      expect(countOutcome).toHaveBeenCalledExactlyOnceWith(
+        "content_save_outcome_counts",
+        {
+          operation: "edit_document",
+          origin: "agent",
+          outcome: "applied",
+          stale_base: "unknown",
+          history_effect: "none",
+          reason_code: "source_persisted_history_pending",
+        },
+      );
+    } finally {
+      transaction.mockRestore();
+      sourceWrite.mockRestore();
+    }
+  });
+
   it("counts an action preflight refusal once without reaching the mutation", async () => {
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>

@@ -77,8 +77,9 @@ import {
 } from "./_content-favorites.js";
 import {
   contentSaveOutcome,
-  contentSaveOutcomeForArgs,
+  contentSaveAuditOutcome,
   observeDocumentUpdateOutcome,
+  scopeContentSaveAudit,
 } from "./_content-save-outcomes.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
@@ -447,7 +448,7 @@ export function isStaleBuilderImageSourceComponentSave(args: {
   );
 }
 
-export default defineAction({
+const updateDocumentAction = defineAction({
   description:
     "Update an existing document's metadata or browser-owned content. Agents must use get-document followed by edit-document with baseRevision and idempotencyKey for body changes.",
   deferLoading: false,
@@ -576,7 +577,7 @@ export default defineAction({
       };
     },
     summary: (args, result) =>
-      `update-document outcome=${contentSaveOutcome(result) ?? contentSaveOutcomeForArgs(args) ?? "refused"} document=${args.id}`,
+      `update-document outcome=${contentSaveOutcome(result) ?? contentSaveAuditOutcome() ?? "refused"} document=${args.id}`,
   },
   changeResource: (input) => documentChangeResource(input.id),
   run: observeDocumentUpdateOutcome(async (args, ctx, measurement) => {
@@ -1680,3 +1681,8 @@ export default defineAction({
     );
   }),
 });
+
+export default {
+  ...updateDocumentAction,
+  run: scopeContentSaveAudit(updateDocumentAction.run),
+};

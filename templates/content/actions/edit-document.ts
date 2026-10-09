@@ -564,7 +564,7 @@ export default defineAction({
       });
     } catch (error) {
       if (!linkedLocalPersistence) throw error;
-      countOutcome("refusal", "none", "source_persisted_history_pending");
+      countOutcome("applied", "none", "source_persisted_history_pending");
       return {
         applied: changeCount,
         total: edits.length,

@@ -6,8 +6,11 @@ vi.mock("@agent-native/core/tracking", () => ({ countOutcome: counter }));
 
 import {
   boundedContentSaveReason,
+  contentSaveAuditOutcome,
   contentSaveOutcome,
+  observeDocumentUpdateOutcome,
   recordContentSaveOutcome,
+  scopeContentSaveAudit,
   scopeContentSaveOutcome,
 } from "./_content-save-outcomes.js";
 
@@ -17,6 +20,49 @@ afterEach(() => {
 });
 
 describe("Content save outcome delivery", () => {
+  it("keeps committed audit outcomes separate across overlapping invocations", async () => {
+    vi.useFakeTimers();
+    let finishWritten!: () => void;
+    let finishUnchanged!: () => void;
+    const writtenGate = new Promise<void>((resolve) => {
+      finishWritten = resolve;
+    });
+    const unchangedGate = new Promise<void>((resolve) => {
+      finishUnchanged = resolve;
+    });
+    const error = new Error("post-save failure");
+    const save = observeDocumentUpdateOutcome(
+      async (
+        args: { outcome: "written" | "unchanged"; gate: Promise<void> },
+        _ctx,
+        measurement,
+      ) => {
+        measurement.outcome = args.outcome;
+        measurement.settled = true;
+        await args.gate;
+        throw error;
+      },
+    );
+    const audited = scopeContentSaveAudit(
+      async (args: Parameters<typeof save>[0]) => {
+        await expect(save(args)).rejects.toBe(error);
+        return contentSaveAuditOutcome();
+      },
+    );
+    const written = audited({ outcome: "written", gate: writtenGate });
+    const unchanged = audited({ outcome: "unchanged", gate: unchangedGate });
+    expect(contentSaveAuditOutcome()).toBeUndefined();
+    finishWritten();
+    expect(await written).toBe("written");
+    finishUnchanged();
+    expect(await unchanged).toBe("unchanged");
+    expect(contentSaveAuditOutcome()).toBeUndefined();
+    await vi.runAllTimersAsync();
+    expect(
+      counter.mock.calls.map(([, dimensions]) => dimensions.outcome),
+    ).toEqual(["written", "unchanged"]);
+  });
+
   it("classifies the shared typed access refusal without retaining its message", () => {
     expect(
       boundedContentSaveReason(new ForbiddenError("private document name")),

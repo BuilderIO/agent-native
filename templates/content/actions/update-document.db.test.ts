@@ -2169,6 +2169,56 @@ describe("update-document compare-and-swap", () => {
 });
 
 describe("update-document save outcome counts", () => {
+  it.each([false, true])(
+    "does not reuse a prior audit outcome when a later call fails validation (post-save failure: %s)",
+    async (postSaveFailure) => {
+      const id = await createDocument({ title: "Before", content: "Body" });
+      const appState = await import("@agent-native/core/application-state");
+      const error = new Error("injected refresh failure");
+      const refresh = postSaveFailure
+        ? vi.spyOn(appState, "writeAppState").mockRejectedValueOnce(error)
+        : undefined;
+      const ctx = {
+        caller: "frontend" as const,
+        userEmail: OWNER,
+        actionName: "update-document",
+      };
+      try {
+        await runWithRequestContext({ userEmail: OWNER }, async () => {
+          const saved = updateDocumentAction.run(
+            { id, title: "After", baseTitle: "Before" },
+            ctx,
+          );
+          if (postSaveFailure) await expect(saved).rejects.toBe(error);
+          else await saved;
+          await expect(
+            updateDocumentAction.run(
+              { id, content: 42 as unknown as string },
+              ctx,
+            ),
+          ).rejects.toThrow();
+        });
+        expect((await documentRow(id)).title).toBe("After");
+        const { queryAuditEvents } = await import("@agent-native/core/audit");
+        const events = await queryAuditEvents(
+          { userEmail: OWNER },
+          {
+            action: "update-document",
+            targetType: "document",
+            targetId: id,
+            order: "asc",
+          },
+        );
+        expect(events.map((event) => event.summary)).toEqual([
+          `update-document outcome=written document=${id}`,
+          `update-document outcome=refused document=${id}`,
+        ]);
+      } finally {
+        refresh?.mockRestore();
+      }
+    },
+  );
+
   it.each(["frontend", "http"] as const)(
     "counts a %s save-separately recovery copy once with no History transition on creation",
     async (caller) => {
