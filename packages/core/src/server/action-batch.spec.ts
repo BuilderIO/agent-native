@@ -271,6 +271,40 @@ describe("get-actions-batch dispatch", () => {
     expect(seen).toHaveLength(0);
   });
 
+  it("returns the client build markers on a batched item", async () => {
+    bindActionBatch({
+      fetch: async () =>
+        jsonResponse(
+          { error: "Client build is out of date" },
+          {
+            status: 409,
+            headers: {
+              "X-Agent-Native-Client-Mismatch": "1",
+              "X-Agent-Native-Build-Id": "build-2",
+              "X-Agent-Native-Client-Compatibility": "7",
+            },
+          },
+        ),
+      actions,
+    });
+
+    const { results } = await withOrigin(() =>
+      runActionBatch({ requests: [{ action: "list-designs", query: "" }] }, {
+        caller: "http",
+      } as any),
+    );
+
+    expect(results[0]).toEqual({
+      status: 409,
+      error: { error: "Client build is out of date" },
+      headers: {
+        "x-agent-native-client-mismatch": "1",
+        "x-agent-native-build-id": "build-2",
+        "x-agent-native-client-compatibility": "7",
+      },
+    });
+  });
+
   it("runs at most four items at once and resolves all of them", async () => {
     let running = 0;
     let peak = 0;
