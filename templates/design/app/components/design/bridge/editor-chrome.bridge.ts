@@ -12396,6 +12396,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var observedMutationTarget: Element | null = null;
   var observedMutationPaintServers: Element[] = [];
   var observedMutationPaintParents: Element[] = [];
+  var observedMutationPaintReferencesDirty = true;
 
   function ensureOverlayObservers(): void {
     if (!overlayResizeObserver && typeof ResizeObserver !== "undefined") {
@@ -12405,9 +12406,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (!overlayMutationObserver && typeof MutationObserver !== "undefined") {
       overlayMutationObserver = new MutationObserver(function (records) {
-        if (records.some(overlayMutationRequiresRefresh)) {
-          scheduleRefreshOverlays();
+        var relevantRecords = records.filter(overlayMutationRequiresRefresh);
+        if (!relevantRecords.length) return;
+        if (relevantRecords.some(overlayMutationMayChangeSvgPaintReferences)) {
+          observedMutationPaintReferencesDirty = true;
         }
+        scheduleRefreshOverlays();
       });
     }
   }
@@ -12448,6 +12452,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
+  function overlayMutationMayChangeSvgPaintReferences(
+    record: MutationRecord,
+  ): boolean {
+    var selected = observedMutationTarget;
+    if (
+      selected &&
+      selected.tagName.toLowerCase() === "svg" &&
+      (selected.contains(record.target) ||
+        record.target === observedMutationRoot)
+    ) {
+      return true;
+    }
+    if (
+      observedMutationPaintServers.some(function (server) {
+        return server === record.target || server.contains(record.target);
+      })
+    ) {
+      return true;
+    }
+    return observedMutationPaintParents.some(function (parent) {
+      return parent === record.target;
+    });
+  }
+
   function syncOverlayObservers(): void {
     ensureOverlayObservers();
     if (overlayResizeObserver) {
@@ -12486,9 +12514,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         selectedEl && document.documentElement.contains(selectedEl)
           ? selectedEl
           : null;
-      var nextPaintServers = nextTarget
-        ? cornerRadiusReferencedPaintElements(nextTarget)
-        : [];
+      var paintReferencesNeedRefresh =
+        nextTarget !== observedMutationTarget ||
+        observedMutationPaintReferencesDirty;
+      var nextPaintServers = !nextTarget
+        ? []
+        : paintReferencesNeedRefresh
+          ? cornerRadiusReferencedPaintElements(nextTarget)
+          : observedMutationPaintServers;
       var nextPaintParents: Element[] = [];
       nextPaintServers.forEach(function (server) {
         var parent = server.parentElement;
@@ -12609,6 +12642,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         observedMutationPaintServers = nextPaintServers;
         observedMutationPaintParents = nextPaintParents;
       }
+      observedMutationPaintReferencesDirty = false;
     }
   }
 

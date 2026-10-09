@@ -38,12 +38,15 @@ const MEASUREMENT_FIXTURE = `<!doctype html><html><body style="margin:0">
 </body></html>`;
 
 const SELECTED_SVG_MEASUREMENT_FIXTURE = `<!doctype html><html><body style="margin:0">
-  <svg id="selected" data-agent-native-node-id="selected" width="200" height="120" viewBox="0 0 200 120"
+  <svg id="selected" data-agent-native-node-id="selected" data-an-primitive="pasted-svg" width="200" height="120" viewBox="0 0 200 120"
        style="position:absolute;left:200px;top:200px;display:block">
     <defs><linearGradient id="paint"><stop offset="0" stop-color="#000" /></linearGradient></defs>
     <title>Selected vector</title>
     <desc>A vector with editable paint.</desc>
     <path id="shape" d="M0 0h200v120H0z" fill="url(#paint)" />
+  </svg>
+  <svg id="external-paint-definitions" width="0" height="0" style="position:absolute">
+    <defs><linearGradient id="replacement"><stop offset="0" stop-color="#f00" /></linearGradient></defs>
   </svg>
   <div id="hovered" data-agent-native-node-id="hovered"
        style="position:absolute;left:519px;top:400px;width:200px;height:120px;background:#ccc"></div>
@@ -52,6 +55,7 @@ const SELECTED_SVG_MEASUREMENT_FIXTURE = `<!doctype html><html><body style="marg
 type MeasurementTestWindow = Window & {
   __measurementBoundsReads?: { selected: number; hovered: number };
   __measurementOverlayMutations?: { selection: number; measurements: number };
+  __svgDescendantScanQueries?: number;
 };
 
 async function startAltMeasurement(
@@ -633,6 +637,126 @@ describe("editor chrome selection overlays", () => {
     }
   });
 
+  it("does not rescan selected SVG paint references on pointer movement", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 800 },
+      });
+      await page.setContent(SELECTED_SVG_MEASUREMENT_FIXTURE);
+      await page.evaluate(() => {
+        const originalQuerySelectorAll = Element.prototype.querySelectorAll;
+        const testWindow = window as MeasurementTestWindow;
+        testWindow.__svgDescendantScanQueries = 0;
+        Object.defineProperty(Element.prototype, "querySelectorAll", {
+          configurable: true,
+          value: function (this: Element, selectors: string) {
+            if (selectors === "*" && this instanceof SVGElement) {
+              testWindow.__svgDescendantScanQueries! += 1;
+            }
+            return originalQuerySelectorAll.call(this, selectors);
+          },
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await select(page, "#selected");
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+      const scansAfterSelection = await page.evaluate(
+        () => (window as MeasurementTestWindow).__svgDescendantScanQueries!,
+      );
+      expect(scansAfterSelection).toBeGreaterThan(0);
+
+      await page.keyboard.down("Alt");
+      await page.mouse.move(520, 410, { steps: 4 });
+      await page.waitForFunction(
+        () =>
+          document.querySelector<HTMLElement>(
+            "[data-agent-native-measurement-overlay]",
+          )?.style.display === "block",
+      );
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+      const scansAfterHover = await page.evaluate(
+        () => (window as MeasurementTestWindow).__svgDescendantScanQueries!,
+      );
+      expect(scansAfterHover).toBe(scansAfterSelection);
+
+      await page.evaluate(() => {
+        const counts = { selection: 0, measurements: 0 };
+        const selection = document.querySelector(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        const measurements = document.querySelector(
+          "[data-agent-native-measurement-overlay]",
+        );
+        if (!selection || !measurements) {
+          throw new Error("editor overlays were not mounted");
+        }
+        new MutationObserver((records) => {
+          counts.selection += records.length;
+        }).observe(selection, {
+          attributes: true,
+          childList: true,
+          subtree: true,
+        });
+        new MutationObserver((records) => {
+          counts.measurements += records.length;
+        }).observe(measurements, {
+          attributes: true,
+          childList: true,
+          subtree: true,
+        });
+        (window as MeasurementTestWindow).__measurementOverlayMutations =
+          counts;
+      });
+
+      const scansBeforeReferenceChange = scansAfterHover;
+      await page.locator("#shape").evaluate((element) => {
+        element.setAttribute("fill", "url(#replacement)");
+      });
+      await page.waitForFunction(
+        (before) =>
+          (window as MeasurementTestWindow).__svgDescendantScanQueries! >
+          before,
+        scansBeforeReferenceChange,
+      );
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+
+      const redrawsBeforeReplacementPaintChange = await page.evaluate(
+        () =>
+          (window as MeasurementTestWindow).__measurementOverlayMutations!
+            .measurements,
+      );
+      await page.locator("#replacement stop").evaluate((element) => {
+        element.setAttribute("stop-color", "#fff");
+      });
+      await page.waitForFunction(
+        (before) =>
+          (window as MeasurementTestWindow).__measurementOverlayMutations!
+            .measurements > before,
+        redrawsBeforeReplacementPaintChange,
+        { timeout: 2_000 },
+      );
+      await page.keyboard.up("Alt");
+    } finally {
+      await browser.close();
+    }
+  }, 10_000);
+
   it("ignores SVG metadata mutations while keeping geometry, paint, and style updates", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
@@ -739,12 +863,12 @@ describe("editor chrome selection overlays", () => {
       expect(shapeOpacity).toBe("0.5");
 
       const paintBaseline = redrawCount;
-      await page.locator("stop").evaluate((element) => {
+      await page.locator("#paint stop").evaluate((element) => {
         element.setAttribute("stop-color", "#fff");
       });
       redrawCount = await waitForMeasurementRedraw(paintBaseline);
       const stopColor = await page
-        .locator("stop")
+        .locator("#paint stop")
         .evaluate((element) =>
           getComputedStyle(element).getPropertyValue("stop-color"),
         );

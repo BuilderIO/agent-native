@@ -9915,6 +9915,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var observedMutationTarget = null;
     var observedMutationPaintServers = [];
     var observedMutationPaintParents = [];
+    var observedMutationPaintReferencesDirty = true;
     function ensureOverlayObservers() {
       if (!overlayResizeObserver && typeof ResizeObserver !== "undefined") {
         overlayResizeObserver = new ResizeObserver(function() {
@@ -9923,9 +9924,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (!overlayMutationObserver && typeof MutationObserver !== "undefined") {
         overlayMutationObserver = new MutationObserver(function(records) {
-          if (records.some(overlayMutationRequiresRefresh)) {
-            scheduleRefreshOverlays();
+          var relevantRecords = records.filter(overlayMutationRequiresRefresh);
+          if (!relevantRecords.length) return;
+          if (relevantRecords.some(overlayMutationMayChangeSvgPaintReferences)) {
+            observedMutationPaintReferencesDirty = true;
           }
+          scheduleRefreshOverlays();
         });
       }
     }
@@ -9954,6 +9958,20 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return true;
     }
+    function overlayMutationMayChangeSvgPaintReferences(record) {
+      var selected = observedMutationTarget;
+      if (selected && selected.tagName.toLowerCase() === "svg" && (selected.contains(record.target) || record.target === observedMutationRoot)) {
+        return true;
+      }
+      if (observedMutationPaintServers.some(function(server) {
+        return server === record.target || server.contains(record.target);
+      })) {
+        return true;
+      }
+      return observedMutationPaintParents.some(function(parent) {
+        return parent === record.target;
+      });
+    }
     function syncOverlayObservers() {
       ensureOverlayObservers();
       if (overlayResizeObserver) {
@@ -9980,7 +9998,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (overlayMutationObserver) {
         var nextRoot = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl.parentElement || selectedEl : null;
         var nextTarget = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl : null;
-        var nextPaintServers = nextTarget ? cornerRadiusReferencedPaintElements(nextTarget) : [];
+        var paintReferencesNeedRefresh = nextTarget !== observedMutationTarget || observedMutationPaintReferencesDirty;
+        var nextPaintServers = !nextTarget ? [] : paintReferencesNeedRefresh ? cornerRadiusReferencedPaintElements(nextTarget) : observedMutationPaintServers;
         var nextPaintParents = [];
         nextPaintServers.forEach(function(server) {
           var parent = server.parentElement;
@@ -10073,6 +10092,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           observedMutationPaintServers = nextPaintServers;
           observedMutationPaintParents = nextPaintParents;
         }
+        observedMutationPaintReferencesDirty = false;
       }
     }
     var overlayAnimationTrackingActive = false;
