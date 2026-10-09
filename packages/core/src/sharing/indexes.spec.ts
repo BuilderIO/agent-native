@@ -256,4 +256,49 @@ describe("ensureSharingAccessIndexes", () => {
     expect(after.indexNames).toContain("bl_docs_access_owner_lower_idx");
     await pg.close();
   });
+
+  it("names every index within Postgres' 63-byte limit, including long registered table names", async () => {
+    const { pg, exec } = await createSeededDb();
+    // The two archive names share a 27-byte prefix, so plain truncation would
+    // give both the same index name and IF NOT EXISTS would skip the second.
+    await pg.exec(`
+      CREATE TABLE creative_context_brand_profiles (
+        id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, org_id TEXT,
+        visibility TEXT NOT NULL DEFAULT 'private'
+      );
+      CREATE TABLE creative_context_brand_profile_shares (
+        id TEXT PRIMARY KEY, resource_id TEXT NOT NULL,
+        principal_type TEXT NOT NULL, principal_id TEXT NOT NULL
+      );
+      CREATE TABLE creative_context_brand_profile_shares_archive_one (
+        id TEXT PRIMARY KEY, resource_id TEXT NOT NULL,
+        principal_type TEXT NOT NULL, principal_id TEXT NOT NULL
+      );
+      CREATE TABLE creative_context_brand_profile_shares_archive_two (
+        id TEXT PRIMARY KEY, resource_id TEXT NOT NULL,
+        principal_type TEXT NOT NULL, principal_id TEXT NOT NULL
+      );
+    `);
+
+    await ensureSharingAccessIndexes({ injectedClient: exec });
+
+    const access = (await indexDefinitions(pg)).filter((index) =>
+      index.indexname.includes("_access_"),
+    );
+    for (const index of access) {
+      expect(
+        new TextEncoder().encode(index.indexname).length,
+      ).toBeLessThanOrEqual(63);
+    }
+    for (const table of [
+      "creative_context_brand_profile_shares",
+      "creative_context_brand_profile_shares_archive_one",
+      "creative_context_brand_profile_shares_archive_two",
+    ]) {
+      expect(access.filter((index) => index.tablename === table)).toHaveLength(
+        3,
+      );
+    }
+    await pg.close();
+  });
 });

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureIndexExists } from "../db/ddl-guard.js";
 
@@ -26,16 +28,27 @@ function quoteIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-function indexSpec(table: string, suffix: string, columns: string): IndexSpec {
+function indexName(table: string, suffix: string): string {
   const name = `${table}_access_${suffix}`;
+  if (name.length <= POSTGRES_IDENTIFIER_MAX_BYTES) return name;
   // Postgres truncates an over-long identifier, and IF NOT EXISTS would then
-  // skip a second table whose name truncates the same way.
-  if (
-    !PLAIN_IDENTIFIER.test(name) ||
-    new TextEncoder().encode(name).length > POSTGRES_IDENTIFIER_MAX_BYTES
-  ) {
+  // skip a second table whose name truncates the same way. The hash of the full
+  // name keeps the truncated names distinct, and it is stable across releases.
+  const hash = createHash("sha256").update(name).digest("hex").slice(0, 8);
+  const tail = `_${hash}_access_${suffix}`;
+  return `${table.slice(0, POSTGRES_IDENTIFIER_MAX_BYTES - tail.length)}${tail}`;
+}
+
+function indexSpec(table: string, suffix: string, columns: string): IndexSpec {
+  if (!PLAIN_IDENTIFIER.test(table)) {
     throw new Error(
-      `sharing indexes: "${name}" is not a plain identifier of at most ${POSTGRES_IDENTIFIER_MAX_BYTES} bytes; rename table "${table}"`,
+      `sharing indexes: table "${table}" is not a plain identifier; rename it`,
+    );
+  }
+  const name = indexName(table, suffix);
+  if (new TextEncoder().encode(name).length > POSTGRES_IDENTIFIER_MAX_BYTES) {
+    throw new Error(
+      `sharing indexes: "${name}" exceeds ${POSTGRES_IDENTIFIER_MAX_BYTES} bytes`,
     );
   }
   return {
