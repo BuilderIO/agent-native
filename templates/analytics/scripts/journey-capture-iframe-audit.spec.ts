@@ -962,14 +962,33 @@ describe("replay iframe audit", () => {
     );
     frame.style.position = "absolute";
     frame.style.clip = "rect(0px, 10px, 20px, 0px)";
-    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+    const visibleChild = appendFrame(
+      frame.contentDocument!,
+      { left: 2, top: 2, width: 5, height: 5 },
+      5,
+      5,
+    );
+    const clippedChild = appendFrame(
+      frame.contentDocument!,
+      { left: 12, top: 2, width: 5, height: 5 },
+      5,
+      5,
+    );
+    installReplayState(
+      replayFrame,
+      new WeakMap([
+        [frame, 1],
+        [visibleChild, 2],
+        [clippedChild, 3],
+      ]),
+    );
 
     expect(
       auditReplayIframeContent({
         dimensions: { width: 100, height: 100 },
-        recordedIframeParentIds: [1],
+        recordedIframeParentIds: [1, 2, 3],
       }),
-    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 0 });
+    ).toEqual({ visibleIframeCount: 2, unavailableIframeCount: 0 });
   });
 
   it("applies a legacy CSS clip from a positioned ancestor in ancestor coordinates", () => {
