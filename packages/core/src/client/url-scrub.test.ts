@@ -43,6 +43,41 @@ describe("scrubUrl", () => {
     expect(scrubbed).not.toContain("token=secret");
   });
 
+  it("redacts sensitive queries when a hash route prefix contains an equals sign", () => {
+    const url = "https://app.agent-native.com/auth#/verify=legacy?token=secret";
+
+    const scrubbed = scrubUrl(url);
+
+    expect(scrubbed).toBe(
+      "https://app.agent-native.com/auth#/verify=legacy?token=%3Credacted%3E",
+    );
+    expect(scrubbed).not.toContain("secret");
+  });
+
+  it("does not treat a sensitive parameter value as a hash route", () => {
+    const url = "https://app.agent-native.com/auth#token=/inbox?tab=1";
+
+    expect(scrubUrl(url)).toBe(
+      "https://app.agent-native.com/auth#token=%3Credacted%3E",
+    );
+  });
+
+  it.each([
+    "https://app.agent-native.com/auth#return=/inbox?token=secret",
+    "https://app.agent-native.com/auth#return=%2Finbox%3Ftoken%3Dsecret",
+  ])("redacts a sensitive query nested inside a hash parameter", (url) => {
+    const scrubbed = scrubUrl(url);
+
+    expect(scrubbed).not.toContain("secret");
+    expect(scrubbed).toContain("return=");
+  });
+
+  it("preserves a nested hash parameter when its query has no sensitive keys", () => {
+    const url = "https://app.agent-native.com/auth#return=/inbox?tab=1";
+
+    expect(scrubUrl(url)).toBe(url);
+  });
+
   it("redacts Mail search terms from absolute and relative URLs", () => {
     const query = "private.sender@example.com";
     const absolute = scrubUrl(

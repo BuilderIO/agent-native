@@ -4132,9 +4132,7 @@ describe("session replay", () => {
     expect(
       JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}"),
     ).toMatchObject({
-      replayId: anonymous.replayId,
-      captureContext: "pre_auth",
-      suppressIdentityInProperties: true,
+      replayId: "newer-signed-in-replay",
     });
 
     delete (globalThis as any)[replayStateKey];
@@ -4149,7 +4147,7 @@ describe("session replay", () => {
     });
 
     expect(signedIn.started).toBe(true);
-    expect(signedIn.replayId).not.toBe(anonymous.replayId);
+    expect(signedIn.replayId).toBe("newer-signed-in-replay");
     await signedInPage.stopSessionReplay();
     await stalePage.stopSessionReplay();
   });

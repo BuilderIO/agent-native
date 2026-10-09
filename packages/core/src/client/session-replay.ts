@@ -785,8 +785,13 @@ function persistReplaySequence(
   suppressIdentityInProperties = false,
 ): void {
   const existing = readStoredReplaySession();
-  const isSameRecording =
-    existing?.sessionId === sessionId && existing.replayId === replayId;
+  if (
+    existing &&
+    (existing.sessionId !== sessionId || existing.replayId !== replayId)
+  ) {
+    return;
+  }
+  const isSameRecording = existing !== null;
   const persistedLinkBaseUrl =
     linkBaseUrl ?? (isSameRecording ? existing?.linkBaseUrl : undefined);
   writeStoredReplaySession({
