@@ -96,14 +96,14 @@ async function socksConnect(
 }
 
 describe("journey capture replay network relay", () => {
-  it("routes public destinations through Chromium's resolver-free SOCKS proxy", () => {
+  it("blocks target DNS while excluding the loopback SOCKS endpoint from Chromium's resolver rule", () => {
     const options = replayBrowserLaunchOptions("socks5://127.0.0.1:43123");
 
     expect(options).toMatchObject({
       proxy: { server: "socks5://127.0.0.1:43123", bypass: "" },
       args: [
         "--proxy-bypass-list=<-loopback>",
-        "--host-resolver-rules=MAP * ~NOTFOUND",
+        "--host-resolver-rules=MAP * ~NOTFOUND,EXCLUDE 127.0.0.1",
         "--dns-prefetch-disable",
         "--disable-quic",
         "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
@@ -111,6 +111,9 @@ describe("journey capture replay network relay", () => {
     });
     expect(isPublicIpAddress("8.8.8.8")).toBe(true);
     expect(isPublicIpAddress("127.0.0.1")).toBe(false);
+    expect(() => replayBrowserLaunchOptions("socks5://8.8.8.8:43123")).toThrow(
+      "replay_proxy_server_invalid",
+    );
   });
 
   it("keeps destination lookup failures distinct from denied requests", async () => {

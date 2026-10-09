@@ -1,5 +1,9 @@
 import { isScreenshotSize } from "@shared/png";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
+import {
+  MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS,
+  SESSION_REPLAY_CAPTURE_THROUGH_MS_PARAM,
+} from "@shared/session-replay-capture";
 import { useEffect, useRef, useState } from "react";
 
 import { resolveReplayOffsetFromRecordingStart } from "../../../shared/replay-playback.js";
@@ -61,11 +65,26 @@ export default function SessionReplayFrame({
         new URLSearchParams(window.location.search).get(
           SESSION_REPLAY_AGENT_ACCESS_PARAM,
         ) ?? "";
+      const query = new URLSearchParams(window.location.search);
+      const captureThroughOffsetRaw = query.get(
+        SESSION_REPLAY_CAPTURE_THROUGH_MS_PARAM,
+      );
+      if (captureThroughOffsetRaw === null) {
+        throw new Error("replay_capture_offset_required");
+      }
+      const captureThroughOffsetMs = Number(captureThroughOffsetRaw);
+      if (
+        !/^(?:0|[1-9]\d*)$/.test(captureThroughOffsetRaw) ||
+        !Number.isSafeInteger(captureThroughOffsetMs) ||
+        captureThroughOffsetMs > MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS
+      ) {
+        throw new Error("replay_capture_offset_invalid");
+      }
       const playback = await fetchSessionReplayPlayback(recordingId, {
         agentAccessToken,
+        captureThroughOffsetMs,
       });
       if (
-        !playback.isComplete ||
         playback.unavailableChunks > 0 ||
         playback.chunks.some((chunk) => chunk.unavailable)
       ) {

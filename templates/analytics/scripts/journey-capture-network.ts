@@ -23,6 +23,13 @@ class ReplayNetworkError extends Error {
   }
 }
 
+export function isReplayDnsLookupFailure(error: unknown): boolean {
+  return (
+    error instanceof ReplayNetworkError &&
+    error.message === "replay_dns_lookup_failed"
+  );
+}
+
 export type ReplaySocksRelay = {
   server: string;
   close(): Promise<void>;
@@ -31,11 +38,24 @@ export type ReplaySocksRelay = {
 export function replayBrowserLaunchOptions(
   proxyServer: string,
 ): Record<string, unknown> {
+  const proxyUrl = new URL(proxyServer);
+  if (
+    proxyUrl.protocol !== "socks5:" ||
+    proxyUrl.hostname !== "127.0.0.1" ||
+    !proxyUrl.port ||
+    proxyUrl.username ||
+    proxyUrl.password ||
+    proxyUrl.search ||
+    proxyUrl.hash
+  ) {
+    throw new Error("replay_proxy_server_invalid");
+  }
   return {
     proxy: { server: proxyServer, bypass: "" },
     args: [
       "--proxy-bypass-list=<-loopback>",
-      "--host-resolver-rules=MAP * ~NOTFOUND",
+      // Chromium must resolve its own loopback SOCKS endpoint while target DNS stays disabled.
+      `--host-resolver-rules=MAP * ~NOTFOUND,EXCLUDE ${proxyUrl.hostname}`,
       "--dns-prefetch-disable",
       "--disable-quic",
       "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",

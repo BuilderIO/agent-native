@@ -1,5 +1,10 @@
 import { readFileSync } from "node:fs";
 
+import {
+  MAX_SESSION_REPLAY_CAPTURE_BYTES,
+  MAX_SESSION_REPLAY_CAPTURE_CHUNKS,
+  MAX_SESSION_REPLAY_CAPTURE_EVENTS,
+} from "@shared/session-replay-capture";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -879,6 +884,153 @@ describe("session replay Dev Tools badge", () => {
 });
 
 describe("session replay chunk loading", () => {
+  it("loads a bounded ordered prefix through the requested seek and skips later chunks", async () => {
+    const startedAt = Date.parse(recordingSummary().startedAt);
+    const chunks = [0, 1, 2].map((seq) =>
+      replayChunkManifest(seq, replayChunkPath(seq)),
+    );
+    const manifest = {
+      recording: {
+        ...recordingSummary(),
+        chunkCount: chunks.length,
+        eventCount: chunks.length,
+        totalBytes: chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0),
+      },
+      chunks,
+    };
+    const requested: number[] = [];
+    vi.stubGlobal("window", {
+      location: {
+        origin: "https://analytics.example.test",
+        pathname: "/sessions/sr_1",
+        search: "?agent_access=agent-token",
+      },
+    });
+    vi.stubGlobal("location", {
+      origin: "https://analytics.example.test",
+      pathname: "/sessions/sr_1",
+      search: "?agent_access=agent-token",
+    });
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      const seq = Number(/\/chunks\/(\d+)/.exec(url)?.[1]);
+      requested.push(seq);
+      return jsonResponse({
+        events: [{ type: 3, timestamp: startedAt + (seq + 1) * 500 }],
+      });
+    }) as typeof fetch;
+
+    const playback = await fetchSessionReplayPlayback("sr_1", {
+      agentAccessToken: "agent-token",
+      captureThroughOffsetMs: 1_000,
+    });
+
+    expect(requested).toEqual([0, 1]);
+    expect(playback.chunks.map((chunk) => chunk.seq)).toEqual([0, 1]);
+    expect(playback.loadedChunks).toBe(2);
+    expect(playback.isComplete).toBe(false);
+    expect(playback.truncated).toBe(true);
+  });
+
+  it("fails before fetching when bounded capture exceeds declared chunk or event limits", async () => {
+    const oversizedEvents = [
+      {
+        ...replayChunkManifest(0, replayChunkPath(0)),
+        eventCount: MAX_SESSION_REPLAY_CAPTURE_EVENTS + 1,
+      },
+    ];
+    const excessiveChunks = Array.from(
+      { length: MAX_SESSION_REPLAY_CAPTURE_CHUNKS + 1 },
+      (_, seq) => replayChunkManifest(seq, replayChunkPath(seq)),
+    );
+    let manifestChunks = oversizedEvents;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) {
+        return jsonResponse({
+          recording: {
+            ...recordingSummary(),
+            chunkCount: manifestChunks.length,
+            eventCount: manifestChunks.reduce(
+              (sum, chunk) => sum + chunk.eventCount,
+              0,
+            ),
+            totalBytes: manifestChunks.reduce(
+              (sum, chunk) => sum + chunk.byteLength,
+              0,
+            ),
+          },
+          chunks: manifestChunks,
+        });
+      }
+      return jsonResponse({ events: [] });
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    vi.stubGlobal("window", {
+      location: { origin: "https://analytics.example.test" },
+    });
+    vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+    await expect(
+      fetchSessionReplayPlayback("sr_1", {
+        captureThroughOffsetMs: 1,
+      }),
+    ).rejects.toThrow("replay_capture_limit_exceeded");
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/chunks/"),
+      ),
+    ).toHaveLength(0);
+
+    manifestChunks = excessiveChunks;
+    await expect(
+      fetchSessionReplayPlayback("sr_1", {
+        captureThroughOffsetMs: 1,
+      }),
+    ).rejects.toThrow("replay_capture_chunk_limit_exceeded");
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/chunks/"),
+      ),
+    ).toHaveLength(0);
+
+    const excessiveBytes = Array.from({ length: 6 }, (_, seq) => ({
+      ...replayChunkManifest(seq, replayChunkPath(seq)),
+      byteLength: 11 * 1024 * 1024,
+      eventCount: 0,
+    }));
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) {
+        return jsonResponse({
+          recording: {
+            ...recordingSummary(),
+            chunkCount: excessiveBytes.length,
+            eventCount: 0,
+            totalBytes: excessiveBytes.reduce(
+              (sum, chunk) => sum + chunk.byteLength,
+              0,
+            ),
+          },
+          chunks: excessiveBytes,
+        });
+      }
+      return jsonResponse({ events: [] });
+    }) as typeof fetch;
+    const bytePlayback = globalThis.fetch as ReturnType<typeof vi.fn>;
+    await expect(
+      fetchSessionReplayPlayback("sr_1", {
+        captureThroughOffsetMs: 1,
+      }),
+    ).rejects.toThrow("replay_capture_limit_exceeded");
+    expect(
+      bytePlayback.mock.calls.filter(([input]) =>
+        String(input).includes("/chunks/"),
+      ),
+    ).toHaveLength(5);
+  });
+
   it("keeps copied agent access tokens on manifest and chunk fetches", async () => {
     vi.stubGlobal("window", {
       location: {

@@ -40,14 +40,14 @@ describe("sanitizePromptProvenanceCandidates", () => {
     const result = sanitizePromptProvenanceCandidates([
       {
         role: "user",
-        text: "api_key=example-value Authorization: Bearer sample-value Bearer sample-token",
+        text: "api_key=example-value\nAuthorization: Bearer sample-value\nBearer sample-token",
       },
     ]);
 
     expect(result.messages).toEqual([
       {
         role: "user",
-        text: "api_key=[REDACTED] Authorization: [REDACTED]",
+        text: "api_key=[REDACTED]\nAuthorization: [REDACTED]\nBearer [REDACTED]",
       },
     ]);
     expect(result.messages[0]?.text).not.toContain("example-value");
@@ -70,6 +70,44 @@ describe("sanitizePromptProvenanceCandidates", () => {
       api_key: "[REDACTED]",
       access_token: "[REDACTED]",
     });
+  });
+
+  it("redacts complete multiword credential values and compound key assignments", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      {
+        role: "user",
+        text: "password: correct horse battery staple\nKeep this next line",
+      },
+      {
+        role: "user",
+        text: 'secret_key=secret-value\nprivateKey: another-secret\ngoogle_client_secret="quoted-secret"',
+      },
+      {
+        role: "user",
+        text: "api_key_hash=api-hash-value\nprivate_key_hash=private-hash-value\nprivateKeyValue=private-value\nsigningKeyId=signing-value",
+      },
+      {
+        role: "user",
+        text: "We need a secret token later, but this is ordinary prose.",
+      },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "password: [REDACTED]\nKeep this next line",
+      'secret_key=[REDACTED]\nprivateKey: [REDACTED]\ngoogle_client_secret="[REDACTED]"',
+      "api_key_hash=[REDACTED]\nprivate_key_hash=[REDACTED]\nprivateKeyValue=[REDACTED]\nsigningKeyId=[REDACTED]",
+      "We need a secret token later, but this is ordinary prose.",
+    ]);
+    expect(JSON.stringify(result)).not.toContain(
+      "correct horse battery staple",
+    );
+    expect(JSON.stringify(result)).not.toContain("secret-value");
+    expect(JSON.stringify(result)).not.toContain("another-secret");
+    expect(JSON.stringify(result)).not.toContain("quoted-secret");
+    expect(JSON.stringify(result)).not.toContain("api-hash-value");
+    expect(JSON.stringify(result)).not.toContain("private-hash-value");
+    expect(JSON.stringify(result)).not.toContain("private-value");
+    expect(JSON.stringify(result)).not.toContain("signing-value");
   });
 
   it("redacts complete authorization values, including unknown schemes", () => {
@@ -114,6 +152,36 @@ describe("sanitizePromptProvenanceCandidates", () => {
     }
     expect(JSON.parse(result.messages[5]!.text)).toEqual({
       authorization: "[REDACTED]",
+      next: "visible",
+    });
+  });
+
+  it("redacts full cookie headers and preserves JSON structure", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      { role: "user", text: "Cookie: session=one; theme=dark; user=alice" },
+      { role: "user", text: "Set-Cookie: session=two; HttpOnly; SameSite=Lax" },
+      {
+        role: "user",
+        text: '{"cookie":"session=three; theme=light","next":"visible"}',
+      },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "Cookie: [REDACTED]",
+      "Set-Cookie: [REDACTED]",
+      '{"cookie":"[REDACTED]","next":"visible"}',
+    ]);
+    for (const value of [
+      "session=one",
+      "theme=dark",
+      "session=two",
+      "HttpOnly",
+      "session=three",
+    ]) {
+      expect(JSON.stringify(result)).not.toContain(value);
+    }
+    expect(JSON.parse(result.messages[2]!.text)).toEqual({
+      cookie: "[REDACTED]",
       next: "visible",
     });
   });
@@ -187,14 +255,30 @@ describe("sanitizePromptProvenanceCandidates", () => {
       },
       {
         role: "user",
+        text: "Can you check this: SELECT email FROM users? Keep the result private.",
+      },
+      { role: "user", text: 'Please check: SELECT email FROM "users"?' },
+      { role: "user", text: "Please check: SELECT email FROM users AS u?" },
+      { role: "user", text: "SELECT id FROM users" },
+      {
+        role: "user",
         text: "Can you select one from the list, then compare retention by plan?",
+      },
+      {
+        role: "user",
+        text: "Select one from list, then compare retention by plan.",
       },
     ]);
 
     expect(result.messages.map(({ text }) => text)).toEqual([
       "[OMITTED_SQL]",
       "[OMITTED_SQL]",
+      "[OMITTED_SQL]",
+      "[OMITTED_SQL]",
+      "[OMITTED_SQL]",
+      "[OMITTED_SQL]",
       "Can you select one from the list, then compare retention by plan?",
+      "Select one from list, then compare retention by plan.",
     ]);
     expect(JSON.stringify(result)).not.toContain("user_id");
     expect(JSON.stringify(result)).not.toContain("pro");

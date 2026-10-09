@@ -2,10 +2,10 @@ const MAX_MESSAGES = 12;
 const MAX_MESSAGE_CHARACTERS = 2_000;
 const MAX_TOTAL_CHARACTERS = 8_000;
 
-const CREDENTIAL_ASSIGNMENT =
-  /(["']?)(api[_ -]?key|access[_ -]?token|refresh[_ -]?token|auth|password|passwd|client[_ -]?secret|secret|token)\1(\s*[:=]\s*(?:(?:bearer|basic|digest|negotiate|oauth|token)\s+)?)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\s,;}]+))/gi;
 const AUTHORIZATION_ASSIGNMENT =
-  /(["']?)(authorization)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\\r\n])*)"|'((?:\\.|[^'\\\r\n])*)'|([^\r\n]*))/gi;
+  /(["']?)(authorization|proxy-authorization|cookie2?|set-cookie)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\\r\n])*)"|'((?:\\.|[^'\\\r\n])*)'|([^\r\n]*))/gi;
+const ASSIGNMENT =
+  /(["']?)([a-z][a-z0-9_.-]*)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\r\n]*))/gi;
 const BEARER_VALUE = /\bbearer\s+[a-z0-9._~+/-]+=*/gi;
 const SQL_CODE_BLOCK = /```(?:sql|postgres(?:ql)?)\b[\s\S]*?```/gi;
 const SQL_STATEMENT =
@@ -14,8 +14,16 @@ const LABELED_SQL_STATEMENT =
   /\b(?:sql|query|statement)\s*:\s*select\b[\s\S]*?(?:;|$)/i;
 const SQL_LOOKING_TEXT =
   /\bselect\s+(?:(?:distinct|all)\s+)?(?:\*|['"]|[-+]?(?:\d|\.?\d)|case\b|[a-z_][\w$]*\s*\()|\b(?:insert\s+into|update\s+\S+\s+set|delete\s+from|create\s+(?:table|index|view|schema)|alter\s+table|drop\s+(?:table|index|view|schema))\b|\bwith\s+[a-z_][\w$]*\s+as\s*\(/i;
+const SQL_IDENTIFIER = String.raw`(?:[a-z_][\w$]*|"(?:[^"]|"")*")`;
+const SQL_RELATION = `${SQL_IDENTIFIER}(?:\\.${SQL_IDENTIFIER})*`;
 const INLINE_SQL_SELECT =
   /\bselect\s+(?:(?:distinct|all)\s+)?[a-z_][\w$.]*(?:\s*,\s*[a-z_][\w$.]*)*\s+from\s+[a-z_][\w$.]*\s+where\s+[a-z_][\w$.]*\s*(?:=|<>|!=|<=|>=|<|>|like\b|in\s*\()/i;
+const INLINE_SQL_TABLE_SELECT = new RegExp(
+  String.raw`\bselect\s+(?:(?:distinct|all)\s+)?${SQL_IDENTIFIER}(?:\s*,\s*${SQL_IDENTIFIER})*\s+from\s+${SQL_RELATION}(?:\s+(?:as\s+)?${SQL_IDENTIFIER})?(?=\s*(?:[;?.!,]|$))`,
+  "i",
+);
+const NATURAL_LANGUAGE_LIST_SELECTION =
+  /\bselect\s+one\s+from\s+(?:the\s+)?list\b\s*,?\s*then\b/i;
 const DATA_URI_BASE64 =
   /\bdata:[a-z0-9.+-]+\/[a-z0-9.+-]+(?:;[a-z0-9=.+-]+)*;base64,[a-z0-9+/=]+/gi;
 const LONG_BASE64 = /[a-z0-9_+/=\n-]{128,}/gi;
@@ -66,6 +74,35 @@ function normalizeText(text: string): string {
     .trim();
 }
 
+function isCredentialKey(key: string): boolean {
+  const normalized = key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+  const parts = normalized.split(/[^a-z0-9]+/).filter(Boolean);
+  if (
+    parts.some((part) =>
+      [
+        "auth",
+        "authorization",
+        "cookie",
+        "cookie2",
+        "credential",
+        "credentials",
+        "password",
+        "passwd",
+        "passphrase",
+        "secret",
+        "token",
+      ].includes(part),
+    )
+  ) {
+    return true;
+  }
+  return parts.some(
+    (part, index) =>
+      ["access", "api", "private", "secret", "signing"].includes(part) &&
+      parts[index + 1] === "key",
+  );
+}
+
 function redactCredentials(text: string): string {
   return text
     .replace(
@@ -81,16 +118,9 @@ function redactCredentials(text: string): string {
       },
     )
     .replace(
-      CREDENTIAL_ASSIGNMENT,
-      (
-        _match,
-        keyQuote,
-        key,
-        delimiter,
-        doubleQuoted,
-        singleQuoted,
-        _unquoted,
-      ) => {
+      ASSIGNMENT,
+      (match, keyQuote, key, delimiter, doubleQuoted, singleQuoted) => {
+        if (!isCredentialKey(key)) return match;
         const valueQuote =
           doubleQuoted !== undefined
             ? '"'
@@ -105,11 +135,16 @@ function redactCredentials(text: string): string {
 
 function omitSqlAndBase64Payloads(text: string): string {
   const withoutCodeBlocks = text.replace(SQL_CODE_BLOCK, "[OMITTED_SQL]");
+  const searchableText = withoutCodeBlocks.replace(
+    NATURAL_LANGUAGE_LIST_SELECTION,
+    " ",
+  );
   if (
-    SQL_LOOKING_TEXT.test(withoutCodeBlocks) ||
-    INLINE_SQL_SELECT.test(withoutCodeBlocks) ||
-    SQL_STATEMENT.test(withoutCodeBlocks) ||
-    LABELED_SQL_STATEMENT.test(withoutCodeBlocks)
+    SQL_LOOKING_TEXT.test(searchableText) ||
+    INLINE_SQL_SELECT.test(searchableText) ||
+    INLINE_SQL_TABLE_SELECT.test(searchableText) ||
+    SQL_STATEMENT.test(searchableText) ||
+    LABELED_SQL_STATEMENT.test(searchableText)
   ) {
     return "[OMITTED_SQL]";
   }

@@ -179,7 +179,8 @@ Authenticate to the deployed app, never a local database: run
 `npx -y @agent-native/core@latest connect https://analytics.agent-native.com --client codex`
 (the CLI reads the bearer it writes to `~/.codex/config.toml`), or pass
 `--token` / set `AGENT_NATIVE_TOKEN`. `--app-url` overrides the app. Frame mode
-needs a deployment that includes `/sessions/:id?frame=1`.
+needs a deployment that includes `/sessions/:id?frame=1` and its bounded
+`capture_through_ms` query parameter.
 
 The default `--capture-mode offline` fetches replay chunks through the
 recording-scoped token without app cookies or a referrer, then renders in an
@@ -192,8 +193,12 @@ Use `--capture-mode browser` when recorded images, posters, video frames, or
 iframes matter. The CLI opens the direct recording-scoped agent-access link in
 a fresh browser context with empty storage and no app bearer headers. The
 Analytics frame loads a recording once, maps each JourneyTree recording-start
-offset to rrweb's playhead, and uses the existing bounded screenshot asset
-preflight. Each successful frame says `assetStatus: "preflighted"`; a blocked,
+offset to rrweb's playhead, and loads only the ordered replay prefix through the
+largest requested offset. Browser capture caps the manifest at 4 MiB, the
+materialized prefix at 2,000 chunks, 100,000 events, 64 MiB of declared or
+received chunk data, and each chunk response at 12 MiB. It then uses the
+existing bounded screenshot asset preflight. Each successful frame says
+`assetStatus: "preflighted"`; a blocked,
 unreadable, missing, or oversized asset is an explicit frame failure with
 `assetStatus: "preflight_failed"`. Browser asset requests never receive the
 CLI's Analytics bearer or browser cookies. The manifest sets
@@ -205,19 +210,22 @@ the exact Analytics app origin. Redirect destinations pass through the same
 check before Chromium connects. A temporary loopback SOCKS tunnel resolves each
 destination once, validates every returned address, and connects only to those
 numeric addresses; Chromium cannot bypass the tunnel for loopback hosts or do
-its own destination DNS lookup. WebSockets are blocked. Cross-origin requests
+its own destination DNS lookup. Its resolver exception is limited to the exact
+loopback SOCKS listener. WebSockets are blocked. Cross-origin requests
 are GET/HEAD only, have authorization, proxy-authorization, and referrer
 headers removed, and are blocked if they carry cookies; `Origin` is preserved
 for CORS. Chromium performs TLS and CORS itself, and the CLI never forwards its
-Analytics bearer or cookies to a recorded origin. The output directory uses
-mode 0700 and each file uses mode 0600.
+Analytics bearer or cookies to a recorded origin. New output directories use
+mode 0700; existing directories must already be private and are never chmodded.
+Each output file uses mode 0600.
 
 `--extract-prompts` is available only with browser mode. It reads at most 12
-visible user-role message text blocks from the materialized replay document at
-each requested seek, removes controls and hidden text, redacts obvious
-credential assignments, omits SQL and base64 payloads, and caps the run at 200
-snapshots, 12 messages per snapshot, 2,000 characters per message, and 8,000
-characters per snapshot. The sidecar records how many additional snapshots
+user-role message text blocks whose character geometry intersects the replay
+viewport and rectangular overflow clips at each requested seek, removes
+controls and hidden text, redacts credential assignments and cookie headers,
+omits SQL and base64 payloads, and caps the run at 200 snapshots, 12 messages
+per snapshot, 2,000 characters per message, and 8,000 characters per snapshot.
+The sidecar records how many additional snapshots
 were omitted and how many planned snapshots could not be recorded. It writes
 the result to `prompt-provenance.json` with restrictive local file permissions.
 The sidecar keeps the JourneyTree source-event
@@ -225,7 +233,8 @@ timestamp separate from the observed seek offset, rrweb playhead, and
 extraction time. Each snapshot also says whether its frame capture or upload
 succeeded and includes the failure reason when it did not. This is visible
 user-role text at the seek, not proof of an exact source event or attempt-ID
-relationship. It is never uploaded, including when `--upload` stores PNGs
+relationship. Unsupported transform, mask, or rounded clipping geometry fails
+the extraction explicitly. It is never uploaded, including when `--upload` stores PNGs
 through the private attachment action.
 
 Keep recorded URLs and CSS intact for rrweb playback; network controls belong

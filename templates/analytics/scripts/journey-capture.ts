@@ -42,6 +42,7 @@ import {
   type ReplayIframeAudit,
 } from "./journey-capture-iframe-audit";
 import {
+  isReplayDnsLookupFailure,
   isReplayRequestAllowed,
   replayBrowserLaunchOptions,
   resolvePinnedAddresses,
@@ -95,8 +96,8 @@ Options:
   --app-url <url>        Deployed Analytics app (default ${DEFAULT_APP_URL}, or AGENT_NATIVE_ANALYTICS_URL)
   --token <bearer>       Bearer for that app (default AGENT_NATIVE_TOKEN, then Codex's config.toml)
   --upload               Store each PNG in the app's private storage and put an attachmentRef in the manifest (a frame that fails to upload is a failure, not a frame)
-  --capture-mode <mode>  offline (default) or browser, which checks recorded assets in Chromium through a bounded local network relay
-  --extract-prompts      Browser mode only: save bounded user-role text locally; redact credentials and omit SQL/base64 payloads
+  --capture-mode <mode>  offline (default) or browser, which checks recorded assets through a bounded local network relay
+  --extract-prompts      Browser mode only: save bounded visible user-role text locally; redact credentials and omit SQL/base64 payloads
   --timeout-ms <ms>      Per recording load / per frame limit (default 60000)
   --dry-run              Print the plan (recordings, offsets, viewports) and render nothing
   --help
@@ -116,20 +117,24 @@ failures: [{ nodeKey, exampleIndex, recordingId, offsetMs, sourceEventAt,
 replayAt, reason, assetStatus?, code?, diagnostics? }], skipped: [...],
 promptProvenancePath? }.
 Browser captures use the recording-scoped frame URL in an empty browser context.
-Each recording loads once and seeks all requested offsets. Assets that cannot
+Each recording loads once through the largest requested offset, then seeks all
+requested offsets. Browser mode caps the manifest at 4 MiB, capture prefixes at
+2,000 chunks, 100,000 events and 64 MiB of chunk data, and each chunk response
+at 12 MiB. Assets that cannot
 pass the frame's bounded same-origin/CORS preflight fail that frame explicitly.
 Chromium uses a per-run loopback SOCKS tunnel that resolves and pins public
 destinations, permits the exact app origin, and blocks WebSockets. Chromium
 continues to handle TLS and CORS. Cross-origin requests are GET/HEAD only and
 have authorization, proxy-authorization, and referrer headers removed; requests
 carrying cookies are blocked, and Origin is preserved for CORS. The Analytics
-bearer is sent only to app actions, never to recorded origins.
+bearer is sent only to app actions, never to recorded origins. Chromium's
+resolver exception is restricted to the exact loopback SOCKS listener.
 --extract-prompts writes only bounded, redacted user-role text to
 prompt-provenance.json, omitting SQL and base64 payloads; that sidecar is
 local-only and is never uploaded. It records screenshot/upload success or
 failure alongside each observed prompt snapshot.
-The output directory is created with mode 0700 and each output file with mode
-0600.
+New output directories use mode 0700; existing directories must already be
+private. Each output file uses mode 0600.
 Exit code is 1 when no frame was captured, 2 when authentication is missing or rejected.`;
 
 class AuthError extends Error {}
@@ -390,12 +395,20 @@ export async function preparePrivateOutputDirectory(
   ) {
     throw new Error("output_directory_too_broad");
   }
-  await mkdir(resolved, { recursive: true, mode: 0o700 });
-  const metadata = await lstat(resolved);
+  let metadata;
+  try {
+    metadata = await lstat(resolved);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    await mkdir(resolved, { recursive: true, mode: 0o700 });
+    metadata = await lstat(resolved);
+  }
   if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
     throw new Error("output_directory_invalid");
   }
-  await chmod(resolved, 0o700);
+  if ((metadata.mode & 0o077) !== 0) {
+    throw new Error("output_directory_permissions_unsafe");
+  }
 }
 
 async function removePrivateOutputFile(filePath: string): Promise<void> {
@@ -852,94 +865,113 @@ export async function loadReplayEvents(
 
   const events: AnyReplayEvent[] = [];
   let actualBytes = 0;
+  let declaredPrefixEvents = 0;
+  let declaredPrefixBytes = 0;
   let previousTimestamp = Number.NEGATIVE_INFINITY;
-  for (let start = 0; start < chunks.length; start += 8) {
-    const batch = chunks
-      .slice(start, start + 8)
-      .map((value, index) => ({ chunk: record(value)!, index: start + index }));
-    const batchEvents = new Array<unknown[]>(batch.length);
-    await runPool(
-      batch,
-      4,
-      async ({ chunk, index }) => {
-        const chunkUrl = safeChunkUrl(
-          chunk.bytesPath,
-          appUrl,
-          recordingId,
-          chunk.seq,
-          accessToken,
-        );
-        const chunkResponse = await fetchReplayJson(
-          chunkUrl,
-          timeoutMs,
-          MAX_CAPTURE_CHUNK_RESPONSE_BYTES,
-          signal,
-        );
-        if (
-          headerValue(chunkResponse.headers, "x-session-replay-seq") !==
-            String(chunk.seq) ||
-          headerValue(chunkResponse.headers, "x-session-replay-checksum") !==
-            chunk.checksum
-        ) {
-          throw new Error("replay_chunk_incomplete");
-        }
-        const chunkPayload = record(chunkResponse.data);
-        const eventText =
-          typeof chunkPayload?.json === "string"
-            ? chunkPayload.json
-            : typeof chunkResponse.data === "string"
-              ? chunkResponse.data
-              : Array.isArray(chunkResponse.data) ||
-                  Array.isArray(chunkPayload?.events)
-                ? chunkResponse.bodyText
-                : undefined;
-        if (typeof eventText !== "string") {
-          throw new Error("replay_chunk_invalid");
-        }
-        if (
-          !/^[\da-f]{64}$/i.test(chunk.checksum) ||
-          createHash("sha256").update(eventText, "utf8").digest("hex") !==
-            chunk.checksum.toLowerCase()
-        ) {
-          throw new Error("replay_chunk_checksum_mismatch");
-        }
-        const byteLength = Buffer.byteLength(eventText, "utf8");
-        if (byteLength !== chunk.byteLength) {
-          throw new Error("replay_chunk_incomplete");
-        }
-        const chunkEvents = eventsFromChunkText(eventText);
-        if (chunkEvents.length !== chunk.eventCount) {
-          throw new Error("replay_chunk_incomplete");
-        }
-        actualBytes += byteLength;
-        if (actualBytes > MAX_CAPTURE_EVENT_BYTES) {
-          throw new Error("replay_prefix_too_large");
-        }
-        batchEvents[index - start] = chunkEvents;
-      },
-      signal,
-    );
+  for (const value of chunks) {
+    const chunk = record(value)!;
+    if (
+      declaredPrefixEvents + chunk.eventCount > MAX_CAPTURE_EVENTS ||
+      declaredPrefixBytes + chunk.byteLength > MAX_CAPTURE_EVENT_BYTES
+    ) {
+      throw new Error("replay_prefix_too_large");
+    }
+    if (chunk.byteLength > MAX_CAPTURE_CHUNK_RESPONSE_BYTES) {
+      throw new Error("replay_chunk_too_large");
+    }
+    declaredPrefixEvents += chunk.eventCount;
+    declaredPrefixBytes += chunk.byteLength;
 
-    for (const chunkEvents of batchEvents) {
-      for (const value of chunkEvents!) {
-        const event = record(value);
-        if (
-          !event ||
-          typeof event.timestamp !== "number" ||
-          !Number.isFinite(event.timestamp) ||
-          !Number.isInteger(event.type) ||
-          event.timestamp < previousTimestamp
-        ) {
-          throw new Error("replay_event_invalid");
-        }
-        previousTimestamp = event.timestamp;
-        events.push(event);
-        if (events.length > MAX_CAPTURE_EVENTS) {
-          throw new Error("replay_prefix_too_large");
-        }
+    const chunkUrl = safeChunkUrl(
+      chunk.bytesPath,
+      appUrl,
+      recordingId,
+      chunk.seq,
+      accessToken,
+    );
+    const remainingBytes = MAX_CAPTURE_EVENT_BYTES - actualBytes;
+    const chunkResponseLimit = Math.min(
+      MAX_CAPTURE_CHUNK_RESPONSE_BYTES,
+      remainingBytes,
+    );
+    let chunkResponse: Awaited<ReturnType<typeof fetchReplayJson>>;
+    try {
+      chunkResponse = await fetchReplayJson(
+        chunkUrl,
+        timeoutMs,
+        chunkResponseLimit,
+        signal,
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "app_response_too_large"
+      ) {
+        throw new Error(
+          remainingBytes < MAX_CAPTURE_CHUNK_RESPONSE_BYTES
+            ? "replay_prefix_too_large"
+            : "replay_chunk_too_large",
+        );
+      }
+      throw error;
+    }
+    if (
+      headerValue(chunkResponse.headers, "x-session-replay-seq") !==
+        String(chunk.seq) ||
+      headerValue(chunkResponse.headers, "x-session-replay-checksum") !==
+        chunk.checksum
+    ) {
+      throw new Error("replay_chunk_incomplete");
+    }
+    const chunkPayload = record(chunkResponse.data);
+    const eventText =
+      typeof chunkPayload?.json === "string"
+        ? chunkPayload.json
+        : typeof chunkResponse.data === "string"
+          ? chunkResponse.data
+          : Array.isArray(chunkResponse.data) ||
+              Array.isArray(chunkPayload?.events)
+            ? chunkResponse.bodyText
+            : undefined;
+    if (typeof eventText !== "string") {
+      throw new Error("replay_chunk_invalid");
+    }
+    if (
+      !/^[\da-f]{64}$/i.test(chunk.checksum) ||
+      createHash("sha256").update(eventText, "utf8").digest("hex") !==
+        chunk.checksum.toLowerCase()
+    ) {
+      throw new Error("replay_chunk_checksum_mismatch");
+    }
+    const byteLength = Buffer.byteLength(eventText, "utf8");
+    if (byteLength !== chunk.byteLength) {
+      throw new Error("replay_chunk_incomplete");
+    }
+    const chunkEvents = eventsFromChunkText(eventText);
+    if (chunkEvents.length !== chunk.eventCount) {
+      throw new Error("replay_chunk_incomplete");
+    }
+    actualBytes += byteLength;
+    if (actualBytes > MAX_CAPTURE_EVENT_BYTES) {
+      throw new Error("replay_prefix_too_large");
+    }
+    for (const value of chunkEvents) {
+      const event = record(value);
+      if (
+        !event ||
+        typeof event.timestamp !== "number" ||
+        !Number.isFinite(event.timestamp) ||
+        !Number.isInteger(event.type) ||
+        event.timestamp < previousTimestamp
+      ) {
+        throw new Error("replay_event_invalid");
+      }
+      previousTimestamp = event.timestamp;
+      events.push(event);
+      if (events.length > MAX_CAPTURE_EVENTS) {
+        throw new Error("replay_prefix_too_large");
       }
     }
-
     if (previousTimestamp > targetTimestamp) {
       break;
     }
@@ -994,18 +1026,31 @@ export async function installReplayNetworkPolicy(
   context: BrowserContext,
   appUrl: string,
   signal: AbortSignal,
+  checkRequest: typeof isReplayRequestAllowed = isReplayRequestAllowed,
 ): Promise<ReplayNetworkPolicy> {
   const inFlight = new Set<Promise<void>>();
   let policyError: unknown;
   const appOrigin = new URL(appUrl).origin;
+  const allowedCrossOriginHeaders = new Set([
+    "accept",
+    "accept-encoding",
+    "accept-language",
+    "cache-control",
+    "if-modified-since",
+    "if-none-match",
+    "origin",
+    "pragma",
+    "range",
+    "sec-fetch-dest",
+    "sec-fetch-mode",
+    "sec-fetch-site",
+    "user-agent",
+  ]);
   const routeHandler = async (route: BrowserRoute) => {
     const work = (async () => {
       const request = route.request();
       const requestUrl = request.url();
-      if (
-        signal.aborted ||
-        !(await isReplayRequestAllowed(requestUrl, appUrl))
-      ) {
+      if (signal.aborted || !(await checkRequest(requestUrl, appUrl))) {
         await route.abort();
         return;
       }
@@ -1019,12 +1064,11 @@ export async function installReplayNetworkPolicy(
           await route.abort();
           return;
         }
-        const headers: Record<string, string | undefined> = {
-          ...originalHeaders,
-          authorization: undefined,
-          "proxy-authorization": undefined,
-          referer: undefined,
-        };
+        const headers = Object.fromEntries(
+          Object.entries(originalHeaders).filter(([name]) =>
+            allowedCrossOriginHeaders.has(name.toLowerCase()),
+          ),
+        );
         await route.continue({ headers });
         return;
       }
@@ -1034,7 +1078,7 @@ export async function installReplayNetworkPolicy(
     try {
       await work;
     } catch (error) {
-      policyError ??= error;
+      if (!isReplayDnsLookupFailure(error)) policyError ??= error;
       await route.abort().catch(() => undefined);
     } finally {
       inFlight.delete(work);
@@ -1481,6 +1525,10 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
         link.url,
         ctx.appUrl,
         plan.recordingId,
+        plan.items.reduce(
+          (maxOffset, item) => Math.max(maxOffset, item.offsetMs),
+          0,
+        ),
       );
     } else {
       if (

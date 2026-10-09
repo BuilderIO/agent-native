@@ -6,6 +6,10 @@
 import path from "node:path";
 
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "../shared/session-replay-agent-access.js";
+import {
+  MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS,
+  SESSION_REPLAY_CAPTURE_THROUGH_MS_PARAM,
+} from "../shared/session-replay-capture.js";
 
 export const DEFAULT_APP_URL = "https://analytics.agent-native.com";
 
@@ -389,6 +393,7 @@ export function replayFrameUrlFromAgentLink(
   pageUrl: string,
   appUrl: string,
   recordingId: string,
+  captureThroughOffsetMs: number,
 ): string {
   let link: URL;
   try {
@@ -400,6 +405,9 @@ export function replayFrameUrlFromAgentLink(
   const basePath = app.pathname.replace(/\/+$/, "");
   const expectedPath = `${basePath}/sessions/${encodeURIComponent(recordingId)}`;
   if (
+    !Number.isSafeInteger(captureThroughOffsetMs) ||
+    captureThroughOffsetMs < 0 ||
+    captureThroughOffsetMs > MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS ||
     link.username ||
     link.password ||
     link.hash ||
@@ -411,6 +419,10 @@ export function replayFrameUrlFromAgentLink(
     throw new Error("replay_link_invalid");
   }
   link.searchParams.set("frame", "1");
+  link.searchParams.set(
+    SESSION_REPLAY_CAPTURE_THROUGH_MS_PARAM,
+    String(captureThroughOffsetMs),
+  );
   return link.toString();
 }
 

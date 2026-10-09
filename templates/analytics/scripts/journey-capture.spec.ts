@@ -136,18 +136,22 @@ describe("journey capture network requests", () => {
     await dispatch("https://8.8.8.8/replay-image.png", "GET", {
       authorization: "Bearer must-not-leave",
       "proxy-authorization": "Basic must-not-leave",
+      "x-api-key": "custom-key-must-not-leave",
+      "x-auth-token": "custom-token-must-not-leave",
+      "x-trace-id": "unapproved-header",
       origin: "https://analytics.example.com",
       referer:
         "https://analytics.example.com/sessions/replay?agent_access=grant",
       accept: "image/png",
+      range: "bytes=0-1023",
+      "sec-fetch-dest": "image",
     });
     expect(continueRequest).toHaveBeenLastCalledWith({
       headers: {
-        authorization: undefined,
-        "proxy-authorization": undefined,
         origin: "https://analytics.example.com",
-        referer: undefined,
         accept: "image/png",
+        range: "bytes=0-1023",
+        "sec-fetch-dest": "image",
       },
     });
 
@@ -171,6 +175,45 @@ describe("journey capture network requests", () => {
     ).toBe(false);
     await policy.close();
     expect(context.unroute).toHaveBeenCalledWith("**/*", routeHandler);
+  });
+
+  it("aborts one unresolved replay asset without poisoning the recording policy", async () => {
+    let routeHandler: ((route: BrowserRoute) => Promise<void>) | undefined;
+    const context = {
+      route: vi.fn(
+        async (
+          _url: string,
+          handler: (route: BrowserRoute) => Promise<void>,
+        ) => {
+          routeHandler = handler;
+        },
+      ),
+      unroute: vi.fn(async () => undefined),
+      routeWebSocket: vi.fn(async () => undefined),
+    } as unknown as BrowserContext;
+    const policy = await installReplayNetworkPolicy(
+      context,
+      "https://analytics.example.com",
+      new AbortController().signal,
+      (requestUrl, appUrl) =>
+        isReplayRequestAllowed(requestUrl, appUrl, async () => {
+          throw new Error("dns_lookup_failed");
+        }),
+    );
+    const abort = vi.fn(async () => undefined);
+    await routeHandler!({
+      request: () => ({
+        url: () => "https://recorded-assets.example.org/frame.png",
+        method: () => "GET",
+        allHeaders: async () => ({}),
+      }),
+      abort,
+      continue: vi.fn(async () => undefined),
+    });
+
+    expect(abort).toHaveBeenCalledOnce();
+    await expect(policy.assertHealthy()).resolves.toBeUndefined();
+    await policy.close();
   });
 
   it("connects to an available loopback family for localhost", async () => {
@@ -473,6 +516,86 @@ describe("journey replay prefix loading", () => {
     }
   });
 
+  it("rejects an oversized required prefix before fetching the next chunk", async () => {
+    const recordId = "recording-oversized-prefix";
+    const accessToken = "scoped-token";
+    const firstEvent = {
+      id: "event-0",
+      type: 4,
+      timestamp: 500,
+      data: { href: "https://app.example.test/", width: 1280, height: 720 },
+    };
+    const firstBody = JSON.stringify([firstEvent]);
+    const firstChecksum = createHash("sha256")
+      .update(firstBody, "utf8")
+      .digest("hex");
+    const chunks = [
+      {
+        bytesPath: `/api/session-replay/recordings/${recordId}/chunks/0?agent_access=${accessToken}`,
+        checksum: firstChecksum,
+        byteLength: Buffer.byteLength(firstBody, "utf8"),
+        eventCount: 1,
+        seq: 0,
+      },
+      {
+        bytesPath: `/api/session-replay/recordings/${recordId}/chunks/1?agent_access=${accessToken}`,
+        checksum: "a".repeat(64),
+        byteLength: 2,
+        eventCount: 100_000,
+        seq: 1,
+      },
+    ];
+    const manifest = {
+      recording: {
+        id: recordId,
+        startedAt: new Date(400).toISOString(),
+        eventCount: 100_001,
+        totalBytes: chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0),
+        chunkCount: chunks.length,
+      },
+      chunks,
+    };
+    const requestedChunks: number[] = [];
+    const server = createServer((request, response) => {
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      if (url.pathname.endsWith("/manifest")) {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify(manifest));
+        return;
+      }
+      const match = /\/chunks\/(\d+)$/.exec(url.pathname);
+      if (!match) {
+        response.writeHead(404).end();
+        return;
+      }
+      const seq = Number(match[1]);
+      requestedChunks.push(seq);
+      response.writeHead(200, {
+        "content-type": "application/json",
+        "x-session-replay-seq": String(seq),
+        "x-session-replay-checksum": firstChecksum,
+      });
+      response.end(firstBody);
+    });
+    const port = await listen(server);
+    const appUrl = `http://127.0.0.1:${port}`;
+
+    try {
+      await expect(
+        loadReplayEvents(
+          `${appUrl}/api/session-replay/agent-context.json?id=${recordId}&agent_access=${accessToken}`,
+          appUrl,
+          recordId,
+          100,
+          1_000,
+        ),
+      ).rejects.toThrow("replay_prefix_too_large");
+      expect(requestedChunks).toEqual([0]);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("anchors the prefix target to recording start instead of the first replay event", async () => {
     const recordId = "recording-2";
     const accessToken = "scoped-token";
@@ -660,7 +783,7 @@ describe("browser journey capture", () => {
       provenanceOmittedSnapshots: 0,
       provenanceInFlight: 0,
     };
-    const frameUrl = `http://127.0.0.1:${port}/sessions/sr_1?agent_access=scoped-grant&frame=1`;
+    const frameUrl = `http://127.0.0.1:${port}/sessions/sr_1?agent_access=scoped-grant&frame=1&capture_through_ms=20`;
 
     try {
       await preparePrivateOutputDirectory(outDir, process.cwd());
@@ -803,7 +926,7 @@ describe("browser journey capture", () => {
       await captureBrowserRecording(
         ctx,
         plan,
-        "https://analytics.example.com/sessions/sr_1?agent_access=scoped-grant&frame=1",
+        "https://analytics.example.com/sessions/sr_1?agent_access=scoped-grant&frame=1&capture_through_ms=20",
       );
 
       expect(page.evaluate).toHaveBeenCalledTimes(2);
@@ -929,7 +1052,7 @@ describe("browser journey capture", () => {
       await captureBrowserRecording(
         ctx,
         recordingPlan,
-        "https://analytics.example.com/sessions/sr_1?agent_access=scoped-grant&frame=1",
+        "https://analytics.example.com/sessions/sr_1?agent_access=scoped-grant&frame=1&capture_through_ms=20",
       );
 
       expect(page.evaluate).toHaveBeenCalledTimes(3);
@@ -1045,7 +1168,7 @@ describe("browser journey capture", () => {
         plan,
         "http://127.0.0.1:" +
           port +
-          "/sessions/sr_1?agent_access=scoped-grant&frame=1",
+          "/sessions/sr_1?agent_access=scoped-grant&frame=1&capture_through_ms=20",
       );
 
       expect(ctx.frames).toEqual([]);
@@ -1107,6 +1230,38 @@ describe("private output directory", () => {
     ).rejects.toThrow("output_directory_too_broad");
 
     expect((await stat(ancestor)).mode & 0o777).toBe(originalMode);
+  });
+
+  it("rejects a shared existing directory without changing its permissions", async () => {
+    const outDir = await mkdtemp(path.join(os.tmpdir(), "journey-output-"));
+    try {
+      await chmod(outDir, 0o755);
+
+      await expect(
+        preparePrivateOutputDirectory(outDir, process.cwd()),
+      ).rejects.toThrow("output_directory_permissions_unsafe");
+
+      expect((await stat(outDir)).mode & 0o777).toBe(0o755);
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps an existing private directory unchanged and creates new output privately", async () => {
+    const privateDir = await mkdtemp(path.join(os.tmpdir(), "journey-output-"));
+    const parent = await mkdtemp(path.join(os.tmpdir(), "journey-output-"));
+    const newDir = path.join(parent, "frames");
+    try {
+      const originalMode = (await stat(privateDir)).mode & 0o777;
+      await preparePrivateOutputDirectory(privateDir, process.cwd());
+      await preparePrivateOutputDirectory(newDir, process.cwd());
+
+      expect((await stat(privateDir)).mode & 0o777).toBe(originalMode);
+      expect((await stat(newDir)).mode & 0o777).toBe(0o700);
+    } finally {
+      await rm(privateDir, { recursive: true, force: true });
+      await rm(parent, { recursive: true, force: true });
+    }
   });
 });
 

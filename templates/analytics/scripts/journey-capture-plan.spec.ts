@@ -305,10 +305,12 @@ describe("replayFrameUrlFromAgentLink", () => {
       "https://analytics.example.test/base/sessions/sr_1?agent_access=scoped",
       "https://analytics.example.test/base",
       "sr_1",
+      548_922,
     );
     expect(new URL(url).pathname).toBe("/base/sessions/sr_1");
     expect(new URL(url).searchParams.get("frame")).toBe("1");
     expect(new URL(url).searchParams.get("agent_access")).toBe("scoped");
+    expect(new URL(url).searchParams.get("capture_through_ms")).toBe("548922");
   });
 
   it.each([
@@ -322,6 +324,18 @@ describe("replayFrameUrlFromAgentLink", () => {
         url,
         "https://analytics.example.test",
         "sr_1",
+        5,
+      ),
+    ).toThrow("replay_link_invalid");
+  });
+
+  it("requires a safe bounded capture offset", () => {
+    expect(() =>
+      replayFrameUrlFromAgentLink(
+        "https://analytics.example.test/sessions/sr_1?agent_access=scoped",
+        "https://analytics.example.test",
+        "sr_1",
+        Number.MAX_SAFE_INTEGER,
       ),
     ).toThrow("replay_link_invalid");
   });
