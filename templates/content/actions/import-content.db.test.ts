@@ -571,15 +571,13 @@ describe("import-content", () => {
     expect(blobs.delete).not.toHaveBeenCalled();
   });
 
-  it("uploads the bytes a percent-encoded embedded image spells", async () => {
+  it.each([
+    ["percent-encoded", "data:image/png,%89PNG%0D%0A%1A%0A"],
+    ["base64 with a percent escape", "data:image/png;base64,iVBORw0KGgo%3D"],
+  ])("uploads the bytes a %s embedded image spells", async (_, url) => {
     await asOwner(() =>
       importContent.run({
-        files: [
-          {
-            name: "logo.md",
-            text: "# Logo\n\n![Logo](data:image/png,%89PNG%0D%0A%1A%0A)",
-          },
-        ],
+        files: [{ name: "logo.md", text: `# Logo\n\n![Logo](${url})` }],
         parentId: PARENT_ID,
         dryRun: false,
       }),

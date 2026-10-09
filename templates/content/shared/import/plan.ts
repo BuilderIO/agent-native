@@ -82,7 +82,7 @@ export function importImageMediaType(path: string): string | null {
 }
 
 /** A `data:` URL's payload, or null when it has no comma to start one. */
-export function splitDataUrl(
+function splitDataUrl(
   dataUrl: string,
 ): { base64: boolean; payload: string } | null {
   const comma = dataUrl.indexOf(",");
@@ -98,7 +98,7 @@ export function splitDataUrl(
  * followed by two hex digits. The bytes needn't be text: a PNG written this
  * way starts `%89PNG`, which `decodeURIComponent` refuses as invalid UTF-8.
  */
-export function percentDecodedBytes(payload: string): Uint8Array | null {
+function percentDecodedBytes(payload: string): Uint8Array | null {
   if (/%(?![0-9a-f]{2})/i.test(payload)) return null;
   const encoded = new TextEncoder().encode(payload);
   const bytes = new Uint8Array(encoded.length);
@@ -118,21 +118,55 @@ export function percentDecodedBytes(payload: string): Uint8Array | null {
 }
 
 /**
+ * A base64 payload's digits without padding, or null when it isn't base64.
+ * It is a URL first, so `%2B` is a `+`, and ASCII whitespace is dropped as
+ * browsers drop it. Node's base64 decoder skips what it can't read instead
+ * of refusing, so anything it would skip is refused here.
+ */
+function base64Digits(payload: string): string | null {
+  let text = payload;
+  if (payload.includes("%")) {
+    const bytes = percentDecodedBytes(payload);
+    if (!bytes) return null;
+    text = new TextDecoder("latin1").decode(bytes);
+  }
+  text = text.replace(/[\t\n\f\r ]/g, "");
+  const digits = text.replace(/={1,2}$/, "");
+  if (!/^[A-Za-z0-9+/]*$/.test(digits) || digits.length % 4 === 1) return null;
+  return digits === text || text.length % 4 === 0 ? digits : null;
+}
+
+/**
  * Decoded size of a `data:` URL, measured without decoding base64. One with
- * no payload, or a percent-encoded payload that can't be decoded, such as a
- * stray `%`, has no size, so the preview reports the image missing instead of
- * apply failing.
+ * no payload, or one that won't decode, such as a stray `%` or a character
+ * base64 doesn't use, has no size, so the preview reports the image missing
+ * instead of apply storing a broken one.
  */
 export function dataUrlByteLength(dataUrl: string): number | null {
   const parts = splitDataUrl(dataUrl);
   if (!parts) return null;
-  const { base64, payload } = parts;
-  if (!base64) {
-    const bytes = percentDecodedBytes(payload);
-    return bytes ? bytes.length : null;
+  const length = parts.base64
+    ? (base64Digits(parts.payload)?.length ?? 0) * 0.75
+    : (percentDecodedBytes(parts.payload)?.length ?? 0);
+  return Math.floor(length) || null;
+}
+
+/** The bytes a `data:` URL holds, or null when {@link dataUrlByteLength} gives it no size. */
+export function dataUrlBytes(dataUrl: string): Uint8Array | null {
+  const parts = splitDataUrl(dataUrl);
+  if (!parts) return null;
+  if (!parts.base64) {
+    const bytes = percentDecodedBytes(parts.payload);
+    return bytes?.length ? bytes : null;
   }
-  const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
-  return Math.floor((payload.length * 3) / 4) - padding;
+  const digits = base64Digits(parts.payload);
+  if (!digits) return null;
+  const binary = atob(digits);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 }
 
 export interface PlannedImportPage {

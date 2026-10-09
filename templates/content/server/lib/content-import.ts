@@ -34,6 +34,7 @@ import type {
 } from "../../shared/import/api.js";
 import {
   assetKey,
+  dataUrlBytes,
   finalizePlannedPage,
   importFileFormat,
   importFileKind,
@@ -41,9 +42,7 @@ import {
   MAX_IMPORT_MARKDOWN_BYTES,
   MAX_IMPORT_PAGE_CHARACTERS,
   normalizeImportPath,
-  percentDecodedBytes,
   planMarkdownPages,
-  splitDataUrl,
 } from "../../shared/import/plan.js";
 import {
   IMPORT_CONTENT_OPERATION,
@@ -457,12 +456,7 @@ async function uploadDataUrl(
   request: Extract<ImportAssetRequest, { kind: "data-url" }>,
   ownerEmail: string,
 ): Promise<FileUploadResult> {
-  const parts = splitDataUrl(request.dataUrl);
-  const data = !parts
-    ? null
-    : parts.base64
-      ? Buffer.from(parts.payload, "base64")
-      : percentDecodedBytes(parts.payload);
+  const data = dataUrlBytes(request.dataUrl);
   // The preview reports an embedded image with no payload, or one that won't
   // decode, as missing, so only a planning bug sends one here.
   if (!data) {

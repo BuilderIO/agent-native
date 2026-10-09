@@ -413,6 +413,16 @@ function looksLikeNfm(body: string): boolean {
   let fence: { run: string; indent: number } | null = null;
   for (const line of body.split("\n")) {
     const run = /^([ \t]*)(`{3,}|~{3,})(.*)$/.exec(line);
+    // A fence ends with its container, so text indented less than any
+    // container the opener could sit in is outside it. An indented code block
+    // that shows a fence line opens nothing past the block.
+    if (
+      fence &&
+      /\S/.test(line) &&
+      indentColumns(/^[ \t]*/.exec(line)![0]) < fence.indent - 3
+    ) {
+      fence = null;
+    }
     if (fence) {
       // Only a run as long as the opener, of the same character, closes it.
       // A closer may sit three columns deeper than its container's text, so

@@ -971,6 +971,23 @@ ${"<span>".repeat(70)}deep
     expect(importMarkdown(`# Notes\n\n${text}\n`).dialect).toBe("markdown");
   });
 
+  it("reads Content Markdown after an indented code block that shows a fence", () => {
+    const page = importMarkdown(
+      [
+        "Example:",
+        "",
+        "    ```",
+        "    code",
+        "",
+        "<callout>",
+        "\tInside",
+        "</callout>",
+      ].join("\n"),
+    );
+
+    expect(page.dialect).toBe("nfm");
+  });
+
   it("reads Content Markdown with an escaped backtick as Content Markdown", () => {
     const page = importMarkdown(
       ["One \\` tick", "<callout>", "\tInside", "</callout>", "`code`"].join(

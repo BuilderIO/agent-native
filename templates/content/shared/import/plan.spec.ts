@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   dataUrlByteLength,
+  dataUrlBytes,
   finalizePlannedPage,
   importFileKind,
   matchImportImagePath,
@@ -134,7 +135,33 @@ describe("Import planning", () => {
     expect(dataUrlByteLength("data:image/svg+xml,100%")).toBeNull();
     expect(dataUrlByteLength("data:image/svg+xml,%G0")).toBeNull();
     expect(dataUrlByteLength("data:image/png")).toBeNull();
+    expect(dataUrlByteLength("data:image/png,")).toBeNull();
+    expect(dataUrlByteLength("data:image/png;base64,")).toBeNull();
   });
+
+  it.each([
+    ["unpadded", "QUI", [0x41, 0x42]],
+    ["wrapped across lines", "QU\nJD", [0x41, 0x42, 0x43]],
+    ["with percent escapes", "%2B%2F8%3D", [0xfb, 0xff]],
+  ])(
+    "decodes a %s base64 image to the bytes it spells",
+    (_, payload, bytes) => {
+      const url = `data:image/png;base64,${payload}`;
+
+      expect([...dataUrlBytes(url)!]).toEqual(bytes);
+      expect(dataUrlByteLength(url)).toBe(bytes.length);
+    },
+  );
+
+  it.each([["%%%"], ["QUJD!"], ["QUJDR"], ["QQ="], ["Q=Q="], ["%C3%A9QUI"]])(
+    "gives no size or bytes to the base64 payload %s",
+    (payload) => {
+      const url = `data:image/png;base64,${payload}`;
+
+      expect(dataUrlByteLength(url)).toBeNull();
+      expect(dataUrlBytes(url)).toBeNull();
+    },
+  );
 
   it("previews an embedded image that won't decode as missing", () => {
     const {
