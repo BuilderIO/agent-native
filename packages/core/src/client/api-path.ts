@@ -177,7 +177,9 @@ export function isWorkspaceRuntime(): boolean {
 }
 
 function workspacePathBasePath(fallbackPath = ""): string {
-  if (typeof window === "undefined" || !isWorkspaceRuntime()) return "";
+  if (typeof window === "undefined" || !isWorkspaceRuntime()) {
+    return fallbackPath;
+  }
   const pathname = window.location?.pathname;
   if (typeof pathname !== "string") return "";
   const routerBasePath = routerContextBasePath();
