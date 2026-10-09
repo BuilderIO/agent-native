@@ -3756,7 +3756,8 @@ function AgentKitComposerSurface({
   const submissionScope = JSON.stringify([
     threadId,
     props.tabId,
-    props.contextScope,
+    props.contextScope?.type ?? null,
+    props.contextScope?.id ?? null,
   ]);
   const currentSubmissionScope = useRef(submissionScope);
   currentSubmissionScope.current = submissionScope;

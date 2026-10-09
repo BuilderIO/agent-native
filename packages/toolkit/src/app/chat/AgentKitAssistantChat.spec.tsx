@@ -2016,6 +2016,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     "account",
     "identity",
     "thread",
+    "scope",
   ])("rejects stale provider preparation after a %s change", async (change) => {
     const release = vi.fn();
     chatMocks.history = { beginSubmission: vi.fn(async () => release) };
@@ -2072,6 +2073,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       next.threadId = "thread-2";
       chatMocks.threadId = "thread-2";
     }
+    if (change === "scope") next.contextScope = { type: "deck", id: "deck-2" };
     await act(async () => root.render(<AgentKitAssistantChat {...next} />));
     await act(async () => {
       prepared.resolve(items);
@@ -2092,6 +2094,56 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect(mounts).toHaveBeenCalledTimes(2);
     if (change === "inactive")
       expect(providerProps.mock.lastCall?.[0].isActive).toBe(false);
+  });
+
+  it("keeps a prepared send when only the resource selection revision changes", async () => {
+    const items = [
+      { key: "app-reference", title: "Reference", context: "Source" },
+    ];
+    const prepared = Promise.withResolvers<typeof items>();
+    const context: AssistantChatComposerContext = {
+      menuItems: [],
+      contextItems: items,
+      onRemoveContextItem: vi.fn(),
+      prepareSubmission: vi.fn(() => prepared.promise),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    const props = baseProps({
+      contextScope: {
+        type: "deck",
+        id: "deck-1",
+        label: "Deck",
+      },
+      composerContextProvider: Provider,
+    });
+    const revisedScope = {
+      type: "deck",
+      id: "deck-1",
+      label: "Deck",
+      contextVersion: "selection-revision-2",
+    };
+    await mount(props);
+    let submitted!: Promise<void>;
+    await act(async () => {
+      submitted = chatMocks.composerProps.onSubmit("Use source", [], [], {
+        intent: "immediate",
+      });
+    });
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat {...props} contextScope={revisedScope} />,
+      );
+    });
+    await act(async () => {
+      prepared.resolve(items);
+      await submitted;
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(context.submissionAccepted).toHaveBeenCalledOnce();
   });
 
   it("continues a pending send when readiness becomes configured during preparation", async () => {
