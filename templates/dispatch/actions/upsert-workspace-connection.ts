@@ -104,7 +104,7 @@ function connectionChange(
       ...(connection.accountLabel
         ? { detail: connection.accountLabel.slice(0, 500) }
         : {}),
-      url: "/integrations",
+      url: "/settings/integrations",
     },
   };
 }
