@@ -9,6 +9,7 @@ import {
   isMcpDirectoryWidgetReadCapabilityScope,
   isMcpDirectoryWidgetWriteCapabilityScope,
   MCP_DIRECTORY_WIDGET_READ_CAPABILITY_PREFIX,
+  MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
   MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_PREFIX,
   normalizeMcpDirectoryWidgetWriteActionArguments,
   renewMcpDirectoryWidgetCapabilityScope,
@@ -614,5 +615,304 @@ describe("MCP directory widget write capabilities", () => {
         },
       }),
     ).toBeUndefined();
+  });
+
+  it("requires every literal-bound argument to be supplied and equal", () => {
+    const grant = {
+      ...input(),
+      resourceIds: { designId: "design-123", resourceType: "design" },
+      writeActionArguments: {
+        "share-design": {
+          resourceType: "design",
+          resourceId: "design-123",
+          role: { type: "actionSchema" as const },
+        },
+      },
+    };
+    const scope = createMcpDirectoryWidgetWriteCapability(grant);
+    expect(scope).toBeDefined();
+    const normalize = (args: Record<string, unknown>) =>
+      normalizeMcpDirectoryWidgetWriteActionArguments(scope, {
+        actionName: "share-design",
+        appId: grant.appId,
+        resourceUri: grant.resourceUri,
+        userEmail: grant.userEmail,
+        orgId: grant.orgId,
+        args,
+        allowedArgumentNames: ["resourceType", "resourceId", "role"],
+      });
+    const bound = {
+      resourceType: "design",
+      resourceId: "design-123",
+      role: "viewer",
+    };
+
+    expect(normalize(bound)).toEqual(bound);
+    expect(normalize({ ...bound, resourceId: undefined })).toBeUndefined();
+    expect(
+      normalize({ resourceType: "design", role: "viewer" }),
+    ).toBeUndefined();
+    expect(
+      normalize({ resourceId: "design-123", role: "viewer" }),
+    ).toBeUndefined();
+    expect(normalize({ role: "viewer" })).toBeUndefined();
+    expect(normalize({ ...bound, resourceType: "form" })).toBeUndefined();
+    expect(normalize({ ...bound, resourceId: "design-456" })).toBeUndefined();
+  });
+});
+
+describe("MCP directory widget document share capabilities", () => {
+  const widget = {
+    appId: "content",
+    resourceUri: "ui://content/shell-v69",
+    userEmail: "editor@example.test",
+    orgId: "org-123",
+  };
+  const documentId = "doc-123";
+  const shareArguments = {
+    "share-resource": {
+      resourceType: "document",
+      resourceId: documentId,
+      principalType: { type: "actionSchema" as const },
+      principalId: { type: "actionSchema" as const },
+      role: { type: "actionSchema" as const },
+      notify: { type: "actionSchema" as const },
+      resourceUrl: { type: "actionSchema" as const },
+      message: { type: "actionSchema" as const },
+    },
+    "unshare-resource": {
+      resourceType: "document",
+      resourceId: documentId,
+      principalType: { type: "actionSchema" as const },
+      principalId: { type: "actionSchema" as const },
+    },
+    "set-resource-visibility": {
+      resourceType: "document",
+      resourceId: documentId,
+      visibility: { type: "actionSchema" as const },
+    },
+  };
+  const readArguments = {
+    "list-resource-shares": {
+      resourceType: "document",
+      resourceId: documentId,
+    },
+  };
+  const writeScope = () =>
+    createMcpDirectoryWidgetWriteCapability({
+      ...widget,
+      resourceIds: { documentId, resourceType: "document" },
+      expiresAtMs: Date.now() + 60_000,
+      readActionArguments: readArguments,
+      writeActionArguments: {
+        "update-document": {
+          id: documentId,
+          title: { type: "actionSchema" },
+        },
+        ...shareArguments,
+      },
+    });
+  const bodies: Record<keyof typeof shareArguments, Record<string, unknown>> = {
+    "share-resource": {
+      resourceType: "document",
+      resourceId: documentId,
+      principalType: "user",
+      principalId: "teammate@example.test",
+      role: "viewer",
+      notify: false,
+      resourceUrl: "/page/doc-123",
+      message: "Take a look",
+    },
+    "unshare-resource": {
+      resourceType: "document",
+      resourceId: documentId,
+      principalType: "user",
+      principalId: "teammate@example.test",
+    },
+    "set-resource-visibility": {
+      resourceType: "document",
+      resourceId: documentId,
+      visibility: "org",
+    },
+  };
+  const shareActions = Object.keys(bodies) as Array<keyof typeof bodies>;
+  const normalize = (
+    scope: string | undefined,
+    actionName: string,
+    args: Record<string, unknown>,
+    overrides: Record<string, unknown> = {},
+  ) =>
+    normalizeMcpDirectoryWidgetWriteActionArguments(scope, {
+      actionName,
+      ...widget,
+      args,
+      allowedArgumentNames: Object.keys(
+        bodies[actionName as keyof typeof bodies] ?? args,
+      ),
+      ...overrides,
+    });
+
+  it("keeps the 15 minute grant lifetime", () => {
+    expect(MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS).toBe(
+      15 * 60 * 1000,
+    );
+    const mint = (lifetimeMs: number) =>
+      createMcpDirectoryWidgetWriteCapability({
+        ...widget,
+        resourceIds: { documentId, resourceType: "document" },
+        expiresAtMs: Date.now() + lifetimeMs,
+        readActionArguments: readArguments,
+        writeActionArguments: shareArguments,
+      });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(1_800_000_000_000);
+      expect(mint(15 * 60 * 1000)).toBeDefined();
+      expect(mint(15 * 60 * 1000 + 1)).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(shareActions)(
+    "binds %s to the ticketed document and nothing else",
+    (actionName) => {
+      const scope = writeScope();
+      const body = bodies[actionName];
+
+      expect(normalize(scope, actionName, body)).toEqual(body);
+      expect(
+        normalize(scope, actionName, { ...body, resourceId: "doc-456" }),
+      ).toBeUndefined();
+      expect(
+        normalize(scope, actionName, { ...body, resourceType: "form" }),
+      ).toBeUndefined();
+      const { resourceId: _resourceId, ...withoutResourceId } = body;
+      expect(normalize(scope, actionName, withoutResourceId)).toBeUndefined();
+      const { resourceType: _resourceType, ...withoutResourceType } = body;
+      expect(normalize(scope, actionName, withoutResourceType)).toBeUndefined();
+      const {
+        resourceId: _id,
+        resourceType: _type,
+        ...withoutResourceBinding
+      } = body;
+      expect(
+        normalize(scope, actionName, withoutResourceBinding),
+      ).toBeUndefined();
+      expect(
+        normalize(scope, actionName, {
+          ...body,
+          ownerEmail: "me@example.test",
+        }),
+      ).toBeUndefined();
+    },
+  );
+
+  it("rejects actions outside the share allowlist", () => {
+    const scope = writeScope();
+    for (const actionName of [
+      "delete-document",
+      "set-document-discoverability",
+      "list-resource-access-requests",
+      "approve-resource-access-request",
+      "create-agent-resource-link",
+    ]) {
+      const args = { resourceType: "document", resourceId: documentId };
+      expect(
+        normalize(scope, actionName, args, {
+          allowedArgumentNames: Object.keys(args),
+        }),
+      ).toBeUndefined();
+    }
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(
+        scope,
+        widget,
+      )?.actionNames.sort(),
+    ).toEqual([
+      "set-resource-visibility",
+      "share-resource",
+      "unshare-resource",
+      "update-document",
+    ]);
+  });
+
+  it.each(shareActions)(
+    "rejects %s for another user, organization, app, or widget resource",
+    (actionName) => {
+      const scope = writeScope();
+      const body = bodies[actionName];
+
+      expect(normalize(scope, actionName, body)).toEqual(body);
+      expect(
+        normalize(scope, actionName, body, { userEmail: "other@example.test" }),
+      ).toBeUndefined();
+      expect(
+        normalize(scope, actionName, body, { orgId: "org-other" }),
+      ).toBeUndefined();
+      expect(
+        normalize(scope, actionName, body, { orgId: undefined }),
+      ).toBeUndefined();
+      expect(
+        normalize(scope, actionName, body, { appId: "design" }),
+      ).toBeUndefined();
+      expect(
+        normalize(scope, actionName, body, {
+          resourceUri: "ui://content/shell-v68",
+        }),
+      ).toBeUndefined();
+    },
+  );
+
+  it("gives a read-only capability no share write route", () => {
+    const readScope = createMcpDirectoryWidgetReadCapability({
+      appId: widget.appId,
+      resourceUri: widget.resourceUri,
+      resourceIds: { documentId, resourceType: "document" },
+      actionArguments: readArguments,
+    });
+
+    for (const actionName of shareActions) {
+      expect(
+        normalize(readScope, actionName, bodies[actionName]),
+      ).toBeUndefined();
+    }
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(readScope, widget),
+    ).toBeUndefined();
+    expect(
+      allowsMcpDirectoryWidgetReadAction(readScope, {
+        actionName: "list-resource-shares",
+        appId: widget.appId,
+        resourceUri: widget.resourceUri,
+        args: { resourceType: "document", resourceId: documentId },
+        allowedArgumentNames: ["resourceType", "resourceId"],
+      }),
+    ).toBe(true);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(readScope, {
+        actionName: "list-resource-shares",
+        appId: widget.appId,
+        resourceUri: widget.resourceUri,
+        args: { resourceType: "document", resourceId: "doc-456" },
+        allowedArgumentNames: ["resourceType", "resourceId"],
+      }),
+    ).toBe(false);
+  });
+
+  it("downgrades the share grant to read-only when renewed without mcp:write", () => {
+    const renewed = renewMcpDirectoryWidgetCapabilityScope(writeScope(), {
+      ...widget,
+      expiresAtMs: Date.now() + 60_000,
+      readAllowed: true,
+      writeAllowed: false,
+    });
+
+    expect(isMcpDirectoryWidgetWriteCapabilityScope(renewed)).toBe(false);
+    for (const actionName of shareActions) {
+      expect(
+        normalize(renewed, actionName, bodies[actionName]),
+      ).toBeUndefined();
+    }
   });
 });

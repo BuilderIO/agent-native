@@ -892,6 +892,13 @@ export function normalizeMcpDirectoryWidgetWriteActionArguments(
   }
 
   const suppliedArgs = Object.entries(input.args ?? {});
+  // Every literal-bound argument must be supplied and equal: an omitted
+  // binding would otherwise rely on the action's own schema to reject it.
+  const unboundLiteral = Object.entries(expectedArgs).some(
+    ([name, expected]) =>
+      typeof expected === "string" && input.args?.[name] !== expected,
+  );
+  if (unboundLiteral) return undefined;
   const includesResourceBinding =
     suppliedArgs.some(
       ([name, value]) =>

@@ -17,6 +17,10 @@ import { defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
+import listResourceShares from "../sharing/actions/list-resource-shares.js";
+import setResourceVisibility from "../sharing/actions/set-resource-visibility.js";
+import shareResource from "../sharing/actions/share-resource.js";
+import unshareResource from "../sharing/actions/unshare-resource.js";
 import {
   createMCPServerForRequest,
   selectMcpDirectoryWidgetReadActions,
@@ -902,7 +906,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         ];
         const sharedActions =
           appId === "content"
-            ? { "list-resource-suggestions": listResourceSuggestions }
+            ? {
+                "list-resource-suggestions": listResourceSuggestions,
+                "list-resource-shares": listResourceShares,
+                "share-resource": shareResource,
+                "unshare-resource": unshareResource,
+                "set-resource-visibility": setResourceVisibility,
+              }
             : {};
         const modules = Object.fromEntries(
           await Promise.all(
@@ -2473,6 +2483,291 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       actionNames: ["add-database-item", "update-database-item"],
     });
+  });
+
+  it("mints Content document share grants only for editors holding the write scope", async () => {
+    const annotations = {
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    };
+    const createDocument = defineAction({
+      description: "Create one Content document.",
+      parameters: {},
+      mcpAnnotations: annotations,
+      mcpApp: {
+        resource: {
+          uri: "ui://content/shell-v69",
+          title: "Open document",
+          html: "<!doctype html><html><body>Document</body></html>",
+        },
+      },
+      run: async () => ({ id: "page-1", spaceId: "space-1" }),
+    });
+    const updateDocument = defineAction({
+      description: "Update one Content document.",
+      schema: z.object({
+        id: z.string().optional(),
+        title: z.string().optional(),
+      }),
+      http: { method: "POST" },
+      requiresAuth: true,
+      mcpAnnotations: annotations,
+      run: async () => ({ updated: true }),
+    });
+    const registered = {
+      "create-document": createDocument,
+      "update-document": updateDocument,
+      "list-resource-shares": listResourceShares,
+      "share-resource": shareResource,
+      "unshare-resource": unshareResource,
+      "set-resource-visibility": setResourceVisibility,
+    };
+    const pick = <T extends Record<string, unknown>>(
+      source: T,
+      names: string[],
+    ) =>
+      Object.fromEntries(
+        names
+          .filter((name) => name in source)
+          .map((name) => [name, source[name]]),
+      );
+    const shareWriteNames = [
+      "update-document",
+      "share-resource",
+      "unshare-resource",
+      "set-resource-visibility",
+    ];
+    const authorizeWidgetWrite = vi.fn(async () => true);
+    const directoryProfile = {
+      connectorCatalog: ["create-document"],
+      widgetDomain: "https://content.agent-native.com",
+      authorizeWidgetWrite,
+      widgetTargets: {
+        "create-document":
+          contentDirectoryProfile.widgetTargets["create-document"],
+      },
+      widgetReadActionArguments: pick(
+        contentDirectoryProfile.widgetReadActionArguments,
+        ["list-resource-shares"],
+      ) as Record<string, Record<string, string>>,
+      widgetReadAuthenticatedActions: ["list-resource-shares"],
+      widgetWriteActionArguments: pick(
+        contentDirectoryProfile.widgetWriteActionArguments,
+        shareWriteNames,
+      ) as Record<string, Record<string, any>>,
+    };
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      appId: "content",
+      directoryProfile,
+      widgetDomain: "https://content.agent-native.com",
+      actions: { "create-document": createDocument },
+      widgetReadActions: selectMcpDirectoryWidgetReadActions(
+        directoryProfile,
+        registered,
+      ),
+      widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
+        directoryProfile,
+        registered,
+      ),
+    };
+    const embedAuth = await import("../shared/embed-auth.js");
+    const widget = {
+      appId: "content",
+      resourceUri: "ui://content/shell-v69",
+      userEmail: "oauth@example.com",
+    };
+    const create = async (id: number, scope?: string) => {
+      const headers = await mcpAppsAuthHeaders({
+        resource: `https://content.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+        issuer: "https://content.agent-native.com",
+        ...(scope ? { scope } : {}),
+      });
+      return callWeb(
+        {
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name: "create-document", arguments: {} },
+        },
+        {
+          headers: { ...headers, host: "content.agent-native.com" },
+          config: directoryConfig,
+          routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+        },
+      );
+    };
+    const open = async (id: number, scope?: string) => {
+      const created = await create(id, scope);
+      expect(created.result.isError).not.toBe(true);
+      return embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0];
+    };
+    const body = (name: string, resourceId = "page-1") =>
+      name === "share-resource"
+        ? {
+            resourceType: "document",
+            resourceId,
+            principalType: "user",
+            principalId: "teammate@example.com",
+            role: "viewer",
+            notify: false,
+          }
+        : name === "unshare-resource"
+          ? {
+              resourceType: "document",
+              resourceId,
+              principalType: "user",
+              principalId: "teammate@example.com",
+            }
+          : { resourceType: "document", resourceId, visibility: "org" };
+    const normalizeShare = (
+      scope: string | undefined,
+      name: string,
+      args: Record<string, unknown>,
+    ) =>
+      embedAuth.normalizeMcpDirectoryWidgetWriteActionArguments(scope, {
+        actionName: name,
+        ...widget,
+        args,
+        allowedArgumentNames: Object.keys(
+          directoryProfile.widgetWriteActionArguments[name]!,
+        ),
+      });
+    const shareNames = [
+      "share-resource",
+      "unshare-resource",
+      "set-resource-visibility",
+    ];
+
+    const editorTicket = await open(160);
+    expect(authorizeWidgetWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: "create-document",
+        target: expect.objectContaining({
+          resourceIds: {
+            documentId: "page-1",
+            resourceType: "document",
+            spaceId: "space-1",
+          },
+          writeActions: shareWriteNames,
+        }),
+      }),
+    );
+    expect(editorTicket).toMatchObject({ ttlSeconds: 5 * 60 });
+    const editorScope = editorTicket?.scope as string;
+    expect(
+      embedAuth.isMcpDirectoryWidgetWriteCapabilityScope(editorScope),
+    ).toBe(true);
+    expect(
+      embedAuth.getMcpDirectoryWidgetWriteCapabilityGrant(editorScope, widget),
+    ).toEqual({
+      resourceIds: {
+        documentId: "page-1",
+        resourceType: "document",
+        spaceId: "space-1",
+      },
+      actionNames: [...shareWriteNames].sort(),
+    });
+    const expiresAt =
+      embedAuth.getMcpDirectoryWidgetWriteCapabilityExpiresAt(editorScope);
+    expect(expiresAt).toBeGreaterThan(Date.now());
+    expect(expiresAt).toBeLessThanOrEqual(
+      Date.now() + embedAuth.MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
+    );
+    for (const name of shareNames) {
+      expect(normalizeShare(editorScope, name, body(name)), name).toEqual(
+        body(name),
+      );
+      expect(
+        normalizeShare(editorScope, name, body(name, "page-2")),
+        name,
+      ).toBeUndefined();
+    }
+    expect(
+      embedAuth.allowsMcpDirectoryWidgetReadAction(editorScope, {
+        actionName: "list-resource-shares",
+        ...widget,
+        args: { resourceType: "document", resourceId: "page-1" },
+        allowedArgumentNames: ["resourceType", "resourceId"],
+      }),
+    ).toBe(true);
+
+    const expectReadOnlyTicket = (ticket: any) => {
+      const scope = ticket?.scope as string;
+      expect(embedAuth.isMcpDirectoryWidgetReadCapabilityScope(scope)).toBe(
+        true,
+      );
+      expect(
+        embedAuth.getMcpDirectoryWidgetWriteCapabilityGrant(scope, widget),
+      ).toBeUndefined();
+      for (const name of [...shareNames, "update-document"]) {
+        expect(
+          embedAuth.normalizeMcpDirectoryWidgetWriteActionArguments(scope, {
+            actionName: name,
+            ...widget,
+            args: name === "update-document" ? { id: "page-1" } : body(name),
+            allowedArgumentNames: Object.keys(
+              directoryProfile.widgetWriteActionArguments[name]!,
+            ),
+          }),
+          name,
+        ).toBeUndefined();
+      }
+      expect(
+        embedAuth.allowsMcpDirectoryWidgetReadAction(scope, {
+          actionName: "list-resource-shares",
+          ...widget,
+          args: { resourceType: "document", resourceId: "page-1" },
+          allowedArgumentNames: ["resourceType", "resourceId"],
+        }),
+      ).toBe(true);
+      expect(
+        embedAuth.allowsMcpDirectoryWidgetReadAction(scope, {
+          actionName: "list-resource-shares",
+          ...widget,
+          args: { resourceType: "document", resourceId: "page-2" },
+          allowedArgumentNames: ["resourceType", "resourceId"],
+        }),
+      ).toBe(false);
+    };
+
+    authorizeWidgetWrite.mockClear();
+    authorizeWidgetWrite.mockResolvedValueOnce(false);
+    expectReadOnlyTicket(await open(161));
+    expect(authorizeWidgetWrite).toHaveBeenCalledOnce();
+
+    // Every mutation needs mcp:write, so a read-only OAuth grant cannot open
+    // the widget at all: the write tool is not even visible to it, and no
+    // ticket is minted.
+    embedSessionMocks.createEmbedSessionTicket.mockClear();
+    authorizeWidgetWrite.mockClear();
+    const readOnlyGrant = await create(162, "mcp:read mcp:apps");
+    expect(readOnlyGrant.result.isError).toBe(true);
+    expect(JSON.stringify(readOnlyGrant)).toContain(
+      "Unknown tool: create-document",
+    );
+    expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
+    expect(authorizeWidgetWrite).not.toHaveBeenCalled();
+
+    // Without mcp:read the mint skips list-resource-shares (read visibility is
+    // checked per action) but keeps the share mutations beside update-document.
+    const writeOnlyScope = (await open(163, "mcp:write mcp:apps"))
+      ?.scope as string;
+    expect(
+      embedAuth
+        .getMcpDirectoryWidgetWriteCapabilityGrant(writeOnlyScope, widget)
+        ?.actionNames.sort(),
+    ).toEqual([...shareWriteNames].sort());
+    expect(
+      embedAuth.allowsMcpDirectoryWidgetReadAction(writeOnlyScope, {
+        actionName: "list-resource-shares",
+        ...widget,
+        args: { resourceType: "document", resourceId: "page-1" },
+        allowedArgumentNames: ["resourceType", "resourceId"],
+      }),
+    ).toBe(false);
   });
 
   it("returns directory action results without a widget when OAuth has no signed grant time", async () => {

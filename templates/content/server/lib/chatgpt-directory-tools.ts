@@ -81,7 +81,12 @@ export const CHATGPT_DIRECTORY_PROFILE = {
               resourceType: "document",
               ...(spaceId ? { spaceId } : {}),
             },
-            writeActions: ["update-document"],
+            writeActions: [
+              "update-document",
+              "share-resource",
+              "unshare-resource",
+              "set-resource-visibility",
+            ],
           }
         : null;
     },
@@ -114,6 +119,10 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     "get-preview-document-draft": { documentId: "documentId" },
     "list-comments": { documentId: "documentId" },
     "list-resource-suggestions": {
+      resourceType: "resourceType",
+      resourceId: "documentId",
+    },
+    "list-resource-shares": {
       resourceType: "resourceType",
       resourceId: "documentId",
     },
@@ -152,6 +161,27 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       browserSaveAttemptId: { type: "actionSchema" as const },
       preserveLeadingTitleHeading: { type: "actionSchema" as const },
     },
+    "share-resource": {
+      resourceType: "resourceType",
+      resourceId: "documentId",
+      principalType: { type: "actionSchema" as const },
+      principalId: { type: "actionSchema" as const },
+      role: { type: "actionSchema" as const },
+      notify: { type: "actionSchema" as const },
+      resourceUrl: { type: "actionSchema" as const },
+      message: { type: "actionSchema" as const },
+    },
+    "unshare-resource": {
+      resourceType: "resourceType",
+      resourceId: "documentId",
+      principalType: { type: "actionSchema" as const },
+      principalId: { type: "actionSchema" as const },
+    },
+    "set-resource-visibility": {
+      resourceType: "resourceType",
+      resourceId: "documentId",
+      visibility: { type: "actionSchema" as const },
+    },
     "add-database-item": {
       target: {
         type: "actionSchemaResourceBound" as const,
@@ -185,6 +215,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   widgetReadAuthenticatedActions: [
     "get-content-database-personal-view",
     "list-comments",
+    "list-resource-shares",
     "list-resource-suggestions",
   ],
   widgetReadPrivateActions: [
