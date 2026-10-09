@@ -308,14 +308,19 @@ async function incompleteImportError(
       extra: { importId: input.importId },
     });
   }
-  if (documentIdsComplete && documentIds.length === 0) return error;
-
   const contract = isActionContractError(error);
   if (!contract) {
     captureError(error, {
       tags: { source: "content-import" },
       extra: { importId: input.importId },
     });
+  }
+  if (documentIdsComplete && documentIds.length === 0) {
+    return contract
+      ? error
+      : new Error(
+          "The server hit an unexpected error before any page was imported.",
+        );
   }
   const landed = documentIdsComplete
     ? `Imported ${documentIds.length} of ${input.plannedPages} pages, then stopped`
@@ -650,8 +655,13 @@ async function createImportedPage(input: {
         requestSha256: schema.documentImports.requestSha256,
         originalBlob: schema.documentImports.originalBlob,
         reportJson: schema.documentImports.reportJson,
+        trashedAt: schema.documents.trashedAt,
       })
       .from(schema.documentImports)
+      .leftJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.documentImports.documentId),
+      )
       .where(eq(schema.documentImports.documentId, id))
       .limit(1)
       .catch((lookupError: unknown) => {
@@ -680,9 +690,10 @@ async function createImportedPage(input: {
         cleanupError,
       );
     });
-    // Another attempt with this key created the page first.
+    // Another attempt with this key created the page first, and may have been
+    // undone since.
     if (!recorded || !isUniqueConstraintError(error)) throw error;
-    if (recorded.requestSha256 !== input.requestSha256) idempotencyKeyReused();
+    assertImportOpen([recorded], input.requestSha256);
     return {
       report: JSON.parse(recorded.reportJson) as ImportedPageReport,
       created: false,

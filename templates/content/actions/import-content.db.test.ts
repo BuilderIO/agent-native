@@ -545,6 +545,7 @@ describe("import-content", () => {
       vi.spyOn(getDb(), "select").mockImplementationOnce(() => {
         const lookup = {
           from: () => lookup,
+          leftJoin: () => lookup,
           where: () => lookup,
           limit: () => Promise.reject(new Error("connection reset")),
         };
@@ -689,6 +690,23 @@ describe("import-content", () => {
     expect(await importedChildren()).toHaveLength(1);
   });
 
+  it("reports an unexpected failure before any page lands without its raw message", async () => {
+    blobs.put.mockImplementationOnce(async () => {
+      throw new Error("insert failed with params: PRIVATE-BODY-TEXT");
+    });
+    const failed = await asOwner(() =>
+      importContent.run({
+        files: [{ name: "a.md", text: "# A\n\nFirst." }],
+        parentId: PARENT_ID,
+        dryRun: false,
+      }),
+    ).catch((error: unknown) => error);
+    expect((failed as Error).message).toBe(
+      "The server hit an unexpected error before any page was imported.",
+    );
+    expect(await importedChildren()).toHaveLength(0);
+  });
+
   it("keeps raw frontmatter values out of the import record", async () => {
     const applied = await asOwner(() =>
       importContent.run({
@@ -783,6 +801,30 @@ describe("undo-content-import", () => {
     });
 
     await expect(apply(false)).rejects.toMatchObject({
+      errorCode: "IMPORT_PAGE_TRASHED",
+    });
+    const children = await importedChildren();
+    expect(children).toHaveLength(1);
+    expect(children[0].trashedAt).toEqual(expect.any(String));
+  });
+
+  it("refuses a racing apply whose page was undone while it uploaded", async () => {
+    const apply = () =>
+      asOwner(() =>
+        importContent.run({
+          files: guideFiles("/uploads/diagram.png"),
+          parentId: PARENT_ID,
+          dryRun: false,
+          idempotencyKey: "race-undone",
+        }),
+      );
+    blobs.put.mockImplementationOnce(async (input) => {
+      const applied = await apply();
+      await undoContentImport.run({ importId: applied.importId });
+      return storedBlob(input);
+    });
+
+    await expect(apply()).rejects.toMatchObject({
       errorCode: "IMPORT_PAGE_TRASHED",
     });
     const children = await importedChildren();
