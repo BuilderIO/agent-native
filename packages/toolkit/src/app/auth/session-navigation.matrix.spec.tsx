@@ -70,6 +70,11 @@ interface PageLoad {
     session: typeof import("@agent-native/core/client/use-session"),
   ) => void;
   afterLoadEndpoint?: Endpoint;
+  /** Runs right after the first render, while the session read is still open. */
+  duringLoad?: (
+    session: typeof import("@agent-native/core/client/use-session"),
+  ) => void;
+  duringLoadEndpoint?: Endpoint;
 }
 
 interface PageResult {
@@ -218,6 +223,14 @@ async function loadPage(page: PageLoad): Promise<PageResult> {
       React.createElement(RequireSession, null, React.createElement(App)),
     );
   });
+  if (page.duringLoad) {
+    if (page.duringLoadEndpoint) {
+      respond = endpoint(page.duringLoadEndpoint, page.session ?? PERSON);
+    }
+    await act(async () => {
+      page.duringLoad?.(sessionModule);
+    });
+  }
   let appShownWithinStall = false;
   for (let elapsed = 0; elapsed < 45_000; elapsed += 500) {
     await act(async () => {
@@ -299,6 +312,23 @@ describe("session navigation matrix: cold load × endpoint × client × hint", (
       }
     }
   }
+});
+
+describe("a refused read during a hinted load settles the session before the app shows (c)", () => {
+  it("re-reads past a hung session read and sends a signed-out load to sign-in once", async () => {
+    const page = await loadPage({
+      endpoint: "timeout",
+      client: "web",
+      hint: true,
+      duringLoadEndpoint: "signed-out",
+      duringLoad: (session) => session.recheckSessionAfterUnauthorized(),
+    });
+
+    expect(page.navigations).toHaveLength(1);
+    expect(page.navigations[0]).toMatch(/^\/sign-in\?c=/);
+    expect(page.appShownEver).toBe(false);
+    expect(page.sessionRequests).toBeGreaterThanOrEqual(2);
+  });
 });
 
 describe("once authenticated, a load never leaves for sign-in (b)", () => {

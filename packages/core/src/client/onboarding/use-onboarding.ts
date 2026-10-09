@@ -17,6 +17,7 @@ import {
   scheduleAfterPaint,
   scheduleAfterStartup,
 } from "../use-after-paint.js";
+import { useSessionPreloading } from "../use-session.js";
 import {
   dispatchFirstRunOnboardingStatus,
   fetchFirstRunOnboardingStatus,
@@ -911,8 +912,12 @@ export function useOnboarding(
   );
   const deferUntilStartup =
     !preview && !initialFirstRun && !(firstRunSurface && !firstRunCookieAbsent);
+  const preloading = useSessionPreloading();
 
   useEffect(() => {
+    // Under a hinted preload the session is unknown. Onboarding events from
+    // this read would carry the anonymous identity, so the read waits for it.
+    if (preloading) return;
     mountedRef.current = true;
     let initialFetchRan = false;
     const schedule = deferUntilStartup
@@ -943,7 +948,7 @@ export function useOnboarding(
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
     };
-  }, [deferUntilStartup, fetchAll]);
+  }, [deferUntilStartup, fetchAll, preloading]);
 
   const complete = useCallback(
     async (id: string) => {

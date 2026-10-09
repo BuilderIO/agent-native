@@ -3,6 +3,7 @@ import {
   hasSessionHint,
   isSessionNavigationPending,
   navigateForSession,
+  SessionPreloadContext,
   useSession,
 } from "@agent-native/core/client/use-session";
 import { subscribeSessionNavigation } from "@agent-native/core/shared/ssr-session-bootstrap";
@@ -90,7 +91,9 @@ function ResolvedSessionGate({
     return (
       <>
         {fallback ?? <AppShellSkeleton />}
-        <SessionShell hidden>{children}</SessionShell>
+        <SessionPreloadContext.Provider value={true}>
+          <SessionShell hidden>{children}</SessionShell>
+        </SessionPreloadContext.Provider>
       </>
     );
   }
@@ -107,7 +110,9 @@ function ResolvedSessionGate({
   return (
     <>
       {null}
-      <SessionShell>{children}</SessionShell>
+      <SessionPreloadContext.Provider value={false}>
+        <SessionShell>{children}</SessionShell>
+      </SessionPreloadContext.Provider>
     </>
   );
 }

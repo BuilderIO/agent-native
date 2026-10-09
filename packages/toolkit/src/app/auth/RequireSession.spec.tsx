@@ -14,7 +14,10 @@ vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
 
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { useActionQuery } from "@agent-native/core/client/use-action";
-import { navigateForSession } from "@agent-native/core/client/use-session";
+import {
+  navigateForSession,
+  useSessionPreloading,
+} from "@agent-native/core/client/use-session";
 import {
   decodeContinuation,
   SIGN_IN_ENTRY_PATH,
@@ -456,6 +459,45 @@ describe("RequireSession action reads while the session resolves", () => {
       container.querySelector('[data-testid="protected"]')?.textContent,
     ).toBe("designs");
     expect(designsRequests(fetchMock)).toBe(1);
+  });
+
+  it("marks the hidden preload so identity-scoped reads wait for the session", () => {
+    setSessionHintCookie(true);
+    vi.stubGlobal("fetch", designsFetch());
+    function PreloadProbe() {
+      return (
+        <div data-testid="preloading">{String(useSessionPreloading())}</div>
+      );
+    }
+    const probe = () =>
+      container.querySelector('[data-testid="preloading"]')?.textContent;
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: true,
+      status: "loading",
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RequireSession>
+          <PreloadProbe />
+        </RequireSession>
+      </QueryClientProvider>,
+    );
+    expect(probe()).toBe("true");
+
+    useSessionMock.mockReturnValue({
+      session: { userId: "u1", email: "a@b.com" },
+      isLoading: false,
+      status: "authenticated",
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RequireSession>
+          <PreloadProbe />
+        </RequireSession>
+      </QueryClientProvider>,
+    );
+    expect(probe()).toBe("false");
   });
 
   it("does not start the action read before the session resolves without a hint", async () => {
