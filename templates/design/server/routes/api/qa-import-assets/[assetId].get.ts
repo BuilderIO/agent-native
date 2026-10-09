@@ -1,7 +1,11 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 
-import { getSession, streamFile } from "@agent-native/core/server";
+import {
+  getSession,
+  isSessionResolutionUnavailable,
+  streamFile,
+} from "@agent-native/core/server";
 import {
   defineEventHandler,
   getRouterParam,
@@ -20,8 +24,12 @@ export default defineEventHandler(async (event) => {
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (!session?.email) {
+    if (isSessionResolutionUnavailable(event)) {
+      setResponseStatus(event, 503);
+      return { error: "Session unavailable" };
+    }
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }
