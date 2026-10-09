@@ -1596,7 +1596,9 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     const page = await openPage(css, imageHtml("opacity: 0.5;"));
     try {
       await page.evaluate(() => {
-        document.getElementById("pic")!.getAnimations()[0].currentTime = 400;
+        const animation = document.getElementById("pic")!.getAnimations()[0];
+        animation.pause();
+        animation.currentTime = 400;
       });
       const originalOpacity = await page.evaluate(
         () => getComputedStyle(document.getElementById("pic")!).opacity,
