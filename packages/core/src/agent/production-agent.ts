@@ -1940,6 +1940,40 @@ const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
 const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
 const MAX_INLINE_SKILL_REFERENCE_CHARS = 40_000;
+
+const MAX_LOADED_SKILL_SLUGS = 16;
+const LOADED_SKILL_SLUG_PATTERN = /^skill-[a-z0-9]+(?:-+[a-z0-9]+)*$/;
+
+export function normalizeLoadedSkillSlugs(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const slugs = value.filter(
+    (slug): slug is string =>
+      typeof slug === "string" &&
+      slug.length <= 200 &&
+      LOADED_SKILL_SLUG_PATTERN.test(slug),
+  );
+  return [...new Set(slugs.reverse())]
+    .slice(0, MAX_LOADED_SKILL_SLUGS)
+    .reverse();
+}
+
+function skillPageIntactInHistory(
+  messages: readonly EngineMessage[],
+  slug: string,
+  page: string,
+): boolean {
+  const ending = page.trimEnd().slice(-200);
+  return messages.some((message) =>
+    message.content.some(
+      (part) =>
+        part.type === "tool-result" &&
+        part.toolName === "docs-search" &&
+        !part.isError &&
+        part.toolInput.includes(JSON.stringify(slug)) &&
+        part.content.includes(ending),
+    ),
+  );
+}
 export function resolveSourceSweepToolCallThreshold(): number {
   return getAppConfig().agent.sourceSweepToolCallThreshold;
 }
@@ -3498,77 +3532,6 @@ async function applyObservationalMemoryToContext(
     );
     return messages;
   }
-}
-
-function isLoadedSkillPageResult(result: {
-  name: string;
-  input?: unknown;
-  content: string;
-  isError: boolean;
-}): boolean {
-  const input =
-    result.input && typeof result.input === "object"
-      ? (result.input as Record<string, unknown>)
-      : null;
-  return (
-    result.name === "docs-search" &&
-    !result.isError &&
-    typeof input?.slug === "string" &&
-    input.slug.startsWith("skill-") &&
-    result.content.startsWith("# Skill:")
-  );
-}
-
-type ThreadSkillPageReadsResult =
-  | { status: "read"; reads: Awaited<ReturnType<typeof readThreadSkillPages>> }
-  | { status: "unreadable" };
-
-async function readThreadSkillPages(threadId: string) {
-  const { getThread } = await import("../chat-threads/store.js");
-  const { skillPageReadsFromThreadData } =
-    await import("./thread-data-builder.js");
-  return skillPageReadsFromThreadData((await getThread(threadId))?.threadData);
-}
-
-async function threadSkillPageReads(
-  threadId: string | undefined,
-): Promise<ThreadSkillPageReadsResult> {
-  if (!threadId) return { status: "read", reads: [] };
-  try {
-    return { status: "read", reads: await readThreadSkillPages(threadId) };
-  } catch (err) {
-    // The agent can still read skills itself; it just loses the reuse hint.
-    console.warn(
-      `[agent-loop] loaded skill pages unreadable for thread ${threadId}; skills will be re-read:`,
-      err instanceof Error ? err.message : String(err),
-    );
-    return { status: "unreadable" };
-  }
-}
-
-function skillPagesVisibleInHistory(messages: EngineMessage[]): Set<string> {
-  const slugByCallId = new Map<string, string>();
-  const visible = new Set<string>();
-  for (const message of messages) {
-    for (const part of message.content) {
-      if (part.type === "tool-call" && part.name === "docs-search") {
-        const slug = (part.input as { slug?: unknown } | null)?.slug;
-        if (typeof slug === "string") slugByCallId.set(part.id, slug);
-        continue;
-      }
-      if (
-        part.type !== "tool-result" ||
-        part.isError ||
-        !part.content.startsWith("# Skill:") ||
-        part.content.includes("[Tool result truncated")
-      ) {
-        continue;
-      }
-      const slug = slugByCallId.get(part.toolCallId);
-      if (slug) visible.add(slug);
-    }
-  }
-  return visible;
 }
 
 type CachedReadOnlyToolResult = {
@@ -5213,6 +5176,7 @@ export async function runAgentLoop(opts: {
   finalResponseGuardRequestText?: string;
   threadId?: string;
   turnId?: string;
+  loadedSkillSlugs?: readonly string[];
   runSoftTimeoutMs?: number;
   toolLimits?: {
     timeoutMs?: number;
@@ -5485,34 +5449,56 @@ export async function runAgentLoop(opts: {
     journalRead.status === "read" ? journalRead.priorToolCalls : [];
   const journaledPriorToolResults =
     journalRead.status === "read" ? journalRead.priorToolResults : [];
-  // An unreadable thread degrades to the turn journal alone; the agent
-  // re-reads skills itself rather than being told a stale page is loaded.
-  const threadSkillReads = await threadSkillPageReads(opts.threadId);
-  const skillPageResults = [
-    ...(threadSkillReads.status === "read" ? threadSkillReads.reads : []),
-    ...journaledPriorToolResults,
-  ];
-  let currentSkillBodies: ReadonlyMap<string, string> | null = null;
-  if (skillPageResults.some(isLoadedSkillPageResult)) {
-    const { loadAgentsBundle, getRuntimeSkillsForUser, skillDocsSlug } =
-      await import("../server/agents-bundle.js");
-    const runtimeSkills = await getRuntimeSkillsForUser(
-      await loadAgentsBundle(),
-      opts.ownerEmail ?? getRequestUserEmail(),
+  let threadSkillPages = new Map<string, string>();
+  let currentJournalSkillBodies = new Map<string, string>();
+  const hasLoadedSkillPage = journaledPriorToolResults.some((result) => {
+    const input =
+      result.input && typeof result.input === "object"
+        ? (result.input as Record<string, unknown>)
+        : null;
+    return (
+      result.name === "docs-search" &&
+      !result.isError &&
+      typeof input?.slug === "string" &&
+      input.slug.startsWith("skill-") &&
+      result.content.startsWith("# Skill:")
     );
-    currentSkillBodies = new Map(
-      runtimeSkills.map((skill) => [
-        skillDocsSlug(skill.meta.name),
-        skill.content,
-      ]),
+  });
+  const reuseJournaledSkillPages =
+    isInternalContinuationTurn(messages) && hasLoadedSkillPage;
+  const threadSkillSlugs = opts.loadedSkillSlugs ?? [];
+  if (reuseJournaledSkillPages || threadSkillSlugs.length > 0) {
+    const skillUserEmail = opts.ownerEmail ?? getRequestUserEmail();
+    const { loadSkillDocPages } = await import("../scripts/docs/search.js");
+    threadSkillPages = await loadSkillDocPages(
+      threadSkillSlugs,
+      skillUserEmail,
     );
+    if (reuseJournaledSkillPages) {
+      const { loadAgentsBundle, getRuntimeSkillsForUser, skillDocsSlug } =
+        await import("../server/agents-bundle.js");
+      const runtimeSkills = await getRuntimeSkillsForUser(
+        await loadAgentsBundle(),
+        skillUserEmail,
+      );
+      currentJournalSkillBodies = new Map(
+        runtimeSkills.map((skill) => [
+          skillDocsSlug(skill.meta.name),
+          skill.content,
+        ]),
+      );
+    }
   }
-  const systemPromptForMessages = (contextMessages: EngineMessage[]) => {
-    if (!currentSkillBodies) return systemPrompt;
+  // Dedupe against the messages the model actually receives: memory
+  // compaction and retry trimming can remove a page that `messages` still has.
+  const continuationSystemPromptFor = (
+    sentMessages: readonly EngineMessage[],
+  ): string => {
     const loadedSkillsContext = loadedSkillPagesContext(
-      skillPageResults,
-      currentSkillBodies,
-      skillPagesVisibleInHistory(contextMessages),
+      reuseJournaledSkillPages ? journaledPriorToolResults : [],
+      threadSkillPages,
+      currentJournalSkillBodies,
+      (slug, page) => skillPageIntactInHistory(sentMessages, slug, page),
     );
     return loadedSkillsContext
       ? `${systemPrompt}\n\n${loadedSkillsContext}`
@@ -5743,7 +5729,7 @@ export async function runAgentLoop(opts: {
           model,
           systemPrompt: completingFollowUpSuggestions
             ? FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT
-            : systemPromptForMessages(contextMessages),
+            : continuationSystemPromptFor(engineMessages),
           messages: engineMessages,
           tools: loopBreakerCloseout
             ? []
@@ -9566,6 +9552,7 @@ export function createProductionAgentHandler(
       message,
       history: submittedHistory = [],
       structuredHistory: submittedStructuredHistory,
+      loadedSkillSlugs: requestedLoadedSkillSlugs,
       references: submittedReferences = [],
       threadId,
       attachments,
@@ -12041,6 +12028,9 @@ export function createProductionAgentHandler(
           maxIterations: loopSettings.maxIterations,
           maxRunInputTokens: loopSettings.maxRunInputTokens,
           priorTurnInputTokens: turnInputTokens,
+          loadedSkillSlugs: normalizeLoadedSkillSlugs(
+            requestedLoadedSkillSlugs,
+          ),
           finalResponseGuard: options.finalResponseGuard,
           finalResponseGuardRequestText: messageToPersist,
           ...(resolvedRunSoftTimeoutMs > 0

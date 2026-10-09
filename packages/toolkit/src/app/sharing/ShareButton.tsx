@@ -80,6 +80,13 @@ export interface ShareButtonProps {
   shareUrl?: string;
   /** Use a bottom sheet for the share surface below the small-screen breakpoint. */
   mobileSheet?: boolean;
+  /**
+   * The session can run only the basic share actions (list, share, unshare,
+   * visibility), as a scoped MCP App widget session can. Omits the access
+   * request review, the agent-context link and the people suggestions, which
+   * need other routes; an email is still added by typing it.
+   */
+  basicSharingOnly?: boolean;
   /** Open the share surface without rendering a trigger button. */
   hideTrigger?: boolean;
   /** Override the optional temporary agent-context link label. */
@@ -469,12 +476,13 @@ function SharePanel(
   const generalAccessLabel =
     props.generalAccessLabel ??
     t("agentChat.share.generalAccess", { defaultValue: "General access" });
-  const accessRequests = canManage ? (
-    <AccessRequestsSection
-      resourceType={props.resourceType}
-      resourceId={props.resourceId}
-    />
-  ) : null;
+  const accessRequests =
+    canManage && !props.basicSharingOnly ? (
+      <AccessRequestsSection
+        resourceType={props.resourceType}
+        resourceId={props.resourceId}
+      />
+    ) : null;
   const shareLinks = (
     <>
       {props.shareUrl ? (
@@ -610,8 +618,10 @@ function SharePanel(
               <div className="w-full sm:min-w-0 sm:flex-1">
                 <MemberAutocomplete
                   value={inviteEmail}
-                  open={suggestionsOpen}
-                  onOpenChange={setSuggestionsOpen}
+                  open={suggestionsOpen && !props.basicSharingOnly}
+                  onOpenChange={(open) => {
+                    if (!props.basicSharingOnly) setSuggestionsOpen(open);
+                  }}
                   onValueChange={(next) => {
                     onInviteEmailChange(next);
                     if (shareError) setShareError(null);
@@ -818,7 +828,7 @@ function SharePanel(
         </div>
       ) : null}
 
-      {!props.agentTabContent ? (
+      {!props.agentTabContent && !props.basicSharingOnly ? (
         <AgentShareSection
           enabled={data?.agentReadable === true}
           resourceType={props.resourceType}
@@ -849,7 +859,7 @@ function SharePanel(
     const agentPanel = (
       <div className="space-y-4">
         {props.agentTabContent}
-        {!loadFailed && !isLoading ? (
+        {!loadFailed && !isLoading && !props.basicSharingOnly ? (
           <AgentShareSection
             enabled={data?.agentReadable === true}
             resourceType={props.resourceType}

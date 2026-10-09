@@ -1543,7 +1543,7 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).toContain("<skills-summary>");
     expect(prompt).toContain("Prefer concise updates.");
     expect(prompt).toContain(
-      'Read with `docs-search --slug "skill-deep-review"` before starting a task it applies to; reuse that page for the rest of the conversation instead of reading it again.',
+      'Read with `docs-search --slug "skill-deep-review"` before starting a task it applies to; reuse that page for the rest of the conversation.',
     );
     expect(prompt).toContain("do not repeat an equivalent docs-search lookup");
     expect(prompt).toContain("Do not use MCP resource reads for these skills.");

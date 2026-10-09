@@ -364,7 +364,7 @@ describe("loadedSkillPagesContext", () => {
         {
           name: "docs-search",
           input: { slug: "skill-slide-editing" },
-          content: `# Skill: slide-editing\n${"x".repeat(30_000)}`,
+          content: `# Skill: slide-editing\n${"x".repeat(50_000)}`,
           isError: false,
         },
         {
@@ -392,10 +392,11 @@ describe("loadedSkillPagesContext", () => {
           isError: false,
         },
       ],
-      new Map([["skill-slide-editing", ""]]),
+      new Map(),
+      new Map([["skill-slide-editing", "x".repeat(50_000)]]),
     );
 
-    expect(result.length).toBeLessThanOrEqual(32_000);
+    expect(result.length).toBeLessThanOrEqual(40_000);
     expect(result).toContain("skill-slide-editing");
     expect(result).toContain("Skill page truncated");
     expect(result).not.toContain("skill-missing");
@@ -403,50 +404,99 @@ describe("loadedSkillPagesContext", () => {
     expect(result).not.toContain("creative-context");
     expect(result).not.toContain("# Docs index");
   });
-  it("keeps the newest pages within per-page and total caps", () => {
-    const read = (slug: string, size: number) => ({
-      name: "docs-search",
-      input: { slug },
-      content: `# Skill: ${slug}\n${"x".repeat(size)}`,
-      isError: false,
-    });
+
+  it("keeps both slides skills whole and prefers this run's reads", () => {
+    const editing = `# Skill: slide-editing\n${"e".repeat(17_100)}`;
+    const design = `# Skill: slide-design\n${"d".repeat(8_200)}`;
     const result = loadedSkillPagesContext(
       [
-        read("skill-old", 10_000),
-        read("skill-mid", 8_000),
-        read("skill-design", 8_000),
-        read("skill-editing", 20_000),
+        {
+          name: "docs-search",
+          input: { slug: "skill-slide-design" },
+          content: `${design}\nfresh`,
+          isError: false,
+        },
       ],
-      new Map(
-        ["skill-old", "skill-mid", "skill-design", "skill-editing"].map(
-          (slug) => [slug, ""],
-        ),
-      ),
+      new Map([
+        ["skill-slide-design", design],
+        ["skill-slide-editing", editing],
+      ]),
+      new Map([["skill-slide-design", "d".repeat(8_200)]]),
     );
 
-    expect(result.length).toBeLessThanOrEqual(32_000);
-    expect(result.indexOf("## skill-editing")).toBeLessThan(
-      result.indexOf("## skill-design"),
+    expect(result).toContain("earlier in this conversation");
+    expect(result).toContain(editing);
+    expect(result).toContain(`${design}\nfresh`);
+    expect(result).not.toContain("Skill page truncated");
+    expect(result.indexOf("## skill-slide-design")).toBeLessThan(
+      result.indexOf("## skill-slide-editing"),
     );
-    expect(result).toContain("Skill page truncated");
-    expect(result).not.toContain("## skill-old");
   });
-});
 
-describe("loadedSkillPagesContext staleness", () => {
-  it("drops saved pages that no longer contain the current skill body", () => {
-    const read = (content: string) => ({
-      name: "docs-search",
-      input: { slug: "skill-a" },
-      content,
-      isError: false,
-    });
-    const bodies = new Map([["skill-a", "new instructions"]]);
-    expect(
-      loadedSkillPagesContext([read("# Skill: a\nold instructions")], bodies),
-    ).toBe("");
-    expect(
-      loadedSkillPagesContext([read("# Skill: a\nnew instructions")], bodies),
-    ).toContain("new instructions");
+  it("skips journaled reads that no longer match the current skill body", () => {
+    const result = loadedSkillPagesContext(
+      [
+        {
+          name: "docs-search",
+          input: { slug: "skill-slide-editing" },
+          content: "# Skill: slide-editing\nOld guidance.",
+          isError: false,
+        },
+      ],
+      new Map(),
+      new Map([["skill-slide-editing", "New guidance."]]),
+    );
+
+    expect(result).toBe("");
+  });
+
+  it("skips pages still intact in the model's history", () => {
+    const page = "# Skill: slide-editing\nGuidance.";
+    const result = loadedSkillPagesContext(
+      [
+        {
+          name: "docs-search",
+          input: { slug: "skill-slide-editing" },
+          content: page,
+          isError: false,
+        },
+      ],
+      new Map([["skill-slide-design", "# Skill: slide-design\nDesign."]]),
+      new Map([["skill-slide-editing", "Guidance."]]),
+      (slug) => slug === "skill-slide-editing",
+    );
+
+    expect(result).not.toContain("## skill-slide-editing");
+    expect(result).toContain("## skill-slide-design");
+  });
+
+  it("lists skill pages dropped by the budget so they can be re-read", () => {
+    const result = loadedSkillPagesContext(
+      [],
+      new Map([
+        ["skill-old", `# Skill: old\n${"o".repeat(100)}`],
+        ["skill-big", `# Skill: big\n${"b".repeat(50_000)}`],
+        ["skill-older", `# Skill: older\n${"x".repeat(100)}`],
+      ]),
+      new Map(),
+    );
+
+    expect(result).toContain("Skill page truncated");
+    expect(result).toContain("read with docs-search if needed: skill-old]");
+    expect(result).not.toContain("## skill-old\n");
+  });
+
+  it("keeps the omitted notice within the context cap for many long slugs", () => {
+    const pages = new Map<string, string>();
+    for (let i = 0; i < 16; i++) {
+      pages.set(
+        `skill-${i}-${"s".repeat(190)}`,
+        `# Skill: s\n${"p".repeat(30_000)}`,
+      );
+    }
+    const result = loadedSkillPagesContext([], pages, new Map());
+
+    expect(result.length).toBeLessThanOrEqual(40_000);
+    expect(result).toContain("Omitted to fit loaded-skill context");
   });
 });

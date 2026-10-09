@@ -1040,49 +1040,6 @@ export function threadDataToEngineMessages(
   return messages;
 }
 
-export interface ThreadSkillPageRead {
-  name: "docs-search";
-  input: { slug: string };
-  content: string;
-  isError: boolean;
-}
-
-/**
- * Every completed `docs-search` skill-page read in the persisted thread, oldest
- * first. Replayed history truncates and budgets tool results, so a skill read
- * in an earlier turn is usually gone from the model's view; this reads the
- * stored result instead. Throws on unparsable thread data so a caller can tell
- * "no skills loaded" from "history unreadable".
- */
-export function skillPageReadsFromThreadData(
-  threadData: string | Record<string, unknown> | null | undefined,
-): ThreadSkillPageRead[] {
-  if (!threadData) return [];
-  const data: any =
-    typeof threadData === "string" ? JSON.parse(threadData) : threadData;
-  if (!Array.isArray(data?.messages)) return [];
-  const reads: ThreadSkillPageRead[] = [];
-  for (const entry of data.messages) {
-    const m = entry?.message ?? entry;
-    if (m?.role !== "assistant" || !Array.isArray(m.content)) continue;
-    for (const part of m.content) {
-      if (part?.type !== "tool-call" || part.toolName !== "docs-search") {
-        continue;
-      }
-      const slug = part.args?.slug;
-      if (typeof slug !== "string" || !slug.startsWith("skill-")) continue;
-      if (typeof part.result !== "string") continue;
-      reads.push({
-        name: "docs-search",
-        input: { slug },
-        content: part.result,
-        isError: part.isError === true,
-      });
-    }
-  }
-  return reads;
-}
-
 const MAX_RECOVERED_HISTORY_MESSAGES = 12;
 const MAX_RECOVERED_HISTORY_CHARS = 32_000;
 

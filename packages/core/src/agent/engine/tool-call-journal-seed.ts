@@ -145,19 +145,14 @@ export const JOURNALED_TOOL_REPLAY_PREFIX =
   "(Already completed in an earlier interrupted attempt - not re-run to avoid a duplicate side effect.)\n\n";
 export const RECOVERED_TOOL_REPLAY_PREFIX =
   "(Recovered from prior interrupted chunk — action already completed.)\n\n";
-const LOADED_SKILL_CONTEXT_MAX_CHARS = 32_000;
-const LOADED_SKILL_PAGE_MAX_CHARS = 16_000;
+const LOADED_SKILL_CONTEXT_MAX_CHARS = 40_000;
+const OMITTED_NOTICE_RESERVE_CHARS = 1_000;
 
-/**
- * `visibleSlugs` are pages whose full result is still in the model's history;
- * they are skipped so the same page is not sent twice. A saved page is reused
- * only if it still contains the skill's current body, so edited or truncated
- * pages are re-read instead.
- */
 export function loadedSkillPagesContext(
   results: readonly PriorTurnToolResultSummary[],
+  threadPages: ReadonlyMap<string, string>,
   currentSkillBodies: ReadonlyMap<string, string>,
-  visibleSlugs: ReadonlySet<string> = new Set(),
+  isInHistory: (slug: string, page: string) => boolean = () => false,
 ): string {
   const pages = new Map<string, string>();
   for (const result of results) {
@@ -167,46 +162,80 @@ export function loadedSkillPagesContext(
         ? (result.input as Record<string, unknown>)
         : null;
     const slug = input?.slug;
+    const currentBody =
+      typeof slug === "string" ? currentSkillBodies.get(slug) : undefined;
+    // A journaled read may predate a skill edit or have been truncated; only
+    // reuse it if it still holds the skill's current body.
     if (
       typeof slug !== "string" ||
       !slug.startsWith("skill-") ||
-      !currentSkillBodies.has(slug) ||
+      currentBody === undefined ||
       !result.content.startsWith("# Skill:") ||
       result.content.includes("Doc not found:") ||
-      !result.content.includes(currentSkillBodies.get(slug)!.trim())
+      !result.content.includes(currentBody.trim())
     ) {
       continue;
     }
     pages.delete(slug);
     pages.set(slug, result.content);
   }
-  for (const slug of visibleSlugs) pages.delete(slug);
+  const merged = new Map(threadPages);
+  for (const [slug, page] of pages) {
+    merged.delete(slug);
+    merged.set(slug, page);
+  }
+  for (const [slug, page] of merged) {
+    if (isInHistory(slug, page)) merged.delete(slug);
+  }
+  return renderLoadedSkillPages(merged);
+}
+
+// Newest reads win the budget: they are likeliest to apply to the current task.
+function renderLoadedSkillPages(pages: ReadonlyMap<string, string>): string {
   if (pages.size === 0) return "";
 
   const opening =
-    "<already-loaded-skills>These skill pages were already read earlier in this conversation. Reuse them instead of calling docs-search again. If a page is marked truncated, read only when missing detail matters.\n";
+    "<already-loaded-skills>These skill pages were already read earlier in this conversation. Reuse them instead of calling docs-search again. If a page is marked truncated or listed as omitted, read it with docs-search when missing detail matters.\n";
   const closing = "\n</already-loaded-skills>";
-  const marker = "\n[Skill page truncated to fit context.]";
   let remaining =
-    LOADED_SKILL_CONTEXT_MAX_CHARS - opening.length - closing.length;
+    LOADED_SKILL_CONTEXT_MAX_CHARS -
+    opening.length -
+    closing.length -
+    OMITTED_NOTICE_RESERVE_CHARS;
   const blocks: string[] = [];
-  // Newest first: when the budget runs out, the page the agent is working
-  // from is the one that must survive.
-  for (const [slug, page] of [...pages].reverse()) {
+  const entries = [...pages].reverse();
+  let omitted: string[] = [];
+  for (const [index, [slug, page]] of entries.entries()) {
     const heading = `\n## ${slug}\n`;
-    const room = Math.min(
-      LOADED_SKILL_PAGE_MAX_CHARS,
-      remaining - heading.length,
+    if (remaining <= heading.length) {
+      omitted = entries.slice(index).map(([omittedSlug]) => omittedSlug);
+      break;
+    }
+    const truncated = page.length > remaining - heading.length;
+    const marker = truncated
+      ? "\n[Skill page truncated to fit loaded-skill context.]"
+      : "";
+    const body = page.slice(
+      0,
+      Math.max(0, remaining - heading.length - marker.length),
     );
-    if (room <= marker.length) break;
-    const body =
-      page.length > room
-        ? `${page.slice(0, room - marker.length)}${marker}`
-        : page;
-    blocks.push(`${heading}${body}`);
-    remaining -= heading.length + body.length;
+    blocks.push(`${heading}${body}${marker}`);
+    remaining -= heading.length + body.length + marker.length;
+    if (truncated) {
+      omitted = entries.slice(index + 1).map(([omittedSlug]) => omittedSlug);
+      break;
+    }
   }
-  return blocks.length > 0 ? `${opening}${blocks.join("")}${closing}` : "";
+  if (blocks.length === 0) return "";
+  if (omitted.length > 0) {
+    const prefix =
+      "\n[Omitted to fit loaded-skill context; read with docs-search if needed: ";
+    const names = omitted
+      .join(", ")
+      .slice(0, OMITTED_NOTICE_RESERVE_CHARS - prefix.length - 4);
+    blocks.push(`${prefix}${names}]`);
+  }
+  return `${opening}${blocks.join("\n")}${closing}`;
 }
 
 export function seedRepeatedToolCallCountsFromJournal(

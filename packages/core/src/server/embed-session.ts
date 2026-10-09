@@ -1676,12 +1676,29 @@ function crossSiteCookieAttrs(event: H3Event): {
     : { sameSite: "lax", secure: false };
 }
 
+// A browser drops a cookie whose name and value exceed 4096 bytes, and the
+// widest directory widget grants sign a larger token than that.
+const EMBED_SESSION_COOKIE_MAX_BYTES = 4096;
+
 export function setEmbedSessionCookie(event: H3Event, token: string): void {
-  setCookie(event, EMBED_SESSION_COOKIE, token, {
+  const attrs = {
     httpOnly: true,
     ...crossSiteCookieAttrs(event),
     ...cookieDomainAttrs(event),
     path: "/",
+  };
+  if (
+    Buffer.byteLength(`${EMBED_SESSION_COOKIE}=${token}`) >
+    EMBED_SESSION_COOKIE_MAX_BYTES
+  ) {
+    // The page keeps the token it was handed (query or bearer), which resolves
+    // ahead of the cookie. Expire any earlier cookie so it cannot stand in for
+    // this session on requests that carry no token.
+    setCookie(event, EMBED_SESSION_COOKIE, "", { ...attrs, maxAge: 0 });
+    return;
+  }
+  setCookie(event, EMBED_SESSION_COOKIE, token, {
+    ...attrs,
     maxAge: DEFAULT_TOKEN_TTL_SECONDS,
   });
 }
