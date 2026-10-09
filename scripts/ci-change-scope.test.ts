@@ -1088,6 +1088,7 @@ test("fast-tests gates the selected browser checks on their actual job results",
   assert.ok(
     fastTestsJob.includes('require_boolean "Fast tests" "$FAST_TESTS"'),
   );
+  assert.ok(fastTestsJob.includes('require_boolean "docs-only" "$DOCS_ONLY"'));
   assert.ok(fastTestsJob.includes('require_success "Determine change scope"'));
   assert.ok(fastTestsJob.includes('require_success "Docs checks"'));
   assert.ok(
@@ -1284,6 +1285,28 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
       status: 1,
       outputIncludes:
         "Determine change scope: Fast tests selection was missing or invalid (invalid)",
+    },
+    {
+      name: "a missing docs-only selector fails closed",
+      overrides: {
+        DOCS_ONLY: "",
+        FAST_TESTS: "false",
+        TEST_TARGETED_RESULT: "skipped",
+      },
+      status: 1,
+      outputIncludes:
+        "Determine change scope: docs-only selection was missing or invalid ()",
+    },
+    {
+      name: "an invalid docs-only selector fails closed",
+      overrides: {
+        DOCS_ONLY: "invalid",
+        FAST_TESTS: "false",
+        TEST_TARGETED_RESULT: "skipped",
+      },
+      status: 1,
+      outputIncludes:
+        "Determine change scope: docs-only selection was missing or invalid (invalid)",
     },
     {
       name: "an invalid pre-auth selection fails closed",

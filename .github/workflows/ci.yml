@@ -702,6 +702,7 @@ jobs:
           else
             require_boolean "full-suite" "$CI_FULL"
             require_boolean "Fast tests" "$FAST_TESTS"
+            require_boolean "docs-only" "$DOCS_ONLY"
 
             if [[ "$PRE_AUTH_REPLAY_E2E" == "true" ]]; then
               require_success "Pre-auth session replay smoke" "$PRE_AUTH_REPLAY_RESULT"
