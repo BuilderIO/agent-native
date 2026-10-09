@@ -68,7 +68,11 @@ export function PageDraftRecovery({
   const openAiWidget = isOpenAiMcpAppHost();
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
   const scopedWidgetReadOnly = document.mcpDirectoryWidgetReadOnly === true;
-  const skipDraftRecovery = openAiWidget || scopedWidgetReadOnly;
+  const skipDraftRecovery =
+    openAiWidget ||
+    scopedWidgetReadOnly ||
+    document.canEdit !== true ||
+    document.source?.mode === "local-files";
   const { session } = useSession();
   const scopeKey = session?.email
     ? JSON.stringify([
@@ -78,11 +82,11 @@ export function PageDraftRecovery({
       ])
     : null;
   const queryClient = useQueryClient();
-  const creationPending = isDocumentCreationPending(document);
+  const creationPending = isDocumentCreationPending(queryClient, document);
   const skipCreationDraftRecoveryRef = useRef(
-    creationPending || isDocumentCreationConfirmed(document),
+    creationPending || isDocumentCreationConfirmed(queryClient, document),
   );
-  if (creationPending || isDocumentCreationConfirmed(document)) {
+  if (creationPending || isDocumentCreationConfirmed(queryClient, document)) {
     skipCreationDraftRecoveryRef.current = true;
   }
   const skipCreationDraftRecovery = skipCreationDraftRecoveryRef.current;
@@ -129,7 +133,13 @@ export function PageDraftRecovery({
   useEffect(() => {
     setVerifiedScopeKey(null);
     setReleasedScopeKey(null);
-    if (!scopeKey || creationPending || skipDraftRecovery) return;
+    if (
+      !scopeKey ||
+      creationPending ||
+      skipDraftRecovery ||
+      skipCreationDraftRecovery
+    )
+      return;
     let cancelled = false;
     void ensurePreviewDocumentDraftRead(
       queryClient,
@@ -149,6 +159,7 @@ export function PageDraftRecovery({
     creationPending,
     document.id,
     skipDraftRecovery,
+    skipCreationDraftRecovery,
     scopeKey,
     verificationRevision,
   ]);

@@ -159,7 +159,6 @@ import {
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
 import {
-  clearDocumentCreationConfirmed,
   isDocumentCreationConfirmed,
   isDocumentCreationPending,
 } from "@/lib/optimistic-document";
@@ -1359,6 +1358,35 @@ export function PageEditorSurface({
   const loadFailureRef = useRef<DocumentLoadFailureState | null>(null);
   const document =
     queriedDocument?.id === documentId ? queriedDocument : undefined;
+  const creationPending = document
+    ? isDocumentCreationPending(queryClient, document)
+    : false;
+  const creationConfirmed = document
+    ? isDocumentCreationConfirmed(queryClient, document)
+    : false;
+  const authoritativeReadRef = useRef<{
+    queryIdentity: string;
+    succeeded: boolean;
+  }>({ queryIdentity: authoritativeSuccess.queryIdentity, succeeded: false });
+  if (
+    authoritativeReadRef.current.queryIdentity !==
+    authoritativeSuccess.queryIdentity
+  ) {
+    authoritativeReadRef.current = {
+      queryIdentity: authoritativeSuccess.queryIdentity,
+      succeeded: false,
+    };
+  }
+  if (
+    document &&
+    (authoritativeSuccess.generation > 0 ||
+      (readsStartedEarly && !isFetching && !isError))
+  ) {
+    authoritativeReadRef.current.succeeded = true;
+  }
+  const creationAwaitingFirstRead =
+    creationPending ||
+    (creationConfirmed && !authoritativeReadRef.current.succeeded);
   const optimisticTitle = useOptimisticDocumentTitle(documentId, {
     seededTitle:
       queriedDocument?.id === documentId ? queriedDocument.title : null,
@@ -1367,9 +1395,7 @@ export function PageEditorSurface({
     previous: loadFailureRef.current,
     documentId,
     admitted: admittedDocumentIdRef.current === documentId,
-    isDocumentCreationConfirmed: document
-      ? isDocumentCreationConfirmed(document)
-      : false,
+    isDocumentCreationConfirmed: creationAwaitingFirstRead,
     dataUpdatedAt,
     errorUpdateCount,
     errorUpdatedAt,
@@ -1381,12 +1407,8 @@ export function PageEditorSurface({
     documentId,
     admittedDocumentId: admittedDocumentIdRef.current,
     hasDocument: Boolean(document),
-    isDocumentCreationConfirmed: document
-      ? isDocumentCreationConfirmed(document)
-      : false,
-    isDocumentCreationPending: document
-      ? isDocumentCreationPending(document)
-      : false,
+    isDocumentCreationConfirmed: creationAwaitingFirstRead,
+    isDocumentCreationPending: creationPending,
     isFetchedAfterMount: fetchedForThisOpen,
     isFetching,
     isError,
@@ -1397,13 +1419,6 @@ export function PageEditorSurface({
     error,
   });
   admittedDocumentIdRef.current = loadState.admittedDocumentId;
-
-  useEffect(
-    () => () => {
-      clearDocumentCreationConfirmed({ id: documentId });
-    },
-    [documentId],
-  );
 
   useRecordContentVisit(
     { documentId },
@@ -1512,6 +1527,8 @@ export function PageEditorSurface({
           foreground && host === "page" && !isError && fetchedForThisOpen
         }
         documentFresh={!isError && fetchedForThisOpen}
+        creationConfirmed={creationConfirmed}
+        creationAwaitingFirstRead={creationAwaitingFirstRead}
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
         viewId={viewId}
@@ -1523,8 +1540,7 @@ export function PageEditorSurface({
       />
     </DocumentCommentDraftProvider>
   );
-  return document.canEdit === true &&
-    document.source?.mode !== "local-files" ? (
+  return (
     <PageDraftRecovery
       key={pageEditorSessionKey({
         documentId,
@@ -1535,8 +1551,6 @@ export function PageEditorSurface({
     >
       {editor}
     </PageDraftRecovery>
-  ) : (
-    editor
   );
 }
 
@@ -1863,6 +1877,8 @@ interface DocumentEditorBodyProps {
   onTitleFocused?: () => void;
   foreground?: boolean;
   documentFresh?: boolean;
+  creationConfirmed?: boolean;
+  creationAwaitingFirstRead?: boolean;
 }
 
 type PendingDocumentSave = {
@@ -2401,6 +2417,8 @@ function PageEditorSessionBody({
   onTitleFocused,
   foreground = false,
   documentFresh = false,
+  creationConfirmed = false,
+  creationAwaitingFirstRead = false,
 }: DocumentEditorBodyProps) {
   const acknowledgedDocumentRef = useRef<Document | null>(null);
   const resolvedDocument = resolveAcknowledgedDocumentSnapshot({
@@ -2901,6 +2919,8 @@ function PageEditorSessionBody({
   const promotedBuilderBodyRef = useRef<string | null>(null);
   const builderBodyRetryWakeRef = useRef<number | null>(null);
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
+  const [initialCreationSaveInFlight, setInitialCreationSaveInFlight] =
+    useState(false);
   const documentSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const activeContentSavesRef = useRef(0);
   const liveMarkdownRef = useRef<string | null>(null);
@@ -3260,8 +3280,16 @@ function PageEditorSessionBody({
     isLocalFileDocument,
     mcpDirectoryWidgetReadOnly,
   });
+  const holdCollaborationForCreationSave =
+    creationConfirmed &&
+    (initialCreationSaveInFlight || pendingDocumentSaveRef.current !== null);
   const collabDocumentId =
-    collabEnabled && !isDocumentCreationPending(document) ? documentId : null;
+    collabEnabled &&
+    !creationAwaitingFirstRead &&
+    !holdCollaborationForCreationSave &&
+    !isDocumentCreationPending(queryClient, document)
+      ? documentId
+      : null;
   const {
     ydoc,
     awareness,
@@ -3287,13 +3315,17 @@ function PageEditorSessionBody({
       : null;
   const collabInitializationFailed =
     collabEnabled && collabInitialization.status === "error";
+  const creationCanEditWithoutCollaboration =
+    (creationConfirmed || creationAwaitingFirstRead) && !collabSynced;
   const editorCanEdit =
     canEdit &&
     !bodyHydrationPending &&
     !localSourceMissing &&
     (!isLocalFileDocument || localSourceAccess === "available") &&
-    (isLocalFileDocument || collabSynced) &&
-    !collabInitializationFailed;
+    (isLocalFileDocument ||
+      collabSynced ||
+      creationCanEditWithoutCollaboration) &&
+    (!collabInitializationFailed || creationCanEditWithoutCollaboration);
   const collabEditorEnabled =
     collabEnabled &&
     canEdit &&
@@ -3618,10 +3650,10 @@ function PageEditorSessionBody({
           editorEditGeneration: options.editGeneration,
           browserSaveAttemptId: options.saveAttemptId,
           ...(updates.content !== undefined &&
-          options.authoredContentIntent &&
+          options.authoredContentIntent?.baseRevision &&
           authoredCandidateMatchesContent(
             updates.content,
-            options.authoredContentIntent?.candidateContent,
+            options.authoredContentIntent.candidateContent,
           )
             ? {
                 authoredBaseRevision:
@@ -4000,7 +4032,8 @@ function PageEditorSessionBody({
         let result;
         try {
           const collaborationFlushed =
-            await flushBeforeSave(flushCollabUpdates);
+            creationCanEditWithoutCollaboration ||
+            (await flushBeforeSave(flushCollabUpdates));
           if (
             options.requireActiveEditorSession &&
             !editorSessionActiveRef.current
@@ -4625,6 +4658,12 @@ function PageEditorSessionBody({
   };
   const flushPendingDocumentSave = useCallback(
     (pending: PendingDocumentSave) => {
+      if (
+        isDocumentCreationPending(queryClient, currentDocumentRef.current) ||
+        creationAwaitingFirstRead
+      ) {
+        return Promise.resolve();
+      }
       if (!pending.canEditWhenQueued) return Promise.resolve();
       return Promise.resolve(
         pending.save(pending.title, pending.content, {
@@ -4651,8 +4690,68 @@ function PageEditorSessionBody({
         })
         .catch(handleBackgroundSaveError);
     },
-    [handleBackgroundSaveError],
+    [creationAwaitingFirstRead, handleBackgroundSaveError, queryClient],
   );
+  useEffect(() => {
+    if (
+      !document?.revision ||
+      creationAwaitingFirstRead ||
+      !isDocumentCreationConfirmed(queryClient, document)
+    ) {
+      return;
+    }
+    const pending = pendingDocumentSaveRef.current;
+    if (!pending) return;
+
+    setInitialCreationSaveInFlight(true);
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = null;
+    pendingDocumentSaveRef.current = null;
+
+    const contentBase = {
+      content: document.content,
+      updatedAt: document.updatedAt ?? null,
+      revision: document.revision,
+    };
+    const authoredContentIntent =
+      pending.content === document.content
+        ? undefined
+        : {
+            ...pending.authoredContentIntent,
+            editGeneration: pending.editGeneration,
+            baseRevision: document.revision,
+            baseContent: document.content,
+            candidateContent: pending.content,
+          };
+    const createdDocumentSave = {
+      ...pending,
+      contentBase,
+      titleBase: document.title,
+      contentAuthoredAfterRevision: document.revision,
+      authoredContentIntent,
+    };
+    journalCurrentDraft(
+      createdDocumentSave.title,
+      createdDocumentSave.content,
+      createdDocumentSave.editGeneration,
+      {
+        saveAttemptId: createdDocumentSave.saveAttemptId,
+        contentBase,
+        titleBase: document.title,
+        authoredContentIntent,
+      },
+    );
+    void flushPendingDocumentSave(createdDocumentSave).finally(() => {
+      setInitialCreationSaveInFlight(false);
+    });
+  }, [
+    creationConfirmed,
+    creationAwaitingFirstRead,
+    document,
+    flushPendingDocumentSave,
+    journalCurrentDraft,
+    queryClient,
+  ]);
   useEffect(() => {
     editorSessionActiveRef.current = true;
     return () => {
@@ -4798,6 +4897,16 @@ function PageEditorSessionBody({
         saveAttemptId: crypto.randomUUID(),
         expectedLocalSourceRevision,
         timeout: setTimeout(() => {
+          if (
+            isDocumentCreationPending(
+              queryClient,
+              currentDocumentRef.current,
+            ) ||
+            creationAwaitingFirstRead
+          ) {
+            saveTimeoutRef.current = null;
+            return;
+          }
           if (pendingDocumentSaveRef.current === pending) {
             pendingDocumentSaveRef.current = null;
           }
@@ -4815,8 +4924,10 @@ function PageEditorSessionBody({
     },
     [
       flushPendingDocumentSave,
+      creationAwaitingFirstRead,
       isLinkedLocalSourceDocument,
       journalCurrentDraft,
+      queryClient,
       queueDocumentSave,
     ],
   );
@@ -4849,6 +4960,9 @@ function PageEditorSessionBody({
     if (!canEdit) return;
 
     const sendKeepaliveSave = (pending: PendingDocumentSave) => {
+      if (isDocumentCreationPending(queryClient, currentDocumentRef.current)) {
+        return false;
+      }
       if (!pending.canEditWhenQueued) return false;
 
       if (isLocalFileDocument || isLinkedLocalSourceDocument) {
@@ -4953,6 +5067,9 @@ function PageEditorSessionBody({
     };
 
     const flushForTeardown = () => {
+      if (isDocumentCreationPending(queryClient, currentDocumentRef.current)) {
+        return;
+      }
       const pending = pendingDocumentSaveRef.current;
       if (!pending || !pending.canEditWhenQueued) return;
       clearTimeout(pending.timeout);
@@ -4963,6 +5080,9 @@ function PageEditorSessionBody({
 
     const onVisibilityChange = () => {
       if (window.document.visibilityState !== "hidden") return;
+      if (isDocumentCreationPending(queryClient, currentDocumentRef.current)) {
+        return;
+      }
       const pending = pendingDocumentSaveRef.current;
       if (!pending) return;
       clearTimeout(pending.timeout);
@@ -4990,6 +5110,7 @@ function PageEditorSessionBody({
     isLocalFileDocument,
     isLinkedLocalSourceDocument,
     flushPendingDocumentSave,
+    queryClient,
   ]);
 
   const flushRequestInFlightRef = useRef(new Set<string>());
@@ -9100,6 +9221,7 @@ function PageEditorSessionBody({
                     {!bodyHydrationPending &&
                     collabEnabled &&
                     canEdit &&
+                    !creationCanEditWithoutCollaboration &&
                     !collabSynced ? (
                       <div
                         className="mt-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"

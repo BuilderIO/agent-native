@@ -28,40 +28,65 @@ function document(): Document {
 
 describe("optimistic document creation", () => {
   it("marks only the optimistic cache record as pending", () => {
-    const optimistic = markDocumentCreationPending(document());
+    const queryClient = new QueryClient();
+    const otherQueryClient = new QueryClient();
+    const optimistic = markDocumentCreationPending(queryClient, document());
 
-    expect(isDocumentCreationPending(optimistic)).toBe(true);
-    expect(isDocumentCreationPending({ ...optimistic })).toBe(true);
-    expect(isDocumentCreationPending(document())).toBe(false);
+    expect(isDocumentCreationPending(queryClient, optimistic)).toBe(true);
+    expect(isDocumentCreationPending(queryClient, { ...optimistic })).toBe(
+      true,
+    );
+    expect(isDocumentCreationPending(otherQueryClient, optimistic)).toBe(false);
+    queryClient.clear();
+    otherQueryClient.clear();
+  });
+
+  it("preserves pending create state through query cache structural sharing", () => {
+    const queryClient = new QueryClient();
+    const queryKey = ["action", "get-document", { id: "page-1" }];
+    const optimistic = markDocumentCreationPending(queryClient, document());
+    queryClient.setQueryData(queryKey, optimistic);
+    queryClient.setQueryData(queryKey, { ...optimistic, title: "Untitled" });
+
+    const cached = queryClient.getQueryData<Document>(queryKey);
+    expect(cached).toBeDefined();
+    expect(isDocumentCreationPending(queryClient, cached!)).toBe(true);
+
+    queryClient.clear();
   });
 
   it("marks a successful create response for immediate first paint", () => {
+    const queryClient = new QueryClient();
     const persisted = document();
-    const confirmed = markDocumentCreationConfirmed(persisted);
+    const confirmed = markDocumentCreationConfirmed(queryClient, persisted);
 
     expect(confirmed).toBe(persisted);
-    expect(isDocumentCreationConfirmed(confirmed)).toBe(true);
-    const cleared = clearDocumentCreationConfirmed(confirmed);
+    expect(isDocumentCreationConfirmed(queryClient, confirmed)).toBe(true);
+    const cleared = clearDocumentCreationConfirmed(queryClient, confirmed);
     expect(cleared).toBe(confirmed);
-    expect(isDocumentCreationConfirmed(cleared)).toBe(false);
-    expect(isDocumentCreationConfirmed(persisted)).toBe(false);
+    expect(isDocumentCreationConfirmed(queryClient, cleared)).toBe(false);
+    expect(isDocumentCreationConfirmed(queryClient, persisted)).toBe(false);
+    queryClient.clear();
   });
 
   it("preserves create confirmation through query cache structural sharing", () => {
     const queryClient = new QueryClient();
     const queryKey = ["action", "get-document", { id: "page-1" }];
-    queryClient.setQueryData(queryKey, markDocumentCreationPending(document()));
     queryClient.setQueryData(
       queryKey,
-      markDocumentCreationConfirmed(document()),
+      markDocumentCreationPending(queryClient, document()),
+    );
+    queryClient.setQueryData(
+      queryKey,
+      markDocumentCreationConfirmed(queryClient, document()),
     );
 
     const cached = queryClient.getQueryData<Document>(queryKey);
     expect(cached).toBeDefined();
-    expect(isDocumentCreationConfirmed(cached!)).toBe(true);
-    expect(isDocumentCreationPending(cached!)).toBe(false);
+    expect(isDocumentCreationConfirmed(queryClient, cached!)).toBe(true);
+    expect(isDocumentCreationPending(queryClient, cached!)).toBe(false);
 
-    clearDocumentCreationConfirmed(cached!);
+    clearDocumentCreationConfirmed(queryClient, cached!);
     queryClient.clear();
   });
 
@@ -70,7 +95,7 @@ describe("optimistic document creation", () => {
       defaultOptions: { queries: { retry: false } },
     });
     const queryKey = ["action", "get-document", { id: "page-1" }];
-    const created = markDocumentCreationConfirmed(document());
+    const created = markDocumentCreationConfirmed(queryClient, document());
     queryClient.setQueryData(queryKey, created);
 
     await expect(
@@ -85,13 +110,25 @@ describe("optimistic document creation", () => {
 
     const cached = queryClient.getQueryData<Document>(queryKey);
     expect(cached).toBe(created);
-    clearDocumentCreationConfirmed(cached!);
+    clearDocumentCreationConfirmed(queryClient, cached!);
     expect(queryClient.getQueryData(queryKey)).toBe(cached);
     expect(queryClient.getQueryState(queryKey)?.status).toBe("error");
     expect(queryClient.getQueryState(queryKey)?.error).toMatchObject({
       status: 403,
     });
 
+    queryClient.clear();
+  });
+
+  it("clears create confirmation when its cached page is removed", () => {
+    const queryClient = new QueryClient();
+    const queryKey = ["action", "get-document", { id: "page-1" }];
+    const created = markDocumentCreationConfirmed(queryClient, document());
+    queryClient.setQueryData(queryKey, created);
+
+    queryClient.removeQueries({ queryKey });
+
+    expect(isDocumentCreationConfirmed(queryClient, created)).toBe(false);
     queryClient.clear();
   });
 

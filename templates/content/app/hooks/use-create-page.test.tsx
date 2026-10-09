@@ -10,25 +10,34 @@ import {
   isDocumentCreationPending,
 } from "@/lib/optimistic-document";
 
-const mocks = vi.hoisted(() => ({
-  createDocument: vi.fn(),
-  getQueryData: vi.fn(),
-  invalidateQueries: vi.fn(),
-  navigate: vi.fn(),
-  removeCreatedDocumentNavigation: vi.fn(),
-  removeQueries: vi.fn(),
-  rollbackOptimisticCreatedDocument: vi.fn(),
-  seedCreatedDocumentNavigation: vi.fn(),
-  setQueryData: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const getQueryData = vi.fn();
+  const invalidateQueries = vi.fn();
+  const removeQueries = vi.fn();
+  const setQueryData = vi.fn();
+  const queryClient = {
+    getQueryCache: () => ({ findAll: () => [], subscribe: () => () => {} }),
+    getQueryData,
+    invalidateQueries,
+    removeQueries,
+    setQueryData,
+  };
+  return {
+    createDocument: vi.fn(),
+    getQueryData,
+    invalidateQueries,
+    navigate: vi.fn(),
+    queryClient,
+    removeCreatedDocumentNavigation: vi.fn(),
+    removeQueries,
+    rollbackOptimisticCreatedDocument: vi.fn(),
+    seedCreatedDocumentNavigation: vi.fn(),
+    setQueryData,
+  };
+});
 
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({
-    getQueryData: mocks.getQueryData,
-    invalidateQueries: mocks.invalidateQueries,
-    removeQueries: mocks.removeQueries,
-    setQueryData: mocks.setQueryData,
-  }),
+  useQueryClient: () => mocks.queryClient,
 }));
 
 vi.mock("react-router", () => ({
@@ -118,7 +127,9 @@ describe("useCreatePage", () => {
     expect(mocks.navigate).toHaveBeenCalledWith(`/page/${documentId}`, {
       flushSync: true,
     });
-    expect(isDocumentCreationPending(optimisticDocument)).toBe(true);
+    expect(
+      isDocumentCreationPending(mocks.queryClient as never, optimisticDocument),
+    ).toBe(true);
 
     const persistedDocument: Document = {
       id: documentId,
@@ -151,8 +162,15 @@ describe("useCreatePage", () => {
       | undefined;
     if (!confirmedDocument) throw new Error("Create response was not cached");
     expect(confirmedDocument).toBe(persistedDocument);
-    expect(isDocumentCreationPending(confirmedDocument)).toBe(false);
-    expect(isDocumentCreationConfirmed(confirmedDocument)).toBe(true);
+    expect(
+      isDocumentCreationPending(mocks.queryClient as never, confirmedDocument),
+    ).toBe(false);
+    expect(
+      isDocumentCreationConfirmed(
+        mocks.queryClient as never,
+        confirmedDocument,
+      ),
+    ).toBe(true);
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["action", "get-document"],
       predicate: expect.any(Function),

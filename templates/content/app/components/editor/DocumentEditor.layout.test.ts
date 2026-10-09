@@ -1723,6 +1723,84 @@ describe("document editor layout", () => {
     ).toBe("error");
   });
 
+  it("keeps a created page open when a background refetch fails after success", () => {
+    const initial = updateDocumentLoadFailureState({
+      previous: null,
+      documentId: "new-document",
+      admitted: false,
+      isDocumentCreationConfirmed: true,
+      dataUpdatedAt: 1,
+      errorUpdateCount: 0,
+      errorUpdatedAt: 0,
+      isError: false,
+      authoritativeSuccess: {
+        queryIdentity: "new-document",
+        generation: 0,
+        errorUpdateCount: 0,
+      },
+    });
+    const admitted = documentEditorLoadState({
+      documentId: "new-document",
+      admittedDocumentId: null,
+      hasDocument: true,
+      isDocumentCreationConfirmed: true,
+      isDocumentCreationPending: false,
+      isFetchedAfterMount: false,
+      isFetching: true,
+      isError: false,
+      hasLoadFailure: initial.failed,
+      isManualRetrying: false,
+      error: null,
+    });
+    const afterFirstRead = updateDocumentLoadFailureState({
+      previous: initial,
+      documentId: "new-document",
+      admitted: admitted.admittedDocumentId === "new-document",
+      isDocumentCreationConfirmed: false,
+      dataUpdatedAt: 2,
+      errorUpdateCount: 0,
+      errorUpdatedAt: 0,
+      isError: false,
+      authoritativeSuccess: {
+        queryIdentity: "new-document",
+        generation: 1,
+        errorUpdateCount: 0,
+      },
+    });
+    const backgroundFailure = updateDocumentLoadFailureState({
+      previous: afterFirstRead,
+      documentId: "new-document",
+      admitted: true,
+      isDocumentCreationConfirmed: false,
+      dataUpdatedAt: 2,
+      errorUpdateCount: 1,
+      errorUpdatedAt: 3,
+      isError: true,
+      authoritativeSuccess: {
+        queryIdentity: "new-document",
+        generation: 1,
+        errorUpdateCount: 0,
+      },
+    });
+
+    expect(backgroundFailure.failed).toBe(false);
+    expect(
+      documentEditorLoadState({
+        documentId: "new-document",
+        admittedDocumentId: admitted.admittedDocumentId,
+        hasDocument: true,
+        isDocumentCreationConfirmed: false,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: true,
+        hasLoadFailure: backgroundFailure.failed,
+        isManualRetrying: false,
+        error: new Error("background refetch failed"),
+      }),
+    ).toEqual({ view: "editor", admittedDocumentId: "new-document" });
+  });
+
   it("latches a first-fetch failure across an immediate replacement fetch", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -2931,7 +3009,10 @@ describe("document editor layout", () => {
     );
     expect(documentEditorSource).toContain("mcpDirectoryWidgetReadOnly,");
     expect(documentEditorSource).toContain(
-      "const collabDocumentId =\n    collabEnabled && !isDocumentCreationPending(document)",
+      "const holdCollaborationForCreationSave =\n    creationConfirmed &&\n    (initialCreationSaveInFlight || pendingDocumentSaveRef.current !== null);",
+    );
+    expect(documentEditorSource).toContain(
+      "const collabDocumentId =\n    collabEnabled &&\n    !creationAwaitingFirstRead &&\n    !holdCollaborationForCreationSave &&\n    !isDocumentCreationPending(queryClient, document)",
     );
     expect(documentEditorSource).toContain("docId: collabDocumentId,");
     expect(documentEditorSource).toContain("const collabEditorEnabled =");
@@ -2965,10 +3046,10 @@ describe("document editor layout", () => {
     );
 
     expect(documentEditorSource).toContain(
-      "canEdit &&\n                    !collabSynced",
+      "canEdit &&\n                    !creationCanEditWithoutCollaboration &&\n                    !collabSynced",
     );
     expect(documentEditorSource).toContain(
-      "(isLocalFileDocument || collabSynced)",
+      "(isLocalFileDocument ||\n      collabSynced ||\n      creationCanEditWithoutCollaboration)",
     );
     expect(documentEditorSource).toContain(
       "!canEdit ||\n      !hydrationContext?.sourceId",

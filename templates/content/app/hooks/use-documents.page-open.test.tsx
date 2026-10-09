@@ -187,14 +187,14 @@ describe("page open document reads", () => {
     const queryKey = ["action", "get-document", { id }];
     queryClient.setQueryData(
       queryKey,
-      markDocumentCreationPending({ id, title: "" } as Document),
+      markDocumentCreationPending(queryClient, { id, title: "" } as Document),
     );
 
     await mount(id);
 
     expect(reads("get-document")).toBe(0);
 
-    const created = markDocumentCreationConfirmed({
+    const created = markDocumentCreationConfirmed(queryClient, {
       id,
       title: "",
     } as Document);
@@ -209,7 +209,7 @@ describe("page open document reads", () => {
       }),
     );
 
-    clearDocumentCreationConfirmed(created);
+    clearDocumentCreationConfirmed(queryClient, created);
   });
 
   it("boots the /page/:id reads under a ChatGPT widget scope", async () => {
@@ -684,7 +684,10 @@ describe("page open document reads", () => {
   it("does not read a page whose creation has not committed", () => {
     queryClient.setQueryData(
       ["action", "get-document", { id: "new-page" }],
-      markDocumentCreationPending({ id: "new-page", title: "" } as Document),
+      markDocumentCreationPending(queryClient, {
+        id: "new-page",
+        title: "",
+      } as Document),
     );
     startPageOpenDocumentReads(queryClient, "new-page");
 
@@ -692,7 +695,7 @@ describe("page open document reads", () => {
   });
 
   it("does not read a draft that cannot exist before a newly created page opens", () => {
-    const created = markDocumentCreationConfirmed({
+    const created = markDocumentCreationConfirmed(queryClient, {
       id: "newly-created-page",
       title: "",
       canEdit: true,
@@ -709,7 +712,7 @@ describe("page open document reads", () => {
       server.calls.find((call) => call.name === "get-document")?.params,
     ).not.toHaveProperty("includePreviewDraft");
     expect(reads("get-preview-document-draft")).toBe(0);
-    clearDocumentCreationConfirmed(created);
+    clearDocumentCreationConfirmed(queryClient, created);
   });
 
   it("reads the page in the collection its URL names, with its review", () => {

@@ -1693,7 +1693,7 @@ export function DocumentSidebar({
           });
           queryClient.setQueryData(
             ["action", "get-document", { id: created.id }],
-            markDocumentCreationConfirmed(created),
+            markDocumentCreationConfirmed(queryClient, created),
           );
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
@@ -1713,7 +1713,7 @@ export function DocumentSidebar({
 
       const id = optimisticId ?? nanoid();
       const now = new Date().toISOString();
-      const tempDoc = markDocumentCreationPending({
+      const tempDoc = markDocumentCreationPending(queryClient, {
         id,
         parentId: parentId ?? null,
         title: "",
@@ -1774,7 +1774,7 @@ export function DocumentSidebar({
         const nextId = created?.id || id;
         queryClient.setQueryData(
           ["action", "get-document", { id: nextId }],
-          markDocumentCreationConfirmed(created),
+          markDocumentCreationConfirmed(queryClient, created),
         );
         if (nextId !== id) {
           queryClient.removeQueries(documentQueryFilter(id));
@@ -1839,7 +1839,7 @@ export function DocumentSidebar({
       const id = nanoid();
       const now = new Date().toISOString();
       const title = t("editor.untitledDatabase");
-      const tempDoc = markDocumentCreationPending({
+      const tempDoc = markDocumentCreationPending(queryClient, {
         id,
         parentId: parentId ?? null,
         title,

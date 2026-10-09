@@ -20,10 +20,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   type CSSProperties,
   ReactNode,
-  Suspense,
   useCallback,
   useEffect,
-  lazy,
   useMemo,
   useRef,
   useState,
@@ -31,6 +29,7 @@ import {
 import { useLocation, useNavigation } from "react-router";
 import { toast } from "sonner";
 
+import { DocumentEditor } from "@/components/editor/DocumentEditor";
 import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkeleton";
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { Button } from "@/components/ui/button";
@@ -90,11 +89,6 @@ export function documentPageIdFromPathname(pathname: string) {
   return pathname.match(/^\/page\/(.+)/)?.[1] ?? null;
 }
 
-const LazyDocumentEditor = lazy(async () => {
-  const { DocumentEditor } = await import("@/components/editor/DocumentEditor");
-  return { default: DocumentEditor };
-});
-
 function PendingDocumentTransition({
   created,
   documentId,
@@ -117,15 +111,13 @@ function PendingDocumentTransition({
   if (!created) return fallback;
 
   return (
-    <Suspense fallback={fallback}>
-      <LazyDocumentEditor
-        documentId={documentId}
-        databaseId={params.get("databaseId")}
-        databaseDocumentId={params.get("databaseDocumentId")}
-        viewId={params.get("viewId")}
-        foreground
-      />
-    </Suspense>
+    <DocumentEditor
+      documentId={documentId}
+      databaseId={params.get("databaseId")}
+      databaseDocumentId={params.get("databaseDocumentId")}
+      viewId={params.get("viewId")}
+      foreground
+    />
   );
 }
 
@@ -155,16 +147,44 @@ export function Layout({ children }: LayoutProps) {
   });
   const queryClient = useQueryClient();
   const pendingSearch = navigation.location?.search ?? "";
-  const pendingCreatedDocument = pendingDocumentId
+  const activeDocument = activeDocumentId
     ? queryClient
-        .getQueriesData<Document>(documentQueryFilter(pendingDocumentId))
-        .find(([, document]) => document?.id === pendingDocumentId)?.[1]
+        .getQueriesData<Document>(documentQueryFilter(activeDocumentId))
+        .find(([, document]) => document?.id === activeDocumentId)?.[1]
     : undefined;
-  const showPendingDocumentEditor = Boolean(
-    pendingCreatedDocument &&
-    (isDocumentCreationPending(pendingCreatedDocument) ||
-      isDocumentCreationConfirmed(pendingCreatedDocument)),
+  const activeDocumentWasCreated = Boolean(
+    activeDocument &&
+    (isDocumentCreationPending(queryClient, activeDocument) ||
+      isDocumentCreationConfirmed(queryClient, activeDocument)),
   );
+  const createdDocumentTransitionIdRef = useRef<string | null>(null);
+  if (activeDocumentWasCreated && activeDocumentId) {
+    createdDocumentTransitionIdRef.current = activeDocumentId;
+  } else if (
+    !showPendingDocumentSkeleton &&
+    createdDocumentTransitionIdRef.current !== currentDocumentId
+  ) {
+    createdDocumentTransitionIdRef.current = null;
+  }
+  const activeDocumentTransitionWasCreated = Boolean(
+    activeDocumentWasCreated ||
+    createdDocumentTransitionIdRef.current === activeDocumentId,
+  );
+  const showPendingDocumentTransition = Boolean(
+    showPendingDocumentSkeleton && pendingDocumentId,
+  );
+  const showCurrentCreatedDocumentEditor = Boolean(
+    currentDocumentId &&
+    !showPendingDocumentTransition &&
+    activeDocumentTransitionWasCreated &&
+    createdDocumentTransitionIdRef.current === currentDocumentId,
+  );
+  const showDocumentTransition =
+    showPendingDocumentTransition || showCurrentCreatedDocumentEditor;
+  const transitionDocumentTitle = showPendingDocumentTransition
+    ? pendingDocumentTitle
+    : activeDocument?.title;
+  const transitionSearch = navigation.location?.search ?? location.search;
   useEffect(() => {
     if (!showPendingDocumentSkeleton || !pendingDocumentId) return;
     const search = new URLSearchParams(pendingSearch);
@@ -387,12 +407,12 @@ export function Layout({ children }: LayoutProps) {
             style={{ "--content-sidebar-width": "0px" } as CSSProperties}
           >
             <SidebarTriggerContext.Provider value={null}>
-              {showPendingDocumentSkeleton && pendingDocumentId ? (
+              {showDocumentTransition && activeDocumentId ? (
                 <PendingDocumentTransition
-                  created={showPendingDocumentEditor}
-                  documentId={pendingDocumentId}
-                  search={pendingSearch}
-                  title={pendingDocumentTitle}
+                  created={activeDocumentTransitionWasCreated}
+                  documentId={activeDocumentId}
+                  search={transitionSearch}
+                  title={transitionDocumentTitle}
                 />
               ) : (
                 children
@@ -476,12 +496,12 @@ export function Layout({ children }: LayoutProps) {
                   className={`${showHeader || fullWidthSettings || openAiWidget ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
                 />
                 <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
-                  {showPendingDocumentSkeleton && pendingDocumentId ? (
+                  {showDocumentTransition && activeDocumentId ? (
                     <PendingDocumentTransition
-                      created={showPendingDocumentEditor}
-                      documentId={pendingDocumentId}
-                      search={pendingSearch}
-                      title={pendingDocumentTitle}
+                      created={activeDocumentTransitionWasCreated}
+                      documentId={activeDocumentId}
+                      search={transitionSearch}
+                      title={transitionDocumentTitle}
                     />
                   ) : (
                     children

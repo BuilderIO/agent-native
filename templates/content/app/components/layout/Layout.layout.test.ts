@@ -105,9 +105,24 @@ describe("app layout", () => {
       "const activeDocumentId = pendingDocumentId ?? currentDocumentId",
     );
     expect(source).toContain("const showPendingDocumentSkeleton =");
-    expect(source).toContain("const showPendingDocumentEditor = Boolean(");
-    expect(source).toContain("const LazyDocumentEditor = lazy(");
+    expect(source).toContain("const activeDocumentWasCreated = Boolean(");
+    expect(source).toContain(
+      "const createdDocumentTransitionIdRef = useRef<string | null>(null);",
+    );
+    expect(source).toContain(
+      "activeDocumentWasCreated ||\n    createdDocumentTransitionIdRef.current === activeDocumentId",
+    );
+    expect(source).toContain(
+      "const showCurrentCreatedDocumentEditor = Boolean(",
+    );
+    expect(source).toContain(
+      "createdDocumentTransitionIdRef.current === currentDocumentId",
+    );
+    expect(source).toContain("const showDocumentTransition =");
     expect(source).toContain("<PendingDocumentTransition");
+    expect(source).toContain("created={activeDocumentTransitionWasCreated}");
+    expect(source).toContain("if (!created) return fallback");
+    expect(source).toContain("return (\n    <DocumentEditor");
     expect(source).toMatch(
       /<DocumentEditorSkeleton\s+title=\{title\}\s+iconRow=\{readPageIconRowHint\(documentId\)\}\s+shape=\{readPageShapeHint\(documentId\)\}/,
     );

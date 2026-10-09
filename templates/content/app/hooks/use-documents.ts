@@ -829,7 +829,9 @@ export function usePageOpenDocument(
   const { adoption } = claim;
   const cachedDocument = queryClient.getQueryData<Document>(queryKey);
   const query = useDocument(documentId, context, {
-    enabled: !(cachedDocument && isDocumentCreationPending(cachedDocument)),
+    enabled: !(
+      cachedDocument && isDocumentCreationPending(queryClient, cachedDocument)
+    ),
     ...(adoption === "fresh" ? { refetchOnMount: false } : {}),
   });
   // Runs after the query's own subscription, so from here on sync reaches
@@ -855,9 +857,10 @@ export function startPageOpenDocumentReads(
 ) {
   const queryKey = documentQueryKey(documentId, context);
   const cached = queryClient.getQueryData<Document>(queryKey);
-  if (cached && isDocumentCreationPending(cached)) return;
+  if (cached && isDocumentCreationPending(queryClient, cached)) return;
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
-  const readsDraft = !widgetBridgeActive && previewDocumentDraftIsRead(cached);
+  const readsDraft =
+    !widgetBridgeActive && previewDocumentDraftIsRead(queryClient, cached);
   // One request answers the page and its draft, so the draft read cannot hold
   // the page back on its own. Each read takes that answer once: a refetch
   // through either key sends its own request rather than replaying this one.
@@ -1021,12 +1024,15 @@ export function usePreviewDocumentDraft(
 
 // A page that is known not to need recovery skips the draft read, as does the
 // ChatGPT widget, which never recovers drafts.
-function previewDocumentDraftIsRead(known?: Document) {
+function previewDocumentDraftIsRead(
+  queryClient: QueryClient,
+  known?: Document,
+) {
   if (isOpenAiMcpAppHost()) return false;
   return !(
     known &&
-    (isDocumentCreationPending(known) ||
-      isDocumentCreationConfirmed(known) ||
+    (isDocumentCreationPending(queryClient, known) ||
+      isDocumentCreationConfirmed(queryClient, known) ||
       known.canEdit === false ||
       known.source?.mode === "local-files")
   );
@@ -1039,7 +1045,7 @@ export function startPreviewDocumentDraftRead(
   documentId: string,
   known?: Document,
 ) {
-  if (!previewDocumentDraftIsRead(known)) return;
+  if (!previewDocumentDraftIsRead(queryClient, known)) return;
   startPageOpenRead(
     queryClient,
     documentId,

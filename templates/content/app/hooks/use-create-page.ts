@@ -74,7 +74,7 @@ export function useCreatePage(opts?: {
       }
       const id = requestedId ?? nanoid();
       const now = new Date().toISOString();
-      const tempDoc = markDocumentCreationPending({
+      const tempDoc = markDocumentCreationPending(queryClient, {
         id,
         parentId: parentId ?? null,
         title: "",
@@ -122,7 +122,7 @@ export function useCreatePage(opts?: {
         });
         queryClient.setQueryData(
           ["action", "get-document", { id: created.id }],
-          markDocumentCreationConfirmed(created),
+          markDocumentCreationConfirmed(queryClient, created),
         );
         void queryClient.invalidateQueries(documentQueryFilter(id));
         void queryClient.invalidateQueries({

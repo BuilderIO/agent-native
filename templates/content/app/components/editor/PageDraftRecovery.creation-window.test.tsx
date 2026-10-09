@@ -16,7 +16,12 @@ const state = vi.hoisted(() => ({
     isError?: boolean;
     isFetching?: boolean;
   },
+  queryClient: {
+    getQueryCache: () => ({ findAll: () => [], subscribe: () => () => {} }),
+    refetchQueries: vi.fn(),
+  },
   refetch: vi.fn(),
+  ensureDraftRead: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -37,12 +42,12 @@ vi.mock("./document-save-rebase", () => ({
   saveDocumentWithRebase: vi.fn(),
 }));
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ refetchQueries: vi.fn() }),
+  useQueryClient: () => state.queryClient,
 }));
 vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@/hooks/use-documents", () => ({
   documentQueryFilter: (id: string) => ({ id }),
-  ensurePreviewDocumentDraftRead: vi.fn().mockResolvedValue(undefined),
+  ensurePreviewDocumentDraftRead: state.ensureDraftRead,
   isDocumentUpdateConflict: () => false,
   isDocumentUpdatePreservationRequired: () => false,
   isDocumentUpdateSuperseded: () => false,
@@ -65,7 +70,12 @@ import { PageDraftRecovery } from "./PageDraftRecovery";
 describe("Page draft recovery during the creation window", () => {
   let root: Root;
   let container: HTMLDivElement;
-  const page = { id: "page", title: "", content: "" } as Document;
+  const page = {
+    id: "page",
+    title: "",
+    content: "",
+    canEdit: true,
+  } as Document;
   const render = () =>
     act(() =>
       root.render(
@@ -88,7 +98,9 @@ describe("Page draft recovery during the creation window", () => {
   });
 
   afterEach(() => {
-    clearDocumentCreationConfirmed({ id: "fresh-page" });
+    clearDocumentCreationConfirmed(state.queryClient as never, {
+      id: "fresh-page",
+    });
     act(() => root.unmount());
     container.remove();
   });
@@ -106,11 +118,11 @@ describe("Page draft recovery during the creation window", () => {
 
   it("keeps a new page editable while creation settles and after its response", () => {
     state.draftQuery = { data: undefined, isError: true, isFetching: false };
-    const pending = markDocumentCreationPending({
+    const pending = markDocumentCreationPending(state.queryClient as never, {
       ...page,
       id: "fresh-page",
     });
-    const created = markDocumentCreationConfirmed({
+    const created = markDocumentCreationConfirmed(state.queryClient as never, {
       ...page,
       id: "fresh-page",
     });
@@ -140,6 +152,7 @@ describe("Page draft recovery during the creation window", () => {
       container.querySelector('[data-testid="editor-skeleton"]'),
     ).toBeNull();
     expect(container.textContent).not.toContain("empty.genericError");
+    expect(state.ensureDraftRead).not.toHaveBeenCalled();
   });
 
   it("mounts the editor once the created row answers", async () => {
