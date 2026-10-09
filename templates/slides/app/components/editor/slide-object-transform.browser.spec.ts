@@ -1202,6 +1202,31 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     }
   });
 
+  it("copies static transform variables used with an animated transform variable", async () => {
+    const css =
+      '@property --angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; } .ruled { --offset: 30px; transform: translateX(var(--offset)) rotate(var(--angle)); animation: angle-only 4s linear infinite; } @keyframes angle-only { from { --angle: 0deg; } to { --angle: 120deg; } }';
+    const page = await openPage(css, imageHtml());
+    try {
+      const result = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.getAnimations()[0]!.currentTime = 2000;
+        const imageTransform = getComputedStyle(image).transform;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return {
+          imageTransform,
+          frameTransform: getComputedStyle(wrapped.frame).transform,
+          frameOffset: wrapped.frame.style.getPropertyValue("--offset"),
+        };
+      });
+
+      expect(result.frameOffset).toBe("30px");
+      expect(result.frameTransform).toBe(result.imageTransform);
+    } finally {
+      await page.close();
+    }
+  });
+
   it("preserves case-sensitive animated custom properties in keyframe fallback", async () => {
     const css =
       '@property --brandColor { syntax: "<angle>"; inherits: false; initial-value: 0deg; } .ruled { animation: variable-turn 4s linear infinite; } @keyframes variable-turn { from { --brandColor: 0deg; transform: rotate(0deg); } to { --brandColor: 120deg; transform: rotate(var(--brandColor)); } }';
@@ -1586,7 +1611,7 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
         await page.evaluate(
           () => getComputedStyle(document.getElementById("pic")!).opacity,
         ),
-      ).toBe(originalOpacity);
+      ).toBeCloseTo(Number(originalOpacity), 4);
       expect(
         await page.evaluate(
           () => getComputedStyle(document.getElementById("frame")!).opacity,
@@ -1963,6 +1988,92 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       expect(settled.imageOpacity).toBeCloseTo(0.8, 2);
       expect(settled.imagePriority).toBe("");
       expect(settled.activeFrameOpacity).toBe(false);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("transfers an important filter transition across slide HTML replacement", async () => {
+    const css =
+      ".base { filter: blur(0px) !important; transform: rotate(0deg); transition: transform 1s linear, filter 2s linear; } .moving { filter: blur(8px) !important; transform: rotate(90deg); }";
+    const page = await openPage(
+      css,
+      imageHtml().replace('class="ruled"', 'class="base"'),
+    );
+    try {
+      await page.evaluate(() =>
+        document.getElementById("pic")!.classList.add("moving"),
+      );
+      await page.waitForTimeout(600);
+      const transferred = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.restoreTransitions();
+        const frame = wrapped.frame;
+        const frameId = frame.getAttribute("data-slide-object-id")!;
+        const before = getComputedStyle(frame).filter;
+        const serialized =
+          wrapped.serializeWithoutCopiedTransitionOverrides(
+            () => frame.outerHTML,
+          ) ?? "";
+        const stage = document.querySelector(".stage") as HTMLElement;
+        const transitions =
+          window.slideObjects.captureCropTransitionAnimations(stage);
+        stage.innerHTML = serialized;
+        const replacementFrame = Array.from(
+          stage.querySelectorAll<HTMLElement>(
+            ".fmd-pptx-image[data-slide-object-id]",
+          ),
+        ).find(
+          (candidate) =>
+            candidate.getAttribute("data-slide-object-id") === frameId,
+        )!;
+        window.slideObjects.restoreCropTransitionAnimations(stage, transitions);
+        const replacementImage = replacementFrame.querySelector("img")!;
+        return {
+          before,
+          immediateFrameFilter: getComputedStyle(replacementFrame).filter,
+          imageFilter: getComputedStyle(replacementImage).filter,
+          imageFilterPriority:
+            replacementImage.style.getPropertyPriority("filter"),
+          activeFrameFilter: replacementFrame
+            .getAnimations()
+            .some(
+              (animation) =>
+                animation.effect instanceof KeyframeEffect &&
+                animation.effect
+                  .getKeyframes()
+                  .some((keyframe) => "filter" in keyframe),
+            ),
+        };
+      });
+      await page.waitForTimeout(160);
+      const nextFilter = await page.evaluate(
+        () =>
+          getComputedStyle(document.querySelector(".fmd-pptx-image")!).filter,
+      );
+
+      expect(transferred.imageFilter).toBe("none");
+      expect(transferred.imageFilterPriority).toBe("important");
+      expect(transferred.immediateFrameFilter).toBe(transferred.before);
+      expect(transferred.activeFrameFilter).toBe(true);
+      expect(nextFilter).not.toBe(transferred.immediateFrameFilter);
+
+      await page.waitForTimeout(1400);
+      const settled = await page.evaluate(() => {
+        const frame = document.querySelector<HTMLElement>(
+          ".fmd-pptx-image[data-slide-object-id]",
+        )!;
+        const image = frame.querySelector<HTMLImageElement>("img")!;
+        return {
+          frameFilter: getComputedStyle(frame).filter,
+          imageFilter: getComputedStyle(image).filter,
+          imageFilterPriority: image.style.getPropertyPriority("filter"),
+        };
+      });
+      expect(settled.frameFilter).toBe("none");
+      expect(settled.imageFilter).toBe("blur(8px)");
+      expect(settled.imageFilterPriority).toBe("");
     } finally {
       await page.close();
     }

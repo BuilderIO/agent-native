@@ -4,6 +4,13 @@ const PLACEHOLDER_TARGET_PREFIX = "placeholder:";
 const MAX_PENDING_SLIDE_IMAGE_UPLOADS = 16;
 export const CROP_TRANSITION_ANIMATION_ID_PREFIX = "fmd-crop-transition:";
 export const CROP_CSS_ANIMATION_NAME_PREFIX = "fmd_crop_";
+export const CROP_TRANSITION_FRAME_NEUTRALS: Record<string, string> = {
+  opacity: "1",
+  filter: "none",
+  "backdrop-filter": "none",
+  "clip-path": "none",
+  "mask-image": "none",
+};
 
 type InlineStyleDeclaration = {
   property: string;
@@ -332,27 +339,18 @@ export function restoreCropTransitionAnimations(
       continue;
     }
 
-    const styleTarget =
-      transfer.targetKind === "frame" &&
-      transfer.property === "opacity" &&
-      image
-        ? image
-        : target;
+    const frameNeutralValue =
+      transfer.targetKind === "frame" && image
+        ? CROP_TRANSITION_FRAME_NEUTRALS[transfer.property]
+        : undefined;
+    const styleTarget = frameNeutralValue !== undefined ? image! : target;
     const originalValue = styleTarget.style.getPropertyValue(transfer.property);
     const originalPriority = styleTarget.style.getPropertyPriority(
       transfer.property,
     );
-    const temporaryValue =
-      styleTarget === image &&
-      transfer.targetKind === "frame" &&
-      transfer.property === "opacity"
-        ? "1"
-        : originalValue;
+    const temporaryValue = frameNeutralValue ?? originalValue;
     const temporaryPriority =
-      temporaryValue === "1" &&
-      styleTarget === image &&
-      transfer.targetKind === "frame" &&
-      transfer.property === "opacity"
+      frameNeutralValue !== undefined
         ? "important"
         : originalPriority === "important"
           ? ""

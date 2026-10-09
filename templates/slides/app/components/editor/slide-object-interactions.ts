@@ -7,6 +7,7 @@ import {
 import {
   CROP_CSS_ANIMATION_NAME_PREFIX,
   CROP_TRANSITION_ANIMATION_ID_PREFIX,
+  CROP_TRANSITION_FRAME_NEUTRALS,
   serializeWithRestoredCropTransitionInlineOverrides,
 } from "@/lib/slide-image-replacement";
 import { stripSourceStamps } from "@/lib/slide-source-map";
@@ -1299,13 +1300,6 @@ const TRANSFORM_TRANSITION_PROPERTIES = new Set([
   ...TRANSFORM_PROPERTIES,
   "transform-origin",
 ]);
-const IMPORTANT_TRANSITION_FRAME_NEUTRALS: Record<string, string> = {
-  opacity: "1",
-  filter: "none",
-  "backdrop-filter": "none",
-  "clip-path": "none",
-  "mask-image": "none",
-};
 const CSS_VAR_REFERENCE = /var\(\s*(--(?:[\w-]|[^\u0000-\u007f])+)/giu;
 const FONT_RELATIVE_LENGTH =
   /(?:\d+(?:\.\d*)?|\.\d+)(?:em|ex|ch|cap|ic|lh)\b/iu;
@@ -1763,7 +1757,7 @@ function preserveUnrelatedTransitions(
     ) {
       continue;
     }
-    const neutralValue = IMPORTANT_TRANSITION_FRAME_NEUTRALS[property];
+    const neutralValue = CROP_TRANSITION_FRAME_NEUTRALS[property];
     if (
       neutralValue !== undefined &&
       hasMatchingImportantStyleRule(element, property)
@@ -2966,6 +2960,24 @@ function moveSlideObjectTransform(
       }
     }
   }
+  const frameTransformDeclarations = new Map(
+    [...transformCustomProperties].flatMap(([property, dependencies]) => {
+      if (
+        ![...animatedTransformCustomProperties].some((dependency) =>
+          dependencies.has(dependency),
+        )
+      ) {
+        return [];
+      }
+      const declaration = paintedTransformDeclaration(source, property);
+      return declaration ? [[property, declaration] as const] : [];
+    }),
+  );
+  for (const declaration of frameTransformDeclarations.values()) {
+    for (const match of declaration.value.matchAll(CSS_VAR_REFERENCE)) {
+      referencedCustomProperties.add(match[1]);
+    }
+  }
   let foundCustomProperty = true;
   while (foundCustomProperty) {
     foundCustomProperty = false;
@@ -2995,19 +3007,6 @@ function moveSlideObjectTransform(
         ),
       )
     : [];
-  const frameTransformDeclarations = new Map(
-    [...transformCustomProperties].flatMap(([property, dependencies]) => {
-      if (
-        ![...animatedTransformCustomProperties].some((dependency) =>
-          dependencies.has(dependency),
-        )
-      ) {
-        return [];
-      }
-      const declaration = paintedTransformDeclaration(source, property);
-      return declaration ? [[property, declaration] as const] : [];
-    }),
-  );
   const frameUsesFontRelativeLength = [
     ...activeFrameProperties,
     ...referencedCustomProperties,
