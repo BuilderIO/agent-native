@@ -296,6 +296,12 @@ function collectDashboardConfigIssues(
       }
       const id = typeof f.id === "string" ? f.id.trim() : "";
       if (!id) return dashboardIssue(`config.filters[${i}].id is required`);
+      // The read path (isDashboardFilter) rejects more than 100 options, so a save that passes here would make the dashboard unreadable.
+      if (Array.isArray(f.options) && f.options.length > 100) {
+        return dashboardIssue(
+          `config.filters[${i}].options can have at most 100 entries`,
+        );
+      }
       if (f.type === "multi-select") {
         // The selection is comma-joined in the URL, so a value cannot be empty or contain ",". MULTI_SELECT_EMPTY is reserved for the cleared state.
         if (f.options !== undefined && !Array.isArray(f.options)) {
@@ -328,6 +334,11 @@ function collectDashboardConfigIssues(
               `config.filters[${i}].options[${j}].value must be non-empty, cannot contain ",", and cannot be "${MULTI_SELECT_EMPTY}" in a multi-select filter`,
             );
           }
+        }
+        if (f.default !== undefined && typeof f.default !== "string") {
+          return dashboardIssue(
+            `config.filters[${i}].default must be a string in a multi-select filter`,
+          );
         }
         if (typeof f.default === "string" && f.default !== "") {
           const named = normalizeMultiSelectValue(f.default);

@@ -220,6 +220,26 @@ describe("validateDashboardConfig multi-select options", () => {
     expect(validateDashboardConfig(config)).toContain('"legacy"');
   });
 
+  it("rejects a non-string default, which would crash the split", () => {
+    const base = withOptions(["free"]);
+    for (const value of [1, ["free"], null]) {
+      const config = {
+        ...base,
+        filters: [{ ...base.filters[0], default: value }],
+      };
+      expect(validateDashboardConfig(config)).toContain(
+        "must be a string in a multi-select filter",
+      );
+    }
+  });
+
+  it("rejects more than 100 options, which the read path would refuse", () => {
+    const config = withOptions(
+      Array.from({ length: 101 }, (_, i) => `option_${i}`),
+    );
+    expect(validateDashboardConfig(config)).toContain("at most 100 entries");
+  });
+
   it("rejects a non-empty default when the filter has no options", () => {
     const config = {
       name: "Plans",

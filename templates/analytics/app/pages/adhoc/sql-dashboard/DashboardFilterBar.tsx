@@ -491,14 +491,18 @@ function FilterControl({
       setValue({
         [filter.id]: next.length > 0 ? next.join(",") : MULTI_SELECT_EMPTY,
       });
-    const toggle = (value: string, checked: boolean) =>
-      setSelected(
-        options
-          .filter((opt) =>
-            opt.value === value ? checked : selected.includes(opt.value),
-          )
-          .map((opt) => opt.value),
+    // Values with no matching option stay selected: the trigger shows them and the query applies them, so a toggle must not drop them silently.
+    const toggle = (value: string, checked: boolean) => {
+      const listed = options
+        .filter((opt) =>
+          opt.value === value ? checked : selected.includes(opt.value),
+        )
+        .map((opt) => opt.value);
+      const unlisted = selected.filter(
+        (v) => !options.some((opt) => opt.value === v),
       );
+      setSelected([...listed, ...unlisted]);
+    };
     return (
       <div className="flex flex-col gap-1">
         <label

@@ -120,6 +120,17 @@ describe("multi-select dashboard filter", () => {
     expect(names[1]).toContain("All");
   });
 
+  it("keeps a value with no matching option when another option is toggled", () => {
+    render("/dashboards/test?f_plan=legacy,free");
+    act(() => trigger().click());
+    act(() => optionCheckbox("Self-Serve").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe(
+      "free,self_serve,legacy",
+    );
+    expect(trigger().textContent).toContain("legacy");
+  });
+
   it("toggles an option when its label text is clicked", () => {
     render();
     act(() => trigger().click());
