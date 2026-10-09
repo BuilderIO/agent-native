@@ -12412,18 +12412,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
+  function isSvgMetadataNode(node: Node): boolean {
+    var element = node instanceof Element ? node : node.parentElement;
+    while (element && element.namespaceURI === "http://www.w3.org/2000/svg") {
+      var localName = element.localName.toLowerCase();
+      if (
+        localName === "title" ||
+        localName === "desc" ||
+        localName === "metadata"
+      ) {
+        return true;
+      }
+      element = element.parentElement;
+    }
+    return false;
+  }
+
   function overlayMutationRequiresRefresh(record: MutationRecord): boolean {
     var target = record.target;
     var targetElement =
       target instanceof Element ? target : target.parentElement;
     if (targetElement && isOverlayElement(targetElement)) return false;
+    if (isSvgMetadataNode(target)) return false;
     if (record.type === "childList") {
       var changedNodes = Array.prototype.slice
         .call(record.addedNodes)
         .concat(Array.prototype.slice.call(record.removedNodes));
       return changedNodes.some(function (node: Node) {
         var element = node instanceof Element ? node : node.parentElement;
-        return !element || !isOverlayElement(element);
+        return (
+          !element || (!isOverlayElement(element) && !isSvgMetadataNode(node))
+        );
       });
     }
     return true;

@@ -37,6 +37,18 @@ const MEASUREMENT_FIXTURE = `<!doctype html><html><body style="margin:0">
   </div>
 </body></html>`;
 
+const SELECTED_SVG_MEASUREMENT_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <svg id="selected" data-agent-native-node-id="selected" width="200" height="120" viewBox="0 0 200 120"
+       style="position:absolute;left:200px;top:200px;display:block">
+    <defs><linearGradient id="paint"><stop offset="0" stop-color="#000" /></linearGradient></defs>
+    <title>Selected vector</title>
+    <desc>A vector with editable paint.</desc>
+    <path id="shape" d="M0 0h200v120H0z" fill="url(#paint)" />
+  </svg>
+  <div id="hovered" data-agent-native-node-id="hovered"
+       style="position:absolute;left:519px;top:400px;width:200px;height:120px;background:#ccc"></div>
+</body></html>`;
+
 type MeasurementTestWindow = Window & {
   __measurementBoundsReads?: { selected: number; hovered: number };
   __measurementOverlayMutations?: { selection: number; measurements: number };
@@ -620,6 +632,142 @@ describe("editor chrome selection overlays", () => {
       await browser.close();
     }
   });
+
+  it("ignores SVG metadata mutations while keeping geometry, paint, and style updates", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 800 },
+      });
+      await page.setContent(SELECTED_SVG_MEASUREMENT_FIXTURE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await select(page, "#selected");
+      await page.keyboard.down("Alt");
+      await page.mouse.move(520, 410, { steps: 3 });
+      await page.waitForFunction(
+        () =>
+          document.querySelector<HTMLElement>(
+            "[data-agent-native-measurement-overlay]",
+          )?.style.display === "block",
+      );
+      await page.evaluate(() => {
+        const counts = { selection: 0, measurements: 0 };
+        const selection = document.querySelector(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        const measurements = document.querySelector(
+          "[data-agent-native-measurement-overlay]",
+        );
+        if (!selection || !measurements) {
+          throw new Error("editor overlays were not mounted");
+        }
+        new MutationObserver((records) => {
+          counts.selection += records.length;
+        }).observe(selection, {
+          attributes: true,
+          childList: true,
+          subtree: true,
+        });
+        new MutationObserver((records) => {
+          counts.measurements += records.length;
+        }).observe(measurements, {
+          attributes: true,
+          childList: true,
+          subtree: true,
+        });
+        (window as MeasurementTestWindow).__measurementOverlayMutations =
+          counts;
+      });
+      await page.waitForTimeout(50);
+
+      const readMutations = () =>
+        page.evaluate(
+          () =>
+            (window as MeasurementTestWindow).__measurementOverlayMutations!,
+        );
+      const metadataBaseline = await readMutations();
+      await page.locator("#selected").evaluate((element) => {
+        element.querySelector("title")!.textContent = "Updated vector name";
+        element.querySelector("desc")!.textContent = "Updated description";
+      });
+      await page.waitForTimeout(100);
+      expect(await readMutations()).toEqual(metadataBaseline);
+
+      const waitForMeasurementRedraw = async (previous: number) => {
+        await page.waitForFunction(
+          (before) =>
+            (window as MeasurementTestWindow).__measurementOverlayMutations!
+              .measurements > before,
+          previous,
+          { timeout: 2_000 },
+        );
+        return (await readMutations()).measurements;
+      };
+
+      const pathWidthBefore = await page
+        .locator("#shape")
+        .evaluate((element) => element.getBBox().width);
+      expect(pathWidthBefore).toBe(200);
+      const geometryBaseline = (await readMutations()).measurements;
+      await page.locator("#shape").evaluate((element) => {
+        element.setAttribute("d", "M0 0h100v120H0z");
+      });
+      let redrawCount = await waitForMeasurementRedraw(geometryBaseline);
+      const pathWidthAfter = await page
+        .locator("#shape")
+        .evaluate((element) => element.getBBox().width);
+      expect(pathWidthAfter).toBe(100);
+
+      const styleBaseline = redrawCount;
+      await page.locator("#shape").evaluate((element) => {
+        element.setAttribute("style", "opacity: 0.5");
+      });
+      redrawCount = await waitForMeasurementRedraw(styleBaseline);
+      const shapeOpacity = await page
+        .locator("#shape")
+        .evaluate((element) => getComputedStyle(element).opacity);
+      expect(shapeOpacity).toBe("0.5");
+
+      const paintBaseline = redrawCount;
+      await page.locator("stop").evaluate((element) => {
+        element.setAttribute("stop-color", "#fff");
+      });
+      redrawCount = await waitForMeasurementRedraw(paintBaseline);
+      const stopColor = await page
+        .locator("stop")
+        .evaluate((element) =>
+          getComputedStyle(element).getPropertyValue("stop-color"),
+        );
+      expect(stopColor).toBe("rgb(255, 255, 255)");
+
+      const layoutBaseline = redrawCount;
+      await page.locator("#selected").evaluate((element) => {
+        element.setAttribute("height", "160");
+      });
+      await page.waitForFunction(
+        (before) => {
+          const overlay = document.querySelector(
+            "[data-agent-native-measurement-overlay]",
+          );
+          const labels = [...(overlay?.children ?? [])]
+            .map((node) => node.textContent)
+            .filter(Boolean);
+          return (
+            (window as MeasurementTestWindow).__measurementOverlayMutations!
+              .measurements > before &&
+            labels.includes("40") &&
+            document.querySelector("#selected")?.getBoundingClientRect()
+              .height === 160
+          );
+        },
+        layoutBaseline,
+        { timeout: 2_000 },
+      );
+      await page.keyboard.up("Alt");
+    } finally {
+      await browser.close();
+    }
+  }, 10_000);
 
   it("stops measuring element geometry when Alt measurement is released", async () => {
     const browser = await chromium.launch({ headless: true });
