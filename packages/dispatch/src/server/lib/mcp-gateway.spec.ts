@@ -1113,6 +1113,10 @@ describe("askGrantedDispatchMcpApp", () => {
 });
 
 describe("openGrantedDispatchMcpApp", () => {
+  beforeEach(() => {
+    vi.stubEnv("A2A_SECRET", "shared-secret");
+  });
+
   it("opens Dispatch extension routes through the Dispatch app id", async () => {
     const result = await runWithRequestContext(
       {
@@ -1337,6 +1341,10 @@ describe("openGrantedDispatchMcpApp", () => {
 });
 
 describe("createGrantedDispatchMcpEmbedSession", () => {
+  beforeEach(() => {
+    vi.stubEnv("A2A_SECRET", "shared-secret");
+  });
+
   it("mints Dispatch self embeds locally instead of recursively calling Dispatch MCP", async () => {
     const result = await runWithRequestContext(
       {
@@ -1965,6 +1973,33 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         },
       }),
     );
+  });
+
+  it("requires A2A_SECRET when an organization-only credential cannot assert user identity", async () => {
+    vi.stubEnv("A2A_SECRET", "");
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(
+      /require A2A_SECRET to preserve the authenticated user identity/,
+    );
+
+    expect(mocks.signA2AToken).not.toHaveBeenCalled();
+    expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
+    expect(mocks.managerConstructor).not.toHaveBeenCalled();
   });
 
   it("does not retry an authenticated-caller error with an org principal", async () => {

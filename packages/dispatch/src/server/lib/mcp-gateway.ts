@@ -1174,6 +1174,11 @@ async function createTargetMcpUserToken(input: {
   orgId?: string;
   target: DispatchMcpAccessibleApp;
 }): Promise<string> {
+  if (!getGlobalA2ASecret()) {
+    throw new Error(
+      "Cross-app embed sessions require A2A_SECRET to preserve the authenticated user identity; an organization-only A2A credential cannot create a user-owned session.",
+    );
+  }
   const audience = canonicalA2AAudience(`${appHomeBaseUrl(input.target)}/mcp`);
   return signA2AToken(input.ownerEmail, undefined, undefined, {
     expiresIn: "5m",
