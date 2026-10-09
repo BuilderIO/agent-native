@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
@@ -21,6 +22,64 @@ import {
   resolveDesignE2ERegressionPinsForShard,
 } from "./design-e2e-regression-pins.ts";
 import { resolveDesignE2ESpecs } from "./design-e2e-spec-selection.ts";
+
+function fastTestsSummaryScript(): string {
+  const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  const fastTestsJobStart = workflow.indexOf("  fast-tests:\n");
+  assert.notEqual(fastTestsJobStart, -1, "missing fast-tests workflow job");
+  const nextJobHeader = workflow
+    .slice(fastTestsJobStart + 1)
+    .match(/\n  [a-z][a-z0-9_-]*:\n/);
+  const nextJobIndex = nextJobHeader?.index;
+  const fastTestsJobEnd =
+    nextJobIndex === undefined
+      ? undefined
+      : fastTestsJobStart + 1 + nextJobIndex;
+  const fastTestsJob = workflow.slice(fastTestsJobStart, fastTestsJobEnd);
+  const runMarker = "        run: |\n";
+  const runStart = fastTestsJob.indexOf(runMarker);
+  assert.notEqual(runStart, -1, "missing Fast tests summary script");
+
+  return fastTestsJob
+    .slice(runStart + runMarker.length)
+    .split("\n")
+    .map((line) => line.replace(/^ {10}/, ""))
+    .join("\n")
+    .trimEnd();
+}
+
+function runFastTestsSummary(
+  script: string,
+  overrides: Record<string, string> = {},
+) {
+  const result = spawnSync("bash", ["-c", script], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GITHUB_SERVER_URL: "https://github.com",
+      GITHUB_REPOSITORY: "BuilderIO/agent-native",
+      GITHUB_RUN_ID: "123",
+      CHANGE_SCOPE_RESULT: "success",
+      DOCS_ONLY: "false",
+      CI_FULL: "false",
+      FAST_TESTS: "true",
+      HAS_TESTS: "true",
+      DOCS_RESULT: "success",
+      TEST_REST_RESULT: "skipped",
+      TEST_TARGETED_RESULT: "success",
+      DESIGN_CANVAS_E2E: "false",
+      DESIGN_CANVAS_RESULT: "skipped",
+      PRE_AUTH_REPLAY_E2E: "false",
+      PRE_AUTH_REPLAY_RESULT: "skipped",
+      ...overrides,
+    },
+  });
+  assert.equal(result.error, undefined, result.error?.message);
+  return {
+    status: result.status,
+    output: `${result.stdout}\n${result.stderr}`,
+  };
+}
 
 test("recognizes documentation surfaces and package metadata", () => {
   assert.equal(isDocsPath("packages/core/docs/content/actions.mdx"), true);
@@ -996,12 +1055,22 @@ test("fast-tests gates the selected browser checks on their actual job results",
   assert.ok(workflow.includes("    name: Pre-auth session replay smoke\n"));
   assert.ok(fastTestsJob.includes("    name: Fast tests\n"));
   assert.ok(fastTestsJob.includes("    if: always()\n"));
-  const needsStart = fastTestsJob.indexOf("    needs:");
-  const needsEnd = fastTestsJob.indexOf("    if:", needsStart);
-  assert.ok(needsStart >= 0 && needsEnd > needsStart);
-  const needs = fastTestsJob.slice(needsStart, needsEnd);
-  assert.ok(needs.includes("design-canvas-interaction-acceptance"));
-  assert.ok(needs.includes("pre-auth-session-replay-smoke"));
+  const needsMatch = fastTestsJob.match(/    needs:\s*\[([\s\S]*?)\s*\]/);
+  assert.ok(needsMatch, "Fast tests must gate every prerequisite");
+  assert.deepEqual(
+    needsMatch[1]
+      .split(",")
+      .map((job) => job.trim())
+      .filter(Boolean),
+    [
+      "change-scope",
+      "docs",
+      "test-rest",
+      "test-targeted",
+      "design-canvas-interaction-acceptance",
+      "pre-auth-session-replay-smoke",
+    ],
+  );
   assert.ok(
     fastTestsJob.includes(
       "DESIGN_CANVAS_RESULT: ${{ needs.design-canvas-interaction-acceptance.result }}",
@@ -1055,6 +1124,139 @@ test("fast-tests gates the selected browser checks on their actual job results",
   assert.match(
     fastTestsJob,
     /for failure in "\$\{failures\[@\]\}"; do\s+echo "::error::\$failure\. Actions run: \$actions_run_url"/,
+  );
+});
+
+test("fast-tests summary enforces selected and skipped prerequisite outcomes", () => {
+  const script = fastTestsSummaryScript();
+  const scenarios: Array<{
+    name: string;
+    overrides: Record<string, string>;
+    status: number;
+    outputIncludes?: string;
+  }> = [
+    {
+      name: "selected targeted lanes pass",
+      overrides: {},
+      status: 0,
+    },
+    {
+      name: "an unselected Design lane may skip or succeed",
+      overrides: { DESIGN_CANVAS_RESULT: "success" },
+      status: 0,
+    },
+    {
+      name: "a selected pre-auth lane must succeed",
+      overrides: {
+        PRE_AUTH_REPLAY_E2E: "true",
+        PRE_AUTH_REPLAY_RESULT: "skipped",
+      },
+      status: 1,
+      outputIncludes:
+        "Pre-auth session replay smoke: was unexpectedly skipped (expected success)",
+    },
+    {
+      name: "an unselected pre-auth lane must skip",
+      overrides: { PRE_AUTH_REPLAY_RESULT: "success" },
+      status: 1,
+      outputIncludes:
+        "Pre-auth session replay smoke: ran outside its selected paths (expected skipped, received success)",
+    },
+    {
+      name: "an unselected Design lane cannot fail",
+      overrides: { DESIGN_CANVAS_RESULT: "failure" },
+      status: 1,
+      outputIncludes:
+        "Design canvas interaction acceptance (matrix jobs): did not skip cleanly outside its selected path",
+    },
+    {
+      name: "selected Design lanes cannot be skipped",
+      overrides: {
+        DESIGN_CANVAS_E2E: "true",
+        DESIGN_CANVAS_RESULT: "skipped",
+      },
+      status: 1,
+      outputIncludes:
+        "Design canvas interaction acceptance (matrix jobs): was unexpectedly skipped",
+    },
+    {
+      name: "unselected targeted lanes must skip",
+      overrides: { FAST_TESTS: "false", TEST_TARGETED_RESULT: "success" },
+      status: 1,
+      outputIncludes:
+        "Fast tests targeted (test-targeted matrix): ran without a fast-test selection",
+    },
+    {
+      name: "full-suite lanes cannot be skipped",
+      overrides: { CI_FULL: "true", TEST_REST_RESULT: "skipped" },
+      status: 1,
+      outputIncludes:
+        "Fast tests (test-rest matrix): was unexpectedly skipped (expected success)",
+    },
+    {
+      name: "targeted lanes may skip when no workspace has tests",
+      overrides: { HAS_TESTS: "false", TEST_TARGETED_RESULT: "skipped" },
+      status: 0,
+    },
+    {
+      name: "docs-only changes require docs checks",
+      overrides: { DOCS_ONLY: "true", DOCS_RESULT: "failure" },
+      status: 1,
+      outputIncludes: "Docs checks: did not succeed",
+    },
+    {
+      name: "a failed change-scope result is visible",
+      overrides: { CHANGE_SCOPE_RESULT: "failure" },
+      status: 1,
+      outputIncludes: "Determine change scope: did not succeed",
+    },
+    {
+      name: "an invalid pre-auth selection fails closed",
+      overrides: { PRE_AUTH_REPLAY_E2E: "invalid" },
+      status: 1,
+      outputIncludes:
+        "Determine change scope: pre-auth replay selection was missing or invalid (invalid)",
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const result = runFastTestsSummary(script, scenario.overrides);
+    assert.equal(result.status, scenario.status, scenario.name);
+    if (scenario.outputIncludes) {
+      assert.ok(
+        result.output.includes(scenario.outputIncludes),
+        `${scenario.name}: expected output to include ${scenario.outputIncludes}`,
+      );
+    }
+  }
+});
+
+test("fast-tests summary reports every selected failure with the Actions URL", () => {
+  const result = runFastTestsSummary(fastTestsSummaryScript(), {
+    DESIGN_CANVAS_E2E: "true",
+    DESIGN_CANVAS_RESULT: "skipped",
+    PRE_AUTH_REPLAY_E2E: "true",
+    PRE_AUTH_REPLAY_RESULT: "failure",
+    TEST_TARGETED_RESULT: "failure",
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(
+    result.output,
+    /found 3 failing or unexpectedly skipped prerequisite\(s\)/,
+  );
+  for (const job of [
+    "Design canvas interaction acceptance (matrix jobs): was unexpectedly skipped",
+    "Pre-auth session replay smoke: did not succeed",
+    "Fast tests targeted (test-targeted matrix): did not succeed",
+  ]) {
+    assert.ok(result.output.includes(job), `missing failure for ${job}`);
+  }
+  assert.equal(
+    result.output.match(
+      /Actions run: https:\/\/github\.com\/BuilderIO\/agent-native\/actions\/runs\/123/g,
+    )?.length,
+    3,
   );
 });
 
