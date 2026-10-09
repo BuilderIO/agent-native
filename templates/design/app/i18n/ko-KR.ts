@@ -22,6 +22,8 @@ export default {
       "{label}, 원본 예시 {source}, 갤러리 위치 {current}/{total}, 캡처일 {date}",
     screenshotMissing: "스크린샷이 캡처되지 않음",
     recordingUnavailable: "사용할 수 없음",
+    recordingGap: "기록 공백",
+    recordingGapDuration: "기록 공백 · {duration}",
     eventTime: "이벤트 시간(UTC)",
     generationCompletedEvent: "generation_completed 이벤트(UTC)",
     replayObservation: "리플레이 관찰",
