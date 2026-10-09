@@ -15,6 +15,10 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import {
+  ForbiddenError,
+  type ResolvedAccess,
+} from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
@@ -916,7 +920,9 @@ export default defineAction({
       args.editorEditGeneration !== undefined &&
       (args.title !== undefined || args.content !== undefined);
 
+    let writeCommitted = false;
     if (anyChange || settlesPreviewDraft || args.browserSaveAttemptId) {
+      let documentFieldsApplied = false;
       let contentCasConflict = false;
       let committedContentChanged = false;
       let committedContentBefore = existing.content;
@@ -933,6 +939,13 @@ export default defineAction({
           : await assertDocumentMutationAccess(id, "editor", "id");
         existing = access.resource;
         ownerEmail = existing.ownerEmail as string;
+        if (args.icon !== undefined) {
+          await verifyPrivateIconAssignment({
+            icon: args.icon,
+            userEmail: requestUserEmail as string,
+            orgId: (existing.orgId as string | null) ?? null,
+          });
+        }
         if (args.browserSaveAttemptId && browserSavePayload) {
           const stored = await findBrowserSaveAttempt({
             db: tx as ReturnType<typeof getDb>,
@@ -1303,6 +1316,7 @@ export default defineAction({
           contentCasConflict = true;
           return;
         }
+        documentFieldsApplied = lockedDocumentFieldsChanged;
         if (lockedIconChanged) {
           await syncPrivateIconReference(
             tx as unknown as ReturnType<typeof getDb>,
@@ -1457,9 +1471,11 @@ export default defineAction({
           favorite: args.isFavorite as boolean,
           now: nextDocumentUpdatedAt(existing.updatedAt),
         });
+        writeCommitted = true;
       } else {
         try {
           await db.transaction(mutate);
+          writeCommitted = documentFieldsApplied;
         } catch (error) {
           if (!args.browserSaveAttemptId || !browserSavePayload) throw error;
           const stored = await findBrowserSaveAttempt({
@@ -1596,7 +1612,27 @@ export default defineAction({
       }
     }
 
-    const finalAccess = await resolveDocumentAccessForMutation(id, "id");
+    let finalAccess: ResolvedAccess;
+    try {
+      finalAccess = await resolveDocumentAccessForMutation(id, "id");
+    } catch (error) {
+      if (
+        writeCommitted &&
+        (error instanceof ForbiddenError ||
+          (error instanceof ActionContractError &&
+            error.errorCode === "DOCUMENT_NOT_FOUND"))
+      ) {
+        throw new ActionContractError(
+          "The update was saved, but the document is no longer accessible. Do not retry this write.",
+          {
+            errorCode: "DOCUMENT_SAVED_ACCESS_CHANGED",
+            statusCode: error.statusCode,
+            details: { id, saved: true },
+          },
+        );
+      }
+      throw error;
+    }
     const doc = finalAccess.resource;
     const finalFavorite = requestUserEmail
       ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)

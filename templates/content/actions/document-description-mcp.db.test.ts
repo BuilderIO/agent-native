@@ -10,7 +10,7 @@ import {
 } from "@agent-native/core/server";
 import { setupCreativeContext } from "@agent-native/creative-context/server";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   createMCPServerForRequest,
@@ -166,6 +166,47 @@ afterAll(async () => {
 const longDescription = `${"Complete guidance with Unicode café 🪶 and Markdown **emphasis**.\n".repeat(160)}END OF DESCRIPTION`;
 
 describe("document descriptions through external MCP", () => {
+  it("distinguishes a committed description update from losing read access afterward", async () => {
+    const created = await createPage({
+      title: "Committed description",
+      content: "Private body",
+    });
+    const db = getDb();
+    const transaction = db.transaction.bind(db);
+    const race = vi
+      .spyOn(db, "transaction")
+      .mockImplementationOnce(async (...args: unknown[]) => {
+        const result = await transaction(...args);
+        expect((await readRow(created.id)).description).toBe(
+          "Saved private guidance",
+        );
+        await db
+          .update(schema.documents)
+          .set({ ownerEmail: outsider })
+          .where(eq(schema.documents.id, created.id));
+        return result;
+      });
+    try {
+      const result = await ownerClient.callTool({
+        name: "update-document",
+        arguments: { id: created.id, description: "Saved private guidance" },
+      });
+      expect(result.isError).toBe(true);
+      const errorText = JSON.stringify(result.content);
+      expect(errorText).toContain("DOCUMENT_SAVED_ACCESS_CHANGED");
+      expect(errorText).toContain("update was saved");
+      expect(errorText).not.toContain("Saved private guidance");
+      expect(errorText).not.toContain("Private body");
+      expect(await readRow(created.id)).toMatchObject({
+        description: "Saved private guidance",
+        ownerEmail: outsider,
+      });
+      expect(race).toHaveBeenCalledOnce();
+    } finally {
+      race.mockRestore();
+    }
+  });
+
   it("reports a metadata conflict as an MCP error without saving any fields", async () => {
     const created = await createPage({
       title: "Current title",

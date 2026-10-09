@@ -206,6 +206,11 @@ describe("update-document compare-and-swap", () => {
         .spyOn(db, "transaction")
         .mockImplementationOnce(async (...args: unknown[]) => {
           const result = await transaction(...args);
+          if (responseKind === "saved") {
+            expect(await documentRow(id)).toMatchObject({
+              title: "Saved title",
+            });
+          }
           await db
             .delete(schema.documentShares)
             .where(eq(schema.documentShares.resourceId, id));
@@ -253,7 +258,17 @@ describe("update-document compare-and-swap", () => {
               { caller: "frontend", userEmail: EDITOR },
             ),
           );
-        if (accessAfterMove === "revoked") {
+        if (
+          responseKind === "saved" &&
+          (accessAfterMove === "revoked" || accessAfterMove === "deleted")
+        ) {
+          await expect(save()).rejects.toMatchObject({
+            errorCode: "DOCUMENT_SAVED_ACCESS_CHANGED",
+            statusCode: accessAfterMove === "revoked" ? 403 : 404,
+            details: { id, saved: true },
+            message: expect.stringContaining("update was saved"),
+          });
+        } else if (accessAfterMove === "revoked") {
           await expect(save()).rejects.toMatchObject({ statusCode: 403 });
         } else if (accessAfterMove === "deleted") {
           await expect(save()).rejects.toMatchObject({
