@@ -1505,6 +1505,32 @@ function restoreInlineTransitions(
   }
 }
 
+export function restoreSlideObjectTransformSnapshots(
+  snapshots: readonly {
+    element: HTMLElement;
+    value: string;
+    priority: string;
+  }[],
+): void {
+  const transitions = new Map(
+    snapshots.map(({ element }) => [
+      element,
+      captureInlineTransitions(element),
+    ]),
+  );
+  for (const { element } of snapshots) {
+    element.style.setProperty("transition", "none", "important");
+  }
+  for (const { element, value, priority } of snapshots) {
+    if (value) element.style.setProperty("transform", value, priority);
+    else element.style.removeProperty("transform");
+  }
+  for (const { element } of snapshots) {
+    window.getComputedStyle(element).getPropertyValue("transform");
+    restoreInlineTransitions(element, transitions.get(element) ?? []);
+  }
+}
+
 /** The transform properties the keyframes of these animations set. */
 function animatedTransformProperties(animations: CSSAnimation[]): string[] {
   return TRANSFORM_PROPERTIES.filter((property) =>
@@ -1603,9 +1629,13 @@ function keyframeValue(frame: Keyframe, property: string): string | null {
   const value = record[property] ?? record[camel];
   if (typeof value === "string" || typeof value === "number") {
     // Prevent raw-text HTML from ending an enclosing serialized style element.
-    return String(value).replace(/</g, "\\3c ");
+    return escapeRawStyleText(String(value));
   }
   return null;
+}
+
+function escapeRawStyleText(value: string): string {
+  return value.replace(/</g, "\\3c ");
 }
 
 type AuthoredKeyframe = {
@@ -1791,13 +1821,17 @@ function serializeKeyframes(
     const rules = authored.flatMap((authoredFrame) => {
       const declarations = [...properties].flatMap((property) => {
         const value = authoredFrame.style.getPropertyValue(property);
-        return value === null || value === "" ? [] : [`${property}: ${value};`];
+        return value === null || value === ""
+          ? []
+          : [`${property}: ${escapeRawStyleText(value)};`];
       });
       const easing = authoredFrame.style.getPropertyValue(
         "animation-timing-function",
       );
       if (easing && easing !== "linear") {
-        declarations.push(`animation-timing-function: ${easing};`);
+        declarations.push(
+          `animation-timing-function: ${escapeRawStyleText(easing)};`,
+        );
       }
       if (declarations.length === 0) return [];
       return [`${authoredFrame.keyText} { ${declarations.join(" ")} }`];
@@ -1819,7 +1853,9 @@ function serializeKeyframes(
       return value === null ? [] : [`${property}: ${value};`];
     });
     if (frame.easing && frame.easing !== "linear") {
-      declarations.push(`animation-timing-function: ${frame.easing};`);
+      declarations.push(
+        `animation-timing-function: ${escapeRawStyleText(frame.easing)};`,
+      );
     }
     if (declarations.length === 0) return [];
     return [
@@ -1935,6 +1971,7 @@ function copyAnimationEnvironment(
     syntax: string,
     index: number,
   ): string | null => {
+    // i18n-ignore: Internal CSS marker passed to CSSOM, never shown to users.
     const marker = `agent-native-crop-probe-${index}`;
     for (const option of syntax.split("|")) {
       const trimmed = option.trim();
@@ -1948,8 +1985,10 @@ function copyAnimationEnvironment(
         "*": marker,
         "<angle>": `${91357 + index}deg`,
         "<basic-shape>": `inset(${91357 + index}px)`,
+        // guard:allow-raw-color - synthetic probe only, never painted in the UI
         "<color>": `rgb(${index % 255} 1 2 / 0.5)`,
-        "<custom-ident>": marker,
+        "<custom-ident>": marker, // i18n-ignore: CSS syntax label passed to CSSOM.
+        // guard:allow-raw-color - synthetic probe only, never painted in the UI
         "<image>": `linear-gradient(rgb(${index % 255} 1 2), rgb(3 4 5))`,
         "<integer>": `${91357 + index}`,
         "<length>": `${91357 + index}px`,
@@ -1974,7 +2013,6 @@ function copyAnimationEnvironment(
     (rule, activity) => {
       if (!("name" in rule) || !("syntax" in rule)) return;
       const propertyRule = rule as CSSRule & { name: string; syntax: string };
-      if (!customProperties.has(propertyRule.name)) return;
       if (activity !== true) {
         uncertainLocalProperties.add(propertyRule.name);
         return;
@@ -2041,31 +2079,47 @@ function copyAnimationEnvironment(
       }
     }
   };
-  visitActiveCssRules(
-    source.ownerDocument,
-    (rule, activity) => {
-      if (rule.type !== CSSRule.STYLE_RULE) return;
-      const styleRule = rule as CSSStyleRule;
-      if (!source.matches(styleRule.selectorText)) return;
-      for (const property of customProperties) {
-        if (!property.startsWith("--")) continue;
-        if (!styleRule.style.getPropertyValue(property)) continue;
+  const varPattern = /var\(\s*(--[\w-]+)/g;
+  const propertiesToInspect = [...customProperties];
+  for (let index = 0; index < propertiesToInspect.length; index++) {
+    const property = propertiesToInspect[index];
+    if (!property.startsWith("--")) continue;
+    const addDependencies = (value: string) => {
+      for (const match of value.matchAll(varPattern)) {
+        const dependency = match[1];
+        if (customProperties.has(dependency)) continue;
+        customProperties.add(dependency);
+        propertiesToInspect.push(dependency);
+      }
+    };
+    visitActiveCssRules(
+      source.ownerDocument,
+      (rule, activity) => {
+        if (rule.type !== CSSRule.STYLE_RULE) return;
+        const styleRule = rule as CSSStyleRule;
+        if (
+          !source.matches(styleRule.selectorText) ||
+          !styleRule.style.getPropertyValue(property)
+        )
+          return;
         if (activity !== true) {
           uncertainLocalProperties.add(property);
-          continue;
+          return;
         }
         const local = winningLocalValue(property, styleRule.style);
-        if (local) localValues.set(property, local);
-      }
-    },
-    () => {
-      unreadableStylesheet = true;
-    },
-  );
-  for (const property of customProperties) {
-    if (!property.startsWith("--")) continue;
+        if (!local) return;
+        localValues.set(property, local);
+        addDependencies(local.value);
+      },
+      () => {
+        unreadableStylesheet = true;
+      },
+    );
     const local = winningLocalValue(property, source.style);
-    if (local) localValues.set(property, local);
+    if (local) {
+      localValues.set(property, local);
+      addDependencies(local.value);
+    }
   }
   for (const property of customProperties) {
     if (!property.startsWith("--")) continue;
@@ -2148,11 +2202,22 @@ function moveSlideObjectTransform(
       };
     },
   );
-  const keyframes = new Map(
-    plans.map((plan) => [plan, keyframeProperties(plan.animation)]),
-  );
   const authoredByPlan = new Map(
     plans.map((plan) => [plan, authoredKeyframes(plan.animation)]),
+  );
+  const keyframes = new Map(
+    plans.map((plan) => {
+      const properties = keyframeProperties(plan.animation);
+      for (const frame of authoredByPlan.get(plan) ?? []) {
+        for (let index = 0; index < frame.style.length; index++) {
+          const property = frame.style.item(index);
+          if (property && property !== "animation-timing-function") {
+            properties.add(property);
+          }
+        }
+      }
+      return [plan, properties] as const;
+    }),
   );
   const cropAnimatedProperties = [...TRANSFORM_PROPERTIES, "transform-origin"];
   const keyframedProperties = new Set(
@@ -2268,6 +2333,7 @@ function moveSlideObjectTransform(
   }
   const cssRules: string[] = [];
   if (splitAnimations) {
+    copyAnimationEnvironment(source, frame, referencedCustomProperties);
     for (const plan of plans) {
       const properties = keyframes.get(plan)!;
       const imageProperties = new Set(
@@ -2304,7 +2370,6 @@ function moveSlideObjectTransform(
         if (rule) cssRules.push(rule);
       }
     }
-    copyAnimationEnvironment(source, frame, referencedCustomProperties);
   }
 
   let moved = activeFrameProperties.size > 0;

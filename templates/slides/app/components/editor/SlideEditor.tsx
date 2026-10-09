@@ -263,6 +263,7 @@ import {
   resolveSlideSelectionAnchor,
   restoreSlideObjectStyle,
   restoreSlideObjectDomSnapshot,
+  restoreSlideObjectTransformSnapshots,
   keepAbsoluteDescendantsInPlace,
   MIN_SLIDE_OBJECT_SIZE,
   releaseSlideObjectFromLeftBoxes,
@@ -9355,10 +9356,13 @@ export default function SlideEditor({
             slideObjectPaintsRotation(target, patch.rotation!),
           );
           if (!rotationApplied && originalTransforms) {
-            for (const [target, [value, priority]] of originalTransforms) {
-              if (value) target.style.setProperty("transform", value, priority);
-              else target.style.removeProperty("transform");
-            }
+            restoreSlideObjectTransformSnapshots(
+              [...originalTransforms].map(([element, [value, priority]]) => ({
+                element,
+                value,
+                priority,
+              })),
+            );
           }
         }
         const html = readCurrentSlideContentHtml();

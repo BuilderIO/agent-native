@@ -1042,8 +1042,11 @@ export function SlideContextToolbar({
                     mixed={snapshot.rotation === null}
                     mixedLabel={t("styleInspector.mixed")}
                     disabled={snapshot.rotation === null}
-                    onChange={(rotation) => {
-                      if (onChange({ rotation }) === false) {
+                    onChange={(rotation, meta) => {
+                      if (
+                        onChange({ rotation }) === false &&
+                        meta.phase === "commit"
+                      ) {
                         setRefusedRotations((count) => count + 1);
                       }
                     }}

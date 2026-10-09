@@ -330,6 +330,47 @@ describe("the rotation of a slide object in Chromium", () => {
     },
   );
 
+  it("restores a refused multi-selection rotation without transitions", async () => {
+    const page = await openPage(
+      ".transitioned { transition: transform 2s linear; } .refused { transform: rotate(20deg) !important; }",
+      '<div id="accepted" class="transitioned" style="position:absolute;width:100px;height:40px;transform:rotate(0deg)"></div><div id="refused" class="refused" style="position:absolute;width:100px;height:40px;transform:rotate(20deg)"></div>',
+    );
+    try {
+      const result = await page.evaluate(async () => {
+        const accepted = document.getElementById("accepted") as HTMLElement;
+        const refused = document.getElementById("refused") as HTMLElement;
+        const snapshots = [accepted, refused].map((element) => ({
+          element,
+          value: element.style.getPropertyValue("transform"),
+          priority: element.style.getPropertyPriority("transform"),
+        }));
+        const before = getComputedStyle(accepted).transform;
+        const refusedBefore = getComputedStyle(refused).transform;
+        accepted.style.transform = "rotate(90deg)";
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        const transitioning = getComputedStyle(accepted).transform;
+        const refusedRotationApplied =
+          window.slideObjects.setSlideObjectRotation(refused, 90);
+        window.slideObjects.restoreSlideObjectTransformSnapshots(snapshots);
+        return {
+          before,
+          transitioning,
+          after: getComputedStyle(accepted).transform,
+          refusedRotationApplied,
+          refusedBefore,
+          refusedAfter: getComputedStyle(refused).transform,
+        };
+      });
+
+      expect(result.transitioning).not.toBe(result.before);
+      expect(result.after).toBe(result.before);
+      expect(result.refusedRotationApplied).toBe(false);
+      expect(result.refusedAfter).toBe(result.refusedBefore);
+    } finally {
+      await page.close();
+    }
+  });
+
   it("ungroups a group a stylesheet rule rotates without moving its members", async () => {
     const page = await openPage(
       ".turned { transform: rotate(200deg); }",
@@ -1012,6 +1053,107 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       } finally {
         await reopened.close();
         await reference.close();
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("keeps local custom-property dependencies with crop animations", async () => {
+    const css =
+      ".ruled { --angle: 120deg; --turn: var(--angle); animation: variable-turn 4s linear infinite; } @keyframes variable-turn { from { transform: rotate(0deg); } to { transform: rotate(var(--turn)); } }";
+    const page = await openPage(css, imageHtml());
+    try {
+      const saved = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.getAnimations()[0].currentTime = 2000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return {
+          markup: wrapped.frame.outerHTML,
+          inlineAngle: wrapped.frame.style.getPropertyValue("--angle"),
+          inlineTurn: wrapped.frame.style.getPropertyValue("--turn"),
+        };
+      });
+      expect(saved.inlineAngle).toBe("120deg");
+      expect(saved.inlineTurn).toBe("var(--angle)");
+
+      const reopened = await openPage(css, saved.markup);
+      const reference = await openPage(css, imageHtml());
+      try {
+        for (const time of [0, 1000, 2000, 3000]) {
+          expectSameHull(
+            await hullAt(reopened, "#frame", time),
+            await hullAt(reference, "#pic", time),
+            1,
+          );
+        }
+      } finally {
+        await reopened.close();
+        await reference.close();
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("keeps animated custom properties with crop transform tracks", async () => {
+    const css =
+      ".ruled { animation: variable-turn 4s linear infinite; } @keyframes variable-turn { from { --angle: 0deg; transform: rotate(0deg); } to { --angle: 120deg; transform: rotate(var(--angle)); } }";
+    const page = await openPage(css, imageHtml());
+    try {
+      const saved = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.getAnimations()[0].currentTime = 2000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return wrapped.frame.outerHTML;
+      });
+      expect(saved).toContain("--angle:");
+
+      const reopened = await openPage(css, saved);
+      const reference = await openPage(css, imageHtml());
+      try {
+        for (const time of [0, 1000, 2000, 3000]) {
+          expectSameHull(
+            await hullAt(reopened, "#frame", time),
+            await hullAt(reference, "#pic", time),
+            1,
+          );
+        }
+      } finally {
+        await reopened.close();
+        await reference.close();
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("escapes authored keyframe values in saved crop styles", async () => {
+    const page = await openPage("", imageHtml());
+    try {
+      const saved = await page.evaluate(() => {
+        const style = document.createElement("style");
+        style.textContent =
+          ".ruled { animation: unsafe-content 4s linear infinite; } @keyframes unsafe-content { from { transform: rotate(0deg); } to { transform: rotate(120deg); content: '</style><div id=\"crop-keyframe-injected\"></div>'; } }";
+        document.head.append(style);
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.classList.add("ruled");
+        image.getAnimations()[0].currentTime = 2000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return wrapped.frame.outerHTML;
+      });
+      expect(saved).toContain("\\3c /style>");
+
+      const reopened = await openPage("", saved);
+      try {
+        expect(await reopened.locator("#crop-keyframe-injected").count()).toBe(
+          0,
+        );
+      } finally {
+        await reopened.close();
       }
     } finally {
       await page.close();

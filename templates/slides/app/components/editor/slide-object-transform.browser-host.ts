@@ -5,6 +5,7 @@ export {
   readSlideObjectRotation,
   readSlideObjectTransformSnapshot,
   resizeTransformedSlideObject,
+  restoreSlideObjectTransformSnapshots,
   rotateSlideObjectMembers,
   setSlideObjectRotation,
   restoreSlideObjectAnimationState,
