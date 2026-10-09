@@ -702,6 +702,14 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       imageAnimations: 0,
     },
     {
+      name: "a spin around a non-center origin without a static transform",
+      css: `${SPIN} .ruled { animation: spin 4s linear infinite; }`,
+      inline: "transform-origin: top left;",
+      settle: 400,
+      frameAnimations: 1,
+      imageAnimations: 0,
+    },
+    {
       name: "an infinite animation over an inline transform",
       css: `${SPIN} .ruled { animation: spin 4s linear infinite; }`,
       inline: "transform: translate(10px, 5px);",
@@ -862,6 +870,135 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     }
   });
 
+  it("keeps inherited animation variables live on the crop frame", async () => {
+    const css =
+      ".stage { --turn: 120deg; --unrelated-theme-token: 24px; } @keyframes variable-turn { from { transform: rotate(0deg); } to { transform: rotate(var(--turn)); } } .ruled { animation: variable-turn 4s linear infinite; }";
+    const page = await openPage(css, imageHtml());
+    try {
+      const saved = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.getAnimations()[0].currentTime = 2000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return {
+          markup: wrapped.frame.outerHTML,
+          inlineTurn: wrapped.frame.style.getPropertyValue("--turn"),
+          inlineUnrelated: wrapped.frame.style.getPropertyValue(
+            "--unrelated-theme-token",
+          ),
+        };
+      });
+      expect(saved.inlineTurn).toBe("");
+      expect(saved.inlineUnrelated).toBe("");
+
+      const changedTheme = css.replace("--turn: 120deg", "--turn: 180deg");
+      const reopened = await openPage(changedTheme, saved.markup);
+      const reference = await openPage(changedTheme, imageHtml());
+      try {
+        const actual = await hullAt(reopened, "#frame", 2000);
+        const expected = await reference.evaluate(() => {
+          const image = document.getElementById("pic")!;
+          image.getAnimations()[0].currentTime = 2000;
+          const { left, top, width, height } = image.getBoundingClientRect();
+          return { left, top, width, height };
+        });
+        expectSameHull(actual, expected, 1);
+      } finally {
+        await reopened.close();
+        await reference.close();
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("restores the original animation time and play state when crop is cancelled", async () => {
+    const css =
+      "@keyframes move-and-fade { from { transform: rotate(0deg); opacity: 0.2; } to { transform: rotate(90deg); opacity: 0.8; } } .ruled { animation: move-and-fade 4s linear infinite; }";
+    const page = await openPage(css, imageHtml());
+    try {
+      const restored = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const originalAttributes = Array.from(
+          image.attributes,
+          ({ name, value }) => [name, value] as const,
+        );
+        const animation = image.getAnimations()[0];
+        animation.pause();
+        animation.currentTime = 1250;
+        const snapshot =
+          window.slideObjects.captureSlideObjectAnimationState(image);
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.replaceWith(image);
+        for (const attribute of Array.from(image.attributes)) {
+          image.removeAttribute(attribute.name);
+        }
+        for (const [name, value] of originalAttributes) {
+          image.setAttribute(name, value);
+        }
+        window.slideObjects.restoreSlideObjectAnimationState(image, snapshot);
+        const [restoredAnimation] = image.getAnimations();
+        return {
+          currentTime: restoredAnimation?.currentTime,
+          playState: restoredAnimation?.playState,
+          animationName: (restoredAnimation as CSSAnimation | undefined)
+            ?.animationName,
+        };
+      });
+      expect(restored.animationName).toBe("move-and-fade");
+      expect(restored.currentTime).toBe(1250);
+      expect(restored.playState).toBe("paused");
+    } finally {
+      await page.close();
+    }
+  });
+
+  it.each([
+    ["shorthand", "transition: opacity 2s linear;"],
+    [
+      "longhands",
+      "transition-property: opacity; transition-duration: 2s; transition-timing-function: ease-in;",
+    ],
+  ])(
+    "restores authored %s transitions in serialized crop markup",
+    async (_name, transition) => {
+      const page = await openPage(
+        "",
+        imageHtml(`transform: rotate(20deg); ${transition}`),
+      );
+      try {
+        const serialized = await page.evaluate(() => {
+          const image = document.getElementById("pic") as HTMLImageElement;
+          const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+          wrapped.restoreTransitions();
+          return {
+            markup: wrapped.frame.outerHTML,
+            style: image.getAttribute("style") ?? "",
+            frameTransform: wrapped.frame.style.transform,
+            transitionPriority: image.style.getPropertyPriority("transition"),
+          };
+        });
+        expect(serialized.frameTransform).toBe("rotate(20deg)");
+        expect(serialized.style).not.toMatch(
+          /transition:\s*none\s*!important/i,
+        );
+        expect(serialized.transitionPriority).toBe("");
+        expect(serialized.markup).toContain("opacity");
+        if (_name === "shorthand") {
+          expect(serialized.style).toMatch(/transition:\s*opacity 2s linear/i);
+        } else {
+          expect(serialized.style).toMatch(/transition-property:\s*opacity/i);
+          expect(serialized.style).toMatch(/transition-duration:\s*2s/i);
+          expect(serialized.style).toMatch(
+            /transition-timing-function:\s*ease-in/i,
+          );
+        }
+      } finally {
+        await page.close();
+      }
+    },
+  );
+
   it("keeps opacity and transform tracks on their visual targets without doubling opacity", async () => {
     const css =
       "@keyframes move-and-fade { from { transform: translateX(0); opacity: 0.2; } to { transform: rotate(30deg); opacity: 0.8; } } .ruled { animation: move-and-fade 1s linear infinite; }";
@@ -935,24 +1072,31 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       );
       await page.waitForTimeout(300);
       const painted = await hullOf(page, "#pic");
-      await page.evaluate(() => {
+      const imageStyle = await page.evaluate(() => {
         const image = document.getElementById("pic") as HTMLImageElement;
         const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
         wrapped.frame.id = "frame";
+        const transitionDuringCrop = getComputedStyle(image).transition;
+        wrapped.restoreTransitions();
+        return {
+          transform: getComputedStyle(image).transform,
+          transitionDuringCrop,
+          restoredTransition: getComputedStyle(image).transition,
+        };
       });
 
       expectSameHull(await hullOf(page, "#frame"), painted);
-      const imageStyle = await page.evaluate(() => {
-        const image = document.getElementById("pic") as HTMLImageElement;
-        return {
-          transform: getComputedStyle(image).transform,
-          transition: getComputedStyle(image).transition,
-        };
-      });
-      expect(imageStyle).toEqual({ transform: "none", transition: "none" });
+      expect(imageStyle.transform).toBe("none");
+      expect(imageStyle.transitionDuringCrop).toBe("none");
+      expect(imageStyle.restoredTransition).toMatch(/transform 1s linear/);
       const held = await hullOf(page, "#frame");
       await page.waitForTimeout(300);
       expectSameHull(await hullOf(page, "#frame"), held);
+      expect(
+        await page.evaluate(
+          () => getComputedStyle(document.getElementById("pic")!).transform,
+        ),
+      ).toBe("none");
     } finally {
       await page.close();
     }

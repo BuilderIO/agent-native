@@ -1252,12 +1252,14 @@ describe("starting to crop an image", () => {
             <div class="fmd-slide" style="position:relative">
               <img id="pic" class="ruled" data-slide-object-id="pic-1" src="x.png" style="${IMAGE_STYLE}">
             </div>`);
-          const original = editor.el("pic").outerHTML;
+          const originalImage = editor.el("pic");
+          const original = originalImage.outerHTML;
 
           expect(await startCrop(editor)).not.toBeNull();
           fireEvent.keyDown(window, { key: "Escape" });
           await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
 
+          expect(editor.el("pic")).toBe(originalImage);
           expect(editor.el("pic").outerHTML).toBe(original);
           expect(editor.container.querySelector(".fmd-pptx-image")).toBeNull();
         },

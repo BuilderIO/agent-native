@@ -233,6 +233,8 @@ import {
   resolveSelectionOwnerId,
   isValidSlideClipboardRoot,
   readSlideObjectSelectionFrame,
+  captureSlideObjectAnimationState,
+  restoreSlideObjectAnimationState,
   readEditableSlideObjectRotation,
   readSlideObjectClipboardId,
   readSlideObjectRotation,
@@ -282,6 +284,7 @@ import {
   type ResizeHandle,
   type SlideObjectGeometry,
   type SlideObjectGeometryPlan,
+  type SlideObjectAnimationSnapshot,
   type SlideObjectGroupResizeMember,
   type SlideObjectRotationMember,
   type SlideObjectZOrderTarget,
@@ -1696,6 +1699,8 @@ type ActiveImageCrop = {
   restorePreviewStyles: () => void;
   restoreChrome: () => void;
   resumeAnimations: () => void;
+  restoreTransitions: () => void;
+  restoreAnimations: () => void;
   hasChanges: () => boolean;
   cancel: () => HTMLElement | null;
 };
@@ -2420,6 +2425,7 @@ export default function SlideEditor({
       writeImageCropPercentGeometry(crop.image, crop.viewport);
       preserveSlideObjectLayoutSpacer(crop.frame);
       crop.resumeAnimations();
+      crop.restoreTransitions();
       const html = readCurrentSlideContentHtmlRef.current();
       if (html !== null) {
         if (crop.frozen.restoreMarkdownTree) {
@@ -8666,18 +8672,20 @@ export default function SlideEditor({
       const originalFrame = frameIsPersistedImage
         ? (existingFrame!.cloneNode(true) as HTMLElement)
         : null;
-      const originalImage = frameIsPersistedImage
+      const originalImageAttributes = frameIsPersistedImage
         ? null
-        : (target.cloneNode(true) as HTMLImageElement);
-      const originalImageAttributes = originalImage
-        ? Array.from(
-            originalImage.attributes,
+        : Array.from(
+            target.attributes,
             ({ name, value }) => [name, value] as const,
-          )
-        : null;
+          );
+      const originalAnimationState: SlideObjectAnimationSnapshot =
+        captureSlideObjectAnimationState(
+          frameIsPersistedImage ? existingFrame! : target,
+        );
 
       let frame: HTMLElement = frameIsPersistedImage ? existingFrame! : target;
       let resumeCropAnimations = () => {};
+      let restoreCropTransitions = () => {};
       const frozen = freezeElementForFreeformSelection(frame);
       if (!frozen) return;
 
@@ -8733,6 +8741,7 @@ export default function SlideEditor({
         frame = wrapped.frame;
         viewport = wrapped.viewport;
         resumeCropAnimations = wrapped.resumeAnimations;
+        restoreCropTransitions = wrapped.restoreTransitions;
         frame.setAttribute("data-builder-id", ensureBuilderId(frame));
       }
 
@@ -8796,6 +8805,12 @@ export default function SlideEditor({
           else frame.style.removeProperty("z-index");
         },
         resumeAnimations: resumeCropAnimations,
+        restoreTransitions: restoreCropTransitions,
+        restoreAnimations: () =>
+          restoreSlideObjectAnimationState(
+            frameIsPersistedImage ? originalFrame! : image,
+            originalAnimationState,
+          ),
         hasChanges: () =>
           [
             [frame.offsetLeft, cropStartGeometry.frame.x],
@@ -8821,14 +8836,27 @@ export default function SlideEditor({
               }
             }
             frozen.restoreMarkdownTree();
+            restoreCropTransitions();
+            activeCrop.restoreAnimations();
             return frameIsPersistedImage ? originalFrame : image;
           }
           if (frameIsPersistedImage) {
             frame.replaceWith(originalFrame!);
+            activeCrop.restoreAnimations();
             return originalFrame;
           }
-          frame.replaceWith(originalImage!);
-          return originalImage;
+          frame.replaceWith(image);
+          if (originalImageAttributes) {
+            for (const attribute of Array.from(image.attributes)) {
+              image.removeAttribute(attribute.name);
+            }
+            for (const [name, value] of originalImageAttributes) {
+              image.setAttribute(name, value);
+            }
+          }
+          restoreCropTransitions();
+          activeCrop.restoreAnimations();
+          return image;
         },
       };
       imageCropRef.current = activeCrop;
