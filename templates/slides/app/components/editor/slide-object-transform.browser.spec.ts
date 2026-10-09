@@ -2450,6 +2450,75 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     }
   });
 
+  it.each([
+    {
+      name: "an inactive container query",
+      condition: "(min-width: 10000px)",
+      expectedFontTrack: true,
+      expectedLineHeightTrack: true,
+    },
+    {
+      name: "an active container query",
+      condition: "(min-width: 600px)",
+      expectedFontTrack: false,
+      expectedLineHeightTrack: false,
+    },
+  ])(
+    "checks whether important font rules paint inside $name before splitting animations",
+    async ({ condition, expectedFontTrack, expectedLineHeightTrack }) => {
+      const css = `.stage { container-type: inline-size; } @keyframes grow-and-shift { from { font-size: 10px; line-height: 10px; transform: translateX(calc(0em + 0lh)); } to { font-size: 30px; line-height: 30px; transform: translateX(calc(1em + 1lh)); } } .ruled { animation: grow-and-shift 4s linear infinite; } @container ${condition} { .ruled { font-size: 40px !important; line-height: 40px !important; } }`;
+      const body = `${imageHtml()} ${imageHtml().replace('id="pic"', 'id="reference"')}`;
+      const page = await openPage(css, body);
+      try {
+        const result = await page.evaluate(() => {
+          const image = document.getElementById("pic") as HTMLImageElement;
+          const reference = document.getElementById(
+            "reference",
+          ) as HTMLImageElement;
+          const animationFor = (element: Element) =>
+            element
+              .getAnimations()
+              .find((animation) => "animationName" in animation)!;
+          const sourceAnimation = animationFor(image);
+          const referenceAnimation = animationFor(reference);
+          sourceAnimation.currentTime = 1000;
+          referenceAnimation.currentTime = 1000;
+          const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+          const frameAnimation = animationFor(wrapped.frame);
+          wrapped.resumeAnimations();
+          frameAnimation.currentTime = 2000;
+          referenceAnimation.currentTime = 2000;
+          const frameKeyframes =
+            frameAnimation.effect instanceof KeyframeEffect
+              ? frameAnimation.effect.getKeyframes()
+              : [];
+          return {
+            frameFontSize: getComputedStyle(wrapped.frame).fontSize,
+            referenceFontSize: getComputedStyle(reference).fontSize,
+            frameLineHeight: getComputedStyle(wrapped.frame).lineHeight,
+            referenceLineHeight: getComputedStyle(reference).lineHeight,
+            frameTransform: getComputedStyle(wrapped.frame).transform,
+            referenceTransform: getComputedStyle(reference).transform,
+            frameHasFontSizeTrack: frameKeyframes.some(
+              (keyframe) => "fontSize" in keyframe,
+            ),
+            frameHasLineHeightTrack: frameKeyframes.some(
+              (keyframe) => "lineHeight" in keyframe,
+            ),
+          };
+        });
+
+        expect(result.frameHasFontSizeTrack).toBe(expectedFontTrack);
+        expect(result.frameHasLineHeightTrack).toBe(expectedLineHeightTrack);
+        expect(result.frameFontSize).toBe(result.referenceFontSize);
+        expect(result.frameLineHeight).toBe(result.referenceLineHeight);
+        expect(result.frameTransform).toBe(result.referenceTransform);
+      } finally {
+        await page.close();
+      }
+    },
+  );
+
   it("keeps animated line-height in sync with line-height transform units", async () => {
     const css =
       "@keyframes grow-and-shift { from { line-height: 10px; transform: translateX(0lh); } to { line-height: 30px; transform: translateX(1lh); } } .ruled { animation: grow-and-shift 4s linear infinite; }";

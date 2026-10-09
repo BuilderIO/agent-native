@@ -1786,6 +1786,48 @@ function preserveUnrelatedTransitions(
   }
 }
 
+let nextImportantStyleRuleProbeId = 0;
+
+function importantStyleRuleIsActive(
+  rule: CSSStyleRule,
+  element: HTMLElement,
+  activity: CssRuleActivity,
+): boolean {
+  if (activity !== null) return activity;
+
+  // Container queries and other browser-evaluated conditions are not exposed
+  // by cssRuleActivity. A unique custom property tells us whether this rule
+  // actually contributes to the element's computed style.
+  const probeId = ++nextImportantStyleRuleProbeId;
+  const probeProperty = `--fmd-crop-rule-activity-${probeId}`;
+  const probeValue = `active-${probeId}`;
+  const originalValue = rule.style.getPropertyValue(probeProperty);
+  const originalPriority = rule.style.getPropertyPriority(probeProperty);
+  try {
+    rule.style.setProperty(probeProperty, probeValue, "important");
+    return (
+      window
+        .getComputedStyle(element)
+        .getPropertyValue(probeProperty)
+        .trim() === probeValue
+    );
+  } catch {
+    // If a matching stylesheet rule cannot be safely probed, keep treating it
+    // as active so an !important declaration cannot be copied over.
+    return true;
+  } finally {
+    try {
+      if (originalValue) {
+        rule.style.setProperty(probeProperty, originalValue, originalPriority);
+      } else {
+        rule.style.removeProperty(probeProperty);
+      }
+    } catch {
+      // A failed cleanup is no less conservative than an unreadable sheet.
+    }
+  }
+}
+
 function hasMatchingImportantStyleRule(
   element: HTMLElement,
   property: string,
@@ -1802,15 +1844,15 @@ function hasMatchingImportantStyleRule(
         styleRule.style.getPropertyPriority(property) === "important" &&
         element.matches(styleRule.selectorText)
       ) {
-        found = true;
+        found = importantStyleRuleIsActive(styleRule, element, activity);
       }
     },
     () => {
       unreadable = true;
     },
   );
-  // An unreadable sheet may contain a matching !important declaration, which
-  // would outrank a copied animation on the frame.
+  // An unreadable sheet may contain a matching active !important declaration,
+  // which would outrank a copied animation on the frame.
   return found || unreadable;
 }
 
