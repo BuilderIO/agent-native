@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => {
     lockedBoardContent: null as string | null,
     landedSelects: [] as unknown[][],
     selectQueue: [] as unknown[][],
+    stagedRows: [] as unknown[][],
     inserts: [] as Array<{ table: string; rows: Array<Record<string, any>> }>,
     deletes: [] as Array<{ table: string; where: unknown }>,
     boardWrites: [] as Array<{ fileId: string; content: string }>,
@@ -131,6 +132,14 @@ vi.mock("../server/db/index.js", () => {
       designBoardReplayScreenshots: table("designBoardReplayScreenshots", [
         "id",
         "designId",
+        "app",
+        "replayId",
+        "capturedAt",
+        "offsetMs",
+        "viewportWidth",
+        "viewportHeight",
+        "mimeType",
+        "sizeBytes",
         "blobHandle",
       ]),
     },
@@ -159,6 +168,7 @@ vi.mock("./migrate-board-objects-to-file.js", () => ({
 }));
 
 import { emptyBoardHtml } from "../shared/board-file.js";
+import { planJourneyCanvas } from "../shared/journey-canvas.js";
 import action from "./create-journey-canvas.js";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
@@ -232,6 +242,7 @@ beforeEach(() => {
   state.lockedBoardContent = null;
   state.landedSelects = [];
   state.selectQueue = [];
+  state.stagedRows = [];
   state.inserts = [];
   state.deletes = [];
   state.boardWrites = [];
@@ -253,10 +264,15 @@ beforeEach(() => {
   // The first select reads the board; later ones are the post-failure "did it land" checks.
   let dbSelects = 0;
   mocks.getDb.mockImplementation(() => ({
-    select: () =>
-      dbSelects++ === 0
+    select: (projection: Record<string, unknown> = {}) => {
+      const fields = Object.keys(projection);
+      if (fields.includes("app") && fields.includes("replayId")) {
+        return mocks.chain(state.stagedRows.shift() ?? []);
+      }
+      return dbSelects++ === 0
         ? mocks.chain([{ ...BOARD_FILE, content: state.boardContent }])
-        : mocks.chain(state.landedSelects.shift() ?? []),
+        : mocks.chain(state.landedSelects.shift() ?? []);
+    },
   }));
   mocks.readLiveSourceFile.mockImplementation(
     async (file: { content: string }) => ({
@@ -432,6 +448,118 @@ describe("create-journey-canvas run", () => {
       ).toBe(true);
     }
     expect(files.some((file) => file.content.includes("ref-a"))).toBe(false);
+  });
+
+  it("consumes a Design-staged private frame without copying it again", async () => {
+    const stagedHandle = {
+      id: "staged-private-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: false,
+    };
+    mocks.state.stagedRows = [
+      [
+        {
+          id: "jcu_stage-1",
+          app: "journey-canvas-stage:v1:import-1:hash:payload:slides",
+          route: "a",
+          replayId: "a-r1",
+          capturedAt: "2026-10-08T09:30:00.000Z",
+          offsetMs: 2_600,
+          viewportWidth: 1440,
+          viewportHeight: 900,
+          mimeType: "image/png",
+          sizeBytes: 24,
+          blobHandle: JSON.stringify(stagedHandle),
+        },
+      ],
+    ];
+    const input = parsed({
+      ...rawInput([
+        frame("a", {
+          stagedFrameId: "jcu_stage-1",
+          screenshotOffsetMs: 2_600,
+        }),
+      ]),
+      designId: "design-1",
+    });
+
+    await action.run(input, {} as any);
+
+    expect(mocks.resolveAttachment).not.toHaveBeenCalled();
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
+    const finalRows = mocks.state.inserts.find(
+      (entry) => entry.table === "designBoardReplayScreenshots",
+    )!.rows;
+    expect(finalRows).toHaveLength(1);
+    expect(finalRows[0]).toMatchObject({
+      id: expect.stringMatching(/^jcs_/),
+      blobHandle: JSON.stringify(stagedHandle),
+      replayId: "a-r1",
+      app: "design",
+      offsetMs: 2_600,
+    });
+    expect(mocks.state.deletes).toContainEqual(
+      expect.objectContaining({ table: "designBoardReplayScreenshots" }),
+    );
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("reuses a promoted private frame when retrying after a committed response was lost", async () => {
+    const stagedHandle = {
+      id: "already-promoted-private-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: false,
+    };
+    const input = parsed({
+      ...rawInput([
+        frame("a", {
+          stagedFrameId: "jcu_stage-1",
+          caption: { prompt: "Updated caption after the lost response" },
+        }),
+      ]),
+      designId: "design-1",
+    });
+    const finalRowId = planJourneyCanvas(input, "design-1").screens[0]!
+      .attachment!.rowId;
+    mocks.state.stagedRows = [
+      [],
+      [
+        {
+          id: finalRowId,
+          app: "design",
+          route: "a",
+          replayId: "a-r1",
+          capturedAt: "2026-10-08T09:30:00.000Z",
+          offsetMs: 2_000,
+          viewportWidth: 1440,
+          viewportHeight: 900,
+          mimeType: "image/png",
+          sizeBytes: 24,
+          blobHandle: JSON.stringify(stagedHandle),
+        },
+      ],
+    ];
+    mocks.state.selectQueue = [
+      [],
+      [{ id: finalRowId, blobHandle: JSON.stringify(stagedHandle) }],
+    ];
+
+    await action.run(input, {} as any);
+
+    expect(mocks.resolveAttachment).not.toHaveBeenCalled();
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.queueCleanup.mock.calls[0]?.[1]).toEqual([]);
+    const finalRows = mocks.state.inserts.find(
+      (entry) => entry.table === "designBoardReplayScreenshots",
+    )!.rows;
+    expect(finalRows).toHaveLength(1);
+    expect(finalRows[0]).toMatchObject({
+      id: finalRowId,
+      blobHandle: JSON.stringify(stagedHandle),
+    });
   });
 
   it("stores attachmentRef screenshots through the encrypted public-upload fallback", async () => {

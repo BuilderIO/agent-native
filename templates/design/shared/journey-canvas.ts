@@ -26,6 +26,7 @@ import { annotateScreenHtmlForPersist } from "./screen-annotation.js";
 /** Ids written by this action all start with one of these, so a rerun can find and replace them. */
 export const JOURNEY_FILE_ID_PREFIX = "jc_";
 export const JOURNEY_REPLAY_ROW_PREFIX = "jcs_";
+export const JOURNEY_STAGED_REPLAY_ROW_PREFIX = "jcu_";
 export const JOURNEY_BOARD_ID_PREFIX = "jc-";
 export const JOURNEY_FILENAME_PREFIX = "journey-";
 export const REPLAY_SCREENSHOT_ROUTE = "/api/design-board-replay-screenshots/";
@@ -61,6 +62,31 @@ const pixels = z.number().int().min(1).max(MAX_DIMENSION);
 const percent = z.number().min(0).max(100);
 const count = z.number().int().min(0).max(2_147_483_647);
 
+const journeyFrameCaptionSchema = z
+  .object({
+    outputTitle: z.string().max(300).optional(),
+    actor: z.string().max(320).nullable().optional(),
+    actorSource: z.string().max(256).optional(),
+    dateLabel: z
+      .enum([
+        "Event time (UTC)",
+        "generation_completed event (UTC)",
+        "Replay observation (UTC)",
+      ])
+      .optional(),
+    evidenceStatus: z
+      .enum(["generation_completed", "rendered_output_observed"])
+      .optional(),
+    evidenceAt: isoTimestamp.optional(),
+    prompt: z.string().max(5_000).nullable().optional(),
+    promptTranslation: z.string().max(5_000).nullable().optional(),
+    promptSource: z.string().max(256).nullable().optional(),
+    promptUnavailableReason: z.string().max(256).nullable().optional(),
+  })
+  .strict();
+
+type JourneyFrameCaption = z.infer<typeof journeyFrameCaptionSchema>;
+
 export const journeyExampleSchema = z.object({
   sessionId: z.string().min(1).max(256),
   recordingId: z.string().max(256).nullable(),
@@ -71,19 +97,40 @@ export const journeyExampleSchema = z.object({
   replayUrl: z.string().max(MAX_IMAGE_URL_CHARS).optional(),
 });
 
-export const journeyNodeSchema = z.object({
+const journeyNodeBaseSchema = z.object({
   key: z.string().min(1).max(2_048),
   label: z.string().min(1).max(300),
   parentKey: z.string().min(1).max(2_048).nullable(),
   depth: count,
+  examples: z.array(journeyExampleSchema).max(50),
+});
+
+const cohortJourneyNodeSchema = journeyNodeBaseSchema.extend({
   kind: z.enum(["step", "other"]),
+  referenceOnly: z
+    .literal(false)
+    .default(false)
+    .describe("False for nodes with cohort counts and percentages."),
   n: count,
   pctOfRoot: percent,
   pctOfParent: percent,
   dropoffN: count,
   dropoffPct: percent,
-  examples: z.array(journeyExampleSchema).max(50),
 });
+
+const referenceJourneyNodeSchema = journeyNodeBaseSchema.extend({
+  kind: z.literal("step"),
+  referenceOnly: z
+    .literal(true)
+    .describe(
+      "A separately observed visual reference. It has no cohort metrics and is labeled Observed session reference.",
+    ),
+});
+
+export const journeyNodeSchema = z.union([
+  cohortJourneyNodeSchema,
+  referenceJourneyNodeSchema,
+]);
 
 export const journeyTreeSchema = z.object({
   window: z.object({ from: z.string().max(64), to: z.string().max(64) }),
@@ -127,18 +174,38 @@ export const journeyFrameSchema = z
     exampleIndex: z.number().int().min(0).max(999),
     imageUrl: z.string().max(MAX_IMAGE_URL_CHARS).optional(),
     attachmentRef: z.string().min(1).max(ATTACHMENT_REF_MAX_CHARS).optional(),
+    stagedFrameId: z
+      .string()
+      .min(1)
+      .max(128)
+      .optional()
+      .describe(
+        "Opaque frame ID returned by stage-journey-canvas-frames for this Design.",
+      ),
+    screenshotOffsetMs: z
+      .number()
+      .int()
+      .min(0)
+      .max(2_147_483_647)
+      .optional()
+      .describe(
+        "Replay offset from recording.startedAt for this screenshot; omit when it matches the example event offset.",
+      ),
     width: pixels,
     height: pixels,
     capturedAt: isoTimestamp,
+    caption: journeyFrameCaptionSchema.optional(),
   })
   .superRefine((frame, ctx) => {
     if (
-      (frame.imageUrl === undefined) ===
-      (frame.attachmentRef === undefined)
+      [frame.imageUrl, frame.attachmentRef, frame.stagedFrameId].filter(
+        (value) => value !== undefined,
+      ).length !== 1
     ) {
       ctx.addIssue({
         code: "custom",
-        message: "Pass exactly one of imageUrl or attachmentRef.",
+        message:
+          "Pass exactly one of imageUrl, attachmentRef, or stagedFrameId.",
       });
     }
     if (frame.imageUrl !== undefined) {
@@ -179,6 +246,15 @@ export const createJourneyCanvasInputSchema = z
   .superRefine((input, ctx) => {
     const issue = (path: (string | number)[], message: string) =>
       ctx.addIssue({ code: "custom", path, message });
+    if (
+      !input.designId &&
+      input.frames.some((frame) => frame.stagedFrameId !== undefined)
+    ) {
+      issue(
+        ["designId"],
+        "Pass the Design ID used to stage screenshots when any frame has stagedFrameId.",
+      );
+    }
     const byKey = new Map<string, number>();
     input.tree.nodes.forEach((node, index) => {
       if (byKey.has(node.key)) {
@@ -254,6 +330,12 @@ export type CreateJourneyCanvasInput = z.infer<
   typeof createJourneyCanvasInputSchema
 >;
 
+function hasCohortMetrics(
+  node: JourneyNode,
+): node is z.infer<typeof cohortJourneyNodeSchema> {
+  return node.referenceOnly !== true;
+}
+
 /** 53-bit string hash (cyrb53), hex. Ids only need to be stable and collision-free in one design. */
 function hashId(value: string): string {
   let h1 = 0xdeadbeef;
@@ -273,6 +355,18 @@ function hashId(value: string): string {
     (h2 >>> 0).toString(16).padStart(8, "0") +
     (h1 >>> 0).toString(16).padStart(8, "0")
   ).slice(0, 14);
+}
+
+function journeyFileId(
+  designId: string,
+  nodeKey: string,
+  exampleIndex: number,
+): string {
+  return `${JOURNEY_FILE_ID_PREFIX}${hashId(`${designId}\u0000${nodeKey}\u0000${exampleIndex}`)}`;
+}
+
+function journeyReplayRowId(fileId: string): string {
+  return `${JOURNEY_REPLAY_ROW_PREFIX}${fileId.slice(JOURNEY_FILE_ID_PREFIX.length)}`;
 }
 
 function escapeHtml(value: string): string {
@@ -301,6 +395,20 @@ export function formatPercent(value: number): string {
   return `${clamped >= 10 ? Math.round(clamped) : Math.round(clamped * 10) / 10}%`;
 }
 
+function replayObservedAt(
+  example: z.infer<typeof journeyExampleSchema> | undefined,
+  screenshotOffsetMs: number | null,
+): string | null {
+  if (!example || example.offsetMs === null || screenshotOffsetMs === null) {
+    return null;
+  }
+  const eventAt = Date.parse(example.ts);
+  if (!Number.isFinite(eventAt)) return null;
+  return new Date(
+    eventAt - example.offsetMs + screenshotOffsetMs,
+  ).toISOString();
+}
+
 export interface PlannedScreen {
   fileId: string;
   filename: string;
@@ -311,15 +419,20 @@ export interface PlannedScreen {
   exampleIndex: number;
   provenance?: {
     eventAt: string;
+    dateLabel: string;
     recordingId: string | null;
     offsetMs: number | null;
+    sourceEventOffsetMs: number | null;
+    replayObservedAt: string | null;
     screenshotCapturedAt: string;
+    caption?: JourneyFrameCaption;
   };
   /** Frame geometry relative to the canvas origin. */
   frame: { x: number; y: number; width: number; height: number; z: number };
-  /** Set when the image is a private attachment that must be copied into Design's blob storage. */
+  /** Set when the image is an attachment to copy or a staged private Design blob to consume. */
   attachment?: {
-    ref: string;
+    ref?: string;
+    stagedFrameId?: string;
     rowId: string;
     replayId: string;
     capturedAt: string;
@@ -351,34 +464,134 @@ function replayImageSrc(rowId: string): string {
   return `${REPLAY_SCREENSHOT_ROUTE}${rowId}`;
 }
 
-function cardProvenanceMarkup(provenance: PlannedScreen["provenance"]): string {
+function cardProvenanceMarkup(
+  provenance: PlannedScreen["provenance"],
+  index: number,
+): string {
   if (!provenance) return "";
   const recordingId = provenance.recordingId ?? "unavailable";
   const replayOffset =
     provenance.offsetMs === null
       ? "unavailable"
       : `${formatInt(provenance.offsetMs)} ms`;
-  return [
-    `<p class="provenance" title="Event timestamp: ${escapeHtml(provenance.eventAt)}">Event date ${escapeHtml(provenance.eventAt.slice(0, 10))}</p>`,
+  const caption = provenance.caption;
+  const captionMarkup = caption
+    ? [
+        caption.outputTitle
+          ? `<p class="caption-line" title="Output title: ${escapeHtml(caption.outputTitle)}">Output: ${escapeHtml(caption.outputTitle)}</p>`
+          : "",
+        caption.actor
+          ? `<p class="caption-line" title="Actor source: ${escapeHtml(caption.actorSource ?? "recording metadata")}">Actor (recording): ${escapeHtml(caption.actor)}</p>`
+          : "",
+        caption.evidenceStatus === "generation_completed"
+          ? `<p class="caption-line">Evidence: generation_completed event${caption.evidenceAt ? ` (${escapeHtml(caption.evidenceAt)} UTC)` : ""}</p>`
+          : caption.evidenceStatus === "rendered_output_observed"
+            ? '<p class="caption-line">Evidence: rendered output observed; no completion event claimed</p>'
+            : "",
+        caption.prompt
+          ? `<details class="prompt"><summary title="Open the full prompt">Prompt: ${escapeHtml(promptExcerpt(caption.promptTranslation ?? caption.prompt))}</summary><div class="prompt-body">${caption.promptTranslation ? `<p><strong>Prompt (English)</strong><br>${escapeHtml(caption.promptTranslation)}</p>` : ""}<p><strong>Prompt (source)</strong><br>${escapeHtml(caption.prompt)}</p>${caption.promptSource ? `<p class="prompt-source">Source: ${escapeHtml(caption.promptSource)}</p>` : ""}</div></details>`
+          : caption.promptUnavailableReason
+            ? `<p class="caption-line" title="${escapeHtml(caption.promptUnavailableReason)}">Prompt not captured</p>`
+            : "",
+      ].join("")
+    : "";
+  return `<section class="example-provenance" data-index="${index}">${[
+    `<p class="provenance" title="UTC timestamp: ${escapeHtml(provenance.eventAt)}">${escapeHtml(provenance.dateLabel)} ${escapeHtml(provenance.eventAt)}</p>`,
     `<p class="provenance recording-id" title="Recording ID: ${escapeHtml(recordingId)}">Recording ID ${escapeHtml(recordingId)}</p>`,
     `<p class="provenance" title="Replay offset: ${escapeHtml(replayOffset)}">Replay offset ${escapeHtml(replayOffset)}</p>`,
-    `<p class="provenance" title="Screenshot captured: ${escapeHtml(provenance.screenshotCapturedAt)}">Screenshot captured ${escapeHtml(provenance.screenshotCapturedAt.slice(0, 10))}</p>`,
-  ].join("");
+    provenance.sourceEventOffsetMs !== null &&
+    provenance.sourceEventOffsetMs !== provenance.offsetMs
+      ? `<p class="provenance" title="Source event offset: ${formatInt(provenance.sourceEventOffsetMs)} ms">Source event offset ${formatInt(provenance.sourceEventOffsetMs)} ms</p>`
+      : "",
+    provenance.replayObservedAt &&
+    provenance.replayObservedAt !== provenance.eventAt
+      ? `<p class="provenance" title="Replay observation UTC timestamp: ${escapeHtml(provenance.replayObservedAt)}">Replay observed ${escapeHtml(provenance.replayObservedAt)} UTC</p>`
+      : "",
+    `<p class="provenance" title="UTC screenshot export timestamp: ${escapeHtml(provenance.screenshotCapturedAt)}">Screenshot captured ${escapeHtml(provenance.screenshotCapturedAt.slice(0, 10))} UTC</p>`,
+    captionMarkup,
+  ].join("")}</section>`;
+}
+
+function promptExcerpt(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length <= 72 ? normalized : `${normalized.slice(0, 69)}…`;
+}
+
+interface ExampleGalleryItem {
+  selectorId: string;
+  index: number;
+  src: string;
+  alt: string;
+  external: boolean;
+  provenance?: PlannedScreen["provenance"];
+}
+
+function exampleSwitchMarkup(items: ExampleGalleryItem[]): string {
+  if (items.length < 2) return "";
+  const positions = items
+    .map(
+      (item) =>
+        `<span class="example-position" data-index="${item.index}">Example ${item.index + 1} of ${items.length}</span>`,
+    )
+    .join("");
+  const labels = items
+    .map(
+      (item) =>
+        `<label for="${item.selectorId}" title="Show example ${item.index + 1} of ${items.length}">${item.index + 1}</label>`,
+    )
+    .join("");
+  return `<div class="example-switcher" role="group" aria-label="Screenshot examples">${positions}${labels}</div>`;
+}
+
+function exampleSelectorsMarkup(
+  items: ExampleGalleryItem[],
+  activeIndex: number,
+): string {
+  if (items.length < 2) return "";
+  return items
+    .map(
+      (item) =>
+        `<input class="example-selector" type="radio" name="journey-example" id="${item.selectorId}" aria-label="Show example ${item.index + 1} of ${items.length}"${item.index === activeIndex ? " checked" : ""}>`,
+    )
+    .join("");
+}
+
+function exampleGalleryMarkup(items: ExampleGalleryItem[]): string {
+  if (items.length === 0) return "";
+  if (items.length === 1) {
+    const item = items[0]!;
+    return `<img src="${escapeHtml(item.src)}" alt="${escapeHtml(item.alt)}" decoding="async"${item.external ? ' referrerpolicy="no-referrer"' : ""}>`;
+  }
+  const styles = items
+    .map(
+      (item) =>
+        `#${item.selectorId}:checked~main .example-frame[data-index="${item.index}"]{display:flex}#${item.selectorId}:checked~header .example-provenance[data-index="${item.index}"]{display:block}#${item.selectorId}:checked~header .example-position[data-index="${item.index}"]{display:inline}#${item.selectorId}:checked~header label[for="${item.selectorId}"]{background:${INK};color:${SURFACE}}#${item.selectorId}:focus-visible~header label[for="${item.selectorId}"]{outline:2px solid ${INK};outline-offset:2px}`,
+    )
+    .join("");
+  const figures = items
+    .map(
+      (item) =>
+        `<div class="example-frame" data-index="${item.index}"><img src="${escapeHtml(item.src)}" alt="${escapeHtml(item.alt)}" decoding="async" loading="lazy"${item.external ? ' referrerpolicy="no-referrer"' : ""}></div>`,
+    )
+    .join("");
+  return `<style>${styles}</style><div class="example-gallery">${figures}</div>`;
 }
 
 function cardHtml(args: {
   label: string;
   meta: string;
-  alt: string;
-  src: string | null;
-  external: boolean;
+  coverageNote?: string;
+  examples: ExampleGalleryItem[];
+  activeExampleIndex: number;
   placeholder: string;
   headerHeight: number;
-  provenance?: PlannedScreen["provenance"];
 }): string {
-  const body = args.src
-    ? `<img src="${escapeHtml(args.src)}" alt="${escapeHtml(args.alt)}" decoding="async"${args.external ? ' referrerpolicy="no-referrer"' : ""}>`
+  const body = args.examples.length
+    ? exampleGalleryMarkup(args.examples)
     : `<p>${escapeHtml(args.placeholder)}</p>`;
+  const provenanceMarkup = args.examples
+    .map((item, index) => cardProvenanceMarkup(item.provenance, index))
+    .join("");
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -388,19 +601,35 @@ function cardHtml(args: {
 <style>
 *,*::before,*::after{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden;background:${SURFACE};font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
-header{height:${args.headerHeight}px;padding:6px 12px 0;border-bottom:1px solid ${BORDER}}
+header{height:${args.headerHeight}px;padding:6px 12px 0;border-bottom:1px solid ${BORDER};position:relative}
 h1{margin:0;font-size:14px;line-height:20px;font-weight:600;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 header p{margin:0;color:${MUTED};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 header .metrics{font-size:12px;line-height:18px}
+header .coverage-note{font-size:10px;line-height:12px;overflow:hidden;text-overflow:ellipsis}
 header .provenance{font-size:9px;line-height:10px}
+header .example-provenance{display:block}
 header .recording-id{font-family:ui-monospace,monospace;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;overflow-wrap:anywhere}
+header .caption-line,header .prompt summary{font-size:10px;line-height:12px}
+header details{margin:0;color:${MUTED};font-size:10px;line-height:12px}
+header details summary{cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header details[open] .prompt-body{position:absolute;z-index:3;top:100%;left:0;width:100%;max-height:45vh;overflow:auto;padding:8px 12px;background:${SURFACE};border:1px solid ${BORDER};box-shadow:0 4px 12px rgba(17,24,39,.18);white-space:pre-wrap;color:${INK}}
+header .prompt-body p{margin:0 0 8px;overflow:visible;text-overflow:clip;white-space:pre-wrap;color:${INK};overflow-wrap:anywhere}
+header .prompt-source{font-size:9px;color:${MUTED}}
+header .example-switcher{display:flex;align-items:center;gap:5px;height:20px;color:${MUTED};font-size:10px;line-height:14px}
+header .example-position{display:none;margin-right:3px}
+header .example-switcher label{display:inline-flex;min-width:18px;height:18px;align-items:center;justify-content:center;border:1px solid ${BORDER};border-radius:3px;cursor:pointer;color:${INK};font-size:10px;line-height:16px}
+.example-selector{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+${args.examples.length > 1 ? "header .example-provenance{display:none}" : ""}
 main{height:calc(100% - ${args.headerHeight}px);background:${IMAGE_WELL};display:flex;align-items:center;justify-content:center}
 main img{display:block;width:100%;height:100%;object-fit:contain}
+main .example-gallery,main .example-frame{width:100%;height:100%}
+main .example-frame{display:none;align-items:center;justify-content:center}
 main p{margin:0;font-size:13px;color:${MUTED}}
 </style>
 </head>
 <body>
-<header><h1>${escapeHtml(args.label)}</h1><p class="metrics">${escapeHtml(args.meta)}</p>${cardProvenanceMarkup(args.provenance)}</header>
+${exampleSelectorsMarkup(args.examples, args.activeExampleIndex)}
+<header><h1>${escapeHtml(args.label)}</h1><p class="metrics">${escapeHtml(args.meta)}</p>${args.coverageNote ? `<p class="coverage-note" title="${escapeHtml(args.coverageNote)}">${escapeHtml(args.coverageNote)}</p>` : ""}${provenanceMarkup}${exampleSwitchMarkup(args.examples)}</header>
 <main>${body}</main>
 </body>
 </html>`;
@@ -469,6 +698,28 @@ export function planJourneyCanvas(
 ): JourneyCanvasPlan {
   const { tree, cardWidth, maxExamplesPerNode, includeScreenshotless } = input;
   const nodeIndex = new Map(tree.nodes.map((node, index) => [node.key, index]));
+  const childSessionsByParent = new Map<string, number>();
+  for (const node of tree.nodes) {
+    if (node.parentKey === null || !hasCohortMetrics(node)) continue;
+    childSessionsByParent.set(
+      node.parentKey,
+      (childSessionsByParent.get(node.parentKey) ?? 0) + node.n,
+    );
+  }
+  const continuationNotes = new Map<string, string>();
+  for (const node of tree.nodes) {
+    if (!hasCohortMetrics(node)) continue;
+    const continued = Math.max(
+      0,
+      node.n - node.dropoffN - (childSessionsByParent.get(node.key) ?? 0),
+    );
+    if (continued === 0) continue;
+    const sessionLabel = continued === 1 ? "session" : "sessions";
+    continuationNotes.set(
+      node.key,
+      `${formatInt(continued)} ${sessionLabel} continued on unpictured paths · ${formatPercent((continued / Math.max(1, node.n)) * 100)} of this step`,
+    );
+  }
 
   const framesByNode = new Map<string, JourneyFrame[]>();
   for (const frame of input.frames) {
@@ -529,7 +780,7 @@ export function planJourneyCanvas(
   const ordered = [...rendered.values()];
 
   const layoutNodes: JourneyLayoutNode[] = [];
-  const dropoffOf = new Map<string, JourneyNode>();
+  const dropoffOf = new Map<string, z.infer<typeof cohortJourneyNodeSchema>>();
   const effectiveParent = new Map<string, JourneyNode | null>();
   for (const entry of ordered) {
     const parent = nearestCardAncestor(entry.node);
@@ -546,7 +797,24 @@ export function planJourneyCanvas(
               ? { width: entry.frames[0].width, height: entry.frames[0].height }
               : (entry.node.examples[0]?.viewport ?? undefined),
             headerHeight: entry.frames.length
-              ? CARD_PROVENANCE_HEADER_HEIGHT
+              ? CARD_PROVENANCE_HEADER_HEIGHT +
+                (entry.frames.some((frame) => frame.caption) ? 48 : 0) +
+                (entry.frames.some((frame) => frame.caption?.evidenceAt)
+                  ? 12
+                  : 0) +
+                (entry.frames.some((frame) => {
+                  const eventOffset =
+                    entry.node.examples[frame.exampleIndex]?.offsetMs;
+                  return (
+                    frame.screenshotOffsetMs !== undefined &&
+                    eventOffset != null &&
+                    frame.screenshotOffsetMs !== eventOffset
+                  );
+                })
+                  ? 20
+                  : 0) +
+                (continuationNotes.has(entry.node.key) ? 12 : 0) +
+                (entry.frames.length > 1 ? 20 : 0)
               : CARD_HEADER_HEIGHT,
             layers: Math.max(0, entry.frames.length - 1),
             footer: entry.frames.length > 0,
@@ -554,7 +822,11 @@ export function planJourneyCanvas(
     );
   }
   for (const entry of ordered) {
-    if (entry.kind === "card" && entry.node.dropoffN > 0) {
+    if (
+      entry.kind === "card" &&
+      hasCohortMetrics(entry.node) &&
+      entry.node.dropoffN > 0
+    ) {
       dropoffOf.set(entry.node.key, entry.node);
       layoutNodes.push({
         key: `d${entry.index}`,
@@ -590,37 +862,85 @@ export function planJourneyCanvas(
     meta: string,
   ) => {
     const exampleIndex = frame?.exampleIndex ?? -1;
-    const fileId = `${JOURNEY_FILE_ID_PREFIX}${hashId(`${designId}\u0000${entry.node.key}\u0000${exampleIndex}`)}`;
+    const fileId = journeyFileId(designId, entry.node.key, exampleIndex);
     // Numbered in reading order: the Screens list reads left to right and filenames cannot collide.
     const filename = `${JOURNEY_FILENAME_PREFIX}${String(cardNumber).padStart(numberWidth, "0")}-${slug(entry.node.label)}${exampleIndex > 0 ? `-ex${exampleIndex + 1}` : ""}.html`;
     const isStackedExample = frame !== null && frame !== entry.frames[0];
     const example = frame ? entry.node.examples[frame.exampleIndex] : undefined;
-    const rowId = `${JOURNEY_REPLAY_ROW_PREFIX}${fileId.slice(JOURNEY_FILE_ID_PREFIX.length)}`;
-    const provenance =
-      frame && example
+    const rowId = journeyReplayRowId(fileId);
+    const activeExampleIndex = frame
+      ? entry.frames.findIndex(
+          (candidate) => candidate.exampleIndex === frame.exampleIndex,
+        )
+      : -1;
+    const galleryItems = entry.frames.map((candidate, index) => {
+      const candidateExample = entry.node.examples[candidate.exampleIndex];
+      const candidateProvenance = candidateExample
         ? {
-            eventAt: example.ts,
-            recordingId: example.recordingId,
-            offsetMs: example.offsetMs,
-            screenshotCapturedAt: frame.capturedAt,
+            eventAt: candidateExample.ts,
+            dateLabel:
+              candidate.caption?.dateLabel ??
+              (entry.node.referenceOnly
+                ? "Replay observation (UTC)"
+                : "Event time (UTC)"),
+            recordingId: candidateExample.recordingId,
+            offsetMs: candidate.screenshotOffsetMs ?? candidateExample.offsetMs,
+            sourceEventOffsetMs: candidateExample.offsetMs,
+            replayObservedAt: replayObservedAt(
+              candidateExample,
+              candidate.screenshotOffsetMs ?? candidateExample.offsetMs,
+            ),
+            screenshotCapturedAt: candidate.capturedAt,
+            ...(candidate.caption ? { caption: candidate.caption } : {}),
           }
         : undefined;
+      const candidateFileId = journeyFileId(
+        designId,
+        entry.node.key,
+        candidate.exampleIndex,
+      );
+      const candidateRowId = journeyReplayRowId(candidateFileId);
+      return {
+        selectorId: `journey-example-${hashId(`${designId}\u0000${entry.node.key}`)}-${index}`,
+        index,
+        src:
+          candidate.attachmentRef || candidate.stagedFrameId
+            ? replayImageSrc(candidateRowId)
+            : candidate.imageUrl!,
+        external: Boolean(candidate.imageUrl),
+        ...(candidateProvenance ? { provenance: candidateProvenance } : {}),
+        alt: `${candidate.caption?.outputTitle ?? entry.node.label}, example ${index + 1} of ${entry.frames.length}, captured ${candidate.capturedAt.slice(0, 10)}`,
+      };
+    });
+    const provenance = galleryItems[activeExampleIndex]?.provenance;
     const html = annotateScreenHtmlForPersist(
       cardHtml({
         label: entry.node.label,
         meta,
-        alt: `${entry.node.label}${frame ? `, captured ${frame.capturedAt.slice(0, 10)}` : ""}`,
-        src: frame
-          ? frame.attachmentRef
-            ? replayImageSrc(rowId)
-            : frame.imageUrl!
-          : null,
-        external: Boolean(frame?.imageUrl),
+        coverageNote: continuationNotes.get(entry.node.key),
+        examples: galleryItems,
+        activeExampleIndex,
         placeholder: "No screenshot captured",
         headerHeight: provenance
-          ? CARD_PROVENANCE_HEADER_HEIGHT
+          ? CARD_PROVENANCE_HEADER_HEIGHT +
+            (entry.frames.some((candidate) => candidate.caption) ? 48 : 0) +
+            (entry.frames.some((candidate) => candidate.caption?.evidenceAt)
+              ? 12
+              : 0) +
+            (entry.frames.some((candidate) => {
+              const eventOffset =
+                entry.node.examples[candidate.exampleIndex]?.offsetMs;
+              return (
+                candidate.screenshotOffsetMs !== undefined &&
+                eventOffset != null &&
+                candidate.screenshotOffsetMs !== eventOffset
+              );
+            })
+              ? 20
+              : 0) +
+            (continuationNotes.has(entry.node.key) ? 12 : 0) +
+            (entry.frames.length > 1 ? 20 : 0)
           : CARD_HEADER_HEIGHT,
-        provenance,
       }),
       "html",
     );
@@ -638,15 +958,20 @@ export function planJourneyCanvas(
       exampleIndex,
       ...(provenance ? { provenance } : {}),
       frame: { ...geometry, z },
-      ...(frame?.attachmentRef
+      ...(frame?.attachmentRef || frame?.stagedFrameId
         ? {
             attachment: {
-              ref: frame.attachmentRef,
+              ...(frame.attachmentRef ? { ref: frame.attachmentRef } : {}),
+              ...(frame.stagedFrameId
+                ? { stagedFrameId: frame.stagedFrameId }
+                : {}),
               rowId,
               replayId:
                 example?.recordingId ?? example?.sessionId ?? entry.node.key,
               capturedAt: frame.capturedAt,
-              offsetMs: Math.round(example?.offsetMs ?? 0),
+              offsetMs: Math.round(
+                frame.screenshotOffsetMs ?? example?.offsetMs ?? 0,
+              ),
               route: entry.node.key.slice(0, 2_048),
               width: frame.width,
               height: frame.height,
@@ -661,11 +986,13 @@ export function planJourneyCanvas(
     const box = placed.get(entry.layoutId)!;
     const parent = effectiveParent.get(entry.node.key) ?? null;
     const viaSkipped = parent !== null && parent.key !== entry.node.parentKey;
-    const meta = !parent
-      ? `${formatInt(entry.node.n)} sessions · ${formatPercent(entry.node.pctOfRoot)} of all`
-      : viaSkipped
-        ? `${formatInt(entry.node.n)} sessions · ${formatPercent((entry.node.n / Math.max(1, parent.n)) * 100)} of ${parent.label}`
-        : `${formatInt(entry.node.n)} sessions · ${formatPercent(entry.node.pctOfParent)} of previous`;
+    const meta = !hasCohortMetrics(entry.node)
+      ? "Observed session reference"
+      : !parent || !hasCohortMetrics(parent)
+        ? `${formatInt(entry.node.n)} sessions · ${formatPercent(entry.node.pctOfRoot)} of all`
+        : viaSkipped
+          ? `${formatInt(entry.node.n)} sessions · ${formatPercent((entry.node.n / Math.max(1, parent.n)) * 100)} of ${parent.label}`
+          : `${formatInt(entry.node.n)} sessions · ${formatPercent(entry.node.pctOfParent)} of previous`;
     addScreen(
       entry,
       cardIndex + 1,
@@ -689,9 +1016,10 @@ export function planJourneyCanvas(
   const byLayoutId = new Map(ordered.map((entry) => [entry.layoutId, entry]));
   const labelText = (edge: PlacedEdge): string | null => {
     const child = byLayoutId.get(edge.toKey);
-    if (!child || child.kind !== "card") return null;
+    if (!child || child.kind !== "card" || !hasCohortMetrics(child.node))
+      return null;
     const parent = effectiveParent.get(child.node.key);
-    if (!parent) return null;
+    if (!parent || !hasCohortMetrics(parent)) return null;
     const pct =
       parent.key === child.node.parentKey
         ? child.node.pctOfParent
@@ -763,6 +1091,7 @@ export function planJourneyCanvas(
     for (const entry of ordered) {
       const box = placed.get(entry.layoutId)!;
       if (entry.kind === "stub") {
+        if (!hasCohortMetrics(entry.node)) continue;
         fragments.push(
           stubFragment(
             `${JOURNEY_BOARD_ID_PREFIX}other-${hashId(`${designId}\u0000${entry.node.key}`)}`,

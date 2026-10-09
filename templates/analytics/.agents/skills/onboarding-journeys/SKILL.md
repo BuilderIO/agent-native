@@ -37,6 +37,19 @@ type JourneyNode = { key: string; label: string; parentKey: string | null; depth
 type JourneyTree = { window: { from: string; to: string }; app: string; rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number; truncated: boolean }; nodes: JourneyNode[]; notes?: string[] };
 ```
 
+Analytics returns cohort nodes with counts. When extending a Design storyboard
+with screenshots from a separate observed session, add those reference nodes
+only to the Design input, set `referenceOnly: true`, and omit the cohort metric
+fields. This annotation is for visual references and is not emitted by
+`get-onboarding-journey`.
+
+The journey projection also retains `integration_setup_exposed`,
+`integration_method_clicked`, and `integration_method_outcome` as separate
+`integration:<flow>:...` steps. These record setup exposure, the selected
+method, and its outcome without adding those events to cohort denominators.
+Keep `flow: "chat_setup"` separate from first-run onboarding method steps; the
+same connection method can appear in both flows.
+
 - Nodes come parents first. `key` is the path of step keys joined with ` > `;
   `pctOf*` are percents (0-100). `dropoffN` / `dropoffPct` count sessions
   whose last observed step is this node; they do not establish that a user

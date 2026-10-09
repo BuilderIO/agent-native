@@ -34,6 +34,8 @@ const METHOD_LABELS: Record<string, string> = {
   builder_create_account: "Use Builder.io",
   builder_sign_in: "Sign in with Builder.io account",
   custom_keys: "Configure custom keys",
+  builder: "Use Builder.io",
+  setup_card: "Connection options",
 };
 
 // Both spellings of the auth events: the catalog's SQL reads the dotted names
@@ -67,6 +69,9 @@ export const JOURNEY_STEP_EVENT_NAMES: readonly string[] = [
   "onboarding_step_skipped",
   "onboarding_method_clicked",
   "onboarding_method_outcome",
+  "integration_setup_exposed",
+  "integration_method_clicked",
+  "integration_method_outcome",
   "onboarding_abandoned",
   "onboarding_completed",
   "onboarding_app_entered",
@@ -102,6 +107,9 @@ const TIE_RANK: Record<string, number> = {
   generation_completed: 13,
   recording_ready: 13,
   design_output_created: 14,
+  integration_setup_exposed: 15,
+  integration_method_clicked: 16,
+  integration_method_outcome: 17,
 };
 
 function clean(value: string | null): string {
@@ -147,6 +155,31 @@ export function deriveJourneyStep(
       const outcome = clean(row.outcome);
       return {
         key: `outcome:${id}:${outcome}`,
+        label: `${methodLabel(id)}: ${outcome}`,
+      };
+    }
+    case "integration_setup_exposed": {
+      const flow = encodeURIComponent(clean(row.flow));
+      const id = clean(row.methodId);
+      return {
+        key: `integration:${flow}:exposed:${id}`,
+        label: `Setup shown: ${methodLabel(id)}`,
+      };
+    }
+    case "integration_method_clicked": {
+      const flow = encodeURIComponent(clean(row.flow));
+      const id = clean(row.methodId);
+      return {
+        key: `integration:${flow}:method:${id}`,
+        label: `Setup choice: ${methodLabel(id)}`,
+      };
+    }
+    case "integration_method_outcome": {
+      const flow = encodeURIComponent(clean(row.flow));
+      const id = clean(row.methodId);
+      const outcome = clean(row.outcome);
+      return {
+        key: `integration:${flow}:outcome:${id}:${outcome}`,
         label: `${methodLabel(id)}: ${outcome}`,
       };
     }

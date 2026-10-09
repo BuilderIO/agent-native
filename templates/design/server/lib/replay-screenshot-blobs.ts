@@ -89,6 +89,54 @@ export function attachmentFailureMessage(status: string): string {
   return "A screenshot attachment is missing, expired, or invalid. Reattach it and retry.";
 }
 
+export async function storeReplayScreenshotBytesAsPrivateBlob(args: {
+  data: Uint8Array;
+  blobOwnerEmail: string;
+  providerId?: string;
+  rowId: string;
+  designId: string;
+  replayId: string;
+}): Promise<StoredReplayScreenshotBlob> {
+  const mimeType = detectImageMimeType(args.data);
+  if (!mimeType) {
+    fail("Screenshot bytes must be a PNG, JPEG, or WebP image.", {
+      errorCode: "invalid_replay_screenshot_image",
+      statusCode: 400,
+    });
+  }
+  const sizeBytes = args.data.byteLength;
+  if (sizeBytes === 0 || sizeBytes > MAX_REPLAY_SCREENSHOT_BYTES) {
+    fail("Each replay screenshot must be 10 MiB or smaller.", {
+      errorCode: "replay_screenshot_too_large",
+      statusCode: 413,
+    });
+  }
+  const blobHandle = await putPrivateBlob({
+    data: args.data,
+    filename: `session-replay-${args.rowId}.${mimeType === "image/jpeg" ? "jpg" : mimeType.slice(6)}`,
+    mimeType,
+    ownerEmail: args.blobOwnerEmail,
+    metadata: { designId: args.designId, replayId: args.replayId },
+  });
+  if (!blobHandle) {
+    fail("The private blob provider could not store a replay screenshot.", {
+      errorCode: "private_blob_write_failed",
+      statusCode: 503,
+    });
+  }
+  if (
+    !isValidReplayScreenshotBlobHandle(blobHandle) ||
+    (args.providerId && blobHandle.provider !== args.providerId)
+  ) {
+    await discardPrivateBlobs([blobHandle]);
+    fail("Replay screenshots must use an opaque private blob storage handle.", {
+      errorCode: "private_blob_provider_mismatch",
+      statusCode: 503,
+    });
+  }
+  return { blobHandle, mimeType, sizeBytes };
+}
+
 /**
  * Copies a personal attachment into private blob storage, owned by the design
  * owner, so `/api/design-board-replay-screenshots/:id` can serve it to anyone
@@ -123,47 +171,14 @@ export async function storeAttachmentAsPrivateBlob(args: {
       },
     });
   }
-  const mimeType = detectImageMimeType(resolved.file.data);
-  if (!mimeType) {
-    fail(
-      "Screenshot attachments must contain PNG, JPEG, or WebP image bytes.",
-      {
-        errorCode: "invalid_replay_screenshot_image",
-        statusCode: 400,
-      },
-    );
-  }
-  const sizeBytes = resolved.file.data.byteLength;
-  if (sizeBytes === 0 || sizeBytes > MAX_REPLAY_SCREENSHOT_BYTES) {
-    fail("Each replay screenshot must be 10 MiB or smaller.", {
-      errorCode: "replay_screenshot_too_large",
-      statusCode: 413,
-    });
-  }
-  const blobHandle = await putPrivateBlob({
+  return storeReplayScreenshotBytesAsPrivateBlob({
     data: resolved.file.data,
-    filename: `session-replay-${args.rowId}.${mimeType === "image/jpeg" ? "jpg" : mimeType.slice(6)}`,
-    mimeType,
-    ownerEmail: args.blobOwnerEmail,
-    metadata: { designId: args.designId, replayId: args.replayId },
+    blobOwnerEmail: args.blobOwnerEmail,
+    providerId: args.providerId,
+    rowId: args.rowId,
+    designId: args.designId,
+    replayId: args.replayId,
   });
-  if (!blobHandle) {
-    fail("The private blob provider could not store a replay screenshot.", {
-      errorCode: "private_blob_write_failed",
-      statusCode: 503,
-    });
-  }
-  if (
-    !isValidReplayScreenshotBlobHandle(blobHandle) ||
-    (args.providerId && blobHandle.provider !== args.providerId)
-  ) {
-    await discardPrivateBlobs([blobHandle]);
-    fail("Replay screenshots must use an opaque private blob storage handle.", {
-      errorCode: "private_blob_provider_mismatch",
-      statusCode: 503,
-    });
-  }
-  return { blobHandle, mimeType, sizeBytes };
 }
 
 /** Deletes blobs no committed row references; anything the provider cannot delete now is queued for retry. */
