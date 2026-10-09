@@ -449,7 +449,6 @@ const editor = {
   pageBodySyncing: "このページのコンテンツはまだ同期中です",
   pageBodySyncingDescription:
     "既存のコンテンツを上書きしないよう、ページ本文の同期が完了するまで編集は一時停止されます。",
-  createCollection: "コレクションを作成",
   creatingDatabase: "インラインコレクションを作成しています...",
   databaseCreated: "コレクションが作成されました",
   emptyBlockPlaceholder: "「/」でコマンドを表示",

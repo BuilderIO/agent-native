@@ -439,7 +439,6 @@ const editor = {
   pageBodySyncing: "لا يزال محتوى هذه الصفحة قيد المزامنة",
   pageBodySyncingDescription:
     "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة محتوى الصفحة، حتى لا تتم الكتابة فوق المحتوى الحالي.",
-  createCollection: "إنشاء مجموعة",
   creatingDatabase: "جارٍ إنشاء مجموعة مضمنة...",
   databaseCreated: "تم إنشاء المجموعة",
   emptyBlockPlaceholder: 'اضغط على "/" للأوامر',

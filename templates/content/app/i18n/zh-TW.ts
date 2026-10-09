@@ -440,7 +440,6 @@ const overrides = {
     reorderField: "重新排序 {{name}}",
     title: "標題",
     toggleField: "切換 {{name}}",
-    createCollection: "建立集合",
     creatingDatabase: "正在建立內嵌集合...",
     databaseCreated: "集合已建立",
     emptyBlockPlaceholder: "按「/」使用指令",

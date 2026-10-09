@@ -423,7 +423,6 @@ const editor = {
   pageBodySyncing: "此页面的内容仍在同步",
   pageBodySyncingDescription:
     "在页面正文完成同步之前，编辑会暂停，以免覆盖现有内容。",
-  createCollection: "创建集合",
   creatingDatabase: "正在创建内联集合...",
   databaseCreated: "集合已创建",
   emptyBlockPlaceholder: "按“/”使用命令",

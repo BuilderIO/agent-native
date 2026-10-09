@@ -334,14 +334,14 @@ describe("document sidebar layout", () => {
     expect(messages).toContain('files: "Files"');
   });
 
-  it("replaces an optimistic page with the persisted document before conversion", () => {
+  it("replaces an optimistic page with a confirmed create response", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
     expect(sidebar).toContain("shouldCreateDocumentOptimistically({");
     expect(sidebar).toContain("filesDatabaseId: rootFilesDatabaseId");
     expect(sidebar).toContain("markDocumentCreationPending({");
     expect(sidebar).toContain(
-      '["action", "get-document", { id: nextId }],\n          created',
+      '["action", "get-document", { id: nextId }],\n          markDocumentCreationConfirmed(created)',
     );
     expect(sidebar).toContain(
       "return withDocumentsCacheShape(old, [...docs, tempDoc])",

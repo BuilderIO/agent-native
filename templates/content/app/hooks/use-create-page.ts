@@ -18,7 +18,10 @@ import {
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { documentQueryFilter } from "@/lib/document-query";
-import { markDocumentCreationPending } from "@/lib/optimistic-document";
+import {
+  markDocumentCreationConfirmed,
+  markDocumentCreationPending,
+} from "@/lib/optimistic-document";
 
 const LIST_DOCUMENTS_QUERY_KEY = [
   "action",
@@ -119,7 +122,7 @@ export function useCreatePage(opts?: {
         });
         queryClient.setQueryData(
           ["action", "get-document", { id: created.id }],
-          created,
+          markDocumentCreationConfirmed(created),
         );
         void queryClient.invalidateQueries(documentQueryFilter(id));
         void queryClient.invalidateQueries({

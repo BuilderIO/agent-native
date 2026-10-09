@@ -443,7 +443,6 @@ const editor = {
   pageBodySyncing: "이 페이지의 콘텐츠가 아직 동기화 중입니다",
   pageBodySyncingDescription:
     "기존 콘텐츠를 덮어쓰지 않도록 페이지 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
-  createCollection: "컬렉션 만들기",
   creatingDatabase: "인라인 컬렉션 생성 중...",
   databaseCreated: "컬렉션이 생성되었습니다.",
   emptyBlockPlaceholder: "‘/’를 눌러 명령 사용",

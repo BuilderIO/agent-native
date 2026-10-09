@@ -2,8 +2,10 @@ import type { Document } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
 import {
-  isDatabaseChoicePending,
+  clearDocumentCreationConfirmed,
+  isDocumentCreationConfirmed,
   isDocumentCreationPending,
+  markDocumentCreationConfirmed,
   markDocumentCreationPending,
   shouldCreateDocumentOptimistically,
 } from "./optimistic-document";
@@ -32,13 +34,16 @@ describe("optimistic document creation", () => {
     expect(isDocumentCreationPending(document())).toBe(false);
   });
 
-  it("blocks database conversion until both page creation and conversion are idle", () => {
-    const optimistic = markDocumentCreationPending(document());
+  it("marks a successful create response for immediate first paint", () => {
     const persisted = document();
+    const confirmed = markDocumentCreationConfirmed(persisted);
 
-    expect(isDatabaseChoicePending(optimistic, false)).toBe(true);
-    expect(isDatabaseChoicePending(persisted, true)).toBe(true);
-    expect(isDatabaseChoicePending(persisted, false)).toBe(false);
+    expect(confirmed).not.toBe(persisted);
+    expect(isDocumentCreationConfirmed(confirmed)).toBe(true);
+    expect(
+      isDocumentCreationConfirmed(clearDocumentCreationConfirmed(confirmed)),
+    ).toBe(false);
+    expect(isDocumentCreationConfirmed(persisted)).toBe(false);
   });
 
   it("keeps database-backed workspace creation optimistic when local files coexist", () => {

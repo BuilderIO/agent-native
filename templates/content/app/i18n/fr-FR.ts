@@ -465,7 +465,6 @@ const editor = {
     "Le contenu de cette page est encore en cours de synchronisation",
   pageBodySyncingDescription:
     "La modification est suspendue jusqu'à la fin de la synchronisation du contenu de la page, afin de ne pas écraser le contenu existant.",
-  createCollection: "Créer une collection",
   creatingDatabase: "Création d'une collection intégrée...",
   databaseCreated: "Collection créée",
   emptyBlockPlaceholder: "Appuyez sur « / » pour afficher les commandes",

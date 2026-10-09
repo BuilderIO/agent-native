@@ -109,7 +109,6 @@ import {
 import { flushDocumentPropertyWrites } from "@/hooks/document-property-persistence";
 import { useComments, type CommentThread } from "@/hooks/use-comments";
 import {
-  useCreateContentDatabase,
   useDeleteContentDatabase,
   useProcessBuilderBodyHydration,
 } from "@/hooks/use-content-database";
@@ -160,7 +159,8 @@ import {
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
 import {
-  isDatabaseChoicePending,
+  clearDocumentCreationConfirmed,
+  isDocumentCreationConfirmed,
   isDocumentCreationPending,
 } from "@/lib/optimistic-document";
 import {
@@ -180,7 +180,6 @@ import {
   flushBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
 import {
-  createCollectionStarterIsVisible,
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
 } from "./body-hydration";
@@ -1379,6 +1378,9 @@ export function PageEditorSurface({
     documentId,
     admittedDocumentId: admittedDocumentIdRef.current,
     hasDocument: Boolean(document),
+    isDocumentCreationConfirmed: document
+      ? isDocumentCreationConfirmed(document)
+      : false,
     isDocumentCreationPending: document
       ? isDocumentCreationPending(document)
       : false,
@@ -1392,6 +1394,27 @@ export function PageEditorSurface({
     error,
   });
   admittedDocumentIdRef.current = loadState.admittedDocumentId;
+
+  useEffect(() => {
+    if (
+      !document ||
+      !fetchedForThisOpen ||
+      !isDocumentCreationConfirmed(document)
+    ) {
+      return;
+    }
+    queryClient.setQueryData<Document>(documentQueryKeyValue, (cached) =>
+      cached?.id === documentId
+        ? clearDocumentCreationConfirmed(cached)
+        : cached,
+    );
+  }, [
+    document,
+    documentId,
+    documentQueryKeyValue,
+    fetchedForThisOpen,
+    queryClient,
+  ]);
 
   useRecordContentVisit(
     { documentId },
@@ -1551,6 +1574,7 @@ export function documentEditorLoadState({
   documentId,
   admittedDocumentId,
   hasDocument,
+  isDocumentCreationConfirmed = false,
   isDocumentCreationPending,
   isFetchedAfterMount,
   isFetching,
@@ -1563,6 +1587,7 @@ export function documentEditorLoadState({
   documentId: string;
   admittedDocumentId: string | null;
   hasDocument: boolean;
+  isDocumentCreationConfirmed?: boolean;
   isDocumentCreationPending: boolean;
   isFetchedAfterMount: boolean;
   isFetching: boolean;
@@ -1589,6 +1614,17 @@ export function documentEditorLoadState({
     return {
       view: "unavailable" as const,
       admittedDocumentId: null,
+    };
+  }
+  if (
+    hasDocument &&
+    isDocumentCreationConfirmed &&
+    !isError &&
+    !hasLoadFailure
+  ) {
+    return {
+      view: "editor" as const,
+      admittedDocumentId: documentId,
     };
   }
   if (hasDocument && activeAdmittedDocumentId === documentId) {
@@ -2174,18 +2210,6 @@ export function documentTitleWidthChanged(
   return Math.abs(nextWidth - previousWidth) >= 0.5;
 }
 
-export function databaseConversionRequest(
-  documentId: string,
-  currentTitle: string,
-  currentDescription?: string | null,
-) {
-  return {
-    documentId,
-    title: currentTitle,
-    description: currentDescription?.trim() || undefined,
-  };
-}
-
 export function documentEditorDefaultIconKind(
   document: Pick<Document, "database">,
 ) {
@@ -2459,7 +2483,6 @@ function PageEditorSessionBody({
     },
     [documentId, t, updateDocument],
   );
-  const createDatabase = useCreateContentDatabase(documentId);
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
   const processBuilderBodies = useProcessBuilderBodyHydration(
@@ -8177,41 +8200,6 @@ function PageEditorSessionBody({
       rememberPageIconRow(documentId, iconRow);
     }
   }, [documentId, host, iconRow, isDatabasePage]);
-  const databaseChoicePending = isDatabaseChoicePending(
-    document,
-    createDatabase.isPending,
-  );
-  const showCreateCollectionStarter = createCollectionStarterIsVisible({
-    canEdit: editorCanEdit,
-    bodyHydrationPending,
-    isLocalFileDocument,
-    isDatabasePage,
-    isCollectionItem: Boolean(
-      document.databaseMembership &&
-      !contentSpaces.some(
-        (space) =>
-          space.filesDatabaseId === document.databaseMembership?.databaseId,
-      ),
-    ),
-    content: localContent,
-  });
-  const handleCreateCollection = useCallback(async () => {
-    try {
-      const saved = await handleContentSaveNow({
-        localTitle: localTitleRef.current,
-        localDraft: localContentRef.current,
-      });
-      if (!saved) throw new Error(t("empty.genericError"));
-      await createDatabase.mutateAsync(
-        databaseConversionRequest(documentId, localTitleRef.current),
-      );
-    } catch (error) {
-      toast.error(t("sidebar.failedCreateDatabase"), {
-        description:
-          error instanceof Error ? error.message : t("empty.genericError"),
-      });
-    }
-  }, [createDatabase, documentId, handleContentSaveNow, t]);
   const defaultIcon =
     defaultIconKind === "database" ? (
       <IconDatabase className="size-12" aria-hidden="true" />
@@ -9082,28 +9070,6 @@ function PageEditorSessionBody({
                           </WidgetVisualEditorBoundary>
                         </>
                       );
-                      const primaryEditorWithStarter = (
-                        <>
-                          {primaryEditor}
-                          {showCreateCollectionStarter ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              className="mt-2 gap-2 text-muted-foreground"
-                              disabled={!editorCanEdit || databaseChoicePending}
-                              onClick={() => void handleCreateCollection()}
-                            >
-                              {databaseChoicePending ? (
-                                <IconLoader2 className="animate-spin" />
-                              ) : (
-                                <IconDatabase />
-                              )}
-                              {t("editor.createCollection")}
-                            </Button>
-                          ) : null}
-                        </>
-                      );
-
                       if (document.databaseMembership && !isLocalFileDocument) {
                         return (
                           <DocumentBlockFields
@@ -9123,7 +9089,7 @@ function PageEditorSessionBody({
                             onPrimaryFieldAvailabilityChange={
                               handlePrimaryFieldAvailabilityChange
                             }
-                            primaryEditor={primaryEditorWithStarter}
+                            primaryEditor={primaryEditor}
                             pageProperties={document.properties}
                             onAdditionalContentChange={
                               handleAdditionalBlockContentChange
@@ -9132,7 +9098,7 @@ function PageEditorSessionBody({
                         );
                       }
 
-                      return primaryEditorWithStarter;
+                      return primaryEditor;
                     })()}
                     {!bodyHydrationPending &&
                     collabEnabled &&

@@ -5,7 +5,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { isDatabaseChoicePending } from "@/lib/optimistic-document";
+import {
+  isDocumentCreationConfirmed,
+  isDocumentCreationPending,
+} from "@/lib/optimistic-document";
 
 const mocks = vi.hoisted(() => ({
   createDocument: vi.fn(),
@@ -80,7 +83,7 @@ describe("useCreatePage", () => {
     container.remove();
   });
 
-  it("keeps database conversion blocked until optimistic page persistence resolves", async () => {
+  it("keeps an optimistic page editable and marks the create response for immediate use", async () => {
     let resolveCreation!: (document: Document) => void;
     mocks.createDocument.mockReturnValue(
       new Promise<Document>((resolve) => {
@@ -115,7 +118,7 @@ describe("useCreatePage", () => {
     expect(mocks.navigate).toHaveBeenCalledWith(`/page/${documentId}`, {
       flushSync: true,
     });
-    expect(isDatabaseChoicePending(optimisticDocument, false)).toBe(true);
+    expect(isDocumentCreationPending(optimisticDocument)).toBe(true);
 
     const persistedDocument: Document = {
       id: documentId,
@@ -143,10 +146,13 @@ describe("useCreatePage", () => {
         key[1] === "get-document" &&
         key[2]?.id === documentId,
     );
-    expect(documentWrites[documentWrites.length - 1]?.[1]).toBe(
-      persistedDocument,
-    );
-    expect(isDatabaseChoicePending(persistedDocument, false)).toBe(false);
+    const confirmedDocument = documentWrites[documentWrites.length - 1]?.[1] as
+      | Document
+      | undefined;
+    if (!confirmedDocument) throw new Error("Create response was not cached");
+    expect(confirmedDocument).not.toBe(persistedDocument);
+    expect(isDocumentCreationPending(confirmedDocument)).toBe(false);
+    expect(isDocumentCreationConfirmed(confirmedDocument)).toBe(true);
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["action", "get-document"],
       predicate: expect.any(Function),

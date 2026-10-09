@@ -13,7 +13,6 @@ import {
 } from "./document-editor-layout";
 import {
   adoptOwnConfirmedBases,
-  databaseConversionRequest,
   databaseMembershipDatabaseTitle,
   documentCanonicalMutationsEnabled,
   documentEditorBreadcrumbItems,
@@ -1643,6 +1642,42 @@ describe("document editor layout", () => {
     ).toEqual({ view: "skeleton", admittedDocumentId: null });
   });
 
+  it("shows a successful create response while its first read is pending", () => {
+    expect(
+      documentEditorLoadState({
+        documentId: "new-document",
+        admittedDocumentId: null,
+        hasDocument: true,
+        isDocumentCreationConfirmed: true,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: false,
+        isFetching: true,
+        isError: false,
+        hasLoadFailure: false,
+        isManualRetrying: false,
+        error: null,
+      }),
+    ).toEqual({ view: "editor", admittedDocumentId: "new-document" });
+  });
+
+  it("does not show a confirmed create response after its first read fails", () => {
+    expect(
+      documentEditorLoadState({
+        documentId: "new-document",
+        admittedDocumentId: null,
+        hasDocument: true,
+        isDocumentCreationConfirmed: true,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: false,
+        isFetching: false,
+        isError: true,
+        hasLoadFailure: true,
+        isManualRetrying: false,
+        error: new Error("read failed"),
+      }),
+    ).toEqual({ view: "error", admittedDocumentId: null });
+  });
+
   it("latches a first-fetch failure across an immediate replacement fetch", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -2545,35 +2580,15 @@ describe("document editor layout", () => {
     expect(documentEditorTitleRegionClassName(false)).toContain("pb-8");
   });
 
-  it("keeps the editor open and offers collection conversion while the body is empty", () => {
+  it("does not append a collection conversion button to an empty document", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       { encoding: "utf8" },
     ).replace(/\r\n/g, "\n");
 
-    expect(databaseConversionRequest("new-page", "Typed first")).toEqual({
-      documentId: "new-page",
-      title: "Typed first",
-    });
-    expect(source).toContain("const showCreateCollectionStarter =");
-    expect(source).toContain("createCollectionStarterIsVisible({");
-    expect(source).toContain("content: localContent");
-    expect(source).toContain("const handleCreateCollection = useCallback");
-    expect(source).toContain("localTitle: localTitleRef.current");
-    expect(source).toContain("localDraft: localContentRef.current");
-    expect(source).toContain("isDatabaseChoicePending(");
-    expect(source).toContain("document,\n    createDatabase.isPending");
-    expect(source).toContain("canEdit: editorCanEdit,");
-    expect(source).toContain(
-      "disabled={!editorCanEdit || databaseChoicePending}",
-    );
-    expect(source).not.toContain(
-      "localTitleRef.current,\n          document.description,",
-    );
-    expect(source).toContain('{t("editor.createCollection")}');
-    expect(source.indexOf("const primaryEditor =")).toBeLessThan(
-      source.indexOf("{showCreateCollectionStarter ? ("),
-    );
+    expect(source).not.toContain('{t("editor.createCollection")}');
+    expect(source).not.toContain("primaryEditorWithStarter");
+    expect(source).toContain("return primaryEditor;");
   });
 
   it("gives database pages a wider database surface", () => {

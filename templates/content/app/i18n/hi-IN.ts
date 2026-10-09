@@ -437,7 +437,6 @@ const editor = {
   pageBodySyncing: "इस पेज की सामग्री अभी भी सिंक हो रही है",
   pageBodySyncingDescription:
     "पेज का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा सामग्री अधिलेखित न हो।",
-  createCollection: "संग्रह बनाएँ",
   creatingDatabase: "इनलाइन संग्रह बनाया जा रहा है...",
   databaseCreated: "संग्रह बनाया गया",
   emptyBlockPlaceholder: "कमांड के लिए '/' दबाएं",

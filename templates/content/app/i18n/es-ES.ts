@@ -457,7 +457,6 @@ const editor = {
   pageBodySyncing: "El contenido de esta página aún se está sincronizando",
   pageBodySyncingDescription:
     "La edición está en pausa hasta que el contenido de la página termine de sincronizarse, para no sobrescribir el contenido existente.",
-  createCollection: "Crear colección",
   creatingDatabase: "Creando colección integrada...",
   databaseCreated: "Colección creada",
   emptyBlockPlaceholder: "Pulsa «/» para ver los comandos",

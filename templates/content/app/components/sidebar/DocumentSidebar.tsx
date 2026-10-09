@@ -147,6 +147,7 @@ import {
   subscribeLiveLocalFolderActivation,
 } from "@/lib/local-folder-live-sync";
 import {
+  markDocumentCreationConfirmed,
   markDocumentCreationPending,
   shouldCreateDocumentOptimistically,
 } from "@/lib/optimistic-document";
@@ -1692,7 +1693,7 @@ export function DocumentSidebar({
           });
           queryClient.setQueryData(
             ["action", "get-document", { id: created.id }],
-            created,
+            markDocumentCreationConfirmed(created),
           );
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
@@ -1773,7 +1774,7 @@ export function DocumentSidebar({
         const nextId = created?.id || id;
         queryClient.setQueryData(
           ["action", "get-document", { id: nextId }],
-          created,
+          markDocumentCreationConfirmed(created),
         );
         if (nextId !== id) {
           queryClient.removeQueries(documentQueryFilter(id));
