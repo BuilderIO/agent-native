@@ -137,6 +137,16 @@ describe("event predicate pushdown", () => {
       "AND (event_name",
     );
   });
+  it("pushes invariant predicates qualified by a quoted keyword alias", () => {
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      `SELECT "order".id FROM ${source.replace("AS e", 'AS "order"')} WHERE "order".event_name = 'http.response' AND "order".event_date >= DATE '2026-10-09'`,
+      [],
+      table,
+    );
+    const inner = rendered.slice(0, rendered.indexOf(" QUALIFY"));
+    expect(inner).toContain("AND (event_name = 'http.response')");
+    expect(inner).toContain("AND (event_date >= DATE '2026-10-09')");
+  });
 });
 
 describe("first-party BigQuery backend", () => {

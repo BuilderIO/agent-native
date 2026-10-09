@@ -34,6 +34,11 @@ it("preserves alert and panel results on seeded duplicate receipts", async () =>
     fullyQualified: `example-project.analytics.events_${process.pid}`,
   };
   const raw = `\`${table.fullyQualified}\``;
+  const measurementTable =
+    process.env.BIGQUERY_MEASUREMENT_TABLE ||
+    "example-project.analytics.first_party_analytics_events_raw";
+  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_]+\.[A-Za-z0-9_]+$/.test(measurementTable))
+    throw new Error("BIGQUERY_MEASUREMENT_TABLE must be project.dataset.table");
   async function query(sql: string): Promise<unknown[]> {
     const response = await fetch(
       new URL("/bigquery/v2/projects/example-project/queries", endpoint),
@@ -85,19 +90,29 @@ it("preserves alert and panel results on seeded duplicate receipts", async () =>
               deployment_environment: receipt ? "beta" : "production",
             });
             receipts.push(
-              `('${id}', '${event}', DATE '${day}', TIMESTAMP '${day} 00:02:00+00', TIMESTAMP '${day} 00:02:0${receipt}+00', ${index === 7 ? "'other-org'" : "'synthetic-org'"}, 'synthetic@example.test', 'person@example.test', '${properties}', '${receipt ? "analytics" : "chat"}')`,
+              `('${id}', '${event}', DATE '${day}', TIMESTAMP '${day} 00:02:00+00', TIMESTAMP '${day} 00:02:0${receipt}+00', ${index === 7 ? "'other-org'" : index === 6 ? "NULL" : "'synthetic-org'"}, 'synthetic@example.test', 'person@example.test', '${properties}', '${receipt ? "analytics" : "chat"}')`,
             );
           }
         }
       }
     }
-    await query(`INSERT INTO ${raw} VALUES ${receipts.join(",")}`);
     const scope = {
       userEmail: "synthetic@example.test",
       orgId: "synthetic-org",
     };
     const end = "2026-10-09T00:05:00.000Z";
-    const cases: Array<{ name: string; sql: string; expected: number }> = [
+    for (const receipt of [0, 1])
+      receipts.push(
+        `('other-owner', 'http.response', DATE '2026-10-09', TIMESTAMP '2026-10-09 00:02:00+00', TIMESTAMP '2026-10-09 00:02:0${receipt}+00', NULL, 'other@example.test', 'person@example.test', '{}', 'analytics')`,
+      );
+    logical++;
+    await query(`INSERT INTO ${raw} VALUES ${receipts.join(",")}`);
+    const cases: Array<{
+      name: string;
+      sql: string;
+      expected: number;
+      scope?: { userEmail: string; orgId: null };
+    }> = [
       ...[
         {
           name: "5xx",
@@ -120,8 +135,14 @@ it("preserves alert and panel results on seeded duplicate receipts", async () =>
           "2026-10-08T23:55:00.000Z",
           end,
         ),
-        expected: 7,
+        expected: 6,
       })),
+      {
+        name: "personal",
+        sql: "SELECT id, app FROM analytics_events WHERE event_date >= DATE '2026-10-09' AND event_name = 'http.response'",
+        expected: 1,
+        scope: { userEmail: scope.userEmail, orgId: null },
+      },
       {
         name: "panel",
         sql: "SELECT event_name, COUNT(*) AS count FROM analytics_events WHERE event_date BETWEEN DATE '2026-10-08' AND DATE '2026-10-09' AND event_name IN ('app_entered', 'http.response') GROUP BY event_name",
@@ -141,9 +162,14 @@ it("preserves alert and panel results on seeded duplicate receipts", async () =>
     const output = path.resolve("../../.tmp/bq-cost-a");
     await mkdir(output, { recursive: true });
     for (const test of cases) {
-      const scoped = scopedAnalyticsSql(test.sql, scope, "2026-10-09", {
-        includeTestIdentities: true,
-      });
+      const scoped = scopedAnalyticsSql(
+        test.sql,
+        test.scope ?? scope,
+        "2026-10-09",
+        {
+          includeTestIdentities: true,
+        },
+      );
       mode.enabled = false;
       const before = renderFirstPartyAnalyticsBigQuerySql(
         scoped.sql,
@@ -168,7 +194,7 @@ it("preserves alert and panel results on seeded duplicate receipts", async () =>
       ]) {
         let production = sql;
         for (const [from, to] of [
-          [raw, "`builder-3b0a2.analytics.first_party_analytics_events_raw`"],
+          [raw, `\`${measurementTable}\``],
           ["'synthetic-org'", "@alert_org"],
           ["'synthetic@example.test'", "@alert_owner"],
           ["DATE '2026-10-09'", "DATE(TIMESTAMP(@window_end))"],
