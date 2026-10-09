@@ -84,10 +84,11 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   a late-arriving event can change page membership inside a historical window
   too. If either read truncates, page boundaries may have shifted, or the
   terminal cohort cannot be covered in one query under the 800,000-character
-  SQL limit, `status` is `incomplete` and all new cohort counts and follow-up
-  duration are `null`; `incompleteReason` identifies the limiting read. Do not
-  report percentages from that partial result. Existing journey counts and
-  denominators remain independent of this follow-up read.
+  SQL limit or 50,000-token parser limit, `status` is `incomplete` and all new
+  cohort counts and follow-up duration are `null`; `incompleteReason`
+  identifies the limiting read. Do not report percentages from that partial
+  result. Existing journey counts and denominators remain independent of this
+  follow-up read.
 - `maxDepth` defaults to 8 and is bounded at 40. Request `maxDepth: 40` for a
   deeper pass. When sessions continue past the requested depth,
   `coverage.truncated` is true and the boundary node's `deeperN` says how many

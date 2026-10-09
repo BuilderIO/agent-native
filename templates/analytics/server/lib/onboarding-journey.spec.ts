@@ -1,3 +1,4 @@
+import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -17,6 +18,10 @@ vi.mock("@agent-native/core/server", () => ({
   getRequestContext: () => ({ requestOrigin: mocks.requestOrigin }),
 }));
 
+import {
+  buildOnboardingJourneyFollowupSql,
+  type OnboardingJourneyEventsFilters,
+} from "./first-party-metric-catalog";
 import {
   formatJourneyOutline,
   getOnboardingJourney,
@@ -494,6 +499,101 @@ describe("getOnboardingJourney", () => {
         byTerminalStepKey: { signup: 1001 },
       },
     });
+  });
+
+  it("preserves the tree when a terminal cohort exceeds the SQL parser token limit", async () => {
+    const rows = Array.from({ length: 3000 }, (_, index) =>
+      eventRow(`cohort-${String(index).padStart(4, "0")}`, "signup", index),
+    );
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({ rows, schema: [] });
+    mocks.listJourneyRecordings.mockResolvedValue({
+      recordings: [],
+      complete: true,
+    });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      maxEventRows: 4000,
+    })) as JourneyTree;
+
+    expect(tree.rootN).toBe(3000);
+    expect(tree.nodes[0]?.n).toBe(3000);
+    expect(tree.coverage.truncated).toBe(false);
+    expect(tree.followUp).toMatchObject({
+      status: "incomplete",
+      incompleteReason: "terminal_cohort_query_too_large",
+      coverage: {
+        followupAggregateRead: { rows: null, queries: 0, truncated: false },
+        cohortSessions: null,
+      },
+      laterRecordedActivityWithinWindow: {
+        total: null,
+        byTerminalStepKey: null,
+      },
+      noLaterRecordedActivityWithinWindow: {
+        total: null,
+        byTerminalStepKey: null,
+      },
+      observationFollowupDurationMs: null,
+    });
+    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns an incomplete follow-up when valid terminal rows exceed the SQL text cap", async () => {
+    const terminals = Array.from({ length: 2200 }, (_, index) => ({
+      sessionId: `${String(index).padStart(4, "0")}-${"x".repeat(248)}`,
+      stepKey: "signup",
+      tsMs: T0,
+    }));
+    const filters: OnboardingJourneyEventsFilters = {
+      dateFrom: ARGS.dateFrom,
+      dateTo: ARGS.dateTo,
+      app: ARGS.app,
+      emailFilter: ARGS.emailFilter,
+    };
+    const sql = buildOnboardingJourneyFollowupSql(filters, terminals, {
+      observationCutoff: "2026-10-03T00:00:00.000Z",
+      observationDate: "2026-10-03",
+    });
+    expect(sql.length).toBeGreaterThan(800_000);
+    expect(
+      lexAgentSql(sql, { dialect: "postgres" }).length,
+    ).toBeLessThanOrEqual(50_000);
+
+    const rows = terminals.map(({ sessionId }, index) =>
+      eventRow(sessionId, "signup", index),
+    );
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({ rows, schema: [] });
+    mocks.listJourneyRecordings.mockResolvedValue({
+      recordings: [],
+      complete: true,
+    });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      maxEventRows: 3000,
+    })) as JourneyTree;
+
+    expect(tree.rootN).toBe(2200);
+    expect(tree.nodes[0]?.n).toBe(2200);
+    expect(tree.followUp).toMatchObject({
+      status: "incomplete",
+      incompleteReason: "terminal_cohort_query_too_large",
+      coverage: {
+        followupAggregateRead: { rows: null, queries: 0, truncated: false },
+        cohortSessions: null,
+      },
+      laterRecordedActivityWithinWindow: {
+        total: null,
+        byTerminalStepKey: null,
+      },
+      noLaterRecordedActivityWithinWindow: {
+        total: null,
+        byTerminalStepKey: null,
+      },
+      observationFollowupDurationMs: null,
+    });
+    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(1);
   });
 
   it("nulls follow-up counts when aggregate session coverage mismatches", async () => {

@@ -1,3 +1,4 @@
+import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { getAppBasePath, getRequestContext } from "@agent-native/core/server";
 
 import {
@@ -30,6 +31,7 @@ import { listJourneyRecordings } from "./session-replay.js";
 // is never mistaken for a cut one.
 const EVENT_PAGE_ROWS = 4_000;
 const MAX_FOLLOWUP_QUERY_CHARS = 800_000;
+const MAX_FOLLOWUP_QUERY_TOKENS = 50_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface OnboardingJourneyArgs extends OnboardingJourneyEventsFilters {
@@ -462,7 +464,10 @@ async function readFollowup(
     terminals,
     observation,
   );
-  if (sql.length > MAX_FOLLOWUP_QUERY_CHARS) {
+  if (
+    sql.length > MAX_FOLLOWUP_QUERY_CHARS ||
+    lexAgentSql(sql, { dialect: "postgres" }).length > MAX_FOLLOWUP_QUERY_TOKENS
+  ) {
     return incompleteFollowup(
       observation,
       read,
