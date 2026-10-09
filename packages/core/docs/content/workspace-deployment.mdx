@@ -81,6 +81,8 @@ npx @agent-native/core@latest deploy
 
 Under the hood, each app is built with its own **base path**, a URL prefix like `/mail` set via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, then packaged for the target Nitro preset. **Netlify** is the default: one function per app plus generated redirects. **Vercel** writes a workspace-level `.vercel/output` using the Build Output API.
 
+Apps build in parallel, three at a time by default. Set `AGENT_NATIVE_DEPLOY_CONCURRENCY` in the build environment to change that, for example `1` to build one at a time on a memory-constrained runner.
+
 </Callout>
 
 Publish the build for your platform:
