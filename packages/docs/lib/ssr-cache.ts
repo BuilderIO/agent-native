@@ -5,6 +5,8 @@ import {
   resolveSsrNetlifyQueryVary,
 } from "@agent-native/core/server/ssr-handler";
 
+import { CHUNK_RECOVERY_PATH_SUFFIX } from "../../core/src/shared/route-chunk-recovery-bootstrap.js";
+
 export const COMMUNITY_APP_SSR_CACHE_HEADERS = {
   "cache-control":
     "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
@@ -29,12 +31,12 @@ export function applyDocsSsrCacheKeyHeaders(
 }
 
 export function isCloudGettingStartedPath(url: URL): boolean {
-  const pathname = url.pathname.replace(/\.data$/, "").replace(/\/+$/, "");
+  const pathname = normalizeDocsCachePathname(url.pathname);
   return pathname.endsWith("/docs") && url.searchParams.get("tab") === "cloud";
 }
 
 export function isMutableCommunityAppPath(pathname: string): boolean {
-  const path = pathname.replace(/\.data$/, "").replace(/\/+$/, "") || "/";
+  const path = normalizeDocsCachePathname(pathname);
   const segments = path.split("/").filter(Boolean);
   const appsPath = segments[0] === "apps" ? segments : segments.slice(1);
   return (
@@ -42,6 +44,25 @@ export function isMutableCommunityAppPath(pathname: string): boolean {
     (appsPath.length === 1 ||
       (appsPath[1] === "community" && appsPath.length >= 3))
   );
+}
+
+function normalizeDocsCachePathname(pathname: string): string {
+  const normalized = stripChunkRecoveryPathSuffix(pathname)
+    .replace(/\/+$/, "")
+    .replace(/\.data$/, "")
+    .replace(/\/+$/, "");
+  return normalized || "/";
+}
+
+function stripChunkRecoveryPathSuffix(pathname: string): string {
+  const suffixWithTrailingSlash = `${CHUNK_RECOVERY_PATH_SUFFIX}/`;
+  if (pathname.endsWith(suffixWithTrailingSlash)) {
+    const routePath = pathname.slice(0, -suffixWithTrailingSlash.length);
+    return routePath ? `${routePath}/` : "/";
+  }
+  if (!pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX)) return pathname;
+  const routePath = pathname.slice(0, -CHUNK_RECOVERY_PATH_SUFFIX.length);
+  return routePath || "/";
 }
 
 export function applyCommunityAppSsrCacheHeaders(

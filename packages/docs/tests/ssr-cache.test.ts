@@ -5,6 +5,7 @@ import path from "node:path";
 import { resolveSsrCacheHeaders } from "@agent-native/core/server/ssr-handler";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { CHUNK_RECOVERY_PATH_SUFFIX } from "../../core/src/shared/route-chunk-recovery-bootstrap.js";
 import {
   renderNetlifyHeaders,
   writeNetlifyHeaders,
@@ -77,6 +78,20 @@ describe("Docs SSR cache key wrapper", () => {
         new URL("https://www.agent-native.com/docs/?tab=local"),
       ),
     ).toBe(false);
+    expect(
+      isCloudGettingStartedPath(
+        new URL(
+          `https://www.agent-native.com/docs${CHUNK_RECOVERY_PATH_SUFFIX}?tab=cloud`,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isCloudGettingStartedPath(
+        new URL(
+          `https://www.agent-native.com/docs.data${CHUNK_RECOVERY_PATH_SUFFIX}/?tab=cloud`,
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("keeps mutable community app routes in the durable cache", () => {
@@ -92,6 +107,21 @@ describe("Docs SSR cache key wrapper", () => {
       "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
     );
     expect(communityHeaders.get("netlify-cdn-cache-control")).toBe(
+      "public, durable, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600",
+    );
+
+    const recoveryHeaders = new Headers({
+      ...resolveSsrCacheHeaders({}),
+      "content-type": "text/html; charset=utf-8",
+    });
+    applyCommunityAppSsrCacheHeaders(
+      recoveryHeaders,
+      `/apps/community/foo${CHUNK_RECOVERY_PATH_SUFFIX}/`,
+    );
+    expect(recoveryHeaders.get("cache-control")).toBe(
+      "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
+    );
+    expect(recoveryHeaders.get("netlify-cdn-cache-control")).toBe(
       "public, durable, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600",
     );
 
