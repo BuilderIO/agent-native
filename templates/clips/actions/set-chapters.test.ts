@@ -142,6 +142,46 @@ describe("set-chapters", () => {
     ).resolves.toEqual({ id: "rec_1", chapters: [demo] });
   });
 
+  it("refuses a chapter whose title is only spaces, rather than dropping it", async () => {
+    await expect(
+      action.run({
+        recordingId: "rec_1",
+        chapters: [intro, { startMs: 30_000, title: "  " }],
+      } as any),
+    ).rejects.toMatchObject({ errorCode: "invalid_chapters" });
+    expect(written).toHaveLength(0);
+  });
+
+  it("refuses a guarded save that would delete stored entries it can't read", async () => {
+    stored.chaptersJson = JSON.stringify([
+      intro,
+      { startMs: "30000", title: "Demo" },
+    ]);
+    await expect(
+      action.run({
+        recordingId: "rec_1",
+        chapters: [demo],
+        expectedChapters: [intro],
+      } as any),
+    ).rejects.toMatchObject({ errorCode: "chapters_unreadable" });
+    expect(written).toHaveLength(0);
+  });
+
+  it.each([
+    ["JSON that doesn't parse", '[{"startMs":0,'],
+    ["a double-encoded list", JSON.stringify(JSON.stringify([intro]))],
+  ])("refuses a guarded save over stored %s", async (_, chaptersJson) => {
+    stored.chaptersJson = chaptersJson;
+    await expect(
+      action.run({
+        recordingId: "rec_1",
+        chapters: [demo],
+        expectedChapters: [],
+      } as any),
+    ).rejects.toMatchObject({ errorCode: "chapters_unreadable" });
+    expect(written).toHaveLength(0);
+  });
+
   it("still overwrites when no expected chapters are given", async () => {
     stored.chaptersJson = JSON.stringify([intro, demo]);
     await action.run({ recordingId: "rec_1", chapters: [demo] } as any);

@@ -5,7 +5,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
-import { CHAPTERS_BUSY, CHAPTERS_CHANGED } from "../shared/stored-chapters.js";
+import {
+  CHAPTERS_BUSY,
+  CHAPTERS_CHANGED,
+  CHAPTERS_UNREADABLE,
+} from "../shared/stored-chapters.js";
 import {
   queueAiRequest,
   withAiRequestStatusInstructions,
@@ -52,7 +56,7 @@ export default defineAction({
       `and call \`set-chapters --recordingId=${args.recordingId} --chapters='[{ "startMs": 0, "title": "Intro" }, ...]'\`. ` +
       `Aim for 3–8 chapters. Each chapter title should be 3–6 words and capture the essence of that section. ` +
       `Also pass --expectedVersion=${expectedVersion}. ` +
-      `If set-chapters fails with errorCode ${CHAPTERS_CHANGED}, someone edited the chapters meanwhile: do not retry, and say the new chapters were not saved. On ${CHAPTERS_BUSY}, call it again with the same arguments. ` +
+      `If set-chapters fails with errorCode ${CHAPTERS_CHANGED}, someone edited the chapters meanwhile: do not retry; mark this request failed, saying the new chapters were not saved because the chapters changed. On ${CHAPTERS_UNREADABLE}, the stored chapters can't be read and would be lost: do not retry; mark this request failed, saying so. On ${CHAPTERS_BUSY}, call it again with the same arguments. ` +
       `Never call set-chapters for this request without expectedVersion.`;
 
     const requestedAt = new Date().toISOString();

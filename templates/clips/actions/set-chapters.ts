@@ -13,7 +13,9 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   CHAPTERS_BUSY,
   CHAPTERS_CHANGED,
+  CHAPTERS_UNREADABLE,
   parseStoredChapters,
+  readStoredChapters,
   sameChapters,
   sameCuts,
 } from "../shared/stored-chapters.js";
@@ -118,8 +120,13 @@ export default defineAction({
       ),
     ]
       .map((c) => ({ startMs: Math.max(0, c.startMs), title: c.title.trim() }))
-      .filter((c) => c.title.length > 0)
       .sort((a, b) => a.startMs - b.startMs);
+    if (chapters.some((c) => c.title.length === 0)) {
+      fail("Every chapter needs a title.", {
+        errorCode: "invalid_chapters",
+        statusCode: 400,
+      });
+    }
 
     const [existing] = await db
       .select({
@@ -159,7 +166,15 @@ export default defineAction({
     let row: { chaptersJson: string; editsJson: string } = existing;
     for (let attempt = 1; ; attempt++) {
       if (guarded) {
-        const stored = parseStoredChapters(row.chaptersJson);
+        const { chapters: stored, unreadable } = readStoredChapters(
+          row.chaptersJson,
+        );
+        if (unreadable) {
+          fail(
+            "The stored chapters include entries that can't be read, and this save would delete them. Nothing was saved.",
+            { errorCode: CHAPTERS_UNREADABLE, statusCode: 409 },
+          );
+        }
         if (sameChapters(stored, chapters)) return done();
         if (
           (expected && !sameChapters(stored, expected)) ||

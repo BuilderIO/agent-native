@@ -1820,6 +1820,8 @@ export function EditorLayout({
         {chaptersOpen ? (
           <div className="flex min-h-0 min-w-0 flex-col border-l border-border">
             <ChaptersEditor
+              // Its unsaved edit and stored list belong to one recording.
+              key={recordingId}
               recordingId={recordingId}
               chapters={chapters}
               currentMs={playheadMs}
