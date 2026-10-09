@@ -63,7 +63,15 @@ vi.mock("./memoize-by-content", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./memoize-by-content")>();
   return {
     ...actual,
-    memoizeByContent: (limit, compute, derive) =>
+    memoizeByContent: <T>(
+      limit: number,
+      compute: (content: string) => T,
+      derive?: (
+        previousContent: string,
+        previous: T,
+        content: string,
+      ) => T | null,
+    ) =>
       actual.memoizeByContent(
         limit,
         (content) => {
@@ -76,6 +84,7 @@ vi.mock("./memoize-by-content", async (importOriginal) => {
 });
 
 it("memoizes repeated source content hashes", async () => {
+  hashComputation.mockClear();
   const { sourceContentHash } = await import("./source-workspace");
   const content = "<main>same source</main>";
 

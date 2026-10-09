@@ -482,6 +482,16 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
       }
     });
     await gotoEditor(page, designId);
+    const iframeSelector =
+      '[data-screen-shell][data-frame-id="' +
+      fileId +
+      '"] iframe[data-screen-iframe-id="' +
+      fileId +
+      '"]';
+    const child = page
+      .frameLocator(iframeSelector)
+      .locator('[data-agent-native-node-id="child"]');
+    await expect(child).toBeVisible();
     const codeWorkbench = page.getByTestId("design-code-workbench");
     for (let attempt = 0; attempt < 3; attempt += 1) {
       if (new URL(page.url()).searchParams.get("panel") !== "code") {
@@ -512,15 +522,6 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
 
     await page.getByRole("button", { name: "File", exact: true }).click();
     await expect(page.getByTestId("design-code-workbench")).toBeHidden();
-    const iframeSelector =
-      '[data-screen-shell][data-frame-id="' +
-      fileId +
-      '"] iframe[data-screen-iframe-id="' +
-      fileId +
-      '"]';
-    const child = page
-      .frameLocator(iframeSelector)
-      .locator('[data-agent-native-node-id="child"]');
     const childBounds = await child.evaluate((element) => {
       const rect = element.getBoundingClientRect();
       return {

@@ -439,6 +439,7 @@ export function renderLeftSidebar({
                     {id && !shellMode && codeWorkbenchOpenedRef.current ? (
                       <CodeWorkbenchLoader
                         designId={id}
+                        active={activeLeftPanel === "code"}
                         activeFileId={routeCodeFileId}
                         activeFilename={routeCodeFilename}
                         selectedNodeId={selectedElementLayerId}
