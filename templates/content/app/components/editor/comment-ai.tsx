@@ -300,6 +300,10 @@ export function latestCommentAiRequest(
 /**
  * Whether AI is starting or running on a thread from this tab. Requests list
  * only the caller's own, so a teammate's run on the same thread is not seen.
+ * A request marked for review after its dispatch went unacknowledged does not
+ * count: its run may never have started, which would hold decisions forever,
+ * and a run that did start arrives as a new suggestion or, once the thread's
+ * quote has moved, is refused.
  */
 export function isCommentAiWorkingOn(
   commentAi: Pick<CommentAiController, "requests" | "startingThreadIds">,

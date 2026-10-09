@@ -44,15 +44,16 @@ function clampRange(
   return { from: a, to: b };
 }
 
-// The whole document, not just the range: deleting one of two identical words
-// leaves the same text at the deleted word's old position.
-function sameText(before: ProseMirrorNode, after: ProseMirrorNode): boolean {
-  const size = before.content.size;
-  return (
-    after.content.size === size &&
-    after.textBetween(0, size, "\n", "￼") ===
-      before.textBetween(0, size, "\n", "￼")
-  );
+// The same node types and text throughout, so every position still names the
+// same character. Matching text alone is not enough: deleting one of two
+// identical words, or moving a block into a quote, keeps the text but shifts it.
+function sameShape(before: ProseMirrorNode, after: ProseMirrorNode): boolean {
+  if (before.type !== after.type || before.childCount !== after.childCount)
+    return false;
+  if (before.isText) return before.text === after.text;
+  for (let index = 0; index < before.childCount; index += 1)
+    if (!sameShape(before.child(index), after.child(index))) return false;
+  return true;
 }
 
 function buildDecorations(
@@ -127,7 +128,7 @@ export function createCommentHighlightPlugin() {
             if (to > from) return [{ threadId: s.threadId, from, to }];
             // Swapping in an identical document, as a collaborative reconcile
             // or a decision readback does, collapses every range inside it.
-            unchanged ??= sameText(oldState.doc, newState.doc);
+            unchanged ??= sameShape(oldState.doc, newState.doc);
             return unchanged ? [s] : [];
           });
           if (pending) {

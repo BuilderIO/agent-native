@@ -4,10 +4,11 @@ import { reanchoredCommentQuote } from "./comment-reanchor";
 
 const before =
   "Our editor is fast.\n\nThe team ships every Friday afternoon, so feedback lands before the weekend.\n";
+// Captured from the editor text, which joins blocks with no separator.
 const quote = {
   quotedText: "ships every Friday afternoon",
-  prefix: "The team ",
-  suffix: ", so feedback",
+  prefix: "Our editor is fast.The team ",
+  suffix: ", so feedback lands before the w",
   startOffset: 28,
 };
 
@@ -31,7 +32,7 @@ describe("reanchoredCommentQuote", () => {
       ),
     ).toEqual({
       quotedText: "ships every Friday at 3 PM, so all",
-      prefix: "The team ",
+      prefix: "Our editor is fast.The team ",
       suffix: " feedback lands before the weeke",
       startOffset: 28,
     });
@@ -42,8 +43,8 @@ describe("reanchoredCommentQuote", () => {
       reanchoredCommentQuote(
         {
           quotedText: "every Friday",
-          prefix: "The team ships ",
-          suffix: " afternoon",
+          prefix: "Our editor is fast.The team ships ",
+          suffix: " afternoon, so feedback lands be",
           startOffset: 34,
         },
         before,
@@ -51,8 +52,8 @@ describe("reanchoredCommentQuote", () => {
       ),
     ).toEqual({
       quotedText: "crew sends each Friday",
-      prefix: null,
-      suffix: " afternoon",
+      prefix: "Our editor is fast.The ",
+      suffix: " afternoon, so feedback lands be",
       startOffset: 23,
     });
   });
@@ -73,6 +74,13 @@ describe("reanchoredCommentQuote", () => {
           "ships every Friday afternoon",
           "ships every Friday afternoon!",
         ),
+      ),
+    ).toBeNull();
+    expect(
+      reanchoredCommentQuote(
+        quote,
+        before,
+        before.replace("Friday", "**Friday**"),
       ),
     ).toBeNull();
   });
@@ -99,6 +107,36 @@ describe("reanchoredCommentQuote", () => {
     });
   });
 
+  it("finds the comment's copy past Markdown syntax and list markers", () => {
+    const emphasized = "**A**FridayB\n\nAFridayB\n";
+    const first = {
+      quotedText: "Friday",
+      prefix: "A",
+      suffix: "BAFridayB",
+      startOffset: 1,
+    };
+    expect(
+      reanchoredCommentQuote(first, emphasized, "**A**MondayB\n\nAFridayB\n"),
+    ).toEqual({ ...first, quotedText: "Monday" });
+    expect(
+      reanchoredCommentQuote(first, emphasized, "**A**FridayB\n\nAMondayB\n"),
+    ).toBeNull();
+
+    const second = {
+      quotedText: "Friday",
+      prefix: "AFridayBA",
+      suffix: "B",
+      startOffset: 9,
+    };
+    expect(
+      reanchoredCommentQuote(
+        second,
+        "1. AFridayB\n2. AFridayB\n",
+        "1. AFridayB\n2. AMondayB\n",
+      ),
+    ).toEqual({ ...second, quotedText: "Monday" });
+  });
+
   it("gives up when two copies of the quote fit equally well", () => {
     const page = "Friday.\n\nFriday.\n";
     expect(
@@ -110,25 +148,13 @@ describe("reanchoredCommentQuote", () => {
     ).toBeNull();
   });
 
-  it("gives up on a repeated quote whose context has Markdown syntax", () => {
-    // In editor text the comment's copy is the first: "AFridayBAFridayB".
-    const page = "**A**FridayB\n\nAFridayB";
-    expect(
-      reanchoredCommentQuote(
-        { quotedText: "Friday", prefix: "A", suffix: "B", startOffset: 1 },
-        page,
-        "**A**FridayB\n\nAMondayB",
-      ),
-    ).toBeNull();
-  });
-
-  it("does not invent a quote across Markdown syntax", () => {
+  it("quotes the edited text without the formatting it adds", () => {
     expect(
       reanchoredCommentQuote(
         quote,
         before,
         before.replace("Friday afternoon", "**Thursday** at noon"),
       ),
-    ).toBeNull();
+    ).toEqual({ ...quote, quotedText: "ships every Thursday at noon" });
   });
 });

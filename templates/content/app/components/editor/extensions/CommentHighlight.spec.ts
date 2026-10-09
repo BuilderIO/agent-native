@@ -11,6 +11,7 @@ const schema = new Schema({
   nodes: {
     doc: { content: "block+" },
     paragraph: { group: "block", content: "text*" },
+    blockquote: { group: "block", content: "block+" },
     text: {},
   },
   marks: {},
@@ -118,5 +119,29 @@ describe("CommentHighlight", () => {
 
     const deleted = state.apply(state.tr.delete(1, 7));
     expect(commentHighlightKey.getState(deleted)!.specs).toEqual([]);
+  });
+
+  it("drops a highlight when a swap keeps the text but moves it into a quote", () => {
+    const paragraph = (text: string) =>
+      schema.node("paragraph", null, schema.text(text));
+    const quoted = (text: string) =>
+      schema.node("blockquote", null, [paragraph(text)]);
+    let state = EditorState.create({
+      doc: schema.node("doc", null, [paragraph("alpha"), quoted("beta")]),
+      plugins: [createCommentHighlightPlugin()],
+    });
+    state = state.apply(
+      state.tr.setMeta(commentHighlightKey, {
+        specs: [{ threadId: "t1", from: 1, to: 6 }],
+      }),
+    );
+
+    const moved = state.apply(
+      state.tr.replaceWith(0, state.doc.content.size, [
+        quoted("alpha"),
+        paragraph("beta"),
+      ]),
+    );
+    expect(commentHighlightKey.getState(moved)!.specs).toEqual([]);
   });
 });
