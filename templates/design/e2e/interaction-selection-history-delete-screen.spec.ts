@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
+import { OVERVIEW_FRAME_LABEL_HEIGHT } from "../shared/canvas-frames";
 import { e2eBaseURL } from "./base-url";
 import {
   layerRow,
@@ -842,6 +843,9 @@ test("Shift-marquee adds a hit Screen to the existing Delete selection", async (
     const homeId = await fileIdByFilename(page, id, "index.html");
     const secondId = await fileIdByFilename(page, id, "second.html");
     const secondFrame = page.locator(`[data-frame-id="${secondId}"]`);
+    const secondTitle = page.locator(
+      `[data-frame-id="${secondId}"] [data-frame-title]`,
+    );
     const homeTitle = page.locator(
       `[data-frame-id="${homeId}"] [data-frame-title]`,
     );
@@ -850,39 +854,68 @@ test("Shift-marquee adds a hit Screen to the existing Delete selection", async (
     await expect
       .poll(async () => {
         const frameBox = await secondFrame.boundingBox();
+        const titleBox = await secondTitle.boundingBox();
         const canvasBox = await page
           .locator("[data-multi-screen-canvas-surface]")
           .boundingBox();
         return Boolean(
           frameBox &&
+          titleBox &&
           canvasBox &&
-          frameBox.x >= canvasBox.x &&
-          frameBox.y >= canvasBox.y &&
-          frameBox.x + frameBox.width <= canvasBox.x + canvasBox.width &&
-          frameBox.y + frameBox.height <= canvasBox.y + canvasBox.height,
+          Math.min(frameBox.x, titleBox.x) >= canvasBox.x &&
+          Math.min(frameBox.y, titleBox.y) >= canvasBox.y &&
+          Math.max(frameBox.x + frameBox.width, titleBox.x + titleBox.width) <=
+            canvasBox.x + canvasBox.width &&
+          Math.max(
+            frameBox.y + frameBox.height,
+            titleBox.y + titleBox.height,
+          ) <=
+            canvasBox.y + canvasBox.height,
         );
       })
       .toBe(true);
 
     const frameBox = await secondFrame.boundingBox();
+    const titleBox = await secondTitle.boundingBox();
     const canvas = await page
       .locator("[data-multi-screen-canvas-surface]")
       .boundingBox();
     expect(frameBox).not.toBeNull();
+    expect(titleBox).not.toBeNull();
     expect(canvas).not.toBeNull();
-    const margin = 24;
+    const zoom =
+      Number.parseFloat(
+        await page
+          .getByRole("button", { name: /^\d+%$/ })
+          .first()
+          .innerText(),
+      ) / 100;
+    expect(zoom).toBeGreaterThan(0);
+    const horizontalMargin = 24;
+    const verticalMargin =
+      Math.ceil(OVERVIEW_FRAME_LABEL_HEIGHT / zoom) + horizontalMargin;
     const from = {
-      x: Math.max(canvas!.x, frameBox!.x - margin),
-      y: Math.max(canvas!.y, frameBox!.y - margin),
+      x: Math.max(
+        canvas!.x,
+        Math.min(frameBox!.x, titleBox!.x) - horizontalMargin,
+      ),
+      y: Math.max(
+        canvas!.y,
+        Math.min(frameBox!.y, titleBox!.y) - verticalMargin,
+      ),
     };
     const to = {
       x: Math.min(
         canvas!.x + canvas!.width,
-        frameBox!.x + frameBox!.width + margin,
+        Math.max(frameBox!.x + frameBox!.width, titleBox!.x + titleBox!.width) +
+          horizontalMargin,
       ),
       y: Math.min(
         canvas!.y + canvas!.height,
-        frameBox!.y + frameBox!.height + margin,
+        Math.max(
+          frameBox!.y + frameBox!.height,
+          titleBox!.y + titleBox!.height,
+        ) + verticalMargin,
       ),
     };
     expect(from.x).toBeGreaterThanOrEqual(canvas!.x);
