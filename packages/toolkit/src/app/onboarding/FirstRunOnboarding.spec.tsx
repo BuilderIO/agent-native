@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { appBasePath } from "@agent-native/core/client/api-path";
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { registerFirstRunOnboardingExtension } from "@agent-native/core/client/onboarding/first-run-registry";
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
@@ -228,11 +229,12 @@ describe("FirstRunOnboarding", () => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     window.history.replaceState(null, "", "/");
-    delete (
-      window as Window & {
-        __reactRouterManifest?: unknown;
-      }
-    ).__reactRouterManifest;
+    const appWindow = window as Window & {
+      __AGENT_NATIVE_CONFIG__?: unknown;
+      __reactRouterManifest?: unknown;
+    };
+    delete appWindow.__AGENT_NATIVE_CONFIG__;
+    delete appWindow.__reactRouterManifest;
   });
 
   it("renders nothing while an ineligible member's status is resolving", () => {
@@ -2136,7 +2138,7 @@ describe("FirstRunOnboarding", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("restores a missing workspace mount before manual setup navigation", async () => {
+  it("routes manual setup through an inferred mount with local route definitions", async () => {
     mocks.useActualRouter = true;
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
@@ -2146,6 +2148,7 @@ describe("FirstRunOnboarding", () => {
     vi.stubEnv("VITE_APP_BASE_PATH", "");
     vi.stubEnv("APP_BASE_PATH", "");
     Object.assign(window, {
+      __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
       __reactRouterManifest: {
         routes: {
           root: { id: "root", path: "/" },
@@ -2156,10 +2159,12 @@ describe("FirstRunOnboarding", () => {
       },
     });
     window.history.replaceState(null, "", "/dispatch/home");
+    const basename = appBasePath();
+    expect(basename).toBe("/dispatch");
     const router = createMemoryRouter(
       [
         {
-          path: "/dispatch/home",
+          path: "/home",
           element: (
             <TooltipProvider>
               <FirstRunOnboarding />
@@ -2167,11 +2172,11 @@ describe("FirstRunOnboarding", () => {
           ),
         },
         {
-          path: "/dispatch/settings/model",
+          path: "/settings/model",
           element: <div data-testid="model-settings-route" />,
         },
       ],
-      { initialEntries: ["/dispatch/home"] },
+      { basename, initialEntries: ["/dispatch/home"] },
     );
 
     await act(async () => {
