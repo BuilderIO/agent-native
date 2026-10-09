@@ -1,4 +1,7 @@
-import { defineAction } from "@agent-native/core/action";
+import {
+  defineAction,
+  isAgentConnectionRequiredError,
+} from "@agent-native/core/action";
 import { z } from "zod";
 
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
@@ -40,11 +43,17 @@ const CREDENTIAL_MISSING_RE =
 const TRANSIENT_ERROR_RE =
   /quota cooldown|provider.*quota|rate.?limit|fetch failed|network.*error|timeout|ECONNRESET|ENOTFOUND|ERR_NETWORK/i;
 
-function isMissingFigmaCredential(error: unknown, message: string): boolean {
+function isTypedMissingFigmaCredential(error: unknown): boolean {
   const code = (error as { errorCode?: unknown } | null)?.errorCode;
   return (
     code === FIGMA_IMPORT_ERROR_CODES.authRequired ||
-    CREDENTIAL_MISSING_RE.test(message)
+    (isAgentConnectionRequiredError(error) && error.reason === "connect")
+  );
+}
+
+function isMissingFigmaCredential(error: unknown, message: string): boolean {
+  return (
+    isTypedMissingFigmaCredential(error) || CREDENTIAL_MISSING_RE.test(message)
   );
 }
 
@@ -391,8 +400,9 @@ export default defineAction({
       if (
         selectedNodeIds?.length &&
         !parsedClipboard.fallbackHtml &&
-        !figmaApiKeyMissing &&
-        (!isTransient || !clipboardBuffer)
+        (figmaApiKeyMissing
+          ? !clipboardBuffer && isTypedMissingFigmaCredential(error)
+          : !isTransient || !clipboardBuffer)
       ) {
         throw error;
       }

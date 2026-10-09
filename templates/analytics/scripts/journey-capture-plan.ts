@@ -95,6 +95,7 @@ export interface PlanItem {
   recordingId: string;
   offsetMs: number;
   viewport: { width: number; height: number } | null;
+  sourceEventAt: string | null;
 }
 
 export interface SkippedExample {
@@ -150,6 +151,7 @@ export function planCapture(
         recordingId: example.recordingId,
         offsetMs: Math.round(example.offsetMs),
         viewport: example.viewport,
+        sourceEventAt: example.ts || null,
       });
     });
   }
@@ -208,6 +210,8 @@ export interface ManifestFrame {
   height: number;
   localPath: string;
   capturedAt: string;
+  sourceEventAt: string | null;
+  replayAt: string | null;
   route?: string;
   attachmentRef?: string;
 }
@@ -218,6 +222,64 @@ export interface ManifestFailure {
   recordingId: string;
   offsetMs: number;
   reason: string;
+  sourceEventAt: string | null;
+  replayAt: string | null;
+  code?:
+    | "replay_iframe_content_unavailable"
+    | "replay_iframe_visibility_unverifiable";
+  diagnostics?: {
+    visibleIframeCount: number;
+    unavailableIframeCount: number;
+    unverifiableIframeCount?: number;
+  };
+}
+
+export function replayAtFromRecordingStart(
+  recordingStartedAtMs: number,
+  offsetMs: number,
+): string | null {
+  const timestamp = recordingStartedAtMs + offsetMs;
+  if (!Number.isFinite(timestamp) || Math.abs(timestamp) > 8.64e15) return null;
+  return new Date(timestamp).toISOString();
+}
+
+export function replayIframeParentIdsAt(
+  events: readonly unknown[],
+  throughTimestamp: number,
+): Set<number> {
+  if (!Number.isFinite(throughTimestamp)) {
+    throw new Error("replay_iframe_timestamp_invalid");
+  }
+  const parentIds = new Set<number>();
+  for (const value of events) {
+    const event = asRecord(value);
+    if (
+      !event ||
+      event.type !== 3 ||
+      typeof event.timestamp !== "number" ||
+      !Number.isFinite(event.timestamp) ||
+      event.timestamp > throughTimestamp
+    ) {
+      continue;
+    }
+    const data = asRecord(event.data);
+    if (data?.isAttachIframe !== true || !Array.isArray(data.adds)) continue;
+    for (const value of data.adds) {
+      const addition = asRecord(value);
+      const node = asRecord(addition?.node);
+      const parentId = addition?.parentId;
+      if (node?.type === 0 && Number.isSafeInteger(parentId)) {
+        parentIds.add(parentId as number);
+      }
+    }
+  }
+  return parentIds;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 export interface CaptureManifest {
@@ -250,6 +312,8 @@ export function unattemptedFailures(
       recordingId: item.recordingId,
       offsetMs: item.offsetMs,
       reason,
+      sourceEventAt: item.sourceEventAt,
+      replayAt: null,
     }));
 }
 

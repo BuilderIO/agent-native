@@ -194,7 +194,15 @@ export const journeyFrameSchema = z
       .describe(
         "Source template for this frame when tree.app is all or the node key does not include an app prefix.",
       ),
-    route: z.string().min(1).max(2_048).optional(),
+    route: z.string().min(1).max(2_048).nullable().optional(),
+    captureSourceFingerprint: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable()
+      .default(null)
+      .describe(
+        "SHA-256 fingerprint of the capture source, or null when unknown.",
+      ),
     exampleIndex: z.number().int().min(0).max(999),
     imageUrl: z.string().max(MAX_IMAGE_URL_CHARS).optional(),
     attachmentRef: z.string().min(1).max(ATTACHMENT_REF_MAX_CHARS).optional(),
@@ -249,7 +257,8 @@ export const journeyFrameSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["route"],
-        message: "Pass the captured replay route for a staged frame.",
+        message:
+          "Pass the verified current route for a staged frame, or null when the replay does not establish it.",
       });
     }
     if (
@@ -307,6 +316,23 @@ export const createJourneyCanvasInputSchema = z
         "Locale used for the standalone storyboard labels; defaults to en-US.",
       ),
     tree: journeyTreeSchema,
+    observedContinuations: z
+      .array(
+        z
+          .object({
+            fromNodeKey: z.string().min(1).max(2_048),
+            fromExampleIndex: z.number().int().min(0).max(999),
+            toNodeKey: z.string().min(1).max(2_048),
+            toExampleIndex: z.number().int().min(0).max(999),
+          })
+          .strict(),
+      )
+      .max(MAX_JOURNEY_FRAMES)
+      .optional()
+      .default([])
+      .describe(
+        "Observed chronological links from a canonical example or reference-only node to a direct reference-only child, using exact examples from the same recording; these dashed links do not represent cohort transitions or percentages.",
+      ),
     layoutMode: z
       .enum(["tree", "appBands"])
       .optional()
@@ -323,7 +349,10 @@ export const createJourneyCanvasInputSchema = z
       .min(1)
       .max(MAX_EXAMPLES_PER_NODE)
       .optional()
-      .default(3),
+      .default(3)
+      .describe(
+        "Maximum ordinary screenshots shown per node; frames selected by observedContinuations are kept in addition to this limit.",
+      ),
     includeScreenshotless: z.boolean().optional().default(false),
     allowEncryptedPublicUploadFallback: z
       .boolean()
@@ -454,6 +483,7 @@ export const createJourneyCanvasInputSchema = z
       }
     });
     const seenFrames = new Set<string>();
+    const framesByExample = new Map<string, JourneyFrame>();
     input.frames.forEach((frame, index) => {
       const nodeIndex = byKey.get(frame.nodeKey);
       if (nodeIndex === undefined) {
@@ -494,6 +524,85 @@ export const createJourneyCanvasInputSchema = z
         );
       }
       seenFrames.add(id);
+      framesByExample.set(id, frame);
+    });
+    const seenContinuations = new Set<string>();
+    input.observedContinuations.forEach((continuation, index) => {
+      const edgeKey = `${continuation.fromNodeKey}\u0000${continuation.toNodeKey}`;
+      if (seenContinuations.has(edgeKey)) {
+        issue(
+          ["observedContinuations", index],
+          "An observed continuation can be declared only once per node pair.",
+        );
+      }
+      seenContinuations.add(edgeKey);
+      const fromIndex = byKey.get(continuation.fromNodeKey);
+      const toIndex = byKey.get(continuation.toNodeKey);
+      const fromNode =
+        fromIndex === undefined ? undefined : input.tree.nodes[fromIndex];
+      const toNode =
+        toIndex === undefined ? undefined : input.tree.nodes[toIndex];
+      if (!fromNode || !toNode) {
+        issue(
+          ["observedContinuations", index],
+          "An observed continuation must reference two nodes in this tree.",
+        );
+        return;
+      }
+      if (toNode.referenceOnly !== true || toNode.parentKey !== fromNode.key) {
+        issue(
+          ["observedContinuations", index],
+          "Observed continuations must follow a direct parent edge to a reference-only node.",
+        );
+      }
+      const fromFrame = framesByExample.get(
+        `${continuation.fromNodeKey}\u0000${continuation.fromExampleIndex}`,
+      );
+      const toFrame = framesByExample.get(
+        `${continuation.toNodeKey}\u0000${continuation.toExampleIndex}`,
+      );
+      if (!fromFrame || !toFrame) {
+        issue(
+          ["observedContinuations", index],
+          "Observed continuations need a captured frame for each referenced example.",
+        );
+        return;
+      }
+      const fromExample = fromNode.examples[continuation.fromExampleIndex];
+      const toExample = toNode.examples[continuation.toExampleIndex];
+      const fromStartedAt = fromFrame.recordingStartedAt
+        ? Date.parse(fromFrame.recordingStartedAt)
+        : Number.NaN;
+      const toStartedAt = toFrame.recordingStartedAt
+        ? Date.parse(toFrame.recordingStartedAt)
+        : Number.NaN;
+      if (
+        !fromExample ||
+        !toExample ||
+        fromExample.sessionId !== toExample.sessionId ||
+        !fromExample.recordingId ||
+        fromExample.recordingId !== toExample.recordingId ||
+        !Number.isFinite(fromStartedAt) ||
+        fromStartedAt !== toStartedAt ||
+        fromFrame.screenshotOffsetMs === undefined ||
+        toFrame.screenshotOffsetMs === undefined ||
+        fromFrame.screenshotOffsetMs >= toFrame.screenshotOffsetMs ||
+        (fromFrame.stagedFrameId === undefined &&
+          fromFrame.attachmentRef === undefined) ||
+        (toFrame.stagedFrameId === undefined &&
+          toFrame.attachmentRef === undefined) ||
+        journeyFrameSourceApp(
+          fromNode.key,
+          input.tree.app,
+          fromFrame.sourceApp,
+        ) !==
+          journeyFrameSourceApp(toNode.key, input.tree.app, toFrame.sourceApp)
+      ) {
+        issue(
+          ["observedContinuations", index],
+          "Observed continuations must link private screenshots from the same session and recording, with matching recording metadata and increasing actual replay seek offsets.",
+        );
+      }
     });
   });
 
@@ -663,7 +772,8 @@ export interface PlannedScreen {
     replayObservedAt: string | null;
     screenshotCapturedAt: string;
     sourceApp?: string;
-    route?: string;
+    route: string | null;
+    captureSourceFingerprint: string | null;
     caption?: JourneyFrameCaption;
   };
   /** Frame geometry relative to the canvas origin. */
@@ -677,7 +787,8 @@ export interface PlannedScreen {
     replayId: string;
     capturedAt: string;
     offsetMs: number;
-    route: string;
+    route: string | null;
+    captureSourceFingerprint: string | null;
     width: number;
     height: number;
   };
@@ -752,9 +863,8 @@ function cardProvenanceMarkup(
     provenance.sourceApp
       ? `<p>${escapeHtml(messages.sourceApp)}: ${escapeHtml(appDisplayName(provenance.sourceApp))}</p>`
       : "",
-    provenance.route
-      ? `<p>${escapeHtml(messages.route)}: ${escapeHtml(provenance.route)}</p>`
-      : "",
+    `<p>${escapeHtml(messages.route)}: ${escapeHtml(provenance.route ?? messages.routeUnavailable)}</p>`,
+    `<p>${escapeHtml(messages.captureSourceFingerprint)}: ${escapeHtml(provenance.captureSourceFingerprint ?? messages.captureSourceUnavailable)}</p>`,
     provenance.recordingStartedAt
       ? `<p>${escapeHtml(messages.recordingStarted)}: ${escapeHtml(utcTimestamp(provenance.recordingStartedAt))}</p>`
       : "",
@@ -901,6 +1011,7 @@ function orderAppBandComponents(
 interface ExampleGalleryItem {
   selectorId: string;
   index: number;
+  sourceExampleIndex: number;
   src: string;
   alt: string;
   external: boolean;
@@ -921,10 +1032,10 @@ function exampleSwitchMarkup(
   const labels = items
     .map(
       (item) =>
-        `<label for="${item.selectorId}" title="${escapeHtml(interpolateJourneyCanvasMessage(messages.showExample, { current: formatInt(item.index + 1, messages.htmlLanguage), total: formatInt(items.length, messages.htmlLanguage) }))}">${formatInt(item.index + 1, messages.htmlLanguage)}</label>`,
+        `<label for="${item.selectorId}" title="${escapeHtml(interpolateJourneyCanvasMessage(messages.showExample, { current: formatInt(item.sourceExampleIndex + 1, messages.htmlLanguage), total: formatInt(items.length, messages.htmlLanguage) }))}">${formatInt(item.sourceExampleIndex + 1, messages.htmlLanguage)}</label>`,
     )
     .join("");
-  return `<div class="example-switcher" role="group" aria-label="${escapeHtml(messages.screenshotExamples)}">${positions}${labels}</div>`;
+  return `<div class="example-switcher" role="group" aria-label="${escapeHtml(messages.screenshotExamples)}">${positions}<span class="example-source-label">${escapeHtml(messages.sourceExampleLabel)}</span>${labels}</div>`;
 }
 
 function exampleSelectorsMarkup(
@@ -936,7 +1047,7 @@ function exampleSelectorsMarkup(
   return items
     .map(
       (item) =>
-        `<input class="example-selector" type="radio" name="journey-example" id="${item.selectorId}" aria-label="${escapeHtml(interpolateJourneyCanvasMessage(messages.showExample, { current: formatInt(item.index + 1, messages.htmlLanguage), total: formatInt(items.length, messages.htmlLanguage) }))}"${item.index === activeIndex ? " checked" : ""}>`,
+        `<input class="example-selector" type="radio" name="journey-example" id="${item.selectorId}" aria-label="${escapeHtml(interpolateJourneyCanvasMessage(messages.showExample, { current: formatInt(item.sourceExampleIndex + 1, messages.htmlLanguage), total: formatInt(items.length, messages.htmlLanguage) }))}"${item.index === activeIndex ? " checked" : ""}>`,
     )
     .join("");
 }
@@ -1010,7 +1121,8 @@ header details[open] .prompt-body,header details[open] .provenance-body{position
 header .prompt-body p{margin:0 0 8px;overflow:visible;text-overflow:clip;white-space:pre-wrap;color:${INK};overflow-wrap:anywhere}
 header .provenance-body p{margin:0 0 6px;overflow:visible;text-overflow:clip;white-space:pre-wrap;color:${INK};overflow-wrap:anywhere}
 header .prompt-source{font-size:9px;color:${MUTED}}
-header .example-switcher{display:flex;align-items:center;gap:5px;height:20px;color:${MUTED};font-size:10px;line-height:14px}
+header .example-switcher{display:flex;align-items:center;gap:5px;height:20px;max-width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;white-space:nowrap;color:${MUTED};font-size:10px;line-height:14px}
+header .example-switcher>*{flex:0 0 auto}
 header .example-position{display:none;margin-right:3px}
 header .example-switcher label{display:inline-flex;min-width:18px;height:18px;align-items:center;justify-content:center;border:1px solid ${BORDER};border-radius:3px;cursor:pointer;color:${INK};font-size:10px;line-height:16px}
 .example-selector{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
@@ -1046,8 +1158,14 @@ function boardDiv(args: {
   rect: { x: number; y: number; width: number; height: number };
   style: string;
   html: string;
+  title?: string;
+  ariaLabel?: string;
 }): string {
-  return `<div data-agent-native-node-id="${escapeHtml(args.id)}" data-agent-native-layer-name="${escapeHtml(args.name)}" data-an-primitive="${args.primitive}" style="${absolute(args.rect)};${args.style}">${args.html}</div>`;
+  const title = args.title ? ` title="${escapeHtml(args.title)}"` : "";
+  const ariaLabel = args.ariaLabel
+    ? ` role="img" aria-label="${escapeHtml(args.ariaLabel)}"`
+    : "";
+  return `<div data-agent-native-node-id="${escapeHtml(args.id)}" data-agent-native-layer-name="${escapeHtml(args.name)}" data-an-primitive="${args.primitive}"${title}${ariaLabel} style="${absolute(args.rect)};${args.style}">${args.html}</div>`;
 }
 
 function arrowFragment(
@@ -1094,15 +1212,37 @@ export function planJourneyCanvas(
 ): JourneyCanvasPlan {
   const { tree, cardWidth, maxExamplesPerNode, includeScreenshotless } = input;
   const nodeIndex = new Map(tree.nodes.map((node, index) => [node.key, index]));
+  const continuationExamplesByNode = new Map<string, Set<number>>();
+  for (const continuation of input.observedContinuations) {
+    const from =
+      continuationExamplesByNode.get(continuation.fromNodeKey) ??
+      new Set<number>();
+    from.add(continuation.fromExampleIndex);
+    continuationExamplesByNode.set(continuation.fromNodeKey, from);
+    const to =
+      continuationExamplesByNode.get(continuation.toNodeKey) ??
+      new Set<number>();
+    to.add(continuation.toExampleIndex);
+    continuationExamplesByNode.set(continuation.toNodeKey, to);
+  }
   const framesByNode = new Map<string, JourneyFrame[]>();
   for (const frame of input.frames) {
-    if (frame.exampleIndex >= maxExamplesPerNode) continue;
     const list = framesByNode.get(frame.nodeKey) ?? [];
     list.push(frame);
     framesByNode.set(frame.nodeKey, list);
   }
   for (const list of framesByNode.values()) {
     list.sort((a, b) => a.exampleIndex - b.exampleIndex);
+  }
+  for (const [nodeKey, list] of framesByNode) {
+    const selected = continuationExamplesByNode.get(nodeKey) ?? new Set();
+    framesByNode.set(
+      nodeKey,
+      list.filter(
+        (frame, index) =>
+          index < maxExamplesPerNode || selected.has(frame.exampleIndex),
+      ),
+    );
   }
 
   const skippedNodes: Array<{ key: string; reason: string }> = [];
@@ -1126,14 +1266,9 @@ export function planJourneyCanvas(
         layoutId: `c${index}`,
       });
     } else {
-      const outOfRange = input.frames.some(
-        (frame) => frame.nodeKey === node.key,
-      );
       skippedNodes.push({
         key: node.key,
-        reason: outOfRange
-          ? `No frame within maxExamplesPerNode (${maxExamplesPerNode}).`
-          : "No screenshot captured.",
+        reason: "No screenshot captured.",
       });
     }
   });
@@ -1339,7 +1474,9 @@ export function planJourneyCanvas(
                   )!,
                 }
               : {}),
-            ...(candidate.route ? { route: candidate.route } : {}),
+            route: candidate.route ?? null,
+            captureSourceFingerprint:
+              candidate.captureSourceFingerprint ?? null,
             ...(candidate.caption ? { caption: candidate.caption } : {}),
           }
         : undefined;
@@ -1352,6 +1489,7 @@ export function planJourneyCanvas(
       return {
         selectorId: `journey-example-${hashId(`${designId}\u0000${entry.node.key}`)}-${index}`,
         index,
+        sourceExampleIndex: candidate.exampleIndex,
         src:
           candidate.attachmentRef || candidate.stagedFrameId
             ? replayImageSrc(candidateRowId)
@@ -1360,6 +1498,7 @@ export function planJourneyCanvas(
         ...(candidateProvenance ? { provenance: candidateProvenance } : {}),
         alt: interpolateJourneyCanvasMessage(messages.screenshotAlt, {
           label: candidate.caption?.outputTitle ?? entry.node.label,
+          source: formatInt(candidate.exampleIndex + 1, messages.htmlLanguage),
           current: formatInt(index + 1, messages.htmlLanguage),
           total: formatInt(entry.frames.length, messages.htmlLanguage),
           date: utcTimestamp(candidate.capturedAt).slice(0, 10),
@@ -1419,7 +1558,8 @@ export function planJourneyCanvas(
               offsetMs: Math.round(
                 frame.screenshotOffsetMs ?? example?.offsetMs ?? 0,
               ),
-              route: frame.route ?? entry.node.key.slice(0, 2_048),
+              route: frame.route ?? null,
+              captureSourceFingerprint: frame.captureSourceFingerprint ?? null,
               width: frame.width,
               height: frame.height,
             },
@@ -1433,9 +1573,17 @@ export function planJourneyCanvas(
     const box = placed.get(entry.layoutId)!;
     const parent = effectiveParent.get(entry.node.key) ?? null;
     const viaSkipped = parent !== null && parent.key !== entry.node.parentKey;
+    const directParent =
+      entry.node.parentKey === null
+        ? null
+        : tree.nodes[nodeIndex.get(entry.node.parentKey)!]!;
+    const denominatorParent =
+      viaSkipped && directParent && hasCohortMetrics(directParent)
+        ? directParent
+        : parent;
     const meta = !hasCohortMetrics(entry.node)
       ? messages.observedSessionReference
-      : !parent || !hasCohortMetrics(parent)
+      : !denominatorParent || !hasCohortMetrics(denominatorParent)
         ? input.layoutMode === "appBands"
           ? interpolateJourneyCanvasMessage(messages.sessionsOfAppRoot, {
               count: formatInt(entry.node.n, messages.htmlLanguage),
@@ -1460,10 +1608,10 @@ export function planJourneyCanvas(
           ? interpolateJourneyCanvasMessage(messages.sessionsOfParent, {
               count: formatInt(entry.node.n, messages.htmlLanguage),
               percent: formatPercent(
-                (entry.node.n / Math.max(1, parent.n)) * 100,
+                (entry.node.n / Math.max(1, denominatorParent.n)) * 100,
                 messages.htmlLanguage,
               ),
-              label: parent.label,
+              label: denominatorParent.label,
             })
           : interpolateJourneyCanvasMessage(messages.sessionsOfPrevious, {
               count: formatInt(entry.node.n, messages.htmlLanguage),
@@ -1493,16 +1641,67 @@ export function planJourneyCanvas(
   });
 
   const byLayoutId = new Map(ordered.map((entry) => [entry.layoutId, entry]));
+  const observedContinuationsByNodePair = new Map(
+    input.observedContinuations.map((continuation) => [
+      `${continuation.fromNodeKey}\u0000${continuation.toNodeKey}`,
+      continuation,
+    ]),
+  );
+  const observedContinuationForEdge = (
+    edge: PlacedEdge,
+  ): (typeof input.observedContinuations)[number] | undefined => {
+    const from = byLayoutId.get(edge.fromKey);
+    const to = byLayoutId.get(edge.toKey);
+    return from && to
+      ? observedContinuationsByNodePair.get(
+          `${from.node.key}\u0000${to.node.key}`,
+        )
+      : undefined;
+  };
+  const isObservedContinuation = (edge: PlacedEdge): boolean => {
+    return observedContinuationForEdge(edge) !== undefined;
+  };
   const labelText = (edge: PlacedEdge): string | null => {
+    const continuation = observedContinuationForEdge(edge);
+    if (continuation) {
+      return interpolateJourneyCanvasMessage(
+        messages.observedContinuationCompact,
+        {
+          fromExample: formatInt(
+            continuation.fromExampleIndex + 1,
+            messages.htmlLanguage,
+          ),
+          toExample: formatInt(
+            continuation.toExampleIndex + 1,
+            messages.htmlLanguage,
+          ),
+        },
+      );
+    }
     const child = byLayoutId.get(edge.toKey);
     if (!child || child.kind !== "card" || !hasCohortMetrics(child.node))
       return null;
     const parent = effectiveParent.get(child.node.key);
     if (!parent || !hasCohortMetrics(parent)) return null;
-    const pct =
-      parent.key === child.node.parentKey
-        ? child.node.pctOfParent
-        : (child.node.n / Math.max(1, parent.n)) * 100;
+    const directParent =
+      child.node.parentKey === null
+        ? null
+        : tree.nodes[nodeIndex.get(child.node.parentKey)!]!;
+    const viaSkippedParent =
+      directParent !== null && directParent.key !== parent.key;
+    const denominatorParent =
+      viaSkippedParent && hasCohortMetrics(directParent)
+        ? directParent
+        : parent;
+    const pct = !viaSkippedParent
+      ? child.node.pctOfParent
+      : (child.node.n / Math.max(1, denominatorParent.n)) * 100;
+    if (viaSkippedParent && hasCohortMetrics(denominatorParent)) {
+      return interpolateJourneyCanvasMessage(messages.observedBranchLabel, {
+        label: denominatorParent.label,
+        percent: formatPercent(pct, messages.htmlLanguage),
+      });
+    }
     return (outgoing.get(edge.fromKey) ?? 0) > 1 || pct < 99.5
       ? formatPercent(pct, messages.htmlLanguage)
       : null;
@@ -1576,14 +1775,17 @@ export function planJourneyCanvas(
     for (const edge of layout.edges) {
       const id = `${JOURNEY_BOARD_ID_PREFIX}edge-${hashId(`${designId}\u0000${edge.fromKey}\u0000${edge.toKey}`)}`;
       const child = byLayoutId.get(edge.toKey);
-      const dashed = Boolean(
-        child &&
-        effectiveParent.get(child.node.key)?.key !== child.node.parentKey,
-      );
+      const observedContinuation = isObservedContinuation(edge);
+      const dashed =
+        observedContinuation ||
+        Boolean(
+          child &&
+          effectiveParent.get(child.node.key)?.key !== child.node.parentKey,
+        );
       fragments.push(
         arrowFragment(
           id,
-          "Journey edge",
+          observedContinuation ? "Same-recording continuation" : "Journey edge",
           edge.points.map((point) => ({
             x: point.x + origin.x,
             y: point.y + origin.y,
@@ -1593,14 +1795,31 @@ export function planJourneyCanvas(
       );
       const text = labelText(edge);
       if (text) {
+        const continuation = observedContinuationForEdge(edge);
+        const accessibleText = continuation
+          ? interpolateJourneyCanvasMessage(messages.observedContinuation, {
+              fromExample: formatInt(
+                continuation.fromExampleIndex + 1,
+                messages.htmlLanguage,
+              ),
+              toExample: formatInt(
+                continuation.toExampleIndex + 1,
+                messages.htmlLanguage,
+              ),
+            })
+          : text;
         fragments.push(
           boardDiv({
             id: `${id}-label`,
-            name: "Journey edge label",
+            name: observedContinuation
+              ? "Observed same-recording continuation"
+              : "Journey edge label",
             primitive: "text",
             rect: at(edge.labelRect),
-            style: `background:${SURFACE};border:1px solid ${BORDER};border-radius:11px;text-align:center;font:600 12px/20px system-ui,sans-serif;color:${INK}`,
+            style: `background:${SURFACE};border:1px solid ${BORDER};border-radius:11px;text-align:center;font:600 10px/20px system-ui,sans-serif;color:${INK};overflow:hidden;white-space:nowrap;text-overflow:ellipsis`,
             html: escapeHtml(text),
+            title: accessibleText,
+            ariaLabel: accessibleText,
           }),
         );
       }

@@ -108,6 +108,7 @@ image bytes are never copied into the scratch database:
 ```bash
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus --browser webkit
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus --authoring-source largest --browser firefox
 pnpm exec tsx scripts/edit-fidelity/run.ts --corpus ../../.tmp/private/corpus --authoring-corpus --browser firefox
 ```
 

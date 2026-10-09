@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   backgroundCssValue,
   formatValue,
+  haveSameSlideStyleControls,
   horizontalAlignPatch,
   mergeSlideStyleSnapshots,
   resolveHorizontalAlignment,
@@ -84,6 +85,44 @@ describe("value formatting", () => {
   it("keeps integers clean and rounds long decimals", () => {
     expect(formatValue(12)).toBe("12");
     expect(formatValue(12.3456)).toBe("12.35");
+  });
+});
+
+describe("style control snapshot comparison", () => {
+  it("ignores text preview changes while the toolbar controls stay the same", () => {
+    expect(
+      haveSameSlideStyleControls(
+        snapshot({ textPreview: "Draft" }),
+        snapshot({ textPreview: "Draft text" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps changes to style controls and text capability observable", () => {
+    expect(
+      haveSameSlideStyleControls(snapshot(), snapshot({ fontWeight: "400" })),
+    ).toBe(false);
+    expect(
+      haveSameSlideStyleControls(
+        snapshot(),
+        snapshot({ isText: false, textPreview: "" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("compares mixed text controls by value", () => {
+    expect(
+      haveSameSlideStyleControls(
+        snapshot({ mixedTextStyles: ["fontWeight"] }),
+        snapshot({ mixedTextStyles: ["fontWeight"] }),
+      ),
+    ).toBe(true);
+    expect(
+      haveSameSlideStyleControls(
+        snapshot({ mixedTextStyles: ["fontWeight"] }),
+        snapshot({ mixedTextStyles: ["fontStyle"] }),
+      ),
+    ).toBe(false);
   });
 });
 

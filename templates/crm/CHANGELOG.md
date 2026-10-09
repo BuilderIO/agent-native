@@ -1,5 +1,11 @@
 # CRM changelog
 
+## 2026-10-08
+
+### Improved
+
+- A new Ask chat shows its heading and prompt immediately while existing chat history loads.
+
 ## 2026-10-06
 
 ### Fixed
