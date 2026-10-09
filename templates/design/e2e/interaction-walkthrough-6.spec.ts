@@ -361,7 +361,7 @@ test.describe("interaction: guided walkthrough - reusable icon grid", () => {
     ).toMatch(/"size":\s*1\b/);
   });
 
-  test("ArrowRight nudges the selected frame by the default small step", async ({
+  test("ArrowRight moves the selected frame to the right", async ({
     page,
     request,
   }) => {
@@ -377,7 +377,7 @@ test.describe("interaction: guided walkthrough - reusable icon grid", () => {
 
     expect(
       leftAfter,
-      `Design's default ArrowRight nudge should move the frame by a small fixed step; left ${leftBefore} -> ${leftAfter}.`,
+      `ArrowRight should increase the frame's left position; left ${leftBefore} -> ${leftAfter}.`,
     ).toBeGreaterThan(leftBefore);
   });
 

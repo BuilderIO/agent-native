@@ -301,7 +301,7 @@ test.describe("assemble portfolio pages", () => {
     designId = "";
   });
 
-  test("Shift+S leaves the active tool unchanged; Frame Selection wraps selected board frames", async ({
+  test("Shift+S leaves the active tool unchanged; Frame Selection adds a board frame", async ({
     page,
     request,
   }) => {
@@ -374,7 +374,7 @@ test.describe("assemble portfolio pages", () => {
     ).length;
     expect(
       frameCountAfter,
-      `Frame Selection (⌥⌘G) over two free-floating board frames should add one wrapping frame like it does for code-layer siblings — trace: ${JSON.stringify(await dump(page))}. ` +
+      `Frame Selection (⌥⌘G) over two selected board frames should add one frame; trace: ${JSON.stringify(await dump(page))}. ` +
         `before=${frameCountBefore} after=${frameCountAfter}`,
     ).toBe(frameCountBefore + 1);
   });
