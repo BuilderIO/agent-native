@@ -37,6 +37,7 @@ export function TemplatePreview({
   const containerRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [scale, setScale] = useState(0.25);
+  const [sessionReplayVisible, setSessionReplayVisible] = useState(false);
   const naturalWidth = Math.max(width ?? 1280, 320);
   const naturalHeight = Math.max(height ?? 720, 240);
   const document = useMemo(
@@ -84,6 +85,18 @@ export function TemplatePreview({
     return () => observer.disconnect();
   }, [naturalHeight, naturalWidth]);
 
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!recordSessionReplay || !frame) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      setSessionReplayVisible(
+        entry.isIntersecting && entry.intersectionRatio > 0,
+      );
+    });
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, [html, recordSessionReplay]);
+
   if (!html) {
     return (
       <div
@@ -108,7 +121,7 @@ export function TemplatePreview({
     >
       <iframe
         ref={frameRef}
-        {...(recordSessionReplay
+        {...(recordSessionReplay && sessionReplayVisible
           ? { [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }
           : {})}
         title={title}

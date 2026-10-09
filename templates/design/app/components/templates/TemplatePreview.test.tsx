@@ -10,7 +10,13 @@ import { TemplatePreview } from "./TemplatePreview";
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
+let intersectionObservers: Array<{
+  callback: IntersectionObserverCallback;
+  observe: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
+}>;
 beforeEach(() => {
+  intersectionObservers = [];
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -24,6 +30,16 @@ beforeEach(() => {
     class {
       observe() {}
       disconnect() {}
+    },
+  );
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      observe = vi.fn();
+      disconnect = vi.fn();
+      constructor(public callback: IntersectionObserverCallback) {
+        intersectionObservers.push(this);
+      }
     },
   );
 });
@@ -86,7 +102,31 @@ describe("template artboard preview", () => {
     );
     const frame = container.querySelector("iframe")!;
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 1,
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
     expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: false,
+            intersectionRatio: 0,
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
     expect(frame.hasAttribute("credentialless")).toBe(true);
     expect(frame.tabIndex).toBe(0);
     expect(frame.getAttribute("aria-hidden")).toBeNull();

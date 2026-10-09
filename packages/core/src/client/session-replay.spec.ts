@@ -1923,6 +1923,93 @@ describe("session replay", () => {
     expect(childWindow.postMessage).not.toHaveBeenCalled();
   });
 
+  it("starts and stops marked iframe recorders as their marker changes", async () => {
+    const { fireWindowEvent } = installBrowser();
+    const childWindow = { postMessage: vi.fn() };
+    let marked = false;
+    const iframe = {
+      localName: "iframe",
+      nodeType: 1,
+      hasAttribute: (name: string) =>
+        name === SESSION_REPLAY_IFRAME_ATTRIBUTE && marked,
+      contentWindow: childWindow,
+      querySelectorAll: vi.fn(() => []),
+    } as unknown as HTMLIFrameElement;
+    let onMutation: MutationCallback | undefined;
+    const disconnect = vi.fn();
+    class FakeMutationObserver {
+      constructor(callback: MutationCallback) {
+        onMutation = callback;
+      }
+      observe = vi.fn();
+      disconnect = disconnect;
+    }
+    vi.stubGlobal("MutationObserver", FakeMutationObserver);
+    Object.assign(document, {
+      documentElement: {},
+      querySelectorAll: vi.fn(() => (marked ? [iframe] : [])),
+    });
+    const replay = await freshSessionReplay();
+
+    expect(typeof MutationObserver).toBe("function");
+    expect(document.documentElement).toBeDefined();
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+
+    const result = await replay.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+
+    expect(result.started).toBe(true);
+    expect(recordOptions.recordCrossOriginIframes).toBe(true);
+    expect(onMutation).toBeTypeOf("function");
+    expect(childWindow.postMessage).not.toHaveBeenCalled();
+    marked = true;
+    onMutation?.(
+      [
+        {
+          type: "attributes",
+          target: iframe,
+          attributeName: SESSION_REPLAY_IFRAME_ATTRIBUTE,
+        } as MutationRecord,
+      ],
+      {} as MutationObserver,
+    );
+    expect(childWindow.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: SESSION_REPLAY_IFRAME_START }),
+      "*",
+    );
+
+    childWindow.postMessage.mockClear();
+    marked = false;
+    onMutation?.(
+      [
+        {
+          type: "attributes",
+          target: iframe,
+          attributeName: SESSION_REPLAY_IFRAME_ATTRIBUTE,
+        } as MutationRecord,
+      ],
+      {} as MutationObserver,
+    );
+    expect(childWindow.postMessage).toHaveBeenCalledWith(
+      { type: SESSION_REPLAY_IFRAME_STOP },
+      "*",
+    );
+
+    await replay.stopSessionReplay();
+    expect(disconnect).toHaveBeenCalledOnce();
+    fireWindowEvent("message", {
+      data: { type: SESSION_REPLAY_IFRAME_PROBE },
+      source: childWindow,
+    });
+    expect(childWindow.postMessage).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves signed DOM resources without leaking navigation secrets", async () => {
     const { fetchMock } = installBrowser();
     let recordOptions: any;

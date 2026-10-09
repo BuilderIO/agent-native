@@ -2705,8 +2705,47 @@ function installSessionReplayIframeBridge(
   const stopMessage: SessionReplayIframeStopMessage = {
     type: SESSION_REPLAY_IFRAME_STOP,
   };
-  const sendStart = (iframe: HTMLIFrameElement) =>
+  const recordingFrames = new Set<HTMLIFrameElement>();
+  const startFrame = (iframe: HTMLIFrameElement, retry = false) => {
+    if (
+      !state.active ||
+      !iframe.hasAttribute(SESSION_REPLAY_IFRAME_ATTRIBUTE)
+    ) {
+      return;
+    }
+    if (recordingFrames.has(iframe)) {
+      if (retry) postSessionReplayIframeMessage(iframe, startMessage);
+      return;
+    }
+    recordingFrames.add(iframe);
     postSessionReplayIframeMessage(iframe, startMessage);
+  };
+  const stopFrame = (iframe: HTMLIFrameElement) => {
+    if (!recordingFrames.delete(iframe)) return;
+    postSessionReplayIframeMessage(iframe, stopMessage);
+  };
+  const markedFramesIn = (node: Node): HTMLIFrameElement[] => {
+    if (node.nodeType !== 1 && node.nodeType !== 11) return [];
+    const element = node as Element;
+    const frames: HTMLIFrameElement[] = [];
+    if (
+      element.nodeType === 1 &&
+      element.localName === "iframe" &&
+      element.hasAttribute(SESSION_REPLAY_IFRAME_ATTRIBUTE)
+    ) {
+      frames.push(element as HTMLIFrameElement);
+    }
+    if (typeof (element as ParentNode).querySelectorAll === "function") {
+      frames.push(
+        ...Array.from(
+          (element as ParentNode).querySelectorAll<HTMLIFrameElement>(
+            `iframe[${SESSION_REPLAY_IFRAME_ATTRIBUTE}]`,
+          ),
+        ),
+      );
+    }
+    return frames;
+  };
   const onMessage = (event: MessageEvent) => {
     if (!state.active) return;
     if (
@@ -2717,16 +2756,45 @@ function installSessionReplayIframeBridge(
       return;
     }
     const iframe = markedSessionReplayIframeForSource(event.source);
-    if (iframe) sendStart(iframe);
+    if (iframe) startFrame(iframe, true);
   };
 
   window.addEventListener("message", onMessage);
-  for (const iframe of markedSessionReplayIframes()) sendStart(iframe);
+  const observer =
+    typeof MutationObserver === "undefined" || !document.documentElement
+      ? null
+      : new MutationObserver((records) => {
+          for (const record of records) {
+            if (record.type === "attributes") {
+              const target = record.target as Element;
+              if (target.localName !== "iframe") continue;
+              const iframe = target as HTMLIFrameElement;
+              if (iframe.hasAttribute(SESSION_REPLAY_IFRAME_ATTRIBUTE)) {
+                startFrame(iframe);
+              } else {
+                stopFrame(iframe);
+              }
+              continue;
+            }
+            for (const removed of Array.from(record.removedNodes)) {
+              for (const iframe of markedFramesIn(removed)) stopFrame(iframe);
+            }
+            for (const added of Array.from(record.addedNodes)) {
+              for (const iframe of markedFramesIn(added)) startFrame(iframe);
+            }
+          }
+        });
+  observer?.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: [SESSION_REPLAY_IFRAME_ATTRIBUTE],
+    childList: true,
+    subtree: true,
+  });
+  for (const iframe of markedSessionReplayIframes()) startFrame(iframe);
   state.restoreIframeBridge = () => {
     window.removeEventListener("message", onMessage);
-    for (const iframe of markedSessionReplayIframes()) {
-      postSessionReplayIframeMessage(iframe, stopMessage);
-    }
+    observer?.disconnect();
+    for (const iframe of recordingFrames) stopFrame(iframe);
     state.restoreIframeBridge = null;
   };
 }

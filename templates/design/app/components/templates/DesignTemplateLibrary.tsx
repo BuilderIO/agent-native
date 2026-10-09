@@ -178,6 +178,7 @@ export function DesignTemplateLibrary({
               title={template.title}
               width={template.width}
               height={template.height}
+              recordSessionReplay
               className="h-full w-full"
             />
           </div>

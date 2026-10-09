@@ -194,12 +194,19 @@ describe("session replay iframe recording", () => {
       );
       throw error;
     }
-    const iframe = page.locator(`iframe[${SESSION_REPLAY_IFRAME_ATTRIBUTE}]`);
+    const iframe = page.locator("iframe");
     expect(await page.locator("iframe").count()).toBe(1);
     expect(await iframe.getAttribute(SESSION_REPLAY_IFRAME_ATTRIBUTE)).toBe("");
     expect(await iframe.getAttribute("sandbox")).toBe("allow-scripts");
     expect(await iframe.getAttribute("credentialless")).toBe("");
     expect((await recorderResponse)?.status()).toBe(200);
+    await iframe.evaluate((frame, attribute) => {
+      frame.removeAttribute(attribute);
+    }, SESSION_REPLAY_IFRAME_ATTRIBUTE);
+    await page.waitForTimeout(50);
+    await iframe.evaluate((frame, attribute) => {
+      frame.setAttribute(attribute, "");
+    }, SESSION_REPLAY_IFRAME_ATTRIBUTE);
     await page.waitForTimeout(250);
     await page.evaluate(async () => {
       await window.__sessionReplayIframeE2E?.stop?.();
