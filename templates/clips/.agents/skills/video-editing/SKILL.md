@@ -19,10 +19,13 @@ Reach for this skill any time you modify how recordings are edited: new edit ope
 
   ```json
   {
-    "trims": [{ "startMs": 0, "endMs": 3200, "excluded": true }],
-    "cuts":  [{ "startMs": 12000, "endMs": 13500 }],
-    "speed": [{ "startMs": 0, "endMs": 60000, "rate": 1.5 }],
-    "blurs": [{ "startMs": 0, "endMs": 90000, "box": { "x": 10, "y": 10, "w": 200, "h": 80 } }]
+    "version": 1,
+    "trims": [
+      { "startMs": 0, "endMs": 3200, "excluded": true },
+      { "startMs": 12000, "endMs": 12000, "excluded": false }
+    ],
+    "blurs": [],
+    "thumbnail": null
   }
   ```
 
@@ -34,19 +37,18 @@ Reach for this skill any time you modify how recordings are edited: new edit ope
 1. **Non-destructive.** Never re-encode on edit. The original webm/mp4 stays intact at `recordings.video_url`. Edits only change the JSON.
 2. **Single source of truth.** The player renders edits at playback time — read `edits_json`, compute the virtual timeline, and skip excluded ranges via `HTMLVideoElement.currentTime` seeks. Do not fork the edit model for the editor vs the player.
 3. **Export is explicit.** The user must click Export to render a new file. That call goes through `export-video` and kicks off ffmpeg.wasm (or server-side ffmpeg if the recording is long).
-4. **Append, don't rewrite.** Prefer pushing a new entry into `edits_json` over editing an existing one, so undo/redo can reverse a single edit without ambiguity.
+4. **Use edit actions.** Agents must use the recording actions below instead of writing `edits_json` directly.
 
-## Operations
+## Timestamp-based editing actions
 
-| Operation | `apply-edit` args                                           | What it does                                                |
-| --------- | ----------------------------------------------------------- | ----------------------------------------------------------- |
-| Trim      | `--type=trim --startMs=0 --endMs=30000`                     | Exclude the first 30 seconds from playback                  |
-| Cut       | `--type=cut --startMs=12000 --endMs=13500`                  | Remove a middle range — the timeline collapses               |
-| Split     | `--type=split --atMs=<ms>`                                  | Put a cut marker at the playhead (no range removed)         |
-| Speed     | `--type=speed --startMs --endMs --speed=1.5`                | Speed a range up (or down — `0.5` works too)                |
-| Blur      | `--type=blur --startMs --endMs --x --y --w --h`             | Apply a blur rectangle to a time range                      |
+Timestamp arguments are integer milliseconds on the original video timeline,
+even when earlier edits have shortened playback. Convert clock timestamps to
+milliseconds before calling an action; for example, `1:23` is `83000` ms.
 
-All of these append to `edits_json`. The action validates non-overlapping ranges per type (except `speed`, which compounds) and throws on bad input.
+| Action | Required arguments | Effect |
+| --- | --- | --- |
+| `trim-recording` | `recordingId`, `startMs`, `endMs` | Excludes the range from playback. `endMs` must be greater than `startMs`; overlapping or adjacent excluded ranges are merged. |
+| `split-recording` | `recordingId`, `atMs` | Adds a zero-width split marker for the editor UI. It does not physically split or rewrite the video and does not change playback. |
 
 ## Transcript-based editing
 
@@ -93,7 +95,7 @@ Never call `video.currentTime` with a raw segment index — always go through `t
 ## Rules
 
 - The edit UI writes to `editor-draft` on every change, and only writes to `edits_json` on Save (so Cmd+Z is cheap and the DB stays clean).
-- Never mutate `edits_json` from `db-exec`. Use `apply-edit` or `reset-edits`.
+- Never mutate `edits_json` from `db-exec`; use the recording actions above. Use `clear-edits` to reset edits.
 - Speed edits compound (`1.5 × 2 = 3x`) — validate the result is in `[0.25, 4]`.
 - Blur coordinates are in **source resolution**, not display pixels. Always normalize against `recordings.width` / `recordings.height`.
 
@@ -169,8 +171,6 @@ The player team may have its own copy of some of these. If so, consolidate on
 
 | Action               | Writes                                   | Purpose                                           |
 | -------------------- | ---------------------------------------- | ------------------------------------------------- |
-| `trim-recording`     | `editsJson.trims` (merged excluded)      | Append an excluded range, merged with neighbours  |
-| `split-recording`    | `editsJson.trims` (split marker)         | UI-only marker at a given ms                      |
 | `set-thumbnail`      | `thumbnailUrl` / `animatedThumbnailUrl` / `editsJson.thumbnail` | Three modes: upload / frame / gif |
 | `set-chapters`       | `chaptersJson`                           | Overwrites the chapter array                      |
 | `stitch-recordings`  | new `recordings` row                     | Client-side ffmpeg concat + upload + insert       |
@@ -286,4 +286,3 @@ app/components/editor/
 ```
 
 When the recording route enters edit mode, render `<EditorLayout recordingId={id} />` — it wires the toolbar, video preview, transcript editor, waveform, trim handles, timeline, and chapters sidebar. The toolbar includes a Loom-style preview-speed dropdown next to the playhead time; it changes `video.playbackRate` for trimming/review only and writes `playbackSpeed` into `editor-draft` so the agent can see how the user is previewing. The dialogs for thumbnail picking and stitching are mounted inside the layout and toggled by the toolbar.
-

@@ -7,9 +7,10 @@ import {
 } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { SlidePointerTarget } from "../slide-pointer-target";
 import {
   createSlidesCanvasGestureController,
-  resolveSlidesCanvasPointerIntent,
+  resolveSlidesCanvasTargetIntent,
 } from "./slides-canvas-adapter";
 
 function SelectedTextObjectHarness() {
@@ -23,14 +24,16 @@ function SelectedTextObjectHarness() {
   > | null>(null);
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const intent = resolveSlidesCanvasPointerIntent({
-      hasSelectedObject: selected,
-      targetWithinSelectedObject: true,
-      targetContainsSelectedObject: false,
-      pointerWithinMoveBand: false,
-      targetIsEditableText: true,
-    });
-    if (intent !== "move-object-body") return;
+    const textHit: SlidePointerTarget = {
+      kind: "object",
+      object: event.currentTarget,
+      hit: "text",
+      textRoot: event.currentTarget,
+      cursor: "text",
+      hoverOutline: null,
+      grab: "edit",
+    };
+    if (resolveSlidesCanvasTargetIntent(textHit) !== "move-object-body") return;
 
     originRef.current = position;
     const controller = createSlidesCanvasGestureController({

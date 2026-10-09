@@ -17,7 +17,8 @@ export interface SlideStyleSnapshot {
   y: number;
   width: number;
   height: number;
-  rotation: number;
+  /** Clockwise degrees in [0, 360), or null when the object's transform is not readable. */
+  rotation: number | null;
   slideWidth: number;
   slideHeight: number;
   color: string;
@@ -63,8 +64,9 @@ export type SlideStylePatch = Partial<{
   top: string;
   width: string;
   height: string;
-  transform: string;
   zIndex: string;
+  /** Degrees; set on the object's effective transform, not written as a `transform`. */
+  rotation: number;
 }>;
 
 const MULTI_STYLE_KEYS = [
@@ -173,10 +175,6 @@ export function formatValue(value: number) {
   return Number.isInteger(value)
     ? String(value)
     : String(Number(value.toFixed(2)));
-}
-
-export function rotationTransform(rotation: number) {
-  return `rotate(${formatValue(rotation)}deg)`;
 }
 
 export function resolveHorizontalAlignment(snapshot: SlideStyleSnapshot) {

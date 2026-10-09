@@ -1473,6 +1473,8 @@ export default {
     replayPlayer: "리플레이 플레이어",
     replayLoading: "리플레이 로드 중...",
     replayLoadingProgress: "{{loaded}} / {{total}} 개의 리플레이 청크가 로드됨",
+    replayTargetFallback:
+      "요청한 녹화 위치({{requested}})를 재생할 수 없어 {{available}}의 가장 가까운 리플레이 프레임을 표시합니다.",
     replayUnavailable: "이 세션에는 리플레이 청크가 없습니다",
     replayUnavailableDescription:
       "세션에는 분석 이벤트가 있지만 rrweb 청크 이벤트를 찾지 못했습니다.",

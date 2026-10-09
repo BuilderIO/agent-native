@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 
 import { AgentKitClient } from "@agent-native/agentkit/client";
-import type { AgentTransport } from "@agent-native/agentkit/protocol";
+import type {
+  AgentMessage,
+  AgentTransport,
+} from "@agent-native/agentkit/protocol";
 import React, { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -639,6 +642,7 @@ import {
 import { AgentKitActionWidget } from "./agentkit-chat/action-widget.js";
 import {
   AgentKitAssistantChat,
+  agentMessageTextFromParts,
   type AgentKitAssistantChatProps,
 } from "./AgentKitAssistantChat.js";
 import type {
@@ -859,7 +863,10 @@ describe("AgentKitAssistantChat host behavior", () => {
       parts: [
         {
           type: "text",
-          text: 'Summarize @[the sprint|resource:123]\n<context data-agentkit-context-encoding="entities-v1">Private context</context>',
+          text: appendAgentChatContextToMessage(
+            "Summarize @[the sprint|resource:123] <context>",
+            "Private context",
+          ),
         },
       ],
     };
@@ -902,7 +909,81 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     expect(savedSnapshots).toHaveBeenCalledWith(
       chatMocks.threadId,
-      expect.objectContaining({ title: "Summarize @the sprint" }),
+      expect.objectContaining({
+        title: "Summarize @the sprint <context>",
+        preview: "Summarize @[the sprint|resource:123] <context>",
+      }),
+    );
+  });
+
+  it("strips ambiguous text between legacy blocks across raw message parts", async () => {
+    const savedSnapshots = vi.fn();
+    const messageParts: AgentMessage["parts"] = [
+      {
+        type: "text",
+        text: "Summarize sprint <context>private first</context>ambiguous private",
+      },
+      {
+        type: "text",
+        text: " gap<context>private second</context> visible continuation",
+      },
+    ];
+    const message = {
+      id: "message-user-legacy-context",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-10-07T12:00:00.000Z",
+      parts: messageParts,
+    };
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      thread: {
+        id: chatMocks.threadId,
+        title: "",
+        createdAt: message.createdAt,
+        updatedAt: message.createdAt,
+      },
+      messages: [message],
+      events: [],
+      activeRunIds: [],
+      runs: {},
+      approvals: {},
+      approvalRunIds: {},
+      connectionRequests: {},
+      connectionRequestRunIds: {},
+      tools: {},
+      activities: {},
+      queuedMessages: [],
+      tasks: {},
+      taskGroups: {},
+      widgets: {},
+      widgetMessageIds: {},
+      annotations: {},
+      annotationMessageIds: {},
+      agents: {},
+      agentInteractions: [],
+      artifacts: [],
+    };
+
+    const props = baseProps({
+      onSaveThread: savedSnapshots,
+      runtime: {} as never,
+    });
+    await mount(props);
+    await act(async () => root.render(null));
+
+    expect(agentMessageTextFromParts(messageParts)).toBe(
+      "Summarize sprint  visible continuation",
+    );
+    expect(savedSnapshots).toHaveBeenCalledWith(
+      chatMocks.threadId,
+      expect.objectContaining({
+        title: "Summarize sprint visible continuation",
+        preview: "Summarize sprint  visible continuation",
+      }),
+    );
+    expect(savedSnapshots.mock.calls[0]?.[1].preview).not.toContain(
+      "ambiguous private",
     );
   });
 
@@ -4511,6 +4592,29 @@ describe("AgentKitAssistantChat host behavior", () => {
     window.removeEventListener("agent-chat:missing-api-key", onBlocked);
   });
 
+  it("masks a connection failure message without masking recovery controls", async () => {
+    chatMocks.connectionError = {
+      code: "runtime_error",
+      message: "Example Person's example document is locked.",
+      retryable: true,
+    };
+    await mount(baseProps());
+    const message = Array.from(container.querySelectorAll("span")).find(
+      (element) =>
+        element.textContent === `Error: ${chatMocks.connectionError.message}`,
+    );
+    expect(message?.hasAttribute("data-an-mask")).toBe(true);
+    expect(
+      message?.closest('[role="alert"]')?.hasAttribute("data-an-mask"),
+    ).toBe(false);
+    expect(
+      message
+        ?.closest('[role="alert"]')
+        ?.querySelector("button")
+        ?.closest("[data-an-mask]"),
+    ).toBeNull();
+  });
+
   it("does not repeat the composer setup card in a missing-key run failure", async () => {
     chatMocks.readiness = {
       canChat: false,
@@ -5078,8 +5182,15 @@ describe("AgentKitAssistantChat host behavior", () => {
         chatMocks.composerProps.stopButton.props.onClick();
         await Promise.resolve();
       });
-      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-        "Stop unavailable",
+      const alert = container.querySelector('[role="alert"]');
+      expect(alert?.textContent).toContain("Stop unavailable");
+      const message = Array.from(alert?.querySelectorAll("span") ?? []).find(
+        (element) => element.textContent === "Stop unavailable",
+      );
+      expect(message?.hasAttribute("data-an-mask")).toBe(true);
+      expect(alert?.hasAttribute("data-an-mask")).toBe(false);
+      expect(alert?.querySelector("button")?.closest("[data-an-mask]")).toBe(
+        null,
       );
       await act(async () => {
         chatMocks.composerProps.stopButton.props.onClick();

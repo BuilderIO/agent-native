@@ -31,6 +31,10 @@ import {
   DEFAULT_SLIDE_BACKGROUND,
   resolveSlideBackground,
 } from "../shared/slide-background.js";
+import {
+  SLIDE_NUMBER_CSS,
+  slideNumberInlineStyle,
+} from "../shared/slide-number.js";
 
 function safeCssToken(
   value: unknown,
@@ -288,8 +292,9 @@ export function buildStandaloneHtml(
         slide.background,
         designSystem,
       );
-      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND, builderTokenValues)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}`;
-      return `<section class="slide" data-index="${i}" style="${escapeHtml(style)}">${sanitizeSlideHtml(slide.content)}</section>`;
+      const position = { number: i + 1, count: slides.length };
+      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND, builderTokenValues)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}; ${slideNumberInlineStyle(position)}`;
+      return `<section class="slide" data-index="${i}" data-slide-index="${position.number}" data-slide-count="${position.count}" style="${escapeHtml(style)}">${sanitizeSlideHtml(slide.content)}</section>`;
     })
     .join("\n");
 
@@ -353,6 +358,8 @@ export function buildStandaloneHtml(
       width: 100%;
       height: 100%;
     }
+
+    ${SLIDE_NUMBER_CSS}
 
     .fmd-slide {
       width: 100%;

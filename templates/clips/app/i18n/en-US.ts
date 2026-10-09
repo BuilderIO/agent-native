@@ -189,6 +189,8 @@ const messages = {
     silenceWorking: "Removing silences…",
     silenceCompleted: "Silence removal complete",
     silenceFailed: "Silence removal failed",
+    silenceEditsUnreadable:
+      "Saved edits couldn't be read, so silence removal wasn't applied.",
     workflowQueued: "Generating workflow…",
     pageTitle: "Clip recording · Clips",
     loomMissingUrl: "This Loom recording is missing its source URL.",

@@ -489,6 +489,7 @@ export {
 } from "./action-routes.js";
 export {
   AGENT_RUN_OWNER_CONTEXT_KEY,
+  readBrowserSessionIdHeader,
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";

@@ -14,6 +14,8 @@ import { boardObjectEntryToHtmlFragment } from "./board-file.js";
 import type { BoardObjectEntry } from "./board-objects.js";
 import { assertDesignHtmlCreateIntegrity } from "./html-integrity.js";
 import {
+  CARD_HEADER_HEIGHT,
+  CARD_PROVENANCE_HEADER_HEIGHT,
   layoutJourney,
   type JourneyLayoutNode,
   type PlacedEdge,
@@ -46,9 +48,6 @@ const SURFACE = "#ffffff";
 const IMAGE_WELL = "#f3f4f6";
 // guard:allow-raw-color — arrows sit on a canvas that is light or dark; mid-grey reads on both
 const EDGE = "#8b8f98";
-// guard:allow-raw-color — drop-off marker colour
-const DROPOFF = "#dc2626";
-
 const isoTimestamp = z
   .string()
   .max(64)
@@ -169,6 +168,13 @@ export const createJourneyCanvasInputSchema = z
       .optional()
       .default(3),
     includeScreenshotless: z.boolean().optional().default(false),
+    allowEncryptedPublicUploadFallback: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Allow this call to store encrypted screenshot ciphertext with the configured public-upload provider when no private blob provider is available.",
+      ),
   })
   .superRefine((input, ctx) => {
     const issue = (path: (string | number)[], message: string) =>
@@ -303,6 +309,12 @@ export interface PlannedScreen {
   title: string;
   nodeKey: string;
   exampleIndex: number;
+  provenance?: {
+    eventAt: string;
+    recordingId: string | null;
+    offsetMs: number | null;
+    screenshotCapturedAt: string;
+  };
   /** Frame geometry relative to the canvas origin. */
   frame: { x: number; y: number; width: number; height: number; z: number };
   /** Set when the image is a private attachment that must be copied into Design's blob storage. */
@@ -339,6 +351,21 @@ function replayImageSrc(rowId: string): string {
   return `${REPLAY_SCREENSHOT_ROUTE}${rowId}`;
 }
 
+function cardProvenanceMarkup(provenance: PlannedScreen["provenance"]): string {
+  if (!provenance) return "";
+  const recordingId = provenance.recordingId ?? "unavailable";
+  const replayOffset =
+    provenance.offsetMs === null
+      ? "unavailable"
+      : `${formatInt(provenance.offsetMs)} ms`;
+  return [
+    `<p class="provenance" title="Event timestamp: ${escapeHtml(provenance.eventAt)}">Event date ${escapeHtml(provenance.eventAt.slice(0, 10))}</p>`,
+    `<p class="provenance recording-id" title="Recording ID: ${escapeHtml(recordingId)}">Recording ID ${escapeHtml(recordingId)}</p>`,
+    `<p class="provenance" title="Replay offset: ${escapeHtml(replayOffset)}">Replay offset ${escapeHtml(replayOffset)}</p>`,
+    `<p class="provenance" title="Screenshot captured: ${escapeHtml(provenance.screenshotCapturedAt)}">Screenshot captured ${escapeHtml(provenance.screenshotCapturedAt.slice(0, 10))}</p>`,
+  ].join("");
+}
+
 function cardHtml(args: {
   label: string;
   meta: string;
@@ -346,6 +373,8 @@ function cardHtml(args: {
   src: string | null;
   external: boolean;
   placeholder: string;
+  headerHeight: number;
+  provenance?: PlannedScreen["provenance"];
 }): string {
   const body = args.src
     ? `<img src="${escapeHtml(args.src)}" alt="${escapeHtml(args.alt)}" decoding="async"${args.external ? ' referrerpolicy="no-referrer"' : ""}>`
@@ -359,16 +388,19 @@ function cardHtml(args: {
 <style>
 *,*::before,*::after{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden;background:${SURFACE};font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
-header{height:56px;padding:9px 12px 0;border-bottom:1px solid ${BORDER}}
+header{height:${args.headerHeight}px;padding:6px 12px 0;border-bottom:1px solid ${BORDER}}
 h1{margin:0;font-size:14px;line-height:20px;font-weight:600;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-header p{margin:0;font-size:12px;line-height:18px;color:${MUTED};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-main{height:calc(100% - 56px);background:${IMAGE_WELL};display:flex;align-items:center;justify-content:center}
+header p{margin:0;color:${MUTED};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header .metrics{font-size:12px;line-height:18px}
+header .provenance{font-size:9px;line-height:10px}
+header .recording-id{font-family:ui-monospace,monospace;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;overflow-wrap:anywhere}
+main{height:calc(100% - ${args.headerHeight}px);background:${IMAGE_WELL};display:flex;align-items:center;justify-content:center}
 main img{display:block;width:100%;height:100%;object-fit:contain}
 main p{margin:0;font-size:13px;color:${MUTED}}
 </style>
 </head>
 <body>
-<header><h1>${escapeHtml(args.label)}</h1><p>${escapeHtml(args.meta)}</p></header>
+<header><h1>${escapeHtml(args.label)}</h1><p class="metrics">${escapeHtml(args.meta)}</p>${cardProvenanceMarkup(args.provenance)}</header>
 <main>${body}</main>
 </body>
 </html>`;
@@ -492,10 +524,9 @@ export function planJourneyCanvas(
     return null;
   };
 
-  const rank = (entry: Rendered) => (entry.kind === "stub" ? 1 : 0);
-  const ordered = [...rendered.values()].sort(
-    (a, b) => rank(a) - rank(b) || b.node.n - a.node.n || a.index - b.index,
-  );
+  // Analytics already returns roots and siblings in presentation order. Keep
+  // that order so concatenated app journeys stay grouped on the canvas.
+  const ordered = [...rendered.values()];
 
   const layoutNodes: JourneyLayoutNode[] = [];
   const dropoffOf = new Map<string, JourneyNode>();
@@ -514,6 +545,9 @@ export function planJourneyCanvas(
             frame: entry.frames[0]
               ? { width: entry.frames[0].width, height: entry.frames[0].height }
               : (entry.node.examples[0]?.viewport ?? undefined),
+            headerHeight: entry.frames.length
+              ? CARD_PROVENANCE_HEADER_HEIGHT
+              : CARD_HEADER_HEIGHT,
             layers: Math.max(0, entry.frames.length - 1),
             footer: entry.frames.length > 0,
           },
@@ -562,6 +596,15 @@ export function planJourneyCanvas(
     const isStackedExample = frame !== null && frame !== entry.frames[0];
     const example = frame ? entry.node.examples[frame.exampleIndex] : undefined;
     const rowId = `${JOURNEY_REPLAY_ROW_PREFIX}${fileId.slice(JOURNEY_FILE_ID_PREFIX.length)}`;
+    const provenance =
+      frame && example
+        ? {
+            eventAt: example.ts,
+            recordingId: example.recordingId,
+            offsetMs: example.offsetMs,
+            screenshotCapturedAt: frame.capturedAt,
+          }
+        : undefined;
     const html = annotateScreenHtmlForPersist(
       cardHtml({
         label: entry.node.label,
@@ -574,6 +617,10 @@ export function planJourneyCanvas(
           : null,
         external: Boolean(frame?.imageUrl),
         placeholder: "No screenshot captured",
+        headerHeight: provenance
+          ? CARD_PROVENANCE_HEADER_HEIGHT
+          : CARD_HEADER_HEIGHT,
+        provenance,
       }),
       "html",
     );
@@ -589,6 +636,7 @@ export function planJourneyCanvas(
       title: isStackedExample ? "" : entry.node.label,
       nodeKey: entry.node.key,
       exampleIndex,
+      ...(provenance ? { provenance } : {}),
       frame: { ...geometry, z },
       ...(frame?.attachmentRef
         ? {
@@ -733,11 +781,11 @@ export function planJourneyCanvas(
         fragments.push(
           stubFragment(
             `${JOURNEY_BOARD_ID_PREFIX}dropoff-${hashId(`${designId}\u0000${entry.node.key}`)}`,
-            "Drop-off",
+            "No later step observed",
             at(stub.rect),
-            DROPOFF,
-            `${formatPercent(dropoff.dropoffPct)} dropped`,
-            `${formatInt(dropoff.dropoffN)} sessions`,
+            MUTED,
+            "No later step observed",
+            `${formatInt(dropoff.dropoffN)} sessions · ${formatPercent(dropoff.dropoffPct)} of this step`,
           ),
         );
       }

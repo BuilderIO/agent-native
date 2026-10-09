@@ -1,5 +1,15 @@
 # @agent-native/agentkit
 
+## 0.205.0
+
+### Patch Changes
+
+- b7e32e4: Place the "tool-call history was omitted" note before the user's prompt in `sendMessage` requests, so the request ends on the user's turn instead of a synthetic assistant message.
+- e7416e0: Keep runs awaiting approval active when the client needs to rebuild its run projection, so follow-up prompts stay queued.
+- Release all public npm packages with a patch version bump.
+- 5c5e00e: Keep approval-pending runs active when restoring a thread snapshot.
+- 004f2a9: Continuing a stopped agent run no longer repeats the steps it already finished. A run the server ends after its worker died now saves its finished tool calls to the thread, a new message after an unfinished turn tells the agent what that turn already did, and the run failure card offers Continue, which resumes the stopped run's own turn so a finished send or charge is not run again. AgentKit transports can implement the new optional `continueRun`.
+
 ## 0.204.0
 
 ### Patch Changes

@@ -99,8 +99,8 @@ describe("hasMcpOAuthScope", () => {
 });
 
 describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () => {
-  it.each([undefined, 1, "2", null])(
-    "rejects a previously signed credential version %j",
+  it.each([undefined, 1, "2", null, 4])(
+    "rejects a credential version it does not know: %j",
     async (version) => {
       const token = await new jose.SignJWT({
         typ: "agent-native-mcp-oauth",
@@ -201,6 +201,14 @@ describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () =>
     expect(decoded.aud).toBe(RESOURCE);
     expect(typeof decoded.jti).toBe("string");
     expect(decoded.exp).toBeGreaterThan(decoded.iat);
+  });
+
+  it("signs a service credential with a version verifiers before service assurance refuse", async () => {
+    const token = await signMcpOAuthAccessToken({ ...baseSign, service: true });
+    expect(jose.decodeJwt(token).credential_version).toBe(3);
+    expect(await verifyMcpOAuthAccessToken(token, RESOURCE)).toMatchObject({
+      userEmail: baseSign.ownerEmail,
+    });
   });
 
   it("uses a provided jti when supplied", async () => {

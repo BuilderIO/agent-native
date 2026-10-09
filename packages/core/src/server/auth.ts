@@ -24,6 +24,7 @@ import {
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
 } from "../org/workspace-app-access.js";
+import { resolveWorkspaceAccessAppId } from "../org/workspace-app-identity.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_START_PATH,
@@ -180,6 +181,10 @@ import {
   type SignupAttributionContext,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
+import {
+  markBearerCredentialRefused,
+  respondBearerCredentialRefused,
+} from "./bearer-credential-refusal.js";
 import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import {
   createBetterAuthSessionForEmail,
@@ -273,6 +278,7 @@ import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import {
   getRequestContext,
   markRequestIdentityAuthenticatedAtMs,
+  markVerifiedServiceIdentityForEvent,
   hasContinuationLocalRequestContext,
   hasExplicitPersonalOrgScope,
   markExplicitPersonalOrgScope,
@@ -1164,11 +1170,13 @@ export async function getMcpOAuthBearerSession(
   if (!bearerToken) return null;
 
   try {
-    const [{ getMcpOAuthAudiences }, { verifyAuth, resolveMcpIdentityOrgId }] =
-      await Promise.all([
-        import("../mcp/oauth-route.js"),
-        import("../mcp/build-server.js"),
-      ]);
+    const [
+      { getMcpConnectUrl, getMcpOAuthAudiences },
+      { verifyAuth, resolveMcpIdentityOrgId },
+    ] = await Promise.all([
+      import("../mcp/oauth-route.js"),
+      import("../mcp/build-server.js"),
+    ]);
     const result = await verifyAuth(authHeader, undefined, {
       resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
@@ -1178,10 +1186,30 @@ export async function getMcpOAuthBearerSession(
       markCredentialMembershipUnavailable(event);
       return null;
     }
-    const identity = result.authed ? result.identity : undefined;
+    if (!result.authed) {
+      if (result.refusal) {
+        markBearerCredentialRefused(
+          event,
+          result.refusal,
+          getMcpConnectUrl(event),
+        );
+      }
+      return null;
+    }
+    const identity = result.identity;
     if (!identity?.userEmail) return null;
     if (identity.orgId === null) markExplicitPersonalOrgScope(event);
     const orgId = await resolveMcpIdentityOrgId(identity);
+    if (
+      identity.identityAssurance === "service" &&
+      identity.orgId &&
+      orgId === identity.orgId
+    ) {
+      markVerifiedServiceIdentityForEvent(event, {
+        userEmail: identity.userEmail,
+        orgId: identity.orgId,
+      });
+    }
     return {
       email: identity.userEmail,
       token: bearerToken,
@@ -3740,21 +3768,6 @@ function loginHtmlResponse(
   });
 }
 
-function resolveWorkspaceAccessAppId(): string {
-  const app = getAppConfig().app;
-  const workspaceId = app.workspaceId?.trim();
-  if (workspaceId) return workspaceId;
-
-  const isDispatch = [
-    app.id,
-    app.legacyId,
-    app.template,
-    app.slug,
-    app.packageName,
-  ].some((value) => value?.trim().toLowerCase() === "dispatch");
-  return isDispatch ? "dispatch" : "";
-}
-
 function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
   if (!isReadMethod(event)) return false;
   if (pathname.endsWith(".data")) return false;
@@ -4206,6 +4219,8 @@ function createAuthGuardFn(
     if (isCredentialMembershipUnavailable(event)) {
       return respondCredentialMembershipUnavailable(event);
     }
+    const refused = respondBearerCredentialRefused(event);
+    if (refused) return refused;
 
     if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
       setResponseStatus(event, 401);
@@ -4921,6 +4936,19 @@ function normalizePath(path: string): string {
 function matchesPathList(path: string, paths: string[]): boolean {
   return paths.some((candidate) => {
     const normalized = normalizePath(candidate);
+    if (normalized.includes("/:")) {
+      const expectedSegments = normalized.split("/");
+      const actualSegments = path.split("/");
+      return (
+        expectedSegments.length === actualSegments.length &&
+        expectedSegments.every((segment, index) => {
+          if (/^:[A-Za-z][A-Za-z0-9_]*$/.test(segment)) {
+            return Boolean(actualSegments[index]);
+          }
+          return segment === actualSegments[index];
+        })
+      );
+    }
     return path === normalized || path.startsWith(normalized + "/");
   });
 }

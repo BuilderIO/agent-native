@@ -204,9 +204,22 @@ async function requestJson(
   url: string,
   init: RequestInit = {},
 ): Promise<AuthRequestResult> {
+  const headers = new Headers(init.headers);
+  if (typeof window !== "undefined") {
+    const requestUrl = new URL(url, window.location.href);
+    const sessionId = getAnalyticsSessionId();
+    if (
+      requestUrl.origin === window.location.origin &&
+      sessionId &&
+      /^[!-~]{1,127}$/.test(sessionId)
+    ) {
+      headers.set("X-Agent-Native-Session-Id", sessionId);
+    }
+  }
   const response = await fetch(url, {
     credentials: "include",
     ...init,
+    headers,
   });
   let data: Record<string, unknown> = {};
   let readable = false;

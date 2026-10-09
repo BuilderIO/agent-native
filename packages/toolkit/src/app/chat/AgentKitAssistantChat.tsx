@@ -66,7 +66,10 @@ import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return"
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { useSession } from "@agent-native/core/client/use-session";
 import { AGENTKIT_CHAT_MIGRATION_GUIDE_URL } from "@agent-native/core/package-lifecycle/migration-message";
-import { splitAgentChatContextFromMessage } from "@agent-native/core/shared";
+import {
+  splitAgentChatContextFromMessage,
+  stripAgentChatContextFromMessage,
+} from "@agent-native/core/shared";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   AgentSuggestionBar,
@@ -177,6 +180,7 @@ import { formatFeedbackReport } from "./feedback-report.js";
 import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
 import { reconcileSettledRun } from "./reconcile-settled-run.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
+import { SESSION_REPLAY_MASK_PROPS } from "./session-replay-privacy.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
 
 export interface AgentKitAssistantChatProps extends AssistantChatProps {
@@ -4333,7 +4337,10 @@ function AgentKitComposerSurface({
             className="mx-3 mb-1.5 flex shrink-0 items-start gap-2 rounded-md border border-border bg-muted/70 px-3 py-2 text-xs text-foreground shadow-sm"
           >
             <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 break-words leading-snug">
+            <span
+              {...SESSION_REPLAY_MASK_PROPS}
+              className="min-w-0 flex-1 break-words leading-snug"
+            >
               {composerError}
             </span>
             <button
@@ -5044,7 +5051,9 @@ function AgentKitConnectionError({
           </a>
         </>
       ) : (
-        <span>{formatAgentKitErrorText(error, t)}</span>
+        <span {...SESSION_REPLAY_MASK_PROPS}>
+          {formatAgentKitErrorText(error, t)}
+        </span>
       )}
       {error.retryable ? (
         <button
@@ -5059,7 +5068,11 @@ function AgentKitConnectionError({
         </button>
       ) : null}
       {recoveryError ? (
-        <span className="mt-2 block" role="alert">
+        <span
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="mt-2 block"
+          role="alert"
+        >
           {formatAgentKitErrorText(
             { code: "runtime_error", message: recoveryError.message },
             t,
@@ -5390,15 +5403,25 @@ async function uploadAgentChatAttachments(
   );
 }
 
-function agentMessageText(message: AgentMessage): string {
-  return message.parts
+function rawAgentMessageTextFromParts(parts: AgentMessage["parts"]): string {
+  return parts
     .filter((part) => part.type === "text")
-    .map((part) =>
-      part.type === "text"
-        ? splitAgentChatContextFromMessage(part.text).message
-        : "",
-    )
+    .map((part) => (part.type === "text" ? part.text : ""))
     .join("\n");
+}
+
+export function agentMessageTextFromParts(
+  parts: AgentMessage["parts"],
+): string {
+  return stripAgentChatContextFromMessage(rawAgentMessageTextFromParts(parts));
+}
+
+function rawAgentMessageText(message: AgentMessage): string {
+  return rawAgentMessageTextFromParts(message.parts);
+}
+
+function agentMessageText(message: AgentMessage): string {
+  return agentMessageTextFromParts(message.parts);
 }
 
 function persistedAgentMessage(message: AgentMessage): AgentMessage {
@@ -5432,14 +5455,12 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
       createdAt: message.createdAt,
     },
   }));
-  const firstUserText =
-    messages.find((message) => message.role === "user") &&
-    agentMessageText(messages.find((message) => message.role === "user")!);
-  const latestUserText =
-    [...messages].reverse().find((message) => message.role === "user") &&
-    agentMessageText(
-      [...messages].reverse().find((message) => message.role === "user")!,
-    );
+  const firstUser = messages.find((message) => message.role === "user");
+  const latestUser = [...messages]
+    .reverse()
+    .find((message) => message.role === "user");
+  const firstUserText = firstUser && rawAgentMessageText(firstUser);
+  const latestUserText = latestUser && agentMessageText(latestUser);
   const handoffThread = thread.thread as AgentKitHandoffThreadSnapshot | null;
   const savedTitle = handoffThread?.title?.trim();
   const titleSource: "fallback" | undefined =
@@ -5733,7 +5754,7 @@ function appendVoiceTranscriptsToThreadSnapshot(
     }),
     title:
       snapshot.title ||
-      (firstUser ? fallbackChatTitle(agentMessageText(firstUser)) : ""),
+      (firstUser ? fallbackChatTitle(rawAgentMessageText(firstUser)) : ""),
     preview: latestUser ? agentMessageText(latestUser).slice(0, 280) : "",
     messageCount: messages.length,
   };

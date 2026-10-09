@@ -2,10 +2,10 @@
 name: journey-storyboards
 description: >-
   Draw an onboarding-journey storyboard (a left-to-right tree of real session
-  screenshots with arrows, fork percentages and drop-off stubs) on a Design
-  canvas with one `create-journey-canvas` call. Use when you hold an Analytics
-  journey tree plus captured frames and need the canvas, or when refreshing a
-  storyboard drawn earlier.
+  screenshots with arrows, fork percentages and last-observed-step stubs) on a
+  Design canvas with one `create-journey-canvas` call. Use when you hold an
+  Analytics journey tree plus captured frames and need the canvas, or when
+  refreshing a storyboard drawn earlier.
 ---
 
 # Journey storyboards
@@ -20,7 +20,9 @@ sizes and persists the whole tree in one transaction.
 2. Capture a frame for each example you want shown. Each frame is
    `{ nodeKey, exampleIndex, width, height, capturedAt }` plus exactly one of
    `imageUrl` or `attachmentRef`. `exampleIndex` indexes `node.examples`; `width`
-   and `height` are the image's real pixels.
+   and `height` are the image's real pixels. The card uses the matching example's
+   event timestamp, recording id, and replay offset from the tree, separately
+   from the screenshot's `capturedAt` time.
 3. `create-journey-canvas { title, tree, frames }` returns
    `{ designId, url, nodeCount, frameCount, skippedNodes, collabSyncPending }`. Open `url`.
    A non-empty `collabSyncPending` means those files are saved but an open editor
@@ -29,19 +31,28 @@ sizes and persists the whole tree in one transaction.
 
 Options: `designId` (refresh that design), `cardWidth` (default 360),
 `maxExamplesPerNode` (default 3, at most 6), `includeScreenshotless` (default false).
+`allowEncryptedPublicUploadFallback` defaults to `false`; set it to `true` only
+when this call is approved to store encrypted screenshot ciphertext with the
+configured public-upload provider.
 
 ## Images
 
 - `imageUrl` must be `https://`. `data:` URLs, other schemes and embedded credentials are rejected.
-- `attachmentRef` is a personal private attachment. It is copied into Design's private
-  blob storage and served only to people who can view the design. This needs private
-  blob storage; without it the call fails with `private_blob_provider_required`.
+- `attachmentRef` is a personal private attachment. It is copied into opaque,
+  encrypted private blob storage and served only to people who can view the
+  design. A configured private blob provider is used by default. The encrypted
+  public-upload fallback is used only when
+  `allowEncryptedPublicUploadFallback: true` is passed and the fallback is
+  configured; otherwise the call fails with `private_blob_provider_required`.
 
 ## What you get
 
 - Card height follows each frame's real aspect ratio (clamped to 0.5 to 2, letterboxed, never stretched or cropped). Extra examples stack behind the front card.
 - A step with no frame is left off and listed in `skippedNodes`; its children re-attach to the nearest drawn ancestor with a dashed arrow and a recomputed percent. Tell the user which steps are missing instead of calling the storyboard complete.
-- Each step with drop-off gets a red "X% dropped" stub; `other` nodes are neutral stubs.
+- A neutral "No later step observed" stub shows the session count and
+  percentage of that step for sessions whose last observed step is the node.
+  This does not confirm that those sessions exited. `other` nodes are also
+  neutral stubs.
 - Passing `designId` again replaces only what this action drew (ids start `jc_`, board objects `jc-`) and redraws in place. Other screens and board objects are untouched. A first draw goes below existing screens; board objects are not measured, so check for overlap on a board that already has shapes.
 - If every node lacks a frame the call fails with `journey_canvas_empty` and lists them.
 - If the design's board was edited while the call ran, it writes nothing and fails with `journey_board_changed`; call it again.

@@ -16,6 +16,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertFormsPermissionForAccessibleForms } from "../server/lib/app-roles.js";
 import { publicSubmitterEmail } from "../shared/submitter-email.js";
 import type {
   FormField,
@@ -317,6 +318,7 @@ export default defineAction({
     const db = getDb();
     const forms = await loadForms(args);
     const formIds = forms.map((form) => form.id);
+    await assertFormsPermissionForAccessibleForms("forms.review", forms, ctx);
 
     if (formId && forms.length === 0) {
       fail(`Form ${formId} not found`, {

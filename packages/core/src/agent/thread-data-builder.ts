@@ -19,6 +19,7 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { stripAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
 import {
   RUN_NOT_STARTED_METADATA_KEY,
   type RefusedTurnRetryContext,
@@ -77,11 +78,19 @@ function isInternalContinuationError(event: {
   error: string;
   errorCode?: string;
   recoverable?: boolean;
+  providerRetryable?: boolean;
 }): boolean {
   const code = String(event.errorCode ?? "").toLowerCase();
   const msg = event.error.toLowerCase();
-  if (code === "builder_gateway_error") return false;
-  if (event.recoverable === false) return false;
+  if (
+    event.providerRetryable === false ||
+    event.recoverable === false ||
+    code === "builder_gateway_error" ||
+    code === "invalid_request" ||
+    code === "invalid_request_error"
+  ) {
+    return false;
+  }
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
@@ -3873,9 +3882,13 @@ export function extractThreadMeta(repo: any): {
       : typeof msg.content === "string"
         ? msg.content
         : "";
-    if (textParts.trim()) {
-      if (!title) title = textParts.trim().slice(0, 80);
-      preview = textParts.trim().slice(0, 120);
+    const visiblePrompt = stripAgentChatContextFromMessage(textParts)
+      .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (visiblePrompt) {
+      if (!title) title = visiblePrompt.slice(0, 80);
+      preview = visiblePrompt.slice(0, 120);
     }
   }
   return { title: titleOverride || title, preview };

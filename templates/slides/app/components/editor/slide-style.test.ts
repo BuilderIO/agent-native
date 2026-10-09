@@ -7,7 +7,6 @@ import {
   mergeSlideStyleSnapshots,
   resolveHorizontalAlignment,
   resolveVerticalAlignment,
-  rotationTransform,
   verticalAlignPatch,
   type SlideStyleSnapshot,
 } from "./slide-style";
@@ -85,10 +84,6 @@ describe("value formatting", () => {
   it("keeps integers clean and rounds long decimals", () => {
     expect(formatValue(12)).toBe("12");
     expect(formatValue(12.3456)).toBe("12.35");
-  });
-
-  it("builds a rotation transform", () => {
-    expect(rotationTransform(-45.5)).toBe("rotate(-45.5deg)");
   });
 });
 

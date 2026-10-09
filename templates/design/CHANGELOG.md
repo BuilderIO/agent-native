@@ -3,15 +3,44 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-07
+## 2026-10-08
+
+### Added
+
+- Agents can draw an onboarding-journey storyboard on a Design canvas in one call, with real session screenshots, arrows and drop-off labels.
 
 ### Improved
 
+- Click a design's name in the editor to open a file menu with Rename, Duplicate, Version history, Save as template, Import, Export, and Delete.
+
+### Fixed
+
+- Design now reports pending screenshot cleanup and uncertain storyboard rollback after export failures.
+- Failed screenshot exports report when temporary image cleanup is still pending.
+
+## 2026-10-07
+
+### Added
+
+- Design storyboards can receive private, timestamped screenshots from Analytics session replays.
+
+### Improved
+
+- A new top bar across the editor holds the Interact / Design switch, zoom, presence, Share and Review changes.
+- Designs in a chat side pane now fill the pane down to its bottom edge, with a short screen reflowing to the pane's height
+- Designs opened in a chat side pane now fill the whole pane, with your first screen scaled to the pane width from the top edge.
+- Designs opened in a read-only chat widget no longer show controls for edits or comments that cannot be saved.
+- Layers panel rows are now 32px tall with a 24px indent per level, and the left panel opens at 240px and resizes between 232px and 416px in 8px steps.
 - A collaborator's edits refresh only the design data they change, so the editor does far fewer background requests while others work.
 - Keyboard shortcuts now open in a dialog with search and a category list, replacing the bottom drawer.
 
 ### Fixed
 
+- Delete follows your canvas selection, including child layers from Shift-marquee and reselected Screens
+- Design storyboard screenshots now load from Analytics' encrypted upload storage when no dedicated private storage provider is configured.
+- Grouped fills preserve color opacity, and board-level drops land where you release them
+- New selections stay active when a Screen deletion fails
+- Viewers no longer see an active Add screen button.
 - Fixed Position controls for fixed elements after scrolling the canvas.
 - Fixed Position readouts inside transformed containers and kept selected vector layers aligned to their shape bounds
 - Waitlist signups work from the Make Real and Design Systems flows.
@@ -30,6 +59,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Deleting selected screens now targets the canvas selection even if a layer was previously selected.
 - Reopening a ChatGPT Design widget restores the full editor for its saved design.
 - Fixed attached images missing from visual analysis.
 - Reference screenshots guide every design generation path.

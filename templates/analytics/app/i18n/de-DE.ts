@@ -1524,6 +1524,8 @@ export default {
     replayPlayer: "Wiedergabe-Player",
     replayLoading: "Wiedergabe wird geladen...",
     replayLoadingProgress: "{{loaded}} von {{total}} Wiedergabe-Chunks geladen",
+    replayTargetFallback:
+      "Der angeforderte Aufnahmezeitpunkt ({{requested}}) ist nicht verfügbar; das nächste Replay-Bild bei {{available}} wird angezeigt.",
     replayUnavailable: "Keine Wiedergabe-Chunks für diese Sitzung",
     replayUnavailableDescription:
       "Die Sitzung enthält Analytics-Ereignisse, aber keine rrweb-Chunk-Ereignisse.",

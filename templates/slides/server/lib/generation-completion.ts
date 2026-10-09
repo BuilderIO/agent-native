@@ -21,6 +21,7 @@ export interface GenerationFirstOutput {
   deckId: string;
   generationAttemptId: string;
   targetSlideCount: number | null;
+  sessionId?: string;
   generationStartedAt?: number;
 }
 
@@ -77,6 +78,9 @@ function isFirstOutput(value: unknown): value is GenerationFirstOutput {
     typeof output.generationAttemptId === "string" &&
     (output.targetSlideCount === null ||
       typeof output.targetSlideCount === "number") &&
+    (output.sessionId === undefined ||
+      (typeof output.sessionId === "string" &&
+        /^[!-~]{1,127}$/.test(output.sessionId))) &&
     (output.generationStartedAt === undefined ||
       (typeof output.generationStartedAt === "number" &&
         Number.isFinite(output.generationStartedAt) &&
@@ -222,6 +226,11 @@ export async function trackGenerationCompletedForRun(
   for (const output of outputs) {
     const slideCount = counts.get(output.deckId) ?? null;
     if (slideCount === null || slideCount === 0) continue;
+    const eventSource = output.sessionId
+      ? source && "caller" in source
+        ? source
+        : { ...(source ?? {}), sessionId: output.sessionId }
+      : source;
     track(
       "generation_completed",
       {
@@ -247,7 +256,7 @@ export async function trackGenerationCompletedForRun(
         ...(run.threadId ? { thread_id: run.threadId } : {}),
         source: "agent_run",
       },
-      source,
+      eventSource,
     );
   }
   // Dropped only after every report was handed off.

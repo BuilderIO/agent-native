@@ -42,6 +42,11 @@ import {
   backgroundCssValue,
   resolveSlideBackground,
 } from "../../../shared/slide-background";
+import {
+  slideNumberRootAttrs,
+  slideNumberRootVars,
+  type SlidePosition,
+} from "../../../shared/slide-number";
 import { ExcalidrawThumbnail, parseExcalidrawData } from "./ExcalidrawSlide";
 import { MermaidRenderer } from "./MermaidRenderer";
 
@@ -55,6 +60,8 @@ interface SlideRendererProps {
   onOverflowChange?: (info: SlideOverflowInfo) => void;
   onAutofitSettled?: () => void;
   stampSource?: boolean;
+  /** Omit on surfaces with no deck (template previews): slide-number tokens render empty. */
+  slidePosition?: SlidePosition;
 }
 
 export const layoutClasses: Record<string, string> = {
@@ -1129,6 +1136,7 @@ export function SlideInner({
   onOverflowChange,
   onAutofitSettled,
   stampSource,
+  slidePosition,
 }: {
   slide: Slide;
   designSystem?: DesignSystemData;
@@ -1137,6 +1145,7 @@ export function SlideInner({
   onOverflowChange?: (info: SlideOverflowInfo) => void;
   onAutofitSettled?: () => void;
   stampSource?: boolean;
+  slidePosition?: SlidePosition;
 }) {
   const t = useT();
   const dims = getAspectRatioDims(aspectRatio);
@@ -1154,7 +1163,9 @@ export function SlideInner({
   const isCentered = slide.layout === "title";
   const darkSlide = isDarkSlideBackground(safeBackground ?? bg);
 
+  const slideNumberAttrs = slideNumberRootAttrs(slidePosition);
   const dsStyle = {
+    ...slideNumberRootVars(slidePosition),
     "--ds-bg": safeBackground ?? "transparent",
     ...(designSystem
       ? {
@@ -1268,6 +1279,7 @@ export function SlideInner({
         className={`relative ${bgClass}`}
         style={{ ...sizeStyle, ...bgStyle, ...dsStyle }}
         data-slide-canvas={slide.id}
+        {...slideNumberAttrs}
       >
         <ExcalidrawThumbnail data={slide.excalidrawData} />
       </div>
@@ -1300,6 +1312,7 @@ export function SlideInner({
         className={`relative ${bgClass} ${layoutClasses[slide.layout]}`}
         style={{ ...sizeStyle, ...bgStyle, ...dsStyle, textAlign: "left" }}
         data-slide-canvas={slide.id}
+        {...slideNumberAttrs}
       >
         {imageLoadingOverlay}
         <AutoFitContent
@@ -1348,6 +1361,7 @@ export function SlideInner({
         className={`${bgClass} ${layoutClasses.blank}`}
         style={{ ...sizeStyle, ...bgStyle, ...dsStyle }}
         data-slide-canvas={slide.id}
+        {...slideNumberAttrs}
       >
         <AutoFitContent
           canvasWidth={dims.width}
@@ -1378,6 +1392,7 @@ export function SlideInner({
         textAlign: isCentered ? "center" : "left",
       }}
       data-slide-canvas={slide.id}
+      {...slideNumberAttrs}
     >
       {imageLoadingOverlay}
       <AutoFitContent
@@ -1412,6 +1427,7 @@ export default function SlideRenderer({
   onOverflowChange,
   onAutofitSettled,
   stampSource,
+  slidePosition,
 }: SlideRendererProps) {
   const dims = getAspectRatioDims(aspectRatio);
 
@@ -1436,6 +1452,7 @@ export default function SlideRenderer({
             onOverflowChange={onOverflowChange}
             onAutofitSettled={onAutofitSettled}
             stampSource={stampSource}
+            slidePosition={slidePosition}
           />
         </div>
         <ScaleHelper
@@ -1468,6 +1485,7 @@ export default function SlideRenderer({
           onOverflowChange={onOverflowChange}
           onAutofitSettled={onAutofitSettled}
           stampSource={stampSource}
+          slidePosition={slidePosition}
         />
       </div>
       <ScaleHelper targetWidth={dims.width} />

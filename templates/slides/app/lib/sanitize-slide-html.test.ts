@@ -21,6 +21,16 @@ describe("sanitizeSlideHtml", () => {
     expect(html).toContain('target="_blank"');
   });
 
+  it("keeps empty slide-number tokens", () => {
+    const html = sanitizeSlideHtml(
+      '<p><span data-slide-number="pad"></span> / <span data-slide-total="pad"></span> <span data-slide-number></span></p>',
+    );
+
+    expect(html).toContain('<span data-slide-number="pad"></span>');
+    expect(html).toContain('<span data-slide-total="pad"></span>');
+    expect(html).toMatch(/<span data-slide-number(?:="")?><\/span>/);
+  });
+
   it("keeps layout styles but removes css url injection", () => {
     expect(
       sanitizeSlideHtml(
@@ -72,6 +82,64 @@ describe("sanitizeSlideHtml", () => {
     );
     expect(html).not.toContain("slide-a");
     expect(html).not.toContain("slide-b");
+  });
+
+  describe("keyframes", () => {
+    const scope = '[data-slide-content-scope="k"]';
+    const run = (css: string) =>
+      sanitizeSlideHtml(`<style>${css}</style><div class="a">x</div>`, {
+        scopeSelector: scope,
+      });
+
+    it("leaves from/to and percent selectors unscoped", () => {
+      const html = run(
+        "@keyframes fx { from { opacity: 0 } to { opacity: 1 } } @keyframes fy { 0%, 50% { opacity: 0.2 } 100% { opacity: 1 } }",
+      );
+      expect(html).toContain("from { opacity: 0; }");
+      expect(html).toContain("to { opacity: 1; }");
+      expect(html).toContain("0%, 50% { opacity: 0.2; }");
+      expect(html).toContain("100% { opacity: 1; }");
+      expect(html).not.toContain("data-slide-content-scope");
+    });
+
+    it("matches keyframe selectors case-insensitively, with decimals", () => {
+      const html = run(
+        "@keyframes fx { FROM { opacity: 0 } 12.5% { opacity: 1 } }",
+      );
+      expect(html).toContain("FROM { opacity: 0; }");
+      expect(html).toContain("12.5% { opacity: 1; }");
+      expect(html).not.toContain("data-slide-content-scope");
+    });
+
+    it("handles keyframes nested in @media next to scoped rules", () => {
+      const html = run(
+        "@media (min-width: 1px) { @keyframes fx { from { opacity: 0 } to { opacity: 1 } } .a { animation: fx 1s } } .b { color: red }",
+      );
+      expect(html).toContain("from { opacity: 0; }");
+      expect(html).toContain(`${scope} .a { animation: fx 1s; }`);
+      expect(html).toContain(`${scope} .b { color: red; }`);
+      expect(html).not.toContain(`${scope} from`);
+      expect(html).not.toContain(`${scope} to`);
+    });
+
+    it("still scopes selectors that merely resemble keyframe selectors", () => {
+      const html = run(".from { color: red } .to, to-x { color: blue }");
+      expect(html).toContain(`${scope} .from { color: red; }`);
+      expect(html).toContain(`${scope} .to, ${scope} to-x`);
+    });
+
+    it("repairs keyframe selectors scoped by an earlier save, and is idempotent", () => {
+      const broken = `@keyframes fx {${scope} from { opacity: 0; }${scope} 0%, ${scope} 50% { opacity: 1; } } ${scope} .a { color: red; }`;
+      const once = run(broken);
+      expect(once).toContain("from { opacity: 0; }");
+      expect(once).toContain("0%, 50% { opacity: 1; }");
+      expect(once).not.toContain(`${scope} from`);
+      expect(once).not.toContain(`${scope} 0%`);
+      expect(once).toContain(`${scope} .a { color: red; }`);
+
+      const css = (html: string) => /<style>([\s\S]*)<\/style>/.exec(html)![1];
+      expect(css(run(css(once)))).toBe(css(once));
+    });
   });
 
   it("keeps source stamps, including on a mermaid block", () => {

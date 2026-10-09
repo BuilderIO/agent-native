@@ -149,7 +149,7 @@ export function DashboardChartCard({
       if (
         target instanceof Element &&
         target.closest(
-          "button, a, input, textarea, select, [role='menuitem'], [data-no-panel-chat-select]",
+          "button, a, input, textarea, select, [role='menuitem'], [role='menuitemradio'], [data-no-panel-chat-select]",
         )
       ) {
         return;

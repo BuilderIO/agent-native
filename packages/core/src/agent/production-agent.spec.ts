@@ -42,6 +42,7 @@ import type {
   EngineStreamOptions,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
+import { BUILDER_MODEL_CONFIG } from "./model-config.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   AGENT_INTERNAL_GUARD_PROMPT,
@@ -14158,6 +14159,43 @@ describe("runAgentLoop", () => {
 });
 
 describe("runAgentLoop model fallback", () => {
+  it("normalizes a saved model before streaming it to its engine", async () => {
+    const modelsUsed: string[] = [];
+    const engine: AgentEngine = {
+      name: "builder",
+      label: "Builder.io",
+      ...BUILDER_MODEL_CONFIG,
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        modelsUsed.push(opts.model);
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "claude-fable-5",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(modelsUsed).toEqual([BUILDER_MODEL_CONFIG.defaultModel]);
+  });
+
   it("switches to the fallback model once retries are exhausted, with an activity event", async () => {
     vi.useFakeTimers({ now: 1_000_000 });
     let streamCalls = 0;
@@ -14638,6 +14676,18 @@ describe("isRecoverableContinuationError", () => {
       ).toBe(true);
     }
   });
+
+  it("keeps explicitly terminal invalid requests from continuing on timeout wording", () => {
+    expect(
+      isRecoverableContinuationError({
+        type: "error",
+        error: "Invalid request timed out",
+        errorCode: "invalid_request",
+        recoverable: true,
+        providerRetryable: false,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("isTransientProviderRateLimitError", () => {
@@ -14720,6 +14770,14 @@ describe("isRetryableError", () => {
 
   it("does not retry when providerRetryable is false and no other signals", () => {
     const err = new EngineError("not retryable", { providerRetryable: false });
+    expect(isRetryableError(err)).toBe(false);
+  });
+
+  it("honors an explicit terminal provider classification over retryable wording", () => {
+    const err = new EngineError("Gateway error (no detail)", {
+      errorCode: "invalid_request",
+      providerRetryable: false,
+    });
     expect(isRetryableError(err)).toBe(false);
   });
 
@@ -15244,9 +15302,14 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     return makeRun([
       {
         type: "error",
-        error: "429 status code (no body)",
+        error:
+          errorCode === "overloaded_error"
+            ? "Gateway error (no detail)"
+            : "429 status code (no body)",
         errorCode,
-        recoverable: true,
+        ...(errorCode === "overloaded_error"
+          ? { providerRetryable: true }
+          : { recoverable: true }),
       },
     ]);
   }
@@ -15263,6 +15326,11 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         makeRateLimitedRun("provider_transient_rejection"),
       ),
     ).toBe("rate_limited");
+    expect(
+      backgroundContinuationReasonForRun(
+        makeRateLimitedRun("overloaded_error"),
+      ),
+    ).toBe("rate_limited");
   });
 
   it("CHAINS the first rate-limited chunk of a turn (no prior rate-limited chunk)", () => {
@@ -15277,6 +15345,25 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       rateLimitChainCapTripped({
         run: makeRateLimitedRun(),
         priorContinuationReason: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("chains a no-detail overloaded_error once, then hits the rate-limit cap", () => {
+    const run = makeRateLimitedRun("overloaded_error");
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 1,
+        priorContinuationReason: "rate_limited",
       }),
     ).toBe(false);
   });

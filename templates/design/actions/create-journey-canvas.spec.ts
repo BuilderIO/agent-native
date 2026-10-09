@@ -64,6 +64,7 @@ const mocks = vi.hoisted(() => {
     deleteVisualEditSnapshotBlobs: vi.fn(),
     queueCleanup: vi.fn(),
     mutateDesignData: vi.fn(),
+    isPrivateBlobConfiguredForRequest: vi.fn(),
   };
 });
 
@@ -82,6 +83,7 @@ vi.mock("@agent-native/core/private-blob", () => ({
   ATTACHMENT_REF_MAX_CHARS: 4_096,
   deletePrivateBlob: mocks.deletePrivateBlob,
   getActivePrivateBlobProviderForRequest: mocks.getProvider,
+  isPrivateBlobConfiguredForRequest: mocks.isPrivateBlobConfiguredForRequest,
   putPrivateBlob: mocks.putPrivateBlob,
   resolveAttachment: mocks.resolveAttachment,
 }));
@@ -264,6 +266,7 @@ beforeEach(() => {
     }),
   );
   mocks.getProvider.mockResolvedValue({ id: "private-provider" });
+  mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(true);
   mocks.resolveAttachment.mockResolvedValue({
     status: "ok",
     file: { data: PNG },
@@ -362,6 +365,12 @@ describe("create-journey-canvas run", () => {
       title: "a",
       breakpointWidths: [],
       heightMode: "fixed",
+      journeyExample: {
+        eventAt: "2026-10-01T12:00:00.000Z",
+        recordingId: "a-r1",
+        offsetMs: 2_000,
+        screenshotCapturedAt: "2026-10-08T09:30:00.000Z",
+      },
     });
     expect(data.journeyCanvasOrigin).toEqual({ x: 0, y: 0 });
 
@@ -423,6 +432,69 @@ describe("create-journey-canvas run", () => {
       ).toBe(true);
     }
     expect(files.some((file) => file.content.includes("ref-a"))).toBe(false);
+  });
+
+  it("stores attachmentRef screenshots through the encrypted public-upload fallback", async () => {
+    const fallbackHandle = {
+      id: "public-upload:v1:encrypted-descriptor",
+      provider: "public-upload:builder-storage",
+      opaque: true as const,
+      encrypted: true,
+    };
+    mocks.getProvider.mockResolvedValue(null);
+    mocks.putPrivateBlob.mockResolvedValue(fallbackHandle);
+
+    const input = parsed(rawInput([frame("a", { attachmentRef: "ref-a" })]));
+    await action.run(
+      { ...input, allowEncryptedPublicUploadFallback: true },
+      {} as any,
+    );
+
+    const row = mocks.state.inserts.find(
+      (entry) => entry.table === "designBoardReplayScreenshots",
+    )!.rows[0]!;
+    expect(JSON.parse(row.blobHandle)).toEqual(fallbackHandle);
+    expect(mocks.putPrivateBlob).toHaveBeenCalledOnce();
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed encrypted public-upload fallback handles", async () => {
+    const malformedHandle = {
+      id: "public-upload:v1:encrypted-descriptor",
+      provider: "private-provider",
+      opaque: true as const,
+      encrypted: false,
+    };
+    mocks.getProvider.mockResolvedValue(null);
+    mocks.putPrivateBlob.mockResolvedValue(malformedHandle);
+
+    const input = parsed(rawInput([frame("a", { attachmentRef: "ref-a" })]));
+    await expect(
+      action.run(
+        { ...input, allowEncryptedPublicUploadFallback: true },
+        {} as any,
+      ),
+    ).rejects.toMatchObject({ errorCode: "private_blob_provider_mismatch" });
+    expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(malformedHandle);
+  });
+
+  it("keeps a configured provider id check for stored screenshots", async () => {
+    const mismatchedHandle = {
+      id: "blob-id",
+      provider: "other-provider",
+      opaque: true as const,
+      encrypted: true,
+    };
+    mocks.getProvider.mockResolvedValue({ id: "private-provider" });
+    mocks.putPrivateBlob.mockResolvedValue(mismatchedHandle);
+
+    await expect(
+      action.run(
+        parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
+        {} as any,
+      ),
+    ).rejects.toMatchObject({ errorCode: "private_blob_provider_mismatch" });
+    expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(mismatchedHandle);
   });
 
   it("replaces only what it drew before and leaves other canvas content in place", async () => {
@@ -638,8 +710,9 @@ describe("create-journey-canvas failures", () => {
     expect(mocks.createDesign).not.toHaveBeenCalled();
   });
 
-  it("requires a private blob provider only when attachmentRefs are used", async () => {
+  it("requires private blob storage only when attachmentRefs are used", async () => {
     mocks.getProvider.mockResolvedValue(null);
+    mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(false);
     await expect(
       action.run(
         parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
@@ -648,6 +721,7 @@ describe("create-journey-canvas failures", () => {
     ).rejects.toMatchObject({ errorCode: "private_blob_provider_required" });
     expect(mocks.createDesign).not.toHaveBeenCalled();
     mocks.getProvider.mockClear();
+    mocks.isPrivateBlobConfiguredForRequest.mockClear();
     await action.run(
       parsed(
         rawInput([frame("a", { imageUrl: "https://img.example.test/a.png" })]),
@@ -655,6 +729,23 @@ describe("create-journey-canvas failures", () => {
       {} as any,
     );
     expect(mocks.getProvider).not.toHaveBeenCalled();
+    expect(mocks.isPrivateBlobConfiguredForRequest).not.toHaveBeenCalled();
+  });
+
+  it("requires explicit opt-in before using the configured encrypted fallback", async () => {
+    mocks.getProvider.mockResolvedValue(null);
+    mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(true);
+
+    await expect(
+      action.run(
+        parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
+        {} as any,
+      ),
+    ).rejects.toMatchObject({ errorCode: "private_blob_provider_required" });
+
+    expect(mocks.resolveAttachment).not.toHaveBeenCalled();
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.isPrivateBlobConfiguredForRequest).not.toHaveBeenCalled();
   });
 
   it("discards blobs it already stored, and deletes a design it created, when a later attachment fails", async () => {
