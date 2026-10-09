@@ -135,12 +135,17 @@ function sanitize(
       }
       continue;
     }
-    out[key] = sanitize(
-      child,
-      policy,
-      ATTACHMENT_LIST_KEYS.has(key),
-      fallbackUrl,
-    );
+    Object.defineProperty(out, key, {
+      value: sanitize(
+        child,
+        policy,
+        ATTACHMENT_LIST_KEYS.has(key),
+        fallbackUrl,
+      ),
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
   }
   if (unreferenced) {
     const name = item.name ?? item.filename ?? item.label;

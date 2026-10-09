@@ -14,6 +14,7 @@ export interface ToolCallJournalEntry {
   id?: string;
   input?: AgentToolInput;
   inputFingerprint?: string;
+  inputStoredFingerprint?: string;
   order: number;
   result?: string;
   artifacts?: ArtifactReceipt[];
@@ -56,11 +57,17 @@ export function isRedactedToolCallInput(input: unknown): boolean {
 export function isConsistentToolCallInputFingerprint(
   input: unknown,
   fingerprint: string | undefined,
+  storedFingerprint?: string,
 ): boolean {
+  if (storedFingerprint !== undefined)
+    return (
+      fingerprint !== undefined &&
+      input !== undefined &&
+      toolCallInputFingerprint(input) === storedFingerprint
+    );
   return (
     fingerprint === undefined ||
     input === undefined ||
-    isRedactedToolCallInput(input) ||
     toolCallInputFingerprint(input) === fingerprint
   );
 }
@@ -132,6 +139,9 @@ export function classifyToolCallJournal(
         ...(event.inputFingerprint
           ? { inputFingerprint: event.inputFingerprint }
           : {}),
+        ...(event.inputStoredFingerprint
+          ? { inputStoredFingerprint: event.inputStoredFingerprint }
+          : {}),
         order,
       };
       order += 1;
@@ -183,7 +193,11 @@ function takeMatchingOpenEntry(
 ): ToolCallJournalEntry | undefined {
   if (!queue || queue.length === 0) return undefined;
   if (
-    !isConsistentToolCallInputFingerprint(event.input, event.inputFingerprint)
+    !isConsistentToolCallInputFingerprint(
+      event.input,
+      event.inputFingerprint,
+      event.inputStoredFingerprint,
+    )
   )
     return undefined;
   const hasIdentity =
@@ -192,37 +206,44 @@ function takeMatchingOpenEntry(
     event.input !== undefined;
   if (!hasIdentity && queue.length !== 1) return undefined;
 
-  const doneSig =
-    event.input === undefined
+  const doneFingerprint =
+    event.inputFingerprint ??
+    (event.input === undefined
       ? undefined
-      : inputSignature(
-          event.inputFingerprint === undefined
-            ? event.input
-            : stripInlineBytes(event.input, "placeholder"),
-        );
+      : toolCallInputFingerprint(event.input));
   const matches = queue.filter((entry) => {
     if (
-      !isConsistentToolCallInputFingerprint(entry.input, entry.inputFingerprint)
+      !isConsistentToolCallInputFingerprint(
+        entry.input,
+        entry.inputFingerprint,
+        entry.inputStoredFingerprint,
+      )
     )
       return false;
     if (event.id !== undefined && entry.id !== event.id) return false;
     if (
-      event.inputFingerprint !== undefined &&
+      doneFingerprint !== undefined &&
       (entry.inputFingerprint ?? toolCallInputFingerprint(entry.input)) !==
-        event.inputFingerprint
+        doneFingerprint
     )
       return false;
     return (
-      doneSig === undefined ||
+      event.input === undefined ||
       inputSignature(
-        event.inputFingerprint === undefined
+        event.inputFingerprint === undefined &&
+          entry.inputFingerprint === undefined
           ? entry.input
           : stripInlineBytes(entry.input, "placeholder"),
-      ) === doneSig
+      ) ===
+        inputSignature(
+          event.inputFingerprint === undefined &&
+            entry.inputFingerprint === undefined
+            ? event.input
+            : stripInlineBytes(event.input, "placeholder"),
+        )
     );
   });
-  if (matches.length === 0 || (event.id !== undefined && matches.length !== 1))
-    return undefined;
+  if (matches.length !== 1) return undefined;
   return queue.splice(queue.indexOf(matches[0]), 1)[0];
 }
 

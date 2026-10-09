@@ -399,6 +399,7 @@ export type AgentChatEvent =
       id?: string;
       input: AgentToolInput;
       inputFingerprint?: string;
+      inputStoredFingerprint?: string;
     }
   | {
       type: "tool_done";
@@ -406,6 +407,7 @@ export type AgentChatEvent =
       id?: string;
       input?: AgentToolInput;
       inputFingerprint?: string;
+      inputStoredFingerprint?: string;
       result: string;
       isError?: boolean;
       errorCode?: string;

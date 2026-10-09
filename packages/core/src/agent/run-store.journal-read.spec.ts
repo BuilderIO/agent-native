@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { stripInlineBytes } from "../shared/inline-bytes.js";
 import {
   getCurrentTurnEventsForThread,
   getCurrentTurnRunEventsForThread,
@@ -59,6 +60,141 @@ beforeEach(() => {
     return { rows: [], rowsAffected: 0 };
   });
 });
+
+function recordPersistedEvents() {
+  mocks.execute.mockImplementation(async (statement) => {
+    if (statement.sql.includes("INSERT INTO agent_run_events"))
+      mocks.events.push({
+        run_id: statement.args[0],
+        seq: statement.args[1],
+        event_data: statement.args[3],
+      });
+    return {
+      rows: statement.sql.includes("SELECT e.run_id AS run_id")
+        ? mocks.events
+        : [],
+      rowsAffected: 0,
+    };
+  });
+}
+
+it.each([
+  { attachments: [{ type: "file", data: "QQ==" }] },
+  { body: "Read data:text/plain;base64,QQ== before sending" },
+  { body: "[inline text/plain data omitted]" },
+  JSON.parse(
+    '{"__proto__":{"destination":"a"},"constructor":"own","prototype":"own","attachments":[{"type":"file","data":"QQ==","url":"https://example.invalid/file"}]}',
+  ),
+])(
+  "retains execution identity and stored integrity across repeated persistence: %j",
+  async (input) => {
+    recordPersistedEvents();
+    await insertRunEvent(
+      "run-first",
+      0,
+      JSON.stringify({
+        type: "tool_start",
+        tool: "send-report",
+        id: "call-a",
+        input,
+      }),
+      { toolInputSource: "execution" },
+    );
+    const firstStored = (mocks.events[0] as typeof start).event_data;
+    await insertRunEvent("run-first", 1, firstStored, {
+      toolInputSource: "execution",
+    });
+    expect((mocks.events[1] as typeof start).event_data).toBe(firstStored);
+    const [event] = await getCurrentTurnEventsForThread("thread", "turn");
+    expect(event).toMatchObject({
+      input: stripInlineBytes(input, "placeholder"),
+      inputFingerprint: toolCallInputFingerprint(input),
+      inputStoredFingerprint: toolCallInputFingerprint(
+        stripInlineBytes(input, "placeholder"),
+      ),
+    });
+    expect(firstStored).not.toContain("QQ==");
+    if (Object.hasOwn(input, "__proto__")) {
+      expect(
+        Object.hasOwn((event as { input: object }).input, "__proto__"),
+      ).toBe(true);
+      expect(JSON.stringify(event)).toContain(
+        '"__proto__":{"destination":"a"}',
+      );
+    }
+  },
+);
+
+it("does not manufacture original identity for an already projected legacy event", async () => {
+  recordPersistedEvents();
+  await insertRunEvent(
+    "run-first",
+    0,
+    JSON.stringify({
+      type: "tool_start",
+      tool: "send-report",
+      input: { attachments: [{ type: "file", omitted: "inline-bytes" }] },
+    }),
+  );
+  expect((mocks.events[0] as typeof start).event_data).not.toContain(
+    "Fingerprint",
+  );
+  await expect(
+    getCurrentTurnEventsForThread("thread", "turn"),
+  ).rejects.toMatchObject({ errorCode: "tool_call_journal_unreadable" });
+});
+
+it("keeps raw input identity when only the result contains inline bytes", async () => {
+  recordPersistedEvents();
+  const input = { destination: "example" };
+  await insertRunEvent(
+    "run-first",
+    0,
+    JSON.stringify({
+      type: "tool_done",
+      tool: "send-report",
+      input,
+      result: "data:text/plain;base64,QQ==",
+    }),
+    { toolInputSource: "execution" },
+  );
+  const [event] = await getCurrentTurnEventsForThread("thread", "turn");
+  expect(event).toMatchObject({
+    input,
+    inputFingerprint: toolCallInputFingerprint(input),
+    inputStoredFingerprint: toolCallInputFingerprint(input),
+  });
+  expect(JSON.stringify(event)).not.toContain("QQ==");
+});
+
+it.each(["tool_start", "tool_done"])(
+  "rejects %s with corrupt stored integrity even when its original digest is valid",
+  async (type) => {
+    const input = {
+      destination: "example",
+      attachments: [{ type: "file", data: "QQ==" }],
+    };
+    mocks.events = [
+      {
+        ...start,
+        event_data: JSON.stringify({
+          type,
+          tool: "send-report",
+          input: stripInlineBytes(input, "placeholder"),
+          inputFingerprint: toolCallInputFingerprint(input),
+          inputStoredFingerprint: "0".repeat(64),
+          result: "sent",
+        }),
+      },
+    ];
+    await expect(
+      getCurrentTurnEventsForThread("thread", "turn"),
+    ).rejects.toMatchObject({
+      errorCode: "tool_call_journal_unreadable",
+      reason: "invalid_event",
+    });
+  },
+);
 
 it.each(["tool_start", "tool_done"])(
   "rejects %s fingerprints that contradict unredacted arguments",
@@ -243,77 +379,89 @@ it.each([
   );
 });
 
-it("matches original attachment inputs after SQL byte stripping without conflating payloads", async () => {
-  const input = {
-    destination: "example",
-    attachments: [{ type: "file", name: "report.txt", data: "QQ==" }],
-  };
-  const other = {
-    ...input,
-    attachments: [{ ...input.attachments[0], data: "Qg==" }],
-  };
-  const events = [
-    { type: "tool_start", tool: "send-report", input },
-    { type: "tool_start", tool: "send-report", input: other },
-    {
-      type: "tool_done",
-      tool: "send-report",
-      input: other,
-      result: "second sent",
-      completedSideEffect: true,
-    },
-    {
-      type: "tool_done",
-      tool: "send-report",
-      input,
-      result: "first sent",
-      completedSideEffect: true,
-    },
-  ];
-  mocks.execute.mockImplementation(async (statement) => {
-    if (statement.sql.includes("INSERT INTO agent_run_events")) {
-      mocks.events.push({
-        run_id: statement.args[0],
-        seq: statement.args[1],
-        event_data: statement.args[3],
-      });
-    }
-    return {
-      rows: statement.sql.includes("SELECT e.run_id AS run_id")
-        ? mocks.events
-        : [],
-      rowsAffected: 0,
+it.each([
+  {},
+  { url: "https://example.invalid/report" },
+  { fileId: "fixture-file" },
+])(
+  "matches original attachment inputs after SQL byte stripping without conflating payloads: %j",
+  async (reference) => {
+    const input = {
+      destination: "example",
+      attachments: [
+        { type: "file", name: "report.txt", data: "QQ==", ...reference },
+      ],
     };
-  });
-  for (const [seq, event] of events.entries())
-    await insertRunEvent("run-first", seq, JSON.stringify(event));
-  expect(JSON.stringify(mocks.events)).not.toContain("QQ==");
-  expect(JSON.stringify(mocks.events)).not.toContain("Qg==");
-  const journal = classifyToolCallJournal(
-    await getCurrentTurnEventsForThread("thread", "turn"),
-  );
-  const consumed = new Set<string>();
-  expect(
-    findCompletedJournalEntry(journal, "send-report", {
+    const other = {
       ...input,
-      attachments: [{ ...input.attachments[0], data: "Qw==" }],
-    }),
-  ).toBeUndefined();
-  expect(
-    findCompletedJournalEntry(
-      journal,
-      "send-report",
-      { attachments: input.attachments, destination: "example" },
-      consumed,
-    )?.result,
-  ).toBe("first sent");
-  expect(
-    findCompletedJournalEntry(journal, "send-report", input, consumed),
-  ).toBeUndefined();
-  expect(
-    findCompletedJournalEntry(journal, "send-report", other, consumed)?.result,
-  ).toBe("second sent");
-});
+      attachments: [{ ...input.attachments[0], data: "Qg==" }],
+    };
+    const events = [
+      { type: "tool_start", tool: "send-report", input },
+      { type: "tool_start", tool: "send-report", input: other },
+      {
+        type: "tool_done",
+        tool: "send-report",
+        input: other,
+        result: "second sent",
+        completedSideEffect: true,
+      },
+      {
+        type: "tool_done",
+        tool: "send-report",
+        input,
+        result: "first sent",
+        completedSideEffect: true,
+      },
+    ];
+    mocks.execute.mockImplementation(async (statement) => {
+      if (statement.sql.includes("INSERT INTO agent_run_events")) {
+        mocks.events.push({
+          run_id: statement.args[0],
+          seq: statement.args[1],
+          event_data: statement.args[3],
+        });
+      }
+      return {
+        rows: statement.sql.includes("SELECT e.run_id AS run_id")
+          ? mocks.events
+          : [],
+        rowsAffected: 0,
+      };
+    });
+    for (const [seq, event] of events.entries())
+      await insertRunEvent("run-first", seq, JSON.stringify(event), {
+        toolInputSource: "execution",
+      });
+    expect(JSON.stringify(mocks.events)).not.toContain("QQ==");
+    expect(JSON.stringify(mocks.events)).not.toContain("Qg==");
+    const journal = classifyToolCallJournal(
+      await getCurrentTurnEventsForThread("thread", "turn"),
+    );
+    const consumed = new Set<string>();
+    expect(
+      findCompletedJournalEntry(journal, "send-report", {
+        ...input,
+        attachments: [{ ...input.attachments[0], data: "Qw==" }],
+      }),
+    ).toBeUndefined();
+    expect(
+      findCompletedJournalEntry(
+        journal,
+        "send-report",
+        { attachments: input.attachments, destination: "example" },
+        consumed,
+      )?.result,
+    ).toBe("first sent");
+    expect(
+      findCompletedJournalEntry(journal, "send-report", input, consumed),
+    ).toBeUndefined();
+    expect(
+      findCompletedJournalEntry(journal, "send-report", other, consumed)
+        ?.result,
+    ).toBe("second sent");
+  },
+);
 
 it.each([
   { attachments: [{ type: "file", omitted: "inline-bytes" }] },

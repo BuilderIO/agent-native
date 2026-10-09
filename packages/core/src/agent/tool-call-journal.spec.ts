@@ -49,6 +49,41 @@ it("includes own __proto__ JSON keys in replay identity", () => {
   );
 });
 
+it("does not erase contradictory own JSON keys while normalizing redacted receipts", () => {
+  const first = JSON.parse(
+    '{"__proto__":{"destination":"a"},"attachments":[{"type":"file","omitted":"inline-bytes"}]}',
+  );
+  const second = JSON.parse(
+    '{"__proto__":{"destination":"b"},"attachments":[{"type":"file","omitted":"inline-bytes"}]}',
+  );
+  const fingerprint = toolCallInputFingerprint(
+    JSON.parse(
+      '{"__proto__":{"destination":"a"},"attachments":[{"type":"file","data":"QQ=="}]}',
+    ),
+  );
+  const journal = classifyToolCallJournal([
+    {
+      type: "tool_start",
+      tool: "send-report",
+      id: "call-a",
+      input: first,
+      inputFingerprint: fingerprint,
+      inputStoredFingerprint: toolCallInputFingerprint(first),
+    },
+    {
+      type: "tool_done",
+      tool: "send-report",
+      id: "call-a",
+      input: second,
+      inputFingerprint: fingerprint,
+      inputStoredFingerprint: toolCallInputFingerprint(second),
+      result: "B sent",
+    },
+  ]);
+  expect(journal.completed).toHaveLength(0);
+  expect(journal.interrupted).toHaveLength(1);
+});
+
 describe("classifyToolCallJournal", () => {
   it("classifies one completed and one interrupted tool call", () => {
     const events: AgentChatEvent[] = [
@@ -205,6 +240,10 @@ describe("classifyToolCallJournal", () => {
           attachments: [{ type: "file", omitted: "inline-bytes" }],
         },
         inputFingerprint: fingerprint,
+        inputStoredFingerprint: toolCallInputFingerprint({
+          to: "a@example.com",
+          attachments: [{ type: "file", omitted: "inline-bytes" }],
+        }),
       },
       {
         type: "tool_done",
@@ -215,6 +254,10 @@ describe("classifyToolCallJournal", () => {
           attachments: [{ type: "file", omitted: "inline-bytes" }],
         },
         inputFingerprint: fingerprint,
+        inputStoredFingerprint: toolCallInputFingerprint({
+          to: "b@example.com",
+          attachments: [{ type: "file", omitted: "inline-bytes" }],
+        }),
         result: "B sent",
       },
     ]);
@@ -235,6 +278,9 @@ describe("classifyToolCallJournal", () => {
         id: "call-a",
         input: stripInlineBytes(input, "placeholder"),
         inputFingerprint: toolCallInputFingerprint(input),
+        inputStoredFingerprint: toolCallInputFingerprint(
+          stripInlineBytes(input, "placeholder"),
+        ),
         result: "A sent",
       },
     ]);
@@ -262,6 +308,46 @@ describe("classifyToolCallJournal", () => {
     ]);
     expect(journal.completed).toHaveLength(0);
     expect(journal.interrupted).toHaveLength(2);
+  });
+
+  it("does not choose between concurrent IDless invocations with identical arguments", () => {
+    const input = { to: "a@example.com" };
+    const journal = classifyToolCallJournal([
+      start("sendEmail", input),
+      start("sendEmail", input),
+      done("sendEmail", "sent", { input }),
+    ]);
+    expect(journal.completed).toHaveLength(0);
+    expect(journal.interrupted).toHaveLength(2);
+  });
+
+  it("matches a raw legacy receipt to a fingerprinted stripped start", () => {
+    const input = {
+      to: "a@example.com",
+      attachments: [{ type: "file", data: "QQ==", fileId: "fixture-file" }],
+    };
+    const stored = stripInlineBytes(input, "placeholder");
+    const journal = classifyToolCallJournal([
+      {
+        type: "tool_start",
+        tool: "sendEmail",
+        id: "call-a",
+        input: stored,
+        inputFingerprint: toolCallInputFingerprint(input),
+        inputStoredFingerprint: toolCallInputFingerprint(stored),
+      },
+      {
+        type: "tool_done",
+        tool: "sendEmail",
+        id: "call-a",
+        input,
+        result: "sent",
+      },
+    ]);
+    expect(findCompletedJournalEntry(journal, "sendEmail", input)?.result).toBe(
+      "sent",
+    );
+    expect(journal.interrupted).toHaveLength(0);
   });
 
   it("uses tool_done input to match the correct same-name start when available", () => {

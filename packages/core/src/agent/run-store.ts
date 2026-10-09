@@ -2369,20 +2369,27 @@ export async function getRunAbortState(
   };
 }
 
-function persistedRunEventData(eventData: string): string {
+function persistedRunEventData(
+  eventData: string,
+  inputSource?: "execution",
+): string {
   const stripped = stripInlineBytesFromJson(eventData, "placeholder");
-  if (stripped === eventData) return eventData;
+  if (stripped === eventData && inputSource !== "execution") return eventData;
   const original = JSON.parse(eventData);
   if (
     (original.type !== "tool_start" && original.type !== "tool_done") ||
     original.input === undefined ||
-    isRedactedToolCallInput(original.input)
+    inputSource !== "execution" ||
+    original.inputFingerprint !== undefined ||
+    original.inputStoredFingerprint !== undefined
   )
     return stripped;
-  // Replay identity must survive removal of the attachment bytes from SQL.
+  const stored = JSON.parse(stripped);
+  // Only fresh execution input can establish identity; reserialization cannot recover lost arguments.
   return JSON.stringify({
-    ...JSON.parse(stripped),
+    ...stored,
     inputFingerprint: toolCallInputFingerprint(original.input),
+    inputStoredFingerprint: toolCallInputFingerprint(stored.input),
   });
 }
 
@@ -2390,6 +2397,7 @@ export async function insertRunEvent(
   runId: string,
   seq: number,
   eventData: string,
+  options?: { toolInputSource?: "execution" },
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
@@ -2401,7 +2409,13 @@ export async function insertRunEvent(
         WHERE id = ? AND status <> 'running'
       )
       ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [runId, seq, Date.now(), persistedRunEventData(eventData), runId],
+    args: [
+      runId,
+      seq,
+      Date.now(),
+      persistedRunEventData(eventData, options?.toolInputSource),
+      runId,
+    ],
   });
 }
 
@@ -2855,9 +2869,13 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
         (value.inputFingerprint === undefined ||
           (typeof value.inputFingerprint === "string" &&
             /^[a-f0-9]{64}$/.test(value.inputFingerprint))) &&
+        (value.inputStoredFingerprint === undefined ||
+          (typeof value.inputStoredFingerprint === "string" &&
+            /^[a-f0-9]{64}$/.test(value.inputStoredFingerprint))) &&
         isConsistentToolCallInputFingerprint(
           value.input,
           value.inputFingerprint as string | undefined,
+          value.inputStoredFingerprint as string | undefined,
         ) &&
         (!isRedactedToolCallInput(value.input) ||
           value.inputFingerprint !== undefined) &&
