@@ -1500,7 +1500,9 @@ export function useChatThreads(
         messageCount?: number;
         titleSource?: ThreadTitleSource;
       },
+      context?: { signal?: AbortSignal },
     ): Promise<boolean> => {
+      if (context?.signal?.aborted) return false;
       const scopeEpoch = scopeMutationsRef.current.get(id) ?? 0;
       try {
         const { titleSource, ...threadDataPayload } = data;
@@ -1525,6 +1527,7 @@ export function useChatThreads(
               method: "PUT",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(payload),
+              signal: context?.signal,
             },
           );
         let response = await putThread();
@@ -1539,6 +1542,7 @@ export function useChatThreads(
                 title,
                 ...(knownScope ? { scope: knownScope } : {}),
               }),
+              signal: context?.signal,
             },
           );
           if (!created.ok && created.status !== 409) return false;
@@ -1554,6 +1558,7 @@ export function useChatThreads(
           await new Promise((resolve) =>
             setTimeout(resolve, Math.min(250, 50 * (retry + 1))),
           );
+          if (context?.signal?.aborted) return false;
           response = await putThread();
         }
         if (!response.ok) return false;

@@ -1,5 +1,6 @@
 ---
+"@agent-native/agentkit": patch
 "@agent-native/core": patch
 ---
 
-Expose server-confirmed chat persistence and report save results so the UI can keep unsaved threads distinct and retry failed saves.
+Expose server-confirmed chat persistence, report snapshot save results, and allow canceled persistence requests so the UI can retry failed saves safely.

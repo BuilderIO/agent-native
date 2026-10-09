@@ -19,6 +19,7 @@ import type {
   AgentMessage,
   AgentQueuedMessage,
   AgentRequestAttachment,
+  AgentRequestContext,
   AgentStreamIntegrityReport,
   AgentTransport,
   AgentThreadSnapshot,
@@ -227,9 +228,12 @@ const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const THREAD_HANDOFF_TTL_MS = 60_000;
 const MAX_THREAD_HANDOFF_SNAPSHOTS = 20;
 const MAX_THREAD_SNAPSHOT_SAVE_RETRIES = 3;
+const THREAD_SNAPSHOT_SAVE_TIMEOUT_MS = 30_000;
 const THREAD_SNAPSHOT_SAVE_RETRY_DELAY_MS = 1_000;
 const threadSnapshotPersistenceQueues = new Map<string, Promise<void>>();
 const threadSnapshotSaveQueues = new Map<string, Promise<void>>();
+const latestThreadSnapshotGenerations = new Map<string, number>();
+let threadSnapshotGeneration = 0;
 const DEFERRED_PROVIDER_SUBMISSIONS_VERSION = 1;
 const DEFERRED_PROVIDER_SUBMISSION_CLAIM_TTL_MS = 15 * 60 * 1000;
 const DEFERRED_PROVIDER_SUBMISSION_MAX_RETRIES = 3;
@@ -289,6 +293,65 @@ function enqueueThreadSnapshotSave<T>(
   return operation;
 }
 
+function abortError(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) return signal.reason;
+  const error = new Error("Chat thread snapshot persistence was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
+function runWithAbortSignal<T>(
+  signal: AbortSignal,
+  operation: () => Promise<T> | T,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      callback();
+    };
+    const onAbort = () => finish(() => reject(abortError(signal)));
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+    void Promise.resolve()
+      .then(() => {
+        if (signal.aborted) throw abortError(signal);
+        return operation();
+      })
+      .then(
+        (value) => finish(() => resolve(value)),
+        (error: unknown) => finish(() => reject(error)),
+      );
+  });
+}
+
+function withThreadSnapshotPersistenceTimeout<T>(
+  context: AgentRequestContext | undefined,
+  persist: (context: AgentRequestContext) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(context?.signal?.reason);
+  if (context?.signal?.aborted) abortFromCaller();
+  else
+    context?.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = window.setTimeout(() => {
+    const error = new Error("Chat thread snapshot persistence timed out.");
+    error.name = "TimeoutError";
+    controller.abort(error);
+  }, THREAD_SNAPSHOT_SAVE_TIMEOUT_MS);
+  return runWithAbortSignal(controller.signal, () =>
+    persist({ ...context, signal: controller.signal }),
+  ).finally(() => {
+    window.clearTimeout(timeout);
+    context?.signal?.removeEventListener("abort", abortFromCaller);
+  });
+}
+
 function withSerializedThreadSnapshotPersistence(
   transport: AgentTransport,
   persistenceKeyForThread: (threadId: string) => string,
@@ -307,7 +370,10 @@ function withSerializedThreadSnapshotPersistence(
         ) =>
           enqueueThreadSnapshotPersistence(
             persistenceKeyForThread(args[0].threadId),
-            () => persist.call(target, ...args),
+            () =>
+              withThreadSnapshotPersistenceTimeout(args[1], (context) =>
+                persist.call(target, args[0], context),
+              ),
           );
       }
       const value = Reflect.get(target, property, target);
@@ -1653,6 +1719,11 @@ const AgentKitAssistantChatBody = forwardRef<
     retries: 0,
     exhausted: false,
   });
+  const snapshotGenerationRef = useRef({
+    persistenceKey: "",
+    threadData: null as string | null,
+    generation: 0,
+  });
   const saveSnapshotRef = useRef<() => void>(() => undefined);
   const isUnmountingRef = useRef(false);
   const localSubmissionRef = useRef(false);
@@ -1668,7 +1739,11 @@ const AgentKitAssistantChatBody = forwardRef<
     (snapshot: ReturnType<typeof createAgentKitThreadSnapshot>) => {
       const onSaveThread = props.onSaveThread;
       if (!onSaveThread) return;
-      if (latestThreadDataRef.current !== snapshot.threadData) {
+      const persistenceKey = createAgentKitThreadHandoffKey(props, threadId);
+      if (
+        snapshotGenerationRef.current.persistenceKey !== persistenceKey ||
+        snapshotGenerationRef.current.threadData !== snapshot.threadData
+      ) {
         latestThreadDataRef.current = snapshot.threadData;
         threadSaveRetryRef.current = {
           threadData: snapshot.threadData,
@@ -1679,6 +1754,13 @@ const AgentKitAssistantChatBody = forwardRef<
           window.clearTimeout(retryThreadSaveTimerRef.current);
           retryThreadSaveTimerRef.current = null;
         }
+        const generation = ++threadSnapshotGeneration;
+        snapshotGenerationRef.current = {
+          persistenceKey,
+          threadData: snapshot.threadData,
+          generation,
+        };
+        latestThreadSnapshotGenerations.set(persistenceKey, generation);
       }
       const retry = threadSaveRetryRef.current;
       if (retry.exhausted && retry.threadData === snapshot.threadData) return;
@@ -1689,20 +1771,51 @@ const AgentKitAssistantChatBody = forwardRef<
       if (savingThreadDataRef.current.has(snapshot.threadData)) {
         return;
       }
+      let generation = latestThreadSnapshotGenerations.get(persistenceKey);
+      if (generation === undefined) {
+        generation = ++threadSnapshotGeneration;
+        snapshotGenerationRef.current = {
+          persistenceKey,
+          threadData: snapshot.threadData,
+          generation,
+        };
+        latestThreadSnapshotGenerations.set(persistenceKey, generation);
+      }
       savingThreadDataRef.current.add(snapshot.threadData);
-      const persistenceKey = createAgentKitThreadHandoffKey(props, threadId);
-      let transportSnapshotPersistence: Promise<void> = Promise.resolve();
+      const saveController = new AbortController();
+      const requestContext = { signal: saveController.signal };
+      const saveTimeout = window.setTimeout(() => {
+        const error = new Error("Chat thread snapshot persistence timed out.");
+        error.name = "TimeoutError";
+        saveController.abort(error);
+      }, THREAD_SNAPSHOT_SAVE_TIMEOUT_MS);
+      let transportSnapshotPersistence: Promise<boolean> =
+        Promise.resolve(true);
       if (props.createTransport) {
         transportSnapshotPersistence = Promise.resolve().then(() =>
-          controller.persistThreadSnapshot(
+          controller.persistThreadSnapshotWithResult(
             threadId,
             agentKitMessagesFromThreadSnapshot(snapshot),
+            requestContext,
           ),
         );
       }
 
       const finish = (saved: boolean) => {
         savingThreadDataRef.current.delete(snapshot.threadData);
+        if (
+          latestThreadSnapshotGenerations.get(persistenceKey) !== generation
+        ) {
+          if (
+            latestThreadDataRef.current !== snapshot.threadData &&
+            latestThreadDataRef.current !== lastSavedThreadDataRef.current &&
+            !isUnmountingRef.current &&
+            savingThreadDataRef.current.size === 0
+          ) {
+            saveSnapshotRef.current();
+          }
+          return;
+        }
         if (
           latestThreadDataRef.current !== snapshot.threadData &&
           latestThreadDataRef.current !== lastSavedThreadDataRef.current &&
@@ -1715,7 +1828,7 @@ const AgentKitAssistantChatBody = forwardRef<
         if (saved && latestThreadDataRef.current === snapshot.threadData) {
           lastSavedThreadDataRef.current = snapshot.threadData;
           try {
-            props.onThreadSnapshotPersisted?.(threadId);
+            props.onThreadSnapshotPersisted?.(threadId, snapshot.messageCount);
           } catch (error) {
             console.error(
               "Failed to report the saved chat thread snapshot.",
@@ -1731,6 +1844,7 @@ const AgentKitAssistantChatBody = forwardRef<
             retries: 0,
             exhausted: false,
           };
+          latestThreadSnapshotGenerations.delete(persistenceKey);
         } else if (
           !saved &&
           !isUnmountingRef.current &&
@@ -1746,35 +1860,51 @@ const AgentKitAssistantChatBody = forwardRef<
             retryThreadSaveTimerRef.current = window.setTimeout(
               () => {
                 retryThreadSaveTimerRef.current = null;
-                saveSnapshotRef.current();
+                if (
+                  !isUnmountingRef.current &&
+                  latestThreadSnapshotGenerations.get(persistenceKey) ===
+                    generation
+                ) {
+                  saveSnapshotRef.current();
+                }
               },
               THREAD_SNAPSHOT_SAVE_RETRY_DELAY_MS *
                 2 ** (threadSaveRetryRef.current.retries - 1),
             );
           } else {
             threadSaveRetryRef.current.exhausted = true;
+            latestThreadSnapshotGenerations.delete(persistenceKey);
           }
         }
       };
-      const threadDataSave = enqueueThreadSnapshotSave(persistenceKey, () =>
-        onSaveThread(threadId, snapshot),
-      );
-      void Promise.allSettled([
-        transportSnapshotPersistence,
-        threadDataSave,
-      ]).then(([transportResult, threadDataResult]) => {
-        const saved =
-          transportResult.status === "fulfilled" &&
-          threadDataResult.status === "fulfilled" &&
-          threadDataResult.value !== false;
-        finish(saved);
-        if (transportResult.status === "rejected") {
-          console.error("Failed to persist the chat transport snapshot.");
+      const threadDataSave = enqueueThreadSnapshotSave(persistenceKey, () => {
+        if (
+          latestThreadSnapshotGenerations.get(persistenceKey) !== generation
+        ) {
+          return false;
         }
-        if (threadDataResult.status === "rejected") {
-          console.error("Failed to save the chat thread snapshot.");
-        }
+        return runWithAbortSignal(saveController.signal, () =>
+          onSaveThread(threadId, snapshot, requestContext),
+        );
       });
+      void Promise.allSettled([transportSnapshotPersistence, threadDataSave])
+        .then(([transportResult, threadDataResult]) => {
+          const saved =
+            transportResult.status === "fulfilled" &&
+            transportResult.value !== false &&
+            threadDataResult.status === "fulfilled" &&
+            threadDataResult.value !== false;
+          finish(saved);
+          if (transportResult.status === "rejected") {
+            console.error("Failed to persist the chat transport snapshot.");
+          }
+          if (threadDataResult.status === "rejected") {
+            console.error("Failed to save the chat thread snapshot.");
+          }
+        })
+        .finally(() => {
+          window.clearTimeout(saveTimeout);
+        });
     },
     [
       controller,

@@ -340,6 +340,12 @@ export interface AgentKitController {
     threadId: ThreadId,
     messages?: AgentMessage[],
   ): Promise<void>;
+  /** Persist the current snapshot and report whether the transport saved it. */
+  persistThreadSnapshotWithResult(
+    threadId: ThreadId,
+    messages?: AgentMessage[],
+    context?: AgentRequestContext,
+  ): Promise<boolean>;
   openThread(
     threadId: ThreadId,
     context?: AgentRequestContext,
@@ -4064,19 +4070,34 @@ export class AgentKitClient implements AgentKitController {
     threadId: ThreadId,
     messages?: AgentMessage[],
   ): Promise<void> {
-    const result = await this.persistThreadSnapshotToTransport(
-      threadId,
-      messages,
-    );
-    if (result) {
+    await this.persistThreadSnapshotWithResult(threadId, messages);
+  }
+
+  public async persistThreadSnapshotWithResult(
+    threadId: ThreadId,
+    messages?: AgentMessage[],
+    context?: AgentRequestContext,
+  ): Promise<boolean> {
+    if (!this.transport.persistThreadSnapshot) return false;
+    try {
+      const result = await this.persistThreadSnapshotToTransport(
+        threadId,
+        messages,
+        context,
+      );
+      if (!result) return true;
       this.fail(result.error, "thread_snapshot_persist_failed");
-      throw result.error;
+      return false;
+    } catch (error) {
+      this.fail(error, "thread_snapshot_persist_failed");
+      return false;
     }
   }
 
   private persistThreadSnapshotToTransport(
     threadId: ThreadId,
     messages?: AgentMessage[],
+    context?: AgentRequestContext,
   ): Promise<{ error: unknown } | undefined> {
     const persist = this.transport.persistThreadSnapshot;
     if (!persist) return Promise.resolve(undefined);
@@ -4117,8 +4138,9 @@ export class AgentKitClient implements AgentKitController {
         return messageId ? [{ messageId, widget }] : [];
       }),
     };
-    return this.invokeRequest(this.createRequestContext(), (requestContext) =>
-      persist({ threadId, snapshot }, requestContext),
+    return this.invokeRequest(
+      this.createRequestContext(context),
+      (requestContext) => persist({ threadId, snapshot }, requestContext),
     )
       .then(() => undefined)
       .catch((error) => ({ error }));

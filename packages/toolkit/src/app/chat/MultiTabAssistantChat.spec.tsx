@@ -599,11 +599,16 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       ...snapshot,
       threadData: "",
     });
+    expect(window.location.search).toBe("");
+    await act(async () => {
+      assistantChatMockState.onThreadSnapshotPersisted?.("thread-1", 1);
+    });
     expect(window.location.search).toBe("?thread=thread-1");
 
     const createTransport = (() => ({}) as never) as NonNullable<
       MultiTabAssistantChatProps["createTransport"]
     >;
+    window.history.replaceState(null, "", "/");
     await act(async () => {
       root.render(
         <MultiTabAssistantChat
@@ -623,9 +628,14 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       ...snapshot,
       threadData: "",
     });
+    expect(window.location.search).toBe("");
+    await act(async () => {
+      assistantChatMockState.onThreadSnapshotPersisted?.("thread-1", 1);
+    });
     expect(window.location.search).toBe("?thread=thread-1");
 
     const runtime = {} as NonNullable<MultiTabAssistantChatProps["runtime"]>;
+    window.history.replaceState(null, "", "/");
     await act(async () => {
       root.render(
         <MultiTabAssistantChat
@@ -644,6 +654,10 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith("thread-1", {
       ...snapshot,
       threadData: "",
+    });
+    expect(window.location.search).toBe("");
+    await act(async () => {
+      assistantChatMockState.onThreadSnapshotPersisted?.("thread-1", 1);
     });
     expect(window.location.search).toBe("?thread=thread-1");
   });
@@ -671,6 +685,10 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     await act(async () => {
       await assistantChatMockState.onSaveThread?.("thread-1", snapshot);
+    });
+    expect(window.location.search).toBe("");
+    await act(async () => {
+      assistantChatMockState.onThreadSnapshotPersisted?.("thread-1", 1);
     });
     expect(window.location.search).toBe("?thread=thread-1");
   });
@@ -2198,7 +2216,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(headerProps?.activeTabIsPersisted).toBe(false);
 
     await act(async () => {
-      assistantChatMockState.onThreadSnapshotPersisted?.("thread-new");
+      assistantChatMockState.onThreadSnapshotPersisted?.("thread-new", 1);
     });
     await act(async () => {
       root.render(

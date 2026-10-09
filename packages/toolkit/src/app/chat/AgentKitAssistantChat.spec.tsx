@@ -292,6 +292,36 @@ vi.mock("../agentkit/react/index.js", async () => {
                 }
                 return chatMocks.persistThreadSnapshot(threadId, messages);
               },
+              persistThreadSnapshotWithResult: async (
+                threadId: string,
+                messages?: AgentMessage[],
+                context?: { signal?: AbortSignal },
+              ) => {
+                try {
+                  const persist =
+                    chatMocks.routeControllerPersistenceThroughTransport
+                      ? chatMocks.rootProps?.transport?.persistThreadSnapshot
+                      : undefined;
+                  if (typeof persist === "function") {
+                    await persist(
+                      {
+                        threadId,
+                        snapshot: {
+                          messages: messages ?? [],
+                          events: [],
+                          runs: [],
+                        },
+                      },
+                      context,
+                    );
+                  } else {
+                    await chatMocks.persistThreadSnapshot(threadId, messages);
+                  }
+                  return true;
+                } catch {
+                  return false;
+                }
+              },
               assertAiSetupReady: async () => {
                 const state = await chatMocks.fetchProviderState();
                 if (state === "configured") return;
@@ -881,6 +911,9 @@ beforeEach(() => {
   chatMocks.thinkingDisplay = null;
   chatMocks.requestComposerFocus.mockReset();
   chatMocks.persistThreadSnapshot.mockReset().mockResolvedValue(undefined);
+  chatMocks.transport.persistThreadSnapshot
+    .mockReset()
+    .mockResolvedValue(undefined);
   chatMocks.readiness = {
     canChat: true,
     missing: false,
@@ -1046,6 +1079,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         title: "Summarize @the sprint <context>",
         preview: "Summarize @[the sprint|resource:123] <context>",
       }),
+      expect.objectContaining({ signal: expect.anything() }),
     );
   });
 
@@ -1114,6 +1148,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         title: "Summarize sprint visible continuation",
         preview: "Summarize sprint  visible continuation",
       }),
+      expect.objectContaining({ signal: expect.anything() }),
     );
     expect(savedSnapshots.mock.calls[0]?.[1].preview).not.toContain(
       "ambiguous private",
@@ -5073,6 +5108,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         title: "Keep this transcript visible",
         titleSource: "fallback",
       }),
+      expect.objectContaining({ signal: expect.anything() }),
     );
     const fetch = vi.fn(async () => new Response(null, { status: 404 }));
     const runtime = {
@@ -6487,6 +6523,103 @@ describe("AgentKitAssistantChat host behavior", () => {
     } finally {
       resolveFirstTransport?.();
       await unmount();
+    }
+  });
+
+  it("unblocks both snapshot queues after a hung save times out and retries only the latest snapshot", async () => {
+    const onSaveOrder: string[] = [];
+    const onSaveThread = vi.fn(
+      (_threadId: string, data: { preview: string }) => {
+        onSaveOrder.push(data.preview);
+        return onSaveOrder.length === 1
+          ? new Promise<boolean>(() => undefined)
+          : Promise.resolve(true);
+      },
+    );
+    const transportSaveOrder: string[] = [];
+    chatMocks.transport.persistThreadSnapshot.mockImplementation(
+      (input: { snapshot: { messages: AgentMessage[] } }) => {
+        transportSaveOrder.push(input.snapshot.messages.at(-1)?.id ?? "empty");
+        return transportSaveOrder.length === 1
+          ? new Promise<void>(() => undefined)
+          : Promise.resolve();
+      },
+    );
+    chatMocks.routeControllerPersistenceThroughTransport = true;
+    const createTransport = () => chatMocks.transport;
+    const onThreadSnapshotPersisted = vi.fn();
+    await mount(
+      baseProps({
+        createTransport,
+        onSaveThread,
+        onThreadSnapshotPersisted,
+      }),
+    );
+
+    vi.useFakeTimers();
+    try {
+      const firstMessage = {
+        id: "timeout-first-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Old snapshot" }],
+      } as AgentMessage;
+      chatMocks.thread = { ...chatMocks.thread, messages: [firstMessage] };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({
+              createTransport,
+              onSaveThread,
+              onThreadSnapshotPersisted,
+            })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      const secondMessage = {
+        id: "timeout-latest-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:01:00.000Z",
+        parts: [{ type: "text", text: "Latest snapshot" }],
+      } as AgentMessage;
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        messages: [firstMessage, secondMessage],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({
+              createTransport,
+              onSaveThread,
+              onThreadSnapshotPersisted,
+            })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      expect(onSaveOrder).toEqual(["Old snapshot"]);
+      expect(transportSaveOrder).toEqual(["timeout-first-message"]);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+      });
+
+      expect(onSaveOrder).toEqual(["Old snapshot", "Latest snapshot"]);
+      expect(transportSaveOrder).toEqual([
+        "timeout-first-message",
+        "timeout-latest-message",
+      ]);
+      expect(onThreadSnapshotPersisted).toHaveBeenCalledWith("thread-1", 2);
+    } finally {
+      await act(async () => root.render(null));
+      vi.useRealTimers();
     }
   });
 

@@ -1,4 +1,7 @@
-import type { AgentTransport } from "@agent-native/agentkit/protocol";
+import type {
+  AgentRequestContext,
+  AgentTransport,
+} from "@agent-native/agentkit/protocol";
 import type { AgentChatAttachment } from "@agent-native/core";
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import type { AgentChatContextItem } from "@agent-native/core/client/agent-chat";
@@ -237,9 +240,10 @@ export interface AssistantChatProps {
       messageCount: number;
       titleSource?: "fallback";
     },
+    context?: AgentRequestContext,
   ) => unknown;
   /** Called after both the thread record and its full transport snapshot save. */
-  onThreadSnapshotPersisted?: (threadId: string) => void;
+  onThreadSnapshotPersisted?: (threadId: string, messageCount: number) => void;
   /** Callback to generate a title from the first user message, on the model it was sent with */
   onGenerateTitle?: (
     threadId: string,

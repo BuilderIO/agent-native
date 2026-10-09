@@ -756,6 +756,58 @@ describe("useChatThreads", () => {
     ).resolves.toBe(true);
   });
 
+  it("aborts an in-flight thread save when its request context is canceled", async () => {
+    let requestSignal: AbortSignal | null | undefined;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return Promise.resolve(jsonResponse({ threads: [] }));
+      }
+      if (url === "/chat/threads/canceled-thread" && init?.method === "PUT") {
+        requestSignal = init.signal;
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason),
+            { once: true },
+          );
+        });
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "save-cancel", null, {
+        autoCreate: false,
+        restoreActiveThread: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const controller = new AbortController();
+    const saving = hook!.saveThreadData(
+      "canceled-thread",
+      {
+        threadData: "{}",
+        title: "Canceled save",
+        preview: "abort this request",
+        messageCount: 1,
+      },
+      { signal: controller.signal },
+    );
+    await vi.waitFor(() => expect(requestSignal).toBe(controller.signal));
+    controller.abort(new Error("The chat snapshot timed out."));
+
+    await expect(saving).resolves.toBe(false);
+  });
+
   it("loads older chat history pages into All Chats", async () => {
     const firstPage: ChatThreadSummary[] = Array.from(
       { length: 50 },

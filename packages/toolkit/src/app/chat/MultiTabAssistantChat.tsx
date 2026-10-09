@@ -1178,10 +1178,21 @@ export function MultiTabAssistantChat({
   const [pageOverlayScrolled, setPageOverlayScrolled] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
   const [, setThreadPersistenceVersion] = useState(0);
-  const handleThreadSnapshotPersisted = useCallback((threadId: string) => {
-    if (!newThreadIds.current.delete(threadId)) return;
-    setThreadPersistenceVersion((version) => version + 1);
-  }, []);
+  const handleThreadSnapshotPersisted = useCallback(
+    (threadId: string, messageCount: number) => {
+      if (newThreadIds.current.delete(threadId)) {
+        setThreadPersistenceVersion((version) => version + 1);
+      }
+      if (
+        messageCount > 0 &&
+        threadId === activeThreadIdRef.current &&
+        urlThreadIdRef.current !== threadId
+      ) {
+        writeThreadUrl(threadId);
+      }
+    },
+    [writeThreadUrl],
+  );
   const latestOpenThreadRequestRef = useRef(0);
 
   useEffect(() => {
@@ -2855,8 +2866,14 @@ export function MultiTabAssistantChat({
   }, [chatCommandVersion, switchThread]);
 
   const saveThreadDataForTab = useCallback(
-    async (threadId: string, data: Parameters<typeof saveThreadData>[1]) => {
-      const saved = await saveThreadData(threadId, data);
+    async (
+      threadId: string,
+      data: Parameters<typeof saveThreadData>[1],
+      context?: { signal?: AbortSignal },
+    ) => {
+      const saved = context
+        ? await saveThreadData(threadId, data, context)
+        : await saveThreadData(threadId, data);
       if (saved && data.threadData !== "")
         newThreadIds.current.delete(threadId);
       return saved;
@@ -2894,23 +2911,18 @@ export function MultiTabAssistantChat({
         messageCount: number;
         titleSource?: "fallback";
       },
+      context?: { signal?: AbortSignal },
     ): Promise<boolean> => {
-      return saveThreadDataForTab(threadId, {
-        ...data,
-        threadData: "",
-      }).then((saved) => {
-        if (
-          saved &&
-          data.messageCount > 0 &&
-          threadId === activeThreadIdRef.current &&
-          urlThreadIdRef.current !== threadId
-        ) {
-          writeThreadUrl(threadId);
-        }
-        return saved;
-      });
+      return saveThreadDataForTab(
+        threadId,
+        {
+          ...data,
+          threadData: "",
+        },
+        context,
+      );
     },
-    [saveThreadDataForTab, writeThreadUrl],
+    [saveThreadDataForTab],
   );
 
   // ─── Slash command handler ──────────────────────────────────────────

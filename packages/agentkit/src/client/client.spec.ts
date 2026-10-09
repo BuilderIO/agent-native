@@ -3191,22 +3191,68 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
-  it("rejects explicit snapshot persistence when the transport fails", async () => {
+  it("reports snapshot persistence failures without rejecting the legacy API", async () => {
     const transport = createTransport([]);
     transport.persistThreadSnapshot = async () => {
       throw new Error("History storage is unavailable.");
     };
     const client = new AgentKitClient({ transport });
 
-    await expect(client.persistThreadSnapshot("thread-1")).rejects.toThrow(
-      "History storage is unavailable.",
-    );
+    await expect(
+      client.persistThreadSnapshotWithResult("thread-1"),
+    ).resolves.toBe(false);
+    await expect(
+      client.persistThreadSnapshot("thread-1"),
+    ).resolves.toBeUndefined();
     expect(client.getSnapshot()).toMatchObject({
       connection: "error",
       error: {
         code: "thread_snapshot_persist_failed",
         message: "History storage is unavailable.",
       },
+    });
+    await client.shutdown();
+  });
+
+  it("passes snapshot cancellation to the transport and reports the abort", async () => {
+    let transportSignal: AbortSignal | undefined;
+    const persistThreadSnapshot = vi.fn(
+      (_input: unknown, context?: { signal?: AbortSignal }) =>
+        new Promise<void>((_resolve, reject) => {
+          transportSignal = context?.signal;
+          transportSignal?.addEventListener(
+            "abort",
+            () => reject(transportSignal?.reason),
+            { once: true },
+          );
+        }),
+    );
+    const transport = createTransport([]);
+    transport.persistThreadSnapshot = persistThreadSnapshot;
+    const client = new AgentKitClient({ transport });
+    const abortController = new AbortController();
+
+    const saving = client.persistThreadSnapshotWithResult(
+      "thread-1",
+      undefined,
+      {
+        signal: abortController.signal,
+      },
+    );
+    await vi.waitFor(() =>
+      expect(persistThreadSnapshot).toHaveBeenCalledOnce(),
+    );
+    abortController.abort();
+
+    await expect(saving).resolves.toBe(false);
+    expect(persistThreadSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: "thread-1" }),
+      expect.objectContaining({ signal: expect.anything() }),
+    );
+    expect(transportSignal?.aborted).toBe(true);
+    expect(client.getSnapshot()).toMatchObject({
+      connection: "error",
+      error: { code: "request_aborted" },
     });
     await client.shutdown();
   });

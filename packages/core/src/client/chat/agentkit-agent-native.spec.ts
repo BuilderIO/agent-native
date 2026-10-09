@@ -100,6 +100,83 @@ describe("createAgentNativeAgentKitTransport", () => {
     }
   });
 
+  it("propagates snapshot cancellation and does not retry after abort", async () => {
+    const threadId = "cancelled-snapshot";
+    const calls: Array<{ method: string; init?: RequestInit }> = [];
+    let threadReads = 0;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        calls.push({ method, init });
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          threadReads += 1;
+          return threadReads === 1
+            ? json({ error: "Not found" }, 404)
+            : json({
+                id: threadId,
+                threadData: JSON.stringify({ messages: [] }),
+              });
+        }
+        if (url.endsWith("/threads") && method === "POST") {
+          return json({ error: "Already exists" }, 409);
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(init.signal?.reason),
+              { once: true },
+            );
+          });
+        }
+        return json({ error: "Unexpected request" }, 500);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+    const abortController = new AbortController();
+
+    try {
+      const persistence = transport.persistThreadSnapshot?.(
+        {
+          threadId,
+          snapshot: {
+            id: threadId,
+            createdAt: "2026-10-01T00:00:00.000Z",
+            updatedAt: "2026-10-01T00:00:01.000Z",
+            messages: [
+              {
+                id: "user-message",
+                role: "user",
+                parts: [{ type: "text", text: "Save this message" }],
+              },
+            ],
+          },
+        },
+        { signal: abortController.signal },
+      );
+      await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
+      abortController.abort();
+
+      await expect(persistence).rejects.toMatchObject({ name: "AbortError" });
+      expect(calls.map(({ method }) => method)).toEqual([
+        "GET",
+        "POST",
+        "GET",
+        "PUT",
+      ]);
+      expect(
+        calls.every(({ init }) => init?.signal === abortController.signal),
+      ).toBe(true);
+    } finally {
+      abortController.abort();
+      await transport.dispose();
+    }
+  });
+
   it("uses the transport engine when checking AI readiness", async () => {
     resetAgentEngineReadinessForTests();
     const localFetch = vi.fn(async () => json({ chatEligible: true }));
