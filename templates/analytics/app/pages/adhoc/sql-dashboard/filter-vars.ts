@@ -13,6 +13,7 @@ const FILTER_TYPES: DashboardFilter["type"][] = [
   "date",
   "date-range",
   "select",
+  "multi-select",
   "toggle",
   "text",
   "toggle-date",

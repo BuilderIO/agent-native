@@ -374,3 +374,54 @@ describe("resolveFilterVars", () => {
     expect(resolveFilterVars(filters, noParams).q).toBe("30d");
   });
 });
+
+describe("multi-select filters", () => {
+  const tier: DashboardFilter = {
+    id: "tier",
+    label: "Tier",
+    type: "multi-select",
+    options: [
+      { value: "free", label: "Free" },
+      { value: "self_serve", label: "Self-Serve" },
+      { value: "enterprise", label: "Enterprise" },
+    ],
+  };
+
+  it("keeps the comma-joined selection from the URL param or default", () => {
+    const fromUrl = (key: string) => (key === "tier" ? "free,self_serve" : "");
+    expect(resolveFilterVars([tier], fromUrl).tier).toBe("free,self_serve");
+    expect(
+      resolveFilterVars([{ ...tier, default: "enterprise" }], noParams).tier,
+    ).toBe("enterprise");
+  });
+
+  it("expands the list placeholder into one quoted literal per selected value", () => {
+    expect(
+      interpolate("WHERE tier IN ({{tier:list}})", { tier: "free,self_serve" }),
+    ).toBe("WHERE tier IN ('free', 'self_serve')");
+  });
+
+  it("drops a clause guarded by the conditional when nothing is selected", () => {
+    const sql = "SELECT 1{{?tier}} WHERE tier IN ({{tier:list}}){{/tier}}";
+    expect(interpolate(sql, { tier: "" })).toBe("SELECT 1");
+    expect(interpolate(sql, { tier: "free" })).toBe(
+      "SELECT 1 WHERE tier IN ('free')",
+    );
+  });
+
+  it("fails loudly for an unguarded list with no selection", () => {
+    expect(interpolate("WHERE tier IN ({{tier:list}})", { tier: "" })).toBe(
+      "WHERE tier IN (__empty_list_filter__)",
+    );
+  });
+
+  it("uses GoogleSQL escapes for each item on BigQuery panels", () => {
+    expect(
+      interpolateDashboardPanelSql(
+        "WHERE plan IN ({{plan:list}})",
+        { plan: "o'brien,pro" },
+        { source: "bigquery" },
+      ),
+    ).toBe(String.raw`WHERE plan IN ('o\'brien', 'pro')`);
+  });
+});

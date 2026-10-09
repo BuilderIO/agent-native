@@ -25,6 +25,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -445,6 +450,61 @@ function FilterControl({
       );
     }
     return selectControl;
+  }
+
+  if (filter.type === "multi-select") {
+    // Values are comma-joined in the URL, so option values must not contain ",".
+    const selected = (vars[filter.id] || "").split(",").filter(Boolean);
+    const selectedLabels = (filter.options ?? [])
+      .filter((opt) => selected.includes(opt.value))
+      .map((opt) => opt.label);
+    return (
+      <div className="flex flex-col gap-1">
+        <label className="text-xs text-muted-foreground font-medium">
+          {filter.label}
+        </label>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-[160px] justify-start text-xs font-normal"
+            >
+              <span className="min-w-0 truncate">
+                {selectedLabels.length > 0
+                  ? selectedLabels.join(", ")
+                  : t("sqlDashboard.allValues")}
+              </span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-[200px] p-1">
+            {filter.options?.map((opt) => (
+              <label
+                key={opt.value}
+                className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-xs hover:bg-accent"
+              >
+                <Checkbox
+                  checked={selected.includes(opt.value)}
+                  onCheckedChange={(checked) =>
+                    setValue({
+                      [filter.id]: (filter.options ?? [])
+                        .filter((o) =>
+                          o.value === opt.value
+                            ? checked === true
+                            : selected.includes(o.value),
+                        )
+                        .map((o) => o.value)
+                        .join(","),
+                    })
+                  }
+                />
+                {opt.label}
+              </label>
+            ))}
+          </PopoverContent>
+        </Popover>
+      </div>
+    );
   }
 
   if (filter.type === "toggle") {
