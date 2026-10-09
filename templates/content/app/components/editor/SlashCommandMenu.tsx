@@ -1635,6 +1635,7 @@ export function SlashCommandMenu({
             >
               <PromptComposer
                 autoFocus
+                requireAgentEngine
                 disabled={isGenerating}
                 placeholder={t("editor.describeWhatToGenerate")}
                 draftScope={`content:generate:${documentId ?? "document"}`}

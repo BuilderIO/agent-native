@@ -31,6 +31,10 @@ const threadStoreMocks = vi.hoisted(() => ({
   updateThreadData: vi.fn(),
 }));
 
+const setupGateMocks = vi.hoisted(() => ({
+  requireAgentChatAiSetup: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+
 const handlerHarness = vi.hoisted(() => ({
   options: [] as Array<{
     actions: Record<string, unknown>;
@@ -128,6 +132,12 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
       threadStoreMocks.updateThreadData(...args),
   };
 });
+
+vi.mock("./agent-chat-ai-setup.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./agent-chat-ai-setup.js")>()),
+  requireAgentChatAiSetup: (...args: unknown[]) =>
+    setupGateMocks.requireAgentChatAiSetup(...args),
+}));
 
 import {
   createAgentChatPlugin,
@@ -437,6 +447,41 @@ describe("agent chat queued-message route", () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "Invalid queue mutation" });
+    expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+  });
+
+  it("requires AI setup before claiming a queued prompt for dispatch", async () => {
+    const h3App = await mountResourceRoutes();
+    const setupRequired = Object.assign(new Error("Connect AI first"), {
+      statusCode: 403,
+      data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+    });
+    setupGateMocks.requireAgentChatAiSetup.mockRejectedValueOnce(setupRequired);
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: "thread-claim-gate",
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/thread-claim-gate/queued",
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: {
+            type: "claim",
+            messageId: "queued-claim-gate",
+            claimId: "claim-gate",
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(403);
+    expect(setupGateMocks.requireAgentChatAiSetup).toHaveBeenCalledOnce();
     expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
   });
 

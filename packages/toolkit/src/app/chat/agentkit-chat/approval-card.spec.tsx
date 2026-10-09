@@ -71,6 +71,7 @@ function createTransport(
     async startRun() {
       return { runId: "revised-run" };
     },
+    async assertAiSetupReady() {},
     async *subscribeToRun() {},
     async cancelRun() {},
     async resolveApproval() {},

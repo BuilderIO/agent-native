@@ -60,6 +60,11 @@ function keysFromUrl(url: string): string[] {
     .map(decodeURIComponent);
 }
 
+function isApplicationStateRequest(input: RequestInfo | URL): boolean {
+  const url = String(input);
+  return url.includes(STATE_PREFIX) || url.includes(BATCH_PREFIX);
+}
+
 function readResponse(url: string, lookup: (key: string) => string): Response {
   const values: Record<string, unknown> = {};
   const missing: string[] = [];
@@ -122,7 +127,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     let latest: HookResult | null = null;
     function Harness() {
       latest = useGuidedQuestionFlow({
-        providerStatusChecksEnabled: false,
         ...options,
       });
       return null;
@@ -295,19 +299,28 @@ describe("useGuidedQuestionFlow scoped reads", () => {
 
   it("refetches on a key-specific DB-sync wakeup without fixed polling", async () => {
     let hasQuestion = false;
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
-      readResponse(String(input), () =>
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (!isApplicationStateRequest(input)) {
+        return new Response(JSON.stringify({ chatEligible: true }), {
+          status: 200,
+        });
+      }
+      return readResponse(String(input), () =>
         hasQuestion ? JSON.stringify(payload) : "",
-      ),
-    );
+      );
+    });
     vi.stubGlobal("fetch", fetchMock);
+    const applicationStateReads = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        isApplicationStateRequest(input),
+      );
 
     const result = await renderFlow({
       stateKey: "guided-questions-refresh",
       queryKey: ["guided-questions-refresh"],
     });
     expect(result.current().questions).toBeNull();
-    const initialReads = fetchMock.mock.calls.length;
+    const initialReads = applicationStateReads().length;
 
     hasQuestion = true;
     await act(async () => {
@@ -319,7 +332,7 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     }
 
     expect(result.current().questions?.length).toBe(1);
-    expect(fetchMock.mock.calls.length).toBe(initialReads + 1);
+    expect(applicationStateReads()).toHaveLength(initialReads + 1);
   });
 
   it("confirms a question written after the caller's own trigger, without a DB-sync wakeup", async () => {
@@ -357,6 +370,13 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     let reads = 0;
     let resolveRefresh: (() => void) | null = null;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (!isApplicationStateRequest(input)) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ chatEligible: true }), {
+            status: 200,
+          }),
+        );
+      }
       reads += 1;
       const body = () =>
         readResponse(String(input), () => JSON.stringify(payload));
@@ -448,7 +468,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     let latest: HookResult | null = null;
     function Harness() {
       const flow = useGuidedQuestionFlow({
-        providerStatusChecksEnabled: false,
         stateKey: "guided-questions",
         queryKey: ["guided-questions"],
         refetchInterval: false,
@@ -584,7 +603,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     const result = await renderFlow({
       stateKey: "guided-questions",
       queryKey: ["guided-questions"],
-      providerStatusChecksEnabled: true,
       providerStatus: "missing",
       refetchInterval: false,
     });
@@ -611,7 +629,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     const result = await renderFlow({
       stateKey: "guided-questions",
       queryKey: ["guided-questions"],
-      providerStatusChecksEnabled: true,
       providerStatus: "missing",
       refetchInterval: false,
     });

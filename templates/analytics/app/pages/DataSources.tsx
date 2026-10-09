@@ -1645,6 +1645,7 @@ function AddDataSourceCTA() {
         </p>
         <PromptComposer
           autoFocus
+          requireAgentEngine
           disabled={isGenerating}
           placeholder={t("dataSources.addDataSourcePlaceholder")}
           draftScope="analytics:add-data-source"

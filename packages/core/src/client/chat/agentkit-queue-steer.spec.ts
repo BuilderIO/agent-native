@@ -1,6 +1,7 @@
 import { AgentKitClient } from "@agent-native/agentkit/client";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetAgentEngineReadinessForTests } from "../agent-engine-readiness.js";
 import { createAgentNativeAgentKitTransport } from "./agentkit-agent-native.js";
 import type { AgentChatRuntime } from "./runtime.js";
 
@@ -9,6 +10,10 @@ const runStateMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../use-agent-chat-running-threads.js", () => runStateMocks);
+
+beforeEach(() => {
+  resetAgentEngineReadinessForTests();
+});
 
 function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -206,6 +211,12 @@ describe("AgentKit queued steering", () => {
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
         const method = String(init?.method ?? "GET").toUpperCase();
+        if (
+          new URL(url, "http://localhost").pathname ===
+          "/_agent-native/agent-engine/status"
+        ) {
+          return json({ configured: true, chatEligible: true });
+        }
         if (url.startsWith(`${apiUrl}/runs/active?`)) {
           activeReads.push(active);
           return json({
@@ -551,6 +562,12 @@ describe("AgentKit queued steering", () => {
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
         const method = String(init?.method ?? "GET").toUpperCase();
+        if (
+          new URL(url, "http://localhost").pathname ===
+          "/_agent-native/agent-engine/status"
+        ) {
+          return json({ configured: true, chatEligible: true });
+        }
         if (url === apiUrl && method === "POST") {
           starts += 1;
           return json(
