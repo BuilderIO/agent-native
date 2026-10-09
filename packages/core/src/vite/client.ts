@@ -4832,8 +4832,6 @@ function createAgentNativeConfig(
   const forcePollingWatch = process.env.CHOKIDAR_USEPOLLING === "1";
   const pollingWatchInterval = Number(process.env.CHOKIDAR_INTERVAL ?? 1000);
   const userWatch = userConfig.server?.watch ?? {};
-  // Vite merges this config into the app's own and concatenates arrays, so
-  // re-emitting the app's Rolldown options would apply its plugins twice.
   const {
     rollupOptions: _buildRollupOptionsAlias,
     rolldownOptions: _buildRolldownOptions,
@@ -4982,10 +4980,6 @@ function createAgentNativeConfig(
     },
     build: {
       ...userBuild,
-      // Named imports from side-effect-free barrels such as @tabler/icons-react
-      // otherwise make Rolldown parse every re-exported module (6k+ icons) in
-      // both the client and SSR builds before tree-shaking drops them. Only
-      // Vite 8 reads build.rolldownOptions; Vite 7 ignores it.
       rolldownOptions: {
         experimental: {
           lazyBarrel:
