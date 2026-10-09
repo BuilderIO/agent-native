@@ -353,7 +353,7 @@ describe("ChatGPT directory template profiles", () => {
       const resourceUri = "ui://design/shell-v69";
       const resourceIds = {
         designId: "design-123",
-        designResourceType: "design",
+        resourceType: "design",
       };
       const profileWriteArguments =
         designProfile.widgetWriteActionArguments ?? {};

@@ -42,7 +42,7 @@ describe("Design ChatGPT directory widget targets", () => {
     expect(target).toMatchObject({
       targetPath:
         "/design/design-1?editorView=overview&screen=screen%2Fdesktop",
-      resourceIds: { designId: "design-1", designResourceType: "design" },
+      resourceIds: { designId: "design-1", resourceType: "design" },
     });
     expect(target?.writeActions).toHaveLength(6);
     expect(target?.writeActions).toEqual(
@@ -60,7 +60,7 @@ describe("Design ChatGPT directory widget targets", () => {
   it("scopes the Share dialog reads and writes to the widget design", () => {
     expect(CHATGPT_DIRECTORY_PROFILE.widgetReadActionArguments).toMatchObject({
       "list-resource-shares": {
-        resourceType: "designResourceType",
+        resourceType: "resourceType",
         resourceId: "designId",
       },
     });
@@ -76,13 +76,13 @@ describe("Design ChatGPT directory widget targets", () => {
     expect(
       CHATGPT_DIRECTORY_PROFILE.widgetWriteActionArguments["share-resource"],
     ).toMatchObject({
-      resourceType: "designResourceType",
+      resourceType: "resourceType",
       resourceId: "designId",
     });
     expect(
       CHATGPT_DIRECTORY_PROFILE.widgetWriteActionArguments["unshare-resource"],
     ).toMatchObject({
-      resourceType: "designResourceType",
+      resourceType: "resourceType",
       resourceId: "designId",
     });
     expect(
@@ -90,7 +90,7 @@ describe("Design ChatGPT directory widget targets", () => {
         "set-resource-visibility"
       ],
     ).toMatchObject({
-      resourceType: "designResourceType",
+      resourceType: "resourceType",
       resourceId: "designId",
     });
   });
@@ -107,7 +107,7 @@ describe("Design ChatGPT directory widget targets", () => {
     );
     expect(target?.resourceIds).toEqual({
       designId: "design-1",
-      designResourceType: "design",
+      resourceType: "design",
     });
     expect(target?.writeActions).toEqual([
       "update-design",

@@ -29,7 +29,7 @@ const DESIGN_WIDGET_WRITE_ACTIONS = [
 function designWidgetTarget(designId: string, targetPath?: string) {
   return {
     targetPath: targetPath ?? `/design/${encodeURIComponent(designId)}`,
-    resourceIds: { designId, designResourceType: "design" },
+    resourceIds: { designId, resourceType: "design" },
     writeActions: DESIGN_WIDGET_WRITE_ACTIONS,
   };
 }
@@ -138,7 +138,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     "get-design-snapshot": { designId: "designId" },
     "get-design": { id: "designId" },
     "list-resource-shares": {
-      resourceType: "designResourceType",
+      resourceType: "resourceType",
       resourceId: "designId",
     },
   },
@@ -169,7 +169,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       operationRevision: { type: "actionSchema" as const },
     },
     "share-resource": {
-      resourceType: "designResourceType",
+      resourceType: "resourceType",
       resourceId: "designId",
       principalType: { type: "actionSchema" as const },
       principalId: { type: "actionSchema" as const },
@@ -179,13 +179,13 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       message: { type: "actionSchema" as const },
     },
     "unshare-resource": {
-      resourceType: "designResourceType",
+      resourceType: "resourceType",
       resourceId: "designId",
       principalType: { type: "actionSchema" as const },
       principalId: { type: "actionSchema" as const },
     },
     "set-resource-visibility": {
-      resourceType: "designResourceType",
+      resourceType: "resourceType",
       resourceId: "designId",
       visibility: { type: "actionSchema" as const },
     },
