@@ -1299,12 +1299,34 @@ async function runMobileImportStatusRegression(page: Page, base: string) {
   try {
     await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
     await ensureSignedIn(page);
-    if ((await page.getByRole("status").count()) === 0) {
+    await page.getByRole("button", { name: "Import" }).waitFor({
+      state: "visible",
+      timeout: 10_000,
+    });
+    await page.getByRole("status").first().waitFor({
+      state: "visible",
+      timeout: 10_000,
+    });
+    await page.setViewportSize({ width: 375, height: 812 });
+    const idleStatus = page.locator(
+      ".slides-home-mobile-toolbar .slides-home-import-status",
+    );
+    await idleStatus.waitFor({ state: "attached", timeout: 10_000 });
+    const idleStatusLayout = await idleStatus.evaluate((element: Element) => {
+      const style = getComputedStyle(element);
+      return {
+        position: style.position,
+        width: element.getBoundingClientRect().width,
+      };
+    });
+    if (
+      idleStatusLayout.position !== "absolute" ||
+      idleStatusLayout.width > 1
+    ) {
       problems.push(
-        "desktop import live region was missing from the accessibility tree",
+        "empty mobile live region took space beside the import button",
       );
     }
-    await page.setViewportSize({ width: 375, height: 812 });
     const fileChooser = page.waitForEvent("filechooser");
     await page.getByRole("button", { name: "Import" }).click();
     await page.getByRole("menuitem", { name: "PPT" }).click();
@@ -1333,6 +1355,26 @@ async function runMobileImportStatusRegression(page: Page, base: string) {
     }
     if (statusVisible && (await status.innerText()) !== "Importing...") {
       problems.push("mobile import status did not show Importing...");
+    }
+    if (statusVisible) {
+      const visibleStatusLayout = await status.evaluate((element: Element) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return {
+          position: style.position,
+          clip: style.clip,
+          width: rect.width,
+          height: rect.height,
+        };
+      });
+      if (
+        visibleStatusLayout.position === "absolute" ||
+        visibleStatusLayout.clip !== "auto" ||
+        visibleStatusLayout.width <= 1 ||
+        visibleStatusLayout.height <= 1
+      ) {
+        problems.push("mobile import status remained visually clipped");
+      }
     }
     if (
       await page
@@ -1404,9 +1446,6 @@ async function runMobileImportStatusRegression(page: Page, base: string) {
       problems.push(
         "imported deck editor did not load after successful import",
       );
-    }
-    if (await status.isVisible()) {
-      problems.push("mobile import status remained after successful import");
     }
     return problems;
   } finally {
@@ -6712,7 +6751,7 @@ async function main() {
         return 1;
       }
       console.log(
-        "[edit-fidelity] mobile PowerPoint import status stayed visible while pending and cleared after successful import",
+        "[edit-fidelity] mobile PowerPoint import status stayed visible while pending and the successful result opened its deck",
       );
       return 0;
     }

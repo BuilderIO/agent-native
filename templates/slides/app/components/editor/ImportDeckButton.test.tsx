@@ -138,7 +138,7 @@ describe("toolbar deck import", () => {
     expect(onImport).not.toHaveBeenCalled();
     expect(screen.queryByRole("alert")).toBeNull();
   });
-  it("shows an accessible pending status while importing a presentation", async () => {
+  it("announces an accessible pending status and clears it after a successful import", async () => {
     let resolveImport!: (result: boolean) => void;
     const onImport = vi.fn(
       () =>

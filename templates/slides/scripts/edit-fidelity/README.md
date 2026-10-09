@@ -40,8 +40,8 @@ pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
 ```
 
 Run the Chromium mobile PowerPoint import status check. It holds the local file
-upload while checking the real mobile stylesheet, then releases the request to
-verify the pending status clears:
+upload while checking the real mobile stylesheet, then verifies that a
+successful import opens its deck:
 
 ```bash
 pnpm exec tsx scripts/edit-fidelity/run.ts --mobile-import-status
