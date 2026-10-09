@@ -246,6 +246,45 @@ describe("createPollEngine", () => {
     engine.stop();
   });
 
+  it("reports a restart waiting on an abort-ignoring attempt and resumes after it settles", async () => {
+    const onError = vi.fn();
+    let resolveFirst: (() => void) | undefined;
+    const attempt = vi
+      .fn()
+      .mockImplementationOnce(
+        () => new Promise<void>((resolve) => (resolveFirst = resolve)),
+      )
+      .mockResolvedValue(undefined);
+    const engine = createPollEngine(attempt, {
+      intervalMs: 1000,
+      onError,
+    });
+    engine.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(attempt).toHaveBeenCalledTimes(1);
+
+    engine.stop();
+    engine.start();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(attempt).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message:
+          "poll attempt is still in flight after stop; restart is waiting for it to settle",
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(attempt).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    resolveFirst?.();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(attempt).toHaveBeenCalledTimes(2);
+    engine.stop();
+  });
+
   it("holds the in-flight slot past the timeout until the attempt settles", async () => {
     const onError = vi.fn();
     let resolveFirst: (() => void) | undefined;

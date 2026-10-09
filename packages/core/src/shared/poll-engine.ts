@@ -49,6 +49,7 @@ export function createPollEngine(
   let timer: ReturnType<typeof setTimeout> | null = null;
   let activeController: AbortController | null = null;
   let activeStopRequested = false;
+  let inFlightReport: ((err: unknown) => void) | null = null;
 
   function clearTimer(): void {
     if (timer != null) {
@@ -69,6 +70,13 @@ export function createPollEngine(
   async function tick(gen: number): Promise<void> {
     if (gen !== generation || !running) return;
     if (inFlight) {
+      if (activeStopRequested) {
+        inFlightReport?.(
+          new Error(
+            "poll attempt is still in flight after stop; restart is waiting for it to settle",
+          ),
+        );
+      }
       schedule(gen);
       return;
     }
@@ -86,6 +94,7 @@ export function createPollEngine(
       reported = true;
       onError(err);
     };
+    inFlightReport = report;
 
     // The attempt is retained separately from the timeout race below. The
     // timeout reports a slow attempt immediately, but the in-flight slot is
@@ -93,8 +102,9 @@ export function createPollEngine(
     // timeout would let the next tick start while an attempt that ignores
     // `signal` is still doing work, which is the overlap (duplicate external
     // requests, racing writes) this engine exists to prevent. An attempt that
-    // never settles blocks further attempts by design — `onError` has already
-    // fired, so it is loud rather than silent.
+    // never settles blocks further attempts by design. A timeout reports it;
+    // after stop(), a restarted engine reports it when a later tick still sees
+    // the attempt in flight.
     const settled = Promise.resolve()
       .then(() => attempt(controller.signal))
       .then(
@@ -138,6 +148,7 @@ export function createPollEngine(
       await settled;
       clearTimeout(abortTimer);
       if (activeController === controller) activeController = null;
+      if (inFlightReport === report) inFlightReport = null;
       inFlight = false;
       if (gen === generation && running) schedule(gen);
     }
@@ -149,7 +160,7 @@ export function createPollEngine(
       running = true;
       generation++;
       const gen = generation;
-      if (leading) void tick(gen);
+      if (leading && !inFlight) void tick(gen);
       else schedule(gen);
     },
     stop(): void {
