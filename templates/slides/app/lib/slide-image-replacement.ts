@@ -295,7 +295,8 @@ export function captureCropTransitionAnimations(
 export function restoreCropTransitionAnimations(
   root: HTMLElement,
   transfers: CropAnimationTransfer[],
-): void {
+): boolean {
+  let restored = true;
   for (const transfer of transfers) {
     const frame = Array.from(
       root.querySelectorAll<HTMLElement>(
@@ -327,7 +328,10 @@ export function restoreCropTransitionAnimations(
             "animationName" in candidate &&
             candidate.animationName === transfer.animationName,
         )[transfer.occurrence];
-      if (!animation) continue;
+      if (!animation) {
+        restored = false;
+        continue;
+      }
       animation.playbackRate = transfer.playbackRate;
       if (transfer.playState === "paused") animation.pause();
       if (transfer.currentTime !== null)
@@ -384,11 +388,13 @@ export function restoreCropTransitionAnimations(
         restoreStyle();
       }, restoreStyle);
     } catch {
+      restored = false;
       restoreStyle();
     } finally {
       transfer.animation.cancel();
     }
   }
+  return restored;
 }
 
 interface ReplaceOptions {

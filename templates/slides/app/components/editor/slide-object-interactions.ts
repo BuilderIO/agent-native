@@ -2978,6 +2978,10 @@ function moveSlideObjectTransform(
       referencedCustomProperties.add(match[1]);
     }
   }
+  const copiedFrameTransformValues = Array.from(
+    frameTransformDeclarations.values(),
+    ({ value }) => value,
+  );
   let foundCustomProperty = true;
   while (foundCustomProperty) {
     foundCustomProperty = false;
@@ -3007,40 +3011,48 @@ function moveSlideObjectTransform(
         ),
       )
     : [];
-  const frameUsesFontRelativeLength = [
-    ...activeFrameProperties,
-    ...referencedCustomProperties,
-  ].some((property) => {
-    if (FONT_RELATIVE_LENGTH.test(computed.getPropertyValue(property))) {
-      return true;
-    }
-    return plans.some(
-      (plan) =>
-        keyframes.get(plan)!.has(property) &&
-        animationKeyframeValues(
-          plan.animation,
-          property,
-          authoredByPlan.get(plan)!,
-        ).some((value) => FONT_RELATIVE_LENGTH.test(value)),
+  const frameUsesFontRelativeLength =
+    [...activeFrameProperties, ...referencedCustomProperties].some(
+      (property) => {
+        if (FONT_RELATIVE_LENGTH.test(computed.getPropertyValue(property))) {
+          return true;
+        }
+        return plans.some(
+          (plan) =>
+            keyframes.get(plan)!.has(property) &&
+            animationKeyframeValues(
+              plan.animation,
+              property,
+              authoredByPlan.get(plan)!,
+            ).some((value) => FONT_RELATIVE_LENGTH.test(value)),
+        );
+      },
+    ) ||
+    copiedFrameTransformValues.some((value) =>
+      FONT_RELATIVE_LENGTH.test(value),
     );
-  });
-  const frameUsesLineHeightRelativeLength = [
-    ...activeFrameProperties,
-    ...referencedCustomProperties,
-  ].some((property) => {
-    if (LINE_HEIGHT_RELATIVE_LENGTH.test(computed.getPropertyValue(property))) {
-      return true;
-    }
-    return plans.some(
-      (plan) =>
-        keyframes.get(plan)!.has(property) &&
-        animationKeyframeValues(
-          plan.animation,
-          property,
-          authoredByPlan.get(plan)!,
-        ).some((value) => LINE_HEIGHT_RELATIVE_LENGTH.test(value)),
+  const frameUsesLineHeightRelativeLength =
+    [...activeFrameProperties, ...referencedCustomProperties].some(
+      (property) => {
+        if (
+          LINE_HEIGHT_RELATIVE_LENGTH.test(computed.getPropertyValue(property))
+        ) {
+          return true;
+        }
+        return plans.some(
+          (plan) =>
+            keyframes.get(plan)!.has(property) &&
+            animationKeyframeValues(
+              plan.animation,
+              property,
+              authoredByPlan.get(plan)!,
+            ).some((value) => LINE_HEIGHT_RELATIVE_LENGTH.test(value)),
+        );
+      },
+    ) ||
+    copiedFrameTransformValues.some((value) =>
+      LINE_HEIGHT_RELATIVE_LENGTH.test(value),
     );
-  });
   const fontSizeAnimationPaints =
     frameUsesFontRelativeLength &&
     keyframedProperties.has("font-size") &&

@@ -1026,7 +1026,15 @@ function RawSlideHtmlContent({
       if (!swapImageSourcesInPlace(root, renderedHtmlRef.current, html)) {
         const cropTransitions = captureCropTransitionAnimations(root);
         root.innerHTML = html;
-        restoreCropTransitionAnimations(root, cropTransitions);
+        if (!restoreCropTransitionAnimations(root, cropTransitions)) {
+          const error = new Error(
+            "[slides] failed to restore crop animations after slide content replacement",
+          );
+          console.error(error);
+          captureError(error, {
+            tags: { area: "slides-crop-animation-restore" },
+          });
+        }
       }
       renderedHtmlRef.current = html;
     }

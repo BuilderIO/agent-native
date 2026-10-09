@@ -2646,6 +2646,53 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     }
   });
 
+  it("keeps font-size animation with copied static font-relative transforms", async () => {
+    const css =
+      "@keyframes grow-and-turn { from { font-size: 10px; --angle: 0deg; } to { font-size: 30px; --angle: 90deg; } } .ruled { transform: translateX(1em) rotate(var(--angle)); animation: grow-and-turn 4s linear infinite; }";
+    const body = `${imageHtml()} ${imageHtml().replace('id="pic"', 'id="reference"')}`;
+    const page = await openPage(css, body);
+    try {
+      const result = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const reference = document.getElementById(
+          "reference",
+        ) as HTMLImageElement;
+        const animationFor = (element: Element) =>
+          element
+            .getAnimations()
+            .find((animation) => "animationName" in animation)!;
+        const sourceAnimation = animationFor(image);
+        const referenceAnimation = animationFor(reference);
+        sourceAnimation.currentTime = 1000;
+        referenceAnimation.currentTime = 1000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        const frameAnimation = animationFor(wrapped.frame);
+        wrapped.resumeAnimations();
+        frameAnimation.currentTime = 2000;
+        referenceAnimation.currentTime = 2000;
+        const frameKeyframes =
+          frameAnimation.effect instanceof KeyframeEffect
+            ? frameAnimation.effect.getKeyframes()
+            : [];
+        return {
+          frameFontSize: getComputedStyle(wrapped.frame).fontSize,
+          referenceFontSize: getComputedStyle(reference).fontSize,
+          frameTransform: getComputedStyle(wrapped.frame).transform,
+          referenceTransform: getComputedStyle(reference).transform,
+          frameHasFontSizeTrack: frameKeyframes.some(
+            (keyframe) => "fontSize" in keyframe,
+          ),
+        };
+      });
+
+      expect(result.frameHasFontSizeTrack).toBe(true);
+      expect(result.frameFontSize).toBe(result.referenceFontSize);
+      expect(result.frameTransform).toBe(result.referenceTransform);
+    } finally {
+      await page.close();
+    }
+  });
+
   it("does not move a blocked font-size animation onto the crop frame", async () => {
     const css =
       "@keyframes grow-and-shift { from { font-size: 10px; transform: translateX(0em); } to { font-size: 30px; transform: translateX(1em); } } .ruled { animation: grow-and-shift 4s linear infinite; }";
