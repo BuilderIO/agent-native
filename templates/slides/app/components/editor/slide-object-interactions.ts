@@ -1830,7 +1830,7 @@ function serializeKeyframes(
       const easing = authoredFrame.style.getPropertyValue(
         "animation-timing-function",
       );
-      if (easing && easing !== "linear") {
+      if (easing) {
         declarations.push(
           `animation-timing-function: ${escapeRawStyleText(easing)};`,
         );

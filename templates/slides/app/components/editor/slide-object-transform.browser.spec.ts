@@ -1256,6 +1256,39 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     }
   });
 
+  it("preserves explicit linear easing on authored keyframes", async () => {
+    const css =
+      ".ruled { animation: authored-linear 4s ease-in infinite; } @keyframes authored-linear { from { transform: rotate(0deg); animation-timing-function: linear; } to { transform: rotate(120deg); } }";
+    const page = await openPage(css, imageHtml());
+    try {
+      const saved = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.getAnimations()[0].currentTime = 2000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return wrapped.frame.outerHTML;
+      });
+      expect(saved).toContain("animation-timing-function: linear;");
+
+      const reopened = await openPage(css, saved);
+      const reference = await openPage(css, imageHtml());
+      try {
+        for (const time of [0, 1000, 2000, 3000]) {
+          expectSameHull(
+            await hullAt(reopened, "#frame", time),
+            await hullAt(reference, "#pic", time),
+            1,
+          );
+        }
+      } finally {
+        await reopened.close();
+        await reference.close();
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
   it("keeps the cascade-winning local token over later weaker rules", async () => {
     const css =
       ".stage { --turn: 120deg; } .stage .ruled { --turn: 270deg; } .ruled { --turn: 120deg; animation: variable-turn 4s linear infinite; } @keyframes variable-turn { from { transform: rotate(0deg); } to { transform: rotate(var(--turn)); } }";
