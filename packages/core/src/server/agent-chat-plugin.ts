@@ -2216,7 +2216,7 @@ export function createAgentChatPlugin(
         : undefined;
 
       const { mountA2A } = await import("../a2a/server.js");
-      mountA2A(nitroApp, {
+      const localA2AConfig: import("../a2a/types.js").A2AConfig = {
         appId: options?.appId,
         name: options?.appId
           ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
@@ -3000,7 +3000,8 @@ export function createAgentChatPlugin(
             ],
           };
         },
-      });
+      };
+      mountA2A(nitroApp, localA2AConfig);
 
       // Generate an "Available Actions" section from template-specific actions
       // so the agent knows to use them instead of raw SQL.
@@ -3118,6 +3119,8 @@ export function createAgentChatPlugin(
       };
 
       if (mcpOptions.enabled) {
+        const { createMcpAgentTaskClient } =
+          await import("../a2a/mcp-task-client.js");
         // Mount MCP remote server — same action registry as A2A + agent chat
         const {
           mountMCP,
@@ -3125,6 +3128,8 @@ export function createAgentChatPlugin(
           selectMcpDirectoryWidgetWriteActions,
         } = await import("../mcp/server.js");
         mountMCP(nitroApp, {
+          createLocalAgentTaskClient: (event) =>
+            createMcpAgentTaskClient(localA2AConfig, event),
           name: mcpServerName,
           title: mcpOptions.title,
           appId: options?.appId,

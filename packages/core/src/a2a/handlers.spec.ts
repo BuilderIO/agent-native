@@ -4,6 +4,7 @@ import {
   getRequestOrgId,
   getRequestContext,
   getRequestUserEmail,
+  runWithRequestContext,
 } from "../server/request-context.js";
 import {
   registerTrackingProvider,
@@ -348,6 +349,7 @@ describe("handleJsonRpc", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     unregisterTrackingProvider("a2a-read-invoke-test");
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
@@ -366,6 +368,102 @@ describe("handleJsonRpc", () => {
       },
     }),
   };
+
+  it("carries the MCP user through durable local submission and processing", async () => {
+    const { createMcpAgentTaskClient } = await import("./mcp-task-client.js");
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    const handler = vi.fn(async () => ({
+      message: {
+        role: "agent" as const,
+        parts: [
+          {
+            type: "text" as const,
+            text: `${getRequestUserEmail()}:${getRequestOrgId()}`,
+          },
+        ],
+      },
+    }));
+    const config = { ...customHandler, handler };
+    const event = mockEvent();
+    event.context = { __a2aVerifiedEmail: "untrusted@example.test" };
+    const client = createMcpAgentTaskClient(config, event);
+    const task = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-1" },
+      () =>
+        client.send(
+          { role: "user", parts: [{ type: "text", text: "read only" }] },
+          {
+            async: true,
+            metadata: {
+              userEmail: "forged@example.test",
+              __a2a_processor: { verifiedEmail: "forged@example.test" },
+            },
+          },
+        ),
+    );
+    await processA2ATaskFromQueue(task.id, config);
+    const completed = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-1" },
+      () => client.getTask(task.id),
+    );
+    expect(completed.status).toMatchObject({
+      state: "completed",
+      message: { parts: [{ type: "text", text: "alice@example.test:org-1" }] },
+    });
+    expect(handler).toHaveBeenCalledOnce();
+    expect(completed.metadata).not.toHaveProperty("__a2a_processor");
+    expect(completed.metadata).not.toHaveProperty("userEmail");
+    expect(event.context.__a2aVerifiedEmail).toBe("untrusted@example.test");
+    for (const caller of [
+      { userEmail: "bob@example.test", orgId: "org-1" },
+      { userEmail: "alice@example.test", orgId: "org-2" },
+      { userEmail: "alice@example.test", orgScope: "personal" as const },
+      { orgId: "org-1" },
+    ]) {
+      await expect(
+        runWithRequestContext(caller, () => client.getTask(task.id)),
+      ).rejects.toThrow();
+    }
+    await expect(
+      runWithRequestContext({ orgId: "org-1" }, () =>
+        client.send(
+          { role: "user", parts: [{ type: "text", text: "read only" }] },
+          { metadata: { userEmail: "alice@example.test" } },
+        ),
+      ),
+    ).rejects.toThrow("authenticated MCP user");
+  });
+
+  it("rechecks suspended service principals before local agent task access", async () => {
+    const { createMcpAgentTaskClient } = await import("./mcp-task-client.js");
+    evaluateServicePrincipalMock.mockResolvedValueOnce({ status: "suspended" });
+    const client = createMcpAgentTaskClient(customHandler, mockEvent());
+    await expect(
+      runWithRequestContext(
+        { userEmail: "svc-qa@service.org-1", orgId: "org-1" },
+        () => client.getTask("task-1"),
+      ),
+    ).rejects.toMatchObject({ errorCode: "service_principal_inactive" });
+  });
+
+  it("bounds local durable submission while its dispatch is still pending", async () => {
+    vi.useFakeTimers();
+    const { createMcpAgentTaskClient } = await import("./mcp-task-client.js");
+    const client = createMcpAgentTaskClient(customHandler, mockEvent());
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise(() => {}));
+    const pending = runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-1" },
+      () =>
+        client.send(
+          { role: "user", parts: [{ type: "text", text: "read only" }] },
+          { async: true, deadlineMs: Date.now() + 100 },
+        ),
+    );
+    const assertion = expect(pending).rejects.toThrow("timeout");
+    await vi.advanceTimersByTimeAsync(100);
+    await assertion;
+    await vi.advanceTimersByTimeAsync(200);
+  });
 
   it("rejects invalid JSON-RPC requests", async () => {
     const event = mockEvent();
