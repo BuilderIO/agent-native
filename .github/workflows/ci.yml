@@ -696,6 +696,14 @@ jobs:
               record_failure "$job" "did not succeed (expected success, received $result)"
             fi
           }
+          require_skipped() {
+            local job="$1"
+            local result="$2"
+            local reason="$3"
+            if [[ "$result" != "skipped" ]]; then
+              record_failure "$job" "$reason (expected skipped, received $result)"
+            fi
+          }
 
           if [[ "$CHANGE_SCOPE_RESULT" != "success" ]]; then
             require_success "Determine change scope" "$CHANGE_SCOPE_RESULT"
@@ -707,15 +715,15 @@ jobs:
             if [[ "$PRE_AUTH_REPLAY_E2E" == "true" ]]; then
               require_success "Pre-auth session replay smoke" "$PRE_AUTH_REPLAY_RESULT"
             elif [[ "$PRE_AUTH_REPLAY_E2E" == "false" ]]; then
-              if [[ "$PRE_AUTH_REPLAY_RESULT" != "skipped" ]]; then
-                record_failure "Pre-auth session replay smoke" "ran outside its selected paths (expected skipped, received $PRE_AUTH_REPLAY_RESULT)"
-              fi
+              require_skipped "Pre-auth session replay smoke" "$PRE_AUTH_REPLAY_RESULT" "ran outside its selected paths"
             else
               record_failure "Determine change scope" "pre-auth replay selection was missing or invalid ($PRE_AUTH_REPLAY_E2E)"
             fi
 
             if [[ "$DOCS_ONLY" == "true" ]]; then
               require_success "Docs checks" "$DOCS_RESULT"
+              require_skipped "Fast tests (test-rest matrix)" "$TEST_REST_RESULT" "ran outside its selected paths"
+              require_skipped "Fast tests targeted (test-targeted matrix)" "$TEST_TARGETED_RESULT" "ran outside its selected paths"
               success_message="Docs-only change: docs checks passed; fast-test lanes are not required."
             else
               case "$DESIGN_CANVAS_E2E" in
@@ -723,9 +731,7 @@ jobs:
                   require_success "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT"
                   ;;
                 false)
-                  if [[ "$DESIGN_CANVAS_RESULT" != "skipped" && "$DESIGN_CANVAS_RESULT" != "success" ]]; then
-                    record_failure "Design canvas interaction acceptance (matrix jobs)" "did not skip cleanly outside its selected path (received $DESIGN_CANVAS_RESULT)"
-                  fi
+                  require_skipped "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT" "ran outside its selected paths"
                   ;;
                 *)
                   record_failure "Determine change scope" "Design canvas selection was missing or invalid ($DESIGN_CANVAS_E2E)"
@@ -737,28 +743,28 @@ jobs:
                   record_failure "Determine change scope" "full fast-test lanes were selected without test lanes (has_tests=$HAS_TESTS)"
                 fi
                 require_success "Fast tests (test-rest matrix)" "$TEST_REST_RESULT"
+                require_skipped "Fast tests targeted (test-targeted matrix)" "$TEST_TARGETED_RESULT" "ran outside its selected paths"
                 success_message="Full fast-test suite passed across all sharded lanes."
-              elif [[ "$FAST_TESTS" != "true" ]]; then
-                if [[ "$TEST_TARGETED_RESULT" != "skipped" ]]; then
-                  record_failure "Fast tests targeted (test-targeted matrix)" "ran without a fast-test selection (received $TEST_TARGETED_RESULT)"
-                fi
-                success_message="No workspace fast tests are selected for this change set."
               else
-                case "$HAS_TESTS" in
-                  true)
-                    require_success "Fast tests targeted (test-targeted matrix)" "$TEST_TARGETED_RESULT"
-                    success_message="Targeted workspace fast tests passed."
-                    ;;
-                  false)
-                    if [[ "$TEST_TARGETED_RESULT" != "skipped" && "$TEST_TARGETED_RESULT" != "success" ]]; then
-                      record_failure "Fast tests targeted (test-targeted matrix)" "did not skip cleanly when no affected workspace has a test script (received $TEST_TARGETED_RESULT)"
-                    fi
-                    success_message="No affected workspace has a test script; targeted fast tests were skipped."
-                    ;;
-                  *)
-                    record_failure "Determine change scope" "targeted lanes were not planned (has_tests='$HAS_TESTS')"
-                    ;;
-                esac
+                require_skipped "Fast tests (test-rest matrix)" "$TEST_REST_RESULT" "ran outside its selected paths"
+                if [[ "$FAST_TESTS" != "true" ]]; then
+                  require_skipped "Fast tests targeted (test-targeted matrix)" "$TEST_TARGETED_RESULT" "ran without a fast-test selection"
+                  success_message="No workspace fast tests are selected for this change set."
+                else
+                  case "$HAS_TESTS" in
+                    true)
+                      require_success "Fast tests targeted (test-targeted matrix)" "$TEST_TARGETED_RESULT"
+                      success_message="Targeted workspace fast tests passed."
+                      ;;
+                    false)
+                      require_skipped "Fast tests targeted (test-targeted matrix)" "$TEST_TARGETED_RESULT" "no affected workspace has a test script"
+                      success_message="No affected workspace has a test script; targeted fast tests were skipped."
+                      ;;
+                    *)
+                      record_failure "Determine change scope" "targeted lanes were not planned (has_tests='$HAS_TESTS')"
+                      ;;
+                  esac
+                fi
               fi
             fi
           fi

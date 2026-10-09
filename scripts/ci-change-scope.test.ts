@@ -1099,9 +1099,10 @@ test("fast-tests gates the selected browser checks on their actual job results",
       'require_success "Fast tests targeted (test-targeted matrix)"',
     ),
   );
-  assert.match(
-    fastTestsJob,
-    /case "\$DESIGN_CANVAS_E2E" in\s+true\)\s+require_success "Design canvas interaction acceptance \(matrix jobs\)" "\$DESIGN_CANVAS_RESULT"\s+;;\s+false\)\s+if \[\[ "\$DESIGN_CANVAS_RESULT" != "skipped" && "\$DESIGN_CANVAS_RESULT" != "success" \]\]; then\s+record_failure "Design canvas interaction acceptance \(matrix jobs\)"/,
+  assert.ok(
+    fastTestsJob.includes(
+      'require_skipped "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT" "ran outside its selected paths"',
+    ),
   );
   assert.ok(
     fastTestsJob.includes(
@@ -1117,9 +1118,10 @@ test("fast-tests gates the selected browser checks on their actual job results",
     fastTestsJob,
     /if \[\[ "\$PRE_AUTH_REPLAY_E2E" == "true" \]\]; then\s+require_success "Pre-auth session replay smoke" "\$PRE_AUTH_REPLAY_RESULT"/,
   );
-  assert.match(
-    fastTestsJob,
-    /elif \[\[ "\$PRE_AUTH_REPLAY_E2E" == "false" \]\]; then\s+if \[\[ "\$PRE_AUTH_REPLAY_RESULT" != "skipped" \]\]; then\s+record_failure "Pre-auth session replay smoke" "ran outside its selected paths \(expected skipped, received \$PRE_AUTH_REPLAY_RESULT\)"/,
+  assert.ok(
+    fastTestsJob.includes(
+      'require_skipped "Pre-auth session replay smoke" "$PRE_AUTH_REPLAY_RESULT" "ran outside its selected paths"',
+    ),
   );
   assert.ok(fastTestsJob.includes("This job summarizes upstream tests"));
   assert.ok(
@@ -1164,18 +1166,33 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
     },
     {
       name: "full-suite lanes pass",
-      overrides: { CI_FULL: "true", TEST_REST_RESULT: "success" },
+      overrides: {
+        CI_FULL: "true",
+        TEST_REST_RESULT: "success",
+        TEST_TARGETED_RESULT: "skipped",
+      },
       status: 0,
     },
     {
       name: "docs-only changes pass when docs checks succeed",
-      overrides: { DOCS_ONLY: "true", DOCS_RESULT: "success" },
+      overrides: {
+        DOCS_ONLY: "true",
+        DOCS_RESULT: "success",
+        TEST_TARGETED_RESULT: "skipped",
+      },
       status: 0,
     },
     {
-      name: "an unselected Design lane may skip or succeed",
-      overrides: { DESIGN_CANVAS_RESULT: "success" },
+      name: "an unselected Design lane must skip",
+      overrides: {},
       status: 0,
+    },
+    {
+      name: "an unselected Design lane cannot run successfully",
+      overrides: { DESIGN_CANVAS_RESULT: "success" },
+      status: 1,
+      outputIncludes:
+        "Design canvas interaction acceptance (matrix jobs): ran outside its selected paths (expected skipped, received success)",
     },
     {
       name: "a selected pre-auth lane must succeed",
@@ -1199,7 +1216,7 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
       overrides: { DESIGN_CANVAS_RESULT: "failure" },
       status: 1,
       outputIncludes:
-        "Design canvas interaction acceptance (matrix jobs): did not skip cleanly outside its selected path",
+        "Design canvas interaction acceptance (matrix jobs): ran outside its selected paths (expected skipped, received failure)",
     },
     {
       name: "selected Design lanes cannot be skipped",
@@ -1216,11 +1233,57 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
       overrides: { FAST_TESTS: "false", TEST_TARGETED_RESULT: "success" },
       status: 1,
       outputIncludes:
-        "Fast tests targeted (test-targeted matrix): ran without a fast-test selection",
+        "Fast tests targeted (test-targeted matrix): ran without a fast-test selection (expected skipped, received success)",
+    },
+    {
+      name: "unselected full-suite lanes must skip in a targeted run",
+      overrides: { TEST_REST_RESULT: "failure" },
+      status: 1,
+      outputIncludes:
+        "Fast tests (test-rest matrix): ran outside its selected paths (expected skipped, received failure)",
+    },
+    {
+      name: "unselected targeted lanes must skip in a full-suite run",
+      overrides: {
+        CI_FULL: "true",
+        TEST_REST_RESULT: "success",
+        TEST_TARGETED_RESULT: "failure",
+      },
+      status: 1,
+      outputIncludes:
+        "Fast tests targeted (test-targeted matrix): ran outside its selected paths (expected skipped, received failure)",
+    },
+    {
+      name: "docs-only changes require the full-suite matrix to skip",
+      overrides: {
+        DOCS_ONLY: "true",
+        DOCS_RESULT: "success",
+        TEST_REST_RESULT: "failure",
+        TEST_TARGETED_RESULT: "success",
+      },
+      status: 1,
+      outputIncludes:
+        "Fast tests (test-rest matrix): ran outside its selected paths (expected skipped, received failure)",
+    },
+    {
+      name: "docs-only changes require the targeted matrix to skip",
+      overrides: {
+        DOCS_ONLY: "true",
+        DOCS_RESULT: "success",
+        TEST_REST_RESULT: "skipped",
+        TEST_TARGETED_RESULT: "success",
+      },
+      status: 1,
+      outputIncludes:
+        "Fast tests targeted (test-targeted matrix): ran outside its selected paths (expected skipped, received success)",
     },
     {
       name: "full-suite lanes cannot be skipped",
-      overrides: { CI_FULL: "true", TEST_REST_RESULT: "skipped" },
+      overrides: {
+        CI_FULL: "true",
+        TEST_REST_RESULT: "skipped",
+        TEST_TARGETED_RESULT: "skipped",
+      },
       status: 1,
       outputIncludes:
         "Fast tests (test-rest matrix): was unexpectedly skipped (expected success)",
@@ -1229,6 +1292,13 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
       name: "targeted lanes may skip when no workspace has tests",
       overrides: { HAS_TESTS: "false", TEST_TARGETED_RESULT: "skipped" },
       status: 0,
+    },
+    {
+      name: "targeted lanes cannot run when no workspace has tests",
+      overrides: { HAS_TESTS: "false", TEST_TARGETED_RESULT: "success" },
+      status: 1,
+      outputIncludes:
+        "Fast tests targeted (test-targeted matrix): no affected workspace has a test script (expected skipped, received success)",
     },
     {
       name: "docs-only changes require docs checks",
@@ -1343,24 +1413,26 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
   }
 });
 
-test("fast-tests summary reports every selected failure with the Actions URL", () => {
+test("fast-tests summary reports every prerequisite failure with the Actions URL", () => {
   const result = runFastTestsSummary(fastTestsSummaryScript(), {
     DESIGN_CANVAS_E2E: "true",
     DESIGN_CANVAS_RESULT: "skipped",
     PRE_AUTH_REPLAY_E2E: "true",
     PRE_AUTH_REPLAY_RESULT: "failure",
     TEST_TARGETED_RESULT: "failure",
+    TEST_REST_RESULT: "failure",
   });
 
   assert.equal(result.status, 1);
   assert.match(
     result.output,
-    /found 3 failing or unexpectedly skipped prerequisite\(s\)/,
+    /found 4 failing or unexpectedly skipped prerequisite\(s\)/,
   );
   for (const job of [
     "Design canvas interaction acceptance (matrix jobs): was unexpectedly skipped",
     "Pre-auth session replay smoke: did not succeed",
     "Fast tests targeted (test-targeted matrix): did not succeed",
+    "Fast tests (test-rest matrix): ran outside its selected paths (expected skipped, received failure)",
   ]) {
     assert.ok(result.output.includes(job), `missing failure for ${job}`);
   }
@@ -1368,7 +1440,7 @@ test("fast-tests summary reports every selected failure with the Actions URL", (
     result.output.match(
       /Actions run: https:\/\/github\.com\/BuilderIO\/agent-native\/actions\/runs\/123/g,
     )?.length,
-    3,
+    4,
   );
 });
 
