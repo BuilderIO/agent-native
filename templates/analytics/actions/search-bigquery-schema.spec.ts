@@ -72,7 +72,7 @@ beforeEach(() => {
             tableReference: {
               projectId: "test-project",
               datasetId: "product",
-              tableId: "branch_creation",
+              tableId: "event_log",
             },
             type: "TABLE",
           },
@@ -80,7 +80,39 @@ beforeEach(() => {
             tableReference: {
               projectId: "test-project",
               datasetId: "product",
-              tableId: "ai_credit_usage",
+              tableId: "credit_usage",
+            },
+            type: "TABLE",
+          },
+          {
+            tableReference: {
+              projectId: "test-project",
+              datasetId: "product",
+              tableId: "product_user_dimension",
+            },
+            type: "TABLE",
+          },
+          {
+            tableReference: {
+              projectId: "test-project",
+              datasetId: "product",
+              tableId: "analytics_app_users",
+            },
+            type: "TABLE",
+          },
+          {
+            tableReference: {
+              projectId: "test-project",
+              datasetId: "product",
+              tableId: "product_activation_funnel",
+            },
+            type: "TABLE",
+          },
+          {
+            tableReference: {
+              projectId: "test-project",
+              datasetId: "product",
+              tableId: "user_profiles",
             },
             type: "TABLE",
           },
@@ -88,12 +120,12 @@ beforeEach(() => {
       });
     }
 
-    if (path.endsWith("/datasets/product/tables/branch_creation")) {
+    if (path.endsWith("/datasets/product/tables/event_log")) {
       return jsonResponse({
         tableReference: {
           projectId: "test-project",
           datasetId: "product",
-          tableId: "branch_creation",
+          tableId: "event_log",
         },
         schema: {
           fields: [
@@ -104,12 +136,12 @@ beforeEach(() => {
       });
     }
 
-    if (path.endsWith("/datasets/product/tables/ai_credit_usage")) {
+    if (path.endsWith("/datasets/product/tables/credit_usage")) {
       return jsonResponse({
         tableReference: {
           projectId: "test-project",
           datasetId: "product",
-          tableId: "ai_credit_usage",
+          tableId: "credit_usage",
         },
         schema: {
           fields: [
@@ -117,6 +149,50 @@ beforeEach(() => {
             { name: "credits_consumed", type: "NUMERIC" },
           ],
         },
+      });
+    }
+
+    if (path.endsWith("/datasets/product/tables/product_user_dimension")) {
+      return jsonResponse({
+        tableReference: {
+          projectId: "test-project",
+          datasetId: "product",
+          tableId: "product_user_dimension",
+        },
+        schema: { fields: [{ name: "user_id", type: "STRING" }] },
+      });
+    }
+
+    if (path.endsWith("/datasets/product/tables/analytics_app_users")) {
+      return jsonResponse({
+        tableReference: {
+          projectId: "test-project",
+          datasetId: "product",
+          tableId: "analytics_app_users",
+        },
+        schema: { fields: [{ name: "user_id", type: "STRING" }] },
+      });
+    }
+
+    if (path.endsWith("/datasets/product/tables/product_activation_funnel")) {
+      return jsonResponse({
+        tableReference: {
+          projectId: "test-project",
+          datasetId: "product",
+          tableId: "product_activation_funnel",
+        },
+        schema: { fields: [{ name: "user_id", type: "STRING" }] },
+      });
+    }
+
+    if (path.endsWith("/datasets/product/tables/user_profiles")) {
+      return jsonResponse({
+        tableReference: {
+          projectId: "test-project",
+          datasetId: "product",
+          tableId: "user_profiles",
+        },
+        schema: { fields: [{ name: "user_id", type: "STRING" }] },
       });
     }
 
@@ -135,13 +211,13 @@ describe("search-bigquery-schema", () => {
       mode: "table-search",
       projectId: "test-project",
       datasetsScanned: 1,
-      tablesScanned: 2,
+      tablesScanned: 6,
       truncated: false,
     });
     expect(result.tables).toEqual([
       expect.objectContaining({
         datasetId: "product",
-        tableId: "ai_credit_usage",
+        tableId: "credit_usage",
         columns: expect.arrayContaining([
           expect.objectContaining({ name: "credits_consumed" }),
         ]),
@@ -155,12 +231,42 @@ describe("search-bigquery-schema", () => {
     expect(result.tables).toEqual([
       expect.objectContaining({
         datasetId: "product",
-        tableId: "branch_creation",
+        tableId: "event_log",
         columns: expect.arrayContaining([
           expect.objectContaining({ name: "created_by_user_id" }),
         ]),
       }),
     ]);
+  });
+
+  it("distinguishes Builder product users from Analytics users and feature funnels", async () => {
+    const result = await action.run({ search: "Builder.io users", limit: 10 });
+
+    expect(result.tables).toEqual([
+      expect.objectContaining({
+        datasetId: "product",
+        tableId: "product_user_dimension",
+      }),
+    ]);
+  });
+
+  it("pages through ranked matches with a query-bound cursor", async () => {
+    const firstPage = await action.run({ search: "user", limit: 1 });
+    expect(firstPage.nextPage).toBeTruthy();
+    expect(firstPage.truncated).toBe(true);
+
+    const secondPage = await action.run({
+      search: "user",
+      limit: 1,
+      nextPage: firstPage.nextPage,
+    });
+    expect(secondPage.tables).toHaveLength(1);
+    expect(secondPage.tables[0]?.tableId).not.toBe(
+      firstPage.tables[0]?.tableId,
+    );
+    await expect(
+      action.run({ search: "credit", limit: 1, nextPage: firstPage.nextPage }),
+    ).rejects.toThrow(/does not match this query/);
   });
 
   it("keeps the no-argument call as a lightweight dataset listing", async () => {
@@ -171,5 +277,57 @@ describe("search-bigquery-schema", () => {
       datasets: [{ datasetId: "product" }],
     });
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a query-bound continuation for dataset pages", async () => {
+    mocks.fetch.mockImplementationOnce(async () =>
+      jsonResponse({
+        datasets: [
+          {
+            datasetReference: {
+              projectId: "test-project",
+              datasetId: "product",
+            },
+          },
+        ],
+        totalItems: 2,
+        nextPageToken: "dataset-next-page-token",
+      }),
+    );
+
+    const result = await action.run({ limit: 1 });
+    expect(result).toMatchObject({
+      searched: 1,
+      of: 2,
+      truncated: true,
+    });
+    expect(result.nextPage).toMatch(/^bq1\./);
+  });
+
+  it("returns provider continuation metadata for exact dataset table listings", async () => {
+    mocks.fetch.mockImplementationOnce(async () =>
+      jsonResponse({
+        tables: [
+          {
+            tableReference: {
+              projectId: "test-project",
+              datasetId: "product",
+              tableId: "event_log",
+            },
+          },
+        ],
+        totalItems: 2,
+        nextPageToken: "table-next-page-token",
+      }),
+    );
+
+    const result = await action.run({ dataset: "product", limit: 1 });
+    expect(result).toMatchObject({
+      searched: 1,
+      of: 2,
+      truncated: true,
+      tables: [{ tableId: "event_log" }],
+    });
+    expect(result.nextPage).toMatch(/^bq1\./);
   });
 });

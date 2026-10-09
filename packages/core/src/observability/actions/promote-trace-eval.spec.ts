@@ -36,7 +36,7 @@ vi.mock("../../chat-threads/store.js", () => ({
 const promoteTraceEval = (await import("./promote-trace-eval.js")).default;
 const { promoteTraceEvalFromStore, PROMOTE_RUN_EVENT_LIMIT } =
   await import("./promote-trace-eval.js");
-const { promotedDatasetIdempotencyKey } =
+const { promotedDatasetIdempotencyKey, PROMOTED_EVAL_PRIVACY_VERSION } =
   await import("../../eval/from-trace.js");
 const { ActionContractError } = await import("../../action.js");
 
@@ -141,6 +141,11 @@ describe("promote-trace-eval", () => {
       promotedDatasetIdempotencyKey("run-1", "alice@example.com"),
     );
     expect(dataset.entries).toHaveLength(1);
+    expect(dataset.entries[0]?.input).toBe("[redacted production prompt]");
+    expect(JSON.stringify(dataset)).not.toContain("Search the docs");
+    expect(dataset.entries[0]?.context).toMatchObject({
+      privacyVersion: PROMOTED_EVAL_PRIVACY_VERSION,
+    });
     expect(result.eval.scorers).toEqual([
       { type: "usesTool", toolName: "search-docs" },
     ]);
@@ -184,7 +189,7 @@ describe("promote-trace-eval", () => {
     );
 
     expect(threads.getThread).toHaveBeenCalledWith("thread-1");
-    expect(result.eval.input.prompt).toBe("Search the docs");
+    expect(result.eval.input.prompt).toBe("[redacted production prompt]");
     expect(store.savePromotedEvalDataset).toHaveBeenCalledTimes(1);
   });
 
@@ -193,14 +198,15 @@ describe("promote-trace-eval", () => {
     store.findPromotedEvalDataset.mockResolvedValue({
       id: "ds-existing",
       name: "from-trace:run-1",
-      description: "Promoted from production run run-1",
+      description: "Promoted from production run run-1 (privacy v3)",
       entries: [
         {
-          input: "Search the docs",
+          input: "[redacted production prompt]",
           context: {
             runId: "run-1",
             history: [],
             tools: ["search-docs"],
+            privacyVersion: PROMOTED_EVAL_PRIVACY_VERSION,
           },
           tags: ["from-trace", "run-1"],
         },
@@ -224,17 +230,82 @@ describe("promote-trace-eval", () => {
         "run-1",
         "alice@example.com",
       ),
-      description: "Promoted from production run run-1",
+      description: "Promoted from production run run-1 (privacy v3)",
       userId: "alice@example.com",
     });
     expect(runStore.getRunEventsSince).not.toHaveBeenCalled();
     expect(runStore.getRunById).not.toHaveBeenCalled();
     expect(store.savePromotedEvalDataset).not.toHaveBeenCalled();
     expect(result.dataset.id).toBe("ds-existing");
-    expect(result.eval.input.prompt).toBe("Search the docs");
+    expect(result.eval.input.prompt).toBe("[redacted production prompt]");
     expect(result.eval.scorers).toEqual([
       { type: "usesTool", toolName: "search-docs" },
     ]);
+  });
+
+  it("ignores a legacy dataset with raw text and recomputes a redacted promotion", async () => {
+    store.getTraceSummary.mockResolvedValue(summary());
+    runStore.getRunById.mockResolvedValue(completedRun());
+    store.findPromotedEvalDataset.mockResolvedValue({
+      id: "ds-legacy",
+      name: "from-trace:run-1",
+      description: "Promoted from production run run-1",
+      entries: [
+        {
+          input: "Private customer Alice Example alice@example.com",
+          context: {
+            runId: "run-1",
+            history: [{ role: "assistant", text: "Private conversation" }],
+            tools: ["search-docs"],
+            privacyVersion: 2,
+          },
+          tags: ["from-trace", "run-1"],
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 1,
+      userId: "alice@example.com",
+      idempotencyKey: "from-trace:v2:alice%40example.com:run-1",
+    });
+
+    const result = await promoteTraceEval.run(
+      { runId: "run-1" },
+      { userEmail: "alice@example.com" },
+    );
+
+    expect(result.dataset.id).not.toBe("ds-legacy");
+    expect(result.eval.input).toEqual({
+      prompt: "[redacted production prompt]",
+    });
+    const persisted = JSON.stringify(
+      store.savePromotedEvalDataset.mock.calls.map(
+        ([dataset]) => (dataset as { entries: unknown }).entries,
+      ),
+    );
+    expect(persisted).not.toContain("Private customer");
+    expect(persisted).not.toContain("alice@example.com");
+    expect(persisted).not.toContain("Private conversation");
+    expect(runStore.getRunEventsSince).toHaveBeenCalled();
+    expect(store.savePromotedEvalDataset).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses reviewed text with a person or organization name before saving", async () => {
+    store.getTraceSummary.mockResolvedValue(summary());
+    runStore.getRunById.mockResolvedValue(completedRun());
+
+    await expect(
+      promoteTraceEval.run(
+        {
+          runId: "run-1",
+          reviewedPrompt: "How many Builder.io users last week?",
+        },
+        { userEmail: "alice@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "unsafe_reviewed_text",
+      statusCode: 400,
+    });
+    expect(store.savePromotedEvalDataset).not.toHaveBeenCalled();
   });
 
   it("refuses a trace whose event history exceeds the promotion limit", async () => {

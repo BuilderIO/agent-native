@@ -583,6 +583,29 @@ export default {
     exampleUseCasePlaceholder: "¿Cuándo debería alguien alcanzar esta métrica?",
     saving: "Ahorro...",
     saveEntry: "Guardar entrada",
+    importIndex: "Importar índice de fuentes",
+    indexNotImported: "No se ha importado ningún índice de fuentes generado.",
+    indexUnreadable:
+      "No se pudo leer el índice guardado; vuelve a importar un archivo válido.",
+    indexReadFailed:
+      "No se pudo comprobar el índice guardado. Inténtalo de nuevo.",
+    indexReady: "{{count}} definiciones de fuentes generadas el {{date}}.",
+    indexStale:
+      "La instantánea tiene {{days}} días. Actualízala para comprobar si hay revisiones más recientes.",
+    indexFileInvalid:
+      "Elige un archivo JSON de índice válido de 750 KB como máximo.",
+    replaceIndexTitle: "¿Reemplazar el índice de fuentes?",
+    replaceIndexDescription:
+      "Esto reemplaza el índice de fuentes actual de la organización. Las definiciones importadas siguen siendo sugerencias sin aprobar, no resultados de consultas en tiempo real.",
+    indexPreview:
+      "{{count}} definiciones de {{sources}}; generado el {{date}}.",
+    replaceIndex: "Reemplazar índice",
+    importingIndex: "Importando…",
+    indexImportFailed:
+      "No se pudo importar el índice de fuentes. Revisa el archivo e inténtalo de nuevo.",
+    dictionaryPage: "Página {{page}} · {{count}} de {{total}} resultados",
+    previousPage: "Anterior",
+    nextPage: "Siguiente",
   },
   dataSources: {
     uploadFile: "Subir archivo",

@@ -1,12 +1,22 @@
-import { defineAction } from "@agent-native/core/action";
+import { createHash } from "node:crypto";
+
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
+import {
+  decodeSearchCursor,
+  matchSearchFields,
+  paginateSearchResults,
+  semanticScopeCompatibility,
+  semanticScopeForSearch,
+} from "../server/lib/analytics-term-matcher.js";
 import {
   bigQueryGet,
   flattenBigQueryFields,
   getBigQueryProjectId,
   getBigQueryTableMetadata,
   listBigQueryTables,
+  listBigQueryTablesPage,
   type BigQueryTableMetadata,
   type BigQueryTableSummary,
 } from "../server/lib/bigquery";
@@ -19,6 +29,8 @@ interface DatasetListResponse {
     labels?: Record<string, string>;
     location?: string;
   }>;
+  nextPageToken?: string;
+  totalItems?: number;
 }
 
 const PROJECT_RE = /^[A-Za-z][A-Za-z0-9-]{4,61}[A-Za-z0-9]$/;
@@ -27,6 +39,50 @@ const GLOBAL_SEARCH_DATASET_LIMIT = 100;
 const GLOBAL_SEARCH_TABLE_LIMIT = 250;
 const GLOBAL_SEARCH_METADATA_BATCH_SIZE = 20;
 
+function apiCursorHash(search: string): string {
+  return createHash("sha256")
+    .update(search.trim().toLowerCase())
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function encodeApiPageCursor(search: string, pageToken: string): string {
+  return `bq1.${apiCursorHash(search)}.${Buffer.from(pageToken).toString("base64url")}`;
+}
+
+function decodeApiPageCursor(
+  search: string,
+  cursor?: string,
+): string | undefined {
+  if (!cursor) return undefined;
+  const match = cursor.match(/^bq1\.([a-f0-9]{16})\.([A-Za-z0-9_-]+)$/);
+  if (!match || match[1] !== apiCursorHash(search)) {
+    fail("The search cursor does not match this query.", {
+      errorCode: "invalid_search_cursor",
+      statusCode: 400,
+    });
+  }
+  const pageToken = Buffer.from(match[2]!, "base64url").toString("utf8");
+  if (!pageToken || pageToken.length > 2_048) {
+    fail("The search cursor is invalid.", {
+      errorCode: "invalid_search_cursor",
+      statusCode: 400,
+    });
+  }
+  return pageToken;
+}
+
+function decodeSearchOffset(search: string, cursor?: string): number {
+  try {
+    return decodeSearchCursor(search, cursor);
+  } catch {
+    return fail("The search cursor is invalid or does not match this query.", {
+      errorCode: "invalid_search_cursor",
+      statusCode: 400,
+    });
+  }
+}
+
 function assertIdentifier(
   label: string,
   value: string,
@@ -34,7 +90,10 @@ function assertIdentifier(
 ): string {
   const clean = value.trim().replace(/^`|`$/g, "");
   if (!pattern.test(clean)) {
-    throw new Error(`${label} must be a BigQuery identifier, got "${value}"`);
+    fail(`${label} must be a BigQuery identifier, got "${value}"`, {
+      errorCode: "invalid_bigquery_identifier",
+      statusCode: 400,
+    });
   }
   return clean;
 }
@@ -71,8 +130,9 @@ function parseTableRef(
     };
   }
 
-  throw new Error(
+  fail(
     "Provide table as dataset.table or project.dataset.table, or pass both dataset and table.",
+    { errorCode: "invalid_bigquery_table_reference", statusCode: 400 },
   );
 }
 
@@ -96,41 +156,34 @@ function compactTable(meta: BigQueryTableMetadata, includeColumns: boolean) {
   };
 }
 
-function matchesSearch(meta: BigQueryTableMetadata, search: string): boolean {
-  const terms = search
-    .toLowerCase()
-    .replace(/[._-]+/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-  if (!terms.length) return true;
+function scoreSearch(meta: BigQueryTableMetadata, search: string) {
   const ref = meta.tableReference ?? {};
-  const haystack = [
-    ref.projectId,
-    ref.datasetId,
-    ref.tableId,
-    meta.friendlyName,
-    meta.description,
-    ...flattenBigQueryFields(meta.schema?.fields).flatMap((column) => [
-      column.name,
-      column.type,
-      column.description,
+  const columns = flattenBigQueryFields(meta.schema?.fields);
+  return matchSearchFields(search, [
+    { value: `${ref.datasetId ?? ""}.${ref.tableId ?? ""}`, weight: 24 },
+    { value: meta.friendlyName, weight: 12 },
+    { value: meta.description, weight: 8 },
+    ...columns.flatMap((column) => [
+      { value: column.name, weight: 6 },
+      { value: column.description, weight: 3 },
     ]),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase()
-    .replace(/[._-]+/g, " ");
-  return terms.every((term) => haystack.includes(term));
+  ]);
 }
 
-async function listDatasets(projectId: string, limit: number, search: string) {
+async function listDatasetsPage(
+  projectId: string,
+  limit: number,
+  search: string,
+  pageToken?: string,
+) {
   const url = new URL(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets`,
   );
   url.searchParams.set("maxResults", String(Math.min(limit, 1000)));
+  if (pageToken) url.searchParams.set("pageToken", pageToken);
   const result = await bigQueryGet<DatasetListResponse>(url.toString());
   const q = search.toLowerCase();
-  return (result.datasets ?? [])
+  const datasets = (result.datasets ?? [])
     .map((dataset) => ({
       projectId: dataset.datasetReference?.projectId,
       datasetId: dataset.datasetReference?.datasetId,
@@ -147,18 +200,24 @@ async function listDatasets(projectId: string, limit: number, search: string) {
         .includes(q);
     })
     .slice(0, limit);
+  return {
+    datasets,
+    ...(result.nextPageToken ? { nextPageToken: result.nextPageToken } : {}),
+    ...(typeof result.totalItems === "number"
+      ? { totalItems: result.totalItems }
+      : {}),
+  };
 }
 
 async function searchAcrossDatasets(
   projectId: string,
   search: string,
   limit: number,
+  nextPage?: string,
 ) {
-  const datasets = await listDatasets(
-    projectId,
-    GLOBAL_SEARCH_DATASET_LIMIT + 1,
-    "",
-  );
+  const datasets = (
+    await listDatasetsPage(projectId, GLOBAL_SEARCH_DATASET_LIMIT + 1, "")
+  ).datasets;
   const scannableDatasets = datasets.slice(0, GLOBAL_SEARCH_DATASET_LIMIT);
   const tables: BigQueryTableSummary[] = [];
   const datasetCount = scannableDatasets.filter(
@@ -187,7 +246,11 @@ async function searchAcrossDatasets(
 
   if (datasetsScanned < datasetCount) truncated = true;
 
-  const matches: ReturnType<typeof compactTable>[] = [];
+  const matches: Array<{
+    table: ReturnType<typeof compactTable>;
+    score: number;
+    scopeRank: number;
+  }> = [];
   const errors: Array<{
     projectId?: string;
     datasetId?: string;
@@ -212,9 +275,30 @@ async function searchAcrossDatasets(
           datasetId: table.datasetId,
           tableId: table.tableId,
         });
-        return matchesSearch(metadata, search)
-          ? compactTable(metadata, true)
-          : null;
+        const match = scoreSearch(metadata, search);
+        if (match.score <= 0) return null;
+        const semanticScope = semanticScopeForSearch(
+          [
+            metadata.tableReference?.tableId,
+            metadata.friendlyName,
+            metadata.description,
+            ...flattenBigQueryFields(metadata.schema?.fields).map(
+              (column) => column.name,
+            ),
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
+        const requestedScope = semanticScopeForSearch(search);
+        const scopeRank = semanticScopeCompatibility(
+          semanticScope,
+          requestedScope,
+        );
+        return {
+          table: compactTable(metadata, true),
+          score: match.score,
+          scopeRank,
+        };
       }),
     );
 
@@ -236,14 +320,42 @@ async function searchAcrossDatasets(
     });
   }
 
+  matches.sort((a, b) => {
+    if (b.scopeRank !== a.scopeRank) return b.scopeRank - a.scopeRank;
+    if (b.score !== a.score) return b.score - a.score;
+    return `${a.table.datasetId}.${a.table.tableId}`.localeCompare(
+      `${b.table.datasetId}.${b.table.tableId}`,
+    );
+  });
+  const hasScopeMatch = matches.some((match) => match.scopeRank === 2);
+  const scopedMatches = hasScopeMatch
+    ? matches.filter((match) => match.scopeRank === 2)
+    : matches;
+  const cursorSearch = `global\n${search.toLowerCase()}`;
+  const offset = decodeSearchOffset(cursorSearch, nextPage);
+  if (offset > scopedMatches.length) {
+    fail("The search cursor is no longer valid; restart the search.", {
+      errorCode: "invalid_search_cursor",
+      statusCode: 400,
+    });
+  }
+  const page = paginateSearchResults({
+    search: cursorSearch,
+    results: scopedMatches.map((match) => match.table),
+    searched: tables.length,
+    limit,
+    offset,
+    truncated,
+  });
+
   return {
     mode: "table-search",
     projectId,
     search,
     datasetsScanned,
     tablesScanned: tables.length,
-    truncated,
-    tables: matches.slice(0, limit),
+    ...page,
+    tables: page.results,
     ...(errors.length
       ? { errors: errors.slice(0, 12), errorCount: errors.length }
       : {}),
@@ -282,6 +394,7 @@ export default defineAction({
       .max(200)
       .optional()
       .describe("Maximum results to return (default 50, max 200)"),
+    nextPage: z.string().max(4_096).optional(),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -303,48 +416,76 @@ export default defineAction({
 
     if (!args.dataset) {
       if (search) {
-        return searchAcrossDatasets(configuredProjectId, search, limit);
+        return searchAcrossDatasets(
+          configuredProjectId,
+          search,
+          limit,
+          args.nextPage,
+        );
       }
+      const cursorSearch = `datasets\n${configuredProjectId}`;
+      const datasetPage = await listDatasetsPage(
+        configuredProjectId,
+        limit,
+        search,
+        decodeApiPageCursor(cursorSearch, args.nextPage),
+      );
+      const nextPage = datasetPage.nextPageToken
+        ? encodeApiPageCursor(cursorSearch, datasetPage.nextPageToken)
+        : null;
       return {
         mode: "datasets",
         projectId: configuredProjectId,
-        datasets: await listDatasets(configuredProjectId, limit, search),
+        datasets: datasetPage.datasets,
+        searched: datasetPage.datasets.length,
+        of: datasetPage.totalItems ?? datasetPage.datasets.length,
+        truncated: nextPage !== null,
+        nextPage,
         nextStep:
           "Pass dataset=<datasetId> to list tables, or table=dataset.table to inspect columns.",
       };
     }
 
     const datasetId = assertIdentifier("dataset", args.dataset);
-    const tables = await listBigQueryTables(
+    const includeColumns = args.includeColumns === true || !!search;
+    const cursorSearch = `tables\n${configuredProjectId}\n${datasetId}\n${search.toLowerCase()}\n${includeColumns}`;
+    const tablePage = await listBigQueryTablesPage(
       configuredProjectId,
       datasetId,
       limit,
+      { pageToken: decodeApiPageCursor(cursorSearch, args.nextPage) },
     );
-    const includeColumns = args.includeColumns === true || !!search;
+    const nextPage = tablePage.nextPageToken
+      ? encodeApiPageCursor(cursorSearch, tablePage.nextPageToken)
+      : null;
+    const tables = tablePage.tables;
 
     if (!includeColumns) {
       const q = search.toLowerCase();
+      const visibleTables = tables.filter((table) => {
+        if (!q) return true;
+        return [table.tableId, table.friendlyName, table.type]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(q);
+      });
       return {
         mode: "tables",
         projectId: configuredProjectId,
         datasetId,
-        tables: tables
-          .filter((table) => {
-            if (!q) return true;
-            return [table.tableId, table.friendlyName, table.type]
-              .filter(Boolean)
-              .join(" ")
-              .toLowerCase()
-              .includes(q);
-          })
-          .slice(0, limit),
+        tables: visibleTables,
+        searched: tables.length,
+        of: tablePage.totalItems ?? tables.length,
+        truncated: nextPage !== null,
+        nextPage,
         nextStep:
           "Pass table=<tableId> with this dataset to inspect columns before writing SQL.",
       };
     }
 
     const metadata = await Promise.all(
-      tables.slice(0, Math.min(tables.length, limit)).map((table) => {
+      tables.map((table) => {
         const tableId = table.tableId ?? "";
         return getBigQueryTableMetadata({
           projectId: configuredProjectId,
@@ -354,14 +495,65 @@ export default defineAction({
       }),
     );
 
+    if (!search) {
+      return {
+        mode: "tables-with-columns",
+        projectId: configuredProjectId,
+        datasetId,
+        tables: metadata.map((meta) => compactTable(meta, true)),
+        searched: metadata.length,
+        of: tablePage.totalItems ?? metadata.length,
+        truncated: nextPage !== null,
+        nextPage,
+        note: "Use exact table and column names from this metadata. If the business meaning is unclear, save an unapproved data-dictionary entry or ask the user.",
+      };
+    }
+
+    const requestedScope = semanticScopeForSearch(search);
+    const ranked = metadata.flatMap((meta) => {
+      const match = scoreSearch(meta, search);
+      if (match.score <= 0) return [];
+      const candidateScope = semanticScopeForSearch(
+        [
+          meta.tableReference?.tableId,
+          meta.friendlyName,
+          meta.description,
+          ...flattenBigQueryFields(meta.schema?.fields).map(
+            (column) => column.name,
+          ),
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+      return [
+        {
+          table: compactTable(meta, true),
+          score: match.score,
+          scopeRank: semanticScopeCompatibility(candidateScope, requestedScope),
+        },
+      ];
+    });
+    ranked.sort((a, b) => {
+      if (b.scopeRank !== a.scopeRank) return b.scopeRank - a.scopeRank;
+      if (b.score !== a.score) return b.score - a.score;
+      return `${a.table.datasetId}.${a.table.tableId}`.localeCompare(
+        `${b.table.datasetId}.${b.table.tableId}`,
+      );
+    });
+    const hasScopeMatch = ranked.some((match) => match.scopeRank === 2);
+    const scopedResults = hasScopeMatch
+      ? ranked.filter((match) => match.scopeRank === 2)
+      : ranked;
     return {
-      mode: search ? "table-search" : "tables-with-columns",
+      mode: "table-search",
       projectId: configuredProjectId,
       datasetId,
-      tables: metadata
-        .filter((meta) => !search || matchesSearch(meta, search))
-        .map((meta) => compactTable(meta, true))
-        .slice(0, limit),
+      search,
+      searched: metadata.length,
+      of: scopedResults.length,
+      truncated: nextPage !== null,
+      nextPage,
+      tables: scopedResults.map((match) => match.table),
       note: "Use exact table and column names from this metadata. If the business meaning is unclear, save an unapproved data-dictionary entry or ask the user.",
     };
   },

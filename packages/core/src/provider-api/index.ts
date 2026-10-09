@@ -92,6 +92,7 @@ export const PROVIDER_API_IDS = [
   "prometheus",
   "pylon",
   "sentry",
+  "sigma",
   "slack",
   "stripe",
   "twitter",
@@ -335,6 +336,13 @@ export type ProviderApiAuthKind =
       workspaceProvider?: string;
     }
   | {
+      type: "oauth-client-credentials";
+      clientIdKey: string;
+      clientSecretKey: string;
+      tokenPath: string;
+      workspaceProvider: string;
+    }
+  | {
       type: "oauth-bearer-or-api-key-header";
       oauthProvider: string;
       tokenLabel: string;
@@ -374,6 +382,7 @@ export interface ProviderApiConfig {
   docsUrls: readonly string[];
   specUrls?: readonly string[];
   allowedHostSuffixes?: readonly string[];
+  requireHttps?: boolean;
   defaultHeaders?: Record<string, string>;
   placeholders?: readonly ProviderApiPlaceholder[];
   examples?: readonly ProviderApiExample[];
@@ -611,6 +620,54 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         method: "GET",
         path: "/export?start=20260601T00&end=20260602T00",
       },
+    ],
+  },
+  sigma: {
+    id: "sigma",
+    label: "Sigma REST API",
+    defaultBaseUrl: "https://aws-api.sigmacomputing.com",
+    baseUrlCredentialKey: "SIGMA_BASE_URL",
+    requiresConnectionId: true,
+    requireHttps: true,
+    auth: {
+      type: "oauth-client-credentials",
+      clientIdKey: "SIGMA_CLIENT_ID",
+      clientSecretKey: "SIGMA_CLIENT_SECRET",
+      tokenPath: "/v2/auth/token",
+      workspaceProvider: "sigma",
+    },
+    credentialKeys: [
+      "SIGMA_CLIENT_ID",
+      "SIGMA_CLIENT_SECRET",
+      "SIGMA_BASE_URL",
+    ],
+    docsUrls: [
+      "https://help.sigmacomputing.com/reference/get-started-sigma-api",
+      "https://help.sigmacomputing.com/reference/post-token",
+      "https://help.sigmacomputing.com/reference/list-workbooks",
+      "https://help.sigmacomputing.com/reference/list-workbook-elements",
+      "https://help.sigmacomputing.com/reference/list-workbook-queries",
+    ],
+    specUrls: [
+      "https://help.sigmacomputing.com/openapi/openapi/sigma-rest-api.json",
+    ],
+    allowedHostSuffixes: ["sigmacomputing.com"],
+    templateUses: ["analytics"],
+    examples: [
+      { label: "List workbooks", method: "GET", path: "/v2/workbooks" },
+      {
+        label: "List workbook elements",
+        method: "GET",
+        path: "/v2/workbooks/{workbookId}/elements",
+      },
+      {
+        label: "List workbook queries",
+        method: "GET",
+        path: "/v2/workbooks/{workbookId}/queries",
+      },
+    ],
+    notes: [
+      "Uses OAuth client-credentials exchange through a Sigma workspace connection. Sigma is optional; use it for reviewed examples, and use dbt as the canonical schema and grain source.",
     ],
   },
   apollo: {
@@ -1858,7 +1915,7 @@ export async function executeProviderApiRequest(
   const auth =
     args.auth === "none"
       ? emptyAuth()
-      : await resolveAuth(config, runtime, ctx, args);
+      : await resolveAuth(config, runtime, ctx, args, endpoint);
   if (endpoint.owner) {
     for (const credential of auth.credentialSources) {
       assertCredentialCanReachEndpoint(
@@ -3346,6 +3403,9 @@ function describeAuth(auth: ProviderApiAuthKind): string {
   if (auth.type === "api-key-header") return `api-key-header:${auth.header}`;
   if (auth.type === "google-service-account") return "google-service-account";
   if (auth.type === "oauth-bearer") return `oauth-bearer:${auth.oauthProvider}`;
+  if (auth.type === "oauth-client-credentials") {
+    return `oauth-client-credentials:${auth.workspaceProvider}`;
+  }
   if (auth.type === "oauth-bearer-or-api-key-header") {
     return `oauth-bearer:${auth.oauthProvider}-or-api-key-header:${auth.header}:${(auth.fallbackKeys ?? [auth.key]).join(",")}`;
   }
@@ -3387,6 +3447,7 @@ async function resolveBaseUrl(
   const auth = config.auth;
   const workspaceProvider =
     auth.type === "oauth-bearer" ||
+    auth.type === "oauth-client-credentials" ||
     auth.type === "oauth-bearer-or-api-key-header" ||
     auth.type === "oauth-bearer-or-bearer-key" ||
     auth.type === "oauth-bearer-or-basic"
@@ -3622,6 +3683,7 @@ function isAllowedProviderUrl(
   config: ProviderApiConfig,
 ): boolean {
   if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  if (config.requireHttps && url.protocol !== "https:") return false;
   if (url.origin === base.origin) return true;
   const host = url.hostname.toLowerCase();
   return (config.allowedHostSuffixes ?? []).some((suffix) => {
@@ -3654,6 +3716,7 @@ async function resolveAuth(
   runtime: ProviderApiRuntimeOptions,
   ctx: CredentialContext,
   args: ProviderApiRequestArgs,
+  endpoint: ResolvedProviderEndpoint,
 ): Promise<ResolvedAuth> {
   const auth = config.auth;
   if (auth.type === "none") return emptyAuth();
@@ -3735,6 +3798,73 @@ async function resolveAuth(
       headers: { [auth.header]: credential.value },
       credentialSources: [omitCredentialValue(credential)],
       secretValues: [credential.value],
+    };
+  }
+  if (auth.type === "oauth-client-credentials") {
+    const clientId = await resolveRequiredCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      key: auth.clientIdKey,
+      ctx,
+      runtime,
+      connectionId: args.connectionId,
+    });
+    const clientSecret = await resolveRequiredCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      key: auth.clientSecretKey,
+      ctx,
+      runtime,
+      connectionId: args.connectionId,
+    });
+    if (endpoint.owner) {
+      assertCredentialCanReachEndpoint(endpoint.owner, clientId, clientId.key);
+      assertCredentialCanReachEndpoint(
+        endpoint.owner,
+        clientSecret,
+        clientSecret.key,
+      );
+    }
+    const tokenUrl = buildProviderUrl({
+      config,
+      baseUrl: endpoint.url,
+      rawPath: auth.tokenPath,
+      query: undefined,
+    });
+    if (await isBlockedExtensionUrlWithDns(tokenUrl.href)) {
+      throw new Error(
+        `Blocked private/internal provider URL: ${tokenUrl.href}`,
+      );
+    }
+    const tokenResponse = await fetchWithTimeout(tokenUrl.href, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: clientId.value,
+        client_secret: clientSecret.value,
+      }),
+      timeoutMs: clampTimeout(args.timeoutMs),
+      signal: args.signal,
+      maxBytes: 16_384,
+      secretValues: [clientId.value, clientSecret.value],
+    });
+    if (!tokenResponse.ok) {
+      throw new Error(
+        `${config.label} client-credentials exchange failed (HTTP ${tokenResponse.status}).`,
+      );
+    }
+    const accessToken = asRecord(tokenResponse.json).access_token;
+    if (typeof accessToken !== "string" || !accessToken.trim()) {
+      throw new Error(`${config.label} did not return an access token.`);
+    }
+    return {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      credentialSources: [
+        omitCredentialValue(clientId),
+        omitCredentialValue(clientSecret),
+      ],
+      secretValues: [clientId.value, clientSecret.value, accessToken],
     };
   }
   if (auth.type === "google-service-account") {

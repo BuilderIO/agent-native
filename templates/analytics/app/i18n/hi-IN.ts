@@ -566,6 +566,26 @@ export default {
     exampleUseCasePlaceholder: "किसी को इस मीट्रिक तक कब पहुंचना चाहिए?",
     saving: "सहेजा जा रहा है...",
     saveEntry: "प्रविष्टि सहेजें",
+    importIndex: "स्रोत इंडेक्स आयात करें",
+    indexNotImported: "कोई जनरेट किया गया स्रोत इंडेक्स आयात नहीं हुआ है।",
+    indexUnreadable:
+      "सहेजे गए स्रोत इंडेक्स को पढ़ा नहीं जा सका; मान्य फ़ाइल फिर से आयात करें।",
+    indexReadFailed: "सहेजे गए स्रोत इंडेक्स की जाँच नहीं हो सकी। फिर से प्रयास करें।",
+    indexReady: "{{count}} स्रोत परिभाषाएँ {{date}} को जनरेट हुईं।",
+    indexStale:
+      "स्नैपशॉट {{days}} दिन पुराना है। नए स्रोत संशोधनों की जाँच के लिए इसे रीफ़्रेश करें।",
+    indexFileInvalid: "750 KB या उससे छोटी मान्य स्रोत-इंडेक्स JSON फ़ाइल चुनें।",
+    replaceIndexTitle: "स्रोत इंडेक्स बदलें?",
+    replaceIndexDescription:
+      "इससे संगठन का मौजूदा स्रोत इंडेक्स बदल जाएगा। आयात की गई परिभाषाएँ बिना अनुमोदन के सुझाव रहेंगी, लाइव क्वेरी परिणाम नहीं।",
+    indexPreview:
+      "{{sources}} से {{count}} परिभाषाएँ; जनरेट होने की तारीख {{date}}।",
+    replaceIndex: "इंडेक्स बदलें",
+    importingIndex: "आयात हो रहा है…",
+    indexImportFailed: "स्रोत इंडेक्स आयात नहीं हो सका। फ़ाइल जाँचें और फिर कोशिश करें।",
+    dictionaryPage: "पृष्ठ {{page}} · {{total}} में से {{count}} परिणाम",
+    previousPage: "पिछला",
+    nextPage: "अगला",
   },
   dataSources: {
     uploadFile: "फ़ाइल अपलोड करें",

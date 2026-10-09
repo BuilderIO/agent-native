@@ -46,6 +46,7 @@ export const providerApiOverrides: ProviderApiConfig[] = [
   provider("grafana"),
   provider("hubspot"),
   provider("salesforce"),
+  provider("sigma"),
   provider("jira"),
   provider("mixpanel"),
   provider("notion"),

@@ -1020,6 +1020,27 @@ export default {
     exampleUseCasePlaceholder: "When should someone reach for this metric?",
     saving: "Saving...",
     saveEntry: "Save entry",
+    importIndex: "Import source index",
+    indexNotImported: "No generated source index is imported.",
+    indexUnreadable:
+      "The saved source index could not be read; re-import a valid file.",
+    indexReadFailed: "The saved source index could not be checked. Try again.",
+    indexReady: "{{count}} source definitions generated {{date}}.",
+    indexStale:
+      "Snapshot is {{days}} days old. Refresh it to check for newer source revisions.",
+    indexFileInvalid:
+      "Choose a valid source-index JSON file no larger than 750 KB.",
+    replaceIndexTitle: "Replace source index?",
+    replaceIndexDescription:
+      "This replaces the organization's current source index. Imported definitions stay unapproved suggestions and are not live query results.",
+    indexPreview: "{{count}} definitions from {{sources}}; generated {{date}}.",
+    replaceIndex: "Replace index",
+    importingIndex: "Importing…",
+    indexImportFailed:
+      "The source index could not be imported. Check the file and try again.",
+    dictionaryPage: "Page {{page}} · {{count}} of {{total}} matches",
+    previousPage: "Previous",
+    nextPage: "Next",
   },
   dataSources: {
     uploadFile: "Upload file",

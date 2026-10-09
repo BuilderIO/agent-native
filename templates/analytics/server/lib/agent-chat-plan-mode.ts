@@ -11,12 +11,11 @@ export const INITIAL_TOOL_NAMES = [
   "list-sql-dashboards",
   "mutate-dashboard",
   "inspect-dashboard-panel",
-  "search-analytics-query-catalog",
+  "find-data",
   "search-dashboard-references",
   "query-agent-native-analytics",
   "bigquery",
   "search-bigquery-schema",
-  "list-data-dictionary",
   "hubspot-records",
   "navigate",
 ];

@@ -32,6 +32,7 @@ describe("workspace connection provider catalog", () => {
       "sentry",
       "granola",
       "clips",
+      "sigma",
       "anthropic-managed-agents",
       "generic",
     ]);
@@ -117,6 +118,24 @@ describe("workspace connection provider catalog", () => {
       label: "GitHub",
       capabilities: expect.arrayContaining(["code", "search"]),
     });
+  });
+
+  it("registers Sigma API credentials as an Analytics workspace connection", () => {
+    expect(getWorkspaceConnectionProvider("sigma")).toMatchObject({
+      id: "sigma",
+      recommendedTemplateUses: ["analytics"],
+      credentialKeys: [
+        { key: "SIGMA_CLIENT_ID", required: true },
+        { key: "SIGMA_CLIENT_SECRET", required: true },
+        { key: "SIGMA_BASE_URL", required: false },
+      ],
+    });
+    expect(
+      listWorkspaceConnectionProvidersForTemplate("analytics").map(
+        (provider) => provider.id,
+      ),
+    ).toContain("sigma");
+    expect(getWorkspaceConnectionProvider("sigma")?.oauth).toBeUndefined();
   });
 
   it("replaces one provider definition without dropping the rest", () => {

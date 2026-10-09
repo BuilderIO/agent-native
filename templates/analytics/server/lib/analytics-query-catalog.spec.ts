@@ -82,6 +82,96 @@ describe("analytics query catalog", () => {
     ).toBe(false);
   });
 
+  it("keeps approved definitions ahead of matching generated source-index entries", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "Builder.io user count",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "generated-builder-users",
+          metric: "Builder.io user count",
+          definition: "Generated model metadata suggestion",
+          table: "product_user_dimension",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+        },
+        {
+          id: "approved-builder-users",
+          metric: "Builder.io user count",
+          definition: "Reviewed Builder.io user definition",
+          table: "product_user_dimension",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "approved-builder-users",
+      approved: true,
+    });
+  });
+
+  it("keeps Builder product users ahead of feature funnels and Analytics users", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "Builder.io users",
+      limit: 6,
+      dictionaryEntries: [
+        {
+          id: "builder-users",
+          metric: "model:product_user_dimension",
+          definition: "Canonical product user records",
+          table: "product_user_dimension",
+          semanticScope: "product_user",
+          aiGenerated: true,
+          approved: false,
+        },
+        {
+          id: "analytics-users",
+          metric: "model:analytics_app_users",
+          definition: "Users of the analytics application",
+          table: "analytics_app_users",
+          semanticScope: "analytics_user",
+          aiGenerated: true,
+          approved: false,
+        },
+      ],
+      dashboards: [
+        {
+          id: "activation-funnel",
+          title: "Product Activation Funnel",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "activation-events",
+                title: "Product Activation events",
+                source: "bigquery",
+                sql: "SELECT user_id, event_name FROM synthetic_feature_events",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "builder-users",
+      semanticScope: "product_user",
+    });
+    expect(
+      results.some((candidate) => candidate.kind === "dashboard-panel"),
+    ).toBe(false);
+    expect(
+      results.some(
+        (candidate) =>
+          candidate.kind === "data-dictionary" &&
+          candidate.id === "analytics-users",
+      ),
+    ).toBe(false);
+  });
+
   it("keeps a relevant AI generated definition when human entries are unrelated", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "monthly active users",

@@ -502,7 +502,7 @@ describe("Analytics agent Plan mode policy", () => {
   };
 
   it("keeps ordinary lookups on one authoritative source", () => {
-    expect(ruleText("references")).toContain("search-analytics-query-catalog");
+    expect(ruleText("references")).toContain("find-data");
     expect(ruleText("references")).toContain(
       "do not by themselves make a question a corpus investigation",
     );
@@ -721,11 +721,10 @@ describe("Analytics agent Plan mode policy", () => {
         "mutate-dashboard",
         "inspect-dashboard-panel",
         "search-dashboard-references",
-        "search-analytics-query-catalog",
+        "find-data",
         "query-agent-native-analytics",
         "bigquery",
         "search-bigquery-schema",
-        "list-data-dictionary",
         "view-screen",
         "call-agent",
       ]),
@@ -1547,7 +1546,7 @@ describe("realDataFinalGuard", () => {
       maxRetries: 2,
       expandToolSurface: true,
       retryMessage: expect.stringContaining(
-        "You already ran catalog/dashboard-reference discovery",
+        "You already ran data-reference discovery",
       ),
       exhaustedDraftPrefix: expect.stringContaining("Unverified"),
     });

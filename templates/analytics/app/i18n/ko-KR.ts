@@ -571,6 +571,27 @@ export default {
     exampleUseCasePlaceholder: "이 측정항목은 언제 도달해야 합니까?",
     saving: "절약...",
     saveEntry: "항목 저장",
+    importIndex: "소스 인덱스 가져오기",
+    indexNotImported: "생성된 소스 인덱스를 아직 가져오지 않았습니다.",
+    indexUnreadable:
+      "저장된 소스 인덱스를 읽을 수 없습니다. 유효한 파일을 다시 가져오세요.",
+    indexReadFailed:
+      "저장된 소스 인덱스를 확인하지 못했습니다. 다시 시도하세요.",
+    indexReady: "{{count}}개의 소스 정의가 {{date}}에 생성되었습니다.",
+    indexStale:
+      "스냅샷이 {{days}}일 지났습니다. 최신 소스 리비전이 있는지 확인하려면 새로고침하세요.",
+    indexFileInvalid: "750KB 이하의 유효한 소스 인덱스 JSON 파일을 선택하세요.",
+    replaceIndexTitle: "소스 인덱스를 바꾸시겠습니까?",
+    replaceIndexDescription:
+      "조직의 현재 소스 인덱스를 바꿉니다. 가져온 정의는 승인되지 않은 제안이며 실시간 쿼리 결과가 아닙니다.",
+    indexPreview: "{{sources}}의 정의 {{count}}개, 생성일 {{date}}.",
+    replaceIndex: "인덱스 바꾸기",
+    importingIndex: "가져오는 중…",
+    indexImportFailed:
+      "소스 인덱스를 가져오지 못했습니다. 파일을 확인한 후 다시 시도하세요.",
+    dictionaryPage: "{{total}}개 중 {{count}}개 · {{page}}페이지",
+    previousPage: "이전",
+    nextPage: "다음",
   },
   dataSources: {
     uploadFile: "파일 업로드",

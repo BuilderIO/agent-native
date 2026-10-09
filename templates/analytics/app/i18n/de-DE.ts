@@ -592,6 +592,29 @@ export default {
       "Wann sollte jemand nach dieser Kennzahl greifen?",
     saving: "Sparen...",
     saveEntry: "Eintrag speichern",
+    importIndex: "Quellindex importieren",
+    indexNotImported: "Es wurde kein generierter Quellindex importiert.",
+    indexUnreadable:
+      "Der gespeicherte Quellindex konnte nicht gelesen werden; importiere eine gültige Datei erneut.",
+    indexReadFailed:
+      "Der gespeicherte Quellindex konnte nicht geprüft werden. Versuche es erneut.",
+    indexReady: "{{count}} Quelldefinitionen, erstellt am {{date}}.",
+    indexStale:
+      "Der Snapshot ist {{days}} Tage alt. Aktualisiere ihn, um neuere Quellrevisionen zu prüfen.",
+    indexFileInvalid:
+      "Wähle eine gültige Quellindex-JSON-Datei mit höchstens 750 KB aus.",
+    replaceIndexTitle: "Quellindex ersetzen?",
+    replaceIndexDescription:
+      "Dadurch wird der aktuelle Quellindex der Organisation ersetzt. Importierte Definitionen bleiben ungeprüfte Vorschläge und sind keine Live-Abfrageergebnisse.",
+    indexPreview:
+      "{{count}} Definitionen aus {{sources}}; erstellt am {{date}}.",
+    replaceIndex: "Index ersetzen",
+    importingIndex: "Wird importiert…",
+    indexImportFailed:
+      "Der Quellindex konnte nicht importiert werden. Prüfe die Datei und versuche es erneut.",
+    dictionaryPage: "Seite {{page}} · {{count}} von {{total}} Treffern",
+    previousPage: "Zurück",
+    nextPage: "Weiter",
   },
   dataSources: {
     uploadFile: "Datei hochladen",

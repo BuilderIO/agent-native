@@ -595,6 +595,28 @@ export default {
       "Quand quelqu’un devrait-il atteindre cette métrique ?",
     saving: "Économie...",
     saveEntry: "Enregistrer l'entrée",
+    importIndex: "Importer l’index des sources",
+    indexNotImported: "Aucun index de sources généré n’a été importé.",
+    indexUnreadable:
+      "Impossible de lire l’index enregistré ; importez à nouveau un fichier valide.",
+    indexReadFailed: "Impossible de vérifier l’index enregistré. Réessayez.",
+    indexReady: "{{count}} définitions de sources générées le {{date}}.",
+    indexStale:
+      "Cet instantané date de {{days}} jours. Actualisez-le pour vérifier les révisions plus récentes.",
+    indexFileInvalid:
+      "Choisissez un fichier JSON d’index valide de 750 Ko maximum.",
+    replaceIndexTitle: "Remplacer l’index des sources ?",
+    replaceIndexDescription:
+      "Cela remplace l’index des sources actuel de l’organisation. Les définitions importées restent des suggestions non approuvées et ne sont pas des résultats de requêtes en direct.",
+    indexPreview:
+      "{{count}} définitions provenant de {{sources}} ; générées le {{date}}.",
+    replaceIndex: "Remplacer l’index",
+    importingIndex: "Importation…",
+    indexImportFailed:
+      "Impossible d’importer l’index. Vérifiez le fichier et réessayez.",
+    dictionaryPage: "Page {{page}} · {{count}} sur {{total}} résultats",
+    previousPage: "Précédent",
+    nextPage: "Suivant",
   },
   dataSources: {
     uploadFile: "Télécharger le fichier",

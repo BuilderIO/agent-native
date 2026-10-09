@@ -1,7 +1,7 @@
+import { access } from "node:fs/promises";
 import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { ActionEntry } from "../agent/production-agent.js";
 import { insertEvalResult } from "../observability/store.js";
 import type { EvalResult as ObservabilityEvalResult } from "../observability/types.js";
 import type { AgentRunner } from "./agent-runner.js";
@@ -11,6 +11,9 @@ import { clamp01 } from "./scorer.js";
 import type {
   AgentRunOutput,
   Eval,
+  EvalProductionContextResolver,
+  EvalProductionContext,
+  EvalProductionIdentity,
   EvalResultRow,
   EvalRunReport,
   ScorerResult,
@@ -98,6 +101,7 @@ export async function scoreEval(
     avgScore,
     durationMs: run.durationMs,
     error: run.ok ? undefined : run.error,
+    ...(run.usage ? { usage: run.usage } : {}),
     ...(evalCase.source ? { source: evalCase.source } : {}),
   };
 }
@@ -237,8 +241,8 @@ export interface RunEvalSuiteOptions {
   cwd?: string;
   pattern?: string;
   thresholdOverride?: number;
-  actions?: Record<string, ActionEntry>;
-  systemPrompt?: string;
+  productionContext?: EvalProductionContext;
+  identity?: EvalProductionIdentity;
   persist?: boolean;
   runner?: AgentRunner;
   evals?: Eval[];
@@ -258,32 +262,75 @@ export async function runEvalSuite(
   }
 
   const needsRunner = evals.some((evalCase) => !evalCase.skipReason);
-  const runner =
-    opts.runner ??
-    (needsRunner
-      ? await createAgentRunner({
-          actions: opts.actions ?? (await discoverActions(cwd)),
-          systemPrompt: opts.systemPrompt,
-        })
-      : createInertRunner());
+  let runner = opts.runner;
+  if (!runner && needsRunner) {
+    const productionContext =
+      opts.productionContext ??
+      (await loadProductionEvalContext(cwd, opts.identity));
+    requireProductionChatPath(productionContext);
+    runner = await createAgentRunner({ productionContext });
+  }
+  runner ??= createInertRunner();
 
   const report = await runEvals(evals, runner, {
     thresholdOverride: opts.thresholdOverride,
-    persist: opts.persist ?? true,
+    persist: opts.persist ?? false,
   });
   return { report, files };
 }
 
-async function discoverActions(
+export async function loadProductionEvalContext(
   cwd: string,
-): Promise<Record<string, ActionEntry>> {
+  identity?: EvalProductionIdentity,
+): Promise<EvalProductionContext> {
+  const ownerEmail = identity?.ownerEmail.trim();
+  const orgId = identity?.orgId.trim();
+  if (!ownerEmail || !orgId) {
+    throw new Error(
+      "Production evals require explicit ownerEmail and orgId values passed by the caller.",
+    );
+  }
+
+  const adapterPath = nodePath.join(cwd, "evals", "production-context.ts");
   try {
-    const { autoDiscoverActions } =
-      await import("../server/action-discovery.js");
-    const actionsDir = nodePath.join(cwd, "actions");
-    return await autoDiscoverActions(pathToFileURL(actionsDir + "/").href);
+    await access(adapterPath);
   } catch {
-    return {};
+    throw new Error(
+      `Production eval adapter is missing at ${adapterPath}. Add evals/production-context.ts exporting resolveProductionEvalContext(identity).`,
+    );
+  }
+
+  const module = (await import(pathToFileURL(adapterPath).href)) as Record<
+    string,
+    unknown
+  >;
+  const resolveProductionEvalContext = module.resolveProductionEvalContext as
+    | EvalProductionContextResolver
+    | undefined;
+  if (typeof resolveProductionEvalContext !== "function") {
+    throw new Error(
+      `${adapterPath} must export resolveProductionEvalContext(identity).`,
+    );
+  }
+  const context = await resolveProductionEvalContext({ ownerEmail, orgId });
+  if (
+    typeof context?.ownerEmail !== "string" ||
+    context.ownerEmail.trim().toLowerCase() !== ownerEmail.toLowerCase() ||
+    context.orgId !== orgId
+  ) {
+    throw new Error(
+      "Production eval adapter returned an owner or org that differs from the explicit eval identity.",
+    );
+  }
+  requireProductionChatPath(context);
+  return context;
+}
+
+function requireProductionChatPath(context: EvalProductionContext): void {
+  if (typeof context.productionChatPath?.run !== "function") {
+    throw new Error(
+      `Production eval adapter for ${context.appId ?? "this app"} does not invoke the production chat handler. Direct runAgentLoop evals omit request preparation, prefetch, and assembled runtime context, so this eval cannot count as production-path evidence.`,
+    );
   }
 }
 

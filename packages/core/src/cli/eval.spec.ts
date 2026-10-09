@@ -32,6 +32,7 @@ vi.mock("../observability/actions/promote-trace-eval.js", () => ({
     promotion.persistPromotedEvalDataset(...args),
 }));
 
+import { PROMOTED_EVAL_PRIVACY_VERSION } from "../eval/from-trace.js";
 import { parseEvalArgs, runEval } from "./eval.js";
 
 const promoted = {
@@ -73,6 +74,38 @@ describe("parseEvalArgs", () => {
       json: false,
       threshold: undefined,
     });
+    expect(
+      parseEvalArgs([
+        "analytics",
+        "--owner-email",
+        "alice@example.com",
+        "--org-id=org_1",
+      ]),
+    ).toEqual({
+      command: "run",
+      pattern: "analytics",
+      json: false,
+      threshold: undefined,
+      ownerEmail: "alice@example.com",
+      orgId: "org_1",
+    });
+  });
+
+  it("requires owner and org identity flags together", () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`process.exit(${code})`);
+    }) as typeof process.exit);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(() => parseEvalArgs(["--owner-email", "alice@example.com"])).toThrow(
+      "process.exit(2)",
+    );
+    expect(exit).toHaveBeenCalledWith(2);
+    expect(error).toHaveBeenCalledWith(
+      "eval: provide both --owner-email and --org-id",
+    );
   });
 
   it("parses promote <runId> [--write] [--json] [--must-contain]", () => {
@@ -268,12 +301,17 @@ describe("runPromote", () => {
     promotion.persistPromotedEvalDataset.mockResolvedValue({
       id: "ds-winner",
       name: "from-trace:run-1",
-      description: "Promoted from production run run-1",
+      description: "Promoted from production run run-1 (privacy v3)",
       entries: [
         {
-          input: "hello",
-          expectedOutput: "from the winner",
-          context: { runId: "run-1", history: [], tools: ["search-docs"] },
+          input: "[redacted production prompt]",
+          expectedOutput: "active users",
+          context: {
+            runId: "run-1",
+            history: [],
+            tools: ["search-docs"],
+            privacyVersion: PROMOTED_EVAL_PRIVACY_VERSION,
+          },
         },
       ],
       createdAt: 1,
@@ -287,7 +325,7 @@ describe("runPromote", () => {
 
     const writes = fsMock.writeFile.mock.calls.map((call) => String(call[1]));
     expect(writes).toHaveLength(2);
-    expect(writes[1]).toContain("from the winner");
+    expect(writes[1]).toContain("active users");
     expect(writes[1]).toContain("search-docs");
   });
 });

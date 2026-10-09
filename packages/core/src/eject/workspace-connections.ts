@@ -24,6 +24,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS: WorkspaceConnectionProvider[] = [
   "google_slides",
   "hubspot",
   "salesforce",
+  "sigma",
   "jira",
   "sentry",
   "granola",

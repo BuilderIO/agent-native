@@ -581,6 +581,29 @@ export default {
     exampleUseCasePlaceholder: "いつこの指標に到達すべきでしょうか?",
     saving: "保存中...",
     saveEntry: "エントリを保存する",
+    importIndex: "ソースインデックスをインポート",
+    indexNotImported:
+      "生成されたソースインデックスはまだインポートされていません。",
+    indexUnreadable:
+      "保存済みのソースインデックスを読み取れません。有効なファイルを再度インポートしてください。",
+    indexReadFailed:
+      "保存済みのソースインデックスを確認できませんでした。もう一度お試しください。",
+    indexReady: "{{count}} 件のソース定義を {{date}} に生成しました。",
+    indexStale:
+      "スナップショットは {{days}} 日前のものです。新しいソースのリビジョンを確認するため更新してください。",
+    indexFileInvalid:
+      "750 KB 以下の有効なソースインデックス JSON ファイルを選択してください。",
+    replaceIndexTitle: "ソースインデックスを置き換えますか？",
+    replaceIndexDescription:
+      "組織の現在のソースインデックスを置き換えます。インポートした定義は未承認の候補であり、ライブクエリの結果ではありません。",
+    indexPreview: "{{sources}} の {{count}} 件の定義。生成日 {{date}}。",
+    replaceIndex: "インデックスを置き換える",
+    importingIndex: "インポート中…",
+    indexImportFailed:
+      "ソースインデックスをインポートできませんでした。ファイルを確認して再試行してください。",
+    dictionaryPage: "{{total}}件中{{count}}件 · {{page}}ページ目",
+    previousPage: "前へ",
+    nextPage: "次へ",
   },
   dataSources: {
     uploadFile: "ファイルをアップロードする",

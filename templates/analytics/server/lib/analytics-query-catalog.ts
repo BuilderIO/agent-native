@@ -4,6 +4,18 @@ import {
   listSettingsByPrefix,
 } from "@agent-native/core/settings";
 
+import {
+  LOW_INFORMATION_TERMS,
+  matchSearchFields as matchScore,
+  paginateSearchResults,
+  relevanceTerms,
+  semanticScopeCompatibility,
+  semanticScopeForSearch,
+  searchTerms,
+  decodeSearchCursor,
+} from "./analytics-term-matcher";
+export { relevanceTerms, searchTerms } from "./analytics-term-matcher";
+
 import { dashboardCatalogEntries } from "./dashboard-catalog";
 import {
   isDashboardCertified,
@@ -12,9 +24,15 @@ import {
 import {
   listDashboardSummaries,
   loadDashboardCatalogDashboards,
+  searchDashboardReferencesPage,
   type DashboardCatalogRecord,
+  type DashboardReferenceRecord,
   type DashboardSummaryRecord,
 } from "./dashboards-store";
+import {
+  readSourceIndex,
+  sourceIndexDictionaryEntries,
+} from "./source-index-store";
 
 const DATA_DICTIONARY_KEY_PREFIX = "data-dict-";
 const MAX_QUERY_LENGTH = 12_000;
@@ -28,113 +46,6 @@ const RETIRED_CATALOG_STATES = new Set([
   "removed",
   "retired",
 ]);
-const STOP_WORDS = new Set([
-  "a",
-  "about",
-  "all",
-  "also",
-  "am",
-  "an",
-  "and",
-  "any",
-  "are",
-  "as",
-  "at",
-  "be",
-  "been",
-  "but",
-  "by",
-  "can",
-  "could",
-  "count",
-  "data",
-  "day",
-  "days",
-  "did",
-  "do",
-  "does",
-  "exact",
-  "find",
-  "for",
-  "from",
-  "get",
-  "give",
-  "has",
-  "have",
-  "hello",
-  "her",
-  "here",
-  "hey",
-  "hi",
-  "his",
-  "how",
-  "i",
-  "if",
-  "in",
-  "into",
-  "is",
-  "it",
-  "its",
-  "just",
-  "last",
-  "look",
-  "many",
-  "me",
-  "metric",
-  "my",
-  "no",
-  "not",
-  "number",
-  "of",
-  "ok",
-  "okay",
-  "on",
-  "or",
-  "our",
-  "out",
-  "over",
-  "please",
-  "should",
-  "show",
-  "so",
-  "some",
-  "than",
-  "thank",
-  "thanks",
-  "that",
-  "the",
-  "their",
-  "them",
-  "then",
-  "there",
-  "these",
-  "they",
-  "this",
-  "those",
-  "time",
-  "to",
-  "today",
-  "total",
-  "up",
-  "was",
-  "we",
-  "week",
-  "were",
-  "what",
-  "when",
-  "where",
-  "which",
-  "who",
-  "why",
-  "will",
-  "with",
-  "would",
-  "yes",
-  "yesterday",
-  "you",
-  "your",
-]);
-
 type DictionaryEntry = Record<string, unknown>;
 type DashboardPanel = Record<string, unknown>;
 
@@ -168,7 +79,7 @@ export type AnalyticsQueryCatalogCandidate =
     }
   | {
       kind: "data-dictionary";
-      origin: "data-dictionary";
+      origin: "data-dictionary" | "source-index";
       score: number;
       matchedTerms: string[];
       id: string;
@@ -191,12 +102,27 @@ export type AnalyticsQueryCatalogCandidate =
       approved?: boolean;
       aiGenerated?: boolean;
       sourceUrl?: string;
+      semanticScope?: string;
+      sourcePath?: string;
+      sourceRevision?: string;
+      sourceIndexGeneratedAt?: string;
+      sourceIndexSources?: string;
     };
 
 export type AnalyticsQueryCatalogSearchResult = {
   candidates: AnalyticsQueryCatalogCandidate[];
+  searched: number;
+  of: number;
+  truncated: boolean;
+  nextPage: string | null;
   searchedDashboardCount: number;
   dashboardSearchTruncated: boolean;
+  dashboardDetailHydrationTruncated: boolean;
+  dashboardPanelReferenceSearchStatus: "available" | "unavailable";
+  dashboardPanelReferenceSearchTruncated: boolean;
+  dashboardPanelReferenceSearched: number;
+  dashboardPanelReferenceOf: number;
+  dashboardPanelReferenceNextPage: string | null;
   dashboardSearchStatus: "available" | "unavailable";
   searchedDictionaryEntryCount: number;
   dictionarySearchTruncated: boolean;
@@ -236,20 +162,27 @@ function summaryScore(
   dashboard: DashboardSummaryRecord,
   favoriteIds: ReadonlySet<string>,
 ): number {
-  const { score } = matchScore(search, [
-    { value: dashboard.name, weight: 24 },
-    { value: dashboard.description, weight: 12 },
-    { value: dashboard.configName, weight: 10 },
-    { value: dashboard.catalogTemplateId, weight: 6 },
-    { value: dashboard.demoId, weight: 6 },
-  ]);
+  const relevance = dashboardSummaryRelevance(search, dashboard);
   const certified = isDashboardCertified(
     dashboard.certification,
     dashboard.updatedAt,
   );
   return (
-    score + (certified ? 60 : 0) + (favoriteIds.has(dashboard.id) ? 20 : 0)
+    relevance + (certified ? 60 : 0) + (favoriteIds.has(dashboard.id) ? 20 : 0)
   );
+}
+
+function dashboardSummaryRelevance(
+  search: string,
+  dashboard: DashboardSummaryRecord,
+): number {
+  return matchScore(search, [
+    { value: dashboard.name, weight: 24 },
+    { value: dashboard.description, weight: 12 },
+    { value: dashboard.configName, weight: 10 },
+    { value: dashboard.catalogTemplateId, weight: 6 },
+    { value: dashboard.demoId, weight: 6 },
+  ]).score;
 }
 
 function shortlistDashboardSummaries(
@@ -277,155 +210,67 @@ function shortlistDashboardSummaries(
     .map(({ dashboard }) => dashboard);
 }
 
-const SYNONYM_EXPANSIONS: Record<string, string[]> = {
-  account: ["company", "customer", "org"],
-  active: ["engaged"],
-  arr: ["annual", "recurring", "revenue"],
-  churn: ["cancel", "attrition", "downgrade"],
-  csql: ["sale", "qualified", "lead", "opportunity"],
-  customer: ["account", "company"],
-  dau: ["daily", "active", "user"],
-  deal: ["opportunity", "pipeline"],
-  error: ["5xx", "4xx", "exception", "failure", "fault"],
-  icp: ["ideal", "customer", "profile"],
-  mau: ["monthly", "active", "user"],
-  mql: ["marketing", "qualified", "lead"],
-  mrr: ["monthly", "recurring", "revenue"],
-  pageview: ["page", "view", "traffic", "session"],
-  pipeline: ["deal", "opportunity", "forecast"],
-  poc: ["proof", "concept", "trial", "pilot"],
-  revenue: ["bookings", "arr", "mrr", "won"],
-  signup: ["registration", "created", "onboard"],
-  traffic: ["pageview", "session", "visit"],
-  usage: ["active", "engagement"],
-  user: ["member", "person", "seat"],
-  wau: ["weekly", "active", "user"],
-};
-
-const LOW_INFORMATION_TERMS = new Set([
-  "average",
-  "percent",
-  "percentage",
-  "rate",
-  "ratio",
-  "score",
-  "value",
-  "volume",
+const SEMANTIC_SCOPES = new Set([
+  "analytics_user",
+  "product_user",
+  "person",
+  "organization",
+  "membership",
+  "product_activity",
+  "session",
+  "crm_record",
 ]);
 
-function stem(token: string): string {
-  if (token.length > 4 && token.endsWith("ies"))
-    return `${token.slice(0, -3)}y`;
-  if (token.length > 4 && token.endsWith("sses")) return token.slice(0, -2);
-  if (token.length > 3 && token.endsWith("s") && !token.endsWith("ss")) {
-    return token.slice(0, -1);
+function inferSemanticScope(value: string): string {
+  return semanticScopeForSearch(value);
+}
+
+export function candidateSemanticScope(
+  candidate: AnalyticsQueryCatalogCandidate,
+): string {
+  if (candidate.kind === "data-dictionary") {
+    const declared = candidate.semanticScope;
+    if (declared && SEMANTIC_SCOPES.has(declared)) return declared;
+    return inferSemanticScope(
+      [
+        candidate.metric,
+        candidate.definition,
+        candidate.source,
+        candidate.table,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
   }
-  return token;
-}
-
-function rawTokens(value: string): string[] {
-  return value
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-}
-
-function tokenize(value: string): string[] {
-  return rawTokens(value).map(stem);
-}
-
-/** Terms that carry the ask. A stop word is checked before stemming: stemming
- *  turns "this" into "thi", which no stop list contains. */
-function meaningfulTerms(search: string): string[] {
-  const terms = rawTokens(search)
-    .filter((token) => token.length > 1 && !STOP_WORDS.has(token))
-    .map(stem)
-    .filter((term) => !STOP_WORDS.has(term));
-  return Array.from(new Set(terms));
-}
-
-export function searchTerms(search: string): string[] {
-  const meaningful = meaningfulTerms(search);
-  if (meaningful.length) return meaningful;
-  return Array.from(new Set(tokenize(search)));
-}
-
-// Words about the product rather than the data: they match every dashboard
-// titled "... Dashboard", so "how do I share a dashboard" is not a data ask.
-const PRODUCT_TERMS = new Set([
-  "app",
-  "chart",
-  "dashboard",
-  "graph",
-  "page",
-  "panel",
-  "tab",
-  "widget",
-]);
-
-/** The terms that can make a reference relevant. Unlike `searchTerms` there is
- *  no fallback to filler: an ask made only of filler has no relevant terms. */
-export function relevanceTerms(search: string): string[] {
-  return meaningfulTerms(search).filter(
-    (term) => term.length >= 3 && !PRODUCT_TERMS.has(term),
+  return inferSemanticScope(
+    [
+      candidate.dashboardTitle,
+      candidate.dashboardDescription,
+      candidate.panelTitle,
+      candidate.panelDescription,
+      candidate.query
+        ? typeof candidate.query === "string"
+          ? candidate.query
+          : JSON.stringify(candidate.query)
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
   );
 }
 
-function expandedTerms(primary: string[]): string[] {
-  const primarySet = new Set(primary);
-  const expanded = new Set<string>();
-  for (const term of primary) {
-    for (const synonym of SYNONYM_EXPANSIONS[term] ?? []) {
-      const stemmed = stem(synonym);
-      if (!primarySet.has(stemmed)) expanded.add(stemmed);
-    }
-  }
-  return [...expanded];
+function requestedSemanticScope(search: string): string {
+  return inferSemanticScope(search);
 }
 
-const MAX_SCORED_FIELD_CHARS = 4_000;
-
-function matchScore(
+export function candidateScopeCompatibility(
+  candidate: AnalyticsQueryCatalogCandidate,
   search: string,
-  weightedFields: Array<{ value: unknown; weight: number }>,
-): { score: number; matchedTerms: string[] } {
-  const terms = searchTerms(search);
-  if (!terms.length) return { score: 0, matchedTerms: [] };
-  const synonyms = expandedTerms(terms);
-
-  const normalizedSearch = search.toLowerCase().trim();
-  const matched = new Set<string>();
-  let score = 0;
-  for (const field of weightedFields) {
-    const raw = text(field.value).slice(0, MAX_SCORED_FIELD_CHARS);
-    if (!raw) continue;
-    const lowered = raw.toLowerCase();
-    const tokens = new Set(tokenize(raw));
-
-    if (normalizedSearch.length > 2 && lowered.includes(normalizedSearch)) {
-      score += field.weight * 4;
-    }
-    for (const term of terms) {
-      if (!tokens.has(term)) continue;
-      matched.add(term);
-      score += field.weight * (LOW_INFORMATION_TERMS.has(term) ? 0.3 : 1);
-    }
-    for (const synonym of synonyms) {
-      if (!tokens.has(synonym)) continue;
-      score += field.weight * 0.4;
-    }
-  }
-
-  // Proportional, not all-or-nothing: a 7-word question could never hit the old
-  // full-coverage bonus, so long real questions collapsed to near-random scores.
-  // Damped for short queries — at full strength every one-of-one-token match tied
-  // at the same score, so generic "... Rate" entries mass-tied above exact panels.
-  const coverageWeight = Math.min(terms.length, 3) / 3;
-  score += 40 * (matched.size / terms.length) * coverageWeight;
-  return { score: Math.round(score), matchedTerms: [...matched] };
+): number {
+  const requested = requestedSemanticScope(search);
+  if (requested === "unknown") return 1;
+  const candidateScope = candidateSemanticScope(candidate);
+  return semanticScopeCompatibility(candidateScope, requested);
 }
 
 function dashboardPanelCandidates(args: {
@@ -541,7 +386,7 @@ function dictionaryCandidates(
 ): AnalyticsQueryCatalogCandidate[] {
   const candidates = entries.flatMap((entry) => {
     if (isRetiredCatalogReference(entry)) return [];
-    const { score, matchedTerms } = matchScore(search, [
+    const { score: rawScore, matchedTerms } = matchScore(search, [
       { value: entry.metric, weight: 28 },
       { value: entry.commonQuestions, weight: 16 },
       { value: entry.definition, weight: 12 },
@@ -552,6 +397,16 @@ function dictionaryCandidates(
       { value: entry.action, weight: 5 },
       { value: entry.knownGotchas, weight: 2 },
     ]);
+    if (!rawScore) return [];
+    const isSourceIndex = entry.sourceIndex === true;
+    const semanticScope =
+      text(entry.semanticScope) ||
+      inferSemanticScope(
+        [entry.metric, entry.definition, entry.source, entry.table]
+          .filter(Boolean)
+          .join(" "),
+      );
+    const score = rawScore;
     if (!score) return [];
 
     const id = text(entry.id);
@@ -560,7 +415,9 @@ function dictionaryCandidates(
     return [
       {
         kind: "data-dictionary" as const,
-        origin: "data-dictionary" as const,
+        origin: isSourceIndex
+          ? ("source-index" as const)
+          : ("data-dictionary" as const),
         score: score + (entry.approved === true ? 12 : 0),
         matchedTerms,
         id,
@@ -605,6 +462,19 @@ function dictionaryCandidates(
           ? { aiGenerated: entry.aiGenerated }
           : {}),
         ...(text(entry.sourceUrl) ? { sourceUrl: text(entry.sourceUrl) } : {}),
+        ...(semanticScope !== "unknown" ? { semanticScope } : {}),
+        ...(text(entry.sourcePath)
+          ? { sourcePath: text(entry.sourcePath) }
+          : {}),
+        ...(text(entry.sourceRevision)
+          ? { sourceRevision: text(entry.sourceRevision) }
+          : {}),
+        ...(text(entry.sourceIndexGeneratedAt)
+          ? { sourceIndexGeneratedAt: text(entry.sourceIndexGeneratedAt) }
+          : {}),
+        ...(text(entry.sourceIndexSources)
+          ? { sourceIndexSources: text(entry.sourceIndexSources) }
+          : {}),
       },
     ];
   });
@@ -617,6 +487,7 @@ function dictionaryCandidates(
   );
   return candidates.filter(
     (candidate) =>
+      candidate.origin === "source-index" ||
       candidate.aiGenerated !== true ||
       candidate.approved === true ||
       candidate.score > strongestHumanOrApprovedScore,
@@ -651,7 +522,7 @@ export function candidateTrustTier(
   return candidate.favorite ? 1 : 0;
 }
 
-export function rankAnalyticsQueryCatalog(args: {
+export function rankAnalyticsQueryCatalogPage(args: {
   search: string;
   dashboards: Array<{
     id: string;
@@ -665,7 +536,14 @@ export function rankAnalyticsQueryCatalog(args: {
   }>;
   dictionaryEntries: DictionaryEntry[];
   limit: number;
-}): AnalyticsQueryCatalogCandidate[] {
+  offset?: number;
+}): {
+  candidates: AnalyticsQueryCatalogCandidate[];
+  searched: number;
+  of: number;
+  truncated: boolean;
+  nextPage: string | null;
+} {
   const candidates = [
     ...args.dashboards.flatMap((dashboard) =>
       dashboardPanelCandidates({
@@ -683,7 +561,23 @@ export function rankAnalyticsQueryCatalog(args: {
     ...dictionaryCandidates(args.dictionaryEntries, args.search),
   ];
 
-  const ranked = candidates.sort((a, b) => {
+  const strongestScopeMatch = Math.max(
+    ...candidates.map((candidate) =>
+      candidateScopeCompatibility(candidate, args.search),
+    ),
+    0,
+  );
+  const scopeFiltered =
+    strongestScopeMatch === 2
+      ? candidates.filter(
+          (candidate) =>
+            candidateScopeCompatibility(candidate, args.search) === 2,
+        )
+      : candidates;
+  const ranked = scopeFiltered.sort((a, b) => {
+    const aScope = candidateScopeCompatibility(a, args.search);
+    const bScope = candidateScopeCompatibility(b, args.search);
+    if (bScope !== aScope) return bScope - aScope;
     const aTrustTier = candidateTrustTier(a);
     const bTrustTier = candidateTrustTier(b);
     if (bTrustTier !== aTrustTier) return bTrustTier - aTrustTier;
@@ -698,12 +592,42 @@ export function rankAnalyticsQueryCatalog(args: {
   const seen = new Set<string>();
   const deduped: AnalyticsQueryCatalogCandidate[] = [];
   for (const candidate of ranked) {
-    if (deduped.length >= args.limit) break;
     if (seen.has(candidateDedupeKey(candidate))) continue;
     seen.add(candidateDedupeKey(candidate));
     deduped.push(candidate);
   }
-  return deduped;
+  const page = paginateSearchResults({
+    search: args.search,
+    results: deduped,
+    searched: args.dashboards.length + args.dictionaryEntries.length,
+    limit: args.limit,
+    offset: args.offset ?? 0,
+  });
+  return {
+    candidates: page.results,
+    searched: page.searched,
+    of: page.of,
+    truncated: page.truncated,
+    nextPage: page.nextPage,
+  };
+}
+
+export function rankAnalyticsQueryCatalog(args: {
+  search: string;
+  dashboards: Array<{
+    id: string;
+    title: string;
+    description?: string;
+    config: Record<string, unknown>;
+    origin: "saved-dashboard" | "dashboard-template";
+    certification?: DashboardCertification | null;
+    updatedAt?: string;
+    favorite?: boolean;
+  }>;
+  dictionaryEntries: DictionaryEntry[];
+  limit: number;
+}): AnalyticsQueryCatalogCandidate[] {
+  return rankAnalyticsQueryCatalogPage(args).candidates;
 }
 
 async function listDictionaryEntries(args: {
@@ -727,7 +651,7 @@ async function listDictionaryEntries(args: {
   };
 
   const userPrefix = `u:${args.email}:${DATA_DICTIONARY_KEY_PREFIX}`;
-  const [orgResult, userResult] = await Promise.allSettled([
+  const [orgResult, userResult, sourceIndexResult] = await Promise.allSettled([
     args.orgId
       ? listOrgSettings(args.orgId, DATA_DICTIONARY_KEY_PREFIX, {
           limit: MAX_CATALOG_DICTIONARY_ENTRIES + 1,
@@ -736,6 +660,7 @@ async function listDictionaryEntries(args: {
     listSettingsByPrefix(userPrefix, {
       limit: MAX_CATALOG_DICTIONARY_ENTRIES + 1,
     }),
+    readSourceIndex(args.orgId),
   ]);
   if (orgResult.status === "fulfilled" && orgResult.value) {
     const orgEntries = Object.entries(orgResult.value);
@@ -764,6 +689,29 @@ async function listDictionaryEntries(args: {
       userResult.reason,
     );
   }
+  let sourceIndexUnavailable = false;
+  if (sourceIndexResult.status === "fulfilled") {
+    if (sourceIndexResult.value.status === "available") {
+      for (const entry of sourceIndexDictionaryEntries(
+        sourceIndexResult.value.bundle,
+      )) {
+        collect(entry);
+      }
+    } else if (
+      sourceIndexResult.value.status === "unavailable" ||
+      sourceIndexResult.value.status === "invalid"
+    ) {
+      sourceIndexUnavailable = true;
+      console.warn(
+        "[analytics-query-catalog] Organization source index is unreadable.",
+      );
+    }
+  } else {
+    sourceIndexUnavailable = true;
+    console.warn(
+      "[analytics-query-catalog] Organization source index lookup failed.",
+    );
+  }
   const orgCount =
     orgResult.status === "fulfilled"
       ? Object.keys(orgResult.value ?? {}).length
@@ -782,8 +730,9 @@ async function listDictionaryEntries(args: {
     truncated:
       orgCount > MAX_CATALOG_DICTIONARY_ENTRIES ||
       userCount > MAX_CATALOG_DICTIONARY_ENTRIES,
-    status:
-      availableScopes === scopeCount
+    status: sourceIndexUnavailable
+      ? "partial"
+      : availableScopes === scopeCount
         ? "available"
         : availableScopes > 0
           ? "partial"
@@ -814,29 +763,69 @@ function savedDashboardInput(
   };
 }
 
+function dashboardSummaryFromReference(
+  reference: DashboardReferenceRecord,
+  favorite: boolean,
+): DashboardSummaryRecord {
+  return {
+    id: reference.id,
+    kind: reference.kind,
+    name: reference.name,
+    description: reference.description,
+    configName: null,
+    catalogTemplateId: null,
+    demoId: null,
+    parentId: null,
+    folderId: null,
+    ownerEmail: reference.ownerEmail,
+    orgId: reference.orgId,
+    visibility: reference.visibility,
+    createdAt: reference.updatedAt,
+    updatedAt: reference.updatedAt,
+    archivedAt: null,
+    hiddenAt: null,
+    hiddenBy: null,
+    ...(reference.certification
+      ? { certification: reference.certification }
+      : {}),
+    favorite,
+  };
+}
+
 export async function searchAnalyticsQueryCatalog(args: {
   search: string;
   email: string;
   orgId: string | null;
   limit: number;
+  nextPage?: string;
+  offset?: number;
   signal?: AbortSignal;
 }): Promise<AnalyticsQueryCatalogSearchResult> {
   args.signal?.throwIfAborted();
-  const [summariesResult, dictionaryResult, favoritesResult] =
-    await Promise.allSettled([
-      listDashboardSummaries(
-        { email: args.email, orgId: args.orgId },
-        {
-          kind: "sql",
-          archived: "active",
-          hidden: "visible",
-          includeCatalogMetadata: true,
-          limit: MAX_CATALOG_DASHBOARD_SUMMARIES + 1,
-        },
-      ),
-      listDictionaryEntries({ email: args.email, orgId: args.orgId }),
-      listFavoriteDashboardIds(args.email),
-    ]);
+  const [
+    summariesResult,
+    dictionaryResult,
+    favoritesResult,
+    dashboardReferencesResult,
+  ] = await Promise.allSettled([
+    listDashboardSummaries(
+      { email: args.email, orgId: args.orgId },
+      {
+        kind: "sql",
+        archived: "active",
+        hidden: "visible",
+        includeCatalogMetadata: true,
+        limit: MAX_CATALOG_DASHBOARD_SUMMARIES + 1,
+      },
+    ),
+    listDictionaryEntries({ email: args.email, orgId: args.orgId }),
+    listFavoriteDashboardIds(args.email),
+    searchDashboardReferencesPage(
+      { email: args.email, orgId: args.orgId },
+      args.search,
+      MAX_CATALOG_DASHBOARD_HYDRATION,
+    ),
+  ]);
   args.signal?.throwIfAborted();
   const savedSummaries =
     summariesResult.status === "fulfilled" ? summariesResult.value : [];
@@ -878,6 +867,36 @@ export async function searchAnalyticsQueryCatalog(args: {
     favoritesResult.status === "fulfilled"
       ? favoritesResult.value
       : new Set<string>();
+  const dashboardPanelReferenceSearchStatus =
+    dashboardReferencesResult.status === "fulfilled"
+      ? "available"
+      : "unavailable";
+  const dashboardReferences =
+    dashboardReferencesResult.status === "fulfilled"
+      ? dashboardReferencesResult.value.results
+      : [];
+  const searchedDashboardCount = new Set([
+    ...searchedSummaries.map((dashboard) => dashboard.id),
+    ...dashboardReferences
+      .filter((reference) => reference.kind === "sql")
+      .map((reference) => reference.id),
+  ]).size;
+  const dashboardPanelReferenceSearchTruncated =
+    dashboardReferencesResult.status === "fulfilled" &&
+    (dashboardReferencesResult.value.truncated ||
+      dashboardReferencesResult.value.nextPage !== null);
+  if (dashboardReferencesResult.status === "rejected") {
+    warnCatalogReadFailure(
+      "Dashboard panel reference",
+      dashboardReferencesResult.reason,
+    );
+  }
+  if (dashboardPanelReferenceSearchTruncated) {
+    console.warn(
+      "[analytics] Dashboard panel reference search reached its result cap.",
+      { dashboardReferenceCount: dashboardReferences.length },
+    );
+  }
   if (summariesResult.status === "rejected") {
     warnCatalogReadFailure("Dashboard summary", summariesResult.reason);
   }
@@ -897,7 +916,40 @@ export async function searchAnalyticsQueryCatalog(args: {
     args.limit,
     favoriteIds,
   );
-  const shortlistedIds = shortlistedSummaries.map((dashboard) => dashboard.id);
+  const summaryById = new Map(
+    searchedSummaries.map((summary) => [summary.id, summary]),
+  );
+  const referencedSummaries = dashboardReferences
+    .filter((reference) => reference.kind === "sql")
+    .map(
+      (reference) =>
+        summaryById.get(reference.id) ??
+        dashboardSummaryFromReference(reference, favoriteIds.has(reference.id)),
+    );
+  const seenDashboardIds = new Set<string>();
+  const hydrationSummaries = [...referencedSummaries, ...shortlistedSummaries]
+    .filter((summary) => {
+      if (seenDashboardIds.has(summary.id)) return false;
+      seenDashboardIds.add(summary.id);
+      return true;
+    })
+    .slice(0, MAX_CATALOG_DASHBOARD_HYDRATION);
+  const shortlistedIds = hydrationSummaries.map((dashboard) => dashboard.id);
+  const shortlistedIdSet = new Set(shortlistedIds);
+  const omittedSummaryMatch = searchedSummaries.some(
+    (dashboard) =>
+      dashboardSummaryRelevance(args.search, dashboard) > 0 &&
+      !shortlistedIdSet.has(dashboard.id),
+  );
+  const omittedDashboardReference = dashboardReferences.some(
+    (reference) =>
+      reference.kind === "sql" && !shortlistedIdSet.has(reference.id),
+  );
+  const dashboardDetailHydrationTruncated =
+    omittedSummaryMatch ||
+    omittedDashboardReference ||
+    dashboardPanelReferenceSearchStatus === "unavailable" ||
+    dashboardPanelReferenceSearchTruncated;
   args.signal?.throwIfAborted();
   const savedDashboardsResult = await loadDashboardCatalogDashboards(
     { email: args.email, orgId: args.orgId },
@@ -933,27 +985,54 @@ export async function searchAnalyticsQueryCatalog(args: {
       }
     });
 
+  const page = rankAnalyticsQueryCatalogPage({
+    search: args.search,
+    dashboards: [
+      ...hydrationSummaries.flatMap((summary) => {
+        const dashboard = savedDashboards.get(summary.id);
+        if (!dashboard) return [];
+        return [
+          savedDashboardInput(
+            { ...summary, favorite: favoriteIds.has(summary.id) },
+            dashboard,
+          ),
+        ];
+      }),
+      ...(dashboardSearchTruncated ? [] : templateDashboards),
+    ],
+    dictionaryEntries,
+    limit: args.limit,
+    offset: args.nextPage
+      ? decodeSearchCursor(args.search, args.nextPage)
+      : args.offset,
+  });
   return {
-    candidates: rankAnalyticsQueryCatalog({
-      search: args.search,
-      dashboards: [
-        ...shortlistedSummaries.flatMap((summary) => {
-          const dashboard = savedDashboards.get(summary.id);
-          if (!dashboard) return [];
-          return [
-            savedDashboardInput(
-              { ...summary, favorite: favoriteIds.has(summary.id) },
-              dashboard,
-            ),
-          ];
-        }),
-        ...(dashboardSearchTruncated ? [] : templateDashboards),
-      ],
-      dictionaryEntries,
-      limit: args.limit,
-    }),
-    searchedDashboardCount: searchedSummaries.length,
+    ...page,
+    searched: searchedDashboardCount + searchedDictionaryEntryCount,
+    truncated:
+      page.truncated ||
+      dashboardSearchTruncated ||
+      dashboardDetailHydrationTruncated ||
+      dictionarySearchTruncated ||
+      dashboardSearchStatus !== "available" ||
+      dictionarySearchStatus !== "available",
+    searchedDashboardCount,
     dashboardSearchTruncated,
+    dashboardDetailHydrationTruncated,
+    dashboardPanelReferenceSearchStatus,
+    dashboardPanelReferenceSearchTruncated,
+    dashboardPanelReferenceSearched:
+      dashboardReferencesResult.status === "fulfilled"
+        ? dashboardReferencesResult.value.searched
+        : 0,
+    dashboardPanelReferenceOf:
+      dashboardReferencesResult.status === "fulfilled"
+        ? dashboardReferencesResult.value.of
+        : 0,
+    dashboardPanelReferenceNextPage:
+      dashboardReferencesResult.status === "fulfilled"
+        ? dashboardReferencesResult.value.nextPage
+        : null,
     dashboardSearchStatus,
     searchedDictionaryEntryCount,
     dictionarySearchTruncated,

@@ -11,8 +11,9 @@ import {
   IconTrash,
   IconSearch,
   IconExternalLink,
+  IconUpload,
 } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import {
@@ -52,6 +53,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import type { SourceIndexBundle } from "../../server/lib/source-index-schema";
+
 interface DictionaryEntry {
   id: string;
   metric: string;
@@ -74,7 +77,26 @@ interface DictionaryEntry {
   approved?: boolean;
   aiGenerated?: boolean;
   sourceUrl?: string;
+  sourceIndex?: boolean;
   updatedAt?: string;
+}
+
+interface SourceIndexStatus {
+  status: "available" | "not-configured" | "unavailable" | "invalid";
+  entryCount?: number;
+  generatedAt?: string;
+  sources?: Array<{ id: string; revision?: string }>;
+  ageDays?: number;
+  staleAfterDays?: number;
+  stale?: boolean;
+}
+
+interface PendingSourceIndex {
+  fileName: string;
+  bundle: SourceIndexBundle;
+  entryCount: number;
+  generatedAt: string;
+  sourceIds: string[];
 }
 
 function safeHttpUrl(value?: string): string | null {
@@ -157,10 +179,27 @@ export default function DataDictionary() {
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Partial<DictionaryEntry> | null>(null);
   const [toDelete, setToDelete] = useState<DictionaryEntry | null>(null);
+  const [pendingIndex, setPendingIndex] = useState<PendingSourceIndex | null>(
+    null,
+  );
+  const [pageCursors, setPageCursors] = useState<string[]>([]);
+  const [indexError, setIndexError] = useState("");
+  const indexFileInput = useRef<HTMLInputElement>(null);
 
   const { data: entries, isLoading } = useActionQuery(
     "list-data-dictionary",
-    search ? { search } : undefined,
+    {
+      ...(search ? { search } : {}),
+      limit: 50,
+      ...(pageCursors.length
+        ? { nextPage: pageCursors[pageCursors.length - 1] }
+        : {}),
+    },
+    { staleTime: 30_000 },
+  );
+  const { data: rawIndexStatus } = useActionQuery(
+    "get-data-dictionary-index-status",
+    undefined,
     { staleTime: 30_000 },
   );
 
@@ -168,17 +207,89 @@ export default function DataDictionary() {
 
   const save = useActionMutation("save-data-dictionary-entry");
   const remove = useActionMutation("delete-data-dictionary-entry");
+  const importIndex = useActionMutation("import-data-dictionary-index");
+  const indexStatus = rawIndexStatus as SourceIndexStatus | undefined;
+  const dictionaryPage = entries as
+    | {
+        results?: DictionaryEntry[];
+        searched: number;
+        of: number;
+        truncated: boolean;
+        nextPage: string | null;
+      }
+    | undefined;
 
-  const list = useMemo(
-    () => (entries as DictionaryEntry[] | undefined) ?? [],
-    [entries],
-  );
+  const chooseSourceIndex = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    setIndexError("");
+    if (!file) return;
+    if (file.size > 750_000) {
+      setIndexError(t("dataDictionary.indexFileInvalid"));
+      return;
+    }
+    try {
+      const bundle: unknown = JSON.parse(await file.text());
+      if (!bundle || typeof bundle !== "object" || Array.isArray(bundle)) {
+        throw new Error("invalid source index");
+      }
+      const candidate = bundle as Record<string, unknown>;
+      const entries = Array.isArray(candidate.entries) ? candidate.entries : [];
+      const sources = Array.isArray(candidate.sources) ? candidate.sources : [];
+      if (
+        candidate.schemaVersion !== 1 ||
+        typeof candidate.generatedAt !== "string" ||
+        entries.length === 0 ||
+        sources.length === 0
+      ) {
+        throw new Error("invalid source index");
+      }
+      const sourceIds = sources.flatMap((source) => {
+        if (!source || typeof source !== "object") return [];
+        const id = (source as Record<string, unknown>).id;
+        const revision = (source as Record<string, unknown>).revision;
+        return typeof id === "string"
+          ? [typeof revision === "string" ? `${id}@${revision}` : id]
+          : [];
+      });
+      setPendingIndex({
+        fileName: file.name,
+        bundle: bundle as SourceIndexBundle,
+        entryCount: entries.length,
+        generatedAt: candidate.generatedAt,
+        sourceIds,
+      });
+    } catch {
+      setIndexError(t("dataDictionary.indexFileInvalid"));
+    }
+  };
+
+  const list = useMemo(() => dictionaryPage?.results ?? [], [dictionaryPage]);
 
   useSetHeaderActions(
-    <Button size="sm" onClick={() => setEditing({ ...EMPTY_ENTRY })}>
-      <IconPlus className="h-4 w-4 mr-1" />
-      {t("dataDictionary.newDictionaryEntry")}
-    </Button>,
+    <div className="flex items-center gap-2">
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => indexFileInput.current?.click()}
+      >
+        <IconUpload className="h-4 w-4 mr-1" />
+        {t("dataDictionary.importIndex")}
+      </Button>
+      <input
+        ref={indexFileInput}
+        type="file"
+        accept="application/json,.json"
+        onChange={chooseSourceIndex}
+        className="hidden"
+      />
+      <Button size="sm" onClick={() => setEditing({ ...EMPTY_ENTRY })}>
+        <IconPlus className="h-4 w-4 mr-1" />
+        {t("dataDictionary.newDictionaryEntry")}
+      </Button>
+    </div>,
   );
 
   return (
@@ -187,11 +298,54 @@ export default function DataDictionary() {
         {t("dataDictionary.intro")}
       </p>
 
+      <div className="text-xs text-muted-foreground" aria-live="polite">
+        {indexStatus?.status === "available" ? (
+          <>
+            {t("dataDictionary.indexReady", {
+              count: indexStatus.entryCount ?? 0,
+              date: indexStatus.generatedAt
+                ? new Date(indexStatus.generatedAt).toLocaleDateString()
+                : "",
+            })}
+            {indexStatus.sources?.length
+              ? ` · ${indexStatus.sources
+                  .map((source) =>
+                    source.revision
+                      ? `${source.id}@${source.revision}`
+                      : source.id,
+                  )
+                  .join(", ")}`
+              : ""}
+          </>
+        ) : indexStatus?.status === "invalid" ? (
+          t("dataDictionary.indexUnreadable")
+        ) : indexStatus?.status === "unavailable" ? (
+          t("dataDictionary.indexReadFailed")
+        ) : (
+          t("dataDictionary.indexNotImported")
+        )}
+        {indexStatus?.status === "available" && indexStatus.stale ? (
+          <span className="ml-2 text-amber-700 dark:text-amber-400">
+            {t("dataDictionary.indexStale", {
+              days: indexStatus.staleAfterDays ?? 90,
+            })}
+          </span>
+        ) : null}
+        {indexError ? (
+          <span role="alert" className="ml-2 text-destructive">
+            {indexError}
+          </span>
+        ) : null}
+      </div>
+
       <div className="relative max-w-md">
         <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPageCursors([]);
+          }}
           placeholder={t("dataDictionary.searchPlaceholder")}
           className="pl-9"
         />
@@ -258,14 +412,16 @@ export default function DataDictionary() {
                     >
                       <IconPencil className="h-3.5 w-3.5" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-destructive"
-                      onClick={() => setToDelete(e)}
-                    >
-                      <IconTrash className="h-3.5 w-3.5" />
-                    </Button>
+                    {!e.sourceIndex && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive"
+                        onClick={() => setToDelete(e)}
+                      >
+                        <IconTrash className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                   </div>
                 </div>
                 {e.definition && (
@@ -337,6 +493,41 @@ export default function DataDictionary() {
         </div>
       )}
 
+      {list.length > 0 && dictionaryPage ? (
+        <div className="flex items-center justify-end gap-2">
+          <span className="text-xs text-muted-foreground">
+            {t("dataDictionary.dictionaryPage", {
+              page: pageCursors.length + 1,
+              count: list.length,
+              total: dictionaryPage.of,
+            })}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pageCursors.length === 0 || isLoading}
+            onClick={() => setPageCursors((cursors) => cursors.slice(0, -1))}
+          >
+            {t("dataDictionary.previousPage")}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!dictionaryPage.nextPage || isLoading}
+            onClick={() => {
+              if (dictionaryPage.nextPage) {
+                setPageCursors((cursors) => [
+                  ...cursors,
+                  dictionaryPage.nextPage!,
+                ]);
+              }
+            }}
+          >
+            {t("dataDictionary.nextPage")}
+          </Button>
+        </div>
+      ) : null}
+
       <EditEntryDialog
         entry={editing}
         onClose={() => setEditing(null)}
@@ -380,6 +571,70 @@ export default function DataDictionary() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={!!pendingIndex}
+        onOpenChange={(open) => {
+          if (!open && !importIndex.isPending) {
+            setPendingIndex(null);
+            setIndexError("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("dataDictionary.replaceIndexTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("dataDictionary.replaceIndexDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          {pendingIndex ? (
+            <div className="space-y-2 text-sm">
+              <p className="font-medium">{pendingIndex.fileName}</p>
+              <p className="text-muted-foreground">
+                {t("dataDictionary.indexPreview", {
+                  count: pendingIndex.entryCount,
+                  sources: pendingIndex.sourceIds.join(", "),
+                  date: new Date(pendingIndex.generatedAt).toLocaleDateString(),
+                })}
+              </p>
+            </div>
+          ) : null}
+          {indexError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {indexError}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPendingIndex(null)}
+              disabled={importIndex.isPending}
+            >
+              {t("sidebar.cancel")}
+            </Button>
+            <Button
+              disabled={!pendingIndex || importIndex.isPending}
+              onClick={async () => {
+                if (!pendingIndex) return;
+                setIndexError("");
+                try {
+                  await importIndex.mutateAsync({
+                    bundle: pendingIndex.bundle,
+                  });
+                  setPendingIndex(null);
+                } catch {
+                  setIndexError(t("dataDictionary.indexImportFailed"));
+                }
+              }}
+            >
+              {importIndex.isPending
+                ? t("dataDictionary.importingIndex")
+                : t("dataDictionary.replaceIndex")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

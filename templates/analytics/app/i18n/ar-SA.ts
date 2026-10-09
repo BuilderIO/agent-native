@@ -572,6 +572,26 @@ export default {
     exampleUseCasePlaceholder: "متى يجب على شخص ما الوصول إلى هذا المقياس؟",
     saving: "توفير...",
     saveEntry: "حفظ الإدخال",
+    importIndex: "استيراد فهرس المصادر",
+    indexNotImported: "لم يتم استيراد فهرس مصادر مُنشأ.",
+    indexUnreadable: "تعذرت قراءة فهرس المصادر المحفوظ؛ أعد استيراد ملف صالح.",
+    indexReadFailed: "تعذر التحقق من فهرس المصادر المحفوظ؛ حاول مرة أخرى.",
+    indexReady: "تم إنشاء {{count}} من تعريفات المصادر في {{date}}.",
+    indexStale:
+      "مرّ {{days}} يومًا على اللقطة. حدّثها للتحقق من وجود إصدارات أحدث للمصادر.",
+    indexFileInvalid:
+      "اختر ملف JSON صالحًا لفهرس المصادر بحجم لا يتجاوز 750 كيلوبايت.",
+    replaceIndexTitle: "استبدال فهرس المصادر؟",
+    replaceIndexDescription:
+      "سيستبدل هذا فهرس المصادر الحالي للمؤسسة. تظل التعريفات المستوردة اقتراحات غير معتمدة وليست نتائج استعلامات مباشرة.",
+    indexPreview: "{{count}} تعريفات من {{sources}}؛ تاريخ الإنشاء {{date}}.",
+    replaceIndex: "استبدال الفهرس",
+    importingIndex: "جارٍ الاستيراد…",
+    indexImportFailed:
+      "تعذر استيراد فهرس المصادر. تحقق من الملف ثم أعد المحاولة.",
+    dictionaryPage: "الصفحة {{page}} · {{count}} من {{total}} نتائج",
+    previousPage: "السابقة",
+    nextPage: "التالي",
   },
   dataSources: {
     uploadFile: "تحميل الملف",

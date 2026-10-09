@@ -210,6 +210,146 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("uses a per-request workspace connection for Sigma client-credentials auth", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, init });
+        if (url.endsWith("/v2/auth/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "fake-sigma-token",
+              expires_in: 3600,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ entries: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
+    const resolveCredential = vi.fn(
+      async ({
+        key,
+        provider,
+        workspaceProvider,
+        connectionId,
+        ctx,
+      }: {
+        key: string;
+        provider: string;
+        workspaceProvider?: string;
+        connectionId?: string | null;
+        ctx: typeof credentialContext;
+      }) => {
+        if (key === "SIGMA_BASE_URL") return null;
+        const value =
+          key === "SIGMA_CLIENT_ID"
+            ? "fake-sigma-client-id"
+            : "fake-sigma-client-secret";
+        return {
+          key,
+          value,
+          source: "workspace_connection" as const,
+          provider: workspaceProvider ?? provider,
+          connectionId: connectionId ?? undefined,
+          scope: "org",
+          scopeId: ctx.orgId,
+        };
+      },
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["sigma"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential,
+    });
+
+    const catalog = (await runtime.listCatalog("sigma")) as Array<{
+      defaultBaseUrl: string;
+      requiresConnectionId: boolean;
+      credentialKeys: string[];
+      auth: string;
+    }>;
+    const result = await runtime.executeRequest({
+      provider: "sigma",
+      path: "/v2/workbooks",
+      connectionId: "sigma-connection",
+    });
+
+    expect(catalog[0]).toMatchObject({
+      defaultBaseUrl: "https://aws-api.sigmacomputing.com",
+      requiresConnectionId: true,
+      credentialKeys: [
+        "SIGMA_CLIENT_ID",
+        "SIGMA_CLIENT_SECRET",
+        "SIGMA_BASE_URL",
+      ],
+      auth: "oauth-client-credentials:sigma",
+    });
+    expect(resolveCredential).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "analytics",
+        provider: "sigma",
+        workspaceProvider: "sigma",
+        connectionId: "sigma-connection",
+        ctx: credentialContext,
+      }),
+    );
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.url).toBe(
+      "https://aws-api.sigmacomputing.com/v2/auth/token",
+    );
+    expect(calls[0]?.init?.method).toBe("POST");
+    const tokenBody = new URLSearchParams(String(calls[0]?.init?.body));
+    expect(tokenBody.get("grant_type")).toBe("client_credentials");
+    expect(tokenBody.get("client_id")).toBe("fake-sigma-client-id");
+    expect(tokenBody.get("client_secret")).toBe("fake-sigma-client-secret");
+    expect(calls[1]?.url).toBe(
+      "https://aws-api.sigmacomputing.com/v2/workbooks",
+    );
+    expect(calls[1]?.init?.headers).toMatchObject({
+      Authorization: "Bearer fake-sigma-token",
+    });
+    expect(JSON.stringify(result)).not.toContain("fake-sigma-token");
+    expect(JSON.stringify(result)).not.toContain("fake-sigma-client-secret");
+  });
+
+  it("rejects insecure Sigma API origins before sending credentials", async () => {
+    const resolveCredential = vi.fn(async ({ key }: { key: string }) =>
+      key === "SIGMA_BASE_URL"
+        ? {
+            key,
+            value: "http://aws-api.sigmacomputing.com",
+            source: "workspace_connection" as const,
+            provider: "sigma",
+            connectionId: "sigma-connection",
+            scope: "org",
+            scopeId: "org-1",
+          }
+        : null,
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["sigma"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "sigma",
+        path: "/v2/workbooks",
+        connectionId: "sigma-connection",
+      }),
+    ).rejects.toThrow(/configured provider host/);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(resolveCredential).toHaveBeenCalledTimes(1);
+  });
+
   it("replaces one built-in provider definition without dropping the rest", async () => {
     const runtime = createProviderApiRuntime({
       appId: "analytics",

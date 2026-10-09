@@ -1,4 +1,9 @@
 import type { AgentEngine } from "../agent/engine/types.js";
+import type {
+  ActionEntry,
+  AgentLoopFinalResponseGuard,
+  AgentLoopUsage,
+} from "../agent/production-agent.js";
 
 export interface AgentRunOutput {
   readonly text: string;
@@ -17,7 +22,70 @@ export interface AgentRunOutput {
   readonly error?: string;
   readonly runId: string;
   readonly durationMs: number;
+  readonly usage?: AgentLoopUsage;
 }
+
+/**
+ * The app-owned inputs used for a production-path eval. The identity fields
+ * are explicit because a CLI run has no authenticated HTTP request to borrow
+ * them from; `orgId: null` is a deliberate personal-org selection.
+ */
+export interface EvalProductionContext {
+  readonly actions: Record<string, ActionEntry>;
+  readonly systemPrompt: string;
+  readonly finalResponseGuard: AgentLoopFinalResponseGuard | null;
+  readonly ownerEmail: string;
+  readonly orgId: string | null;
+  readonly appId?: string;
+  /** Initial production tool surface; remaining actions stay available for tool-search. */
+  readonly initialToolNames?: readonly string[];
+  /** Present only when this adapter can invoke and attest the actual chat request path. */
+  readonly productionChatPath?: EvalProductionChatPath;
+}
+
+export interface EvalProductionIdentity {
+  readonly ownerEmail: string;
+  readonly orgId: string;
+}
+
+export type EvalPrefetchStatus = "ok" | "empty" | "timed_out" | "failed";
+
+/** Runtime evidence returned by an adapter that invokes the production chat path. */
+export interface EvalProductionPathReceipt {
+  readonly chatHandlerInvoked: true;
+  readonly requestPreparationInvoked: true;
+  readonly systemPromptBuilt: true;
+  readonly finalResponseGuardInstalled: true;
+  readonly finalResponseGuardApplied: true;
+  readonly usageCaptured: true;
+  readonly prefetchStatus: EvalPrefetchStatus;
+  readonly ownerEmail: string;
+  readonly orgId: string;
+  readonly initialToolNames: readonly string[];
+  readonly availableActionNames: readonly string[];
+  readonly readOnlyActionNames: readonly string[];
+}
+
+export interface EvalProductionPathRun {
+  readonly output: AgentRunOutput;
+  readonly receipt: EvalProductionPathReceipt;
+}
+
+/** Adapter contract for a request executed by the mounted production chat handler. */
+export interface EvalProductionChatPath {
+  run(args: {
+    input: EvalInput;
+    identity: EvalProductionIdentity;
+    engine: AgentEngine;
+    model: string;
+    signal: AbortSignal;
+    onUsage(usage: AgentLoopUsage): void;
+  }): Promise<EvalProductionPathRun>;
+}
+
+export type EvalProductionContextResolver = (
+  identity: EvalProductionIdentity,
+) => EvalProductionContext | Promise<EvalProductionContext>;
 
 export interface ScorerAnalyzeContext {
   readonly engine: AgentEngine;
@@ -96,6 +164,7 @@ export interface EvalResultRow {
   avgScore: number;
   durationMs: number;
   error?: string;
+  usage?: AgentLoopUsage;
   /** Copied from the eval case when present; ignored for pass/fail. */
   source?: { kind: "trace"; runId: string };
 }
