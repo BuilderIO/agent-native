@@ -38,12 +38,16 @@ jobs:
           docker buildx version
           source_repository="docker.io/library/postgres"
           mirror_repository="ghcr.io/builderio/agent-native-ci-postgres-fallback"
+          digest_from_inspect() {
+            awk '$1 == "Digest:" && !digest { digest = $2 } END { print digest }'
+          }
 
           for tag in 17-alpine 18-alpine; do
             source_image="$source_repository:$tag"
             staging_image="$mirror_repository:staging-$tag"
             mirror_image="$mirror_repository:$tag"
-            source_digest="$(docker buildx imagetools inspect "$source_image" | awk '$1 == "Digest:" { print $2; exit }')"
+            source_inspect="$(docker buildx imagetools inspect "$source_image")"
+            source_digest="$(printf '%s\n' "$source_inspect" | digest_from_inspect)"
             if [[ -z "$source_digest" ]]; then
               echo "::error::could not resolve the upstream digest for $source_image"
               exit 1
@@ -61,13 +65,15 @@ jobs:
               sleep $((attempt * 10))
             done
 
-            staging_digest="$(docker buildx imagetools inspect "$staging_image" | awk '$1 == "Digest:" { print $2; exit }')"
+            staging_inspect="$(docker buildx imagetools inspect "$staging_image")"
+            staging_digest="$(printf '%s\n' "$staging_inspect" | digest_from_inspect)"
             if [[ "$source_digest" != "$staging_digest" ]]; then
               echo "::error::digest mismatch for $tag: source=$source_digest staging=$staging_digest"
               exit 1
             fi
             docker buildx imagetools create --tag "$mirror_image" "$staging_image"
-            mirror_digest="$(docker buildx imagetools inspect "$mirror_image" | awk '$1 == "Digest:" { print $2; exit }')"
+            mirror_inspect="$(docker buildx imagetools inspect "$mirror_image")"
+            mirror_digest="$(printf '%s\n' "$mirror_inspect" | digest_from_inspect)"
             if [[ "$source_digest" != "$mirror_digest" ]]; then
               echo "::error::digest mismatch after promoting $tag: source=$source_digest mirror=$mirror_digest"
               exit 1
@@ -81,7 +87,8 @@ jobs:
           docker logout ghcr.io
           for tag in 17-alpine 18-alpine; do
             mirror_image="$mirror_repository:$tag"
-            anonymous_digest="$(docker buildx imagetools inspect "$mirror_image" | awk '$1 == "Digest:" { print $2; exit }')"
+            anonymous_inspect="$(docker buildx imagetools inspect "$mirror_image")"
+            anonymous_digest="$(printf '%s\n' "$anonymous_inspect" | digest_from_inspect)"
             if [[ -z "$anonymous_digest" ]]; then
               echo "::error::anonymous access to $mirror_image failed"
               exit 1
