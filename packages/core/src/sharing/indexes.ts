@@ -17,6 +17,12 @@ import { ensureIndexExists } from "../db/ddl-guard.js";
 const OWNABLE_COLUMNS = ["owner_email", "org_id", "visibility"];
 const SHARE_COLUMNS = ["resource_id", "principal_type", "principal_id"];
 const POSTGRES_IDENTIFIER_MAX_BYTES = 63;
+// Plain CREATE INDEX, not CONCURRENTLY: a transaction-pooled connection
+// returns from CONCURRENTLY without building the index, and the release then
+// fails its probe (see chat-threads/store.ts). The build holds a SHARE lock for
+// its duration. The default 3s lock_timeout would abort it on a busy table, so
+// only this step waits longer for that lock.
+const INDEX_LOCK_TIMEOUT = "60s";
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 interface IndexSpec {
@@ -107,7 +113,10 @@ export async function ensureSharingAccessIndexes(
   for (const [table, columns] of columnsByTable) {
     for (const spec of specsFor(table, columns)) {
       if (
-        await ensureIndexExists(spec.name, spec.sql, { injectedClient: client })
+        await ensureIndexExists(spec.name, spec.sql, {
+          lockTimeout: INDEX_LOCK_TIMEOUT,
+          injectedClient: client,
+        })
       ) {
         created++;
       }

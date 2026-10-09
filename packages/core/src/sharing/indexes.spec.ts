@@ -301,4 +301,33 @@ describe("ensureSharingAccessIndexes", () => {
     }
     await pg.close();
   });
+
+  it("builds each index under a lock_timeout above the 3s default, so a busy table waits instead of failing the release", async () => {
+    const { pg, exec } = await createSeededDb();
+    const statements: string[] = [];
+    const recording: DbExec = {
+      execute: async (statement) => {
+        statements.push(
+          typeof statement === "string" ? statement : statement.sql,
+        );
+        return exec.execute(statement);
+      },
+      transaction: (fn) => fn(recording),
+    };
+
+    await ensureSharingAccessIndexes({ injectedClient: recording });
+
+    let lockTimeout = "";
+    const buildTimeouts: string[] = [];
+    for (const sql of statements) {
+      const set = /^SET (?:LOCAL )?lock_timeout = '(\w+)'/.exec(sql);
+      if (set) lockTimeout = set[1];
+      if (sql.startsWith("CREATE INDEX")) buildTimeouts.push(lockTimeout);
+    }
+    expect(buildTimeouts).toHaveLength(4);
+    for (const timeout of buildTimeouts) {
+      expect(Number.parseInt(timeout, 10)).toBeGreaterThan(3);
+    }
+    await pg.close();
+  });
 });
