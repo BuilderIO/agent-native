@@ -1440,21 +1440,6 @@ async function withServerMintedMcpAppEmbedStart(
     );
   }
 
-  const scope = restrictDirectoryWidgetCapability
-    ? directoryWidget.capability.mode === "write"
-      ? createMcpDirectoryWidgetWriteCapability(
-          directoryWidget.capability.value,
-        )
-      : createMcpDirectoryWidgetReadCapability(directoryWidget.capability.value)
-    : typeof out.chrome === "string"
-      ? out.chrome
-      : null;
-  if (restrictDirectoryWidgetCapability && !scope) {
-    throw new Error(
-      "Could not create a valid scoped capability for this MCP directory widget.",
-    );
-  }
-
   const revocationAnchorCandidate = ctx?.mcpCredentialIssuedAtMs;
   const revocationAnchorCreatedAtMs =
     typeof revocationAnchorCandidate === "number" &&
@@ -1470,18 +1455,57 @@ async function withServerMintedMcpAppEmbedStart(
     );
   }
 
-  const ticket = await createEmbedSessionTicket({
-    ownerEmail,
-    orgId: ctx?.orgId,
-    targetPath,
-    scope,
-    ...(directoryWidget?.capability.mode === "write"
-      ? { ttlSeconds: 5 * 60 }
-      : {}),
-    ...(restrictDirectoryWidgetCapability
-      ? { revocationAnchorCreatedAtMs }
-      : {}),
-  });
+  const mintTicket = async (
+    capability: NonNullable<typeof directoryWidget>["capability"] | undefined,
+  ) => {
+    const scope = capability
+      ? capability.mode === "write"
+        ? createMcpDirectoryWidgetWriteCapability(capability.value)
+        : createMcpDirectoryWidgetReadCapability(capability.value)
+      : typeof out.chrome === "string"
+        ? out.chrome
+        : null;
+    if (capability && !scope) {
+      throw new Error(
+        "Could not create a valid scoped capability for this MCP directory widget.",
+      );
+    }
+    return createEmbedSessionTicket({
+      ownerEmail,
+      orgId: ctx?.orgId,
+      targetPath,
+      scope,
+      ...(capability?.mode === "write" ? { ttlSeconds: 5 * 60 } : {}),
+      ...(capability ? { revocationAnchorCreatedAtMs } : {}),
+    });
+  };
+  const writeCapability =
+    directoryWidget?.capability.mode === "write"
+      ? directoryWidget.capability
+      : undefined;
+  let ticket: Awaited<ReturnType<typeof mintTicket>>;
+  try {
+    ticket = await mintTicket(directoryWidget?.capability);
+  } catch (error) {
+    if (!writeCapability) throw error;
+    // The write grant is an upgrade over the read grant. Losing it must not
+    // also lose the widget's session ticket, which the shell cannot start without.
+    console.error(
+      "[mcp:directory] Could not mint the widget write grant; issuing a read-only widget session instead.",
+      error,
+    );
+    const { appId, resourceUri, resourceIds, readActionArguments } =
+      writeCapability.value;
+    ticket = await mintTicket({
+      mode: "read",
+      value: {
+        appId,
+        resourceUri,
+        resourceIds,
+        actionArguments: readActionArguments,
+      },
+    });
+  }
   const startPath = buildEmbedStartPath(ticket.ticket);
   const embedStartUrl = meta?.origin
     ? new URL(startPath, meta.origin).toString()
@@ -3439,6 +3463,21 @@ export async function createMCPServerForRequest(
             directoryWidget === undefined;
           const suppressDirectoryWidget =
             directoryCatalog && !hasVerifiedMcpUserIdentity(effectiveIdentity);
+          // The host mounts a widget for this tool from its descriptor, with or
+          // without a ticket in the result, so a withheld ticket must be visible.
+          if (
+            missingDirectoryWidgetCapability &&
+            !suppressDirectoryWidget &&
+            !mcpResultIsError
+          ) {
+            console.warn(
+              `[mcp:directory] ${name} returned no widget session ticket: ${
+                typeof trustedCredentialIssuedAtMs === "number"
+                  ? "the result has no widget target or scoped actions"
+                  : "the credential carries no issue time"
+              }.`,
+            );
+          }
           const rawResultForClient =
             missingDirectoryWidgetCapability || suppressDirectoryWidget
               ? withoutMcpAppEmbedTicket(projectedRawResult)
@@ -3450,6 +3489,14 @@ export async function createMCPServerForRequest(
                     directoryWidget,
                   )
                 : projectedRawResult;
+          if (
+            directoryWidget &&
+            typeof metadataObject(rawResultForClient).embedStartUrl !== "string"
+          ) {
+            console.error(
+              `[mcp:directory] ${name} built a widget capability but issued no session ticket.`,
+            );
+          }
           const {
             value: actionResultForClient,
             images: resultImages,
@@ -4169,13 +4216,16 @@ async function admitIssuedMcpCredential(
   }
   const orgId =
     credential.orgId !== undefined ? credential.orgId : stored?.orgId;
+  // Access tokens signed before grant times existed carry no claim, and the
+  // directory widget refuses to mint a session without an issue time. Their
+  // signed `iat` is the only anchor they have. `iat` moves on every refresh, so
+  // it must stay the fallback and never outrank a signed grant time.
   const credentialIssuedAtMs =
-    credential.oauthClientId !== undefined
-      ? credential.grantCreatedAtMs
-      : typeof credential.issuedAt === "number" &&
-          Number.isSafeInteger(credential.issuedAt)
-        ? credential.issuedAt * 1000
-        : undefined;
+    credential.grantCreatedAtMs ??
+    (typeof credential.issuedAt === "number" &&
+    Number.isSafeInteger(credential.issuedAt)
+      ? credential.issuedAt * 1000
+      : undefined);
   const mcpCredentialIssuedAtMs =
     credentialIssuedAtMs !== undefined &&
     Number.isSafeInteger(credentialIssuedAtMs)
