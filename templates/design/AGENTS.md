@@ -43,16 +43,16 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 | `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Read/set collaboration opt-in |
 | `add-localhost-screens` / `update-screen-source` | Add screens; change source mode |
 | `add-session-replay-screenshots-to-board` | Add private Analytics replay screenshots to a Design board |
-| `stage-journey-canvas-frames` | Stage native PNGs in Design-owned private blob storage in resumable batches |
-| `discard-journey-canvas-frame-import` | Remove an abandoned staged frame import and queue its private blobs for cleanup |
-| `create-journey-canvas` | Draw a storyboard with replay provenance, last-observed-step stubs, and reference-only chains without cohort metrics |
+| `stage-journey-canvas-frames` | Stage native PNGs in Design-owned private blob storage in batches |
+| `discard-journey-canvas-frame-import` | Discard staged import; queue its private blobs for cleanup |
+| `create-journey-canvas` | Create provenance-backed storyboard with stubs/reference chains; no cohort metrics |
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames |
 | `edit-design` | Adapt a design/screen |
 | `apply-visual-edit` | Apply deterministic layer edits |
 | `create-design` / `generate-design` | Start empty design / generate a fresh screen |
 | `present-design-variants` | Generate 2–5 variants |
 | `view-screen` / `navigate` | Read current screen / move UI |
-| `get-view-settings` / `update-view-settings` | Read/set the user's saved editor view toggles (pixel grid, snap, rulers, cursors, hidden comments) |
+| `get-view-settings` / `update-view-settings` | Read/update view toggles (grid, snap, rulers, cursors, hidden comments) |
 | `export-png` | Export PNG |
 | `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export finished work |
 

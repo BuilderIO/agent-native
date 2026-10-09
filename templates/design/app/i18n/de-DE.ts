@@ -6,16 +6,21 @@ export default {
       "{count} Sitzungen · {percent} der {app}-Kohorte (n={rootCount})",
     sessionsOfPrevious: "{count} Sitzungen · {percent} des vorherigen Schritts",
     sessionsOfParent: "{count} Sitzungen · {percent} von {label}",
+    observedContinuation:
+      "Gleiche Aufzeichnung · Beispiel {fromExample} → Beispiel {toExample}",
+    observedContinuationCompact: "Bsp. {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "{count} Sitzungen · {percent} dieses Schritts",
     partialSample: "Teilstichprobe",
     continuedOnUnpictured:
       "Fortsetzung auf nicht gezeigten Pfaden: {count} · {percent} dieses Schritts",
     noLaterStepObserved: "Kein späterer Schritt beobachtet",
-    examplePosition: "Beispiel {current} von {total}",
-    showExample: "Beispiel {current} von {total} anzeigen",
+    examplePosition: "Galerie {current} von {total}",
+    sourceExampleLabel: "Quelle",
+    showExample: "Quellbeispiel {current} anzeigen",
     screenshotExamples: "Screenshot-Beispiele",
     screenshotAlt:
-      "{label}, Beispiel {current} von {total}, aufgenommen am {date}",
+      "{label}, Quellbeispiel {source}, Galerieposition {current} von {total}, aufgenommen am {date}",
     screenshotMissing: "Kein Screenshot aufgenommen",
     recordingUnavailable: "nicht verfügbar",
     eventTime: "Ereigniszeit (UTC)",
@@ -50,7 +55,10 @@ export default {
     actorUnavailable: "Akteur nicht verfügbar",
     replayDetails: "Replay- und Quelldetails",
     sourceApp: "Quell-App",
-    route: "Erfasste Route",
+    route: "Aktuelle Route bei der Aufnahme",
+    routeUnavailable: "nicht verfügbar",
+    captureSourceFingerprint: "Fingerprint der Aufnahmequelle",
+    captureSourceUnavailable: "nicht angegeben",
     recordingStarted: "Aufzeichnung gestartet",
     appBandHeading: "{app} · {count} Sitzungen",
     journeyTitleSummary: "{app} · {from} bis {to} · {count} Sitzungen{partial}",
@@ -931,6 +939,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} Bild{{plural}} benötigt{{plural}} Figma-Zugriff zum Laden.",
       figmaPasteImagesDontShowAgain: "Nicht mehr anzeigen",
+      figmaPasteUploadImage: "Bild hochladen",
+      figmaPasteUploadImageFor: "„{{name}}“ hochladen",
+      figmaPasteImageFallbackName: "Bild {{index}}",
+      figmaPasteUploadImageSuccess: "Bild eingefügt",
+      figmaPasteUploadImageInvalid:
+        "Wähle eine Bilddatei, z. B. SVG, PNG oder JPG.",
+      figmaPasteUploadImageError: "Das Bild konnte nicht eingefügt werden",
       figmaHydrationDialogTitle: "Figma verbinden, um Bilder zu laden",
       figmaHydrationDialogDescription:
         "Gib deinen Figma-Zugriffstoken ein, um {{count}} fehlendes{{plural}} Bild{{plural}} in den importierten Screen{{screensPlural}} zu laden.",
@@ -1629,6 +1644,7 @@ export default {
     fork: "Abzweigen",
     fullView: "Vollansicht",
     preview: "Vorschau",
+    focusScreen: "Bildschirm fokussieren",
     openAndDuplicate:
       "{{display}} auswählen. Verwenden Sie Interagieren zum fokussierten Scrollen.",
     openAndPreview:

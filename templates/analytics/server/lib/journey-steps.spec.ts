@@ -6,6 +6,7 @@ import {
   JOURNEY_COHORT_EVENT_NAMES,
   JOURNEY_STEP_EVENT_NAMES,
   normalizeJourneyPath,
+  projectSessionSteps,
   type JourneyEventRow,
 } from "./journey-steps";
 
@@ -23,6 +24,7 @@ function row(
     eventName,
     path: null,
     flow: null,
+    source: null,
     stepId: null,
     stepIndex: null,
     methodId: null,
@@ -150,6 +152,21 @@ describe("deriveJourneyStep", () => {
     }
   });
 
+  it("keeps unexpected chat setup properties out of journey labels and keys", () => {
+    expect(
+      deriveJourneyStep(
+        row("integration_method_outcome", 1, {
+          flow: "private-user-value",
+          methodId: "private-provider-name",
+          outcome: "customer-error-message",
+        }),
+      ),
+    ).toEqual({
+      key: "integration:unknown:outcome:unknown:unknown",
+      label: "unknown: unknown",
+    });
+  });
+
   it("retains the actual custom-key outcome contract", () => {
     for (const outcome of [
       "credential_entry_started",
@@ -186,6 +203,11 @@ describe("deriveJourneyStep", () => {
         }),
         "method:builder_create_account",
         "Chose: Use Builder.io",
+      ],
+      [
+        row("onboarding_method_started", 1, { methodId: "custom_keys" }),
+        "method:custom_keys:started",
+        "Configure custom keys: setup started",
       ],
       [
         row("onboarding_step_skipped", 1, { stepId: "private-step-name" }),
@@ -232,6 +254,119 @@ describe("deriveJourneyStep", () => {
     for (const [input, key, label] of cases) {
       expect(deriveJourneyStep(input)).toEqual({ key, label });
     }
+  });
+
+  it("maps Builder connection aliases to bounded shared steps", () => {
+    const cases: Array<[string, string, string]> = [
+      [
+        "builder_connect_clicked",
+        "builder:connect:clicked",
+        "Builder connection CTA clicked",
+      ],
+      [
+        "builder connect clicked",
+        "builder:connect:clicked",
+        "Builder connection CTA clicked",
+      ],
+      [
+        "builder_connect_popup_blocked",
+        "builder:connect:popup_blocked",
+        "Builder connection popup blocked",
+      ],
+      [
+        "builder_connect_started",
+        "builder:connect:started",
+        "Builder connection started",
+      ],
+      [
+        "builder_connect_succeeded",
+        "builder:connect:succeeded",
+        "Builder connected",
+      ],
+      [
+        "builder_connect_failed",
+        "builder:connect:failed",
+        "Builder connection failed",
+      ],
+    ];
+
+    for (const [eventName, key, label] of cases) {
+      expect(deriveJourneyStep(row(eventName, 1))).toEqual({ key, label });
+    }
+  });
+
+  it("keeps custom-key validation and save outcomes distinct and bounded", () => {
+    expect(
+      deriveJourneyStep(
+        row("onboarding_method_outcome", 1, {
+          methodId: "custom_keys",
+          outcome: "credential_validated",
+        }),
+      )?.key,
+    ).toBe("outcome:custom_keys:credential_validated");
+    expect(
+      deriveJourneyStep(
+        row("onboarding_method_outcome", 1, {
+          methodId: "custom_keys",
+          outcome: "credential_saved",
+        }),
+      )?.key,
+    ).toBe("outcome:custom_keys:credential_saved");
+    expect(
+      deriveJourneyStep(
+        row("integration_key_validation_outcome", 1, {
+          flow: "settings",
+          outcome: "accepted",
+        }),
+      ),
+    ).toEqual({
+      key: "custom_key:settings:validation:accepted",
+      label: "Custom key validation (settings): accepted",
+    });
+    expect(
+      deriveJourneyStep(
+        row("integration_key_save_outcome", 1, {
+          flow: "settings",
+          outcome: "saved",
+        }),
+      ),
+    ).toEqual({
+      key: "custom_key:settings:save:saved",
+      label: "Custom key save (settings): saved",
+    });
+    expect(
+      deriveJourneyStep(
+        row("integration_key_validation_outcome", 1, {
+          flow: "user-controlled-flow",
+          outcome: "customer-secret-like-value",
+        }),
+      ),
+    ).toEqual({
+      key: "custom_key:unknown:validation:unknown",
+      label: "Custom key validation (unknown): unknown",
+    });
+
+    for (const outcome of ["constructor", "__proto__"]) {
+      expect(
+        deriveJourneyStep(
+          row("integration_key_validation_outcome", 1, {
+            flow: "settings",
+            outcome,
+          }),
+        ),
+      ).toEqual({
+        key: "custom_key:settings:validation:unknown",
+        label: "Custom key validation (settings): unknown",
+      });
+    }
+  });
+
+  it("does not treat inherited method labels as configured labels", () => {
+    expect(
+      deriveJourneyStep(
+        row("onboarding_method_clicked", 1, { methodId: "constructor" }),
+      ),
+    ).toEqual({ key: "method:constructor", label: "Chose: constructor" });
   });
 
   it("gives the dotted and underscored auth events one key", () => {
@@ -289,6 +424,110 @@ describe("deriveJourneyStep", () => {
 });
 
 describe("buildSessionSteps", () => {
+  it("retains the terminal selected step key and timestamp for aggregation", () => {
+    const selected = projectSessionSteps([
+      row("signup", 100),
+      row("onboarding_step_viewed", 200, { stepId: "role" }),
+      row("onboarding_step_viewed", 250, { stepId: "role" }),
+    ]);
+
+    expect(selected[selected.length - 1]).toEqual({
+      key: "step:role",
+      label: "Onboarding step: role",
+      tsMs: 200,
+    });
+  });
+
+  it("deduplicates legacy and canonical aliases and orders first-run Builder events", () => {
+    const steps = buildSessionSteps([
+      row("onboarding_method_outcome", 100, {
+        id: "z-outcome",
+        methodId: "builder_create_account",
+        outcome: "connected",
+      }),
+      row("builder_connect_started", 100, {
+        id: "d-builder-started",
+        source: "first_run_onboarding",
+      }),
+      row("builder_connect_clicked", 100, {
+        id: "b-builder-clicked",
+        source: "first_run_onboarding",
+      }),
+      row("onboarding_method_started", 100, {
+        id: "a-method-started",
+        methodId: "builder_create_account",
+      }),
+      row("onboarding_method_clicked", 100, {
+        id: "c-method-clicked",
+        methodId: "builder_create_account",
+      }),
+      row("builder connect clicked", 100, {
+        id: "e-legacy-builder-clicked",
+        source: "first_run_onboarding",
+      }),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "method:builder_create_account",
+      "method:builder_create_account:started",
+      "builder:connect:clicked",
+      "builder:connect:started",
+      "outcome:builder_create_account:connected",
+    ]);
+  });
+
+  it("groups same-time Builder aliases before collapsing them", () => {
+    const steps = buildSessionSteps([
+      row("builder connect clicked", 100, { id: "a-legacy" }),
+      row("integration_key_entry_started", 100, {
+        id: "b-key-entry",
+        flow: "settings",
+      }),
+      row("builder_connect_clicked", 100, { id: "c-canonical" }),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "builder:connect:clicked",
+      "custom_key:settings:entry_started",
+    ]);
+  });
+
+  it("deduplicates an alias pair across interleaved events and keeps a later retry", () => {
+    const steps = buildSessionSteps([
+      row("builder connect clicked", 100, {
+        id: "a-legacy-clicked",
+        aliasId: "click-pair-1",
+      }),
+      row("builder_connect_popup_blocked", 100, {
+        id: "b-popup-blocked",
+      }),
+      row("builder_connect_clicked", 102, {
+        id: "c-canonical-clicked",
+        aliasId: "click-pair-1",
+      }),
+      row("onboarding_method_outcome", 103, {
+        id: "d-retry-outcome",
+        methodId: "builder_create_account",
+        outcome: "failed",
+      }),
+      row("builder connect clicked", 104, {
+        id: "e-retry-legacy-clicked",
+        aliasId: "click-pair-2",
+      }),
+      row("builder_connect_clicked", 105, {
+        id: "f-retry-canonical-clicked",
+        aliasId: "click-pair-2",
+      }),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "builder:connect:clicked",
+      "builder:connect:popup_blocked",
+      "outcome:builder_create_account:failed",
+      "builder:connect:clicked",
+    ]);
+  });
+
   it("orders by timestamp, then by journey position, then by id", () => {
     const steps = buildSessionSteps([
       row("onboarding_step_viewed", 200, { stepId: "role" }),

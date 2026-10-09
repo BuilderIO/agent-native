@@ -270,6 +270,7 @@ export interface AgentSidebarProps {
   suppressInlineOpenApp?: AssistantChatProps["suppressInlineOpenApp"];
   composerPlaceholder?: AssistantChatProps["composerPlaceholder"];
   showMissingApiKeySetup?: AssistantChatProps["showMissingApiKeySetup"];
+  setupCardOwner?: AssistantChatProps["setupCardOwner"];
   showGuidedQuestions?: AssistantChatProps["showGuidedQuestions"];
   openOnChatRunning?: boolean;
   onFullscreenRequest?: (threadId?: string) => void;
@@ -347,6 +348,7 @@ export function AgentSidebar({
   suppressInlineOpenApp,
   composerPlaceholder,
   showMissingApiKeySetup,
+  setupCardOwner,
   showGuidedQuestions,
   openOnChatRunning = false,
   onFullscreenRequest,
@@ -1171,6 +1173,7 @@ export function AgentSidebar({
             suppressInlineOpenApp={suppressInlineOpenApp}
             composerPlaceholder={composerPlaceholder}
             showMissingApiKeySetup={showMissingApiKeySetup}
+            setupCardOwner={setupCardOwner}
             showGuidedQuestions={showGuidedQuestions}
             missingApiKeySetupLayout="sidebar"
             defaultMode={defaultMode}

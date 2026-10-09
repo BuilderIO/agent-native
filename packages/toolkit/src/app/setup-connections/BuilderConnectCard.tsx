@@ -1,5 +1,4 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { BuilderBMark } from "@agent-native/core/client/builder-mark";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   ActionButton,
@@ -499,7 +498,6 @@ export function DefaultBuilderConnectCardView({
                     pending={action.pending}
                     disabled={action.disabled}
                     className="inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
-                    leadingIcon={<BuilderBMark className="size-3.5" />}
                   >
                     {action.label}
                   </ActionButton>
@@ -512,7 +510,6 @@ export function DefaultBuilderConnectCardView({
                   pending={action.pending}
                   disabled={action.disabled}
                   className="inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
-                  leadingIcon={<BuilderBMark className="size-3.5" />}
                   onPress={() => action.onPress()}
                 >
                   {action.label}

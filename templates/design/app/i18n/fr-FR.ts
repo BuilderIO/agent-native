@@ -6,15 +6,21 @@ export default {
       "{count} sessions · {percent} de la cohorte {app} (n={rootCount})",
     sessionsOfPrevious: "{count} sessions · {percent} de l’étape précédente",
     sessionsOfParent: "{count} sessions · {percent} de {label}",
+    observedContinuation:
+      "Même enregistrement · exemple {fromExample} → exemple {toExample}",
+    observedContinuationCompact: "Ex. {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "{count} sessions · {percent} de cette étape",
     partialSample: "échantillon partiel",
     continuedOnUnpictured:
       "Suite sur des parcours non illustrés : {count} · {percent} de cette étape",
     noLaterStepObserved: "Aucune étape suivante observée",
-    examplePosition: "Exemple {current} sur {total}",
-    showExample: "Afficher l’exemple {current} sur {total}",
+    examplePosition: "Galerie {current} sur {total}",
+    sourceExampleLabel: "Source",
+    showExample: "Afficher l’exemple source {current}",
     screenshotExamples: "Exemples de captures d’écran",
-    screenshotAlt: "{label}, exemple {current} sur {total}, capturé le {date}",
+    screenshotAlt:
+      "{label}, exemple source {source}, position dans la galerie {current} sur {total}, capturé le {date}",
     screenshotMissing: "Aucune capture d’écran",
     recordingUnavailable: "indisponible",
     eventTime: "Heure de l’événement (UTC)",
@@ -49,7 +55,10 @@ export default {
     actorUnavailable: "Acteur indisponible",
     replayDetails: "Détails de relecture et de source",
     sourceApp: "Application source",
-    route: "Route capturée",
+    route: "Route actuelle lors de la capture",
+    routeUnavailable: "indisponible",
+    captureSourceFingerprint: "Empreinte de la source de capture",
+    captureSourceUnavailable: "non fournie",
     recordingStarted: "Début de l’enregistrement",
     appBandHeading: "{app} · {count} sessions",
     journeyTitleSummary:
@@ -932,6 +941,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} nécessite{{plural}} un accès Figma pour être chargée{{plural}}.",
       figmaPasteImagesDontShowAgain: "Ne plus afficher",
+      figmaPasteUploadImage: "Importer une image",
+      figmaPasteUploadImageFor: "Importer « {{name}} »",
+      figmaPasteImageFallbackName: "Image {{index}}",
+      figmaPasteUploadImageSuccess: "Image ajoutée",
+      figmaPasteUploadImageInvalid:
+        "Choisissez un fichier image, par exemple SVG, PNG ou JPG.",
+      figmaPasteUploadImageError: "Impossible d’ajouter cette image",
       figmaHydrationDialogTitle: "Connecter Figma pour charger les images",
       figmaHydrationDialogDescription:
         "Saisissez votre token d'accès Figma pour charger {{count}} image{{plural}} manquante{{plural}} dans l'écran{{screensPlural}} importé{{screensPlural}}.",
@@ -1625,6 +1641,7 @@ export default {
     fork: "Créer une branche",
     fullView: "Vue complète",
     preview: "Aperçu",
+    focusScreen: "Centrer l’écran",
     openAndDuplicate:
       "Sélectionner {{display}}. Utilisez Interagir pour le défilement ciblé.",
     openAndPreview:

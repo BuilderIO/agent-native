@@ -94,11 +94,11 @@ describe("Design editor mobile layout", () => {
     expect(editorSource).toContain(
       "widgetEmbed || (embedded && !hostOwnsChrome && !embedChromeRequested)",
     );
-    expect(editorSource).toContain("!isMobileViewport &&\n    !uiHidden &&");
-    expect(editorSource).toContain("minimalUi && !widgetEmbed");
     expect(editorSource).toContain(
-      "(widgetEmbed && minimalInspectorHasSelection)",
+      "(!minimalUi || minimalInspectorHasSelection)",
     );
+    expect(editorSource).toContain("!isMobileViewport &&\n    !uiHidden &&");
+    expect(editorSource).toContain("minimalUi && !hostOwnsChrome ? (");
     expect(editorSource).toContain("initialFitScreenId: widgetEmbed\n");
   });
 

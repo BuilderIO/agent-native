@@ -141,6 +141,27 @@ describe("auth session replay gate", () => {
     ).toBe(true);
   });
 
+  it("uses the server-provided app dimensions on beta auth hosts", () => {
+    const options = authSessionReplayOptions(
+      {
+        agentNativeAnalyticsPublicKey: "anpk_test",
+        authSessionReplay: true,
+      },
+      "/signup",
+      "",
+      "beta.clips.agent-native.com",
+      "",
+      "",
+      "clips",
+    );
+
+    expect(options?.extraProperties).toMatchObject({
+      app: "clips",
+      app_name: "clips",
+      template_name: "clips",
+    });
+  });
+
   it("derives a replay path from a relative Analytics endpoint", () => {
     const options = authSessionReplayOptions(
       {
@@ -206,7 +227,7 @@ describe("auth session replay gate", () => {
         agentNativeAnalyticsPublicKey: "anpk_test",
         authSessionReplay: true,
       },
-      { appBasePath: "", workspaceRuntime: false },
+      { appBasePath: "", trackingApp: "clips", workspaceRuntime: false },
     );
 
     await vi.waitFor(() =>
@@ -214,6 +235,15 @@ describe("auth session replay gate", () => {
         "Optional auth session replay failed to start.",
         error,
       ),
+    );
+    expect(startSessionReplayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extraProperties: expect.objectContaining({
+          app: "clips",
+          app_name: "clips",
+          template_name: "clips",
+        }),
+      }),
     );
     warn.mockRestore();
   });

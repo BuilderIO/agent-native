@@ -99,20 +99,62 @@ list the author wrote keeps its own units: only its `rotate()` is replaced, so a
 centring `translate(-50%, -50%)` still follows the object's size. When the
 rotation comes from a stylesheet, or the list does not paint the requested
 rotation once edited, the effective matrix is written instead, and a pure
-rotation is written back as `rotate(Xdeg)`.
+rotation is written back as `rotate(Xdeg)`. A plain inline `transform` loses to
+a stylesheet `!important` transform (`none`, `initial` and `unset` included: an
+object they keep flat reads 0°) and to a CSS animation on a transform property
+when that animation wins the cascade. The setter reads the painted rotation
+back and, when it is not the one asked for, restores the inline style and
+returns false rather than reporting an edit that paints nothing. An animation
+that wins on `transform`, `translate`, `rotate` or `scale`, running or still
+waiting out its delay, makes the rotation unavailable because a rotation read
+at one instant is not the one it keeps. An inline `transform: ... !important`
+beats a transform animation on that same property, so it remains editable;
+animation on a separate longhand such as `rotate` still blocks the edit. The
+inspector field starts over from the painted value when an edit is refused, and
+the rotate handle, shortcut, and ungroup plan preserve an existing inline
+important priority when they write. The read-back runs with transitions off,
+so an object with a transition on its transform still turns at once; the
+transition is left as authored and does not play the turn. Deviation: an object
+whose transform is held by a stylesheet `!important` rule can be moved and
+resized but not rotated; Google has no equivalent. Limits: switching
+transitions off for that instant, which the handle and ungroup checks also do,
+ends any transition running on the object (it jumps to its end value).
 
 Starting a crop on a bare image hands its transform to the new crop frame and
 turns it off on the image, with `none !important` so a stylesheet `!important`
-rule or a running animation cannot paint it a second time inside the frame. The
-frame takes an inline value as authored, unless it reads the image's own cascade
-(`var()`, an `em` length), and otherwise the value the browser resolved. A
-stylesheet rule cannot match the new frame element, so the frame keeps the
-value that painted at the instant the crop started, including any `:hover`,
-media-query or mid-animation state; it does not follow the rule afterwards.
+rule cannot paint it a second time inside the frame. The frame takes an inline
+value as authored only when that value is what paints (a stylesheet
+`!important` declaration beats a plain inline one, so this is probed, not
+assumed) and it does not read the image's own cascade (`var()`, an `em`
+length); anything else, and the transform origin the same way, is the value the
+browser resolved. A stylesheet rule cannot match the new frame element, so the
+frame keeps the value that painted at the instant the crop started, including
+any `:hover` or media-query state (a crop starts under the pointer, so an
+`!important` `:hover` transform that beats an inline one is the one that moves);
+it does not follow the rule afterwards.
+A CSS animation that wins on a transform property moves with the crop frame.
+The original animation tracks are split: transform tracks and any referenced
+custom-property tracks run on the frame, while opacity and other image effects
+run on the image. The frame inherits the image's computed custom properties and
+font context, and the generated keyframes are stored with the frame so they
+survive save and reopen. Both sets of animations are paused at the source's
+current time while the crop is edited, then resume on commit. This keeps mixed
+transform/opacity animations from applying opacity to both parent and child,
+and keeps image-only keyframes such as `object-position` on the image. An
+animation beaten by an inline `!important` transform is not restarted on the
+frame; the value that actually paints moves as a static transform. CSS
+transitions do not move to the frame: an active transform transition is sampled
+and cancelled, and the frame holds its pose while the crop is edited. Cropping
+an image that already has a frame does not hold that frame's animation while
+the crop is edited. Script-created animations are sampled but not carried.
 
-Evidence: the reader, the writer and the crop-frame hand-off are exercised in
-headless Chromium (`slide-object-transform.browser.spec.ts`, which runs in the
-fast lanes), not yet through the live editor UI.
+Evidence: the reader, the writer, the crop-frame hand-off (including a
+stylesheet `!important` transform over an inline one, split transform and
+opacity animation tracks, a custom-property transform animation, a running
+transition, and playback from saved markup) and the inspector's
+refused-rotation field are exercised in headless Chromium
+(`slide-object-transform.browser.spec.ts`, which runs in the fast lanes) and in
+the happy-dom editor tests, not yet through the live editor UI.
 
 ## Google Help references
 

@@ -660,6 +660,7 @@
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/route-warmup",
         "@agent-native/core/client/theme",
+        "@agent-native/core/client/use-agent-engine-configured",
         "@agent-native/core/client/use-after-paint",
         "@agent-native/core/client/use-poll-loop",
         "@agent-native/core/client/use-session",

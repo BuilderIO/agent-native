@@ -1,6 +1,20 @@
 import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
-import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+  vi,
+} from "vitest";
 
+import {
+  AgentChatAiSetupRequiredError,
+  agentEngineStatusUrlForChatApi,
+  requireAgentEngineConfiguredForDispatch,
+  resetAgentEngineReadinessForTests,
+} from "../agent-engine-readiness.js";
 import {
   subscribeChatFirstOpenApp,
   subscribeChatFirstOpenBrowser,
@@ -8,7 +22,7 @@ import {
 import type { AgentChatRuntime as AgentChatRuntimeFromClientBarrel } from "../index.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index.js";
 import {
-  createAgentNativeChatRuntime,
+  createAgentNativeChatRuntime as createAgentNativeChatRuntimeImpl,
   createHttpAgentChatRuntime,
   type AgentChatRuntime,
   type AgentChatRuntimeEvent,
@@ -17,6 +31,7 @@ import {
   type AgentChatRuntimeToolCall,
   type AgentChatRuntimeTurn,
   type AgentChatRuntimeTurnInput,
+  type CreateAgentNativeChatRuntimeOptions,
 } from "./runtime.js";
 
 async function* streamRuntimeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
@@ -62,6 +77,25 @@ function sseResponse(events: unknown[], runId = "run-runtime"): Response {
       },
     },
   );
+}
+
+function jsonResponse(data: unknown): Response {
+  return new Response(JSON.stringify(data), {
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function createAgentNativeChatRuntime(
+  options: CreateAgentNativeChatRuntimeOptions = {},
+): AgentChatRuntime<AgentChatRuntimeKnownEvent> {
+  const fetchImpl = options.fetch ?? fetch;
+  return createAgentNativeChatRuntimeImpl({
+    ...options,
+    fetch: async (input, init) =>
+      String(input).includes("/agent-engine/status")
+        ? jsonResponse({ configured: true, chatEligible: true })
+        : fetchImpl(input, init),
+  });
 }
 
 async function drain<T>(iterable: AsyncIterable<T>): Promise<T[]> {
@@ -137,6 +171,19 @@ describe("AgentChatRuntime types", () => {
   it("exports the runtime contract from client barrels", () => {
     expectTypeOf<AgentChatRuntimeFromChatBarrel>().toEqualTypeOf<AgentChatRuntime>();
     expectTypeOf<AgentChatRuntimeFromClientBarrel>().toEqualTypeOf<AgentChatRuntime>();
+  });
+});
+
+describe("agentEngineStatusUrlForChatApi", () => {
+  it("preserves a public framework prefix from a rewritten chat URL", () => {
+    expect(
+      agentEngineStatusUrlForChatApi("/slides/_framework/agent-chat"),
+    ).toBe("/slides/_framework/agent-engine/status");
+    expect(
+      agentEngineStatusUrlForChatApi(
+        "https://api.example.test/slides/_agent-native/agent-chat",
+      ),
+    ).toBe("https://api.example.test/slides/_agent-native/agent-engine/status");
   });
 });
 
@@ -595,6 +642,15 @@ describe("createHttpAgentChatRuntime", () => {
 });
 
 describe("createAgentNativeChatRuntime", () => {
+  beforeEach(() => {
+    resetAgentEngineReadinessForTests();
+  });
+
+  afterEach(() => {
+    resetAgentEngineReadinessForTests();
+    vi.useRealTimers();
+  });
+
   it("keeps the original request context when a run-timeout stream closes without done", async () => {
     const fetchMock = vi
       .fn()
@@ -661,13 +717,18 @@ describe("createAgentNativeChatRuntime", () => {
         getItem: (key: string) => storage.get(key) ?? null,
         setItem: (key: string, value: string) => storage.set(key, value),
       },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     });
     try {
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const apiUrl = "/_agent-native/agent-chat";
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes("/agent-engine/status")
+          ? jsonResponse({ configured: true, chatEligible: true })
+          : sseResponse([{ type: "done" }]),
+      );
       const runtime = createAgentNativeChatRuntime({
-        apiUrl: "/_agent-native/agent-chat",
+        apiUrl,
         fetch: fetchMock as typeof fetch,
       });
       const session = await runtime.createSession();
@@ -676,9 +737,10 @@ describe("createAgentNativeChatRuntime", () => {
       );
 
       expect(
-        new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get(
-          "x-agent-native-session-id",
-        ),
+        new Headers(
+          fetchMock.mock.calls.find(([input]) => String(input) === apiUrl)?.[1]
+            ?.headers,
+        ).get("x-agent-native-session-id"),
       ).toBe("browser-session-42");
     } finally {
       vi.unstubAllGlobals();
@@ -699,12 +761,16 @@ describe("createAgentNativeChatRuntime", () => {
         getItem: (key: string) => storage.get(key) ?? null,
         setItem: (key: string, value: string) => storage.set(key, value),
       },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     });
     try {
       const apiUrl = "https://chat.example.test/_agent-native/agent-chat";
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes("/agent-engine/status")
+          ? jsonResponse({ configured: true, chatEligible: true })
+          : sseResponse([{ type: "done" }]),
+      );
       const runtime = createAgentNativeChatRuntime({
         apiUrl,
         fetch: fetchMock as typeof fetch,
@@ -723,6 +789,160 @@ describe("createAgentNativeChatRuntime", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("checks AI readiness before posting a new turn", async () => {
+    resetAgentEngineReadinessForTests();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return jsonResponse({ configured: false, chatEligible: false });
+      }
+      return sseResponse([{ type: "done" }]);
+    });
+    const runtime = createAgentNativeChatRuntimeImpl({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-readiness-gate",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+
+    await expect(
+      session.startTurn({ prompt: "Blocked" }),
+    ).rejects.toBeInstanceOf(AgentChatAiSetupRequiredError);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/_agent-native/agent-engine/status",
+    );
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/_agent-native/agent-chat") &&
+          (init?.method ?? "GET") === "POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("waits for a pending readiness probe before posting a new turn", async () => {
+    resetAgentEngineReadinessForTests();
+    let resolveStatus!: (response: Response) => void;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return new Promise<Response>((resolve) => {
+          resolveStatus = resolve;
+        });
+      }
+      return Promise.resolve(sseResponse([{ type: "done" }]));
+    });
+    const apiUrl = "/_agent-native/agent-chat";
+    const runtime = createAgentNativeChatRuntimeImpl({
+      apiUrl,
+      threadId: "thread-readiness-pending",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    const turnPromise = session.startTurn({ prompt: "Wait for setup" });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/_agent-native/agent-engine/status",
+    );
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === apiUrl)).toBe(
+      false,
+    );
+
+    resolveStatus(jsonResponse({ configured: true, chatEligible: true }));
+    const turn = await turnPromise;
+    await drain(turn.events);
+
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      expect.stringContaining("/_agent-native/agent-engine/status"),
+      apiUrl,
+    ]);
+  });
+
+  it("keeps asynchronous auth headers inside the runtime readiness deadline", async () => {
+    vi.useFakeTimers();
+    let resolveHeaders!: (value: HeadersInit) => void;
+    const pendingHeaders = new Promise<HeadersInit>((resolve) => {
+      resolveHeaders = resolve;
+    });
+    const headers = vi.fn(() => pendingHeaders);
+    const fetchMock = vi.fn(async () => sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntimeImpl({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-readiness-headers-timeout",
+      headers,
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    const turn = session.startTurn({ prompt: "Wait for auth headers" });
+    const blockedTurn = expect(turn).rejects.toMatchObject({
+      name: AgentChatAiSetupRequiredError.name,
+      state: "unavailable",
+    });
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    await blockedTurn;
+
+    expect(headers).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
+    resolveHeaders({ Authorization: "Bearer test" });
+  });
+
+  it("blocks a new turn when the readiness route returns 503", async () => {
+    resetAgentEngineReadinessForTests();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return new Response("Unavailable", { status: 503 });
+      }
+      return sseResponse([{ type: "done" }]);
+    });
+    const runtime = createAgentNativeChatRuntimeImpl({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-readiness-unavailable",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+
+    await expect(
+      session.startTurn({ prompt: "Do not send while unavailable" }),
+    ).rejects.toMatchObject({
+      name: "AgentChatAiSetupRequiredError",
+      state: "unavailable",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("bounds asynchronous auth-header resolution and permits a later retry", async () => {
+    let resolvePendingHeaders!: (value: HeadersInit) => void;
+    const pendingHeaders = new Promise<HeadersInit>((resolve) => {
+      resolvePendingHeaders = resolve;
+    });
+    const headers = vi.fn(() => pendingHeaders);
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ configured: true, chatEligible: true }),
+    );
+    const source = {
+      statusUrl: "/_agent-native/agent-engine/status",
+      fetch: fetchMock as typeof fetch,
+      headers,
+    };
+
+    await expect(
+      requireAgentEngineConfiguredForDispatch({ source, timeoutMs: 20 }),
+    ).rejects.toMatchObject({
+      name: "AgentChatAiSetupRequiredError",
+      state: "unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    resolvePendingHeaders({ Authorization: "Bearer test" });
+    await requireAgentEngineConfiguredForDispatch({ source, timeoutMs: 100 });
+    expect(headers).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("sends prior tool activity as structured history without duplicating the current prompt", async () => {
@@ -2581,11 +2801,16 @@ describe("createAgentNativeChatRuntime", () => {
         getItem: (key: string) => storage.get(key) ?? null,
         setItem: (key: string, value: string) => storage.set(key, value),
       },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     });
     try {
       const fetchMock = vi.fn(
         async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = String(input);
+          if (url.includes("/_agent-native/agent-engine/status")) {
+            return Response.json({ configured: true, chatEligible: true });
+          }
           if (url === `${apiUrl}/stream-token`) {
             return Response.json({ token: "short-lived-token" });
           }
@@ -2612,12 +2837,17 @@ describe("createAgentNativeChatRuntime", () => {
       });
       await drain((await session.startTurn({ prompt: "Stream this" })).events);
 
-      expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
-        `${apiUrl}/stream-token`,
-        streamingUrl,
-      ]);
-      const tokenRequest = fetchMock.mock.calls[0]?.[1];
-      const streamRequest = fetchMock.mock.calls[1]?.[1];
+      expect(
+        fetchMock.mock.calls
+          .map(([input]) => String(input))
+          .filter((url) => !url.includes("/_agent-native/agent-engine/status")),
+      ).toEqual([`${apiUrl}/stream-token`, streamingUrl]);
+      const tokenRequest = fetchMock.mock.calls.find(
+        ([input]) => String(input) === `${apiUrl}/stream-token`,
+      )?.[1];
+      const streamRequest = fetchMock.mock.calls.find(
+        ([input]) => String(input) === streamingUrl,
+      )?.[1];
       expect(tokenRequest).toMatchObject({
         method: "GET",
         credentials: "same-origin",

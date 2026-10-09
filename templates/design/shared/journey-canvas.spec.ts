@@ -54,7 +54,7 @@ function node(
 
 function referenceNode(
   key: string,
-  parentKey: string,
+  parentKey: string | null,
   depth: number,
   examples: RawJourneyNode["examples"],
 ): RawReferenceNode {
@@ -211,6 +211,7 @@ describe("create-journey-canvas input", () => {
     expect(input.includeScreenshotless).toBe(false);
     expect(input.allowEncryptedPublicUploadFallback).toBe(false);
     expect(input.layoutMode).toBe("tree");
+    expect(input.observedContinuations).toEqual([]);
     expect(input.tree.nodes[0]?.referenceOnly).toBe(false);
   });
 
@@ -241,6 +242,32 @@ describe("create-journey-canvas input", () => {
       ],
     });
     expect(problems(withStagedFrame)).toEqual([]);
+    const stagedFrameWithUnknownRoute = rawInput({
+      designId: "design-1",
+      frames: [
+        frame("signup", 0, {
+          imageUrl: undefined,
+          stagedFrameId: "jcu_opaque-frame-id",
+          route: null,
+          screenshotOffsetMs: 2_600,
+        }),
+      ],
+    });
+    expect(problems(stagedFrameWithUnknownRoute)).toEqual([]);
+    const stagedFrameWithoutRoute = rawInput({
+      designId: "design-1",
+      frames: [
+        frame("signup", 0, {
+          imageUrl: undefined,
+          stagedFrameId: "jcu_opaque-frame-id",
+          route: undefined,
+          screenshotOffsetMs: 2_600,
+        }),
+      ],
+    });
+    expect(problems(stagedFrameWithoutRoute).join("\n")).toMatch(
+      /verified current route for a staged frame, or null/,
+    );
     const stagedFrameWithoutOffset = rawInput({
       frames: [
         frame("signup", 0, {
@@ -410,6 +437,451 @@ describe("create-journey-canvas input", () => {
     expect(screen.html).not.toContain("jcu_opaque-frame-id");
   });
 
+  it("preserves an unknown current route and unavailable source fingerprint", () => {
+    const result = plan(
+      rawInput({
+        designId: "design-1",
+        frames: [
+          frame("signup", 0, {
+            imageUrl: undefined,
+            stagedFrameId: "jcu_unknown-provenance",
+            route: null,
+            captureSourceFingerprint: null,
+            screenshotOffsetMs: 2_600,
+          }),
+        ],
+      }),
+    );
+    const screen = result.screens[0]!;
+
+    expect(screen.attachment).toMatchObject({
+      route: null,
+      captureSourceFingerprint: null,
+    });
+    expect(screen.provenance).toMatchObject({
+      route: null,
+      captureSourceFingerprint: null,
+    });
+    expect(screen.html).toContain("Current route at capture: not available");
+    expect(screen.html).toContain("Capture-source fingerprint: not provided");
+    expect(screen.html).not.toContain("verified in replay");
+  });
+
+  it("uses source-neutral unavailable provenance for external images", () => {
+    const result = plan(
+      rawInput({
+        designId: "design-1",
+        frames: [
+          frame("signup", 0, {
+            route: null,
+            captureSourceFingerprint: null,
+          }),
+        ],
+      }),
+    );
+    const screen = result.screens[0]!;
+
+    expect(screen.attachment).toBeUndefined();
+    expect(screen.html).toContain("Current route at capture: not available");
+    expect(screen.html).toContain("Capture-source fingerprint: not provided");
+    expect(screen.html).not.toContain("not verified in replay");
+    expect(screen.html).not.toContain("not recorded");
+  });
+
+  it("keeps all example controls reachable on narrow cards", () => {
+    const base = rawInput();
+    const root = base.tree.nodes[0]!;
+    const examples = Array.from({ length: 6 }, (_, index) =>
+      example(`signup-${index}`),
+    );
+    const result = plan(
+      rawInput({
+        cardWidth: 200,
+        maxExamplesPerNode: 6,
+        tree: {
+          ...base.tree,
+          nodes: [{ ...root, examples }, ...base.tree.nodes.slice(1)],
+        },
+        frames: examples.map((_, exampleIndex) =>
+          frame("signup", exampleIndex),
+        ),
+      }),
+    );
+    const screen = result.screens.find(
+      (candidate) => candidate.nodeKey === "signup",
+    )!;
+
+    expect(screen.html).toContain("max-width:100%;overflow-x:auto");
+    expect(screen.html).toContain("header .example-switcher>*{flex:0 0 auto}");
+    for (let index = 0; index < examples.length; index += 1) {
+      expect(screen.html).toContain(`Show source example ${index + 1}`);
+    }
+  });
+
+  it("labels only validated same-recording reference edges without cohort percentages", () => {
+    const recordingStartedAt = "2026-10-01T11:59:56.000Z";
+    const start = referenceNode("clips::reference:start", null, 0, [
+      example("shared-session"),
+    ]);
+    const later = referenceNode("clips::reference:later", start.key, 1, [
+      example("shared-session"),
+    ]);
+    const tree = {
+      window: { from: "2026-10-01", to: "2026-10-07" },
+      app: "all",
+      rootN: 1000,
+      coverage: {
+        sessionsWithEvents: 1000,
+        sessionsWithReplay: 2,
+        truncated: false,
+      },
+      nodes: [start, later],
+    };
+    const continuation = {
+      fromNodeKey: start.key,
+      fromExampleIndex: 0,
+      toNodeKey: later.key,
+      toExampleIndex: 0,
+    };
+    const raw = rawInput({
+      designId: "design-1",
+      tree,
+      frames: [
+        frame(start.key, 0, {
+          imageUrl: undefined,
+          attachmentRef: "private-start-frame",
+          sourceApp: "clips",
+          recordingStartedAt,
+          screenshotOffsetMs: 1_000,
+        }),
+        frame(later.key, 0, {
+          imageUrl: undefined,
+          attachmentRef: "private-later-frame",
+          sourceApp: "clips",
+          recordingStartedAt,
+          screenshotOffsetMs: 2_000,
+        }),
+      ],
+      observedContinuations: [continuation],
+    });
+    const board = planJourneyCanvas(parse(raw), "design-1")
+      .boardFragments({ x: 0, y: 0 })
+      .join("\n");
+
+    expect(board).toContain("Same recording");
+    expect(board).toContain('stroke-dasharray="6 6"');
+    expect(board).not.toContain("100%");
+    expect(board).not.toContain("50%");
+    expect(
+      problems({
+        ...raw,
+        frames: raw.frames.map((item, index) =>
+          index === 1 ? { ...item, screenshotOffsetMs: 900 } : item,
+        ),
+      }).join("\n"),
+    ).toMatch(/increasing actual replay seek offsets/);
+  });
+
+  it("anchors a reference continuation to an exact canonical example without adding a cohort edge", () => {
+    const recordingStartedAt = "2026-10-01T11:59:56.000Z";
+    const canonical = node("clips::choice", null, 500, {
+      examples: [example("shared-session")],
+    });
+    const observed = referenceNode(
+      "clips::choice > observed:/home",
+      canonical.key,
+      2,
+      [example("shared-session")],
+    );
+    const tree: RawInput["tree"] = {
+      window: { from: "2026-10-01", to: "2026-10-07" },
+      app: "clips",
+      rootN: 1000,
+      coverage: {
+        sessionsWithEvents: 1000,
+        sessionsWithReplay: 2,
+        truncated: false,
+      },
+      nodes: [canonical, observed],
+    };
+    const frames = [
+      frame(canonical.key, 0, {
+        imageUrl: undefined,
+        attachmentRef: "private-canonical-example",
+        recordingStartedAt,
+        screenshotOffsetMs: 1_000,
+      }),
+      frame(observed.key, 0, {
+        imageUrl: undefined,
+        attachmentRef: "private-observed-frame",
+        recordingStartedAt: "2026-10-01T07:59:56.000-04:00",
+        screenshotOffsetMs: 2_000,
+      }),
+    ];
+    const continuation = {
+      fromNodeKey: canonical.key,
+      fromExampleIndex: 0,
+      toNodeKey: observed.key,
+      toExampleIndex: 0,
+    };
+    const raw = rawInput({
+      designId: "design-1",
+      tree,
+      frames,
+      observedContinuations: [continuation],
+    });
+    const parsed = parse(raw);
+    const fragments = planJourneyCanvas(parsed, "design-1").boardFragments({
+      x: 0,
+      y: 0,
+    });
+    const continuationLabel = fragments.find((fragment) =>
+      fragment.includes(
+        'data-agent-native-layer-name="Observed same-recording continuation"',
+      ),
+    );
+
+    expect(problems(raw)).toEqual([]);
+    expect(continuationLabel).toContain(">Ex. 1 → 1</div>");
+    expect(continuationLabel).toContain(
+      'title="Same recording · example 1 → example 1"',
+    );
+    expect(continuationLabel).toContain(
+      'aria-label="Same recording · example 1 → example 1"',
+    );
+    expect(continuationLabel).not.toContain("%");
+    expect(parsed.tree.nodes[0]).toMatchObject({
+      key: canonical.key,
+      n: 500,
+      examples: [expect.objectContaining({ sessionId: "shared-session" })],
+    });
+    expect(parsed.tree.nodes[1]).toMatchObject({
+      key: observed.key,
+      referenceOnly: true,
+    });
+
+    const wrongCanonicalExample = {
+      ...raw,
+      observedContinuations: [{ ...continuation, fromExampleIndex: 1 }],
+    };
+    expect(problems(wrongCanonicalExample).join("\n")).toContain(
+      "need a captured frame for each referenced example",
+    );
+
+    const wrongRecordingMember = {
+      ...raw,
+      tree: {
+        ...tree,
+        nodes: [
+          canonical,
+          { ...observed, examples: [example("different-session")] },
+        ],
+      },
+    };
+    expect(problems(wrongRecordingMember).join("\n")).toContain(
+      "same session and recording",
+    );
+    const wrongRecordingStart = {
+      ...raw,
+      frames: frames.map((candidate, index) =>
+        index === 1
+          ? {
+              ...candidate,
+              recordingStartedAt: "2026-10-01T08:59:56.000-04:00",
+            }
+          : candidate,
+      ),
+    };
+    expect(problems(wrongRecordingStart).join("\n")).toContain(
+      "same session and recording",
+    );
+  });
+
+  it("keeps and labels exact high-index examples selected by a continuation", () => {
+    const canonicalExamples = Array.from({ length: 8 }, (_, index) =>
+      example(`canonical-${index}`),
+    );
+    canonicalExamples[5] = example("shared-session");
+    const observedExamples = Array.from({ length: 8 }, (_, index) =>
+      example(`observed-${index}`),
+    );
+    observedExamples[7] = example("shared-session");
+    const canonical = node("clips::choice", null, 500, {
+      examples: canonicalExamples,
+    });
+    const observed = referenceNode(
+      "clips::choice > observed:/home",
+      canonical.key,
+      2,
+      observedExamples,
+    );
+    const tree: RawInput["tree"] = {
+      window: { from: "2026-10-01", to: "2026-10-07" },
+      app: "clips",
+      rootN: 1000,
+      coverage: {
+        sessionsWithEvents: 1000,
+        sessionsWithReplay: 2,
+        truncated: false,
+      },
+      nodes: [canonical, observed],
+    };
+    const frames = [
+      ...[0, 1, 2].map((index) => frame(canonical.key, index)),
+      frame(canonical.key, 5, {
+        imageUrl: undefined,
+        attachmentRef: "private-canonical-example-six",
+        recordingStartedAt: "2026-10-01T12:00:00.000Z",
+        screenshotOffsetMs: 47_271,
+      }),
+      ...[0, 1, 2].map((index) => frame(observed.key, index)),
+      frame(observed.key, 7, {
+        imageUrl: undefined,
+        attachmentRef: "private-reference-example-eight",
+        recordingStartedAt: "2026-10-01T08:00:00.000-04:00",
+        screenshotOffsetMs: 60_000,
+      }),
+    ];
+    const raw = rawInput({
+      tree,
+      frames,
+      maxExamplesPerNode: 3,
+      observedContinuations: [
+        {
+          fromNodeKey: canonical.key,
+          fromExampleIndex: 5,
+          toNodeKey: observed.key,
+          toExampleIndex: 7,
+        },
+      ],
+    });
+    const result = plan(raw);
+    const board = result.boardFragments({ x: 0, y: 0 }).join("\n");
+    const continuationLabel = board.match(
+      /<div[^>]*data-agent-native-layer-name="Observed same-recording continuation"[^>]*>.*?<\/div>/,
+    )?.[0];
+
+    expect(problems(raw)).toEqual([]);
+    expect(
+      result.screens.some(
+        (screen) =>
+          screen.nodeKey === canonical.key && screen.exampleIndex === 5,
+      ),
+    ).toBe(true);
+    expect(
+      result.screens.some(
+        (screen) =>
+          screen.nodeKey === observed.key && screen.exampleIndex === 7,
+      ),
+    ).toBe(true);
+    expect(
+      result.screens.find(
+        (screen) =>
+          screen.nodeKey === canonical.key && screen.exampleIndex === 0,
+      )?.html,
+    ).toContain('aria-label="Show source example 6"');
+    const canonicalHighIndex = result.screens.find(
+      (screen) => screen.nodeKey === canonical.key && screen.exampleIndex === 5,
+    )?.html;
+    expect(canonicalHighIndex).toContain("Gallery 4 of 4");
+    expect(canonicalHighIndex).toContain("example-source-label");
+    expect(canonicalHighIndex).toContain(">Source</span>");
+    expect(canonicalHighIndex).toContain(
+      `alt="${canonical.label}, source example 6, gallery position 4 of 4, captured 2026-10-08"`,
+    );
+    expect(
+      result.screens.find(
+        (screen) =>
+          screen.nodeKey === observed.key && screen.exampleIndex === 0,
+      )?.html,
+    ).toContain('aria-label="Show source example 8"');
+    expect(
+      result.screens.find(
+        (screen) =>
+          screen.nodeKey === observed.key && screen.exampleIndex === 7,
+      )?.html,
+    ).toContain(
+      `alt="${observed.label}, source example 8, gallery position 4 of 4, captured 2026-10-08"`,
+    );
+    expect(continuationLabel).toContain(">Ex. 6 → 8</div>");
+    expect(continuationLabel).toContain(
+      'title="Same recording · example 6 → example 8"',
+    );
+    expect(continuationLabel).toContain(
+      'aria-label="Same recording · example 6 → example 8"',
+    );
+    expect(continuationLabel).not.toContain("%");
+  });
+
+  it("keeps a screenshotless method name on a reattached cohort fork", () => {
+    const choice = node("clips::setup-choice", null, 1000, {
+      label: "Setup choice",
+      pctOfRoot: 100,
+      pctOfParent: 100,
+    });
+    const method = node("clips::setup-choice > Custom keys", choice.key, 500, {
+      label: "Custom keys",
+      pctOfRoot: 50,
+      pctOfParent: 50,
+    });
+    const home = node(
+      "clips::setup-choice > Custom keys > Home",
+      method.key,
+      250,
+      {
+        label: "Home",
+        pctOfRoot: 25,
+        pctOfParent: 50,
+      },
+    );
+    const base = rawInput();
+    const result = planJourneyCanvas(
+      parse({
+        ...base,
+        tree: { ...base.tree, app: "clips", nodes: [choice, method, home] },
+        frames: [frame(choice.key, 0), frame(home.key, 0)],
+      }),
+      "design-1",
+    );
+    const homeScreen = result.screens.find(
+      (screen) => screen.nodeKey === home.key,
+    )!;
+    const board = result.boardFragments({ x: 0, y: 0 }).join("\n");
+
+    expect(homeScreen.html).toContain("250 sessions · 50% of Custom keys");
+    expect(board).toContain("Custom keys · 50%");
+  });
+
+  it("truncates long edge labels visually while preserving their full accessible text", () => {
+    const longLabel = `Custom method ${"very-long-name ".repeat(12)}`.trim();
+    const base = rawInput();
+    const nodes = base.tree.nodes.map((candidate) =>
+      candidate.key === "signup > skip"
+        ? { ...candidate, label: longLabel }
+        : candidate,
+    );
+    const board = plan({
+      ...base,
+      tree: { ...base.tree, nodes },
+    })
+      .boardFragments({ x: 0, y: 0 })
+      .join("\n");
+    const label = board
+      .split("\n")
+      .find(
+        (fragment) =>
+          fragment.includes(
+            'data-agent-native-layer-name="Journey edge label"',
+          ) && fragment.includes(longLabel),
+      );
+
+    expect(label).toContain(`title="${longLabel} · 63%"`);
+    expect(label).toContain(`aria-label="${longLabel} · 63%"`);
+    expect(label).toContain(
+      "overflow:hidden;white-space:nowrap;text-overflow:ellipsis",
+    );
+  });
+
   it("rejects trees and frames that do not hang together", () => {
     const base = rawInput();
     const duplicate = rawInput({
@@ -462,6 +934,7 @@ describe("create-journey-canvas input", () => {
       "layoutMode",
       "locale",
       "maxExamplesPerNode",
+      "observedContinuations",
       "title",
       "tree",
     ]);
@@ -720,6 +1193,8 @@ describe("planJourneyCanvas", () => {
       replayObservedAt: null,
       screenshotCapturedAt: "2026-10-08T09:30:00.000Z",
       sourceApp: "design",
+      route: null,
+      captureSourceFingerprint: null,
     });
     expect(root.html).toContain("Event time (UTC): 2026-10-01T12:00:00.000Z");
     expect(root.html).toContain("Replay and source details");
@@ -1042,15 +1517,17 @@ describe("planJourneyCanvas", () => {
     expect(screens[0]?.html).toMatch(
       /:checked~main \.example-frame\[data-index="1"\]\{display:flex\}/,
     );
-    expect(screens[0]?.html).toContain("Example 1 of 2");
-    expect(screens[0]?.html).toContain("Example 2 of 2");
+    expect(screens[0]?.html).toContain("Gallery 1 of 2");
+    expect(screens[0]?.html).toContain("Gallery 2 of 2");
     expect(screens[0]?.html).toMatch(
-      /aria-label="Show example 1 of 2" checked/,
+      /aria-label="Show source example 1" checked/,
     );
     expect(screens[0]?.html).toContain("/api/design-board-replay-screenshots/");
-    expect(screens[0]?.html).toMatch(/aria-label="Show example 2 of 2"[^>]*>/);
+    expect(screens[0]?.html).toMatch(
+      /aria-label="Show source example 2"[^>]*>/,
+    );
     expect(screens[1]?.html).toMatch(
-      /aria-label="Show example 2 of 2" checked/,
+      /aria-label="Show source example 2" checked/,
     );
     expect(screens[0]?.html).not.toContain("storageOwnerEmail");
     expect(screens[0]?.provenance?.screenshotCapturedAt).toBe(
@@ -1264,17 +1741,27 @@ describe("planJourneyCanvas", () => {
     expect(behind.frame.z).toBeLessThan(front.frame.z);
   });
 
-  it("ignores frames beyond maxExamplesPerNode and says so for nodes left empty", () => {
-    const result = plan(rawInput({ maxExamplesPerNode: 1 }));
-    expect(result.screens.filter((s) => s.nodeKey === "signup")).toHaveLength(
-      1,
+  it("limits ordinary screenshots by count instead of example index", () => {
+    const limited = plan(
+      rawInput({
+        maxExamplesPerNode: 1,
+        frames: [frame("signup", 0), frame("signup", 1)],
+      }),
     );
-    const onlyLate = plan(
+    expect(
+      limited.screens
+        .filter((screen) => screen.nodeKey === "signup")
+        .map((screen) => screen.exampleIndex),
+    ).toEqual([0]);
+
+    const onlyLateIndex = plan(
       rawInput({ maxExamplesPerNode: 1, frames: [frame("signup", 1)] }),
     );
     expect(
-      onlyLate.skippedNodes.find((s) => s.key === "signup")?.reason,
-    ).toMatch(/maxExamplesPerNode \(1\)/);
+      onlyLateIndex.screens
+        .filter((screen) => screen.nodeKey === "signup")
+        .map((screen) => screen.exampleIndex),
+    ).toEqual([1]);
   });
 
   it("re-attaches the children of a skipped node to the nearest rendered ancestor", () => {
@@ -1283,7 +1770,8 @@ describe("planJourneyCanvas", () => {
     const editor = plan().screens.find(
       (s) => s.nodeKey === "signup > skip > editor",
     )!;
-    expect(editor.html).toContain("100 sessions · 10% of signup");
+    expect(editor.html).toContain("100 sessions · 63% of signup &gt; skip");
+    expect(fragments).toContain("signup &gt; skip · 63%");
   });
 
   it("renders screenshotless steps only when asked", () => {

@@ -1111,6 +1111,11 @@ export interface AgentTransportThreadOperations {
 export interface AgentTransport extends AgentTransportThreadOperations {
   dispose?(): void | Promise<void>;
   capabilities?: AgentCapabilities;
+  /** Checks whether a new user-initiated chat dispatch is allowed to start. */
+  assertAiSetupReady?(
+    input: { engine?: string; threadId?: ThreadId },
+    context?: AgentRequestContext,
+  ): Promise<void>;
   discoverCapabilities?(
     input: DiscoverCapabilitiesInput,
     context?: AgentRequestContext,

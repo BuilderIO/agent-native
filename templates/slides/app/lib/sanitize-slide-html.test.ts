@@ -122,6 +122,24 @@ describe("sanitizeSlideHtml", () => {
       expect(html).not.toContain(`${scope} to`);
     });
 
+    it("preserves generated crop keyframes when sanitizing saved slide CSS", () => {
+      const css =
+        "@keyframes fmd_crop_test_1 { from { transform: rotate(0deg) } to { transform: rotate(90deg) } } .a { animation: fmd_crop_test_1 1s linear infinite }";
+      const first = run(css);
+      const styleText = (html: string) =>
+        /<style>([\s\S]*?)<\/style>/.exec(html)![1]!;
+      const firstCss = styleText(first);
+
+      expect(firstCss).toContain(
+        "@keyframes fmd_crop_test_1 { from { transform: rotate(0deg); } to { transform: rotate(90deg); } }",
+      );
+      expect(firstCss).toContain(
+        `${scope} .a { animation: fmd_crop_test_1 1s linear infinite; }`,
+      );
+
+      expect(styleText(run(firstCss))).toBe(firstCss);
+    });
+
     it("still scopes selectors that merely resemble keyframe selectors", () => {
       const html = run(".from { color: red } .to, to-x { color: blue }");
       expect(html).toContain(`${scope} .from { color: red; }`);

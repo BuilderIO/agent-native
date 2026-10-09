@@ -37,6 +37,7 @@ function duplicateArgs(
   };
   return {
     canEditDesign: true,
+    widgetEmbed: false,
     createFileAsync: vi.fn().mockResolvedValue({ id: "copy" }),
     deleteFileAsync: vi.fn().mockResolvedValue({ deleted: true }),
     designDataJsonRef: {
@@ -171,6 +172,115 @@ describe("getDuplicateScreenGeometry", () => {
 });
 
 describe("runDuplicateScreen", () => {
+  it("copies only widget-safe screen layout metadata", async () => {
+    const args = duplicateArgs({
+      widgetEmbed: true,
+      designDataJsonRef: {
+        current: {
+          canvasFrames: {
+            source: { x: 0, y: 0, width: 640, height: 480 },
+          },
+          screenMetadata: {
+            source: {
+              sourceType: "localhost",
+              width: 640,
+              height: 480,
+              heightPinned: true,
+              heightMode: "fixed",
+              breakpointHeights: { "390": 820 },
+              connectionId: "connection-1",
+              bridgeUrl: "https://example.test/bridge",
+            },
+          },
+          localhostScreens: {
+            source: {
+              width: 640,
+              height: 480,
+              connectionId: "connection-1",
+              bridgeToken: "not-copied",
+            },
+          },
+        },
+      },
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    const operations = (args.updateDesignAsync as any).mock.calls[0][0]
+      .dataOperations as Array<{
+      op: string;
+      path: string[];
+      value?: Record<string, unknown>;
+    }>;
+    expect(
+      operations.find(
+        (operation) =>
+          operation.op === "set" &&
+          operation.path[0] === "screenMetadata" &&
+          operation.path[1] === "copy",
+      ),
+    ).toEqual({
+      op: "set",
+      path: ["screenMetadata", "copy"],
+      value: {
+        width: 640,
+        height: 480,
+        heightPinned: true,
+        heightMode: "fixed",
+        breakpointHeights: { "390": 820 },
+      },
+    });
+    expect(
+      operations.some((operation) => operation.path[0] === "localhostScreens"),
+    ).toBe(false);
+  });
+
+  it("keeps ordinary editor duplication metadata unchanged", async () => {
+    const args = duplicateArgs({
+      designDataJsonRef: {
+        current: {
+          canvasFrames: {
+            source: { x: 0, y: 0, width: 640, height: 480 },
+          },
+          screenMetadata: {
+            source: {
+              sourceType: "inline",
+              width: 640,
+              height: 480,
+              breakpointHeights: { "390": 820 },
+            },
+          },
+        },
+      },
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    const operations = (args.updateDesignAsync as any).mock.calls[0][0]
+      .dataOperations as Array<{
+      op: string;
+      path: string[];
+      value?: Record<string, unknown>;
+    }>;
+    expect(
+      operations.find(
+        (operation) =>
+          operation.op === "set" &&
+          operation.path[0] === "screenMetadata" &&
+          operation.path[1] === "copy",
+      ),
+    ).toEqual({
+      op: "set",
+      path: ["screenMetadata", "copy"],
+      value: {
+        sourceType: "inline",
+        width: 640,
+        height: 480,
+        breakpointHeights: { "390": 820 },
+      },
+    });
+  });
+
   it("keeps Cmd+D duplicates on the board's 56px spacing", async () => {
     const sourceGeometry = { x: 200, y: 720, width: 320, height: 240, z: 4 };
     const args = duplicateArgs({

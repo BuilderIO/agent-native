@@ -6,15 +6,21 @@ export default {
       "{count} sessões · {percent} da coorte de {app} (n={rootCount})",
     sessionsOfPrevious: "{count} sessões · {percent} da etapa anterior",
     sessionsOfParent: "{count} sessões · {percent} de {label}",
+    observedContinuation:
+      "Mesma gravação · exemplo {fromExample} → exemplo {toExample}",
+    observedContinuationCompact: "Ex. {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "{count} sessões · {percent} desta etapa",
     partialSample: "amostra parcial",
     continuedOnUnpictured:
       "Continuação em caminhos não exibidos: {count} · {percent} desta etapa",
     noLaterStepObserved: "Nenhuma etapa posterior observada",
-    examplePosition: "Exemplo {current} de {total}",
-    showExample: "Mostrar exemplo {current} de {total}",
+    examplePosition: "Galeria {current} de {total}",
+    sourceExampleLabel: "Origem",
+    showExample: "Mostrar exemplo de origem {current}",
     screenshotExamples: "Exemplos de captura de tela",
-    screenshotAlt: "{label}, exemplo {current} de {total}, capturado em {date}",
+    screenshotAlt:
+      "{label}, exemplo de origem {source}, posição na galeria {current} de {total}, capturado em {date}",
     screenshotMissing: "Nenhuma captura de tela registrada",
     recordingUnavailable: "indisponível",
     eventTime: "Horário do evento (UTC)",
@@ -50,7 +56,10 @@ export default {
     actorUnavailable: "Ator indisponível",
     replayDetails: "Detalhes da reprodução e da origem",
     sourceApp: "Aplicativo de origem",
-    route: "Rota capturada",
+    route: "Rota atual no momento da captura",
+    routeUnavailable: "indisponível",
+    captureSourceFingerprint: "Impressão digital da origem da captura",
+    captureSourceUnavailable: "não fornecida",
     recordingStarted: "Gravação iniciada",
     appBandHeading: "{app} · {count} sessões",
     journeyTitleSummary: "{app} · {from} a {to} · {count} sessões{partial}",
@@ -924,6 +933,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} imagem{{plural}} precisa{{plural}} de acesso ao Figma para carregar.",
       figmaPasteImagesDontShowAgain: "Não mostrar novamente",
+      figmaPasteUploadImage: "Enviar imagem",
+      figmaPasteUploadImageFor: "Enviar “{{name}}”",
+      figmaPasteImageFallbackName: "Imagem {{index}}",
+      figmaPasteUploadImageSuccess: "Imagem preenchida",
+      figmaPasteUploadImageInvalid:
+        "Escolha um arquivo de imagem, como SVG, PNG ou JPG.",
+      figmaPasteUploadImageError: "Não foi possível preencher essa imagem",
       figmaHydrationDialogTitle: "Conectar o Figma para carregar imagens",
       figmaHydrationDialogDescription:
         "Insira seu token de acesso do Figma para carregar {{count}} imagem{{plural}} ausente{{plural}} na tela{{screensPlural}} importada{{screensPlural}}.",
@@ -1611,6 +1627,7 @@ export default {
     fork: "Ramificar",
     fullView: "Vista completa",
     preview: "Prévia",
+    focusScreen: "Focar tela",
     openAndDuplicate:
       "Selecione {{display}}. Use Interagir para rolagem focada.",
     openAndPreview: "Selecione {{display}}. Use Interagir para rolagem focada.",

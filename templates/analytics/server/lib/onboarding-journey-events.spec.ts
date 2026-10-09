@@ -8,9 +8,12 @@ import {
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics.js";
 import {
+  buildOnboardingJourneyFollowupSql,
   buildOnboardingJourneyEventsSql,
   isCalendarDate,
   type OnboardingJourneyEventsFilters,
+  type OnboardingJourneyObservationWindow,
+  type OnboardingJourneyTerminalStep,
 } from "./first-party-metric-catalog.js";
 
 const { PGlite } = createRequire(
@@ -111,11 +114,51 @@ describe("onboarding journey events SQL", () => {
     };
   }
 
+  function observation(
+    overrides: Partial<OnboardingJourneyObservationWindow> = {},
+  ): OnboardingJourneyObservationWindow {
+    const nextDate = new Date(
+      Date.parse(`${today}T00:00:00Z`) + 24 * 60 * 60 * 1000,
+    )
+      .toISOString()
+      .slice(0, 10);
+    const observationCutoff =
+      overrides.observationCutoff ?? `${nextDate}T00:00:00.000Z`;
+    return {
+      observationCutoff,
+      observationDate:
+        overrides.observationDate ?? observationCutoff.slice(0, 10),
+      ...overrides,
+    };
+  }
+
   async function run(
     overrides: Partial<OnboardingJourneyEventsFilters> = {},
     page = { limit: 1000, offset: 0 },
+    window = observation(),
   ) {
-    const sql = buildOnboardingJourneyEventsSql(filters(overrides), page);
+    const sql = buildOnboardingJourneyEventsSql(
+      filters(overrides),
+      page,
+      window,
+    );
+    const scoped = scopedAnalyticsSql(sql, SCOPE);
+    const result = (await client.query(scoped.sql, scoped.args)) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    return result.rows;
+  }
+
+  async function runFollowup(
+    terminals: readonly OnboardingJourneyTerminalStep[],
+    filterOverrides: Partial<OnboardingJourneyEventsFilters> = {},
+    window = observation(),
+  ) {
+    const sql = buildOnboardingJourneyFollowupSql(
+      filters(filterOverrides),
+      terminals,
+      window,
+    );
     const scoped = scopedAnalyticsSql(sql, SCOPE);
     const result = (await client.query(scoped.sql, scoped.args)) as {
       rows: Array<Record<string, unknown>>;
@@ -164,14 +207,107 @@ describe("onboarding journey events SQL", () => {
     });
   }
 
-  it("is accepted by the first-party validators and BigQuery translation", async () => {
+  it("validates and translates both frozen journey and follow-up reads", async () => {
     await setup();
-    const sql = buildOnboardingJourneyEventsSql(filters(), {
-      limit: 10,
-      offset: 0,
+    const window = observation();
+    const journeySql = buildOnboardingJourneyEventsSql(
+      filters(),
+      { limit: 10, offset: 0 },
+      window,
+    );
+    const followupSql = buildOnboardingJourneyFollowupSql(
+      filters(),
+      [
+        {
+          sessionId: "session-1",
+          stepKey: "step:role",
+          tsMs: Date.parse(`${today}T12:00:00.000Z`),
+        },
+      ],
+      window,
+    );
+    for (const sql of [journeySql, followupSql]) {
+      expect(() => validateFirstPartyAnalyticsSql(sql)).not.toThrow();
+      expect(() => assertFirstPartyAnalyticsBigQuerySql(sql)).not.toThrow();
+      expect(sql).toContain(window.observationCutoff);
+    }
+  });
+
+  it("keeps template-like terminal values literal and aggregates activity once per session", async () => {
+    await setup();
+    const sql = buildOnboardingJourneyFollowupSql(
+      filters(),
+      [
+        {
+          sessionId: "session-{{unknown}}-{{timeRange}}",
+          stepKey: "step:{{observationCutoff}}",
+          tsMs: Date.parse(`${today}T12:00:00.000Z`),
+        },
+      ],
+      observation(),
+    );
+
+    expect(sql).toContain("'session-{{unknown}}-{{timeRange}}' AS session_id");
+    expect(sql).toContain("'step:{{observationCutoff}}' AS terminal_step_key");
+    expect(sql).toContain(
+      "MAX(later.timestamp::timestamptz) AS last_activity_at",
+    );
+    expect(sql).not.toContain("WHEN EXISTS (");
+  });
+
+  it("uses the same date, app, test, Builder, identity, and cutoff scope for later activity", async () => {
+    await setup();
+    await seedSessions();
+    await insert("identity-switch", "signup", 3, {
+      email: "eve@example.com",
     });
-    expect(() => validateFirstPartyAnalyticsSql(sql)).not.toThrow();
-    expect(() => assertFirstPartyAnalyticsBigQuerySql(sql)).not.toThrow();
+    await insert("identity-switch", "onboarding_step_viewed", 4, {
+      email: "eve@example.com",
+      properties: { flow: "first_run", step_id: "role" },
+    });
+    // The selected terminal step is authenticated; this later native event is
+    // anonymous in the same session and therefore has a different funnel key.
+    await insert("identity-switch", "button_click", 5);
+    await insert("no-later", "signup", 3, { email: "frank@example.com" });
+    await insert("no-later", "onboarding_step_viewed", 4, {
+      email: "frank@example.com",
+      properties: { flow: "first_run", step_id: "role" },
+    });
+    // An event exactly at the exclusive cutoff is not observed.
+    await insert("no-later", "button_click", 6);
+
+    const terminals = [
+      "normal",
+      "identity-switch",
+      "no-later",
+      "employee",
+      "qa",
+      "old",
+      "design",
+    ].map(
+      (sessionId): OnboardingJourneyTerminalStep => ({
+        sessionId,
+        stepKey: "step:role",
+        tsMs: Date.parse(`${today}T12:00:04.000Z`),
+      }),
+    );
+    const cutoff = `${today}T12:00:06.000Z`;
+    const window = observation({ observationCutoff: cutoff });
+    const rows = await runFollowup(terminals, { app: "clips" }, window);
+
+    expect(rows).toEqual([
+      {
+        terminal_step_key: "step:role",
+        cohort_sessions: 3,
+        later_recorded_activity: 2,
+      },
+    ]);
+    const journeyRows = await run({ app: "clips" }, undefined, window);
+    expect(sessionsOf(journeyRows)).toEqual([
+      "identity-switch",
+      "no-later",
+      "normal",
+    ]);
   });
 
   it("selects renderable Design output events for onboarding sessions", async () => {
@@ -252,6 +388,131 @@ describe("onboarding journey events SQL", () => {
     ]);
     expect(normal[0]).toMatchObject({ path: "/sign-in" });
     expect(normal[3]).toMatchObject({ step_id: "role", method_id: null });
+  });
+
+  it("selects Builder aliases and custom-key outcomes without returning raw properties", async () => {
+    await setup();
+    await insert("setup-flow", "signup", 1, {
+      email: "person@example.com",
+    });
+    await insert("setup-flow", "onboarding_method_clicked", 2, {
+      email: "person@example.com",
+      properties: {
+        flow: "first_run",
+        step_id: "choice",
+        method_id: "builder_create_account",
+      },
+    });
+    await insert("setup-flow", "builder_connect_clicked", 3, {
+      properties: {
+        agent_native_flow: "first_run",
+        agent_native_connect_source: "first_run_onboarding",
+        event_alias_id: "builder-click-alias-1",
+        ignored: "not-selected",
+      },
+    });
+    await insert("setup-flow", "builder connect clicked", 4);
+    await insert("setup-flow", "integration_key_validation_outcome", 5, {
+      properties: {
+        flow: "settings",
+        outcome: "accepted",
+        ignored: "not-selected",
+      },
+    });
+    await insert("setup-flow", "integration_key_save_outcome", 6, {
+      properties: {
+        flow: "settings",
+        outcome: "saved",
+        ignored: "not-selected",
+      },
+    });
+    await insert("custom-key-flow", "signup", 1, {
+      email: "other@example.com",
+    });
+    await insert("custom-key-flow", "onboarding_method_clicked", 2, {
+      email: "other@example.com",
+      properties: {
+        flow: "first_run",
+        step_id: "choice",
+        method_id: "custom_keys",
+      },
+    });
+    await insert("custom-key-flow", "onboarding_method_started", 3, {
+      properties: {
+        flow: "first_run",
+        step_id: "choice",
+        method_id: "custom_keys",
+      },
+    });
+    await insert("custom-key-flow", "onboarding_method_outcome", 4, {
+      properties: {
+        flow: "first_run",
+        step_id: "choice",
+        method_id: "custom_keys",
+        outcome: "credential_validated",
+      },
+    });
+    await insert("custom-key-flow", "onboarding_method_outcome", 5, {
+      properties: {
+        flow: "first_run",
+        step_id: "choice",
+        method_id: "custom_keys",
+        outcome: "credential_saved",
+      },
+    });
+
+    const rows = await run({ app: "clips" });
+    const builderRows = rows.filter((row) => row.session_id === "setup-flow");
+    const customKeyRows = rows.filter(
+      (row) => row.session_id === "custom-key-flow",
+    );
+    expect(builderRows.map((row) => row.event_name)).toEqual([
+      "signup",
+      "onboarding_method_clicked",
+      "builder_connect_clicked",
+      "builder connect clicked",
+      "integration_key_validation_outcome",
+      "integration_key_save_outcome",
+    ]);
+    expect(builderRows[2]).toMatchObject({
+      flow: "first_run",
+      source: "first_run_onboarding",
+    });
+    expect(builderRows[4]).toMatchObject({
+      flow: "settings",
+      outcome: "accepted",
+    });
+    expect(builderRows[5]).toMatchObject({
+      flow: "settings",
+      outcome: "saved",
+    });
+    expect(customKeyRows.map((row) => [row.event_name, row.outcome])).toEqual([
+      ["signup", null],
+      ["onboarding_method_clicked", null],
+      ["onboarding_method_started", null],
+      ["onboarding_method_outcome", "credential_validated"],
+      ["onboarding_method_outcome", "credential_saved"],
+    ]);
+    expect(Object.keys(builderRows[2]!).sort()).toEqual([
+      "action",
+      "alias_id",
+      "event_name",
+      "flow",
+      "id",
+      "journey_kind",
+      "method_id",
+      "outcome",
+      "path",
+      "session_id",
+      "source",
+      "step_id",
+      "step_index",
+      "timestamp",
+    ]);
+    expect(builderRows[2]).not.toHaveProperty("ignored");
+    expect(builderRows[2]?.alias_id).toBe("builder-click-alias-1");
+    expect(builderRows[2]).not.toHaveProperty("user_id");
+    expect(builderRows[2]?.journey_kind).toBe("onboarding");
   });
 
   it("drops a Builder employee's whole session, including its anonymous events", async () => {

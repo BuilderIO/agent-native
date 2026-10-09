@@ -6,15 +6,20 @@ export default {
       "{count} セッション · {app} コホートの {percent}（n={rootCount}）",
     sessionsOfPrevious: "{count} セッション · 前のステップの {percent}",
     sessionsOfParent: "{count} セッション · {label} の {percent}",
+    observedContinuation: "同じ録画 · 例{fromExample} → 例{toExample}",
+    observedContinuationCompact: "例{fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "{count} セッション · このステップの {percent}",
     partialSample: "一部のサンプル",
     continuedOnUnpictured:
       "未表示の経路で継続: {count} · このステップの {percent}",
     noLaterStepObserved: "後続のステップは未観測",
-    examplePosition: "例 {current}/{total}",
-    showExample: "例 {current}/{total} を表示",
+    examplePosition: "ギャラリー {current}/{total}",
+    sourceExampleLabel: "ソース",
+    showExample: "ソース例{current}を表示",
     screenshotExamples: "スクリーンショットの例",
-    screenshotAlt: "{label}、例 {current}/{total}、撮影日 {date}",
+    screenshotAlt:
+      "{label}、ソース例{source}、ギャラリー位置 {current}/{total}、撮影日 {date}",
     screenshotMissing: "スクリーンショット未取得",
     recordingUnavailable: "利用不可",
     eventTime: "イベント時刻（UTC）",
@@ -48,7 +53,10 @@ export default {
     actorUnavailable: "実行者情報なし",
     replayDetails: "リプレイとソースの詳細",
     sourceApp: "ソースアプリ",
-    route: "キャプチャ時のルート",
+    route: "キャプチャ時の現在のルート",
+    routeUnavailable: "利用できません",
+    captureSourceFingerprint: "キャプチャ元のフィンガープリント",
+    captureSourceUnavailable: "提供されていません",
     recordingStarted: "録画開始時刻",
     appBandHeading: "{app} · {count} セッション",
     journeyTitleSummary:
@@ -926,6 +934,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} 枚の画像{{plural}}を読み込むには Figma へのアクセスが必要です。",
       figmaPasteImagesDontShowAgain: "今後は表示しない",
+      figmaPasteUploadImage: "画像をアップロード",
+      figmaPasteUploadImageFor: "「{{name}}」をアップロード",
+      figmaPasteImageFallbackName: "画像 {{index}}",
+      figmaPasteUploadImageSuccess: "画像を埋めました",
+      figmaPasteUploadImageInvalid:
+        "SVG、PNG、JPG などの画像ファイルを選択してください。",
+      figmaPasteUploadImageError: "その画像を埋められませんでした",
       figmaHydrationDialogTitle: "Figma を接続して画像を読み込む",
       figmaHydrationDialogDescription:
         "Figma アクセストークンを入力して、インポートされた画面{{screensPlural}}の不足している {{count}} 枚の画像{{plural}}を読み込んでください。",
@@ -1614,6 +1629,7 @@ export default {
     fork: "分岐",
     fullView: "全体表示",
     preview: "プレビュー",
+    focusScreen: "画面にフォーカス",
     openAndDuplicate:
       "{{display}} を選択します。集中してスクロールするには操作モードを使用。",
     openAndPreview:

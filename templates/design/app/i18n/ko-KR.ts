@@ -6,15 +6,20 @@ export default {
       "세션 {count}개 · {app} 코호트의 {percent} (n={rootCount})",
     sessionsOfPrevious: "세션 {count}개 · 이전 단계의 {percent}",
     sessionsOfParent: "세션 {count}개 · {label}의 {percent}",
+    observedContinuation: "같은 녹화 · 예시 {fromExample} → 예시 {toExample}",
+    observedContinuationCompact: "예시 {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "세션 {count}개 · 이 단계의 {percent}",
     partialSample: "부분 샘플",
     continuedOnUnpictured:
       "표시되지 않은 경로에서 계속됨: {count} · 이 단계의 {percent}",
     noLaterStepObserved: "이후 단계가 관찰되지 않음",
-    examplePosition: "예시 {current}/{total}",
-    showExample: "예시 {current}/{total} 표시",
+    examplePosition: "갤러리 {current}/{total}",
+    sourceExampleLabel: "출처",
+    showExample: "원본 예시 {current} 표시",
     screenshotExamples: "스크린샷 예시",
-    screenshotAlt: "{label}, 예시 {current}/{total}, 캡처일 {date}",
+    screenshotAlt:
+      "{label}, 원본 예시 {source}, 갤러리 위치 {current}/{total}, 캡처일 {date}",
     screenshotMissing: "스크린샷이 캡처되지 않음",
     recordingUnavailable: "사용할 수 없음",
     eventTime: "이벤트 시간(UTC)",
@@ -49,7 +54,10 @@ export default {
     actorUnavailable: "행위자 정보를 사용할 수 없음",
     replayDetails: "리플레이 및 출처 세부정보",
     sourceApp: "출처 앱",
-    route: "캡처된 경로",
+    route: "캡처 당시 현재 경로",
+    routeUnavailable: "사용할 수 없음",
+    captureSourceFingerprint: "캡처 소스 지문",
+    captureSourceUnavailable: "제공되지 않음",
     recordingStarted: "녹화 시작",
     appBandHeading: "{app} · 세션 {count}개",
     journeyTitleSummary: "{app} · {from}~{to} · 세션 {count}개{partial}",
@@ -913,6 +921,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}}개의 이미지{{plural}}를 로드하려면 Figma 접근이 필요합니다.",
       figmaPasteImagesDontShowAgain: "다시 표시하지 않기",
+      figmaPasteUploadImage: "이미지 업로드",
+      figmaPasteUploadImageFor: "“{{name}}” 업로드",
+      figmaPasteImageFallbackName: "이미지 {{index}}",
+      figmaPasteUploadImageSuccess: "이미지를 채웠습니다",
+      figmaPasteUploadImageInvalid:
+        "SVG, PNG, JPG 같은 이미지 파일을 선택하세요.",
+      figmaPasteUploadImageError: "이미지를 채우지 못했습니다",
       figmaHydrationDialogTitle: "Figma를 연결하여 이미지 로드",
       figmaHydrationDialogDescription:
         "Figma 액세스 토큰을 입력하여 가져온 화면{{screensPlural}}의 누락된 이미지 {{count}}개{{plural}}를 로드하세요.",
@@ -1591,6 +1606,7 @@ export default {
     fork: "분기",
     fullView: "전체 보기",
     preview: "미리보기",
+    focusScreen: "화면에 포커스",
     openAndDuplicate:
       "{{display}} 선택. 집중 스크롤에는 상호작용 모드를 사용하세요.",
     openAndPreview:

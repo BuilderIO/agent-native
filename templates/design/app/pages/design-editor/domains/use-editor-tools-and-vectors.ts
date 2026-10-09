@@ -57,6 +57,10 @@ import { runScaleSelection } from "../commands/scale-selection";
 import { runSendOverviewAnnotations } from "../commands/send-overview-annotations";
 import { runTweakPromptSubmit } from "../commands/tweak-prompt-submit";
 import {
+  clearOverviewInteractTarget,
+  getCreatedScreenNavigationPlan,
+} from "../created-screen-navigation";
+import {
   EMPTY_TEXT_CLEANUP_MAX_ATTEMPTS,
   EMPTY_TEXT_CLEANUP_RETRY_MS,
 } from "../editor-constants";
@@ -126,6 +130,8 @@ export function useEditorToolsAndVectors({
     viewMode,
     setViewMode,
     viewModeRef,
+    overviewInteractScreenIdRef,
+    setOverviewInteractScreenId,
     selectedElement,
     setSelectedElement,
     setRuntimeStructureInsertRequest,
@@ -196,6 +202,9 @@ export function useEditorToolsAndVectors({
     activeFile,
     handleBreakpointBarSelect,
     overviewCanvasZoom,
+    setCameraCommand,
+    cameraCommandNonceRef,
+    exportCanvasFrameGeometryById,
   } = editorActiveScreenAndGeometry;
   const {
     setHoveredElementScreenId,
@@ -1421,8 +1430,8 @@ export function useEditorToolsAndVectors({
   // PF8: onPick has no unstable deps (state setters + refs + a
   // zero-dep useCallback) — hoisting removes a fresh-arrow-per-render prop
   // on MultiScreenCanvas without changing behavior.
-  const handleOverviewScreenPick = useCallback(
-    (pickedId: string) => {
+  const selectOverviewScreen = useCallback(
+    (pickedId: string, fitCamera: boolean) => {
       if (!shiftKeyHeldRef.current) selectionRevisionRef.current += 1;
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
@@ -1450,11 +1459,57 @@ export function useEditorToolsAndVectors({
       setActiveFileId(pickedId);
       setActiveTool(resolveToolAfterSelection);
       setMode("edit");
+      clearOverviewInteractTarget({
+        setOverviewInteractScreenId,
+        overviewInteractScreenIdRef,
+      });
+      if (fitCamera) {
+        const geometry = exportCanvasFrameGeometryById[pickedId];
+        if (
+          geometry &&
+          Number.isFinite(geometry.x) &&
+          Number.isFinite(geometry.y) &&
+          Number.isFinite(geometry.width) &&
+          Number.isFinite(geometry.height)
+        ) {
+          cameraCommandNonceRef.current += 1;
+          setCameraCommand({
+            ...getCreatedScreenNavigationPlan({
+              screenId: pickedId,
+              geometry: {
+                x: geometry.x as number,
+                y: geometry.y as number,
+                width: geometry.width as number,
+                height: geometry.height as number,
+              },
+            }).camera,
+            nonce: cameraCommandNonceRef.current,
+          });
+        }
+      }
       if (activeBreakpointWidthStateRef.current !== undefined) {
         handleBreakpointBarSelect(undefined);
       }
     },
-    [clearPendingOverviewLayerSelectionTimer, handleBreakpointBarSelect],
+    [
+      cameraCommandNonceRef,
+      clearPendingOverviewLayerSelectionTimer,
+      exportCanvasFrameGeometryById,
+      handleBreakpointBarSelect,
+      overviewInteractScreenIdRef,
+      setOverviewInteractScreenId,
+      setCameraCommand,
+    ],
+  );
+
+  const handleOverviewScreenPick = useCallback(
+    (pickedId: string) => selectOverviewScreen(pickedId, true),
+    [selectOverviewScreen],
+  );
+
+  const handleOverviewScreenGestureSelect = useCallback(
+    (pickedId: string) => selectOverviewScreen(pickedId, false),
+    [selectOverviewScreen],
   );
 
   return {
@@ -1497,6 +1552,7 @@ export function useEditorToolsAndVectors({
     handleSendOverviewAnnotations,
     handleTweakPromptSubmit,
     handleOverviewScreenPick,
+    handleOverviewScreenGestureSelect,
   };
 }
 

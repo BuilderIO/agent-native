@@ -335,6 +335,11 @@ describe("run recovery surfaces", () => {
     expect(new URL(upgradeLink!.href).searchParams.get("utm_content")).toBe(
       "chat_credit_limit",
     );
+    const dismissButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Dismiss"]',
+    );
+    expect(dismissButton?.className).toContain("absolute");
+    expect(dismissButton?.className).toContain("top-2");
 
     await act(async () => {
       root.render(
@@ -1115,6 +1120,26 @@ describe("run recovery surfaces", () => {
     expect((retryButton as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("keeps the Builder mark out of the shared Use Builder.io button", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <BuilderSetupCard />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const builderButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Use Builder.io",
+    );
+    expect(builderButton).toBeTruthy();
+    expect(builderButton?.querySelector("svg")).toBeNull();
+  });
+
   it("keeps provider setup dismissible when requested", async () => {
     const onDismiss = vi.fn();
 
@@ -1437,6 +1462,10 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Connect AI");
     expect(container.textContent).toContain("Use Builder.io");
     expect(container.textContent).not.toContain("The agent hit an error");
+    const builderButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Use Builder.io",
+    );
+    expect(builderButton?.querySelector("svg")).toBeNull();
   });
 
   it("routes rejected provider keys to API settings without retrying or dismissing", async () => {
