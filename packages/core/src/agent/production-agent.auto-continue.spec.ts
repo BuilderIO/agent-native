@@ -255,43 +255,33 @@ describe("an automatic continuation request", () => {
     expect(stream).toContain("There were 412 signups.");
   });
 
-  it("continues a run a person chose to continue in the same turn, without sending again", async () => {
+  it("requires setup before a person continues a stopped run in the same turn", async () => {
     claimRunSlot.mockReset();
     claimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });
-    turnLedger.mockResolvedValue(FINISHED_DELEGATION);
+    const setupRequired = new Error("AI setup is required");
     const assertAiSetupReady = vi.fn(async () => {
-      throw new Error("A verified continuation should preserve its admission.");
+      throw setupRequired;
     });
-    const callAgent = (await createCallAgentScriptEntry())["call-agent"]!;
-    const sendAgain = vi.fn(async () => "a second remote task");
     const seen: EngineMessage[][] = [];
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
       engine: repeatingDelegationEngine(seen),
-      actions: { "call-agent": { ...callAgent, run: sendAgain } },
+      actions: {},
       assertAiSetupReady,
     });
 
-    const response = await runWithRequestContext(
-      { userEmail: "alice@example.com", orgId: "acme", run: {} },
-      () => handler(autoContinueRequest({ continueOfRunId: "run-stopped" })),
-    );
-    const stream = await new Response(response as ReadableStream).text();
+    await expect(
+      runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(autoContinueRequest({ continueOfRunId: "run-stopped" })),
+      ),
+    ).rejects.toBe(setupRequired);
     turnLedger.mockReset();
 
-    expect(claimRunSlot).toHaveBeenCalledWith(
-      "thread-auto",
-      expect.any(String),
-      undefined,
-      expect.objectContaining({
-        turnId: "turn-auto",
-        continueOf: { runId: "run-stopped", trigger: "manual" },
-      }),
-    );
-    expect(textOf(seen[0]!.at(-1))).toContain("do NOT re-run these");
-    expect(sendAgain).not.toHaveBeenCalled();
-    expect(assertAiSetupReady).not.toHaveBeenCalled();
-    expect(stream).toContain("There were 412 signups.");
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
+    expect(claimRunSlot).not.toHaveBeenCalled();
+    expect(turnLedger).not.toHaveBeenCalled();
+    expect(seen).toHaveLength(0);
   });
 
   it("refuses to continue when a newer prompt is waiting in the thread", async () => {
