@@ -1454,6 +1454,95 @@ describe("ShareButton", () => {
     expect(container.textContent).not.toContain("Could not load people.");
   });
 
+  it("does not offer the admin role or an email note when keeping to the basic share actions", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            basicSharingOnly
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const input = container.querySelector(
+      'input[placeholder="Add people by email"]',
+    ) as HTMLInputElement;
+    setInputValue(input, "guest@example.com");
+    expect(container.textContent).toContain("Notify people");
+    expect(container.textContent).not.toContain("Add a message");
+
+    const roleTrigger = container.querySelector(
+      'button[aria-label="Role"]',
+    ) as HTMLButtonElement | null;
+    await act(async () => roleTrigger?.click());
+    const options = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((option) => option.textContent ?? "");
+    expect(options.some((option) => option.includes("Editor"))).toBe(true);
+    expect(options.some((option) => option.includes("Admin"))).toBe(false);
+  });
+
+  it("offers the admin role and an email note outside the basic share actions", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="deck" resourceId="deck-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    const input = container.querySelector(
+      'input[placeholder="Add people by email"]',
+    ) as HTMLInputElement;
+    setInputValue(input, "guest@example.com");
+    expect(container.textContent).toContain("Add a message");
+
+    const roleTrigger = container.querySelector(
+      'button[aria-label="Role"]',
+    ) as HTMLButtonElement | null;
+    await act(async () => roleTrigger?.click());
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).some((option) => option.textContent?.includes("Admin")),
+    ).toBe(true);
+  });
+
+  it("lets a host size the joined copy control through quickCopy.className", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="document"
+              resourceId="doc-1"
+              quickCopy={{
+                label: "Copy page link",
+                copiedLabel: "Copied page link",
+                onCopy: async () => true,
+                className: "widget-joined-share",
+              }}
+            />
+          </QueryClientProvider>
+        </TooltipProvider>,
+      );
+    });
+
+    const joined = container.querySelector(".widget-joined-share");
+    expect(joined).not.toBeNull();
+    expect(
+      joined?.contains(
+        container.querySelector('button[aria-label="Copy page link"]'),
+      ),
+    ).toBe(true);
+    expect(
+      joined?.contains(container.querySelector('button[aria-label="Share"]')),
+    ).toBe(true);
+  });
+
   // Keep the non-source-locale provider test last: react-i18next's global
   // fallback instance otherwise leaks the selected language into tests that
   // intentionally exercise providerless compatibility.

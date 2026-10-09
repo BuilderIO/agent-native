@@ -2,6 +2,17 @@ import type { DashboardFilter, FilterType } from "./types";
 
 export const FILTER_PARAM_PREFIX = "f_";
 
+// URL marker for a multi-select with every option unchecked. An absent param
+// falls back to the filter default, so an empty selection needs its own value.
+export const MULTI_SELECT_EMPTY = "__empty__";
+
+// The one reduction of a multi-select value: the page, saved reports, and
+// save-time validation all read the selection through it.
+export function normalizeMultiSelectValue(raw: string): string {
+  if (raw === MULTI_SELECT_EMPTY) return "";
+  return raw.split(",").filter(Boolean).join(",");
+}
+
 const ALL_TIME_START = "1970-01-01";
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
@@ -13,6 +24,7 @@ const FILTER_TYPES: DashboardFilter["type"][] = [
   "date",
   "date-range",
   "select",
+  "multi-select",
   "toggle",
   "text",
   "toggle-date",
@@ -186,6 +198,11 @@ export function resolveFilterVars(
         getParam(endKey),
         fallbackEnd,
         fallbackEnd,
+      );
+    } else if (filter.type === "multi-select") {
+      const value = getParam(filter.id);
+      out[filter.id] = normalizeMultiSelectValue(
+        value || resolveDefault(filter.default, filter.type),
       );
     } else {
       const value = getParam(filter.id);

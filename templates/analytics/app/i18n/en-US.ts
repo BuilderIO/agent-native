@@ -757,6 +757,7 @@ export default {
   },
   sqlDashboard: {
     customRange: "Custom range",
+    allValues: "All",
     untitledDashboard: "Untitled Dashboard",
     dashboardFallback: "dashboard",
     viewOnly: "You have view-only access to this dashboard.",

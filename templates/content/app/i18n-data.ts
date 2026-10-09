@@ -846,6 +846,7 @@ const editorToolbarMessages = {
   localAndNotionChanged:
     "Local and Notion changed since the last sync. Choose which version wins.",
   morePageActions: "More page actions",
+  formatting: "Formatting",
   suggestEdits: "Suggest edits",
   suggesting: "Suggesting",
   stopSuggesting: "Stop suggesting",
@@ -855,6 +856,7 @@ const editorToolbarMessages = {
   notionPageUrlOrId: "Notion page URL or page ID",
   open: "Open",
   openInNotion: "Open in Notion",
+  openInAgentNative: "Open in Agent-Native",
   orgCanFindAndView: "Anyone in your organization can find and view",
   orgLinkCanView: "Anyone in your organization with the link can view",
   pageBreadcrumb: "Page breadcrumb",

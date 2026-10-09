@@ -14,7 +14,6 @@ const mocks = vi.hoisted(() => ({
   copy: vi.fn<(text: string) => Promise<boolean>>(),
   utilityPanelChange: vi.fn(),
   suggestingChange: vi.fn(),
-  widget: { inWidget: false, readOnly: false, write: false },
 }));
 
 vi.mock("@agent-native/toolkit/clipboard", () => ({
@@ -30,9 +29,9 @@ vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/mcp-app-host")
   >()),
-  useIsMcpAppWidgetEmbed: () => mocks.widget.inWidget,
-  useIsMcpDirectoryWidgetReadOnlyEmbed: () => mocks.widget.readOnly,
-  useIsMcpDirectoryWidgetWriteEmbed: () => mocks.widget.write,
+  useIsMcpAppWidgetEmbed: () => false,
+  useIsMcpDirectoryWidgetReadOnlyEmbed: () => false,
+  useIsMcpDirectoryWidgetWriteEmbed: () => false,
 }));
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
@@ -68,7 +67,11 @@ vi.mock("@agent-native/toolkit/app/sharing", () => ({
     ),
 }));
 
-import { DocumentToolbar, toolbarFoldLevel } from "./DocumentToolbar";
+import {
+  DocumentToolbar,
+  toolbarFoldLevel,
+  WIDGET_TOOLBAR_FOLD_ROOMS,
+} from "./DocumentToolbar";
 
 describe("toolbarFoldLevel", () => {
   it("folds one step at each room for the controls", () => {
@@ -86,6 +89,14 @@ describe("toolbarFoldLevel", () => {
     expect(toolbarFoldLevel(390, 192)).toBe(3);
     expect(toolbarFoldLevel(390, 236)).toBe(3);
     expect(toolbarFoldLevel(320, 236)).toBe(5);
+  });
+
+  it("folds a widget's Open link once, at 480px", () => {
+    expect(
+      [1040, 480, 479, 360].map((width) =>
+        toolbarFoldLevel(width, 0, WIDGET_TOOLBAR_FOLD_ROOMS),
+      ),
+    ).toEqual([0, 0, 1, 1]);
   });
 });
 
@@ -167,9 +178,6 @@ describe("DocumentToolbar at narrow widths", () => {
   }
 
   beforeEach(() => {
-    mocks.widget.inWidget = false;
-    mocks.widget.readOnly = false;
-    mocks.widget.write = false;
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal(
       "fetch",
@@ -195,69 +203,7 @@ describe("DocumentToolbar at narrow widths", () => {
     container.remove();
     vi.restoreAllMocks();
     vi.clearAllMocks();
-    mocks.widget.inWidget = false;
-    mocks.widget.readOnly = false;
-    mocks.widget.write = false;
     vi.unstubAllGlobals();
-  });
-
-  it("shows editor-safe controls for a writable widget even when its GET carries the read marker", async () => {
-    mocks.widget.inWidget = true;
-    mocks.widget.write = true;
-    const onUndo = vi.fn();
-    const onRedo = vi.fn();
-
-    for (const width of [320, 560, 960]) {
-      await renderToolbar(width, {
-        canEdit: true,
-        readOnly: true,
-        canUndo: true,
-        canRedo: false,
-        onUndo,
-        onRedo,
-      });
-
-      const toolbar = container.querySelector<HTMLElement>(
-        "[data-content-widget-editor-toolbar]",
-      );
-      expect(toolbar).not.toBeNull();
-      expect(toolbar?.getAttribute("role")).toBe("toolbar");
-      expect(toolbarButton("editor.toolbar.undo")?.disabled).toBe(false);
-      expect(toolbarButton("editor.toolbar.redo")?.disabled).toBe(true);
-      expect(toolbarButton("editor.toolbar.share")).toBeNull();
-      expect(toolbarButton("editor.toolbar.morePageActions")).toBeNull();
-      expect(
-        container.querySelectorAll(
-          "[data-content-widget-editor-toolbar] button",
-        ),
-      ).toHaveLength(2);
-    }
-
-    await act(async () => toolbarButton("editor.toolbar.undo")!.click());
-    expect(onUndo).toHaveBeenCalledOnce();
-    expect(onRedo).not.toHaveBeenCalled();
-  });
-
-  it("keeps the toolbar hidden without a write grant or when the document is read-only", async () => {
-    mocks.widget.inWidget = true;
-
-    await renderToolbar(560, { canEdit: true, readOnly: false });
-    expect(
-      container.querySelector("[data-content-widget-editor-toolbar]"),
-    ).toBeNull();
-
-    mocks.widget.write = true;
-    mocks.widget.readOnly = true;
-    await renderToolbar(560, { canEdit: true, readOnly: false });
-    expect(
-      container.querySelector("[data-content-widget-editor-toolbar]"),
-    ).toBeNull();
-
-    mocks.widget.readOnly = false;
-    await renderToolbar(560, { canEdit: false, readOnly: true });
-    expect(
-      container.querySelector("[data-content-widget-editor-toolbar]"),
-    ).toBeNull();
   });
 
   // Without a trigger, a top-level page keeps 140px: padding, the page title

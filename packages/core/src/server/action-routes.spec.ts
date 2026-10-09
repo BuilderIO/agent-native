@@ -2370,6 +2370,9 @@ describe("mountActionRoutes", () => {
     const run = vi.fn(async () => ({ ok: true }));
     const actionNames = [
       "update-document",
+      "share-resource",
+      "unshare-resource",
+      "set-resource-visibility",
       "add-database-item",
       "update-database-item",
       "update-design",
@@ -2446,6 +2449,457 @@ describe("mountActionRoutes", () => {
     );
     expect(getOwnerContextFromEvent).toHaveBeenCalledTimes(actionNames.length);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  describe("Content document share routes in a directory widget", () => {
+    const DOCUMENT_ID = "doc-1";
+    const OWNER = "ticket-owner@example.com";
+    const ORG = "org-1";
+    const RESOURCE_URI = "ui://content/shell-v69";
+    const schemaField = { type: "actionSchema" as const };
+    const writeArguments = {
+      "update-document": { id: DOCUMENT_ID, title: schemaField },
+      "share-resource": {
+        resourceType: "document",
+        resourceId: DOCUMENT_ID,
+        principalType: schemaField,
+        principalId: schemaField,
+        role: schemaField,
+        notify: schemaField,
+        resourceUrl: schemaField,
+        message: schemaField,
+      },
+      "unshare-resource": {
+        resourceType: "document",
+        resourceId: DOCUMENT_ID,
+        principalType: schemaField,
+        principalId: schemaField,
+      },
+      "set-resource-visibility": {
+        resourceType: "document",
+        resourceId: DOCUMENT_ID,
+        visibility: schemaField,
+      },
+    };
+    const readArguments = {
+      "list-resource-shares": {
+        resourceType: "document",
+        resourceId: DOCUMENT_ID,
+      },
+    };
+    const shareBodies: Record<string, Record<string, unknown>> = {
+      "share-resource": {
+        resourceType: "document",
+        resourceId: DOCUMENT_ID,
+        principalType: "user",
+        principalId: "teammate@example.com",
+        role: "viewer",
+        notify: false,
+        resourceUrl: "/page/doc-1",
+        message: "Take a look",
+      },
+      "unshare-resource": {
+        resourceType: "document",
+        resourceId: DOCUMENT_ID,
+        principalType: "user",
+        principalId: "teammate@example.com",
+      },
+      "set-resource-visibility": {
+        resourceType: "document",
+        resourceId: DOCUMENT_ID,
+        visibility: "org",
+      },
+    };
+    const shareActionNames = Object.keys(shareBodies);
+    const unlistedWrites = [
+      "delete-document",
+      "set-document-discoverability",
+      "approve-resource-access-request",
+      "create-agent-resource-link",
+    ];
+    const unlistedReads = ["list-resource-access-requests"];
+    const scopeMismatch =
+      "This widget write capability is scoped to a different user, app resource, or action.";
+    const dataRoutesOnly =
+      "This widget capability only permits its scoped data routes.";
+
+    async function mountShareRoutes() {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async (_args: unknown, context: any) => ({
+        ok: true,
+        caller: context?.caller,
+        readOnly: context?.mcpDirectoryWidgetReadOnly,
+        grantedActions: context?.mcpDirectoryWidgetWrite?.actionNames,
+      }));
+      const schemas: Record<string, z.ZodType> = {
+        "update-document": z.object({
+          id: z.string(),
+          title: z.string().optional(),
+        }),
+        "share-resource": z.object({
+          resourceType: z.string(),
+          resourceId: z.string(),
+          principalType: z.enum(["user", "group", "org"]),
+          principalId: z.string(),
+          role: z
+            .enum(["viewer", "commenter", "editor", "admin"])
+            .default("viewer"),
+          notify: z.boolean().default(true),
+          resourceUrl: z.string().optional(),
+          message: z.string().trim().max(500).optional(),
+        }),
+        "unshare-resource": z.object({
+          resourceType: z.string(),
+          resourceId: z.string(),
+          principalType: z.enum(["user", "group", "org"]),
+          principalId: z.string(),
+        }),
+        "set-resource-visibility": z.object({
+          resourceType: z.string(),
+          resourceId: z.string(),
+          visibility: z.enum(["private", "org", "public"]),
+        }),
+      };
+      const write = (name: string) =>
+        ({
+          http: { method: "POST" },
+          readOnly: false,
+          requiresAuth: true,
+          schema: schemas[name],
+          tool: { parameters: { type: "object", properties: {} } },
+          run,
+        }) as any;
+      const read = () =>
+        ({
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: true,
+          run,
+        }) as any;
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          ...Object.fromEntries(
+            [...Object.keys(writeArguments), ...unlistedWrites].map((name) => [
+              name,
+              write(name),
+            ]),
+          ),
+          "list-resource-shares": read(),
+          ...Object.fromEntries(unlistedReads.map((name) => [name, read()])),
+        },
+        {
+          appId: "content",
+          mcpDirectoryWidgetAppId: "content",
+          mcpDirectoryWidgetResourceUri: RESOURCE_URI,
+          mcpDirectoryWidgetReadActionArguments: {
+            "list-resource-shares": ["resourceType", "resourceId"],
+          },
+          mcpDirectoryWidgetWriteActionArguments: Object.fromEntries(
+            Object.entries(writeArguments).map(([name, args]) => [
+              name,
+              Object.keys(args),
+            ]),
+          ),
+          mcpDirectoryWidgetWriteActionSchemaArguments: Object.fromEntries(
+            Object.entries(writeArguments).map(([name, args]) => [
+              name,
+              Object.entries(args)
+                .filter(([, rule]) => typeof rule !== "string")
+                .map(([argumentName]) => argumentName),
+            ]),
+          ),
+          getOwnerFromEvent: async () => {
+            throw Object.assign(new Error("Unauthenticated"), {
+              statusCode: 401,
+            });
+          },
+        },
+      );
+      const call = async (
+        name: string,
+        args: Record<string, unknown>,
+        method: "GET" | "POST" = "POST",
+      ) => {
+        const query = new URLSearchParams(
+          Object.entries(args).map(([key, value]) => [key, String(value)]),
+        );
+        const event: any = {
+          _method: method,
+          _headers: { "x-agent-native-frontend": "1" },
+          req: {
+            url: `http://app.test/_agent-native/actions/${name}${method === "GET" ? `?${query}` : ""}`,
+            json: async () => args,
+          },
+        };
+        const route = mounted.find(
+          ({ path }) => path === `/_agent-native/actions/${name}`,
+        );
+        const result = await route!.handler(event);
+        return { event, result, status: event._status ?? 200 };
+      };
+      return { call, run };
+    }
+
+    async function widgetSession(
+      scope: "write" | "read",
+      identity: {
+        email?: string;
+        orgId?: string | null;
+        expiresAtMs?: number;
+      } = {},
+    ) {
+      const embedAuth = await import("../shared/embed-auth.js");
+      const resourceIds = {
+        documentId: DOCUMENT_ID,
+        resourceType: "document",
+        spaceId: "space-1",
+      };
+      const capability =
+        scope === "write"
+          ? embedAuth.createMcpDirectoryWidgetWriteCapability({
+              appId: "content",
+              resourceUri: RESOURCE_URI,
+              resourceIds,
+              userEmail: OWNER,
+              orgId: ORG,
+              expiresAtMs: identity.expiresAtMs ?? Date.now() + 60_000,
+              readActionArguments: readArguments,
+              writeActionArguments: writeArguments,
+            })
+          : embedAuth.createMcpDirectoryWidgetReadCapability({
+              appId: "content",
+              resourceUri: RESOURCE_URI,
+              resourceIds,
+              actionArguments: readArguments,
+            });
+      expect(capability).toBeDefined();
+      mockResolveEmbedSessionFromRequest.mockResolvedValue({
+        email: identity.email ?? OWNER,
+        orgId: identity.orgId === undefined ? ORG : identity.orgId,
+        token: "signed-directory-capability",
+        targetPath: `/page/${DOCUMENT_ID}`,
+        scope: capability,
+      });
+    }
+
+    it("runs each share write for the ticketed document as the widget-write caller", async () => {
+      await widgetSession("write");
+      const { call, run } = await mountShareRoutes();
+
+      for (const name of shareActionNames) {
+        const { status, result } = await call(name, shareBodies[name]!);
+        expect(status, name).toBe(200);
+        expect(result, name).toMatchObject({
+          ok: true,
+          caller: "mcp-widget-write",
+          grantedActions: [
+            "set-resource-visibility",
+            "share-resource",
+            "unshare-resource",
+            "update-document",
+          ],
+        });
+      }
+      expect(run).toHaveBeenCalledTimes(shareActionNames.length);
+      expect(run.mock.calls.map(([args]) => args)).toEqual(
+        shareActionNames.map((name) => shareBodies[name]),
+      );
+    });
+
+    it("rejects share writes for another document, another resource type, or an omitted binding", async () => {
+      await widgetSession("write");
+      const { call, run } = await mountShareRoutes();
+
+      for (const name of shareActionNames) {
+        const body = shareBodies[name]!;
+        const { resourceId: _resourceId, ...withoutResourceId } = body;
+        const { resourceType: _resourceType, ...withoutResourceType } = body;
+        const {
+          resourceId: _id,
+          resourceType: _type,
+          ...withoutResourceBinding
+        } = body;
+        const attempts: Record<string, Record<string, unknown>> = {
+          "another document": { ...body, resourceId: "doc-2" },
+          "another resource type": { ...body, resourceType: "form" },
+          "omitted resourceId": withoutResourceId,
+          "omitted resourceType": withoutResourceType,
+          "both omitted": withoutResourceBinding,
+          "unlisted argument": { ...body, ownerEmail: "someone@example.com" },
+        };
+        for (const [label, attempt] of Object.entries(attempts)) {
+          const { status, result } = await call(name, attempt);
+          expect({ name, label, status }).toEqual({
+            name,
+            label,
+            status: 403,
+          });
+          expect(result, `${name} ${label}`).toEqual({ error: scopeMismatch });
+        }
+      }
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("rejects every unlisted action even with a valid write scope", async () => {
+      await widgetSession("write");
+      const { call, run } = await mountShareRoutes();
+
+      for (const name of unlistedWrites) {
+        const { status, result } = await call(name, {
+          resourceType: "document",
+          resourceId: DOCUMENT_ID,
+          id: DOCUMENT_ID,
+        });
+        expect({ name, status }).toEqual({ name, status: 403 });
+        expect(result, name).toEqual({ error: dataRoutesOnly });
+      }
+      for (const name of unlistedReads) {
+        const { status, result } = await call(
+          name,
+          { resourceType: "document", resourceId: DOCUMENT_ID },
+          "GET",
+        );
+        expect({ name, status }).toEqual({ name, status: 403 });
+        expect(result, name).toEqual({ error: dataRoutesOnly });
+      }
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("gives a read-only widget capability no share write route", async () => {
+      await widgetSession("read");
+      const { call, run } = await mountShareRoutes();
+
+      for (const name of [...shareActionNames, "update-document"]) {
+        const { status, result } = await call(
+          name,
+          shareBodies[name] ?? { id: DOCUMENT_ID, title: "Renamed" },
+        );
+        expect({ name, status }).toEqual({ name, status: 403 });
+        expect(result, name).toEqual({ error: dataRoutesOnly });
+      }
+      expect(run).not.toHaveBeenCalled();
+
+      const shares = await call(
+        "list-resource-shares",
+        { resourceType: "document", resourceId: DOCUMENT_ID },
+        "GET",
+      );
+      expect(shares.status).toBe(200);
+      expect(shares.result).toEqual({
+        ok: true,
+        caller: "mcp-widget",
+        readOnly: true,
+      });
+      const otherDocument = await call(
+        "list-resource-shares",
+        { resourceType: "document", resourceId: "doc-2" },
+        "GET",
+      );
+      expect(otherDocument.status).toBe(403);
+      expect(run).toHaveBeenCalledTimes(1);
+    });
+
+    it("binds share writes to the ticketed user and organization", async () => {
+      const { call, run } = await mountShareRoutes();
+
+      for (const identity of [
+        { email: "other@example.com" },
+        { orgId: "org-2" },
+        { orgId: null },
+      ]) {
+        await widgetSession("write", identity);
+        for (const name of shareActionNames) {
+          const { status, result } = await call(name, shareBodies[name]!);
+          expect({ name, identity, status }).toEqual({
+            name,
+            identity,
+            status: 403,
+          });
+          expect(result).toEqual({ error: scopeMismatch });
+        }
+      }
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("expires share writes with the widget grant", async () => {
+      const expiresAtMs = Date.now() + 60_000;
+      await widgetSession("write", { expiresAtMs });
+      const { call, run } = await mountShareRoutes();
+
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(expiresAtMs + 1);
+        for (const name of shareActionNames) {
+          const { event, status, result } = await call(
+            name,
+            shareBodies[name]!,
+          );
+          expect({ name, status }).toEqual({ name, status: 401 });
+          expect(result).toEqual({ error: "Unauthorized" });
+          expect(event._responseHeaders).toMatchObject({
+            "x-agent-native-widget-session-expired": "1",
+          });
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("keeps the share list read authenticated for anonymous callers", async () => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ shares: [] }));
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          "list-resource-shares": {
+            http: { method: "GET" },
+            readOnly: true,
+            requiresAuth: true,
+            run,
+          } as any,
+        },
+        {
+          appId: "content",
+          mcpDirectoryWidgetAppId: "content",
+          mcpDirectoryWidgetResourceUri: RESOURCE_URI,
+          mcpDirectoryWidgetReadActionArguments: {
+            "list-resource-shares": ["resourceType", "resourceId"],
+          },
+          getOwnerContextFromEvent: async () => ({
+            owner:
+              "public-00000000-0000-4000-8000-000000000001@agent-native.local",
+            anonymous: true,
+          }),
+          getOwnerFromEvent: async () =>
+            "public-00000000-0000-4000-8000-000000000001@agent-native.local",
+        },
+      );
+      const event: any = {
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/list-resource-shares?resourceType=document&resourceId=public-document",
+        },
+      };
+
+      await expect(mounted[0]!.handler(event)).resolves.toEqual({
+        error: "Unauthorized",
+      });
+      expect(event._status).toBe(401);
+      expect(run).not.toHaveBeenCalled();
+    });
   });
 
   it("rechecks workspace app access for authenticated non-widget write calls", async () => {

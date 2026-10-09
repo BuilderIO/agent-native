@@ -206,6 +206,12 @@ export interface MCPConfig {
     widgetReadPrivateActions?: readonly string[];
     /** Authenticated reads surfaced on other agent profiles, but only scoped here. */
     widgetReadAuthenticatedActions?: readonly string[];
+    /**
+     * Scoped reads minted only into a write capability, and only for a target
+     * that lists the mapped write action: `{ "list-resource-shares":
+     * "share-resource" }` keeps collaborator lists out of read-only tickets.
+     */
+    widgetReadActionWriteGates?: Record<string, string>;
     /** Omit the one shared resource title when tools have distinct invocation labels. */
     widgetResourceTitle?: string | false;
     keyToolNames?: readonly string[];
@@ -738,6 +744,19 @@ export function validateMcpDirectoryProfile(
     ) {
       throw new McpDirectoryProfileValidationError(
         `[agent-native] MCP directory widget read route "${name}" must be an explicitly scoped read-only GET action with valid resource arguments in the connector allowlist or hidden-read profiles.`,
+      );
+    }
+  }
+
+  for (const [readAction, writeAction] of Object.entries(
+    profile?.widgetReadActionWriteGates ?? {},
+  )) {
+    if (
+      !Object.hasOwn(profile?.widgetReadActionArguments ?? {}, readAction) ||
+      !Object.hasOwn(profile?.widgetWriteActionArguments ?? {}, writeAction)
+    ) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory widget read "${readAction}" is gated on "${writeAction}", which must both be declared widget actions.`,
       );
     }
   }
@@ -1465,11 +1484,10 @@ async function withServerMintedMcpAppEmbedStart(
       : typeof out.chrome === "string"
         ? out.chrome
         : null;
-    if (capability && !scope) {
-      throw new Error(
-        "Could not create a valid scoped capability for this MCP directory widget.",
-      );
-    }
+    // An oversize or invalid scope has no ticket; the caller degrades or
+    // returns the result without one. Throwing here would fail a tool call
+    // whose action already ran.
+    if (capability && !scope) return null;
     return createEmbedSessionTicket({
       ownerEmail,
       orgId: ctx?.orgId,
@@ -1483,16 +1501,22 @@ async function withServerMintedMcpAppEmbedStart(
     directoryWidget?.capability.mode === "write"
       ? directoryWidget.capability
       : undefined;
-  let ticket: Awaited<ReturnType<typeof mintTicket>>;
+  let ticket: Awaited<ReturnType<typeof mintTicket>> = null;
+  let writeMintError: unknown = new Error(
+    "Could not create a valid scoped capability for this MCP directory widget.",
+  );
   try {
     ticket = await mintTicket(directoryWidget?.capability);
   } catch (error) {
     if (!writeCapability) throw error;
+    writeMintError = error;
+  }
+  if (!ticket && writeCapability) {
     // The write grant is an upgrade over the read grant. Losing it must not
     // also lose the widget's session ticket, which the shell cannot start without.
     console.error(
       "[mcp:directory] Could not mint the widget write grant; issuing a read-only widget session instead.",
-      error,
+      writeMintError,
     );
     const { appId, resourceUri, resourceIds, readActionArguments } =
       writeCapability.value;
@@ -1505,6 +1529,13 @@ async function withServerMintedMcpAppEmbedStart(
         actionArguments: readActionArguments,
       },
     });
+  }
+  if (!ticket) {
+    console.error(
+      "[mcp:directory] Could not build a widget capability within the scope size limits; returning the result without a session ticket.",
+      { targetPath },
+    );
+    return resultWithoutExistingEmbedTicket;
   }
   const startPath = buildEmbedStartPath(ticket.ticket);
   const embedStartUrl = meta?.origin
@@ -1550,6 +1581,13 @@ async function mcpDirectoryWidgetCapabilityForTool(
   const actionArguments: Record<
     string,
     Record<string, McpDirectoryWidgetReadArgument>
+  > = {};
+  const writeGatedReadArguments: Record<
+    string,
+    {
+      writeGate: string;
+      scopedArguments: Record<string, McpDirectoryWidgetReadArgument>;
+    }
   > = {};
   for (const [actionName, argumentMap] of Object.entries(
     profile.widgetReadActionArguments ?? {},
@@ -1599,7 +1637,12 @@ async function mcpDirectoryWidgetCapabilityForTool(
     if (
       Object.keys(scopedArguments).length === Object.keys(argumentMap).length
     ) {
-      actionArguments[actionName] = scopedArguments;
+      const writeGate = profile.widgetReadActionWriteGates?.[actionName];
+      if (writeGate === undefined) {
+        actionArguments[actionName] = scopedArguments;
+      } else if (target.writeActions?.includes(writeGate)) {
+        writeGatedReadArguments[actionName] = { writeGate, scopedArguments };
+      }
     }
   }
   const writeActionArguments: Record<
@@ -1696,7 +1739,19 @@ async function mcpDirectoryWidgetCapabilityForTool(
       ...(typeof requestOrgId === "string" ? { orgId: requestOrgId } : {}),
       expiresAtMs:
         Date.now() + MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
-      readActionArguments: actionArguments,
+      readActionArguments: {
+        ...actionArguments,
+        ...Object.fromEntries(
+          Object.entries(writeGatedReadArguments)
+            .filter(([, { writeGate }]) =>
+              Object.hasOwn(writeActionArguments, writeGate),
+            )
+            .map(([actionName, { scopedArguments }]) => [
+              actionName,
+              scopedArguments,
+            ]),
+        ),
+      },
       writeActionArguments,
     };
     return {

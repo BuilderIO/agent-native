@@ -816,10 +816,12 @@ const editor = {
     linkToNotionPage: "Link para a página de noção",
     localFile: "Arquivo local",
     morePageActions: "Mais ações de página",
+    formatting: "Formatação",
     noPagesFound: "Nenhuma página encontrada",
     notifications: "Notificações",
     notionSync: "Sincronização de noções",
     openInNotion: "Aberto em noção",
+    openInAgentNative: "Abrir no Agent-Native",
     orgCanFindAndView:
       "Qualquer pessoa na sua organização pode encontrar e visualizar",
     orgLinkCanView:
