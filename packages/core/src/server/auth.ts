@@ -278,6 +278,7 @@ import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import {
   getRequestContext,
   markRequestIdentityAuthenticatedAtMs,
+  markVerifiedServiceIdentityForEvent,
   hasContinuationLocalRequestContext,
   hasExplicitPersonalOrgScope,
   markExplicitPersonalOrgScope,
@@ -1199,6 +1200,16 @@ export async function getMcpOAuthBearerSession(
     if (!identity?.userEmail) return null;
     if (identity.orgId === null) markExplicitPersonalOrgScope(event);
     const orgId = await resolveMcpIdentityOrgId(identity);
+    if (
+      identity.identityAssurance === "service" &&
+      identity.orgId &&
+      orgId === identity.orgId
+    ) {
+      markVerifiedServiceIdentityForEvent(event, {
+        userEmail: identity.userEmail,
+        orgId: identity.orgId,
+      });
+    }
     return {
       email: identity.userEmail,
       token: bearerToken,

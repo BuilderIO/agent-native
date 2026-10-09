@@ -5,8 +5,8 @@ import { getScopedDbExec, withDbExec, type DbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "../org/feature-flags.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
-import { orgMembers } from "../org/schema.js";
-import { organizations } from "../org/schema.js";
+import { orgMembers, organizations } from "../org/schema.js";
+import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
   getRequestAuthCapability,
   getRequestContext,
@@ -95,13 +95,102 @@ function emailColumnMatches(column: any, email: string): SQL {
   return sql`lower(${column}) = ${email}`;
 }
 
+function orgMembershipScope(ctx: AccessContext, orgId: string): SQL {
+  const requestContext = getRequestContext();
+  const serviceIdentity = requestContext?.verifiedServiceIdentity;
+  const normalizedUserEmail = normalizeEmailForAccess(ctx.userEmail);
+  if (serviceIdentity) {
+    if (
+      normalizeEmailForAccess(serviceIdentity.userEmail) !==
+        normalizedUserEmail ||
+      serviceIdentity.orgId !== orgId ||
+      requestContext.orgId !== orgId ||
+      ctx.orgId !== orgId ||
+      !implicitServiceOrgRole({
+        email: serviceIdentity.userEmail,
+        orgId,
+        requestOrgId: requestContext.orgId,
+      })
+    ) {
+      return sql`1=0`;
+    }
+    return sql`exists (
+      select 1 from organizations as service_org
+      where service_org.id = ${orgId}
+        and coalesce(trim(service_org.identity_authority), '') = ''
+        and coalesce(trim(service_org.identity_id), '') = ''
+    )`;
+  }
+
+  if (
+    implicitServiceOrgRole({
+      email: ctx.userEmail,
+      orgId,
+      requestOrgId: ctx.orgId,
+    })
+  ) {
+    const federationGuard =
+      ctx.federationMembershipValidated === true
+        ? sql`1=1`
+        : sql`not exists (
+            select 1 from organizations as federation_org
+            where federation_org.id = ${orgId}
+              and (
+                coalesce(trim(federation_org.identity_authority), '') <> ''
+                or coalesce(trim(federation_org.identity_id), '') <> ''
+              )
+          )`;
+    return sql`exists (
+      select 1 from org_members as service_alias_member
+      where service_alias_member.org_id = ${orgId}
+        and lower(service_alias_member.email) = ${normalizedUserEmail}
+        and service_alias_member.federation_removal_pending_at is null
+    ) and ${federationGuard}`;
+  }
+
+  return sql`1=1`;
+}
+
 async function isOrgMember(
   reg: ShareableResourceRegistration,
   memberOrgId: string,
   email: string,
   ctx: AccessContext,
 ): Promise<boolean> {
+  const requestContext = getRequestContext();
+  const verifiedServiceIdentity = requestContext?.verifiedServiceIdentity;
   const db = reg.getDb() as any;
+  if (
+    normalizeEmailForAccess(requestContext?.userEmail) === email &&
+    normalizeEmailForAccess(verifiedServiceIdentity?.userEmail) === email &&
+    implicitServiceOrgRole({
+      email: verifiedServiceIdentity?.userEmail,
+      orgId: memberOrgId,
+      requestOrgId: requestContext?.orgId,
+    }) &&
+    verifiedServiceIdentity?.orgId === memberOrgId
+  ) {
+    try {
+      const [organization] = await db
+        .select({
+          identityAuthority: organizations.identityAuthority,
+          identityId: organizations.identityId,
+        })
+        .from(organizations)
+        .where(eq(organizations.id, memberOrgId))
+        .limit(1);
+      if (
+        organization &&
+        !String(organization.identityAuthority ?? "").trim() &&
+        !String(organization.identityId ?? "").trim()
+      ) {
+        return true;
+      }
+    } catch (error) {
+      if (!isMissingOrganizationTableError(error)) throw error;
+    }
+  }
+
   let rows: Array<{ id: string }>;
   try {
     rows = await db
@@ -177,6 +266,7 @@ export function accessFilter(
   const publicAllowed = reg?.allowPublic !== false;
   const includePublic = (options.includePublic ?? false) && publicAllowed;
   const clauses: SQL[] = [];
+  const orgMembership = orgId ? orgMembershipScope(ctx, orgId) : sql`1=1`;
 
   if (normalizedUserEmail) {
     clauses.push(
@@ -195,6 +285,7 @@ export function accessFilter(
         and(
           eq(resourceTable.visibility, "org"),
           eq(resourceTable.orgId, orgId),
+          orgMembership,
         )!,
       );
     }
@@ -217,6 +308,7 @@ export function accessFilter(
                   where ${sharesTable.resourceId} = ${resourceTable.id}
                     and ${sharesTable.principalType} = 'org'
                     and ${sharesTable.principalId} = ${orgId}
+                    and ${orgMembership}
                     and ${shareScope}
                     and ${minRoleSql(minRole)})`,
     );
@@ -231,8 +323,8 @@ export function accessFilter(
             select 1 from organizations as federation_org
             where federation_org.id = ${resourceTable.orgId}
               and (
-                federation_org.identity_authority is not null
-                or federation_org.identity_id is not null
+                coalesce(trim(federation_org.identity_authority), '') <> ''
+                or coalesce(trim(federation_org.identity_id), '') <> ''
               )
           )`;
     const groupMemberPredicate = sql`exists (
@@ -252,6 +344,7 @@ export function accessFilter(
                       where workspace_group.id = ${sharesTable.principalId}
                         and workspace_group.org_id = ${resourceTable.orgId}
                         and workspace_group.org_id = ${orgId}
+                        and ${orgMembership}
                         and ${federationGuard}
                         and exists (
                           select 1 from ${orgMembers} as workspace_member

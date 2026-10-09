@@ -106,6 +106,8 @@ export interface RequestContext {
   userEmail?: string;
   /** Keep data-source credentials within the selected org, not the user. */
   credentialScope?: "org";
+  /** Provenance set only after a stored org service token is verified. */
+  verifiedServiceIdentity?: { userEmail: string; orgId: string };
   identityAuthenticatedAtMs?: number;
   identitySessionToken?: string;
   authUserId?: string;
@@ -179,6 +181,36 @@ export interface RequestContext {
 }
 
 const EXPLICIT_PERSONAL_ORG_SCOPE_KEY = "__anExplicitPersonalOrgScope";
+const VERIFIED_SERVICE_IDENTITY_EVENT_KEY = "__anVerifiedServiceIdentity";
+
+type RequestContextEvent = { context?: Record<string, unknown> };
+
+export function markVerifiedServiceIdentityForEvent(
+  event: RequestContextEvent,
+  identity: { userEmail: string; orgId: string },
+): void {
+  const context = (event.context ??= {});
+  context[VERIFIED_SERVICE_IDENTITY_EVENT_KEY] = identity;
+}
+
+export function getVerifiedServiceIdentityFromEvent(
+  event: RequestContextEvent,
+): { userEmail: string; orgId: string } | undefined {
+  const identity = event.context?.[VERIFIED_SERVICE_IDENTITY_EVENT_KEY] as
+    | { userEmail?: unknown; orgId?: unknown }
+    | undefined;
+  const userEmail = identity?.userEmail;
+  const orgId = identity?.orgId;
+  if (
+    typeof userEmail !== "string" ||
+    !userEmail.trim() ||
+    typeof orgId !== "string" ||
+    !orgId.trim()
+  ) {
+    return undefined;
+  }
+  return { userEmail: userEmail.trim(), orgId: orgId.trim() };
+}
 
 export function markExplicitPersonalOrgScope(event: {
   context?: Record<string, unknown>;
