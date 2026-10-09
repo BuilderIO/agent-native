@@ -23,6 +23,8 @@ export default {
       "{label}, ejemplo de origen {source}, posición en galería {current} de {total}, capturado el {date}",
     screenshotMissing: "No se capturó ninguna captura",
     recordingUnavailable: "no disponible",
+    recordingGap: "Intervalo sin grabación",
+    recordingGapDuration: "Intervalo sin grabación · {duration}",
     eventTime: "Hora del evento (UTC)",
     generationCompletedEvent: "evento generation_completed (UTC)",
     replayObservation: "Observación de reproducción",
