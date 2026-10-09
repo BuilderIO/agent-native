@@ -26,6 +26,8 @@ test("renders an authorized private replay image in the opaque presentation fram
   const designId =
     designBody?.id ?? designBody?.data?.id ?? designBody?.design?.id;
   expect(designId).toBeTruthy();
+  const nodeKey = "design::synthetic-preview";
+  const exampleIndex = 0;
 
   const viewerContext = await browser.newContext();
   const deniedContext = await browser.newContext();
@@ -39,7 +41,7 @@ test("renders an authorized private replay image in the opaque presentation fram
           importId: `private-preview-${Date.now()}`,
           frames: [
             {
-              frameKey: "synthetic-frame",
+              frameKey: `${nodeKey}\u0000${exampleIndex}`,
               replayId: "synthetic-replay",
               app: "design",
               route: "/synthetic-private-preview",
@@ -76,7 +78,7 @@ test("renders an authorized private replay image in the opaque presentation fram
             nodes: [
               {
                 kind: "step",
-                key: "design::synthetic-preview",
+                key: nodeKey,
                 label: "Synthetic preview",
                 parentKey: null,
                 depth: 0,
@@ -99,10 +101,10 @@ test("renders an authorized private replay image in the opaque presentation fram
           },
           frames: [
             {
-              nodeKey: "design::synthetic-preview",
+              nodeKey,
               sourceApp: "design",
               route: "/synthetic-private-preview",
-              exampleIndex: 0,
+              exampleIndex,
               stagedFrameId,
               screenshotOffsetMs: 0,
               recordingStartedAt: NOW,
