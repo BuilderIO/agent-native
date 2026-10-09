@@ -171,6 +171,21 @@ describe("appMountPath", () => {
     );
   });
 
+  it("requires an explicit root mount when the workspace URL is at root", () => {
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "clips", path: "/clips" }]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppId: "root-app" },
+    });
+
+    expect(() => appBasePath()).toThrow(
+      "Cannot resolve workspace app mount path without explicit mount metadata.",
+    );
+  });
+
   it("preserves the server router basename when mount metadata is unresolved", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
