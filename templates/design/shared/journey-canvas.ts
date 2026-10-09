@@ -1790,7 +1790,6 @@ export function planJourneyCanvas(
       );
       const text = labelText(edge);
       if (text) {
-        const continuation = observedContinuationForEdge(edge);
         fragments.push(
           boardDiv({
             id: `${id}-label`,
