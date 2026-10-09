@@ -295,7 +295,8 @@ export default defineAction({
     // read only when it will be returned, and its errors surface after the
     // property checks that preceded it.
     const readContextPath =
-      databaseMembership && !hasPropertyDatabaseAccess
+      (!doc.parentId && !databaseMembership) ||
+      (databaseMembership && !hasPropertyDatabaseAccess)
         ? null
         : deferFailure(
             getDocumentContextPath(doc, { databaseId: args.databaseId }),

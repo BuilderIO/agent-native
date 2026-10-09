@@ -10,6 +10,11 @@ import {
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import {
+  CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
+} from "../shared/route-chunk-recovery-bootstrap.js";
+import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
@@ -265,11 +270,23 @@ function applyDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
+  requestUrl: string,
 ) {
-  const varyByQuery =
+  const responseRequestsQueryVary =
     headers.get(SSR_QUERY_CACHE_KEY_HEADER)?.trim().toLowerCase() === "query";
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
+
+  const requestQuery = new URL(requestUrl).searchParams;
+  const recoveryMarkers = requestQuery.getAll(CHUNK_RECOVERY_QUERY_PARAM);
+  const recoveryNonces = requestQuery.getAll(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
+  const isRecoveryRequest =
+    recoveryMarkers.length === 1 &&
+    recoveryMarkers[0] === CHUNK_RECOVERY_QUERY_VALUE &&
+    recoveryNonces.length === 1 &&
+    Boolean(recoveryNonces[0]?.trim());
+  // A fresh recovery nonce must bypass a previously cached stale shell.
+  const varyByQuery = responseRequestsQueryVary || isRecoveryRequest;
 
   // A public shell must never set a viewer cookie or vary by credentials.
   // Preserve harmless content-negotiation dimensions such as Accept-Encoding.
@@ -376,7 +393,7 @@ async function rewriteMountedResponse(
       .filter(Boolean)
       .join("") || null;
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname, requestUrl);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");

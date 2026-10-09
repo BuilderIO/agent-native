@@ -351,7 +351,7 @@ describe("createH3SSRHandler", () => {
     );
   });
 
-  it("uses the fixed recovery cache dimension on recovery responses", async () => {
+  it("varies recovery responses by the full query only for valid recovery URLs", async () => {
     process.env.SITE_ID = "site-test";
     const handler = createH3SSRHandler(() => ({})) as any;
     const recoveryUrl = new URL("http://example.test/");
@@ -379,8 +379,18 @@ describe("createH3SSRHandler", () => {
     expect(recovery.headers.get("netlify-cdn-cache-control")).toBe(
       DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
     );
-    expect(recovery.headers.get("netlify-vary")).toBe(
-      "query=_routes|index|__agentNativeChunkRecovery",
+    expect(recovery.headers.get("netlify-vary")).toBe("query");
+
+    const missingNonceUrl = `/?${CHUNK_RECOVERY_QUERY_PARAM}=${CHUNK_RECOVERY_QUERY_VALUE}`;
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const missingNonce = await handler(createEvent(missingNonceUrl));
+
+    expect(missingNonce.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
     );
 
     const arbitraryUrl = `/?${CHUNK_RECOVERY_QUERY_PARAM}=arbitrary&${CHUNK_RECOVERY_CACHE_BUSTER_PARAM}=unique`;
