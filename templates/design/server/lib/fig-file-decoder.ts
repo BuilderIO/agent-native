@@ -190,6 +190,7 @@ function decompressChunk(buf: Uint8Array, maxBytes: number): Uint8Array {
 export function decodeKiwiContainer(
   file: Uint8Array,
   options?: DecodeFigOptions,
+  inflatedBytesUsed = 0,
 ): DecodedFigKiwi {
   const limits = options?.limits ?? SERVER_FIG_LIMITS;
   assertFileWithinLimit(file, limits);
@@ -207,7 +208,7 @@ export function decodeKiwiContainer(
   const version = readU32LE(file, 8);
   let offset = 12;
   const chunks: Uint8Array[] = [];
-  let decompressedBytes = 0;
+  let decompressedBytes = inflatedBytesUsed;
   while (offset < file.length) {
     if (chunks.length >= MAX_KIWI_CHUNKS) {
       throw new Error(".fig file has too many binary chunks.");
@@ -267,7 +268,10 @@ interface ZipEntry {
 // Stored entries (how Figma writes images/) are views into `file`, not
 // copies, so their combined size is bounded by the raw file instead of the
 // inflate budget.
-function readZip(file: Uint8Array, limits: FigImportLimits): ZipEntry[] {
+function readZip(
+  file: Uint8Array,
+  limits: FigImportLimits,
+): { entries: ZipEntry[]; inflatedBytes: number } {
   const EOCD_SIG = 0x06054b50;
   const maxScan = Math.min(file.length, 65557);
   let eocdOffset = -1;
@@ -403,11 +407,13 @@ function readZip(file: Uint8Array, limits: FigImportLimits): ZipEntry[] {
       data = compressed;
     } else if (compressionMethod === 8) {
       try {
-        data = inflateCapped(compressed, limits.inflatedChunkBytes, true);
+        // uncompressedSize was already checked against the entry and aggregate
+        // budgets, so never inflate past it.
+        data = inflateCapped(compressed, uncompressedSize, true);
       } catch (error) {
         if (/too large/i.test(String(error))) {
           throw new Error(
-            `Decompressed .fig zip entry is too large (max ${mb(limits.inflatedChunkBytes)} MB).`,
+            `Size mismatch for "${name}": inflates past its declared ${uncompressedSize} bytes.`,
           );
         }
         throw new Error(`Invalid compressed data for "${name}".`);
@@ -425,7 +431,7 @@ function readZip(file: Uint8Array, limits: FigImportLimits): ZipEntry[] {
     if (name.endsWith("/")) continue;
     entries.push({ name, data });
   }
-  return entries;
+  return { entries, inflatedBytes };
 }
 
 function isZip(file: Uint8Array): boolean {
@@ -908,10 +914,14 @@ function readZipCanvas(
   file: Uint8Array,
   limits: FigImportLimits,
 ): { entries: ZipEntry[]; inner: DecodedFigKiwi } {
-  const entries = readZip(file, limits);
+  const { entries, inflatedBytes } = readZip(file, limits);
   const canvasEntry = entries.find((e) => e.name === "canvas.fig");
   if (!canvasEntry) throw new Error(".fig zip is missing canvas.fig.");
-  return { entries, inner: decodeKiwiContainer(canvasEntry.data, { limits }) };
+  // Share one aggregate inflate budget across the zip and the inner container.
+  return {
+    entries,
+    inner: decodeKiwiContainer(canvasEntry.data, { limits }, inflatedBytes),
+  };
 }
 
 function collectZipImages(

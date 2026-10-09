@@ -87,6 +87,45 @@ function storedZip(entries: Array<[string, Buffer]>): Buffer {
   return Buffer.concat([...locals, directory, end]);
 }
 
+function deflatedZip(
+  entries: Array<{ name: string; data: Buffer; declaredSize?: number }>,
+): Buffer {
+  const locals: Buffer[] = [];
+  const central: Buffer[] = [];
+  let offset = 0;
+  for (const { name, data, declaredSize = data.length } of entries) {
+    const nameBytes = Buffer.from(name);
+    const compressed = zlib.deflateRawSync(data);
+    const crc = zlib.crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(8, 8);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(compressed.length, 18);
+    local.writeUInt32LE(declaredSize, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    locals.push(local, nameBytes, compressed);
+    const header = Buffer.alloc(46);
+    header.writeUInt32LE(0x02014b50, 0);
+    header.writeUInt16LE(8, 10);
+    header.writeUInt32LE(crc, 16);
+    header.writeUInt32LE(compressed.length, 20);
+    header.writeUInt32LE(declaredSize, 24);
+    header.writeUInt16LE(nameBytes.length, 28);
+    header.writeUInt32LE(offset, 42);
+    central.push(header, nameBytes);
+    offset += 30 + nameBytes.length + compressed.length;
+  }
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
+}
+
 function encodedHelloFig(extraChunks: Buffer[] = []): Buffer {
   const schema = parseSchema("message Message { string hello = 1; }");
   const compiled = compileSchema(schema) as {
@@ -251,6 +290,31 @@ describe("bounded .fig decoding", () => {
     expect(decodeFig(fig, { limits: SERVER_FIG_LIMITS }).document).toEqual({
       hello: "world",
     });
+  });
+
+  it("stops inflating a zip entry at its declared size", () => {
+    const canvas = encodedHelloFig();
+    const zip = deflatedZip([
+      { name: "canvas.fig", data: canvas },
+      { name: "images/a", data: Buffer.alloc(256 * 1024), declaredSize: 1024 },
+    ]);
+
+    expect(() => decodeFig(zip, { limits: BROWSER_FIG_LIMITS })).toThrow(
+      /Size mismatch for "images\/a": inflates past its declared 1024 bytes/,
+    );
+  });
+
+  it("shares one inflate budget between the zip and its canvas.fig", () => {
+    const canvas = encodedHelloFig([randomBytes(40 * 1024)]);
+    const zip = deflatedZip([{ name: "canvas.fig", data: canvas }]);
+    const limits = { ...SERVER_FIG_LIMITS, inflatedBytes: 64 * 1024 };
+
+    expect(canvas.length).toBeGreaterThan(32 * 1024);
+    expect(canvas.length).toBeLessThan(limits.inflatedBytes);
+    expect(() => decodeFig(zip, { limits })).toThrow(
+      /Decompressed .fig data is too large/,
+    );
+    expect(decodeFig(zip).document).toEqual({ hello: "world" });
   });
 
   it("keeps stored zip entries as views outside the inflate budget", () => {
