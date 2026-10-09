@@ -143,14 +143,10 @@ async function resolveCompletionApiKey(
   if (options.apiKey) {
     return { apiKey: options.apiKey, apiKeyEnvVar: undefined };
   }
-  try {
-    return await resolveOwnerEngineApiKey({
-      engineOption: options.engine,
-      ownerEmail: getRequestUserEmail(),
-    });
-  } catch {
-    return { apiKey: undefined, apiKeyEnvVar: undefined };
-  }
+  return resolveOwnerEngineApiKey({
+    engineOption: options.engine,
+    ownerEmail: getRequestUserEmail(),
+  });
 }
 
 export async function completeText(

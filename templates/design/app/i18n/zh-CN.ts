@@ -971,6 +971,8 @@ export default {
     generationMayHaveStoppedToast: "生成可能在创建文件前停止。",
     generationStoppedRetry: "生成在创建文件前停止。请重试以从同一提示继续。",
     generationStoppedCheckAgent: "生成在创建文件前停止。请查看代理消息或重试。",
+    invalidCanvasDimensions:
+      "不支持请求的画布尺寸。请使用编辑器限制范围内的正像素尺寸。",
     notFound: "未找到设计",
     backToDesigns: "返回设计",
     designNotFoundDescription: "此设计不存在，或已被删除。",
