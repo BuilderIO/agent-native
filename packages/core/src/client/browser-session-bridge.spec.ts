@@ -446,6 +446,80 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     ).toBe(true);
   });
 
+  it("disconnects the session when a claim response body times out", async () => {
+    vi.useFakeTimers();
+    let claimSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (
+        url === "/_agent-native/browser-sessions" &&
+        init?.method === "POST"
+      ) {
+        const body = JSON.parse(String(init.body));
+        return Promise.resolve(
+          jsonResponse({
+            ok: true,
+            session: {
+              sessionId: body.sessionId,
+              session: body.session,
+              active: true,
+              actions: body.actions,
+            },
+          }),
+        );
+      }
+      if (url.endsWith("/requests/claim") && init?.method === "POST") {
+        claimSignal = init.signal ?? undefined;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            new Promise((_resolve, reject) => {
+              claimSignal?.addEventListener(
+                "abort",
+                () => reject(new DOMException("Aborted", "AbortError")),
+                { once: true },
+              );
+            }),
+        } as Response);
+      }
+      if (
+        url === "/_agent-native/browser-sessions/tab-1" &&
+        init?.method === "DELETE"
+      ) {
+        return Promise.resolve(jsonResponse({ ok: true, deleted: true }));
+      }
+      throw new Error(`Unexpected fetch ${init?.method} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      session: { id: "tab-1" },
+      sessionId: "tab-1",
+      getContext: () => ({}),
+      pollMs: 500,
+      heartbeatMs: 500,
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await bridge.refreshRegistration();
+    const claim = bridge.claimOnce();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(claimSignal).toBeDefined();
+
+    const rejected = expect(claim).rejects.toThrow(
+      "Browser-session request timed out after 10000ms",
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    await rejected;
+
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          url === "/_agent-native/browser-sessions/tab-1" &&
+          init?.method === "DELETE",
+      ),
+    ).toBe(true);
+    expect(bridge.sessionId).toBeNull();
+  });
+
   it("reports when stopping cannot confirm claimed-request cleanup", async () => {
     const onError = vi.fn();
     let claimSignal: AbortSignal | undefined;
@@ -755,7 +829,13 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     bridge.stop();
 
-    expect(onError).toHaveBeenCalledWith(expect.any(DOMException), "heartbeat");
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "TimeoutError",
+        message: "Browser-session request timed out after 10000ms",
+      }),
+      "heartbeat",
+    );
   });
 
   it("does not report a poll timeout while a claimed action is still running", async () => {

@@ -84,6 +84,13 @@ function requestAbortMs(
   return Math.max(REQUEST_ABORT_MIN_MS, cadence * 4);
 }
 
+class BrowserSessionRequestTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Browser-session request timed out after ${timeoutMs}ms`);
+    this.name = "TimeoutError";
+  }
+}
+
 function messageError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -147,8 +154,13 @@ async function postJson(
   } else {
     signal?.addEventListener("abort", abortFromSignal, { once: true });
   }
+  const timeoutMs = requestAbortMs(options);
+  let timedOut = false;
   const timeoutId = controller
-    ? setTimeout(() => controller.abort(), requestAbortMs(options))
+    ? setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs)
     : null;
   try {
     const response = await fetchImpl(options)(endpointPath(options, path), {
@@ -166,6 +178,9 @@ async function postJson(
           : {}),
     });
     return await readJsonResponse(response);
+  } catch (error) {
+    if (timedOut) throw new BrowserSessionRequestTimeoutError(timeoutMs);
+    throw error;
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
     signal?.removeEventListener("abort", abortFromSignal);
@@ -609,12 +624,32 @@ export function createAgentNativeBrowserSessionBridge(
     }
     if (!currentSessionId) return null;
 
-    const claim = await postJson(
-      options,
-      `/${encodePathSegment(currentSessionId)}/requests/claim`,
-      {},
-      signal,
-    );
+    let claim: any;
+    try {
+      claim = await postJson(
+        options,
+        `/${encodePathSegment(currentSessionId)}/requests/claim`,
+        {},
+        signal,
+      );
+    } catch (error) {
+      const timedOut = error instanceof BrowserSessionRequestTimeoutError;
+      if ((timedOut || (signal?.aborted && started)) && currentSessionId) {
+        const sessionId = currentSessionId;
+        try {
+          await deleteJson(options, `/${encodePathSegment(sessionId)}`);
+          if (currentSessionId === sessionId) currentSessionId = null;
+        } catch (cleanupError) {
+          const combinedError = new AggregateError(
+            [error, cleanupError],
+            "Browser-session claim timed out and its possible claim could not be cleared",
+          );
+          requestPoll.onError(combinedError, { force: true });
+          throw combinedError;
+        }
+      }
+      throw error;
+    }
     const request = claim.request as AgentNativeBrowserSessionRequest | null;
     if (!request) return null;
 
