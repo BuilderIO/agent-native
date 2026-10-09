@@ -340,7 +340,7 @@ describe("document descriptions through external MCP", () => {
   it("updates, reads, retries, and clears a page description without changing its body", async () => {
     const created = await createPage({
       title: "MCP description page",
-      content: "Keep this Markdown body.",
+      content: "Keep this Markdown body. ".repeat(4000),
       description: "Before",
     });
     const before = await readRow(created.id);
@@ -349,10 +349,13 @@ describe("document descriptions through external MCP", () => {
       description: longDescription,
     });
     expect(updated.description).toBe(longDescription);
+    expect(updated).not.toHaveProperty("content");
+    expect(updated).not.toHaveProperty("contentFidelity");
     const read = await callJson(ownerClient, "get-document", {
       id: created.id,
     });
     expect(read.description).toBe(longDescription);
+    expect(read.content).toBe(before.content);
     expect(await readRow(created.id)).toMatchObject({
       title: before.title,
       content: before.content,

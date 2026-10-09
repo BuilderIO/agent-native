@@ -91,6 +91,7 @@ Update a page's or database's metadata while preserving omitted fields. To
 replace its guidance, pass only `id` and `description`; an empty string clears
 the description. For a database, use its backing `documentId`, not its collection
 `databaseId`. The saved description is returned in MCP `structuredContent`.
+Agent responses contain metadata only; `get-document` returns the body.
 This does not change the Markdown body; body edits use `edit-document`.
 
 ### edit-document

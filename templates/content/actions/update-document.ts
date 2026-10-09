@@ -128,6 +128,29 @@ export interface DocumentUpdatePreservationResponse {
   checkpointId: string;
 }
 
+type DocumentUpdateActionResponse =
+  | BrowserDocumentUpdateResponse
+  | DocumentUpdateConflictResponse
+  | DocumentUpdateSupersededResponse
+  | DocumentUpdatePreservationResponse;
+
+function documentMetadataResponse(result: DocumentUpdateActionResponse) {
+  if ("document" in result) {
+    const {
+      content: _content,
+      contentFidelity: _contentFidelity,
+      ...document
+    } = result.document;
+    return { ...result, document };
+  }
+  const {
+    content: _content,
+    contentFidelity: _contentFidelity,
+    ...metadata
+  } = result;
+  return metadata;
+}
+
 const documentAuditOwner = Symbol("documentAuditOwner");
 
 type DocumentAuditScopedResult = {
@@ -599,10 +622,7 @@ export default defineAction({
     args,
     ctx,
   ): Promise<
-    | BrowserDocumentUpdateResponse
-    | DocumentUpdateConflictResponse
-    | DocumentUpdateSupersededResponse
-    | DocumentUpdatePreservationResponse
+    DocumentUpdateActionResponse | ReturnType<typeof documentMetadataResponse>
   > => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
@@ -682,6 +702,11 @@ export default defineAction({
       ctx?.caller === "mcp" ||
       ctx?.caller === "webmcp" ||
       ctx?.caller === "a2a";
+    const respond = (result: DocumentUpdateActionResponse, owner: string) =>
+      scopeDocumentAudit(
+        isExternalCaller ? documentMetadataResponse(result) : result,
+        owner,
+      );
     if (
       args.browserSaveAttemptId !== undefined &&
       (ctx?.caller !== "frontend" ||
@@ -769,7 +794,7 @@ export default defineAction({
           ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
           : parseDocumentFavorite(current.isFavorite);
         if ("kind" in receipt) {
-          return scopeDocumentAudit(
+          return respond(
             {
               preservationRequired: true,
               id,
@@ -784,7 +809,7 @@ export default defineAction({
             currentOwnerEmail,
           );
         }
-        return scopeDocumentAudit(
+        return respond(
           documentUpdateResponse(
             current,
             currentAccess.role,
@@ -870,7 +895,7 @@ export default defineAction({
       }
     }
     if (browserSaveContentRejected && args.browserSaveAttemptId) {
-      return scopeDocumentAudit(
+      return respond(
         documentConflictResponse(existing, access.role, currentFavorite),
         ownerEmail,
       );
@@ -1533,7 +1558,7 @@ export default defineAction({
           ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
           : parseDocumentFavorite(current.isFavorite);
         if (discardedEditorGeneration !== undefined) {
-          return scopeDocumentAudit(
+          return respond(
             {
               superseded: true,
               id,
@@ -1551,7 +1576,7 @@ export default defineAction({
         }
 
         if (browserSaveConfirmation?.result === "replayed") {
-          return scopeDocumentAudit(
+          return respond(
             documentUpdateResponse(
               current,
               currentAccess.role,
@@ -1564,7 +1589,7 @@ export default defineAction({
         }
 
         if (preservationRequired) {
-          return scopeDocumentAudit(
+          return respond(
             {
               preservationRequired: true,
               id,
@@ -1587,7 +1612,7 @@ export default defineAction({
               { errorCode: "DOCUMENT_UPDATE_CONFLICT", statusCode: 409 },
             );
           }
-          return scopeDocumentAudit(
+          return respond(
             documentConflictResponse(
               current,
               currentAccess.role,
@@ -1653,7 +1678,7 @@ export default defineAction({
         );
       }
 
-      return scopeDocumentAudit(
+      return respond(
         {
           ...documentUpdateResponse(
             doc,
