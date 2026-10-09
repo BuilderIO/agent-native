@@ -612,6 +612,9 @@ export function rankAnalyticsQueryCatalogPage(args: {
 
   const requestedScope = requestedSemanticScope(args.search);
   const requestedTerms = new Set(searchTerms(args.search));
+  const hasFullQueryCoverage = (candidate: AnalyticsQueryCatalogCandidate) =>
+    requestedTerms.size > 1 &&
+    [...requestedTerms].every((term) => candidate.matchedTerms.includes(term));
   // Strong definitions and proven panels outrank generic hits before coverage.
   const rankedCandidates = candidates.map((candidate) => ({
     candidate,
@@ -626,15 +629,12 @@ export function rankAnalyticsQueryCatalogPage(args: {
     rankingTier:
       candidate.kind === "data-dictionary" &&
       candidate.approved === true &&
-      candidate.matchedTerms.length > 1
+      hasFullQueryCoverage(candidate)
         ? 2
         : candidate.kind === "dashboard-panel" &&
             (candidate.dashboardCertified ||
               (candidateIsRunnable(candidate) &&
-                requestedTerms.size > 1 &&
-                [...requestedTerms].every((term) =>
-                  candidate.matchedTerms.includes(term),
-                )))
+                hasFullQueryCoverage(candidate)))
           ? 1
           : 0,
     coverage:

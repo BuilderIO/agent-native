@@ -748,6 +748,43 @@ describe("analytics query catalog", () => {
     expect(results[0]).toMatchObject({ panelId: "5xx-rate" });
   });
 
+  it("does not let a partial approved definition outrank an exact runnable panel", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "monthly active users by region",
+      limit: 6,
+      dashboards: [
+        {
+          id: "d1",
+          title: "Product Usage",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "mau-by-region",
+                title: "Monthly Active Users by Region",
+                source: "bigquery",
+                sql: "SELECT month, region, COUNT(DISTINCT user_id) FROM product_usage GROUP BY 1, 2",
+              },
+            ],
+          },
+        },
+      ],
+      dictionaryEntries: [
+        {
+          id: "monthly-active-users",
+          metric: "Monthly Active Users",
+          definition: "Distinct users active in a month",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      kind: "dashboard-panel",
+      panelId: "mau-by-region",
+    });
+  });
+
   it("returns only the bounded number of strongest matches", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "signup",
