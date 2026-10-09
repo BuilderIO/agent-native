@@ -100,6 +100,8 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         resourceKey: "designId",
       },
       content: { type: "actionSchema" as const },
+      syncCollab: { type: "actionSchema" as const },
+      identityOnly: { type: "actionSchema" as const },
       expectedVersionHash: { type: "actionSchema" as const },
       operationSource: { type: "actionSchema" as const },
       operationRevision: { type: "actionSchema" as const },

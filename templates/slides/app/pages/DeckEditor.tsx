@@ -983,7 +983,11 @@ export default function DeckEditor() {
   const slideCount = deck?.slides.length ?? 0;
   const slideCountRef = useRef(slideCount);
   slideCountRef.current = slideCount;
-  const deckRole = useDeckRole(id, deck?.createdByMe === true);
+  const deckRole = useDeckRole(
+    id,
+    deck?.createdByMe === true,
+    deck?.widgetAccessRole,
+  );
   const canEdit = deckRole.canEdit && !readOnlyWidget;
   const canComment = deckRole.canComment && !readOnlyWidget && !widgetEmbed;
   const showEditorToolbar = !widgetEmbed || canEdit;

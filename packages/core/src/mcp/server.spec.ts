@@ -169,34 +169,55 @@ vi.mock("../org/context.js", () => ({
   ) => resolveOrgIdForEmailMock(...args),
 }));
 
-const embedSessionMocks = vi.hoisted(() => ({
-  createEmbedSessionTicket: vi.fn(async ({ targetPath }) => ({
-    ticket: "minted-picker-ticket",
-    ticketHash: "minted-picker-ticket-hash",
-    expiresAt: 1735689600000,
-    targetPath,
-  })),
-  normalizeEmbedTargetPath: vi.fn(
-    (raw: string | undefined | null, requestOrigin?: string) => {
-      const value = String(raw ?? "").trim();
-      if (!value) return null;
-      try {
-        const url = value.startsWith("/")
-          ? new URL(value, requestOrigin ?? "https://mail.agent-native.com")
-          : new URL(value);
-        if (requestOrigin && url.origin !== new URL(requestOrigin).origin) {
+const embedSessionMocks = vi.hoisted(() => {
+  const renewalTickets = new Map<string, Record<string, unknown>>();
+  return {
+    renewalTickets,
+    createEmbedSessionTicket: vi.fn(async (input: Record<string, any>) => {
+      const ticket = "minted-picker-ticket";
+      renewalTickets.set(ticket, {
+        ownerEmail: input.ownerEmail,
+        ...(input.orgId ? { orgId: input.orgId } : {}),
+        targetPath: input.targetPath,
+        scope: input.scope,
+        createdAtMs: Date.now(),
+        expiresAtMs: Date.now() + 60_000,
+      });
+      return {
+        ticket,
+        ticketHash: "minted-picker-ticket-hash",
+        expiresAt: 1735689600000,
+        targetPath: input.targetPath,
+      };
+    }),
+    readMcpDirectoryWidgetRenewalTicket: vi.fn(async (ticket: string) => {
+      const stored = renewalTickets.get(ticket);
+      return stored?.scope ? stored : null;
+    }),
+    normalizeEmbedTargetPath: vi.fn(
+      (raw: string | undefined | null, requestOrigin?: string) => {
+        const value = String(raw ?? "").trim();
+        if (!value) return null;
+        try {
+          const url = value.startsWith("/")
+            ? new URL(value, requestOrigin ?? "https://mail.agent-native.com")
+            : new URL(value);
+          if (requestOrigin && url.origin !== new URL(requestOrigin).origin) {
+            return null;
+          }
+          return `${url.pathname}${url.search}${url.hash}`;
+        } catch {
           return null;
         }
-        return `${url.pathname}${url.search}${url.hash}`;
-      } catch {
-        return null;
-      }
-    },
-  ),
-}));
+      },
+    ),
+  };
+});
 
 vi.mock("../server/embed-session.js", () => ({
   createEmbedSessionTicket: embedSessionMocks.createEmbedSessionTicket,
+  readMcpDirectoryWidgetRenewalTicket:
+    embedSessionMocks.readMcpDirectoryWidgetRenewalTicket,
   normalizeEmbedTargetPath: embedSessionMocks.normalizeEmbedTargetPath,
 }));
 
@@ -657,6 +678,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
     mockOAuthClients.clear();
     approvalStoreMocks.grants.clear();
+    embedSessionMocks.renewalTickets.clear();
     resolveOrgIdForEmailMock.mockReset();
     resolveOrgIdForEmailMock.mockResolvedValue(null);
     resolveA2AOrganizationMetadataByIdMock.mockReset();
@@ -2134,6 +2156,108 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(wrongAudience).toMatchObject({ error: "Unauthorized" });
   });
 
+  it("includes resource-bound-only mutations in a directory widget grant", async () => {
+    const createDesign = defineAction({
+      description: "Create one editable design.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://design/shell-v69",
+          title: "Design",
+          html: "<!doctype html><html><body>Design</body></html>",
+        },
+      },
+      run: async () => ({ designId: "design-1" }),
+    });
+    const updateFile = defineAction({
+      description: "Update one file within a design.",
+      schema: z.object({ id: z.string(), content: z.string() }),
+      http: { method: "POST" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ updated: true }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      appId: "design",
+      directoryProfile: {
+        connectorCatalog: ["create-design"],
+        widgetDomain: "https://design.agent-native.com",
+        widgetTargets: {
+          "create-design": (_args: unknown, result: unknown) => {
+            const designId = (result as { designId?: unknown }).designId;
+            return typeof designId === "string"
+              ? {
+                  targetPath: `/design/${encodeURIComponent(designId)}`,
+                  resourceIds: { designId },
+                  writeActions: ["update-file"],
+                }
+              : null;
+          },
+        },
+        widgetWriteActionArguments: {
+          "update-file": {
+            id: {
+              type: "actionSchemaResourceBound" as const,
+              resourceKey: "designId",
+            },
+            content: { type: "actionSchema" as const },
+          },
+        },
+      },
+      widgetDomain: "https://design.agent-native.com",
+      actions: { "create-design": createDesign },
+      widgetWriteActions: { "update-file": updateFile },
+    };
+    const headers = await mcpAppsAuthHeaders({
+      resource: `https://design.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+      issuer: "https://design.agent-native.com",
+    });
+
+    const created = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 141,
+        method: "tools/call",
+        params: { name: "create-design", arguments: {} },
+      },
+      {
+        headers: { ...headers, host: "design.agent-native.com" },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+
+    expect(created.result.isError).not.toBe(true);
+    expect(created.result._meta["agent-native/embedStart"]).toMatchObject({
+      startUrl: expect.stringContaining("minted-picker-ticket"),
+    });
+    const scope =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
+    const { getMcpDirectoryWidgetWriteCapabilityGrant } =
+      await import("../shared/embed-auth.js");
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(scope, {
+        appId: "design",
+        resourceUri: "ui://design/shell-v69",
+        userEmail: "oauth@example.com",
+      }),
+    ).toEqual({
+      resourceIds: { designId: "design-1" },
+      actionNames: ["update-file"],
+    });
+  });
+
   it("renews a scoped directory widget ticket after a saved-chat reload without embed metadata", async () => {
     const createDocument = defineAction({
       description: "Create one editable document.",
@@ -2246,8 +2370,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
     );
     expect(originalCall.result.isError).not.toBe(true);
-    expect(originalCall.result._meta["agent-native/widgetSource"]).toEqual({
+    expect(
+      originalCall.result._meta["agent-native/widgetSource"],
+    ).toMatchObject({
       toolName: "create-document",
+      sourceTicket: "minted-picker-ticket",
     });
     expect(originalCall.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl: expect.stringContaining("minted-picker-ticket"),
@@ -2259,11 +2386,61 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const savedMetadata = { ...originalCall.result._meta };
     delete savedMetadata["agent-native/embedStart"];
     expect(savedMetadata).not.toHaveProperty("agent-native/embedStart");
+    const sourceTicket =
+      savedMetadata["agent-native/widgetSource"].sourceTicket;
+    expect(sourceTicket).toBe("minted-picker-ticket");
+
+    const forgedRenewal = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 144,
+        method: "tools/call",
+        params: {
+          name: "create_embed_session",
+          arguments: {
+            sourceTicket: "forged-ticket",
+            toolOutput: { id: "different-document" },
+          },
+        },
+      },
+      {
+        headers,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(forgedRenewal.result.isError).toBe(true);
+
+    const originalTicket = embedSessionMocks.renewalTickets.get(sourceTicket);
+    expect(originalTicket).toBeDefined();
+    embedSessionMocks.renewalTickets.set("foreign-user-ticket", {
+      ...originalTicket,
+      ownerEmail: "another@example.com",
+    });
+    const foreignUserRenewal = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 145,
+        method: "tools/call",
+        params: {
+          name: "create_embed_session",
+          arguments: { sourceTicket: "foreign-user-ticket" },
+        },
+      },
+      {
+        headers,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(foreignUserRenewal.result.isError).toBe(true);
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(1);
+
     const reloadArguments = {
+      sourceTicket,
       sourceTool: "create-document",
       toolInput: {},
-      toolOutput: originalCall.result.structuredContent,
-      chrome: "full",
+      toolOutput: { id: "different-document" },
     };
     const reopened = await callWeb(
       {
@@ -2538,8 +2715,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(originalCall.result.isError).not.toBe(true);
-    expect(originalCall.result._meta["agent-native/widgetSource"]).toEqual({
+    expect(
+      originalCall.result._meta["agent-native/widgetSource"],
+    ).toMatchObject({
       toolName: "get-design-snapshot",
+      sourceTicket: "minted-picker-ticket",
     });
     expect(originalCall.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl: expect.stringContaining("minted-picker-ticket"),
@@ -2556,10 +2736,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: {
           name: "create_embed_session",
           arguments: {
-            sourceTool: savedMetadata["agent-native/widgetSource"].toolName,
-            toolInput: { designId: "design-42" },
-            toolOutput: originalCall.result.structuredContent,
-            chrome: "full",
+            sourceTicket:
+              savedMetadata["agent-native/widgetSource"].sourceTicket,
           },
         },
       },
@@ -2691,9 +2869,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(tools["create-design"].outputSchema).toBeDefined();
     expect(tools["get-design-snapshot"]._meta).toBeUndefined();
     expect(tools["get-design-snapshot"].outputSchema).toBeUndefined();
+    expect(tools.create_embed_session.inputSchema.required).toEqual([
+      "sourceTicket",
+    ]);
     expect(
-      tools.create_embed_session.inputSchema.properties.sourceTool.enum,
-    ).toEqual(["create-design"]);
+      Object.keys(tools.create_embed_session.inputSchema.properties),
+    ).toEqual(["sourceTicket"]);
 
     const resources = await rpc(171, "resources/list", {});
     expect(
@@ -2719,8 +2900,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       arguments: {},
     });
     expect(createCall.result.isError).not.toBe(true);
-    expect(createCall.result._meta["agent-native/widgetSource"]).toEqual({
+    expect(createCall.result._meta["agent-native/widgetSource"]).toMatchObject({
       toolName: "create-design",
+      sourceTicket: "minted-picker-ticket",
     });
     expect(createCall.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl: expect.stringContaining("minted-picker-ticket"),
@@ -2733,9 +2915,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const renewedFromRead = await rpc(174, "tools/call", {
       name: "create_embed_session",
       arguments: {
-        sourceTool: "get-design-snapshot",
-        toolInput: { designId: "design-1" },
-        toolOutput: snapshotCall.result.structuredContent,
+        sourceTicket: "unissued-ticket",
       },
     });
     expect(renewedFromRead.result.isError).toBe(true);
@@ -2960,6 +3140,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(originalCall.result.isError).not.toBe(true);
     expect(originalCall.result._meta["agent-native/embedStart"]).toBeDefined();
+    const sourceTicket =
+      originalCall.result._meta["agent-native/widgetSource"].sourceTicket;
+    expect(sourceTicket).toBe("minted-picker-ticket");
 
     const reopened = await callWeb(
       {
@@ -2969,10 +3152,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: {
           name: "create_embed_session",
           arguments: {
-            sourceTool: "create-content-database",
-            toolInput: {},
-            toolOutput: originalCall.result.structuredContent,
-            chrome: "full",
+            sourceTicket,
           },
         },
       },

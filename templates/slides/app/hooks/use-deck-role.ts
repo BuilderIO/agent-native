@@ -12,6 +12,7 @@ interface SharesResponse {
 export function useDeckRole(
   deckId: string | undefined,
   assumeEditorWhileLoading = false,
+  widgetAccessRole?: SharesResponse["role"],
 ): {
   role: SharesResponse["role"] | undefined;
   canEdit: boolean;
@@ -23,7 +24,7 @@ export function useDeckRole(
     { resourceType: "deck", resourceId: deckId ?? "" } as any,
     { enabled: Boolean(deckId) } as any,
   );
-  const role = query.data?.role;
+  const role = query.data?.role ?? widgetAccessRole;
   const canEdit =
     role === undefined
       ? assumeEditorWhileLoading

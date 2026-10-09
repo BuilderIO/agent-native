@@ -341,6 +341,46 @@ describe("MCP directory widget write capabilities", () => {
     ).toBeUndefined();
   });
 
+  it("retains resource-bound schema fields and rejects arguments outside the grant", () => {
+    const grant = {
+      ...input(),
+      writeActionArguments: {
+        "update-file": {
+          id: {
+            type: "actionSchemaResourceBound" as const,
+            resourceKey: "designId",
+          },
+          content: { type: "actionSchema" as const },
+        },
+      },
+    };
+    const scope = createMcpDirectoryWidgetWriteCapability(grant);
+    expect(scope).toContain(MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_PREFIX);
+
+    const normalize = (args: Record<string, unknown>) =>
+      normalizeMcpDirectoryWidgetWriteActionArguments(scope, {
+        actionName: "update-file",
+        appId: grant.appId,
+        resourceUri: grant.resourceUri,
+        userEmail: grant.userEmail,
+        orgId: grant.orgId,
+        args,
+        allowedArgumentNames: ["content", "id"],
+      });
+    const fileUpdate = { id: "file-in-design", content: "<html />" };
+
+    expect(normalize(fileUpdate)).toEqual(fileUpdate);
+    expect(
+      normalize({ ...fileUpdate, designId: "design-elsewhere" }),
+    ).toBeUndefined();
+    expect(
+      createMcpDirectoryWidgetWriteCapability({
+        ...grant,
+        resourceIds: {},
+      }),
+    ).toBeUndefined();
+  });
+
   it("fails closed after expiry and rejects grants with an invalid lifetime", () => {
     const expired = createMcpDirectoryWidgetWriteCapability({
       ...input(),

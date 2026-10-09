@@ -21,6 +21,10 @@ import {
   filterMcpOnlyActions,
 } from "../server/agent-chat/action-filters-a2a.js";
 import { resolveAgentChatMcpOptions } from "../server/agent-chat/mcp-options.js";
+import {
+  createMcpDirectoryWidgetWriteCapability,
+  normalizeMcpDirectoryWidgetWriteActionArguments,
+} from "../shared/embed-auth.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import {
   createMCPServerForRequest,
@@ -151,6 +155,69 @@ describe("ChatGPT directory template profiles", () => {
       id: "designId",
     });
   });
+
+  it(
+    "allows Design widget sync flags while excluding file metadata from update-file writes",
+    async () => {
+      const { actions } = await loadTemplateActions("design");
+      const actionProperties =
+        actions["update-file"]?.tool?.parameters?.properties;
+      const updateFileArguments =
+        designProfile.widgetWriteActionArguments?.["update-file"];
+
+      expect(actionProperties).toHaveProperty("syncCollab");
+      expect(actionProperties).toHaveProperty("identityOnly");
+      expect(actionProperties).toHaveProperty("filename");
+      expect(actionProperties).toHaveProperty("fileType");
+      expect(updateFileArguments).toMatchObject({
+        id: { type: "actionSchemaResourceBound", resourceKey: "designId" },
+        syncCollab: { type: "actionSchema" },
+        identityOnly: { type: "actionSchema" },
+      });
+      if (!updateFileArguments) {
+        throw new Error("Design update-file widget arguments are missing.");
+      }
+
+      const resourceUri = "ui://design/shell-v69";
+      const capability = createMcpDirectoryWidgetWriteCapability({
+        appId: "design",
+        resourceUri,
+        resourceIds: { designId: "design-123" },
+        userEmail: "reviewer@example.test",
+        expiresAtMs: Date.now() + 60_000,
+        readActionArguments: {},
+        writeActionArguments: { "update-file": updateFileArguments },
+      });
+      expect(capability).toBeDefined();
+      if (!capability) throw new Error("Failed to create test capability.");
+
+      const allowedArgumentNames = Object.keys(updateFileArguments);
+      const args = {
+        id: "file-456",
+        content: "<html><body>Updated screen</body></html>",
+        syncCollab: true,
+        identityOnly: true,
+        expectedVersionHash: "source-hash",
+        operationSource: "widget-session",
+        operationRevision: 1,
+      };
+      const normalize = (nextArgs: Record<string, unknown>) =>
+        normalizeMcpDirectoryWidgetWriteActionArguments(capability, {
+          actionName: "update-file",
+          appId: "design",
+          resourceUri,
+          userEmail: "reviewer@example.test",
+          args: nextArgs,
+          allowedArgumentNames,
+        });
+
+      expect(normalize(args)).toEqual(args);
+      for (const field of ["filename", "fileType"] as const) {
+        expect(normalize({ ...args, [field]: "renamed.html" })).toBeUndefined();
+      }
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
 
   it(
     "uses document-specific labels for Content's shared widget shell",
@@ -378,11 +445,16 @@ describe("ChatGPT directory template profiles", () => {
           (tool) => tool.name === "create_embed_session",
         );
         expect(sessionTool?._meta?.ui?.visibility).toEqual(["app"]);
-        expect(sessionTool?.inputSchema.required).toEqual([
+        expect(sessionTool?.inputSchema.required).toEqual(["sourceTicket"]);
+        expect(sessionTool?.inputSchema.properties).not.toHaveProperty(
           "sourceTool",
+        );
+        expect(sessionTool?.inputSchema.properties).not.toHaveProperty(
           "toolInput",
+        );
+        expect(sessionTool?.inputSchema.properties).not.toHaveProperty(
           "toolOutput",
-        ]);
+        );
       } finally {
         await Promise.all([client.close(), server.close()]);
       }

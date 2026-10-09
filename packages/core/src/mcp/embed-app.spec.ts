@@ -445,7 +445,7 @@ describe("embedApp", () => {
     expect(csp?.resourceDomains).not.toContain("https://esm.sh");
   });
 
-  it("renews directory widget sessions from saved tool output without embedStart metadata", () => {
+  it("renews directory widget sessions from saved widget metadata without embedStart", () => {
     const resource = embedApp({ title: "Directory widget" });
     const html =
       typeof resource.html === "function"
@@ -457,10 +457,41 @@ describe("embedApp", () => {
           })
         : resource.html;
 
+    const functions = html.match(
+      /(function embedTicketFromStartUrl\(value\) \{[\s\S]*?\n    \})\n\n    (function embedSessionArgsFor\(value\) \{[\s\S]*?\n    \})/,
+    );
+    expect(functions).toBeDefined();
+    const { embedSessionArgsFor } = new Function(
+      "window",
+      "body",
+      "toolInput",
+      "toolResponseMetadata",
+      "objectValue",
+      "openStartUrl",
+      `${functions?.[1]}; ${functions?.[2]}; return { embedSessionArgsFor };`,
+    )(
+      { location: { href: "https://content.agent-native.com/" } },
+      { dataset: { catalogMode: "directory" } },
+      { chrome: "full" },
+      { "agent-native/widgetSource": { sourceTicket: "saved-ticket" } },
+      (value: unknown) =>
+        value && typeof value === "object" && !Array.isArray(value)
+          ? value
+          : {},
+      "",
+    ) as { embedSessionArgsFor: (value: string) => Record<string, unknown> };
+
+    expect(embedSessionArgsFor("/page/document-1")).toEqual({
+      sourceTicket: "saved-ticket",
+    });
+    expect(embedSessionArgsFor("/page/document-1")).not.toHaveProperty(
+      "toolOutput",
+    );
+
     expect(html).toContain('data-start-tool="create_embed_session"');
     expect(html).toContain('data-catalog-mode="directory"');
     expect(html).toContain('toolResponseMetadata["agent-native/widgetSource"]');
-    expect(html).toContain("toolOutput: toolResultData");
+    expect(html).toContain("widgetSource.sourceTicket");
     expect(html).toContain(
       "const result = await callEmbedSessionTool(embedSessionArgsFor(embedUrl))",
     );

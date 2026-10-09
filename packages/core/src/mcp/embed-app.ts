@@ -558,20 +558,32 @@ export function embedApp(
       }
     }
 
+    function embedTicketFromStartUrl(value) {
+      if (typeof value !== "string" || !value) return null;
+      const url = new URL(value, window.location.href);
+      return url.pathname.endsWith("/_agent-native/embed/start")
+        ? url.searchParams.get("ticket") || null
+        : null;
+    }
+
     function embedSessionArgsFor(value) {
-      const chrome = typeof toolInput.chrome === "string" ? toolInput.chrome : "full";
       if (body.dataset.catalogMode === "directory") {
-        const widgetSource = toolResponseMetadata["agent-native/widgetSource"];
-        const sourceTool = widgetSource && typeof widgetSource.toolName === "string"
-          ? widgetSource.toolName
-          : undefined;
+        const widgetSource = objectValue(
+          toolResponseMetadata["agent-native/widgetSource"],
+        );
+        const sourceTicket =
+          typeof widgetSource.sourceTicket === "string" &&
+          widgetSource.sourceTicket.trim()
+            ? widgetSource.sourceTicket
+            : embedTicketFromStartUrl(openStartUrl || value);
+        if (typeof sourceTicket !== "string" || !sourceTicket.trim()) {
+          throw new Error("The original widget session ticket is unavailable.");
+        }
         return {
-          ...(sourceTool ? { sourceTool } : {}),
-          toolInput,
-          toolOutput: toolResultData,
-          chrome
+          sourceTicket,
         };
       }
+      const chrome = typeof toolInput.chrome === "string" ? toolInput.chrome : "full";
       return typeof value === "string" && value.startsWith("/")
         ? { path: value, chrome }
         : { url: value, chrome };

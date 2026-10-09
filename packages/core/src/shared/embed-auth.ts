@@ -483,6 +483,38 @@ export function createMcpDirectoryWidgetWriteCapability(
     : undefined;
 }
 
+export function renewMcpDirectoryWidgetCapabilityScope(
+  scope: string | undefined,
+  input: {
+    appId: string;
+    userEmail: string;
+    orgId?: string | null;
+    expiresAtMs: number;
+  },
+): string | undefined {
+  if (!scope || !input.appId || !input.userEmail) return undefined;
+  if (isMcpDirectoryWidgetWriteCapabilityScope(scope)) {
+    const capability = decodeMcpDirectoryWidgetWriteCapability(scope);
+    if (
+      !capability ||
+      capability.appId !== input.appId ||
+      capability.userEmail !== input.userEmail.trim().toLowerCase() ||
+      capability.orgId !== (input.orgId ?? undefined)
+    ) {
+      return undefined;
+    }
+    return createMcpDirectoryWidgetWriteCapability({
+      ...capability,
+      expiresAtMs: input.expiresAtMs,
+    });
+  }
+
+  const decoded = decodeMcpDirectoryWidgetReadCapability(scope);
+  return decoded.ok && decoded.capability.appId === input.appId
+    ? scope
+    : undefined;
+}
+
 export function isMcpDirectoryWidgetReadCapabilityScope(
   scope: string | undefined,
 ): boolean {
