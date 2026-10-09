@@ -8221,6 +8221,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         e.target && e.target.nodeType === 1 ? e.target : null
       );
       if (!spacingKey) return;
+      if (e.altKey) {
+        handleShieldPointerMove(e);
+        return;
+      }
       stopNativeInteraction(e);
       activateSpacingHandle(spacingKey);
     }
@@ -21314,6 +21318,12 @@ export const editorChromeBridgeScript: string = `"use strict";
     );
     function handleShieldPointerMove(e) {
       if (readOnly || interactionMode) return;
+      var isAltSpacingRegionPointerMove = Boolean(
+        e.altKey && spacingKeyFromTarget(
+          e.target && e.target.nodeType === 1 ? e.target : null
+        )
+      );
+      if (isAltSpacingRegionPointerMove) clearSpacingHoverTimer();
       stopNativeInteraction(e);
       hoveredEl = resolveHoverTarget(
         e.clientX,
@@ -21322,7 +21332,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       if (!hoveredEl) {
         highlightOverlay.style.display = "none";
-        if (!spacingDrag) {
+        if (!spacingDrag && !isAltSpacingRegionPointerMove) {
           scheduleSpacingHoverClear(e);
         }
         hideMeasurements();
@@ -21347,7 +21357,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             updateSpacingOverlay(selectedEl);
           }
         } else {
-          scheduleSpacingHoverClear(e);
+          if (!isAltSpacingRegionPointerMove) scheduleSpacingHoverClear(e);
         }
       }
       if (hoveredEl === selectedEl) {

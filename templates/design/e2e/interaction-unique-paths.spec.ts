@@ -419,16 +419,84 @@ test.describe.serial("rare-but-real unique paths", () => {
     ).toBe(true);
   });
 
+  // oracle: none — preserves the reported workflow; this test does not assert native Figma output.
   test("Alt-hovering another object while one is selected shows a measurement overlay between them", async ({
     page,
   }) => {
+    const beta = await frameNode(page, "Beta Button");
+    await beta.evaluate((element) => {
+      // Shrink the fixture row's gap so Beta overlaps Alpha's margin hit region.
+      (element as HTMLElement).style.marginLeft = "-8px";
+    });
     await selectByText(page, "Alpha Button");
-    const betaBox = (await (
-      await frameNode(page, "Beta Button")
-    ).boundingBox())!;
+    const betaBox = (await beta.boundingBox())!;
     const measurementOverlay = designFrame(page).locator(
       "[data-agent-native-measurement-overlay]",
     );
+    const spacingRegion = designFrame(page).locator(
+      '[data-agent-native-spacing-region="margin"][data-spacing-key="margin:right"]',
+    );
+    await expect(spacingRegion).toBeVisible();
+    const spacingRegionBox = (await spacingRegion.boundingBox())!;
+    const spacingLeft = Math.max(spacingRegionBox.x, betaBox.x);
+    const spacingRight = Math.min(
+      spacingRegionBox.x + spacingRegionBox.width,
+      betaBox.x + betaBox.width,
+    );
+    const spacingTop = Math.max(spacingRegionBox.y, betaBox.y);
+    const spacingBottom = Math.min(
+      spacingRegionBox.y + spacingRegionBox.height,
+      betaBox.y + betaBox.height,
+    );
+    expect(spacingRight).toBeGreaterThan(spacingLeft);
+    expect(spacingBottom).toBeGreaterThan(spacingTop);
+    const spacingPoint = {
+      x: (spacingLeft + spacingRight) / 2,
+      y: (spacingTop + spacingBottom) / 2,
+    };
+    await designFrame(page)
+      .locator("body")
+      .evaluate((body) => {
+        type AltSpacingEvent = {
+          spacingKey: string;
+          display: string;
+          x: number;
+          y: number;
+        };
+        const tracedWindow = body.ownerDocument.defaultView as
+          | (Window & { __testAltSpacingEvents?: AltSpacingEvent[] })
+          | null;
+        if (!tracedWindow) throw new Error("preview window is unavailable");
+        tracedWindow.__testAltSpacingEvents = [];
+        body.ownerDocument.addEventListener(
+          "pointermove",
+          (event) => {
+            if (!(event instanceof PointerEvent) || !event.altKey) return;
+            const target = event.target;
+            if (!(target instanceof Element)) return;
+            const spacingRegion = target.closest(
+              "[data-agent-native-spacing-region]",
+            );
+            const spacingKey = spacingRegion?.getAttribute("data-spacing-key");
+            if (!spacingKey) return;
+            const x = event.clientX;
+            const y = event.clientY;
+            const measurementOverlay =
+              body.ownerDocument.querySelector<HTMLElement>(
+                "[data-agent-native-measurement-overlay]",
+              );
+            tracedWindow.requestAnimationFrame(() => {
+              tracedWindow.__testAltSpacingEvents?.push({
+                spacingKey,
+                display: measurementOverlay?.style.display ?? "missing",
+                x,
+                y,
+              });
+            });
+          },
+          true,
+        );
+      });
     await page.mouse.move(
       betaBox.x + betaBox.width / 2,
       betaBox.y + betaBox.height / 2,
@@ -436,15 +504,42 @@ test.describe.serial("rare-but-real unique paths", () => {
     );
     await expect(measurementOverlay).toHaveCSS("display", "none");
 
-    await page.mouse.move(betaBox.x - 20, betaBox.y - 20);
-    await page.keyboard.down("Alt");
     await page.mouse.move(
       betaBox.x + betaBox.width / 2,
       betaBox.y + betaBox.height / 2,
-      {
-        steps: 5,
-      },
     );
+    await expect(measurementOverlay).toHaveCSS("display", "none");
+    await page.keyboard.down("Alt");
+    await page.mouse.move(spacingPoint.x, spacingPoint.y, { steps: 2 });
+    await expect(measurementOverlay).toHaveCSS("display", "block");
+    const readAltSpacingEvents = () =>
+      designFrame(page)
+        .locator("body")
+        .evaluate(
+          (body) =>
+            (
+              body.ownerDocument.defaultView as
+                | (Window & {
+                    __testAltSpacingEvents?: Array<{
+                      spacingKey: string;
+                      display: string;
+                      x: number;
+                      y: number;
+                    }>;
+                  })
+                | null
+            )?.__testAltSpacingEvents ?? [],
+        );
+    await expect
+      .poll(async () => (await readAltSpacingEvents()).length)
+      .toBeGreaterThan(0);
+    const altSpacingEvents = await readAltSpacingEvents();
+    expect(altSpacingEvents).not.toHaveLength(0);
+    expect(
+      altSpacingEvents.every((event) => event.display === "block"),
+      `measurement overlay should remain visible after spacing hits: ${JSON.stringify(altSpacingEvents)}`,
+    ).toBe(true);
+    await page.waitForTimeout(160);
     await expect(measurementOverlay).toHaveCSS("display", "block");
     await expect(measurementOverlay.locator("div")).not.toHaveCount(0);
     await page.keyboard.up("Alt");
@@ -511,18 +606,59 @@ test.describe.serial("rare-but-real unique paths", () => {
       .toMatchObject({ valid: true, outside: true });
   });
 
+  // oracle: none — verifies the editor shortcut without asserting native Figma parity.
   test("paste-properties (Cmd+Opt+C / Cmd+Opt+V) copies style only, leaving position and size alone", async ({
     page,
   }) => {
     await selectByTextDeep(page, "Beta Button");
+    await expect(layerRow(page, "Beta Button")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     await page.keyboard.press(`${MOD}+Alt+c`);
-    await page.waitForTimeout(100);
+    const beta = await frameNode(page, "Beta Button");
+    await beta.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      document.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          button: 2,
+          buttons: 2,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+        }),
+      );
+    });
+    await waitForBridge(page, "element-contextmenu");
+    const contextMenu = page.getByRole("menu").last();
+    await contextMenu.getByRole("menuitem", { name: "Copy/Paste as" }).hover();
+    await expect(
+      page.getByRole("menuitem", { name: /Paste properties/ }),
+    ).toBeEnabled();
+    await page.keyboard.press("Escape");
     await selectByTextDeep(page, "Alpha Button");
+    await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     const beforeBox = (await (
       await frameNode(page, "Alpha Button")
     ).boundingBox())!;
     await page.keyboard.press(`${MOD}+Alt+v`);
-    await page.waitForTimeout(200);
+    await expect
+      .poll(
+        async () =>
+          await (
+            await frameNode(page, "Alpha Button")
+          ).evaluate((element) => getComputedStyle(element).backgroundColor),
+        {
+          timeout: 15_000,
+          message:
+            "paste-properties should apply the copied fill color (#22c55e) onto the target",
+        },
+      )
+      .toBe("rgb(34, 197, 94)");
     const afterBox = (await (
       await frameNode(page, "Alpha Button")
     ).boundingBox())!;
@@ -535,10 +671,7 @@ test.describe.serial("rare-but-real unique paths", () => {
         Math.abs(afterBox.y - beforeBox.y) < 2,
       "paste-properties must not move the target's position",
     ).toBe(true);
-    expect(
-      bg,
-      "paste-properties should apply the copied fill color (#22c55e) onto the target",
-    ).toBe("rgb(34, 197, 94)");
+    expect(bg).toBe("rgb(34, 197, 94)");
   });
 
   test("Shift+H / Shift+V flip the selection about its own bounding box", async ({
