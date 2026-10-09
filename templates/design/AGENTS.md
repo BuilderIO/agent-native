@@ -5,7 +5,7 @@ actions against shared SQL state.
 
 ## Skills
 
-Read relevant guides first:
+Read guides first:
 - `.agents/skills/design-generation/SKILL.md` — for generation, adaptation, and readiness checks.
 - `.agents/skills/design-templates/SKILL.md` — when reusing existing Design work.
 - `.agents/skills/responsive-breakpoints/SKILL.md` — for breakpoint editing.
@@ -18,11 +18,11 @@ Read relevant guides first:
 - `.agents/skills/shader-fills/SKILL.md` — for GLSL fills/effects.
 - `.agents/skills/journey-storyboards/SKILL.md` — for onboarding-journey storyboards.
 
-Read relevant `.agents/skills/<name>/SKILL.md` guides for actions, adding-a-feature, storing-data, security, secrets, sharing, frontend-design, shadcn-ui, real-time-sync, context-awareness, delegate-to-agent, agent-native-docs, agent-native-toolkit, customizing-agent-native, client-side-routing, reliable-mutations, performance, external-agents, portability, self-modifying-code, turn-into-skill, and workspace-conventions.
+Guides: `.agents/skills/<name>/SKILL.md` — actions, adding-a-feature, storing-data, security, secrets, sharing, frontend-design, shadcn-ui, real-time-sync, context-awareness, delegate-to-agent, agent-native-docs, agent-native-toolkit, customizing-agent-native, client-side-routing, reliable-mutations, performance, external-agents, portability, self-modifying-code, turn-into-skill, workspace-conventions.
 
 ## Docs
 
-Use local docs, not web research: `pnpm action docs-search --query "<topic>"` searches; `--slug "<slug>"` reads a page.
+Use local docs only: `pnpm action docs-search --query "<topic>"` and `pnpm action docs-search --slug "<slug>"`.
 
 ## Actions
 
@@ -71,6 +71,6 @@ Use local docs, not web research: `pnpm action docs-search --query "<topic>"` se
 
 ## Source Changes
 
-Read `agent-native-toolkit` before common workspace/agent UI work; read `customizing-agent-native` before adapting shared UI. Editor commands: `app/pages/design-editor/commands/*.ts`; read `design-editor-architecture` before editing.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI. Editor commands are in `app/pages/design-editor/commands/*.ts`; read `design-editor-architecture` before edits.
 
 Find additional guides with `rg --hidden --follow`.
