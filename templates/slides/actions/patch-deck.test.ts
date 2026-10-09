@@ -1921,7 +1921,6 @@ describe("run() — asynchronous layout fit metadata", () => {
 
   it.each([
     ["layoutFitRevision", "client-revision"],
-    ["layoutWarningDismissed", true],
     ["imageLoading", true],
     ["imagePrompt", "Generate a landscape"],
   ])("rejects widget writes to internal slide field %s", (field, value) => {
@@ -1944,6 +1943,54 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(isMcpWidgetPatchAllowed("mcp-widget-write", [patchOperation])).toBe(
       false,
     );
+  });
+
+  it("allows only baseline-checked widget overflow-warning dismissal patches", async () => {
+    const dismissal: Operation = {
+      op: "patch-slide",
+      slideId: "slide-1",
+      fields: { layoutWarningDismissed: true },
+      baseFields: { layoutWarningDismissed: { present: false } },
+    };
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [dismissal])).toBe(true);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        { ...dismissal, fields: { layoutWarningDismissed: false } },
+      ]),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        { ...dismissal, baseFields: undefined },
+      ]),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          op: "add-slide",
+          slideId: "slide-3",
+          fields: {
+            content: "<div>New</div>",
+            layoutWarningDismissed: true,
+          },
+        } as unknown as Operation,
+      ]),
+    ).toBe(false);
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [dismissal],
+      },
+      { caller: "mcp-widget-write" },
+    );
+
+    const savedDeck = JSON.parse(String(mockDeckRow?.data));
+    expect(savedDeck.slides[0].layoutWarningDismissed).toBe(true);
   });
 
   it("rejects extra widget operation metadata", () => {

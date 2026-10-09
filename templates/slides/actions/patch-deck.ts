@@ -344,6 +344,7 @@ const MCP_WIDGET_PATCH_SLIDE_FIELDS = new Set([
   "notes",
   "background",
   "layout",
+  "layoutWarningDismissed",
   "imageUrl",
   "excalidrawData",
   "transition",
@@ -472,6 +473,8 @@ export function isMcpWidgetPatchAllowed(
           operation.fields,
           operation.baseFields,
         ) &&
+        (operation.fields.layoutWarningDismissed === undefined ||
+          operation.fields.layoutWarningDismissed === true) &&
         (hasContent
           ? typeof operation.fields.content === "string" &&
             typeof operation.baseContentHash === "string" &&

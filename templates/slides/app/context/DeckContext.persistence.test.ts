@@ -6902,19 +6902,37 @@ describe("DeckContext deck creation persistence", () => {
   });
 
   it("persists a duplicated slide after the optimistic insert", async () => {
-    window.history.pushState({}, "", "/");
-    const { fetchMock, resolveCreate } = setupFetch();
+    const deckId = "duplicate-layout-revision-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    setAccessibleDeck({
+      id: deckId,
+      title: "Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>One</h1>",
+          notes: "",
+          layout: "title",
+          background: "bg-[#000000]",
+          layoutFitRevision: "server-owned-revision",
+        },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    } as Deck);
     const { result } = renderHook(() => useDecks(), { wrapper });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    let deckId = "";
-    act(() => {
-      deckId = result.current.createDeck("Deck").id;
-    });
-    resolveCreate(new Response("", { status: 200 }));
-
     const originalSlide = result.current.getDeck(deckId)!.slides[0];
+    expect(originalSlide.layoutFitRevision).toBe("server-owned-revision");
     vi.useFakeTimers();
     act(() => {
       result.current.duplicateSlide(deckId, originalSlide.id);
@@ -6936,7 +6954,8 @@ describe("DeckContext deck creation persistence", () => {
       return body.deckId === deckId;
     });
     expect(patchCall).toBeTruthy();
-    expect(JSON.parse(testString(patchCall?.[1]?.body))).toMatchObject({
+    const patchBody = actionCallBody(patchCall?.[1]);
+    expect(patchBody).toMatchObject({
       deckId,
       operations: [
         {
@@ -6951,9 +6970,13 @@ describe("DeckContext deck creation persistence", () => {
         },
       ],
     });
+    const addOperation = (
+      patchBody.operations as Array<{ fields: Record<string, unknown> }>
+    )[0];
+    expect(addOperation.fields).not.toHaveProperty("layoutFitRevision");
   });
 
-  it("normalizes legacy null notes when the slide rail duplicates a slide", async () => {
+  it("normalizes legacy notes and omits server revision when pasting a slide", async () => {
     window.history.pushState({}, "", "/deck/legacy-notes-deck");
     const legacyDeck = {
       id: "legacy-notes-deck",
@@ -6966,6 +6989,7 @@ describe("DeckContext deck creation persistence", () => {
           content: "<h1>One</h1>",
           notes: null,
           layout: "title",
+          layoutFitRevision: "server-owned-revision",
         },
       ],
     } as unknown as Deck;
@@ -7001,6 +7025,116 @@ describe("DeckContext deck creation persistence", () => {
         {
           op: "add-slide",
           fields: { notes: "" },
+        },
+      ],
+    });
+    const addOperation = (
+      actionCallBody(patchCall?.[1]).operations as Array<{
+        fields: Record<string, unknown>;
+      }>
+    )[0];
+    expect(addOperation.fields).not.toHaveProperty("layoutFitRevision");
+  });
+
+  it("omits server layout revisions when undo restores a deleted slide", async () => {
+    const deckId = "undo-layout-revision-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    setAccessibleDeck({
+      id: deckId,
+      title: "Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>One</h1>",
+          notes: "",
+          layout: "title",
+          layoutFitRevision: "server-owned-revision",
+        },
+        { id: "slide-2", content: "<h1>Two</h1>", notes: "", layout: "title" },
+      ],
+    } as Deck);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.deleteSlide(deckId, "slide-1");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    act(() => {
+      result.current.undo(deckId);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck") &&
+        actionCallBody(init).deckId === deckId,
+    );
+    const restoreOperations = actionCallBody(patchCalls.at(-1)?.[1])
+      .operations as Array<{
+      op: string;
+      slideId?: string;
+      fields?: Record<string, unknown>;
+    }>;
+    const restoredSlide = restoreOperations.find(
+      (operation) => operation.op === "add-slide",
+    );
+
+    expect(restoredSlide?.slideId).toBe("slide-1");
+    expect(restoredSlide?.fields).not.toHaveProperty("layoutFitRevision");
+  });
+
+  it("sends an exact baseline when dismissing an overflow warning", async () => {
+    const deckId = "overflow-warning-dismissal-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    setAccessibleDeck({
+      id: deckId,
+      title: "Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "<h1>One</h1>", notes: "" }],
+    } as Deck);
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => {
+      result.current.updateSlide(
+        deckId,
+        "slide-1",
+        { layoutWarningDismissed: true },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(deckId);
+    });
+
+    const patchCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck") &&
+        actionCallBody(init).deckId === deckId,
+    );
+    expect(actionCallBody(patchCall?.[1])).toMatchObject({
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { layoutWarningDismissed: true },
+          baseFields: {
+            layoutWarningDismissed: { present: false },
+          },
         },
       ],
     });

@@ -4,6 +4,7 @@ import type { ActionRunContext } from "@agent-native/core/action";
 export function assertDesignWidgetFileWriteScope(
   designId: string,
   context: ActionRunContext | undefined,
+  write?: { content?: string; expectedVersionHash?: string },
 ): void {
   const grant = context?.mcpDirectoryWidgetWrite;
   if (!grant) return;
@@ -11,6 +12,12 @@ export function assertDesignWidgetFileWriteScope(
     throw new ActionContractError(
       "This widget write capability is scoped to a different design.",
       { errorCode: "mcp_widget_resource_mismatch", statusCode: 403 },
+    );
+  }
+  if (write?.content !== undefined && !write.expectedVersionHash?.trim()) {
+    throw new ActionContractError(
+      "Widget content updates require expectedVersionHash from a current file read.",
+      { errorCode: "mcp_widget_expected_version_required", statusCode: 400 },
     );
   }
 }

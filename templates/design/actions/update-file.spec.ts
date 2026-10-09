@@ -249,6 +249,15 @@ beforeEach(() => {
 });
 
 describe("update-file: expectedVersionHash / syncCollab regression baseline", () => {
+  const widgetWriteContext = {
+    caller: "mcp-widget-write" as const,
+    mcpDirectoryWidgetWrite: {
+      appId: "design",
+      resourceIds: { designId: DESIGN_ID },
+      actionNames: ["update-file"],
+    },
+  };
+
   it("rejects malformed managed-style HTML before SQL or collab mutation", async () => {
     const before = buildDoc();
     const malformed = before.replace(
@@ -302,6 +311,46 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     expect(result).toEqual({
       id: FILE_ID,
       designId: "design_1",
+      updated: true,
+    });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
+    expect(await hasCollabState(FILE_ID)).toBe(true);
+  });
+
+  it("requires expectedVersionHash for widget content writes", async () => {
+    const before = buildDoc();
+    const next = buildDoc(" widget-edit-");
+
+    await expect(
+      updateFileAction.run(
+        { id: FILE_ID, content: next } as never,
+        widgetWriteContext as never,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_expected_version_required",
+      statusCode: 400,
+    });
+
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
+    expect(await hasCollabState(FILE_ID)).toBe(false);
+  });
+
+  it("writes widget content normally when its current expectedVersionHash is provided", async () => {
+    const before = buildDoc();
+    const next = buildDoc(" widget-edit-");
+
+    const result = await updateFileAction.run(
+      {
+        id: FILE_ID,
+        content: next,
+        expectedVersionHash: sourceContentHash(before),
+      } as never,
+      widgetWriteContext as never,
+    );
+
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: DESIGN_ID,
       updated: true,
     });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);

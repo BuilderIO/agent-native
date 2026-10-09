@@ -161,7 +161,12 @@ type PendingPersistedResultHandler = {
 function addSlideFields(
   slide: Slide,
 ): Extract<GranularOp, { op: "add-slide" }>["fields"] {
-  const { id: _id, imageLoading: _imageLoading, ...fields } = slide;
+  const {
+    id: _id,
+    imageLoading: _imageLoading,
+    layoutFitRevision: _layoutFitRevision,
+    ...fields
+  } = slide;
   return {
     ...fields,
     content: normalizeSlidePadding(fields.content),
