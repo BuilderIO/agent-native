@@ -13,7 +13,7 @@ describe("Figma connector generated HTML", () => {
   it("renders converted fixture content as expected", async () => {
     const frame = {
       id: "frame-visual",
-      name: "Visual parity fixture",
+      name: "Visual rendering fixture",
       type: "FRAME",
       absoluteBoundingBox: { x: 0, y: 0, width: 320, height: 180 },
       fills: [{ type: "SOLID", color: { r: 1, g: 1, b: 1, a: 1 } }],
