@@ -1,22 +1,108 @@
 import { gzipSync } from "node:zlib";
 
 import { H3Event } from "h3";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   record: vi.fn(),
+  tokenizedManifest: vi.fn(),
+  tokenizedChunkBytes: vi.fn(),
+  tokenizedChunkBatch: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
+  getSession: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("../lib/session-replay.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/session-replay.js")>()),
   parseSessionReplayIngestPayload: (body: unknown) => body,
   recordSessionReplayChunks: mocks.record,
+  getSessionReplayTokenizedManifest: mocks.tokenizedManifest,
+  readSessionReplayTokenizedChunkBytes: mocks.tokenizedChunkBytes,
+  readSessionReplayTokenizedChunkBatch: mocks.tokenizedChunkBatch,
 }));
 
+import { createScopedAgentAccessGrant } from "@agent-native/core/server";
+
+import { SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX } from "../../shared/session-replay-agent-access";
 import {
   decodeSessionReplayRequestBody,
   handleSessionReplayIngest,
+  handleSessionReplayManifest,
+  handleSessionReplayChunkBytes,
+  handleSessionReplayChunkBatch,
 } from "./session-replay";
+
+function replayReadEvent(
+  route: "manifest" | "chunk" | "batch",
+  recordingId: string,
+  token?: string,
+): H3Event {
+  const encodedRecordingId = encodeURIComponent(recordingId);
+  const query = new URLSearchParams();
+  if (token) query.set("agent_access", token);
+  let path: string;
+  let params: Record<string, string> = { recordingId };
+
+  if (route === "manifest") {
+    path = `/api/session-replay/recordings/${encodedRecordingId}/manifest`;
+  } else if (route === "chunk") {
+    path = `/api/session-replay/recordings/${encodedRecordingId}/chunks/0`;
+    params = { ...params, seq: "0" };
+  } else {
+    path = `/api/session-replay/recordings/${encodedRecordingId}/chunks`;
+    query.set("seqs", "0");
+  }
+
+  const event = new H3Event(
+    new Request(`https://analytics.example.test${path}?${query.toString()}`),
+  );
+  event.context.params = params;
+  return event;
+}
+
+function scopedReplayToken(recordingId: string): string {
+  return createScopedAgentAccessGrant({
+    resourceKind: SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
+    resourceId: recordingId,
+    viewerEmail: "viewer@example.test",
+    ttlSeconds: 60,
+  }).token;
+}
+
+async function invokeReadRoute(
+  route: "manifest" | "chunk" | "batch",
+  event: H3Event,
+) {
+  if (route === "manifest") return handleSessionReplayManifest(event);
+  if (route === "chunk") return handleSessionReplayChunkBytes(event);
+  return handleSessionReplayChunkBatch(event);
+}
+
+function expectNoTokenizedReads() {
+  expect(mocks.tokenizedManifest).not.toHaveBeenCalled();
+  expect(mocks.tokenizedChunkBytes).not.toHaveBeenCalled();
+  expect(mocks.tokenizedChunkBatch).not.toHaveBeenCalled();
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.tokenizedManifest.mockResolvedValue({
+    recording: { id: "sr_1" },
+    chunks: [],
+  });
+  mocks.tokenizedChunkBytes.mockResolvedValue({
+    seq: 0,
+    checksum: "checksum-0",
+    json: { events: [] },
+  });
+  mocks.tokenizedChunkBatch.mockResolvedValue({
+    chunks: [{ seq: 0, checksum: "checksum-0", events: [] }],
+    unavailableChunks: 0,
+  });
+});
 
 describe("session replay ingest handler", () => {
   it("decodes gzip-compressed replay request bodies", () => {
@@ -104,5 +190,75 @@ describe("session replay ingest handler", () => {
       failure,
     );
     log.mockRestore();
+  });
+});
+
+describe("session replay scoped agent reads", () => {
+  it("uses one recording-scoped grant for manifest, individual, and batch reads", async () => {
+    const token = scopedReplayToken("sr_1");
+
+    await expect(
+      handleSessionReplayManifest(replayReadEvent("manifest", "sr_1", token)),
+    ).resolves.toMatchObject({ recording: { id: "sr_1" }, chunks: [] });
+    await expect(
+      handleSessionReplayChunkBytes(replayReadEvent("chunk", "sr_1", token)),
+    ).resolves.toEqual({ events: [] });
+    await expect(
+      handleSessionReplayChunkBatch(replayReadEvent("batch", "sr_1", token)),
+    ).resolves.toMatchObject({
+      chunks: [{ seq: 0, checksum: "checksum-0", events: [] }],
+      unavailableChunks: 0,
+    });
+
+    expect(mocks.tokenizedManifest).toHaveBeenCalledWith(
+      "sr_1",
+      "viewer@example.test",
+    );
+    expect(mocks.tokenizedChunkBytes).toHaveBeenCalledWith(
+      "sr_1",
+      0,
+      "viewer@example.test",
+    );
+    expect(mocks.tokenizedChunkBatch).toHaveBeenCalledWith(
+      "sr_1",
+      [0],
+      "viewer@example.test",
+    );
+  });
+
+  it.each(["manifest", "chunk", "batch"] as const)(
+    "rejects an invalid token on the %s route",
+    async (route) => {
+      const event = replayReadEvent(route, "sr_1", "invalid-token");
+
+      await expect(invokeReadRoute(route, event)).resolves.toEqual({
+        error: "Invalid or expired agent access",
+      });
+      expect(event.res.status).toBe(401);
+      expectNoTokenizedReads();
+    },
+  );
+
+  it.each(["manifest", "chunk", "batch"] as const)(
+    "rejects a token for another recording on the %s route",
+    async (route) => {
+      const event = replayReadEvent(route, "sr_2", scopedReplayToken("sr_1"));
+
+      await expect(invokeReadRoute(route, event)).resolves.toEqual({
+        error: "Invalid or expired agent access",
+      });
+      expect(event.res.status).toBe(401);
+      expectNoTokenizedReads();
+    },
+  );
+
+  it("still requires a session when the batch route has no scoped token", async () => {
+    const event = replayReadEvent("batch", "sr_1");
+
+    await expect(handleSessionReplayChunkBatch(event)).resolves.toMatchObject({
+      error: "missing_api_key",
+    });
+    expect(event.res.status).toBe(401);
+    expectNoTokenizedReads();
   });
 });
