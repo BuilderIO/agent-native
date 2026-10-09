@@ -7,7 +7,10 @@ describe("private replay screenshot preview bridge", () => {
     const route = "/api/design-board-replay-screenshots/jcs_e2e_fixture";
     const prepared = preparePrivateReplayScreenshotPreviewDocument(
       `<!doctype html><html><body><img src="${route}" srcset="${route} 2x"><img src="https://images.example.test/public.png"><img src="/api/design-board-replay-screenshots/jcs_other?cache=1"></body></html>`,
-      "https://design.example.test",
+      {
+        designId: "design_fixture",
+        parentOrigin: "https://design.example.test",
+      },
     );
 
     expect(prepared.screenshotPaths).toEqual([route]);
@@ -29,10 +32,25 @@ describe("private replay screenshot preview bridge", () => {
       '<img src="https://design.example.test/api/design-board-replay-screenshots/jcs_e2e_fixture">';
 
     expect(
-      preparePrivateReplayScreenshotPreviewDocument(
-        html,
-        "https://design.example.test",
-      ),
+      preparePrivateReplayScreenshotPreviewDocument(html, {
+        designId: "design_fixture",
+        parentOrigin: "https://design.example.test",
+      }),
     ).toEqual({ html, screenshotPaths: [], nonce: null });
+  });
+
+  it("removes private screenshot sources when there is no owning design scope", () => {
+    const route = "/api/design-board-replay-screenshots/jcs_e2e_fixture";
+    const prepared = preparePrivateReplayScreenshotPreviewDocument(
+      `<img src="${route}">`,
+      { parentOrigin: "https://design.example.test" },
+    );
+
+    expect(prepared.screenshotPaths).toEqual([]);
+    expect(prepared.nonce).toBeNull();
+    expect(prepared.html).not.toContain(`src="${route}"`);
+    expect(prepared.html).not.toContain(
+      "design-private-replay-screenshot:connect",
+    );
   });
 });

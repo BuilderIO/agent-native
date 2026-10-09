@@ -206,8 +206,10 @@ test("renders an authorized private replay image in the opaque presentation fram
     );
 
     let screenshotResponseHeaders: Record<string, string> | undefined;
+    let screenshotResponseUrl: string | undefined;
     viewerPage.on("response", async (response) => {
       if (new URL(response.url()).pathname === screenshotPath) {
+        screenshotResponseUrl = response.url();
         screenshotResponseHeaders = await response.allHeaders();
       }
     });
@@ -233,6 +235,10 @@ test("renders an authorized private replay image in the opaque presentation fram
     await expect
       .poll(() => screenshotResponseHeaders?.["cross-origin-resource-policy"])
       .toBe("same-origin");
+    await expect.poll(() => screenshotResponseUrl).toBeTruthy();
+    expect(new URL(screenshotResponseUrl!).searchParams.get("designId")).toBe(
+      designId,
+    );
   } finally {
     const deletion = await page.request.post(actionUrl("delete-design"), {
       data: { id: designId },

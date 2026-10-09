@@ -19,6 +19,7 @@ import { templatePreviewDocument } from "./template-preview-document";
 
 export function TemplatePreview({
   html,
+  designId,
   title,
   width,
   height,
@@ -29,6 +30,7 @@ export function TemplatePreview({
   onEscape,
 }: {
   html?: string | null;
+  designId?: string;
   title: string;
   width?: number | null;
   height?: number | null;
@@ -67,8 +69,9 @@ export function TemplatePreview({
     if (!html) return undefined;
     return preparePrivateReplayScreenshotPreviewDocument(
       templatePreviewDocument(html, { recordSessionReplay }),
+      { designId },
     );
-  }, [html, recordSessionReplay]);
+  }, [designId, html, recordSessionReplay]);
 
   useEffect(() => {
     if (!interactive) return;
@@ -235,11 +238,13 @@ export function TemplatePreview({
         loading={interactive ? "eager" : "lazy"}
         onLoad={(event) => {
           const frame = event.currentTarget;
-          connectPrivateReplayScreenshotPreview(
-            frame,
-            document?.screenshotPaths ?? [],
-            document?.nonce ?? null,
-          );
+          if (designId)
+            connectPrivateReplayScreenshotPreview(
+              frame,
+              document?.screenshotPaths ?? [],
+              document?.nonce ?? null,
+              designId,
+            );
         }}
         tabIndex={interactive ? 0 : -1}
         aria-hidden={!interactive || undefined}

@@ -3417,9 +3417,11 @@ export function DesignCanvas({
   const privateScreenshotPreview = useMemo(
     () =>
       readOnly || snapshotOnly
-        ? preparePrivateReplayScreenshotPreviewDocument(srcdoc ?? "")
+        ? preparePrivateReplayScreenshotPreviewDocument(srcdoc ?? "", {
+            designId,
+          })
         : { html: srcdoc ?? "", screenshotPaths: [], nonce: null },
-    [readOnly, snapshotOnly, srcdoc],
+    [designId, readOnly, snapshotOnly, srcdoc],
   );
 
   const srcdocVersionRef = useRef({ srcdoc, version: 0 });
@@ -7420,7 +7422,7 @@ export function DesignCanvas({
             );
           }}
           onLoad={(event) => {
-            if (!externalPreviewUrl) {
+            if (!externalPreviewUrl && designId) {
               connectPrivateReplayScreenshotPreview(
                 event.currentTarget,
                 privateScreenshotPreview.screenshotPaths,

@@ -137,8 +137,9 @@ export default function Present() {
     () =>
       preparePrivateReplayScreenshotPreviewDocument(
         withLocalRuntimes(reviewableContent),
+        { designId: id },
       ),
-    [reviewableContent],
+    [id, reviewableContent],
   );
   const reviewCommentCount =
     readDesignReviewSummary(reviewQuery.data)?.openCount ??
@@ -285,14 +286,15 @@ export default function Present() {
           srcDoc={previewDocument.html}
           sandbox="allow-scripts"
           data-design-preview-iframe
-          onLoad={(event) =>
-            connectPrivateReplayScreenshotPreview(
-              event.currentTarget,
-              previewDocument.screenshotPaths,
-              previewDocument.nonce,
-              id,
-            )
-          }
+          onLoad={(event) => {
+            if (id)
+              connectPrivateReplayScreenshotPreview(
+                event.currentTarget,
+                previewDocument.screenshotPaths,
+                previewDocument.nonce,
+                id,
+              );
+          }}
           className="h-full w-full border-0"
           title={`${design.title} — ${activeFile.filename}`}
         />

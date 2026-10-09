@@ -1622,12 +1622,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       screenshotPaths: readonly string[] = [],
       nonce: string | null = null,
     ) => {
-      connectPrivateReplayScreenshotPreview(
-        iframe,
-        screenshotPaths,
-        nonce,
-        reviewResourceId,
-      );
+      if (reviewResourceId)
+        connectPrivateReplayScreenshotPreview(
+          iframe,
+          screenshotPaths,
+          nonce,
+          reviewResourceId,
+        );
       postStaticPreviewTweakValues(iframe);
       const screenId = iframe.getAttribute("data-screen-iframe-id");
       if (!screenId) return;
@@ -11861,6 +11862,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               staticPreview={staticPreviewScreenIds.has(screen.id)}
               iframeAdmitted={admittedIframeIds.has(screen.id)}
               staticPreviewHandoff={staticPreviewHandoffById.get(screen.id)}
+              designId={reviewResourceId}
               onStaticPreviewLoad={handleStaticPreviewLoad}
               onStaticPreviewGone={handleStaticPreviewGone}
               onHoverIntent={handleScreenHoverIntent}
@@ -13337,6 +13339,7 @@ interface ScreenProps {
   staticPreview: boolean;
   iframeAdmitted: boolean;
   staticPreviewHandoff?: StaticPreviewHandoff;
+  designId?: string;
   onStaticPreviewLoad?: (
     iframe: HTMLIFrameElement,
     screenshotPaths?: readonly string[],
@@ -13419,6 +13422,7 @@ const Screen = memo(function Screen({
   staticPreview,
   iframeAdmitted,
   staticPreviewHandoff,
+  designId,
   onStaticPreviewLoad,
   onStaticPreviewGone,
   onHoverIntent,
@@ -13513,8 +13517,11 @@ const Screen = memo(function Screen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitBodyToFrame, screen.content, staticSrcdocNeeded]);
   const privateScreenshotPreview = useMemo(
-    () => preparePrivateReplayScreenshotPreviewDocument(srcdocWithHitTest),
-    [srcdocWithHitTest],
+    () =>
+      preparePrivateReplayScreenshotPreviewDocument(srcdocWithHitTest, {
+        designId,
+      }),
+    [designId, srcdocWithHitTest],
   );
   useEffect(() => {
     if (!showStaticPreview || previewUrl) return;
@@ -14006,6 +14013,7 @@ const Screen = memo(function Screen({
           srcdocWithHitTest={srcdocWithHitTest}
           metadata={metadata}
           screenRootComputedStylesById={screenRootComputedStylesById}
+          designId={designId}
           renderBreakpointContent={renderBreakpointContent}
           getBootReadyCallback={getBootReadyCallback}
           getBootStartCallback={getBootStartCallback}
@@ -14085,6 +14093,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     prev.staticPreview === next.staticPreview &&
     prev.iframeAdmitted === next.iframeAdmitted &&
     prev.staticPreviewHandoff === next.staticPreviewHandoff &&
+    prev.designId === next.designId &&
     prev.onStaticPreviewLoad === next.onStaticPreviewLoad &&
     prev.onStaticPreviewGone === next.onStaticPreviewGone &&
     prev.onHoverIntent === next.onHoverIntent &&
@@ -14158,6 +14167,7 @@ function BreakpointPreviewRow({
   srcdocWithHitTest,
   metadata,
   screenRootComputedStylesById,
+  designId,
   renderBreakpointContent,
   getBootReadyCallback,
   getBootStartCallback,
@@ -14190,6 +14200,7 @@ function BreakpointPreviewRow({
   srcdocWithHitTest: string;
   metadata: ResolvedScreenMetadata;
   screenRootComputedStylesById?: Record<string, Record<string, string>>;
+  designId?: string;
   renderBreakpointContent?: MultiScreenCanvasProps["renderBreakpointContent"];
   getBootReadyCallback?: ScreenProps["getBootReadyCallback"];
   getBootStartCallback?: ScreenProps["getBootStartCallback"];
@@ -14230,8 +14241,11 @@ function BreakpointPreviewRow({
   const { shouldMount: shouldMountContent } =
     getScreenContentCullState(cullTier);
   const privateScreenshotPreview = useMemo(
-    () => preparePrivateReplayScreenshotPreviewDocument(srcdocWithHitTest),
-    [srcdocWithHitTest],
+    () =>
+      preparePrivateReplayScreenshotPreviewDocument(srcdocWithHitTest, {
+        designId,
+      }),
+    [designId, srcdocWithHitTest],
   );
 
   return (

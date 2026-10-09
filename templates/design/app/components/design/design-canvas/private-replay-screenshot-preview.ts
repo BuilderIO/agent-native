@@ -100,17 +100,16 @@ function visitElements(
 
 export function preparePrivateReplayScreenshotPreviewDocument(
   html: string,
-  parentOrigin = typeof window === "undefined"
-    ? undefined
-    : window.location.origin,
+  options: { designId?: string | null; parentOrigin?: string } = {},
 ): PrivateReplayScreenshotPreviewDocument {
-  if (
-    !parentOrigin ||
-    !html.includes("/api/design-board-replay-screenshots/")
-  ) {
+  if (!html.includes("/api/design-board-replay-screenshots/")) {
     return { html, screenshotPaths: [], nonce: null };
   }
 
+  const parentOrigin =
+    options.parentOrigin ??
+    (typeof window === "undefined" ? undefined : window.location.origin);
+  const designId = options.designId?.trim();
   const document = parse(html);
   const screenshotPaths: string[] = [];
   const indices = new Map<string, number>();
@@ -144,6 +143,14 @@ export function preparePrivateReplayScreenshotPreviewDocument(
   if (screenshotPaths.length === 0) {
     return { html, screenshotPaths, nonce: null };
   }
+  if (!parentOrigin || !designId) {
+    visitElements(document, (element) => {
+      element.attrs = element.attrs.filter(
+        (attribute) => attribute.name !== PRIVATE_SCREENSHOT_ATTRIBUTE,
+      );
+    });
+    return { html: serialize(document), screenshotPaths: [], nonce: null };
+  }
 
   const nonce = randomNonce();
   return {
@@ -160,11 +167,12 @@ export function connectPrivateReplayScreenshotPreview(
   iframe: HTMLIFrameElement,
   screenshotPaths: readonly string[],
   nonce: string | null,
-  designId?: string,
+  designId: string,
 ): () => void {
   bridgeCleanupByIframe.get(iframe)?.();
   bridgeCleanupByIframe.delete(iframe);
-  if (!nonce || screenshotPaths.length === 0) return () => undefined;
+  if (!designId.trim() || !nonce || screenshotPaths.length === 0)
+    return () => undefined;
   const sandbox = new Set(
     (iframe.getAttribute("sandbox") ?? "").split(/\s+/).filter(Boolean),
   );
@@ -236,7 +244,7 @@ export function connectPrivateReplayScreenshotPreview(
       ) {
         throw new Error("Invalid private screenshot route");
       }
-      if (designId) url.searchParams.set("designId", designId);
+      url.searchParams.set("designId", designId);
       const response = await fetch(url, {
         cache: "no-store",
         credentials: "same-origin",

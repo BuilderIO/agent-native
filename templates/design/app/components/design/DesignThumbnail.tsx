@@ -36,9 +36,10 @@ export function DesignThumbnail({
       html
         ? preparePrivateReplayScreenshotPreviewDocument(
             injectSessionReplayIframeBootstrap(withLocalRuntimes(html)),
+            { designId },
           )
         : null,
-    [html],
+    [designId, html],
   );
 
   useEffect(() => {
@@ -96,12 +97,13 @@ export function DesignThumbnail({
         title={t("home.designPreview")}
         onLoad={(event) => {
           setLoaded(true);
-          connectPrivateReplayScreenshotPreview(
-            event.currentTarget,
-            previewDocument?.screenshotPaths ?? [],
-            previewDocument?.nonce ?? null,
-            designId,
-          );
+          if (designId)
+            connectPrivateReplayScreenshotPreview(
+              event.currentTarget,
+              previewDocument?.screenshotPaths ?? [],
+              previewDocument?.nonce ?? null,
+              designId,
+            );
         }}
         className="absolute left-1/2 top-1/2 bg-muted transition-opacity duration-200"
         style={{
