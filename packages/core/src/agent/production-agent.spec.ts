@@ -2084,7 +2084,7 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
-  it("runs the required AI setup gate before starting a new user turn", async () => {
+  it("runs the required AI setup gate before a user turn even with a local engine selection", async () => {
     const setupRequired = new Error("AI setup is required");
     const assertAiSetupReady = vi.fn(async () => {
       throw setupRequired;
@@ -2103,6 +2103,7 @@ describe("createProductionAgentHandler", () => {
         body: JSON.stringify({
           message: "A new prompt",
           threadId: "thread-setup-gate",
+          engine: "codex-cli",
         }),
       }),
     );

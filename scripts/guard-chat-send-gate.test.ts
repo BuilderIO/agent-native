@@ -214,7 +214,7 @@ test("does not flag normal controller send API calls", () => {
   );
 });
 
-test("requires readiness before controller send, queue append, and continue dispatch", () => {
+test("gates new sends and queue appends while constraining Continue to an admitted run", () => {
   const file = "packages/agentkit/src/client/client.ts";
   const gated = `class AgentKitClient {
   async assertAiSetupReady() {
@@ -232,9 +232,8 @@ test("requires readiness before controller send, queue append, and continue disp
     this.setThread();
     this.transport.queueMessage();
   }
-  async continueRun() {
-    await this.assertAiSetupReady();
-    this.transport.continueRun();
+  async continueRun(threadId: string, runId: string) {
+    this.transport.continueRun({ threadId, runId });
   }
 }`;
   assert.deepEqual(violations(file, gated), []);
@@ -255,7 +254,18 @@ test("requires readiness before controller send, queue append, and continue disp
   assert.deepEqual(violations(file, ungated), [
     "AgentKitClient.sendMessage must await assertAiSetupReady before setThread",
     "AgentKitClient.queueMessage must await assertAiSetupReady before setThread",
-    "AgentKitClient.continueRun must await assertAiSetupReady before continueRun",
+  ]);
+
+  const promptContinuation = gated.replace(
+    `async continueRun(threadId: string, runId: string) {
+    this.transport.continueRun({ threadId, runId });
+  }`,
+    `async continueRun(threadId: string, prompt: string) {
+    this.transport.continueRun({ threadId, prompt });
+  }`,
+  );
+  assert.deepEqual(violations(file, promptContinuation), [
+    "AgentKitClient.continueRun may only resume a server-admitted thread and run id",
   ]);
 
   const silentFallback = gated.replace(

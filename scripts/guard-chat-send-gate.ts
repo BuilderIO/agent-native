@@ -670,6 +670,74 @@ function methodDispatchGateViolation(
   };
 }
 
+function admittedContinuationViolation(
+  sourceFile: ts.SourceFile,
+): ChatSendGateViolation | undefined {
+  const method = classMethod(sourceFile, "AgentKitClient", "continueRun");
+  const parameters = method?.parameters.map((parameter) =>
+    ts.isIdentifier(parameter.name) ? parameter.name.text : undefined,
+  );
+  const body = method?.body;
+  const continuationAliases = new Set<string>();
+  let resumesRecordedRun = false;
+  if (body) {
+    const visit = (node: ts.Node) => {
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.initializer &&
+        ts.isPropertyAccessExpression(node.initializer) &&
+        node.initializer.name.text === "continueRun" &&
+        node.initializer.expression.getText(sourceFile) === "this.transport"
+      ) {
+        continuationAliases.add(node.name.text);
+      }
+      if (
+        ts.isCallExpression(node) &&
+        ((ts.isPropertyAccessExpression(node.expression) &&
+          node.expression.name.text === "continueRun" &&
+          node.expression.expression.getText(sourceFile) ===
+            "this.transport") ||
+          (ts.isIdentifier(node.expression) &&
+            continuationAliases.has(node.expression.text))) &&
+        node.arguments[0] &&
+        ts.isObjectLiteralExpression(node.arguments[0])
+      ) {
+        const fields = new Set(
+          node.arguments[0].properties.flatMap((property) => {
+            if (ts.isShorthandPropertyAssignment(property)) {
+              return [property.name.text];
+            }
+            return ts.isPropertyAssignment(property)
+              ? [propertyName(property.name)]
+              : [];
+          }),
+        );
+        resumesRecordedRun = fields.has("threadId") && fields.has("runId");
+      }
+      if (!resumesRecordedRun) ts.forEachChild(node, visit);
+    };
+    visit(body);
+  }
+  if (
+    method &&
+    parameters?.[0] === "threadId" &&
+    parameters[1] === "runId" &&
+    resumesRecordedRun
+  ) {
+    return undefined;
+  }
+  const range = method ? lineRange(method, sourceFile) : undefined;
+  return {
+    file: normalizePath(sourceFile.fileName),
+    line: range?.start ?? 1,
+    startLine: range?.start ?? 1,
+    endLine: range?.end ?? 1,
+    reason:
+      "AgentKitClient.continueRun may only resume a server-admitted thread and run id",
+  };
+}
+
 function agentKitReadyCallbackViolation(
   sourceFile: ts.SourceFile,
 ): ChatSendGateViolation | undefined {
@@ -886,7 +954,6 @@ function structuralDispatchViolations(
     for (const [methodName, owner, member] of [
       ["sendMessage", "this", "setThread"],
       ["queueMessage", "this", "setThread"],
-      ["continueRun", "this.transport", "continueRun"],
     ] as const) {
       const violation = methodDispatchGateViolation(
         sourceFile,
@@ -896,6 +963,8 @@ function structuralDispatchViolations(
       );
       if (violation) violations.push(violation);
     }
+    const continuationViolation = admittedContinuationViolation(sourceFile);
+    if (continuationViolation) violations.push(continuationViolation);
     const callbackViolation = agentKitReadyCallbackViolation(sourceFile);
     if (callbackViolation) violations.push(callbackViolation);
   }

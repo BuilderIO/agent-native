@@ -160,6 +160,19 @@ describe("AgentChatRuntime types", () => {
   });
 });
 
+describe("agentEngineStatusUrlForChatApi", () => {
+  it("preserves a public framework prefix from a rewritten chat URL", () => {
+    expect(
+      agentEngineStatusUrlForChatApi("/slides/_framework/agent-chat"),
+    ).toBe("/slides/_framework/agent-engine/status");
+    expect(
+      agentEngineStatusUrlForChatApi(
+        "https://api.example.test/slides/_agent-native/agent-chat",
+      ),
+    ).toBe("https://api.example.test/slides/_agent-native/agent-engine/status");
+  });
+});
+
 describe("createHttpAgentChatRuntime", () => {
   it("posts turns, streams runtime events, exposes run id, and cancels", async () => {
     const fetchMock = vi

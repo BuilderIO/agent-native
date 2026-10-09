@@ -3657,6 +3657,18 @@ describe("mergeThreadDataForClientSave", () => {
     expect(merged.queuedMessages).toEqual([]);
   });
 
+  it("does not allow a client save to create the server-owned queue", () => {
+    const merged = mergeThreadDataForClientSave(
+      { messages: [] },
+      {
+        messages: [],
+        queuedMessages: [{ id: "forged", text: "Bypass readiness" }],
+      },
+    );
+
+    expect(merged.queuedMessages).toBeUndefined();
+  });
+
   it("dedupes a client-save user message against the server's submittedRunId copy of the same prompt", () => {
     const existing = {
       messages: [

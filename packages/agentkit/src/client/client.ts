@@ -3357,21 +3357,7 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
   ): Promise<void> {
     this.assertActive();
-    const thread = this.getThread(threadId);
-    const submittedMessageId = this.submittedUserMessages.get(
-      this.runKey(threadId, runId),
-    );
-    const submittedMessage = submittedMessageId
-      ? thread.messages.find((message) => message.id === submittedMessageId)
-      : undefined;
-    const engine = submittedMessage?.metadata?.engine;
-    await this.assertAiSetupReady(
-      {
-        engine: typeof engine === "string" ? engine : undefined,
-        threadId,
-      },
-      context,
-    );
+    // The server verifies this run belongs to an already-admitted turn.
     const continueRun = this.transport.continueRun;
     if (!continueRun) throw new AgentKitOperationError("run continuation");
     const result = await this.invokeRequest(
