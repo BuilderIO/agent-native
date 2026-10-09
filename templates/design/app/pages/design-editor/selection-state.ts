@@ -490,6 +490,7 @@ export function updateExplicitOverviewScreenSelection(args: {
   currentExplicitScreenIds: readonly string[];
   ownerDerivedScreenIds: ReadonlySet<string>;
   additive: boolean;
+  marqueeSelectedScreenIds?: readonly string[];
 }): string[] {
   const selectedScreenIds = [...new Set(args.selectedScreenIds)];
   const selected = new Set(selectedScreenIds);
@@ -504,6 +505,11 @@ export function updateExplicitOverviewScreenSelection(args: {
       (!args.additive || !previouslySelected.has(screenId)) &&
       !explicit.includes(screenId)
     ) {
+      explicit.push(screenId);
+    }
+  }
+  for (const screenId of args.marqueeSelectedScreenIds ?? []) {
+    if (selected.has(screenId) && !explicit.includes(screenId)) {
       explicit.push(screenId);
     }
   }

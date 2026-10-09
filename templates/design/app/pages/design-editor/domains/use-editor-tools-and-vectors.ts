@@ -1114,6 +1114,10 @@ export function useEditorToolsAndVectors({
               intent?.source === "marquee"
                 ? intent.additive === true
                 : shiftKeyHeldRef.current,
+            marqueeSelectedScreenIds:
+              intent?.source === "marquee"
+                ? (intent.marqueeSelectedScreenIds ?? [])
+                : [],
           });
       }
       setOverviewSelectedScreenIds((current) =>
