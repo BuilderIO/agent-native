@@ -2558,6 +2558,18 @@ const FEEDBACK_REPLY_DETAIL_SENTENCE_BUT_RETRACTION_SCAN_RE = new RegExp(
   "gi",
 );
 
+function isCrossClauseExampleOmission(input, match) {
+  const matchEnd = match.index + match[0].length;
+  const suffix = input.slice(matchEnd, matchEnd + 150);
+  const nextBoundary = suffix.search(FEEDBACK_REPLY_DETAIL_BOUNDARY_SCAN_RE);
+  const scopeEnd =
+    nextBoundary === -1 ? matchEnd + suffix.length : matchEnd + nextBoundary;
+  const example = FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION_RE.exec(
+    input.slice(match.index, scopeEnd),
+  );
+  return example !== null && example.index < match[0].length;
+}
+
 function hasFeedbackReplyDetailCorrection(message) {
   const input = textForPattern(message, true);
   if (!FEEDBACK_REPLY_DETAIL_CANDIDATE_RE.test(input)) return false;
@@ -2566,7 +2578,7 @@ function hasFeedbackReplyDetailCorrection(message) {
     FEEDBACK_REPLY_DETAIL_CROSS_CLAUSE_OMISSION_RE.exec(input);
   if (
     crossClauseOmission &&
-    !FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION_RE.test(crossClauseOmission[0]) &&
+    !isCrossClauseExampleOmission(input, crossClauseOmission) &&
     !FEEDBACK_REPLY_DETAIL_CROSS_CLAUSE_NEGATED_OMISSION_RE.test(
       crossClauseOmission[0],
     )
@@ -2918,6 +2930,14 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "Trim the response."],
   [true, "Shorten your reply."],
   [false, "For example, don't include commit hashes in replies."],
+  [
+    false,
+    "Replies are great, but for example, don't include commit hashes in replies.",
+  ],
+  [
+    true,
+    "Replies are great, but don't include commit hashes, and for example, don't mention CI in replies.",
+  ],
   [false, "E.g., don't include commit hashes in replies."],
   [true, "Keep technical details out of the reply."],
   [false, "Don't keep technical details out of the reply."],
