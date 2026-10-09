@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import type { ActionRunContext } from "@agent-native/core/action";
 import { QueryClient } from "@tanstack/react-query";
 import { transformSync } from "esbuild";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -210,6 +211,35 @@ describe("create-file: node-id annotation", () => {
       expect.any(String),
       insertedValues.content,
     );
+  });
+
+  it("rejects widget screen creation outside the scoped design", async () => {
+    const context: ActionRunContext = {
+      caller: "mcp-widget-write",
+      mcpDirectoryWidgetWrite: {
+        appId: "design",
+        resourceIds: { designId: "design-1" },
+        actionNames: ["create-file"],
+      },
+    };
+
+    await expect(
+      action.run(
+        {
+          designId: "design-elsewhere",
+          filename: "new-screen.html",
+          content: "<main>New screen</main>",
+          fileType: "html",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_resource_mismatch",
+      statusCode: 403,
+    });
+
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
   });
 
   it("stamps the body of a new blank screen before persistence", async () => {

@@ -58,6 +58,7 @@ export default defineAction({
       throw new Error("Invalid filename: path traversal not allowed");
     }
 
+    assertDesignWidgetFileWriteScope(designId, context);
     await assertAccess("design", designId, "editor");
     const checkpoint = await snapshotDesignBeforeAgentEdit(designId, context, {
       allowCheckpointFailureSkip: true,

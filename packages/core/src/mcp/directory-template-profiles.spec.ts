@@ -248,6 +248,69 @@ describe("ChatGPT directory template profiles", () => {
   );
 
   it(
+    "scopes Design widget screen creation to its target design",
+    async () => {
+      const { actions } = await loadTemplateActions("design");
+      const createFileArguments =
+        designProfile.widgetWriteActionArguments?.["create-file"];
+
+      expect(
+        actions["create-file"]?.tool?.parameters?.properties,
+      ).toHaveProperty("designId");
+      expect(createFileArguments).toMatchObject({
+        designId: {
+          type: "actionSchemaResourceBound",
+          resourceKey: "designId",
+        },
+        filename: { type: "actionSchema" },
+        content: { type: "actionSchema" },
+        fileType: { type: "actionSchema" },
+      });
+      if (!createFileArguments) {
+        throw new Error("Design create-file widget arguments are missing.");
+      }
+
+      const generatedTarget = designProfile.widgetTargets?.[
+        "generate-design"
+      ]?.({ designId: "design-123" }, { designId: "design-123" });
+      expect(generatedTarget?.writeActions).toContain("create-file");
+
+      const resourceUri = "ui://design/shell-v69";
+      const capability = createMcpDirectoryWidgetWriteCapability({
+        appId: "design",
+        resourceUri,
+        resourceIds: { designId: "design-123" },
+        userEmail: "reviewer@example.test",
+        expiresAtMs: Date.now() + 60_000,
+        readActionArguments: {},
+        writeActionArguments: { "create-file": createFileArguments },
+      });
+      expect(capability).toBeDefined();
+      if (!capability) throw new Error("Failed to create test capability.");
+
+      const args = {
+        designId: "design-123",
+        filename: "new-screen.html",
+        content: "<main>New screen</main>",
+        fileType: "html",
+      };
+      const normalize = (nextArgs: Record<string, unknown>) =>
+        normalizeMcpDirectoryWidgetWriteActionArguments(capability, {
+          actionName: "create-file",
+          appId: "design",
+          resourceUri,
+          userEmail: "reviewer@example.test",
+          args: nextArgs,
+          allowedArgumentNames: Object.keys(createFileArguments),
+        });
+
+      expect(normalize(args)).toEqual(args);
+      expect(normalize({ ...args, replaceExisting: true })).toBeUndefined();
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
+
+  it(
     "uses document-specific labels for Content's shared widget shell",
     async () => {
       const { actions } = await loadTemplateActions("content");

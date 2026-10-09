@@ -47,7 +47,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         ? {
             targetPath: `/design/${encodeURIComponent(designId)}`,
             resourceIds: { designId },
-            writeActions: ["create-file", "update-design", "update-file"],
+            writeActions: ["update-design", "update-file", "create-file"],
           }
         : null;
     },
@@ -64,7 +64,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         ? {
             targetPath: `/design/${encodeURIComponent(designId)}`,
             resourceIds: { designId },
-            writeActions: ["create-file", "update-design", "update-file"],
+            writeActions: ["update-design", "update-file", "create-file"],
           }
         : null;
     },
@@ -79,7 +79,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
                 : ""
             }`,
             resourceIds: { designId },
-            writeActions: ["create-file", "update-design", "update-file"],
+            writeActions: ["update-design", "update-file", "create-file"],
           }
         : null;
     },
@@ -92,7 +92,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         ? {
             targetPath: `/design/${encodeURIComponent(designId)}`,
             resourceIds: { designId },
-            writeActions: ["create-file", "update-design", "update-file"],
+            writeActions: ["update-design", "update-file", "create-file"],
           }
         : null;
     },
