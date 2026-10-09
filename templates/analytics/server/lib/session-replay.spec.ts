@@ -103,6 +103,7 @@ function createBudgetDbMock(results: unknown[][]) {
 function createReplayDbMock(
   results: unknown[][],
   associationResults: unknown[][] = [],
+  failAssociationInsert = false,
 ) {
   const inserts: Array<{ table: unknown; values: unknown }> = [];
   const deletes: Array<{ table: unknown; where: unknown }> = [];
@@ -131,7 +132,14 @@ function createReplayDbMock(
       values: vi.fn((values: unknown) => {
         inserts.push({ table, values });
         return {
-          onConflictDoNothing: vi.fn(async () => undefined),
+          onConflictDoNothing: vi.fn(async () => {
+            if (
+              failAssociationInsert &&
+              table === schema.sessionRecordingSessionAssociations
+            ) {
+              throw new Error("association write failed");
+            }
+          }),
         };
       }),
     })),
@@ -140,6 +148,15 @@ function createReplayDbMock(
         deletes.push({ table, where });
       }),
     })),
+    transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>) => {
+      const insertCount = inserts.length;
+      try {
+        return await callback(getDbMock());
+      } catch (error) {
+        inserts.splice(insertCount);
+        throw error;
+      }
+    }),
   };
   return { db, inserts, deletes, selectedTables };
 }
@@ -2562,6 +2579,61 @@ describe("session replay ingest parsing", () => {
     });
   }
 
+  function replayAppendFixture() {
+    const recording = {
+      id: "sr_legacy",
+      publicKeyId: "key_1",
+      clientRecordingId: "recording_1",
+      sessionId: "legacy-session",
+      userId: "dev@example.com",
+      anonymousId: "anon_1",
+      userKey: "dev@example.com",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: null,
+      durationMs: null,
+      chunkCount: 1,
+      eventCount: 1,
+      totalBytes: 100,
+      pageCount: 1,
+      errorCount: 0,
+      networkErrorCount: 0,
+      rageClickCount: 0,
+      privacyMode: "unknown",
+      metadata: "{}",
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      visibility: "private",
+      status: "active",
+    };
+    const previousInput = replayIngestPayload();
+    const previousChunk = previousInput.chunks[0]!;
+    const oldChunk = {
+      id: "src_old",
+      recordingId: recording.id,
+      seq: previousChunk.seq,
+      checksum: previousChunk.checksum,
+      byteLength: previousChunk.byteLength,
+      eventCount: previousChunk.eventCount,
+      startedAt: previousChunk.startedAt,
+      endedAt: previousChunk.endedAt,
+      storageKind: "inline",
+      storageRef: null,
+      inlineData: previousChunk.inlineData,
+      ownerEmail: recording.ownerEmail,
+      orgId: recording.orgId,
+    };
+    const input = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "new-session",
+      userId: "dev@example.com",
+      anonymousId: "anon_1",
+      sequence: 1,
+      events: [{ type: 4, timestamp: 2 }],
+    });
+    return { recording, oldChunk, input };
+  }
+
   it("preserves the last known legacy session when a recording gains associations", async () => {
     const recording = {
       id: "sr_legacy",
@@ -2635,6 +2707,122 @@ describe("session replay ingest parsing", () => {
         .map((row) => row.sessionId)
         .sort(),
     ).toEqual(["legacy-session", "new-session"]);
+  });
+
+  it("defers a changed-session append until association storage is available", async () => {
+    sessionRecordingAssociationsReadyMock.mockResolvedValue(false);
+    const { recording, oldChunk, input } = replayAppendFixture();
+    const keyResults = replayIngestKeyDbResults(null);
+    const deferred = createReplayDbMock([
+      ...keyResults.slice(0, 3),
+      [recording],
+      [oldChunk],
+    ]);
+    const update = vi.fn();
+    getDbMock.mockReturnValue({ ...deferred.db, update });
+
+    await expect(
+      recordSessionReplayChunks(input, {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+      }),
+    ).rejects.toMatchObject({ statusCode: 503 });
+
+    expect(deferred.inserts).toEqual([]);
+    expect(deferred.deletes).toEqual([]);
+    expect(update).not.toHaveBeenCalled();
+
+    sessionRecordingAssociationsReadyMock.mockResolvedValue(true);
+    const retry = createReplayDbMock(
+      [...keyResults.slice(0, 3), [recording], [oldChunk]],
+      [[]],
+    );
+    const retryUpdate = vi.fn(() => ({
+      set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+    }));
+    getDbMock.mockReturnValue({ ...retry.db, update: retryUpdate });
+
+    await expect(
+      recordSessionReplayChunks(input, {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+      }),
+    ).resolves.toMatchObject({ acceptedChunks: 1 });
+
+    const associationInsert = retry.inserts.find(
+      (entry) => entry.table === schema.sessionRecordingSessionAssociations,
+    );
+    expect(
+      (associationInsert?.values as Array<{ sessionId: string }>)
+        .map((row) => row.sessionId)
+        .sort(),
+    ).toEqual(["legacy-session", "new-session"]);
+    expect(retryUpdate).toHaveBeenCalledTimes(2);
+  });
+
+  it("rolls back chunks when association persistence fails so a retry can repair it", async () => {
+    const { recording, oldChunk, input } = replayAppendFixture();
+    const keyResults = replayIngestKeyDbResults(null);
+    const failed = createReplayDbMock(
+      [...keyResults.slice(0, 3), [recording], [oldChunk]],
+      [[]],
+      true,
+    );
+    const failedUpdate = vi.fn();
+    getDbMock.mockReturnValue({ ...failed.db, update: failedUpdate });
+
+    await expect(
+      recordSessionReplayChunks(input, {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+      }),
+    ).rejects.toThrow("association write failed");
+
+    expect(
+      failed.inserts.some(
+        (entry) => entry.table === schema.sessionReplayChunks,
+      ),
+    ).toBe(false);
+    expect(
+      failed.inserts.some(
+        (entry) => entry.table === schema.sessionRecordingSessionAssociations,
+      ),
+    ).toBe(false);
+    expect(
+      failed.deletes.some(
+        (entry) => entry.table === schema.sessionReplayIngests,
+      ),
+    ).toBe(true);
+    expect(failedUpdate).not.toHaveBeenCalled();
+
+    const retry = createReplayDbMock(
+      [...keyResults.slice(0, 3), [recording], [oldChunk]],
+      [[]],
+    );
+    const retryUpdate = vi.fn(() => ({
+      set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+    }));
+    getDbMock.mockReturnValue({ ...retry.db, update: retryUpdate });
+
+    await expect(
+      recordSessionReplayChunks(input, {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+      }),
+    ).resolves.toMatchObject({ acceptedChunks: 1 });
+
+    expect(
+      retry.inserts.some((entry) => entry.table === schema.sessionReplayChunks),
+    ).toBe(true);
+    const associationInsert = retry.inserts.find(
+      (entry) => entry.table === schema.sessionRecordingSessionAssociations,
+    );
+    expect(
+      (associationInsert?.values as Array<{ sessionId: string }>)
+        .map((row) => row.sessionId)
+        .sort(),
+    ).toEqual(["legacy-session", "new-session"]);
+    expect(retryUpdate).toHaveBeenCalledTimes(2);
   });
 
   it("does not associate a rotated session when an ingest only retries duplicate chunks", async () => {

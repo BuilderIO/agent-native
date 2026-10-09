@@ -24,7 +24,10 @@ import {
   performanceCeiling,
 } from "../../shared/session-performance";
 import { schema } from "../db/index.js";
-import type { SessionEventIndexInputRow } from "./session-event-index";
+import {
+  sessionEventTenantKey,
+  type SessionEventIndexInputRow,
+} from "./session-event-index";
 import {
   __resetSessionPerformanceForTests,
   aggregatePerformanceRows,
@@ -564,6 +567,48 @@ describe("performance aggregates on Postgres", () => {
     expect(summaries.get("r-exact")?.lcpMs).toBe(4_200);
     expect(summaries.get("r-no-association")?.lcpMs).toBe(4_200);
     expect(summaries.get("r-stale-only")?.lcpMs).toBe(900);
+  });
+
+  it("reads high-cardinality session metrics in bounded batches", async () => {
+    await addRecording("r-many", "s-000001");
+    await client.query(
+      `INSERT INTO session_recording_session_associations (id, recording_id, session_id)
+       SELECT 'association-' || lpad(session_number::text, 6, '0'),
+              'r-many',
+              's-' || lpad(session_number::text, 6, '0')
+       FROM generate_series(2, 66000) AS session_number`,
+    );
+    await addAssociation("r-many", "z-tail");
+    const tenantKey = sessionEventTenantKey(OWNER, ORG);
+    await client.query(
+      `INSERT INTO analytics_session_performance
+        (id, tenant_key, owner_email, org_id, session_id, max_lcp_ms, first_at, last_at)
+       VALUES ('performance-tail', $1, $2, $3, 'z-tail', 4200, $4, $4)`,
+      [tenantKey, OWNER, ORG, `${DAY}T10:00:00.000Z`],
+    );
+    await client.query(
+      `INSERT INTO analytics_performance_gaps
+        (id, tenant_key, owner_email, org_id, event_date, session_id, recorded_at)
+       VALUES ('gap-tail', $1, $2, $3, $4, 'z-tail', $5)`,
+      [tenantKey, OWNER, ORG, DAY, `${DAY}T10:00:00.000Z`],
+    );
+
+    const fixture = await client.query(
+      `SELECT count(*) AS association_count,
+              bool_or(session_id = 'z-tail') AS has_tail
+       FROM session_recording_session_associations
+       WHERE recording_id = 'r-many'`,
+    );
+    expect(Number(fixture.rows[0]?.association_count)).toBe(66_001);
+    expect(fixture.rows[0]?.has_tail).toBe(true);
+    const summaries = await getSessionPerformanceSummaries(scope, [
+      { id: "r-many", ownerEmail: OWNER, orgId: ORG },
+    ]);
+
+    expect(summaries.get("r-many")).toMatchObject({
+      lcpMs: 4_200,
+      incomplete: true,
+    });
   });
 
   it("marks a session value that hit the ceiling as a floor", async () => {

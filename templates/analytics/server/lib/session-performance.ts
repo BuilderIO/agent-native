@@ -70,6 +70,8 @@ const MAX_APP_LENGTH = 100;
 const MAX_SAMPLE_WEIGHT = 10_000;
 const SESSION_PERFORMANCE_RETENTION_BUFFER_DAYS = 2;
 const ASSOCIATION_READ_PAGE_SIZE = 500;
+// Leave room for tenant and other filters under PostgreSQL's bind limit.
+const SESSION_PERFORMANCE_SESSION_BATCH_SIZE = 25_000;
 export const ROUTE_PERFORMANCE_RETENTION_DAYS = 180;
 export const ROUTE_PERFORMANCE_MAX_RANGE_DAYS = 90;
 export const ROUTE_PERFORMANCE_DEFAULT_LIMIT = 50;
@@ -822,47 +824,78 @@ export async function getSessionPerformanceSummaries(
       sessionIdsByRecording.set(row.id, [row.sessionId]);
     }
   }
-  const sessionIds = [...new Set([...sessionIdsByRecording.values()].flat())];
-  if (!sessionIds.length) return summaries;
+  const sessionIdsByTenant = new Map<string, Set<string>>();
+  for (const recording of recordings) {
+    const sessionIds = sessionIdsByRecording.get(recording.id) ?? [];
+    if (!sessionIds.length) continue;
+    const tenantKey = sessionEventTenantKey(
+      recording.ownerEmail,
+      recording.orgId,
+    );
+    const tenantSessionIds =
+      sessionIdsByTenant.get(tenantKey) ?? new Set<string>();
+    for (const sessionId of sessionIds) tenantSessionIds.add(sessionId);
+    sessionIdsByTenant.set(tenantKey, tenantSessionIds);
+  }
+  if (!sessionIdsByTenant.size) return summaries;
   const p = schema.analyticsSessionPerformance;
-  const tenantKeys = [
-    ...new Set(
-      recordings.map((recording) =>
-        sessionEventTenantKey(recording.ownerEmail, recording.orgId),
-      ),
-    ),
-  ];
   const gaps = schema.analyticsPerformanceGaps;
-  const pairLimit = tenantKeys.length * sessionIds.length;
-  const [rows, gapRowsForPage] = await Promise.all([
-    db
-      .select({
-        tenantKey: p.tenantKey,
-        sessionId: p.sessionId,
-        maxTtfbMs: p.maxTtfbMs,
-        maxLcpMs: p.maxLcpMs,
-        maxInpMs: p.maxInpMs,
-        maxCls: p.maxCls,
-        slowRequests: p.slowRequests,
-        maxRequestMs: p.maxRequestMs,
-      })
-      .from(p)
-      .where(
-        and(inArray(p.tenantKey, tenantKeys), inArray(p.sessionId, sessionIds)),
-      )
-      .limit(pairLimit),
-    db
-      .selectDistinct({ tenantKey: gaps.tenantKey, sessionId: gaps.sessionId })
-      .from(gaps)
-      .where(
-        and(
-          inArray(gaps.tenantKey, tenantKeys),
-          inArray(gaps.sessionId, sessionIds),
-          ne(gaps.sessionId, ""),
-        ),
-      )
-      .limit(pairLimit),
-  ]);
+  const rows: Array<{
+    tenantKey: string;
+    sessionId: string;
+    maxTtfbMs: number | null;
+    maxLcpMs: number | null;
+    maxInpMs: number | null;
+    maxCls: number | null;
+    slowRequests: number;
+    maxRequestMs: number | null;
+  }> = [];
+  const gapRowsForPage: Array<{ tenantKey: string; sessionId: string }> = [];
+  for (const [tenantKey, tenantSessionIds] of sessionIdsByTenant) {
+    const sessionIds = [...tenantSessionIds];
+    for (
+      let offset = 0;
+      offset < sessionIds.length;
+      offset += SESSION_PERFORMANCE_SESSION_BATCH_SIZE
+    ) {
+      const batch = sessionIds.slice(
+        offset,
+        offset + SESSION_PERFORMANCE_SESSION_BATCH_SIZE,
+      );
+      const [performanceRows, gapRows] = await Promise.all([
+        db
+          .select({
+            tenantKey: p.tenantKey,
+            sessionId: p.sessionId,
+            maxTtfbMs: p.maxTtfbMs,
+            maxLcpMs: p.maxLcpMs,
+            maxInpMs: p.maxInpMs,
+            maxCls: p.maxCls,
+            slowRequests: p.slowRequests,
+            maxRequestMs: p.maxRequestMs,
+          })
+          .from(p)
+          .where(and(eq(p.tenantKey, tenantKey), inArray(p.sessionId, batch)))
+          .limit(batch.length),
+        db
+          .selectDistinct({
+            tenantKey: gaps.tenantKey,
+            sessionId: gaps.sessionId,
+          })
+          .from(gaps)
+          .where(
+            and(
+              eq(gaps.tenantKey, tenantKey),
+              inArray(gaps.sessionId, batch),
+              ne(gaps.sessionId, ""),
+            ),
+          )
+          .limit(batch.length),
+      ]);
+      rows.push(...performanceRows);
+      gapRowsForPage.push(...gapRows);
+    }
+  }
   const pairKey = (tenantKey: string, sessionId: string) =>
     `${tenantKey}\u0000${sessionId}`;
   const incomplete = new Set<string>(

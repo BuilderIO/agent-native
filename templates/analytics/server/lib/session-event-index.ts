@@ -575,23 +575,26 @@ export async function sessionEventFilterConditions(
   const didNotEventConditions = didNotEvents.map((eventName) =>
     associationsReady
       ? sql`not exists (
-          select 1 from ${se}
-          where ${se.tenantKey} = ${recordingTenant}
-            and ${se.eventName} = ${eventName}
-            and (
-              exists (
-                select 1 from ${schema.sessionRecordingSessionAssociations} as ${excludedEventAssociation}
-                where ${excludedEventAssociation.recordingId} = ${r.id}
-                  and ${excludedEventAssociation.sessionId} = ${se.sessionId}
-              )
-              or (
-                not exists (
-                  select 1 from ${schema.sessionRecordingSessionAssociations} as ${excludedEventAssociationPresence}
-                  where ${excludedEventAssociationPresence.recordingId} = ${r.id}
-                )
-                and ${se.sessionId} = ${r.sessionId}
-              )
+          select 1 from ${schema.sessionRecordingSessionAssociations} as ${excludedEventAssociation}
+          where ${excludedEventAssociation.recordingId} = ${r.id}
+            and exists (
+              select 1 from ${se}
+              where ${se.tenantKey} = ${recordingTenant}
+                and ${se.sessionId} = ${excludedEventAssociation.sessionId}
+                and ${se.eventName} = ${eventName}
             )
+        )
+        and (
+          exists (
+            select 1 from ${schema.sessionRecordingSessionAssociations} as ${excludedEventAssociationPresence}
+            where ${excludedEventAssociationPresence.recordingId} = ${r.id}
+          )
+          or not exists (
+            select 1 from ${se}
+            where ${se.tenantKey} = ${recordingTenant}
+              and ${se.sessionId} = ${r.sessionId}
+              and ${se.eventName} = ${eventName}
+          )
         )`
       : sql`not ${sessionIndexed(r.sessionId, eventName)}`,
   );

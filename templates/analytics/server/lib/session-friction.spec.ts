@@ -46,6 +46,7 @@ import {
 import {
   __resetSessionFrictionForTests,
   aggregateSessionFrictionEvents,
+  buildSessionTroubleQuery,
   finalizeReplayFriction,
   getSessionFrictionCoverageStart,
   getSessionFrictionDetails,
@@ -1585,6 +1586,14 @@ describe("session friction on Postgres", () => {
         count: 10,
       },
     ]);
+  });
+
+  it("keeps trouble query binds independent of associated-session count", () => {
+    const query = buildSessionTroubleQuery(db, ["r-bounded"], true).toSQL();
+
+    expect(query.params.length).toBeLessThan(100);
+    expect(query.sql).toContain("session_recording_session_associations");
+    expect(query.sql).not.toContain("UNION");
   });
 
   it("links the Monitoring issues a recording's errors belong to", async () => {

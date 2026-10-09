@@ -333,6 +333,9 @@ describe("session event index on Postgres", () => {
     expect(
       await matchingRecordings({ didEvents: ["recording_started"] }),
     ).toEqual(["r-legacy"]);
+    expect(await matchingRecordings({ didNotEvents: ["purchase"] })).toEqual([
+      "r-legacy",
+    ]);
   });
 
   it("returns exactly the sessions that did one event and not another", async () => {

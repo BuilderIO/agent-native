@@ -1803,8 +1803,39 @@ export async function recordSessionReplayChunks(
     Number(recording.chunkCount ?? 0) === 0 &&
     Number(recording.eventCount ?? 0) === 0 &&
     existingChunks.length === 0;
+  const associationsReady = await sessionRecordingAssociationsReady(db);
+  if (
+    !associationsReady &&
+    !wasEmptyRecording &&
+    clampedInput.sessionId !== recording.sessionId
+  ) {
+    throw replayError(
+      "Replay storage is temporarily unavailable; retry this chunk",
+      503,
+      60,
+    );
+  }
 
   const ingestId = replayId("sri");
+  const cleanUpFailedIngest = async () => {
+    await Promise.all(uploadedBlobHandles.map(deleteReplayBlobHandleQuietly));
+    await db
+      .delete(schema.sessionReplayIngests)
+      .where(eq(schema.sessionReplayIngests.id, ingestId))
+      .catch((releaseError: unknown) => {
+        console.error(
+          "[session-replay] failed to release replay usage reservation",
+          { ingestId, publicKeyId: key.id, error: releaseError },
+        );
+      });
+    if (wasEmptyRecording) {
+      await deleteEmptyReplayRecordingPlaceholder(db, {
+        id: recording.id,
+        ownerEmail: key.ownerEmail,
+        orgId: key.orgId,
+      });
+    }
+  };
   try {
     await db.insert(schema.sessionReplayIngests).values({
       id: ingestId,
@@ -1867,29 +1898,8 @@ export async function recordSessionReplayChunks(
         orgId: key.orgId,
       });
     }
-
-    if (rowsToInsert.length) {
-      await db.insert(schema.sessionReplayChunks).values(rowsToInsert);
-    }
-    uploadedBlobHandles.length = 0;
   } catch (error) {
-    await Promise.all(uploadedBlobHandles.map(deleteReplayBlobHandleQuietly));
-    await db
-      .delete(schema.sessionReplayIngests)
-      .where(eq(schema.sessionReplayIngests.id, ingestId))
-      .catch((releaseError: unknown) => {
-        console.error(
-          "[session-replay] failed to release replay usage reservation",
-          { ingestId, publicKeyId: key.id, error: releaseError },
-        );
-      });
-    if (wasEmptyRecording) {
-      await deleteEmptyReplayRecordingPlaceholder(db, {
-        id: recording.id,
-        ownerEmail: key.ownerEmail,
-        orgId: key.orgId,
-      });
-    }
+    await cleanUpFailedIngest();
     throw error;
   }
 
@@ -1938,84 +1948,93 @@ export async function recordSessionReplayChunks(
   const recordingEnded =
     clampedInput.status === "completed" || recording.status === "completed";
   const recordedSessionId =
-    rowsToInsert.length > 0 ? clampedInput.sessionId : recording.sessionId;
-
-  if (
-    rowsToInsert.length > 0 &&
-    (await sessionRecordingAssociationsReady(db))
-  ) {
-    const previousAssociations = await db
-      .select({
-        sessionId: schema.sessionRecordingSessionAssociations.sessionId,
-      })
-      .from(schema.sessionRecordingSessionAssociations)
-      .where(
-        eq(
-          schema.sessionRecordingSessionAssociations.recordingId,
-          recording.id,
-        ),
-      )
-      .limit(1);
-    const sessionIds = new Set<string>([clampedInput.sessionId]);
-    if (
-      previousAssociations.length === 0 &&
-      existingChunks.length > 0 &&
-      recording.sessionId
-    ) {
-      sessionIds.add(recording.sessionId);
-    }
-    await db
-      .insert(schema.sessionRecordingSessionAssociations)
-      .values(
-        [...sessionIds].map((sessionId) => ({
-          id: replayId("srsa"),
-          recordingId: recording.id,
-          sessionId,
-        })),
-      )
-      .onConflictDoNothing();
+    rowsToInsert.length > 0 && (associationsReady || wasEmptyRecording)
+      ? clampedInput.sessionId
+      : recording.sessionId;
+  const recordingUpdate = {
+    sessionId: recordedSessionId,
+    userId: clampedInput.userId ?? recording.userId ?? null,
+    anonymousId: clampedInput.anonymousId ?? recording.anonymousId ?? null,
+    userKey: clampedInput.userKey ?? recording.userKey ?? null,
+    startedAt,
+    endedAt,
+    durationMs,
+    chunkCount,
+    eventCount,
+    totalBytes,
+    pageCount: Math.max(
+      Number(recording.pageCount ?? 0),
+      clampedInput.pageCount,
+    ),
+    errorCount,
+    networkErrorCount: Math.max(
+      Number(recording.networkErrorCount ?? 0),
+      clampedInput.networkErrorCount,
+    ),
+    rageClickCount,
+    privacyMode:
+      clampedInput.privacyMode !== "unknown"
+        ? clampedInput.privacyMode
+        : (recording.privacyMode ?? "unknown"),
+    firstUrl: recording.firstUrl ?? clampedInput.url,
+    lastUrl: clampedInput.url ?? recording.lastUrl ?? null,
+    path: clampedInput.path ?? recording.path ?? null,
+    hostname: clampedInput.hostname ?? recording.hostname ?? null,
+    referrer: clampedInput.referrer ?? recording.referrer ?? null,
+    app: clampedInput.app ?? recording.app ?? null,
+    template: clampedInput.template ?? recording.template ?? null,
+    status: recordingEnded ? "completed" : "active",
+    metadata: JSON.stringify(metadata),
+    updatedAt: ingestedAt,
+    lastIngestedAt: ingestedAt,
+  };
+  try {
+    await db.transaction(async (tx: any) => {
+      if (rowsToInsert.length) {
+        await tx.insert(schema.sessionReplayChunks).values(rowsToInsert);
+      }
+      if (rowsToInsert.length && associationsReady) {
+        const previousAssociations = await tx
+          .select({
+            sessionId: schema.sessionRecordingSessionAssociations.sessionId,
+          })
+          .from(schema.sessionRecordingSessionAssociations)
+          .where(
+            eq(
+              schema.sessionRecordingSessionAssociations.recordingId,
+              recording.id,
+            ),
+          )
+          .limit(1);
+        const sessionIds = new Set<string>([clampedInput.sessionId]);
+        if (
+          previousAssociations.length === 0 &&
+          existingChunks.length > 0 &&
+          recording.sessionId
+        ) {
+          sessionIds.add(recording.sessionId);
+        }
+        await tx
+          .insert(schema.sessionRecordingSessionAssociations)
+          .values(
+            [...sessionIds].map((sessionId) => ({
+              id: replayId("srsa"),
+              recordingId: recording.id,
+              sessionId,
+            })),
+          )
+          .onConflictDoNothing();
+      }
+      await tx
+        .update(schema.sessionRecordings)
+        .set(recordingUpdate)
+        .where(eq(schema.sessionRecordings.id, recording.id));
+    });
+    uploadedBlobHandles.length = 0;
+  } catch (error) {
+    await cleanUpFailedIngest();
+    throw error;
   }
-
-  await db
-    .update(schema.sessionRecordings)
-    .set({
-      sessionId: recordedSessionId,
-      userId: clampedInput.userId ?? recording.userId ?? null,
-      anonymousId: clampedInput.anonymousId ?? recording.anonymousId ?? null,
-      userKey: clampedInput.userKey ?? recording.userKey ?? null,
-      startedAt,
-      endedAt,
-      durationMs,
-      chunkCount,
-      eventCount,
-      totalBytes,
-      pageCount: Math.max(
-        Number(recording.pageCount ?? 0),
-        clampedInput.pageCount,
-      ),
-      errorCount,
-      networkErrorCount: Math.max(
-        Number(recording.networkErrorCount ?? 0),
-        clampedInput.networkErrorCount,
-      ),
-      rageClickCount,
-      privacyMode:
-        clampedInput.privacyMode !== "unknown"
-          ? clampedInput.privacyMode
-          : (recording.privacyMode ?? "unknown"),
-      firstUrl: recording.firstUrl ?? clampedInput.url,
-      lastUrl: clampedInput.url ?? recording.lastUrl ?? null,
-      path: clampedInput.path ?? recording.path ?? null,
-      hostname: clampedInput.hostname ?? recording.hostname ?? null,
-      referrer: clampedInput.referrer ?? recording.referrer ?? null,
-      app: clampedInput.app ?? recording.app ?? null,
-      template: clampedInput.template ?? recording.template ?? null,
-      status: recordingEnded ? "completed" : "active",
-      metadata: JSON.stringify(metadata),
-      updatedAt: ingestedAt,
-      lastIngestedAt: ingestedAt,
-    })
-    .where(eq(schema.sessionRecordings.id, recording.id));
 
   const insertedSeqs = new Set(rowsToInsert.map((row) => row.seq));
   await recordReplayFriction({

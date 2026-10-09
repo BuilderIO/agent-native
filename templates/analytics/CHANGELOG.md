@@ -3,6 +3,20 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-09
+
+### Improved
+
+- Onboarding journeys include Builder connection and custom-key outcomes through deeper paths
+- You can add app origins to a public key's replay allowlist without replacing its existing origins.
+
+### Fixed
+
+- Journey captures now flag visible previews missing from the recording instead of saving blank screenshots
+- Journey recordings flag iframe content when clipping, masks, or filters make its visibility uncertain.
+- Onboarding journeys count saved clips and completed deck generations as outputs while showing Slides attempt outcomes separately
+- Session recordings keep their full history and performance insights across browser session changes and large replays.
+
 ## 2026-10-08
 
 ### Added
@@ -19,6 +33,9 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Analytics journey paths group short resource IDs consistently across apps
+- Analytics keeps onboarding counts complete when only standalone setup events exceed the journey read limit.
+- Onboarding journey trees show Home chat setup choices in a separately counted tree and group equivalent artifact screens.
 - Agent-shared recording links now load across batched playback chunks
 - Fixed onboarding journey queries against BigQuery.
 - Session replay agent links can read their recording manifest and playback chunks.

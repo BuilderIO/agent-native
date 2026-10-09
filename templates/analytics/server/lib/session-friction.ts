@@ -25,7 +25,7 @@ import {
   sql,
   type SQL,
 } from "drizzle-orm";
-import { alias, unionAll } from "drizzle-orm/pg-core";
+import { alias } from "drizzle-orm/pg-core";
 
 import {
   EVENT_FRICTION_SCORE_INPUTS,
@@ -1361,6 +1361,92 @@ function unmeasuredFriction(
  * Friction, trouble groups, and Monitoring issues for one page of recordings
  * the caller already listed through its access filter.
  */
+export function buildSessionTroubleQuery(
+  db: any,
+  eligibleRecordingIds: readonly string[],
+  associationsReady: boolean,
+) {
+  const r = schema.sessionRecordings;
+  const f = schema.analyticsSessionFriction;
+  const t = schema.analyticsSessionTrouble;
+  const safeCause = sql<
+    string | null
+  >`case when ${inArray(t.cause, [...AGENT_TROUBLE_CAUSES])}
+    then ${t.cause} else null end`;
+  let troubleQuery = db
+    .select({
+      recordingId: r.id,
+      kind: t.kind,
+      label: t.label,
+      status: t.status,
+      cause: safeCause.as("cause"),
+      count: sql<number>`sum(${t.eventCount})`.as("count"),
+    })
+    .from(r)
+    .where(inArray(r.id, [...eligibleRecordingIds]));
+  if (associationsReady) {
+    const association = schema.sessionRecordingSessionAssociations;
+    const eventSessionId = sql`case when ${association.recordingId} is null
+      then ${r.sessionId} else ${association.sessionId} end`;
+    troubleQuery = troubleQuery.leftJoin(
+      association,
+      eq(association.recordingId, r.id),
+    );
+    troubleQuery = troubleQuery.innerJoin(
+      f,
+      and(
+        eq(f.tenantKey, recordingTenantSql(r)),
+        sql`${f.sessionId} = ${eventSessionId}`,
+      ),
+    );
+  } else {
+    troubleQuery = troubleQuery.innerJoin(
+      f,
+      and(eq(f.tenantKey, recordingTenantSql(r)), eq(f.sessionId, r.sessionId)),
+    );
+  }
+  troubleQuery = troubleQuery.innerJoin(
+    t,
+    and(eq(t.tenantKey, f.tenantKey), eq(t.sessionId, f.sessionId)),
+  );
+  const groupedTroubles = troubleQuery
+    // Use the selected sanitized cause: repeating its whitelist binds changes the GROUP BY expression.
+    .groupBy(r.id, t.kind, t.label, t.status, sql.raw("5"))
+    .as("grouped_troubles");
+  const rankedTroubles = db
+    .select({
+      recordingId: groupedTroubles.recordingId,
+      kind: groupedTroubles.kind,
+      label: groupedTroubles.label,
+      status: groupedTroubles.status,
+      cause: groupedTroubles.cause,
+      count: groupedTroubles.count,
+      rank: sql<number>`row_number() over (
+        partition by ${groupedTroubles.recordingId}
+        order by ${groupedTroubles.count} desc,
+          ${groupedTroubles.label} asc,
+          ${groupedTroubles.kind} asc,
+          ${groupedTroubles.status} asc,
+          ${groupedTroubles.cause} asc
+      )`.as("rank"),
+    })
+    .from(groupedTroubles)
+    .where(inArray(groupedTroubles.recordingId, [...eligibleRecordingIds]))
+    .as("ranked_troubles");
+  return db
+    .select({
+      recordingId: rankedTroubles.recordingId,
+      kind: rankedTroubles.kind,
+      label: rankedTroubles.label,
+      status: rankedTroubles.status,
+      cause: rankedTroubles.cause,
+      count: rankedTroubles.count,
+    })
+    .from(rankedTroubles)
+    .where(lte(rankedTroubles.rank, TROUBLE_GROUPS_PER_RECORDING))
+    .orderBy(asc(rankedTroubles.recordingId), asc(rankedTroubles.rank));
+}
+
 export async function getSessionFrictionDetails(
   scope: ErrorReadScope,
   recordings: readonly SessionFrictionRecording[],
@@ -1447,75 +1533,14 @@ export async function getSessionFrictionDetails(
     rows.push(row);
     eventRowsById.set(row.recordingId, rows);
   }
-  const troubleQueries = recordings.flatMap((recording) => {
-    const sessionRows = (eventRowsById.get(recording.id) ?? []).filter(
-      (row) => row.covered === true && row.tenantKey && row.sessionId,
-    );
-    if (
-      !sessionRows.length ||
-      sessionRows.length !== (eventRowsById.get(recording.id) ?? []).length
-    ) {
-      return [];
-    }
-    const sessions = new Map(
-      sessionRows.map((row) => [
-        JSON.stringify([row.tenantKey, row.sessionId]),
-        {
-          tenantKey: row.tenantKey as string,
-          sessionId: row.sessionId as string,
-        },
-      ]),
-    );
-    const matchingSession = or(
-      ...[...sessions.values()].map((session) =>
-        and(
-          eq(t.tenantKey, session.tenantKey),
-          eq(t.sessionId, session.sessionId),
-        ),
-      ),
-    );
-    if (!matchingSession) return [];
-    const matchedTroubles = db
-      .select({
-        kind: t.kind,
-        label: t.label,
-        status: t.status,
-        cause: sql<
-          string | null
-        >`case when ${inArray(t.cause, [...AGENT_TROUBLE_CAUSES])}
-          then ${t.cause} else null end`.as("cause"),
-        eventCount: t.eventCount,
-      })
-      .from(t)
-      .where(matchingSession)
-      .as("matched_troubles");
-    const count = sql<number>`sum(${matchedTroubles.eventCount})`;
-    return [
-      db
-        .select({
-          recordingId: sql<string>`${recording.id}`.as("recording_id"),
-          kind: matchedTroubles.kind,
-          label: matchedTroubles.label,
-          status: matchedTroubles.status,
-          cause: matchedTroubles.cause,
-          count: count.as("count"),
-        })
-        .from(matchedTroubles)
-        .groupBy(
-          matchedTroubles.kind,
-          matchedTroubles.label,
-          matchedTroubles.status,
-          matchedTroubles.cause,
-        )
-        .orderBy(
-          desc(count),
-          asc(matchedTroubles.label),
-          asc(matchedTroubles.kind),
-          asc(matchedTroubles.status),
-          asc(matchedTroubles.cause),
-        )
-        .limit(TROUBLE_GROUPS_PER_RECORDING),
-    ];
+  const eligibleRecordingIds = recordings.flatMap((recording) => {
+    const rows = eventRowsById.get(recording.id) ?? [];
+    return rows.length > 0 &&
+      rows.every(
+        (row) => row.covered === true && row.tenantKey && row.sessionId,
+      )
+      ? [recording.id]
+      : [];
   });
   const troubleRows: Array<{
     recordingId: string;
@@ -1524,16 +1549,13 @@ export async function getSessionFrictionDetails(
     status: string | null;
     cause: string | null;
     count: number | string;
-  }> =
-    troubleQueries.length > 1
-      ? await unionAll(
-          troubleQueries[0],
-          troubleQueries[1],
-          ...troubleQueries.slice(2),
-        )
-      : troubleQueries.length
-        ? await troubleQueries[0]
-        : [];
+  }> = eligibleRecordingIds.length
+    ? await buildSessionTroubleQuery(
+        db,
+        eligibleRecordingIds,
+        associationsReady,
+      )
+    : [];
   const troublesByRecording = new Map<string, SessionTroubleGroup[]>();
   for (const row of troubleRows) {
     if (row.kind !== "agent" && row.kind !== "action") {
