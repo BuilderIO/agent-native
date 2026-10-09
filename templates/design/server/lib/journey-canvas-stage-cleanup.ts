@@ -24,6 +24,15 @@ const STAGED_ID_PREDICATE = sql.raw(
   `starts_with(id, '${JOURNEY_STAGED_REPLAY_ROW_PREFIX}')`,
 );
 
+export async function ensureJourneyCanvasStageExpiryIndex(): Promise<void> {
+  if (!isLocalDatabase()) {
+    await ensureIndexExistsConcurrently(
+      STAGE_EXPIRY_INDEX,
+      STAGE_EXPIRY_INDEX_SQL,
+    );
+  }
+}
+
 export async function sweepExpiredJourneyCanvasStages(
   signal?: AbortSignal,
 ): Promise<{
@@ -32,12 +41,7 @@ export async function sweepExpiredJourneyCanvasStages(
   cleanupPending: boolean;
 }> {
   signal?.throwIfAborted();
-  if (!isLocalDatabase()) {
-    await ensureIndexExistsConcurrently(
-      STAGE_EXPIRY_INDEX,
-      STAGE_EXPIRY_INDEX_SQL,
-    );
-  }
+  await ensureJourneyCanvasStageExpiryIndex();
   const table = schema.designBoardReplayScreenshots;
   const cutoff = new Date(
     Date.now() - JOURNEY_STAGED_REPLAY_MAX_AGE_MS,

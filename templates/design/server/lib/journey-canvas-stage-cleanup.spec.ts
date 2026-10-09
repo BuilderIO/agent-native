@@ -1,6 +1,22 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const deletePrivateBlob = vi.hoisted(() => vi.fn());
+const ensureIndexExistsConcurrently = vi.hoisted(() => vi.fn());
+const isLocalDatabase = vi.hoisted(() => vi.fn(() => false));
+
+vi.mock("@agent-native/core/db", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/db")>()),
+  ensureIndexExistsConcurrently,
+  isLocalDatabase,
+}));
 
 vi.mock("@agent-native/core/private-blob", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/private-blob")>()),
@@ -9,7 +25,10 @@ vi.mock("@agent-native/core/private-blob", async (importOriginal) => ({
 
 import { closeDbExec, getDbExec } from "@agent-native/core/db";
 
-import { sweepExpiredJourneyCanvasStages } from "./journey-canvas-stage-cleanup.js";
+import {
+  ensureJourneyCanvasStageExpiryIndex,
+  sweepExpiredJourneyCanvasStages,
+} from "./journey-canvas-stage-cleanup.js";
 
 const expiredAt = new Date(Date.now() - 8 * 24 * 60 * 60 * 1_000).toISOString();
 const recentAt = new Date().toISOString();
@@ -43,7 +62,30 @@ afterAll(async () => {
   vi.unstubAllEnvs();
 });
 
+beforeEach(() => {
+  ensureIndexExistsConcurrently.mockClear();
+  isLocalDatabase.mockClear();
+});
+
 describe("journey canvas staged frame cleanup", () => {
+  it("requests concurrent index creation for non-local databases", async () => {
+    await ensureJourneyCanvasStageExpiryIndex();
+
+    expect(ensureIndexExistsConcurrently).toHaveBeenCalledWith(
+      "design_board_replay_screenshots_stage_expiry_idx",
+      expect.stringContaining("CREATE INDEX CONCURRENTLY"),
+    );
+    expect(ensureIndexExistsConcurrently).toHaveBeenCalledOnce();
+  });
+
+  it("skips the concurrent index on local databases", async () => {
+    isLocalDatabase.mockReturnValueOnce(true);
+
+    await ensureJourneyCanvasStageExpiryIndex();
+
+    expect(ensureIndexExistsConcurrently).not.toHaveBeenCalled();
+  });
+
   it("removes expired staging rows and only queues unreferenced private blobs", async () => {
     const expiredBlob = privateHandle("expired-stage");
     const sharedBlob = privateHandle("shared-stage");
