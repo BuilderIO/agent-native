@@ -4,7 +4,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, like } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { schema } from "../server/db/index.js";
 import { queueVisualEditSnapshotBlobCleanupInTransaction } from "../server/lib/visual-edit-snapshot-blobs.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import { JOURNEY_STAGED_REPLAY_ROW_PREFIX } from "../shared/journey-canvas.js";
