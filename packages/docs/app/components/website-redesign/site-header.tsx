@@ -5,11 +5,13 @@ import {
   IconLayoutSidebarRight,
   IconSearch,
   IconX,
+  IconLoader2,
 } from "@tabler/icons-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link } from "react-router";
 
 import { sendAhrefsEvent } from "../../lib/ahrefs-analytics";
+import { useAssistantLoading } from "../../shell-ready";
 import { sitePathForLocale } from "../docs-locale";
 import { useSearchModal } from "../use-search-modal";
 import { Button } from "./ds/button";
@@ -38,15 +40,25 @@ function formatStarCount(count: number): string {
 
 function AskAiIconButton() {
   const t = useT();
+  const loading = useAssistantLoading();
   const label = t("header.askAssistant");
   return (
     <IconButton
       dimBorder
       onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
       aria-label={label}
+      aria-busy={loading}
       title={label}
     >
-      <IconLayoutSidebarRight size={18} stroke={1.5} />
+      {loading ? (
+        <IconLoader2
+          size={18}
+          stroke={1.5}
+          className="animate-spin motion-reduce:animate-none"
+        />
+      ) : (
+        <IconLayoutSidebarRight size={18} stroke={1.5} />
+      )}
     </IconButton>
   );
 }

@@ -18,6 +18,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, Link } from "react-router";
 
+import { useAssistantReady } from "../shell-ready";
 import { buildSearchIndexAsync, type SearchEntry } from "./docs-content";
 import { docsPathForSlug } from "./docs-locale";
 import { useDocsTheme } from "./ThemeToggle";
@@ -114,6 +115,9 @@ export function SearchModal({
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const searchGeneration = useRef(0);
+  const ensureAssistantReady = useAssistantReady();
   const [activeIdx, setActiveIdx] = useState(0);
   const [index, setIndex] = useState<SearchEntry[]>([]);
   const [indexError, setIndexError] = useState<unknown>(null);
@@ -178,16 +182,21 @@ export function SearchModal({
     window.dispatchEvent(new Event("agent-panel:toggle"));
   }, []);
 
-  const submitAskAi = useCallback(() => {
-    if (!chatReady) return;
-    onClose();
+  const submitAskAi = useCallback(async () => {
+    if (!chatReady || submitting) return;
     const message = query.trim();
+    const generation = searchGeneration.current;
+    setSubmitting(true);
+    await ensureAssistantReady();
+    if (searchGeneration.current !== generation) return;
+    onClose();
+    setSubmitting(false);
     if (!message) {
       focusAgentChat();
       return;
     }
     submitToAgent(message);
-  }, [chatReady, onClose, query]);
+  }, [chatReady, submitting, ensureAssistantReady, onClose, query]);
 
   const retryProviderStatus = useCallback(() => {
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
@@ -221,6 +230,8 @@ export function SearchModal({
   }, [locale, open, retryCount]);
 
   useEffect(() => {
+    searchGeneration.current += 1;
+    setSubmitting(false);
     if (open) {
       previousFocusRef.current = document.activeElement;
       setQuery("");
@@ -230,6 +241,9 @@ export function SearchModal({
       previousFocusRef.current.focus();
       previousFocusRef.current = null;
     }
+    return () => {
+      searchGeneration.current += 1;
+    };
   }, [open]);
 
   useEffect(() => {
@@ -556,7 +570,8 @@ export function SearchModal({
             type="button"
             onClick={submitAskAi}
             onMouseEnter={() => setActiveIdx(askAiIndex)}
-            disabled={!chatReady}
+            disabled={!chatReady || submitting}
+            aria-busy={submitting}
             className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
               activeIdx === askAiIndex
                 ? "bg-[var(--docs-accent)]/10"

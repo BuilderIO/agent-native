@@ -155,6 +155,7 @@
     "./client/chat-errors": "./dist/client/chat-errors.js",
     "./client/agent-chat": "./dist/client/agent-chat/index.js",
     "./client/agent-engine-readiness": "./dist/client/agent-engine-readiness.js",
+    "./client/agent-sidebar-state": "./dist/client/agent-sidebar-state.js",
     "./client/auth/auth-page-helpers": "./dist/client/auth/auth-page-helpers.js",
     "./client/assistant-chat-history-version": "./dist/client/chat/assistant-chat-history-version.js",
     "./client/agentkit-chat/integrity": "./dist/client/agentkit-chat/integrity.js",
