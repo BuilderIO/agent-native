@@ -108,6 +108,23 @@ const DESIGN_CANVAS_CONFIG_FILES = new Set([
   "templates/design/vite.config.ts",
 ]);
 
+const PRE_AUTH_SESSION_REPLAY_E2E_FILES = new Set([
+  "packages/core/src/app-config/analytics.ts",
+  "packages/core/src/client/analytics.ts",
+  "packages/core/src/client/session-replay.ts",
+  "packages/core/src/shared/environment-lanes.ts",
+  "packages/core/src/server/analytics.ts",
+  "packages/toolkit/src/app/auth/AuthPage.tsx",
+  "packages/toolkit/src/app/auth/entry.tsx",
+  "templates/analytics/server/handlers/session-replay.ts",
+  "templates/analytics/server/lib/session-replay.ts",
+  "templates/clips/server/plugins/config.ts",
+  "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+  "templates/design/playwright.config.ts",
+  "templates/design/server/plugins/config.ts",
+  "templates/slides/server/plugins/config.ts",
+]);
+
 // The two-tab convergence lane also covers its own harness and the build it
 // serves; other Content e2e specs and unit tests cannot move it.
 const CONTENT_CONVERGENCE_FILES = new Set([
@@ -144,6 +161,7 @@ const CHECK_NAMES = [
   "neon_query_budget",
   "neon_connection_budget",
   "design_canvas_interaction_e2e",
+  "pre_auth_session_replay_e2e",
   "slides_chat_e2e",
   "slides_authoring_e2e",
   "changeset",
@@ -462,6 +480,7 @@ function hasPath(paths: readonly string[], prefix: string): boolean {
 function isDesignCanvasE2eSpecPath(path: string): boolean {
   return (
     path.startsWith("templates/design/e2e/") &&
+    path !== "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts" &&
     /\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path)
   );
 }
@@ -646,6 +665,9 @@ function buildChecks(
     coreChanged ||
     toolkitChanged ||
     hasPath(changedPaths, "packages/creative-context/");
+  const preAuthSessionReplayE2eChanged = changedPaths.some((path) =>
+    PRE_AUTH_SESSION_REPLAY_E2E_FILES.has(path),
+  );
   const contentConvergenceChanged =
     changedPaths.some(isContentConvergenceRuntimePath) || coreChanged;
 
@@ -693,6 +715,7 @@ function buildChecks(
     // move it.
     neon_connection_budget: coreChanged,
     design_canvas_interaction_e2e: designCanvasInteractionE2eChanged,
+    pre_auth_session_replay_e2e: preAuthSessionReplayE2eChanged,
     slides_chat_e2e: slidesChatE2eChanged,
     slides_authoring_e2e: slidesE2eChanged,
     changeset: changedPaths.some(isChangesetPath),

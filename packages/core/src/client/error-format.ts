@@ -80,6 +80,8 @@ const PROVIDER_TRANSIENT_REJECTION_MESSAGE =
 const CREDITS_LIMIT_REACHED_MESSAGE = "You've reached your AI credits limit.";
 const ATTACHMENT_PASSWORD_PROTECTED_MESSAGE =
   "This PDF is password-protected, so it can't be read. Remove the password protection or paste the relevant text, then retry.";
+const INVALID_ATTACHMENT_MESSAGE =
+  "The model provider rejected this attachment's format or size. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported file format or paste the relevant text, then attach it again.";
 const MALFORMED_REQUEST_ATTACHMENT_MESSAGE =
   "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.";
 const MALFORMED_REQUEST_MESSAGE =
@@ -159,6 +161,7 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
     ATTACHMENT_PASSWORD_PROTECTED_MESSAGE,
     "agentChat.errorMessages.attachmentPasswordProtected",
   ],
+  [INVALID_ATTACHMENT_MESSAGE, "agentChat.errorMessages.invalidAttachment"],
   [CHAT_REQUEST_TOO_LARGE_MESSAGE, "agentChat.errorMessages.requestTooLarge"],
   [
     "No LLM provider is connected. Open this app's Manage agent > LLM, then use Builder.io or add a provider key.",
@@ -441,6 +444,10 @@ export function normalizeChatError(
     isBuilderGatewayInternalErrorMessage(text)
   ) {
     return { message: GATEWAY_INTERNAL_ERROR_MESSAGE, details: text };
+  }
+
+  if (code === "invalid_attachment") {
+    return { message: INVALID_ATTACHMENT_MESSAGE, details: text };
   }
 
   if (

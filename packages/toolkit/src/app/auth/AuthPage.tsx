@@ -131,6 +131,15 @@ function inferWorkspaceBasePath(pathname: string): string {
   return `/${firstSegment}`;
 }
 
+export function resolveAuthPageBasePath(
+  appBasePath: string,
+  workspaceRuntime: boolean,
+  pathname: string,
+): string {
+  if (appBasePath || !workspaceRuntime) return appBasePath;
+  return inferWorkspaceBasePath(pathname);
+}
+
 function readStorage(key: string): string {
   try {
     return window.localStorage.getItem(key) ?? "";
@@ -697,11 +706,13 @@ export function AuthPage(props: AuthPageProps) {
   );
 
   React.useEffect(() => {
-    if (appBasePath || !workspaceRuntime) {
-      setRuntimeBasePathResolved(true);
-      return;
-    }
-    setRuntimeAppBasePath(inferWorkspaceBasePath(window.location.pathname));
+    setRuntimeAppBasePath(
+      resolveAuthPageBasePath(
+        appBasePath,
+        workspaceRuntime,
+        window.location.pathname,
+      ),
+    );
     setRuntimeBasePathResolved(true);
   }, [appBasePath, workspaceRuntime]);
 

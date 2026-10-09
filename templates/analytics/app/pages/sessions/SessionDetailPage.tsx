@@ -2927,6 +2927,7 @@ function visitorLabel(
 ): string {
   const email = emailLike(recording.userId) || emailLike(recording.userKey);
   if (email) return email;
+  if (recording.userId === null) return t("sessions.anonymous");
   return (
     recording.userId ||
     recording.userKey ||

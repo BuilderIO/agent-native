@@ -125,6 +125,7 @@ export interface ResolveDocumentSyncConflictRequest {
 
 export interface DocumentCreateResult extends Document {
   spaceId: string;
+  creativeContextProjectionStatus?: "pending";
 }
 
 export interface DocumentCreateRequest {

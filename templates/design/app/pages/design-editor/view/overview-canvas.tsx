@@ -200,6 +200,7 @@ export function renderOverviewCanvas({
   } = editorClipboard;
   const {
     commentsHidden,
+    viewSettings: { pixelGrid, snapToPixelGrid, rulers },
     handleCrossScreenElementDrop,
     boardFrameGeometry,
     runtimeStructureRollbackRequest,
@@ -308,6 +309,9 @@ export function renderOverviewCanvas({
         hiddenScreenIds={hiddenLayerIds}
         lockedScreenIds={lockedLayerIds}
         fullViewScreenIds={fullViewScreenIds}
+        pixelGridEnabled={pixelGrid}
+        snapToPixelGrid={snapToPixelGrid}
+        showRulers={rulers}
         review={{
           pendingReviewScreenIds: pendingNodeRewriteScreenIds,
           onReviewPendingScreen: handleReviewPendingScreen,

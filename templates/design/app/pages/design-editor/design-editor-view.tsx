@@ -889,6 +889,7 @@ export function renderDesignEditorView({
       editorCore,
       editorActiveScreenAndGeometry,
       editorCanvasAndScreens,
+      editorLayoutAndStructure,
       editorModes,
       editorScreenRendering,
       controlId,
