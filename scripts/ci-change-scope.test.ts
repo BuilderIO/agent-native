@@ -1215,6 +1215,7 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
     "templates/content/agent-native.config.ts",
     "templates/content/package.json",
     "templates/content/vite.config.ts",
+    "templates/content/e2e/blank-page-create-recovery.spec.ts",
     "templates/content/e2e/two-tab-convergence.spec.ts",
     "templates/content/e2e/helpers.ts",
     "templates/content/e2e/convergence-summary.ts",

@@ -875,8 +875,8 @@ jobs:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
           CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
 
-      # Two tabs on one page against the production build, with the realtime
-      # stream refused as a serverless function refuses it.
+      # Content's two-tab coverage runs against the production build, with the
+      # realtime stream refused as a serverless function refuses it.
       - name: Restore Playwright browser cache
         if: ${{ !cancelled() && needs.change-scope.outputs.content_convergence == 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -898,13 +898,14 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
-      - name: Run Content two-tab convergence lane
+      - name: Run Content two-tab recovery and convergence lane
         id: convergence
         if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
         working-directory: templates/content
         run: |
           BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
             -c e2e/playwright.config.ts \
+            e2e/blank-page-create-recovery.spec.ts \
             e2e/two-tab-convergence.spec.ts \
             e2e/chatgpt-widget-body-paint.spec.ts \
             --workers=1 \
