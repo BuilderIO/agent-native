@@ -42,8 +42,6 @@ import {
   type ReplayIframeAudit,
 } from "./journey-capture-iframe-audit";
 import {
-  isLoopbackAddress,
-  isPublicIpAddress,
   isReplayRequestAllowed,
   replayBrowserLaunchOptions,
   resolvePinnedAddresses,
