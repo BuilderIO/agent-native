@@ -4,7 +4,7 @@
 "@agent-native/toolkit": patch
 ---
 
-Enforce AI readiness at chat dispatch and provide a consistent connection flow.
+Block new AI chat work until provider readiness is confirmed and provide a consistent Connect AI flow.
 
 `createProductionAgentHandler` now requires the `assertAiSetupReady` callback. Existing callers must provide a readiness assertion before upgrading; refusals can use the existing `onRunNotStarted` callback to retain the user's prompt and retry context.
 

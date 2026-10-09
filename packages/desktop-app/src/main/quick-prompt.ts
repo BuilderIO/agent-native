@@ -16,6 +16,7 @@ import * as AppStore from "./app-store";
 
 const QUICK_PROMPT_SURFACE = "quick-prompt";
 const QUICK_PROMPT_COMPACT_SIZE = { width: 460, height: 108 } as const;
+const QUICK_PROMPT_SETUP_SIZE = { width: 460, height: 244 } as const;
 const QUICK_PROMPT_PICKER_SIZE = { width: 760, height: 360 } as const;
 type QuickPromptWindowSize = Readonly<{ width: number; height: number }>;
 
@@ -33,6 +34,8 @@ let quickPromptShortcutError: string | undefined;
 let quickPromptDependencies: QuickPromptDependencies | null = null;
 let quickPromptPreviousFocusedWindow: BrowserWindow | null = null;
 let quickPromptShouldBeVisible = false;
+let quickPromptPickerOpen = false;
+let quickPromptSetupRequired = false;
 
 export function isQuickPromptActive(): boolean {
   return Boolean(
@@ -89,6 +92,17 @@ function resizeQuickPromptWindow(
   );
 }
 
+function syncQuickPromptWindowSize(window: BrowserWindow): void {
+  resizeQuickPromptWindow(
+    window,
+    quickPromptPickerOpen
+      ? QUICK_PROMPT_PICKER_SIZE
+      : quickPromptSetupRequired
+        ? QUICK_PROMPT_SETUP_SIZE
+        : QUICK_PROMPT_COMPACT_SIZE,
+  );
+}
+
 function setQuickPromptWindowChrome(
   window: BrowserWindow,
   pickerOpen: boolean,
@@ -113,10 +127,12 @@ function hideQuickPrompt(options: { restoreFocus?: boolean } = {}): void {
   const restoreFocus = options.restoreFocus ?? true;
   quickPromptPreviousFocusedWindow = null;
   quickPromptShouldBeVisible = false;
+  quickPromptPickerOpen = false;
+  quickPromptSetupRequired = false;
 
   window.hide();
   setQuickPromptWindowChrome(window, false);
-  resizeQuickPromptWindow(window, QUICK_PROMPT_COMPACT_SIZE);
+  syncQuickPromptWindowSize(window);
   window.webContents.send(IPC.QUICK_PROMPT_HIDDEN);
 
   if (!restoreFocus) return;
@@ -197,6 +213,8 @@ function createQuickPromptWindow(): BrowserWindow {
     if (quickPromptWindow !== window) return;
     quickPromptWindow = null;
     quickPromptShouldBeVisible = false;
+    quickPromptPickerOpen = false;
+    quickPromptSetupRequired = false;
     if (quickPromptPreviousFocusedWindow === window) {
       quickPromptPreviousFocusedWindow = null;
     }
@@ -221,7 +239,7 @@ function showQuickPrompt(): void {
   quickPromptPreviousFocusedWindow = BrowserWindow.getFocusedWindow();
   quickPromptShouldBeVisible = true;
   setQuickPromptWindowChrome(window, false);
-  resizeQuickPromptWindow(window, QUICK_PROMPT_COMPACT_SIZE);
+  syncQuickPromptWindowSize(window);
   positionQuickPromptWindow(window);
   window.show();
   window.focus();
@@ -324,10 +342,21 @@ export function registerQuickPromptIpc(
   ipcMain.on(IPC.QUICK_PROMPT_SET_PICKER_OPEN, (_event, value: unknown) => {
     const window = quickPromptWindow;
     if (!window || window.isDestroyed() || typeof value !== "boolean") return;
+    quickPromptPickerOpen = value;
     setQuickPromptWindowChrome(window, value);
-    resizeQuickPromptWindow(
-      window,
-      value ? QUICK_PROMPT_PICKER_SIZE : QUICK_PROMPT_COMPACT_SIZE,
+    syncQuickPromptWindowSize(window);
+  });
+  ipcMain.on(IPC.QUICK_PROMPT_SET_SETUP_REQUIRED, (_event, value: unknown) => {
+    const window = quickPromptWindow;
+    if (!window || window.isDestroyed() || typeof value !== "boolean") return;
+    quickPromptSetupRequired = value;
+    syncQuickPromptWindowSize(window);
+  });
+  ipcMain.on(IPC.QUICK_PROMPT_OPEN_PROVIDER_SETTINGS, () => {
+    hideQuickPrompt({ restoreFocus: false });
+    quickPromptDependencies?.sendOpenRequestToRenderer(
+      { settingsTab: "providers" },
+      { stealFocus: true },
     );
   });
   ipcMain.handle(

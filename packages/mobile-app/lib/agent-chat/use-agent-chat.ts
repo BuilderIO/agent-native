@@ -281,6 +281,13 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   const lastExtraRef = useRef<
     Pick<ChatSendOptions, "attachments" | "references">
   >({});
+  const pendingForkRetryRef = useRef<{
+    messageId: string;
+    text?: string;
+  } | null>(null);
+  const retryPendingForkRef = useRef<
+    ((pending: { messageId: string; text?: string }) => Promise<void>) | null
+  >(null);
   const runIdsRef = useRef(new Map<string, string>());
   const assistantIdsByRunRef = useRef(new Map<string, string>());
   const processedEventIdsRef = useRef(new Map<string, Set<string>>());
@@ -839,6 +846,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       if ((!trimmed && !attachments?.length) || stateRef.current.isStreaming) {
         return Promise.resolve(false);
       }
+      pendingForkRetryRef.current = null;
       lastPromptRef.current = trimmed;
       lastExtraRef.current = {
         ...(attachments?.length ? { attachments } : {}),
@@ -1118,6 +1126,30 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   );
 
   const retry = useCallback(() => {
+    const pendingFork = pendingForkRetryRef.current;
+    if (pendingFork && !stateRef.current.isStreaming) {
+      const retryPendingFork = retryPendingForkRef.current;
+      if (!retryPendingFork) return;
+      void retryPendingFork(pendingFork).catch((error: unknown) => {
+        if (error instanceof MobileChatSetupRequiredError) {
+          showSetupRequiredError(error);
+          return;
+        }
+        const nextState = {
+          ...stateRef.current,
+          isStreaming: false,
+          activity: null,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not retry that message.",
+          errorCode: null,
+        };
+        stateRef.current = nextState;
+        setState(nextState);
+      });
+      return;
+    }
     const prompt = lastPromptRef.current;
     const extra = lastExtraRef.current;
     if (
@@ -1131,7 +1163,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       forceReadiness: true,
       replaceFailedAttempt: true,
     });
-  }, [runTurn]);
+  }, [runTurn, showSetupRequiredError]);
 
   const newChat = useCallback(
     (nextBaseUrl = DEFAULT_CHAT_BASE_URL) => {
@@ -1141,6 +1173,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       const nextThreadId = newThreadId();
       threadIdRef.current = nextThreadId;
       baseUrlRef.current = nextBaseUrl;
+      pendingForkRetryRef.current = null;
       void refreshChatEligibility();
       setThreadId(nextThreadId);
       setBaseUrl(nextBaseUrl);
@@ -1294,6 +1327,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       // before the state update commits.
       baseUrlRef.current = resolvedBaseUrl;
       threadIdRef.current = nextThreadId;
+      pendingForkRetryRef.current = null;
       void refreshChatEligibility();
       setBaseUrl(resolvedBaseUrl);
       setThreadId(nextThreadId);
@@ -1456,8 +1490,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         );
       }
       const prompt = text ?? messageText(source);
-      lastPromptRef.current = prompt;
-      lastExtraRef.current = {};
+      pendingForkRetryRef.current = { messageId, text };
       const targetBaseUrl = baseUrlRef.current;
       const session = getSession(
         targetBaseUrl,
@@ -1476,11 +1509,19 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         text,
       );
       openThread(forkedThread.id, targetBaseUrl);
+      pendingForkRetryRef.current = null;
       lastPromptRef.current = prompt;
       lastExtraRef.current = {};
     },
     [getSession, openThread, requireChatEligibility, showSetupRequiredError],
   );
+
+  const retryPendingFork = useCallback(
+    (pending: { messageId: string; text?: string }) =>
+      forkResubmitForMessage(pending.messageId, pending.text),
+    [forkResubmitForMessage],
+  );
+  retryPendingForkRef.current = retryPendingFork;
 
   const editMessage = useCallback(
     (messageId: string, text: string) => {

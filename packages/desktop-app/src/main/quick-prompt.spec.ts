@@ -258,6 +258,36 @@ describe("Quick Prompt focus behavior", () => {
     }
   });
 
+  it("expands for setup and opens provider settings from the setup card", async () => {
+    vi.resetModules();
+    const { registerQuickPromptIpc, registerQuickPromptShortcut } =
+      await import("./quick-prompt.js");
+    const sendOpenRequestToRenderer = vi.fn();
+
+    registerQuickPromptIpc({
+      createCodeAgentRun: vi.fn(),
+      sendOpenRequestToRenderer,
+    });
+    registerQuickPromptShortcut();
+    electronState.getShortcutHandler()?.();
+
+    const promptWindow = electronState.getWindow();
+    electronState.ipcMain.handlers.get(IPC.QUICK_PROMPT_SET_SETUP_REQUIRED)?.(
+      undefined,
+      true,
+    );
+    expect(promptWindow?.getSize()).toEqual([460, 244]);
+
+    electronState.ipcMain.handlers.get(
+      IPC.QUICK_PROMPT_OPEN_PROVIDER_SETTINGS,
+    )?.();
+    expect(promptWindow?.isVisible()).toBe(false);
+    expect(sendOpenRequestToRenderer).toHaveBeenCalledWith(
+      { settingsTab: "providers" },
+      { stealFocus: true },
+    );
+  });
+
   it("does not resurrect after dismissal before ready-to-show", async () => {
     vi.resetModules();
     const { registerQuickPromptIpc, registerQuickPromptShortcut } =

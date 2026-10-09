@@ -668,7 +668,7 @@ describe("useAgentChat readiness gate", () => {
     await vi.waitFor(() => expect(mounted?.chat?.canChat).toBe(true));
 
     await act(async () => {
-      await mounted?.chat?.send("Regenerate this answer");
+      await mounted?.chat?.send("Original prompt");
     });
     await vi.waitFor(() => expect(mounted?.chat?.isStreaming).toBe(false));
     const sourceMessageId = mounted?.chat?.messages[0]?.id;
@@ -676,13 +676,34 @@ describe("useAgentChat readiness gate", () => {
 
     fetchEligibilityMock.mockResolvedValueOnce(false);
     await expect(
-      mounted?.chat?.regenerateMessage(sourceMessageId!),
+      mounted?.chat?.editMessage(sourceMessageId!, "Edited prompt"),
     ).rejects.toMatchObject({ code: "missing_api_key" });
 
     expect(fetchEligibilityMock).toHaveBeenCalledTimes(2);
     await vi.waitFor(() =>
       expect(mounted?.chat?.errorCode).toBe("missing_api_key"),
     );
+
+    forkAndResubmitMock.mockImplementationOnce(
+      async (
+        _client: unknown,
+        _threadId: string,
+        _messageId: string,
+        beforeFork: () => Promise<void>,
+        _text: string | undefined,
+      ) => {
+        await beforeFork();
+        return { id: "retried-fork" };
+      },
+    );
+    fetchEligibilityMock.mockResolvedValueOnce(true);
+    await act(async () => {
+      mounted?.chat?.retry();
+      await vi.waitFor(() =>
+        expect(forkAndResubmitMock).toHaveBeenCalledTimes(2),
+      );
+    });
+    expect(client.sendMessage).toHaveBeenCalledOnce();
   });
 
   it("shows the missing-provider error instead of submitting when readiness is missing", async () => {

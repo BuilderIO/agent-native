@@ -5710,6 +5710,8 @@ function TranscriptPanel({
               clientOptions={{
                 transportOwnership: "owned",
                 retainActiveRunsOnThreadRelease: true,
+                // CodeAgentAgentKitRuntime checks this host's provider gate before dispatch.
+                aiSetupReadiness: "not-applicable",
               }}
               slots={CODE_AGENTKIT_CHAT_SLOTS}
             >
