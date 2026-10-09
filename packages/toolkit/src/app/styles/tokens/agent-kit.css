@@ -103,8 +103,8 @@
 
 :is(.dark, :root[data-theme="dark"]:not(.light)) {
   --agent-kit-composer-surface: var(--agent-kit-subtle-surface);
-  --agent-kit-composer-border-mix: 0%;
-  --agent-kit-composer-focus-border-mix: 65%;
+  --agent-kit-composer-border-mix: 80%;
+  --agent-kit-composer-focus-border-mix: 80%;
   --agent-kit-composer-border-color: color-mix(
     in srgb,
     hsl(var(--border)) var(--agent-kit-composer-border-mix),
