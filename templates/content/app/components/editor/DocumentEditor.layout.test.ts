@@ -2884,7 +2884,9 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "relative z-10 flex h-12 shrink-0 items-center bg-background @container/toolbar",
     );
-    expect(source).toContain('shareInMenu ? "gap-1 px-2" : "gap-3 px-4"');
+    expect(source).toContain(
+      'inWidget || shareInMenu ? "gap-1 px-2" : "gap-3 px-4"',
+    );
     expect(source).toContain("ToolbarBreadcrumb");
     expect(source).toContain("disabled={menuItem.id === currentDocumentId}");
     expect(source).toContain("formatEditedLabel");
@@ -2893,7 +2895,9 @@ describe("document editor layout", () => {
     expect(source).toContain("editor.toolbar.shareAgents");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
-    expect(source).toContain("showCommentsControl && !commentsInMenu ?");
+    expect(source).toContain(
+      "showCommentsControl && !inWidget && !commentsInMenu ?",
+    );
     expect(editorSource).toContain(
       "commentsHistoryOpen={showCommentsHistoryDrawer}",
     );
