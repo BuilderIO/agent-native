@@ -105,7 +105,7 @@ beforeEach(() => {
 });
 
 describe("BigQuery alert batch", () => {
-  it("renders a single narrow CTE read with immutable bounds pushed before deduplication", () => {
+  it("renders one aggregate query with event-specific bounds pushed before each deduplication", () => {
     const rules = [
       rule(),
       rule({
@@ -126,7 +126,7 @@ describe("BigQuery alert batch", () => {
       "SELECT id, event_name, timestamp, app, template, user_key, session_id, path, properties, hostname FROM analytics_events",
     );
     expect(query.match(/FROM candidates/g)).toHaveLength(1);
-    expect(query).not.toContain("UNION");
+    expect(query.match(/UNION ALL/g)).toHaveLength(2);
     expect(query.match(/COUNTIF\(/g)).toHaveLength(3);
     expect(query).toContain("2026-10-08T23:35:00.000Z");
     expect(query).toContain("2026-10-08T23:55:00.000Z");
@@ -155,15 +155,54 @@ describe("BigQuery alert batch", () => {
     const dedup = rendered.indexOf("QUALIFY ROW_NUMBER()");
     const beforeDedup = rendered.slice(0, dedup);
     expect(dedup).toBeGreaterThan(0);
-    expect(beforeDedup).toContain(
-      "event_name IN ( 'agent_run_terminal' , 'agent_chat_stuck_detected' , 'http.response' )",
-    );
+    expect(beforeDedup).toContain("event_name IN ( 'agent_run_terminal' )");
     expect(beforeDedup).toContain("event_date >=");
     expect(beforeDedup).toContain("event_date <=");
     expect(beforeDedup).toContain("user_id");
     expect(beforeDedup).not.toContain("JSON_VALUE");
     expect(rendered).toContain("JSON_VALUE(properties");
+    const sources = [
+      ...rendered.matchAll(
+        /FROM `example-project\.analytics\.events` WHERE ([\s\S]*?) QUALIFY ROW_NUMBER\(\)/g,
+      ),
+    ];
+    expect(sources).toHaveLength(6);
+    for (const event of rules) {
+      const branches = sources.filter((source) =>
+        source[1].includes(`event_name IN ( '${event.eventName}' )`),
+      );
+      expect(branches).toHaveLength(2);
+      const start = new Date(
+        now.getTime() - event.windowMinutes * 60_000,
+      ).toISOString();
+      for (const branch of branches) expect(branch[1]).toContain(start);
+    }
   });
+
+  it("merges duplicate event names into one source range without duplicating candidates", () => {
+    const query = buildBigQueryAnalyticsAlertBatchQuery(
+      [rule(), rule({ id: "long", windowMinutes: 1440 })],
+      now,
+    );
+    expect(query).not.toContain("UNION");
+    expect(query.match(/FROM analytics_events/g)).toHaveLength(1);
+    expect(query).toContain("2026-10-08T00:05:00.000Z");
+    expect(query.match(/COUNTIF\(/g)).toHaveLength(2);
+  });
+
+  it.each([null, "", "   "])(
+    "keeps fallback raw-field distinct counts on the individual path: %s",
+    (distinctBy) => {
+      const fallbackRule = rule({
+        thresholdMode: "distinct_count",
+        distinctBy,
+      });
+      expect(isBigQueryAnalyticsAlertBatchEligible(fallbackRule)).toBe(false);
+      expect(() =>
+        buildBigQueryAnalyticsAlertBatchQuery([fallbackRule], now),
+      ).toThrow("Analytics alert rule cannot be batched");
+    },
+  );
 
   it("executes once in the exact request and credential scope and preserves sample contents", async () => {
     queryRow({

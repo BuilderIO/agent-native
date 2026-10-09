@@ -65,7 +65,7 @@ const targetRules = () => [
   rule("agent_run_terminal", {
     filters: [
       { field: "properties.status", value: "errored" },
-      { field: "hostname", op: "contains", value: "beta." },
+      { field: "properties.deployment_environment", value: "beta" },
     ],
   }),
   rule("agent_chat_stuck_detected", {
@@ -273,6 +273,30 @@ describe("analytics alert sweep batching", () => {
       mocks.notify.mock.calls.find((call) => call[0].id === "json-in")?.[2],
     ).toBeUndefined();
     expect(mocks.error).not.toHaveBeenCalled();
+  });
+
+  it("keeps canonical target rules together ahead of earlier duplicates of their event names", async () => {
+    const targets = targetRules();
+    targets[1].id = "default-agent-chat-stuck-spike-92d2e619f7";
+    targets[2].id = "default-http-5xx-spike-92d2e619f7";
+    mocks.list.mockResolvedValue([
+      rule("custom-terminal", { eventName: "agent_run_terminal", filters: [] }),
+      rule("custom-stuck", { eventName: "agent_chat_stuck_detected" }),
+      rule("custom-http", { eventName: "http.response" }),
+      ...targets,
+    ]);
+    const query = mocks.query.getMockImplementation()!;
+    mocks.query.mockImplementation(async (...args) => {
+      if (mocks.query.mock.calls.length === 1)
+        expect(mocks.claim.mock.calls.map((call) => call[0].id)).toEqual(
+          targets.map((target) => target.id),
+        );
+      return query(...args);
+    });
+    expect((await runAnalyticsAlertsOnce()).processed).toBe(6);
+    expect(mocks.query).toHaveBeenCalledTimes(2);
+    expect(mocks.query.mock.calls[0][0]).toContain("'errored'");
+    expect(mocks.notify).toHaveBeenCalledTimes(6);
   });
 
   it("excludes failed and lost claims from all queries", async () => {

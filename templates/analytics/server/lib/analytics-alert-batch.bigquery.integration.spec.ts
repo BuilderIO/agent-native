@@ -210,8 +210,7 @@ it("matches three individual alert evaluations with one narrow aggregate query",
         `SELECT * FROM (${production}) AS first_party_analytics_query LIMIT 5000`,
       );
     }
-    const expected = new Map();
-    for (const rule of rules) {
+    async function individualEvaluation(rule: AnalyticsAlertRule) {
       const start = new Date(
         now.getTime() - rule.windowMinutes * 60000,
       ).toISOString();
@@ -230,7 +229,15 @@ it("matches three individual alert evaluations with one narrow aggregate query",
         sessionId: row.session_id as string | null,
         path: row.path as string | null,
       }));
-      const evaluation = evaluateAnalyticsAlertRuleRows(rule, events);
+      return {
+        evaluation: evaluateAnalyticsAlertRuleRows(rule, events),
+        sql,
+        result,
+      };
+    }
+    const expected = new Map();
+    for (const rule of rules) {
+      const { evaluation, sql, result } = await individualEvaluation(rule);
       expected.set(rule.id, evaluation);
       if (rule.id === "stuck") expect(evaluation.observedValue).toBe(3);
       expect(result.rows.length).toBe(rule.id === "5xx" ? 7 : 14);
@@ -256,6 +263,28 @@ it("matches three individual alert evaluations with one narrow aggregate query",
         evaluation: expected.get(rule.id),
       });
     await emit("after-batch", renderedBatch);
+    const shorterTerminal = {
+      ...rules[0],
+      id: "short-terminal",
+      windowMinutes: 5,
+    };
+    const overlappingRules = [rules[0], shorterTerminal, rules[2]];
+    const overlapping = await evaluateBigQueryAnalyticsAlertBatch(
+      overlappingRules,
+      now,
+    );
+    expect(mocks.query).toHaveBeenCalledTimes(2);
+    expect(overlapping.get(rules[0].id)).toEqual({
+      evaluation: expected.get(rules[0].id),
+    });
+    expect(overlapping.get(rules[2].id)).toEqual({
+      evaluation: expected.get(rules[2].id),
+    });
+    const shorterExpected = await individualEvaluation(shorterTerminal);
+    expect(shorterExpected.evaluation.eventCount).toBe(7);
+    expect(overlapping.get(shorterTerminal.id)).toEqual({
+      evaluation: shorterExpected.evaluation,
+    });
   } finally {
     mocks.query.mockReset();
     await query(`DROP TABLE ${raw}`);

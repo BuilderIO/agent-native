@@ -8,6 +8,7 @@ import {
   isBigQueryAnalyticsAlertBatchEligible,
   listEnabledAnalyticsAlertRules,
   markAnalyticsAlertRuleError,
+  prioritizeBigQueryAnalyticsAlertRules,
   type AnalyticsAlertRule,
   type AnalyticsAlertEvaluation,
 } from "../lib/analytics-alerts";
@@ -17,24 +18,6 @@ let running = false;
 let listRulesFailureLogged = false;
 const DEFAULT_MAX_RULES_PER_SWEEP = 100;
 const MAX_BIGQUERY_RULES_PER_BATCH = 3;
-const PRIORITY_BIGQUERY_EVENTS = new Set([
-  "agent_run_terminal",
-  "agent_chat_stuck_detected",
-  "http.response",
-]);
-
-function prioritizeBigQueryRules(
-  rules: AnalyticsAlertRule[],
-): AnalyticsAlertRule[] {
-  const pending = new Set(PRIORITY_BIGQUERY_EVENTS);
-  const priority: AnalyticsAlertRule[] = [];
-  const remaining: AnalyticsAlertRule[] = [];
-  for (const rule of rules) {
-    if (rule.eventName && pending.delete(rule.eventName)) priority.push(rule);
-    else remaining.push(rule);
-  }
-  return [...priority, ...remaining];
-}
 
 function maxRulesPerSweep(input?: number): number {
   if (input) return Math.max(1, Math.min(500, Math.floor(input)));
@@ -168,7 +151,7 @@ export async function runAnalyticsAlertsOnce(
     }
 
     for (const rules of batches.values()) {
-      const scopedRules = prioritizeBigQueryRules(rules);
+      const scopedRules = prioritizeBigQueryAnalyticsAlertRules(rules);
       for (
         let offset = 0;
         offset < scopedRules.length;

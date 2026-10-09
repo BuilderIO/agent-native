@@ -1024,6 +1024,39 @@ export function isBigQueryAnalyticsAlertBatchEligible(
   });
 }
 
+export function prioritizeBigQueryAnalyticsAlertRules(
+  rules: AnalyticsAlertRule[],
+): AnalyticsAlertRule[] {
+  const priority: AnalyticsAlertRule[] = [];
+  for (const [eventName, prefix] of [
+    ["agent_run_terminal", null],
+    ["agent_chat_stuck_detected", DEFAULT_AGENT_CHAT_STUCK_ALERT_ID_PREFIX],
+    ["http.response", DEFAULT_HTTP_5XX_ALERT_ID_PREFIX],
+  ] as const) {
+    const candidates = rules.filter((rule) => rule.eventName === eventName);
+    const canonical = candidates.find((rule) =>
+      prefix
+        ? rule.id === defaultAlertId(prefix, rule.ownerEmail, rule.orgId)
+        : rule.filters.some(
+            (filter) =>
+              filter.field === "properties.status" &&
+              (filter.op ?? "equals") === "equals" &&
+              filter.value === "errored",
+          ) &&
+          rule.filters.some(
+            (filter) =>
+              filter.field === "properties.deployment_environment" &&
+              (filter.op ?? "equals") === "equals" &&
+              filter.value === "beta",
+          ),
+    );
+    const selected = canonical ?? candidates[0];
+    if (selected) priority.push(selected);
+  }
+  const selected = new Set(priority);
+  return [...priority, ...rules.filter((rule) => !selected.has(rule))];
+}
+
 function bigQueryBatchFilterSql(filter: AnalyticsAlertFilter): string {
   const predicate = bigQueryAlertFilterSql(filter);
   if (predicate === null) {
@@ -1081,20 +1114,36 @@ export function buildBigQueryAnalyticsAlertBatchQuery(
     }
   }
   const end = now.toISOString();
-  const start = new Date(
-    now.getTime() -
-      Math.max(...rules.map((rule) => rule.windowMinutes)) * 60_000,
-  ).toISOString();
-  const predicates = [
-    `event_date >= DATE(TIMESTAMP(${bigQuerySqlLiteral(start)}))`,
-    `event_date <= DATE(TIMESTAMP(${bigQuerySqlLiteral(end)}))`,
-    `timestamp >= TIMESTAMP(${bigQuerySqlLiteral(start)})`,
-    `timestamp <= TIMESTAMP(${bigQuerySqlLiteral(end)})`,
-    first.orgId
-      ? `org_id = ${bigQuerySqlLiteral(first.orgId)}`
-      : `(org_id IS NULL AND LOWER(owner_email) = LOWER(${bigQuerySqlLiteral(first.ownerEmail)}))`,
-    `event_name IN (${[...new Set(rules.map((rule) => rule.eventName!))].map(bigQuerySqlLiteral).join(", ")})`,
-  ];
+  const windowsByEvent = new Map<string, number>();
+  for (const rule of rules) {
+    const eventName = rule.eventName!;
+    windowsByEvent.set(
+      eventName,
+      Math.max(windowsByEvent.get(eventName) ?? 0, rule.windowMinutes),
+    );
+  }
+  const eventsByWindow = new Map<number, string[]>();
+  for (const [eventName, minutes] of windowsByEvent) {
+    const events = eventsByWindow.get(minutes);
+    if (events) events.push(eventName);
+    else eventsByWindow.set(minutes, [eventName]);
+  }
+  // Separate source branches let immutable bounds reach each raw dedupe;
+  // an OR over event-specific windows would leave the broadest raw scan.
+  const candidates = [...eventsByWindow].map(([minutes, events]) => {
+    const start = new Date(now.getTime() - minutes * 60_000).toISOString();
+    const predicates = [
+      `event_date >= DATE(TIMESTAMP(${bigQuerySqlLiteral(start)}))`,
+      `event_date <= DATE(TIMESTAMP(${bigQuerySqlLiteral(end)}))`,
+      `timestamp >= TIMESTAMP(${bigQuerySqlLiteral(start)})`,
+      `timestamp <= TIMESTAMP(${bigQuerySqlLiteral(end)})`,
+      first.orgId
+        ? `org_id = ${bigQuerySqlLiteral(first.orgId)}`
+        : `(org_id IS NULL AND LOWER(owner_email) = LOWER(${bigQuerySqlLiteral(first.ownerEmail)}))`,
+      `event_name IN (${events.map(bigQuerySqlLiteral).join(", ")})`,
+    ];
+    return `SELECT ${[...columns].join(", ")} FROM analytics_events WHERE ${predicates.join(" AND ")}`;
+  });
   const sample =
     "STRUCT(id AS id, event_name AS eventName, CONCAT(FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%E3S', timestamp, 'UTC'), 'Z') AS timestamp, app AS app, template AS template, user_key AS userKey, session_id AS sessionId, path AS path)";
   const aggregates = rules.flatMap((rule, index) => {
@@ -1124,7 +1173,7 @@ export function buildBigQueryAnalyticsAlertBatchQuery(
         : []),
     ];
   });
-  return `WITH candidates AS (SELECT ${[...columns].join(", ")} FROM analytics_events WHERE ${predicates.join(" AND ")}) SELECT ${aggregates.join(", ")} FROM candidates LIMIT 1`;
+  return `WITH candidates AS (${candidates.join(" UNION ALL ")}) SELECT ${aggregates.join(", ")} FROM candidates LIMIT 1`;
 }
 
 export type AnalyticsAlertBatchResult =
