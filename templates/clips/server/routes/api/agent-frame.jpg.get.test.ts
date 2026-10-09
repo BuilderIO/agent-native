@@ -427,6 +427,28 @@ describe("agent-frame.jpg route", () => {
     expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
   });
 
+  it("does not suggest retrying storage access failures as transient", async () => {
+    mockLoadRecordingMediaFile.mockRejectedValue(
+      new RecordingMediaFetchError(
+        "Recording media fetch failed: HTTP 403 Forbidden",
+        403,
+      ),
+    );
+
+    const event = makeEvent({ id: "rec-1", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(403);
+    expect(result).toMatchObject({
+      failureKind: "media",
+      nextStep: expect.stringContaining("media-storage issue"),
+    });
+    expect((result as { nextStep: string }).nextStep).not.toContain(
+      "Retry once",
+    );
+    expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
+  });
+
   it("marks frame extraction failures as processing, not missing media", async () => {
     mockExtractJpegFrameFromFile.mockRejectedValue(
       new MockVideoFrameExtractionError(

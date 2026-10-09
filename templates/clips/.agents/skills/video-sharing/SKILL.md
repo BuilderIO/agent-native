@@ -211,10 +211,9 @@ context instead of stopping at the share page or transcript preview:
    fix it. If it has `failureKind: processing`, follow `nextStep`: extraction,
    size-limit, and temporary storage errors do not prove that media is missing
    or that the link lacks access.
-   If `failureKind: expired` or HTTP 410, ask the owner to extend or remove the
-   clip expiry in the Share menu, save, then create and send a new
-   **Share with agents** link. Never claim to have seen frames that were not
-   returned as images.
+   If `failureKind: expired`, ask the owner to extend or remove the clip expiry
+   in the Share menu, save, then create and send a new **Share with agents**
+   link. Never claim to have seen frames that were not returned as images.
 
 The JSON discovery payload and HTTP endpoints work without browser tools. A
 WebMCP-capable browser is optional; its frame tool returns a URL, so the agent

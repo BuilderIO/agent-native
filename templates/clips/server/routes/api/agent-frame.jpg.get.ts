@@ -121,6 +121,15 @@ function describeFrameFailure(error: unknown, status: number) {
     };
   }
 
+  if (error instanceof RecordingMediaFetchError && error.statusCode === 403) {
+    return {
+      failureKind: "media",
+      error: message,
+      nextStep:
+        "Clips could not access the stored media after the clip passed its share-access check. This is a media-storage issue, not a missing agent link. Ask the owner to check storage access or replace the clip's media; another Share with agents link will not help.",
+    };
+  }
+
   const nextStep =
     status === 413
       ? "The stored media is too large for frame inspection. The share link may still be valid; report that frames cannot be inspected at this size."
