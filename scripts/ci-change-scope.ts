@@ -125,8 +125,8 @@ const PRE_AUTH_SESSION_REPLAY_E2E_FILES = new Set([
   "templates/slides/server/plugins/config.ts",
 ]);
 
-// The Content two-tab lane covers convergence and blank-page recovery against
-// the production build; other Content e2e specs and unit tests cannot move it.
+// The two-tab convergence lane also covers its own harness and the build it
+// serves; other Content e2e specs and unit tests cannot move it.
 const CONTENT_CONVERGENCE_FILES = new Set([
   "templates/content/agent-native.config.ts",
   "templates/content/agent-native.json",
@@ -138,7 +138,6 @@ const CONTENT_CONVERGENCE_FILES = new Set([
   "templates/content/e2e/global-setup.ts",
   "templates/content/e2e/helpers.ts",
   "templates/content/e2e/playwright.config.ts",
-  "templates/content/e2e/blank-page-create-recovery.spec.ts",
   "templates/content/e2e/two-tab-convergence.spec.ts",
 ]);
 
