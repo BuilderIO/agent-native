@@ -39,6 +39,14 @@ Run the Chromium IME Escape regression in an in-place slide text session:
 pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
 ```
 
+Run the Chromium mobile PowerPoint import status check. It holds the local file
+upload while checking the real mobile stylesheet, then releases the request to
+verify the pending status clears:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --mobile-import-status
+```
+
 Run the synthetic Slides text-surface typing, clipboard, undo/redo, and
 slide-switching round in Chromium (the default), WebKit, or Firefox. Chromium's
 `--ime-escape` gate uses trusted CDP IME input. WebKit and Firefox receive
@@ -174,6 +182,7 @@ because it creates and rewrites decks.
 | `--typing-chat`                | Check selection direction on edit entry and Agent chat typing with slide editing left open                                         |
 | `--caret-qa`                   | Check Home/End or macOS line-edge caret navigation in a synthetic slide text edit                                                  |
 | `--ime-escape`                 | Verify composing Escape does not exit an in-place slide text edit session                                                          |
+| `--mobile-import-status`       | Check the real mobile import status while a local PowerPoint upload is pending                                                     |
 | `--text-surface-qa`            | Exercise Slides text fields, IME, paste, undo/redo, and slide switching in synthetic decks; defaults to Chromium                   |
 | `--authoring`                  | Exercise slash commands, Markdown shortcuts, and list authoring in synthetic decks; defaults to Chromium                           |
 | `--authoring-case <id>`        | With `--authoring`, run only cases whose ID contains `<id>`                                                                        |

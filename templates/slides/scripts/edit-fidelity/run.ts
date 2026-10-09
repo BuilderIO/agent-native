@@ -162,6 +162,7 @@ const typingChatOnly = argv.includes("--typing-chat");
 const caretQaOnly = argv.includes("--caret-qa");
 const imeEscapeOnly = argv.includes("--ime-escape");
 const textSurfaceQaOnly = argv.includes("--text-surface-qa");
+const mobileImportStatusOnly = argv.includes("--mobile-import-status");
 const lineKeyPlatform = opt("--line-key-platform") ?? process.platform;
 if (!["darwin", "linux", "win32"].includes(lineKeyPlatform)) {
   fatal("--line-key-platform must be one of: darwin, linux, win32");
@@ -1163,6 +1164,177 @@ async function runChatTypingRegression(page: Page, base: string) {
     }
     // Keep interception installed if preflight timed out; the delayed send must not escape.
     await action(page, "delete-deck", { id: deckId }, "DELETE");
+  }
+}
+
+async function runMobileImportStatusRegression(page: Page, base: string) {
+  const problems: string[] = [];
+  const fixturePath = path.join(
+    WORKTREE_ROOT,
+    "packages/creative-context/src/eval/fixtures/launch-system-v1.pptx",
+  );
+  if (!existsSync(fixturePath)) {
+    throw new CouldNotRun(`PowerPoint fixture is missing: ${fixturePath}`);
+  }
+
+  let uploadRequestSeen = false;
+  let importRequestSeen = false;
+  let releaseUpload!: () => void;
+  let releaseImport!: () => void;
+  let finishUploadRoute!: () => void;
+  let finishImportRoute!: () => void;
+  let resolveUploadStarted!: () => void;
+  let resolveImportStarted!: () => void;
+  const uploadGate = new Promise<void>((resolve) => {
+    releaseUpload = resolve;
+  });
+  const importGate = new Promise<void>((resolve) => {
+    releaseImport = resolve;
+  });
+  const uploadRouteFinished = new Promise<void>((resolve) => {
+    finishUploadRoute = resolve;
+  });
+  const importRouteFinished = new Promise<void>((resolve) => {
+    finishImportRoute = resolve;
+  });
+  const uploadStarted = new Promise<void>((resolve) => {
+    resolveUploadStarted = resolve;
+  });
+  const importStarted = new Promise<void>((resolve) => {
+    resolveImportStarted = resolve;
+  });
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.route("**/api/uploads", async (route: any) => {
+    if (route.request().method() !== "POST") return route.continue();
+    uploadRequestSeen = true;
+    resolveUploadStarted();
+    try {
+      await uploadGate;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            path: "uploads/mobile-import-status.pptx",
+            originalName: path.basename(fixturePath),
+            filename: "mobile-import-status.pptx",
+            type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            size: 10_352,
+          },
+        ]),
+      });
+    } finally {
+      finishUploadRoute();
+    }
+  });
+  await page.route(
+    "**/_agent-native/actions/import-pptx",
+    async (route: any) => {
+      if (route.request().method() !== "POST") return route.continue();
+      importRequestSeen = true;
+      resolveImportStarted();
+      try {
+        await importGate;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ id: "", imported: true, slideCount: 1 }),
+        });
+      } finally {
+        finishImportRoute();
+      }
+    },
+  );
+
+  try {
+    await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+    await ensureSignedIn(page);
+    const fileChooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Import" }).click();
+    await page.getByRole("menuitem", { name: "PPT" }).click();
+    await (await fileChooser).setFiles(fixturePath);
+
+    const uploadReached = await Promise.race([
+      uploadStarted.then(() => true),
+      sleep(10_000).then(() => false),
+    ]);
+    if (!uploadReached) {
+      throw new Error("PowerPoint import did not begin a file upload");
+    }
+
+    const status = page.locator(
+      ".slides-home-mobile-toolbar .slides-home-import-status",
+    );
+    const importButton = page.getByRole("button", { name: "Importing..." });
+    let statusVisible = false;
+    try {
+      await status.waitFor({ state: "visible", timeout: 10_000 });
+      statusVisible = true;
+    } catch {
+      problems.push(
+        "mobile import status was not visible while the upload was pending",
+      );
+    }
+    if (statusVisible && (await status.innerText()) !== "Importing...") {
+      problems.push("mobile import status did not show Importing...");
+    }
+    if (
+      await page
+        .locator(".slides-home-mobile-toolbar .slides-home-import-label")
+        .isVisible()
+    ) {
+      problems.push("mobile import button label remained visible while busy");
+    }
+    if (!(await importButton.isDisabled())) {
+      problems.push(
+        "import button was not disabled while the upload was pending",
+      );
+    }
+
+    releaseUpload();
+    await uploadRouteFinished;
+    const actionReached = await Promise.race([
+      importStarted.then(() => true),
+      sleep(10_000).then(() => false),
+    ]);
+    if (!actionReached) {
+      throw new Error("PowerPoint import did not reach the import action");
+    }
+    if (!(await status.isVisible())) {
+      problems.push(
+        "mobile import status disappeared while the import action was pending",
+      );
+    }
+    if (!(await importButton.isDisabled())) {
+      problems.push(
+        "import button was enabled while the import action was pending",
+      );
+    }
+
+    releaseImport();
+    await importRouteFinished;
+    await status.waitFor({ state: "hidden", timeout: 10_000 });
+    return problems;
+  } finally {
+    releaseUpload();
+    releaseImport();
+    for (const [seen, finished, label] of [
+      [uploadRequestSeen, uploadRouteFinished, "upload"],
+      [importRequestSeen, importRouteFinished, "import action"],
+    ] as const) {
+      if (seen) {
+        const routeDrained = await Promise.race([
+          finished.then(() => true),
+          sleep(5000).then(() => false),
+        ]);
+        if (!routeDrained) {
+          throw new Error(`PowerPoint ${label} interception did not finish`);
+        }
+      }
+    }
+    await page.unroute("**/_agent-native/actions/import-pptx");
+    await page.unroute("**/api/uploads");
   }
 }
 
@@ -6431,6 +6603,22 @@ async function main() {
       }
       console.log(
         `[edit-fidelity] Slides text surfaces passed typing, composition, paste, undo/redo, and switching checks in ${browserName}`,
+      );
+      return 0;
+    }
+
+    if (mobileImportStatusOnly) {
+      const page = await context.newPage();
+      const problems = await runMobileImportStatusRegression(page, base);
+      await page.close();
+      if (problems.length) {
+        console.error(
+          `[edit-fidelity] mobile import status: ${problems.join("; ")}`,
+        );
+        return 1;
+      }
+      console.log(
+        "[edit-fidelity] mobile PowerPoint import status stayed visible while pending and cleared when the upload finished",
       );
       return 0;
     }
