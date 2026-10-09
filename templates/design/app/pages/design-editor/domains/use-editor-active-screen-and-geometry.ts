@@ -44,6 +44,7 @@ import {
   rejectedRestoreClaimTargetFileIds,
   reconcileRejectedRestoreClaimOutboxEntry,
   stripRejectedRestoreClaimAssignments,
+  type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
 import {
   clearPendingGeneration,
@@ -150,6 +151,28 @@ export function createFrameGeometryDataSavePayload(input: {
         }
       : {}),
   };
+}
+
+export async function persistReconciledFrameGeometryEntry(
+  entry: DesignSaveOutboxEntry,
+  actions: {
+    journal: (entry: DesignSaveOutboxEntry) => Promise<unknown>;
+    save: (payload: Record<string, unknown>) => Promise<unknown>;
+    acknowledge: (entry: DesignSaveOutboxEntry) => Promise<unknown>;
+    onSaved: () => void;
+    invalidate: () => void;
+  },
+): Promise<boolean> {
+  await actions.journal(entry);
+  try {
+    await actions.save(entry.payload);
+    await actions.acknowledge(entry);
+  } catch {
+    return false;
+  }
+  actions.onSaved();
+  actions.invalidate();
+  return true;
 }
 
 export interface PendingFrameGeometryRestoreClaim {
@@ -612,6 +635,8 @@ export function useEditorActiveScreenAndGeometry({
             const rejectedClaims = restoreClaims.filter((claim) =>
               rejectedTargetFileIdSet.has(claim.targetFileId),
             );
+            let reconciledEntryOwnsInvalidation = false;
+            let reconciledEntryWasSaved = false;
             if (
               outboxEntry &&
               rejectedClaims.length > 0 &&
@@ -663,15 +688,38 @@ export function useEditorActiveScreenAndGeometry({
               pendingFrameGeometryOperationsForUnloadRef.current =
                 pendingOperations;
               if (reconciledEntry) {
-                await journalOutboxEntry(reconciledEntry);
+                reconciledEntryOwnsInvalidation = true;
+                reconciledEntryWasSaved =
+                  await persistReconciledFrameGeometryEntry(reconciledEntry, {
+                    journal: journalOutboxEntry,
+                    save: (payload) =>
+                      saveDesignDataAsync(
+                        payload as Parameters<typeof saveDesignDataAsync>[0],
+                      ),
+                    acknowledge: acknowledgeFrameGeometryOutboxEntry,
+                    onSaved: () => {
+                      pendingFrameGeometryOperationsForUnloadRef.current =
+                        clearAcknowledgedDesignDataOperationsThroughRevision(
+                          pendingFrameGeometryOperationsForUnloadRef.current,
+                          revision,
+                        );
+                    },
+                    invalidate: () => {
+                      void queryClient.invalidateQueries({
+                        queryKey: ["action", "get-design"],
+                      });
+                    },
+                  });
               } else {
                 await acknowledgeFrameGeometryOutboxEntry(outboxEntry);
               }
             }
-            void queryClient.invalidateQueries({
-              queryKey: ["action", "get-design"],
-            });
-            warnChangesWillRetry();
+            if (!reconciledEntryOwnsInvalidation) {
+              void queryClient.invalidateQueries({
+                queryKey: ["action", "get-design"],
+              });
+            }
+            if (!reconciledEntryWasSaved) warnChangesWillRetry();
           }
         });
       frameGeometryMutationChainRef.current = current;

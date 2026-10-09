@@ -2104,71 +2104,81 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
     expect(retryLocalhostPreview).toHaveBeenCalledOnce();
   });
 
-  it("explains why public viewers cannot open legacy localhost previews without a connection id", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL) =>
-      Promise.reject(new Error(`Unexpected fetch: ${requestInfoUrl(input)}`)),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const publicViewer = isPublicDesignViewer({
-      publicVisualEdit: false,
-      visibility: "public",
-      accessRole: "viewer",
-    });
-    const localhostPreviewUnavailablePublic =
-      shouldShowPublicLocalhostPreviewUnavailable({
-        sourceType: "localhost",
-        connectionId: undefined,
-        snapshotOnly: false,
-        publicViewer,
-        serverUnavailable: false,
+  it.each([
+    ["legacy screen without a connection id", undefined],
+    ["connected screen", "local-connection"],
+  ])(
+    "explains why public viewers cannot open a %s",
+    async (_label, connectionId) => {
+      const fetchMock = vi.fn((input: RequestInfo | URL) =>
+        Promise.reject(new Error(`Unexpected fetch: ${requestInfoUrl(input)}`)),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const publicViewer = isPublicDesignViewer({
+        publicVisualEdit: false,
+        visibility: "public",
+        accessRole: "viewer",
       });
-    const localhostPreviewUnavailable = shouldShowLocalhostPreviewRecovery({
-      sourceType: "localhost",
-      connectionId: undefined,
-      snapshotOnly: false,
-      refreshFailed: false,
-      hasUsablePreviewCredentials: false,
-      connectionUnavailable: false,
-      canEdit: false,
-      publicUnavailable: localhostPreviewUnavailablePublic,
-      publicVisualEdit: false,
-    });
+      const localhostPreviewUnavailablePublic =
+        shouldShowPublicLocalhostPreviewUnavailable({
+          sourceType: "localhost",
+          snapshotOnly: false,
+          publicViewer,
+          serverUnavailable: false,
+        });
+      const localhostPreviewUnavailable = shouldShowLocalhostPreviewRecovery({
+        sourceType: "localhost",
+        connectionId,
+        snapshotOnly: false,
+        refreshFailed: false,
+        hasUsablePreviewCredentials: true,
+        connectionUnavailable: false,
+        canEdit: false,
+        publicUnavailable: localhostPreviewUnavailablePublic,
+        publicVisualEdit: false,
+      });
 
-    await act(async () =>
-      root.render(
-        <DesignCanvas
-          content="http://localhost:5173/settings"
-          contentKey="screen-settings"
-          screenId="screen-settings"
-          sourceType="localhost"
-          bridgeUrl="http://127.0.0.1:7331"
-          previewToken="legacy-preview-token"
-          localhostPreviewUnavailable={localhostPreviewUnavailable}
-          localhostPreviewUnavailablePublic={localhostPreviewUnavailablePublic}
-          onRetryLocalhostPreview={vi.fn()}
-          zoom={100}
-          deviceFrame="none"
-          editMode={false}
-          readOnly
-          interactMode={false}
-          onElementSelect={() => {}}
-          onElementHover={() => {}}
-          tweakValues={{}}
-        />,
-      ),
-    );
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="http://localhost:5173/settings"
+            contentKey="screen-settings"
+            screenId="screen-settings"
+            sourceType="localhost"
+            connectionId={connectionId}
+            bridgeUrl="http://127.0.0.1:7331"
+            previewToken="legacy-preview-token"
+            localhostPreviewUnavailable={localhostPreviewUnavailable}
+            localhostPreviewUnavailablePublic={
+              localhostPreviewUnavailablePublic
+            }
+            onRetryLocalhostPreview={vi.fn()}
+            zoom={100}
+            deviceFrame="none"
+            editMode={false}
+            readOnly
+            interactMode={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
 
-    expect(container.textContent).toContain(
-      "Localhost previews are not shared with public viewers.",
-    );
-    expect(
-      Array.from(container.querySelectorAll("button")).some((button) =>
-        button.textContent?.includes("Retry credentials"),
-      ),
-    ).toBe(false);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(container.querySelector('iframe[src*="localhost:5173"]')).toBeNull();
-  });
+      expect(container.textContent).toContain(
+        "Localhost previews are not shared with public viewers.",
+      );
+      expect(
+        Array.from(container.querySelectorAll("button")).some((button) =>
+          button.textContent?.includes("Retry credentials"),
+        ),
+      ).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(
+        container.querySelector('iframe[src*="localhost:5173"]'),
+      ).toBeNull();
+    },
+  );
 
   it("keeps an entitled viewer on the proxied document instead of the snapshot", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {

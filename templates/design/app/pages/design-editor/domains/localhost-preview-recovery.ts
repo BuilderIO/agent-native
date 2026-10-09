@@ -21,29 +21,28 @@ export function shouldShowLocalhostPreviewRecovery({
 }): boolean {
   if (sourceType !== "localhost" || snapshotOnly) return false;
 
-  if (!connectionId) return canEdit || publicUnavailable;
+  if (publicUnavailable) return true;
+  if (!connectionId) return canEdit;
   if (refreshFailed) {
     return !hasUsablePreviewCredentials && (canEdit || publicVisualEdit);
   }
-  if (connectionUnavailable) return canEdit || publicUnavailable;
+  if (connectionUnavailable) return canEdit;
   return false;
 }
 
 export function shouldShowPublicLocalhostPreviewUnavailable({
   sourceType,
-  connectionId,
   snapshotOnly,
   publicViewer,
   serverUnavailable,
 }: {
   sourceType?: string | null;
-  connectionId?: string | null;
   snapshotOnly: boolean;
   publicViewer: boolean;
   serverUnavailable: boolean;
 }): boolean {
   if (sourceType !== "localhost" || snapshotOnly) return false;
-  return serverUnavailable || (publicViewer && !connectionId);
+  return serverUnavailable || publicViewer;
 }
 
 export function isPublicDesignViewer({

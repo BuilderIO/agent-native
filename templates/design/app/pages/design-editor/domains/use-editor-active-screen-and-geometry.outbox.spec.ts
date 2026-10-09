@@ -1,13 +1,92 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { createDesignSaveOutboxEntry } from "@/lib/design-save-outbox";
 import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
 import {
   acknowledgeFrameGeometryRestoreClaims,
   createFrameGeometryDataSavePayload,
   frameGeometryRestoreClaimsForOperations,
   frameGeometryRestoreClaimsThroughRevision,
+  persistReconciledFrameGeometryEntry,
   stageFrameGeometryRestoreClaims,
 } from "@/pages/design-editor/domains/use-editor-active-screen-and-geometry";
+
+function createReconciledGeometryEntry() {
+  return createDesignSaveOutboxEntry({
+    designId: "design-1",
+    actorScope: "editor-session",
+    actionName: "update-design",
+    resourceId: "design-1",
+    operationSource: "editor-session",
+    operationRevision: 9,
+    payload: {
+      id: "design-1",
+      operationRevision: 9,
+      dataOperations: [
+        {
+          op: "set",
+          path: ["canvasFrames", "frame-1"],
+          value: { x: 20, y: 30, width: 320, height: 220 },
+        },
+      ],
+    },
+  });
+}
+
+describe("reconciled frame geometry save recovery", () => {
+  it("retries and acknowledges the reconciled save before invalidating", async () => {
+    const events: string[] = [];
+    const persisted = await persistReconciledFrameGeometryEntry(
+      createReconciledGeometryEntry(),
+      {
+        journal: async () => {
+          events.push("journal");
+        },
+        save: async () => {
+          events.push("save");
+        },
+        acknowledge: async () => {
+          events.push("acknowledge");
+        },
+        onSaved: () => events.push("clear-pending"),
+        invalidate: () => events.push("invalidate"),
+      },
+    );
+
+    expect(persisted).toBe(true);
+    expect(events).toEqual([
+      "journal",
+      "save",
+      "acknowledge",
+      "clear-pending",
+      "invalidate",
+    ]);
+  });
+
+  it("keeps the current design cache when the reconciled save is still pending", async () => {
+    const events: string[] = [];
+    const persisted = await persistReconciledFrameGeometryEntry(
+      createReconciledGeometryEntry(),
+      {
+        journal: async () => {
+          events.push("journal");
+        },
+        save: async () => {
+          events.push("save");
+          throw new Error("temporary save failure");
+        },
+        acknowledge: async () => {
+          events.push("acknowledge");
+        },
+        onSaved: () => events.push("clear-pending"),
+        invalidate: () => events.push("invalidate"),
+      },
+    );
+
+    expect(persisted).toBe(false);
+    expect(events).toEqual(["journal", "save"]);
+  });
+});
 
 describe("frame geometry save payload", () => {
   it("copies scoped restore claims into a stable outbox payload", () => {

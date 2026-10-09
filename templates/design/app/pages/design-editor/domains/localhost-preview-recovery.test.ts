@@ -43,10 +43,12 @@ describe("shouldShowLocalhostPreviewRecovery", () => {
     ).toBe(false);
   });
 
-  it("shows an unavailable message for public viewer legacy screens without a connection id", () => {
+  it.each([
+    ["legacy screen without a connection id", undefined],
+    ["connected screen", "local-connection"],
+  ])("shows public-unavailable recovery for a %s", (_label, connectionId) => {
     const publicUnavailable = shouldShowPublicLocalhostPreviewUnavailable({
       ...base,
-      connectionId: undefined,
       publicViewer: true,
       serverUnavailable: false,
     });
@@ -55,20 +57,19 @@ describe("shouldShowLocalhostPreviewRecovery", () => {
     expect(
       shouldShowLocalhostPreviewRecovery({
         ...base,
-        connectionId: undefined,
+        connectionId,
         canEdit: false,
         hasUsablePreviewCredentials: true,
         publicUnavailable,
-        publicVisualEdit: true,
+        publicVisualEdit: false,
       }),
     ).toBe(true);
   });
 
-  it("scopes the missing-id fallback and preserves explicit public server errors", () => {
+  it("scopes public-unavailable recovery and preserves explicit server errors", () => {
     expect(
       shouldShowPublicLocalhostPreviewUnavailable({
         ...base,
-        connectionId: undefined,
         publicViewer: false,
         serverUnavailable: false,
       }),
@@ -77,7 +78,6 @@ describe("shouldShowLocalhostPreviewRecovery", () => {
       shouldShowPublicLocalhostPreviewUnavailable({
         ...base,
         sourceType: "inline",
-        connectionId: undefined,
         publicViewer: true,
         serverUnavailable: false,
       }),
@@ -86,7 +86,6 @@ describe("shouldShowLocalhostPreviewRecovery", () => {
       shouldShowPublicLocalhostPreviewUnavailable({
         ...base,
         snapshotOnly: true,
-        connectionId: undefined,
         publicViewer: true,
         serverUnavailable: false,
       }),
@@ -145,7 +144,6 @@ describe("shouldShowLocalhostPreviewRecovery", () => {
     expect(
       shouldShowPublicLocalhostPreviewUnavailable({
         sourceType: "localhost",
-        connectionId: undefined,
         snapshotOnly: false,
         publicViewer: readOnlyButNotPublicViewer,
         serverUnavailable: false,

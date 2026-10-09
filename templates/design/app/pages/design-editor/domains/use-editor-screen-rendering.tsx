@@ -682,7 +682,6 @@ export function useEditorScreenRendering({
       const localhostPreviewUnavailablePublic =
         shouldShowPublicLocalhostPreviewUnavailable({
           sourceType: screenSourceType,
-          connectionId: screen.connectionId,
           snapshotOnly: screenSnapshotOnly,
           publicViewer,
           serverUnavailable:

@@ -922,6 +922,46 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
+  test("public /design/:id explains that connected localhost screens are unavailable", async ({
+    browser,
+  }) => {
+    const previewCredentialRequests: string[] = [];
+    const signedOut = await openSignedOutPage(
+      browser,
+      `/design/${collaborationDesignId}`,
+      (page) => {
+        page.on("request", (request) => {
+          if (
+            new URL(request.url()).pathname.endsWith(
+              "/actions/refresh-localhost-preview-token",
+            )
+          ) {
+            previewCredentialRequests.push(request.url());
+          }
+        });
+      },
+    );
+    try {
+      const unavailableAlert = signedOut.page.getByRole("alert").filter({
+        hasText: "Localhost previews are not shared with public viewers.",
+      });
+      await expect(unavailableAlert).toBeVisible();
+      await expect(
+        unavailableAlert.getByRole("button", { name: /retry/i }),
+      ).toHaveCount(0);
+      await expect(
+        signedOut.page.locator(
+          `iframe[data-design-preview-iframe][src*="${visualEditTargetUrl}"]`,
+        ),
+      ).toHaveCount(0);
+      expect(previewCredentialRequests).toEqual([]);
+      expect(signedOut.mutationRequests).toEqual([]);
+      await assertNoRuntimeErrors(signedOut);
+    } finally {
+      await signedOut.close();
+    }
+  });
+
   test("public design links restore the requested overview screen", async ({
     browser,
   }) => {
