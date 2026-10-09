@@ -372,7 +372,7 @@ describe("update-document compare-and-swap", () => {
                   },
                 },
           );
-          if (responseKind === "saved" || responseKind === "preservation") {
+          if (responseKind === "preservation") {
             const { queryAuditEvents } =
               await import("@agent-native/core/audit");
             const events = await queryAuditEvents(
@@ -390,6 +390,23 @@ describe("update-document compare-and-swap", () => {
               status: "success",
             });
           }
+        }
+        if (responseKind === "saved") {
+          const { queryAuditEvents } = await import("@agent-native/core/audit");
+          const events = await queryAuditEvents(
+            { userEmail: OWNER },
+            { action: "update-document", targetType: "document", targetId: id },
+          );
+          expect(events).toHaveLength(1);
+          expect(events[0]).toMatchObject({
+            ownerEmail: OWNER,
+            actorEmail: EDITOR,
+            status: "success",
+            errorCode:
+              accessAfterMove === "revoked" || accessAfterMove === "deleted"
+                ? "DOCUMENT_SAVED_ACCESS_CHANGED"
+                : null,
+          });
         }
         expect(race).toHaveBeenCalledOnce();
       } finally {

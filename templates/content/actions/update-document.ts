@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { withCommittedActionAudit } from "@agent-native/core/audit";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import {
   iconValueSchema,
@@ -1680,22 +1681,28 @@ export default defineAction({
           (error instanceof ActionContractError &&
             error.errorCode === "DOCUMENT_NOT_FOUND"))
       ) {
-        throw new ActionContractError(
-          "The update was saved, but the document is no longer accessible. Do not retry this write.",
-          {
-            errorCode: "DOCUMENT_SAVED_ACCESS_CHANGED",
-            statusCode: error.statusCode,
-            details: { id, saved: true },
-          },
+        throw withCommittedActionAudit(
+          new ActionContractError(
+            "The update was saved, but the document is no longer accessible. Do not retry this write.",
+            {
+              errorCode: "DOCUMENT_SAVED_ACCESS_CHANGED",
+              statusCode: error.statusCode,
+              details: { id, saved: true },
+            },
+          ),
+          scopeDocumentAudit({ id, saved: true }, ownerEmail),
         );
       }
-      throw new ActionContractError(
-        "The update was saved, but its response could not be completed. Do not retry this write.",
-        {
-          errorCode: "DOCUMENT_SAVED_RESPONSE_FAILED",
-          statusCode: 500,
-          details: { id, saved: true },
-        },
+      throw withCommittedActionAudit(
+        new ActionContractError(
+          "The update was saved, but its response could not be completed. Do not retry this write.",
+          {
+            errorCode: "DOCUMENT_SAVED_RESPONSE_FAILED",
+            statusCode: 500,
+            details: { id, saved: true },
+          },
+        ),
+        scopeDocumentAudit({ id, saved: true }, ownerEmail),
       );
     }
   },
