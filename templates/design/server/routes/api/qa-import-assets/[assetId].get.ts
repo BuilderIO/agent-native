@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => {
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (!session?.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
@@ -40,7 +40,10 @@ export default defineEventHandler(async (event) => {
       if (!info.isFile()) continue;
       filepath = candidate;
       break;
-    } catch {
+    } catch (error) {
+      const code =
+        error instanceof Error && "code" in error ? error.code : undefined;
+      if (code !== "ENOENT") throw error;
       // Try the previous local cache path before treating saved assets as missing.
     }
   }

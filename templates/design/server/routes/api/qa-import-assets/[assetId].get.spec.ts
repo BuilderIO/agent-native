@@ -114,14 +114,11 @@ describe("GET /api/qa-import-assets/:assetId", () => {
     expect(mockAssetPaths).not.toHaveBeenCalled();
   });
 
-  it("treats session lookup errors as unauthenticated", async () => {
-    mockGetSession.mockRejectedValue(new Error("session store unavailable"));
-    const event = makeEvent();
+  it("surfaces session lookup errors instead of treating them as unauthenticated", async () => {
+    const error = new Error("session store unavailable");
+    mockGetSession.mockRejectedValue(error);
 
-    await expect(handler(event as never)).resolves.toEqual({
-      error: "Unauthorized",
-    });
-    expect(event.status).toBe(401);
+    await expect(handler(makeEvent() as never)).rejects.toBe(error);
     expect(mockAssetPaths).not.toHaveBeenCalled();
   });
 
@@ -178,16 +175,13 @@ describe("GET /api/qa-import-assets/:assetId", () => {
     expect(mockStreamFile).toHaveBeenCalledWith({ kind: "read-stream" });
   });
 
-  it("treats filesystem errors as missing assets", async () => {
-    mockStat.mockRejectedValue(
-      Object.assign(new Error("permission denied"), { code: "EACCES" }),
-    );
-    const event = makeEvent();
-
-    await expect(handler(event as never)).resolves.toEqual({
-      error: "Not found",
+  it("surfaces filesystem errors other than a missing path", async () => {
+    const error = Object.assign(new Error("permission denied"), {
+      code: "EACCES",
     });
-    expect(event.status).toBe(404);
+    mockStat.mockRejectedValue(error);
+
+    await expect(handler(makeEvent() as never)).rejects.toBe(error);
     expect(mockCreateReadStream).not.toHaveBeenCalled();
   });
 
