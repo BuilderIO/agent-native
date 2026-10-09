@@ -2096,10 +2096,16 @@ async function openSignedOutPage(
 
   page.on("console", (message) => {
     if (message.type() === "error") {
+      const text = message.text();
+      if (
+        /^Failed to load resource: the server responded with a status of 401\b/.test(
+          text,
+        )
+      ) {
+        return;
+      }
       const location = message.location();
-      consoleErrors.push(
-        `${message.text()} (${location.url}:${location.lineNumber})`,
-      );
+      consoleErrors.push(`${text} (${location.url}:${location.lineNumber})`);
     }
   });
   page.on("pageerror", (error) => {
@@ -2189,13 +2195,9 @@ async function assertNoRuntimeErrors({
   consoleErrors,
   pageErrors,
 }: PageRuntimeErrors): Promise<void> {
-  const unexpectedConsoleErrors = consoleErrors.filter(
-    (message) => !/\b401\b/.test(message),
+  expect(consoleErrors, `console errors: ${consoleErrors.join("\n")}`).toEqual(
+    [],
   );
-  expect(
-    unexpectedConsoleErrors,
-    `console errors: ${unexpectedConsoleErrors.join("\n")}`,
-  ).toEqual([]);
   expect(pageErrors, `page errors: ${pageErrors.join("\n")}`).toEqual([]);
 }
 
