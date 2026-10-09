@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockReadBody = vi.hoisted(() => vi.fn());
@@ -183,6 +185,10 @@ describe("shareDeck", () => {
         output_id: "deck-1",
         output_type: "deck",
         share_type: "presentation_link",
+        share_token_hash: createHash("sha256")
+          .update(result.shareToken)
+          .digest("hex")
+          .slice(0, 16),
       },
       { userId: "owner@example.com" },
     );
