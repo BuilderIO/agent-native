@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { createServer } from "vite";
+import { createServer, resolveConfig } from "vite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
@@ -3520,25 +3520,43 @@ describe("Vite barrel loading", () => {
     expect(config.build.rolldownOptions.experimental.lazyBarrel).toBe(true);
   });
 
-  it("keeps an app's own Rolldown options, including opting out", async () => {
-    const plugins = flatPlugins(agentNative());
-    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
-    const treeshake = { moduleSideEffects: false };
+  it("keeps an app's own Rolldown options once, including opting out", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "core-vite-rolldown-"));
+    try {
+      fs.writeFileSync(
+        path.join(root, "package.json"),
+        JSON.stringify({ name: "rolldown-options-app" }),
+      );
+      const appPlugin = { name: "app-rolldown-plugin" };
+      const treeshake = { moduleSideEffects: false };
 
-    const config = (await configPlugin.config(
-      {
-        build: {
-          rolldownOptions: {
-            treeshake,
-            experimental: { lazyBarrel: false },
+      const resolved = await resolveConfig(
+        {
+          configFile: false,
+          root,
+          plugins: agentNative() as any,
+          build: {
+            rolldownOptions: {
+              plugins: [appPlugin],
+              treeshake,
+              experimental: { lazyBarrel: false },
+            },
           },
         },
-      },
-      { command: "build", mode: "production" },
-    )) as any;
+        "build",
+      );
+      const rolldownOptions = resolved.build.rolldownOptions as any;
 
-    expect(config.build.rolldownOptions.treeshake).toEqual(treeshake);
-    expect(config.build.rolldownOptions.experimental.lazyBarrel).toBe(false);
+      expect(
+        [rolldownOptions.plugins]
+          .flat(Infinity)
+          .filter((p: any) => p?.name === "app-rolldown-plugin"),
+      ).toHaveLength(1);
+      expect(rolldownOptions.treeshake).toEqual(treeshake);
+      expect(rolldownOptions.experimental.lazyBarrel).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

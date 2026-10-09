@@ -4832,8 +4832,13 @@ function createAgentNativeConfig(
   const forcePollingWatch = process.env.CHOKIDAR_USEPOLLING === "1";
   const pollingWatchInterval = Number(process.env.CHOKIDAR_INTERVAL ?? 1000);
   const userWatch = userConfig.server?.watch ?? {};
-  const { rollupOptions: _buildRollupOptionsAlias, ...userBuild } =
-    userConfig.build ?? {};
+  // Vite merges this config into the app's own and concatenates arrays, so
+  // re-emitting the app's Rolldown options would apply its plugins twice.
+  const {
+    rollupOptions: _buildRollupOptionsAlias,
+    rolldownOptions: _buildRolldownOptions,
+    ...userBuild
+  } = userConfig.build ?? {};
   const { rollupOptions: _depsRollupOptionsAlias, ...userOptimizeDeps } =
     userConfig.optimizeDeps ?? {};
 
@@ -4981,10 +4986,9 @@ function createAgentNativeConfig(
       // otherwise make Rolldown parse every re-exported module (6k+ icons) in
       // both the client and SSR builds before tree-shaking drops them.
       rolldownOptions: {
-        ...userConfig.build?.rolldownOptions,
         experimental: {
-          lazyBarrel: true,
-          ...userConfig.build?.rolldownOptions?.experimental,
+          lazyBarrel:
+            userConfig.build?.rolldownOptions?.experimental?.lazyBarrel ?? true,
         },
       },
       outDir: options.outDir ?? userConfig.build?.outDir ?? "dist/spa",
