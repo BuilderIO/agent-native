@@ -3,4 +3,4 @@ type: improved
 date: 2026-10-09
 ---
 
-Onboarding journeys now count later activity within a frozen window and mark no-later results as right-censored, not abandonment.
+Onboarding journeys now show later activity within a chosen window, mark no-later results as right-censored, and identify when follow-up counts are incomplete.

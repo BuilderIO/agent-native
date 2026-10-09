@@ -267,7 +267,7 @@ describe("getOnboardingJourney", () => {
           truncated: false,
           paginationConsistency: "stable",
         },
-        followupAggregateRead: { rows: 3, batches: 1, truncated: false },
+        followupAggregateRead: { rows: 3, queries: 1, truncated: false },
         cohortSessions: 3,
       },
       laterRecordedActivityWithinWindow: {
@@ -320,7 +320,7 @@ describe("getOnboardingJourney", () => {
       rightCensoredAtWindowEnd: true,
       coverage: {
         journeyEventRead: { truncated: true },
-        followupAggregateRead: { rows: null, batches: 0, truncated: false },
+        followupAggregateRead: { rows: null, queries: 0, truncated: false },
         cohortSessions: null,
       },
       laterRecordedActivityWithinWindow: {
@@ -345,9 +345,10 @@ describe("getOnboardingJourney", () => {
 
     expect(tree.rootN).toBe(3);
     expect(tree.followUp.status).toBe("incomplete");
+    expect(tree.followUp.incompleteReason).toBe("followup_aggregate_truncated");
     expect(tree.followUp.coverage.followupAggregateRead).toEqual({
       rows: null,
-      batches: 1,
+      queries: 1,
       truncated: true,
     });
     expect(tree.followUp.coverage.cohortSessions).toBeNull();
@@ -416,7 +417,7 @@ describe("getOnboardingJourney", () => {
           truncated: false,
           paginationConsistency: "may_have_shifted",
         },
-        followupAggregateRead: { rows: null, batches: 0, truncated: false },
+        followupAggregateRead: { rows: null, queries: 0, truncated: false },
         cohortSessions: null,
       },
       laterRecordedActivityWithinWindow: {
@@ -432,7 +433,7 @@ describe("getOnboardingJourney", () => {
     now.mockRestore();
   });
 
-  it("batches a complete one-page cohort through follow-up aggregates", async () => {
+  it("aggregates a complete one-page cohort in one follow-up query", async () => {
     const rows = Array.from({ length: 1001 }, (_, index) =>
       eventRow(`cohort-${String(index).padStart(4, "0")}`, "signup", index),
     );
@@ -468,7 +469,7 @@ describe("getOnboardingJourney", () => {
     );
 
     expect(eventSql).toHaveLength(1);
-    expect(followupSql).toHaveLength(2);
+    expect(followupSql).toHaveLength(1);
     expect(querySql.every((sql) => sql.includes(cutoff))).toBe(true);
     expect(tree.rootN).toBe(1001);
     expect(tree.followUp).toMatchObject({
@@ -481,7 +482,7 @@ describe("getOnboardingJourney", () => {
           truncated: false,
           paginationConsistency: "stable",
         },
-        followupAggregateRead: { rows: 2, batches: 2, truncated: false },
+        followupAggregateRead: { rows: 1, queries: 1, truncated: false },
         cohortSessions: 1001,
       },
       laterRecordedActivityWithinWindow: {
@@ -492,6 +493,52 @@ describe("getOnboardingJourney", () => {
         total: 1001,
         byTerminalStepKey: { signup: 1001 },
       },
+    });
+  });
+
+  it("nulls follow-up counts when aggregate session coverage mismatches", async () => {
+    mocks.queryFirstPartyAnalytics
+      .mockResolvedValueOnce({ rows: journeyRows(), schema: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            terminal_step_key: "signup",
+            cohort_sessions: 2,
+            later_recorded_activity: 1,
+          },
+          {
+            terminal_step_key: "step:role",
+            cohort_sessions: 1,
+            later_recorded_activity: 0,
+          },
+          {
+            terminal_step_key: "onboarding:completed",
+            cohort_sessions: 1,
+            later_recorded_activity: 0,
+          },
+        ],
+        schema: [],
+      });
+
+    const tree = (await getOnboardingJourney(scope, ARGS)) as JourneyTree;
+
+    expect(tree.rootN).toBe(3);
+    expect(tree.followUp).toMatchObject({
+      status: "incomplete",
+      incompleteReason: "terminal_cohort_mismatch",
+      coverage: {
+        followupAggregateRead: { rows: 3, queries: 1, truncated: false },
+        cohortSessions: null,
+      },
+      laterRecordedActivityWithinWindow: {
+        total: null,
+        byTerminalStepKey: null,
+      },
+      noLaterRecordedActivityWithinWindow: {
+        total: null,
+        byTerminalStepKey: null,
+      },
+      observationFollowupDurationMs: null,
     });
   });
 

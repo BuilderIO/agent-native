@@ -1587,24 +1587,25 @@ export function buildOnboardingJourneyFollowupSql(
   JOIN scoped_onboarding_events c ON c.session_id = i.session_id
   WHERE c.event_name IN (${sqlNameList(JOURNEY_COHORT_EVENT_NAMES)})
 ), terminal_steps AS (
-  ${terminalRows}
+  {{terminalRows}}
 ), eligible_terminal_steps AS (
   SELECT terminal.*
   FROM terminal_steps terminal
   JOIN included_sessions included USING (session_id)
   JOIN cohort_sessions cohort USING (session_id)
+), session_activity AS (
+  SELECT later.session_id,
+    MAX(later.timestamp::timestamptz) AS last_activity_at
+  FROM scoped_onboarding_events later
+  JOIN included_sessions included USING (session_id)
+  WHERE later.timestamp::timestamptz < '{{observationCutoff}}'::timestamptz
+  GROUP BY later.session_id
 )
 SELECT terminal_step_key,
   COUNT(*) AS cohort_sessions,
-  SUM(CASE WHEN EXISTS (
-    SELECT 1
-    FROM scoped_onboarding_events later
-    JOIN included_sessions included ON included.session_id = later.session_id
-    WHERE later.session_id = terminal.session_id
-      AND later.timestamp::timestamptz > terminal.terminal_at
-      AND later.timestamp::timestamptz < '{{observationCutoff}}'::timestamptz
-  ) THEN 1 ELSE 0 END) AS later_recorded_activity
+  SUM(CASE WHEN activity.last_activity_at > terminal.terminal_at THEN 1 ELSE 0 END) AS later_recorded_activity
 FROM eligible_terminal_steps terminal
+LEFT JOIN session_activity activity USING (session_id)
 GROUP BY terminal_step_key
 ORDER BY terminal_step_key`;
   return fillOnboardingJourneySql(query, {
@@ -1615,6 +1616,7 @@ ORDER BY terminal_step_key`;
     appFilter: filters.app,
     observationCutoff: observation.observationCutoff,
     observationDate: observation.observationDate,
+    terminalRows,
   });
 }
 const SHARING_ACTIONS_BY_APP_SQL = `${FUNNEL_EVENTS_CTE} SELECT ${TEMPLATE_EXPR} AS app, event_name AS action, COUNT(*) AS events, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name IN ('share_view', 'share_cta_click', 'share_invite_sent', 'share_visibility_change', 'share_link_copied') AND ${FUNNEL_SCOPE_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER} GROUP BY 1, 2 ORDER BY app, events DESC`;

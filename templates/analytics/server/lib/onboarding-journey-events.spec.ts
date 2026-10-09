@@ -233,6 +233,28 @@ describe("onboarding journey events SQL", () => {
     }
   });
 
+  it("keeps template-like terminal values literal and aggregates activity once per session", async () => {
+    await setup();
+    const sql = buildOnboardingJourneyFollowupSql(
+      filters(),
+      [
+        {
+          sessionId: "session-{{unknown}}-{{timeRange}}",
+          stepKey: "step:{{observationCutoff}}",
+          tsMs: Date.parse(`${today}T12:00:00.000Z`),
+        },
+      ],
+      observation(),
+    );
+
+    expect(sql).toContain("'session-{{unknown}}-{{timeRange}}' AS session_id");
+    expect(sql).toContain("'step:{{observationCutoff}}' AS terminal_step_key");
+    expect(sql).toContain(
+      "MAX(later.timestamp::timestamptz) AS last_activity_at",
+    );
+    expect(sql).not.toContain("WHEN EXISTS (");
+  });
+
   it("uses the same date, app, test, Builder, identity, and cutoff scope for later activity", async () => {
     await setup();
     await seedSessions();

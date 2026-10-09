@@ -29,7 +29,6 @@ import { listJourneyRecordings } from "./session-replay.js";
 // Both backends cap a query result at 5,000 rows; stay under it so a full page
 // is never mistaken for a cut one.
 const EVENT_PAGE_ROWS = 4_000;
-const FOLLOWUP_TERMINAL_BATCH_SIZE = 1_000;
 const MAX_FOLLOWUP_QUERY_CHARS = 800_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -102,6 +101,14 @@ export interface JourneySummary {
 
 export interface JourneyFollowup {
   status: "complete" | "incomplete";
+  incompleteReason?:
+    | "journey_event_read_truncated"
+    | "journey_event_read_invalid"
+    | "journey_event_read_may_have_shifted"
+    | "terminal_cohort_query_too_large"
+    | "followup_aggregate_truncated"
+    | "followup_aggregate_invalid"
+    | "terminal_cohort_mismatch";
   observationCutoff: string;
   observationFollowupDurationMs: {
     min: number;
@@ -118,7 +125,7 @@ export interface JourneyFollowup {
     };
     followupAggregateRead: {
       rows: number | null;
-      batches: number;
+      queries: number;
       truncated: boolean;
     };
     cohortSessions: number | null;
@@ -370,12 +377,16 @@ function freezeObservationWindow(
 function incompleteFollowup(
   observation: OnboardingJourneyObservationWindow,
   read: EventRead,
-  batches = 0,
-  rows: number | null = null,
-  followupTruncated = false,
+  reason: NonNullable<JourneyFollowup["incompleteReason"]>,
+  options: {
+    rows?: number | null;
+    queries?: number;
+    truncated?: boolean;
+  } = {},
 ): JourneyFollowup {
   return {
     status: "incomplete",
+    incompleteReason: reason,
     observationCutoff: observation.observationCutoff,
     observationFollowupDurationMs: null,
     rightCensoredAtWindowEnd: true,
@@ -387,9 +398,9 @@ function incompleteFollowup(
         paginationConsistency: read.paginationConsistency,
       },
       followupAggregateRead: {
-        rows,
-        batches,
-        truncated: followupTruncated,
+        rows: options.rows ?? null,
+        queries: options.queries ?? 0,
+        truncated: options.truncated ?? false,
       },
       cohortSessions: null,
     },
@@ -399,31 +410,6 @@ function incompleteFollowup(
       byTerminalStepKey: null,
     },
   };
-}
-
-function followupBatches(
-  terminals: readonly OnboardingJourneyTerminalStep[],
-): OnboardingJourneyTerminalStep[][] {
-  const batches: OnboardingJourneyTerminalStep[][] = [];
-  let current: OnboardingJourneyTerminalStep[] = [];
-  let currentSize = 0;
-  for (const terminal of terminals) {
-    const escapedSize =
-      terminal.sessionId.length * 2 + terminal.stepKey.length * 2 + 220;
-    if (
-      current.length &&
-      (current.length >= FOLLOWUP_TERMINAL_BATCH_SIZE ||
-        currentSize + escapedSize > MAX_FOLLOWUP_QUERY_CHARS)
-    ) {
-      batches.push(current);
-      current = [];
-      currentSize = 0;
-    }
-    current.push(terminal);
-    currentSize += escapedSize;
-  }
-  if (current.length) batches.push(current);
-  return batches;
 }
 
 async function readFollowup(
@@ -438,7 +424,12 @@ async function readFollowup(
     read.invalidRows ||
     read.paginationConsistency === "may_have_shifted"
   ) {
-    return incompleteFollowup(observation, read);
+    const reason = read.truncated
+      ? "journey_event_read_truncated"
+      : read.invalidRows
+        ? "journey_event_read_invalid"
+        : "journey_event_read_may_have_shifted";
+    return incompleteFollowup(observation, read, reason);
   }
   if (terminals.length === 0) {
     return {
@@ -453,7 +444,7 @@ async function readFollowup(
           truncated: read.truncated,
           paginationConsistency: read.paginationConsistency,
         },
-        followupAggregateRead: { rows: 0, batches: 0, truncated: false },
+        followupAggregateRead: { rows: 0, queries: 0, truncated: false },
         cohortSessions: 0,
       },
       laterRecordedActivityWithinWindow: {
@@ -466,49 +457,58 @@ async function readFollowup(
       },
     };
   }
+  const sql = buildOnboardingJourneyFollowupSql(
+    filters,
+    terminals,
+    observation,
+  );
+  if (sql.length > MAX_FOLLOWUP_QUERY_CHARS) {
+    return incompleteFollowup(
+      observation,
+      read,
+      "terminal_cohort_query_too_large",
+    );
+  }
+  const result = await queryFirstPartyAnalytics(sql, scope, { cache: true });
+  if (result.truncated) {
+    return incompleteFollowup(
+      observation,
+      read,
+      "followup_aggregate_truncated",
+      {
+        queries: 1,
+        truncated: true,
+      },
+    );
+  }
+  const aggregateRows = result.rows.length;
   const cohortByStep = new Map<string, number>();
   const laterByStep = new Map<string, number>();
-  const batches = followupBatches(terminals);
-  let aggregateRows = 0;
-  for (const batch of batches) {
-    const sql = buildOnboardingJourneyFollowupSql(filters, batch, observation);
-    if (sql.length > MAX_FOLLOWUP_QUERY_CHARS) {
-      return incompleteFollowup(observation, read, batches.length);
-    }
-    const result = await queryFirstPartyAnalytics(sql, scope, { cache: true });
-    if (result.truncated) {
-      return incompleteFollowup(observation, read, batches.length, null, true);
-    }
-    aggregateRows += result.rows.length;
-    const seen = new Set<string>();
-    let batchCohort = 0;
-    for (const row of result.rows) {
-      const stepKey = text(row.terminal_step_key);
-      const cohortSessions = integer(row.cohort_sessions);
-      const laterSessions = integer(row.later_recorded_activity);
-      if (
-        !stepKey ||
-        cohortSessions === null ||
-        laterSessions === null ||
-        cohortSessions < 0 ||
-        laterSessions < 0 ||
-        laterSessions > cohortSessions ||
-        seen.has(stepKey)
-      ) {
-        return incompleteFollowup(observation, read, batches.length, null);
-      }
-      seen.add(stepKey);
-      batchCohort += cohortSessions;
-      cohortByStep.set(
-        stepKey,
-        (cohortByStep.get(stepKey) ?? 0) + cohortSessions,
+  for (const row of result.rows) {
+    const stepKey = text(row.terminal_step_key);
+    const cohortSessions = integer(row.cohort_sessions);
+    const laterSessions = integer(row.later_recorded_activity);
+    if (
+      !stepKey ||
+      cohortSessions === null ||
+      laterSessions === null ||
+      cohortSessions < 0 ||
+      laterSessions < 0 ||
+      laterSessions > cohortSessions ||
+      cohortByStep.has(stepKey)
+    ) {
+      return incompleteFollowup(
+        observation,
+        read,
+        "followup_aggregate_invalid",
+        {
+          rows: aggregateRows,
+          queries: 1,
+        },
       );
-      laterByStep.set(stepKey, (laterByStep.get(stepKey) ?? 0) + laterSessions);
     }
-    const expected = batch.length;
-    if (batchCohort !== expected) {
-      return incompleteFollowup(observation, read, batches.length, null);
-    }
+    cohortByStep.set(stepKey, cohortSessions);
+    laterByStep.set(stepKey, laterSessions);
   }
 
   const expectedByStep = new Map<string, number>();
@@ -524,7 +524,10 @@ async function readFollowup(
     ) ||
     cohortByStep.size !== expectedByStep.size
   ) {
-    return incompleteFollowup(observation, read, batches.length, null);
+    return incompleteFollowup(observation, read, "terminal_cohort_mismatch", {
+      rows: aggregateRows,
+      queries: 1,
+    });
   }
 
   const noLaterByStep: Record<string, number> = {};
@@ -579,7 +582,7 @@ async function readFollowup(
       },
       followupAggregateRead: {
         rows: aggregateRows,
-        batches: batches.length,
+        queries: 1,
         truncated: false,
       },
       cohortSessions: total,
