@@ -68,6 +68,7 @@ describe("MultiScreenCanvas auto-fit framing", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     rectSpy.mockRestore();
+    vi.unstubAllGlobals();
     container.remove();
   });
 
@@ -354,6 +355,70 @@ describe("MultiScreenCanvas auto-fit framing", () => {
         expect(frame.top + frame.height).toBeLessThanOrEqual(paneSize.height);
       },
     );
+
+    it("refits the focused screen when the widget pane is resized", async () => {
+      const observers = new Map<Element, ResizeObserverCallback>();
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          constructor(private readonly callback: ResizeObserverCallback) {}
+          observe(target: Element) {
+            observers.set(target, this.callback);
+          }
+          disconnect() {}
+        },
+      );
+
+      const initial = await renderScreens([1440], {
+        height: 2560,
+        initialFitScreenId: "screen-0",
+        fitFocusedViewport: true,
+        paneSize: NARROW_PANE,
+      });
+      const surface = container.querySelector<HTMLElement>(
+        "[data-multi-screen-canvas-surface]",
+      );
+      expect(surface).not.toBeNull();
+      const callback = observers.get(surface!);
+      expect(callback).toBeDefined();
+
+      pane = WIDE_PANE;
+      await act(async () => {
+        callback!(
+          [
+            {
+              target: surface!,
+              contentRect: {
+                x: 0,
+                y: 0,
+                top: 0,
+                left: 0,
+                right: WIDE_PANE.width,
+                bottom: WIDE_PANE.height,
+                width: WIDE_PANE.width,
+                height: WIDE_PANE.height,
+                toJSON: () => ({}),
+              },
+              contentBoxSize: [
+                {
+                  inlineSize: WIDE_PANE.width,
+                  blockSize: WIDE_PANE.height,
+                },
+              ],
+            } as unknown as ResizeObserverEntry,
+          ],
+          {} as ResizeObserver,
+        );
+      });
+
+      const resized = readView(container);
+      expect(resized.scale).toBeGreaterThan(initial.scale);
+      const frame = frameScreenRect(resized, 0, 1440, 2560);
+      expect(frame.left).toBeGreaterThanOrEqual(0);
+      expect(frame.right).toBeLessThanOrEqual(WIDE_PANE.width);
+      expect(frame.top).toBeGreaterThanOrEqual(0);
+      expect(frame.top + frame.height).toBeLessThanOrEqual(WIDE_PANE.height);
+    });
   });
 
   describe("fillFocusedViewport", () => {

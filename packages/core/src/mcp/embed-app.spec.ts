@@ -508,6 +508,24 @@ describe("embedApp", () => {
     expect(html.endsWith("</body>\n</html>")).toBe(true);
   });
 
+  it("uses the configured launcher label for compact directory cards", () => {
+    const resource = embedApp({ title: "Deck", openLabel: "Open deck" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({
+            actionName: "create-deck",
+            appId: "slides",
+            catalogMode: "directory",
+          })
+        : resource.html;
+
+    expect(html).toContain('data-open-label="Open deck"');
+    expect(html).toContain(
+      'openButton.textContent = body.dataset.openLabel || "Open in app";',
+    );
+    expect(html).not.toContain('? "Open"');
+  });
+
   it("allows full-app embeds to request a 900px canvas", () => {
     const resource = embedApp({ height: 900 });
     const html =

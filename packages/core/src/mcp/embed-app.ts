@@ -2031,10 +2031,7 @@ export function embedApp(
     function updateOpenButton() {
       const buttonUrl = openUrl;
       openButton.disabled = !buttonUrl;
-      openButton.textContent =
-        fillsPane && isCompactDirectoryWidget()
-          ? "Open"
-          : body.dataset.openLabel || "Open in app";
+      openButton.textContent = body.dataset.openLabel || "Open in app";
       openButton.onclick = () => {
         if (!buttonUrl) return;
         if (fillsPane) {

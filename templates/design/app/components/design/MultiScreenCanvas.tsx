@@ -2578,6 +2578,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     preserveCameraOnScreenCountChange,
     deferLineupZoomChange,
     fitFocusedViewport,
+    fitFocusedViewport ? surfaceSize.width : 0,
+    fitFocusedViewport ? surfaceSize.height : 0,
     initialFitScreenId,
     previewDeviceFrame,
     screens.length,
