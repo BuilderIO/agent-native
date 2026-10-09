@@ -27,21 +27,12 @@ describe("appMountPath", () => {
 
   it("restores an omitted live mount from explicit app mount config", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
-    vi.stubEnv(
-      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
-      JSON.stringify([{ id: "content", path: "/content" }]),
-    );
     vi.stubGlobal("window", {
       location: { pathname: "/dispatch/home" },
       __AGENT_NATIVE_CONFIG__: {
         workspaceAppId: "dispatch",
         workspaceAppPath: "/dispatch",
-      },
-      __reactRouterManifest: {
-        routes: {
-          root: { id: "root", path: "/" },
-          home: { id: "home", parentId: "root", path: "home" },
-        },
+        workspaceAppMountPaths: ["/content"],
       },
     });
 

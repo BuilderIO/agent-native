@@ -1896,8 +1896,8 @@ function getRealtimeClientConfigScript() {
 function getAppOriginClientConfigScript() {
   // MUST stay consistent with resolvePublicAppOriginConfig in
   // server/app-origin-config.ts, and with the alias order declared on
-  // app.id / app.workspaceId / app.url / workspace.* in app-config (worker
-  // bundles a string copy; it can't import them). Impersonal values only —
+  // app.id / app.workspaceId / app.basePath / app.url / workspace.* in
+  // app-config (worker bundles a string copy; it can't import them). Impersonal values only —
   // this ships into the CDN-cached shell.
   const env = globalThis.process?.env || {};
   const appUrl = firstNonEmpty(
@@ -1965,14 +1965,15 @@ function getAppOriginClientConfigScript() {
       return;
     }
   })();
+  const workspaceAppPath =
+    workspaceAppMountConfig?.currentPath ??
+    (workspaceRuntime ? normalizeAppBasePath(appConfig.app.basePath) : "");
   const config = {
     ...(appConfig.app.id ? { appId: appConfig.app.id } : {}),
     ...(appConfig.app.workspaceId
       ? { workspaceAppId: appConfig.app.workspaceId }
       : {}),
-    ...(workspaceAppMountConfig?.currentPath
-      ? { workspaceAppPath: workspaceAppMountConfig.currentPath }
-      : {}),
+    ...(workspaceAppPath ? { workspaceAppPath } : {}),
     appHomePath: resolveAgentNativeAppHomePath(
       appConfig.app,
       appConfig.workspace,

@@ -68,14 +68,15 @@ export function resolvePublicAppOriginConfig(): {
     config.workspace.appsJson,
     config.app.workspaceId,
   );
+  const workspaceAppPath =
+    workspaceAppMountConfig?.currentPath ??
+    (workspaceRuntime ? normalizeAppBasePath(config.app.basePath) : "");
   const resolved = {
     ...(config.app.id ? { appId: config.app.id } : {}),
     ...(config.app.workspaceId
       ? { workspaceAppId: config.app.workspaceId }
       : {}),
-    ...(workspaceAppMountConfig?.currentPath
-      ? { workspaceAppPath: workspaceAppMountConfig.currentPath }
-      : {}),
+    ...(workspaceAppPath ? { workspaceAppPath } : {}),
     appHomePath: resolveAppHomePath(config.app, config.workspace),
     ...(config.app.url ? { appUrl: config.app.url } : {}),
     ...(config.workspace.gatewayUrl

@@ -28,6 +28,8 @@ const KEYS = [
   "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
   "AGENT_NATIVE_WORKSPACE_APPS_JSON",
   "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+  "APP_BASE_PATH",
+  "VITE_APP_BASE_PATH",
 ];
 
 describe("app origin client config", () => {
@@ -90,6 +92,21 @@ describe("app origin client config", () => {
       appHomePath: "/home",
       workspaceRuntime: true,
       workspaceAppMountPaths: ["/dispatch", "/diagrams"],
+    });
+  });
+
+  it("projects the configured current mount when the manifest only lists siblings", () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
+      { id: "diagrams", path: "/diagrams" },
+    ]);
+    process.env.APP_BASE_PATH = "/dispatch/";
+    defineAppConfig({ app: { workspaceId: "dispatch" } });
+
+    expect(resolvePublicAppOriginConfig()).toMatchObject({
+      workspaceAppId: "dispatch",
+      workspaceAppPath: "/dispatch",
+      workspaceAppMountPaths: ["/diagrams"],
+      workspaceRuntime: true,
     });
   });
 

@@ -2028,6 +2028,34 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(html).toContain('"workspaceRuntime":true');
   });
 
+  it("projects the configured current mount when the worker manifest only lists siblings", async () => {
+    const dir = makeTempDir();
+    const configPath = path.join(dir, "mount-config.mjs");
+    vi.stubEnv("APP_BASE_PATH", "/dispatch/");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch/");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "diagrams", path: "/diagrams" }]),
+    );
+    fs.writeFileSync(
+      configPath,
+      `import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({ app: { workspaceId: "dispatch" } });
+`,
+    );
+
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry([], [configPath]),
+    );
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('"workspaceAppPath":"/dispatch"');
+    expect(html).toContain('"workspaceAppMountPaths":["/diagrams"]');
+  });
+
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
