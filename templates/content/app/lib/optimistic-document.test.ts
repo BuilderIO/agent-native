@@ -128,8 +128,8 @@ describe("optimistic document creation", () => {
     writeDocumentCreateIntent(actor, { ...first, parentId: "parent-2" });
 
     expect(readDocumentCreateIntents(actor)).toEqual([
-      second,
       { ...first, parentId: "parent-2" },
+      second,
     ]);
     expect(clearDocumentCreateIntent(actor, first.id)).toBe(true);
     expect(readDocumentCreateIntents(actor)).toEqual([second]);
@@ -137,6 +137,38 @@ describe("optimistic document creation", () => {
     expect(readDocumentCreateIntents(actor)).toEqual([]);
     expect(window.localStorage.length).toBe(0);
     expect(clearDocumentCreateIntent(actor, second.id)).toBe(false);
+  });
+
+  it("writes concurrent page intents to independent storage keys", () => {
+    const actor = { accountId: "writer@example.com", orgId: null };
+    const intents = [
+      {
+        id: "concurrent-page-1",
+        parentId: null,
+        spaceId: null,
+        createdAt: "2026-10-08T12:00:00.000Z",
+      },
+      {
+        id: "concurrent-page-2",
+        parentId: null,
+        spaceId: null,
+        createdAt: "2026-10-08T12:01:00.000Z",
+      },
+    ];
+    const storage = window.localStorage;
+    const originalGetItem = storage.getItem;
+    storage.getItem = () => {
+      throw new DOMException("A stale tab read.", "InvalidStateError");
+    };
+
+    try {
+      writeDocumentCreateIntent(actor, intents[0]);
+      writeDocumentCreateIntent(actor, intents[1]);
+    } finally {
+      storage.getItem = originalGetItem;
+    }
+
+    expect(readDocumentCreateIntents(actor)).toEqual(intents);
   });
 
   it("quarantines malformed records and preserves valid pending intents", () => {
@@ -156,9 +188,12 @@ describe("optimistic document creation", () => {
 
     try {
       expect(readDocumentCreateIntents(actor)).toEqual([validIntent]);
-      expect(window.localStorage.getItem(key)).toBe(
-        JSON.stringify([validIntent]),
-      );
+      expect(window.localStorage.getItem(key)).toBeNull();
+      expect(
+        window.localStorage.getItem(
+          `${key}:intent:${encodeURIComponent(validIntent.id)}`,
+        ),
+      ).toBe(JSON.stringify(validIntent));
       expect(quarantinedIntentValues(window.localStorage, key)).toEqual([raw]);
 
       const nextIntent = {
@@ -194,7 +229,7 @@ describe("optimistic document creation", () => {
 
     try {
       expect(readDocumentCreateIntents(actor)).toEqual([]);
-      expect(window.localStorage.getItem(key)).toBe("[]");
+      expect(window.localStorage.getItem(key)).toBeNull();
       expect(quarantinedIntentValues(window.localStorage, key)).toEqual([raw]);
 
       const nextIntent = {
