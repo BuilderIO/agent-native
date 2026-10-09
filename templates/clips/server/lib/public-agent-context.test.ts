@@ -66,6 +66,7 @@ vi.mock("./share-password.js", () => ({
 import {
   buildPublicAgentContext,
   CLIPS_AGENT_ACCESS_TTL_SECONDS,
+  describeAgentAccessFailure,
   loadPublicAgentAccess,
   loadRecordingMediaFile,
   loadRecordingMediaBytes,
@@ -197,6 +198,54 @@ describe("public agent context access", () => {
     if (!result.ok) {
       expect(result.failure.status).toBe(404);
     }
+  });
+});
+
+describe("describeAgentAccessFailure", () => {
+  it("explains that a missing private share link needs agent access without exposing clip state", () => {
+    const failure = describeAgentAccessFailure({
+      status: 404,
+      body: { error: "Not found" },
+    });
+
+    expect(failure).toEqual({
+      status: 404,
+      body: {
+        error: "This clip is unavailable from this link.",
+        nextStep:
+          "If it is private or password protected, ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link.",
+      },
+    });
+  });
+
+  it("explains password, expired-link, and malformed-URL failures", () => {
+    expect(
+      describeAgentAccessFailure({
+        status: 401,
+        body: { error: "Password required" },
+      }).body,
+    ).toMatchObject({
+      error: "This clip requires additional share access.",
+      nextStep: expect.stringContaining("Share with agents"),
+    });
+    expect(
+      describeAgentAccessFailure({
+        status: 410,
+        body: { error: "Expired" },
+      }).body,
+    ).toMatchObject({
+      error: "This clip share link has expired.",
+      nextStep: expect.stringContaining("create a new link"),
+    });
+    expect(
+      describeAgentAccessFailure({
+        status: 400,
+        body: { error: "id is required" },
+      }).body,
+    ).toMatchObject({
+      error: "The clip id is missing.",
+      nextStep: expect.stringContaining("agent_access"),
+    });
   });
 });
 

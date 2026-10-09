@@ -352,7 +352,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "Contexte de clip lisible par l'agent",
     agentInstructions:
-      "Récupérez agentContextUrl pour la transcription et le cadre JPEG URLs. Récupérez le cadre URLs pour VOIR l'écran, pas seulement lire la transcription.",
+      "Ouvrez d'abord agentContextUrl. Utilisez apis.transcript pour obtenir la transcription complète et récupérez chaque recommendedFrames[].url (ou apis.frame.urlTemplate avec atMs) comme image pour examiner la vidéo. Conservez exactement id et tout paramètre agent_access de l'URL. Si une requête renvoie 401 ou 404, expliquez que ce lien ne donne pas accès. Pour un clip privé, demandez au propriétaire de choisir {{shareWithAgents}} dans le menu de partage Clips et de vous envoyer le lien généré.",
     untitledClip: "Extrait sans titre",
     incorrectPassword: "Mot de passe incorrect",
     passwordProtected: "Ce clip est protégé par mot de passe",
@@ -616,7 +616,7 @@ const messages = {
     openInCodex: "Ouvrir dans Codex",
     copyAgentPrompt: "Copier le prompt pour agent",
     agentPrompt:
-      "Récupère cette URL de contexte Clips pour agent : {{agentContextUrl}}. Utilise transcript.segments pour le contexte parlé, récupère recommendedFrames ou les URLs de l'API d'images pour voir l'écran, et consulte browserDiagnostics s'il est présent pour les journaux de console expurgés et les métadonnées de requêtes fetch/XHR.",
+      "Lisez cette URL de contexte Clips pour agent : {{agentContextUrl}}. Récupérez apis.transcript pour la transcription complète et chaque recommendedFrames[].url (ou apis.frame.urlTemplate avec atMs) comme image afin d'examiner la vidéo. Conservez exactement id et tout paramètre agent_access de l'URL. Si une requête renvoie 401 ou 404, expliquez que ce lien ne donne pas accès. Pour un clip privé, demandez au propriétaire de choisir {{shareWithAgents}} dans le menu de partage Clips et de vous envoyer le lien généré. Utilisez aussi browserDiagnostics si disponible pour signaler un problème.",
     agentTokenDescription:
       "Lien temporaire en lecture seule pour les agents, car ce clip n’est pas public. Expire dans 2 heures.",
     agentPublicDescription:

@@ -10,9 +10,9 @@ function documentWithModelContext(modelContext: Record<string, unknown>) {
   return { modelContext } as unknown as Document;
 }
 
-function jsonResponse(value: unknown) {
+function jsonResponse(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), {
-    status: 200,
+    status,
     headers: { "Content-Type": "application/json" },
   });
 }
@@ -103,6 +103,44 @@ describe("Clip WebMCP tools", () => {
         credentials: "same-origin",
         signal: expect.any(AbortSignal),
       }),
+    );
+  });
+
+  it("surfaces private-share recovery instructions from HTTP failures", async () => {
+    const registrations: Array<{ tool: any }> = [];
+    const modelContext = {
+      registerTool: vi.fn(async (tool) => registrations.push({ tool })),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: createClipAgentWebMcpActions({
+        recordingId: "rec-1",
+        agentContextUrl: contextUrl,
+        recordingStatus: "ready",
+      }),
+    });
+    await registration.start();
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          error: "This clip is unavailable from this link.",
+          nextStep:
+            "Ask the owner to open the Clips Share menu and choose Share with agents.",
+        },
+        404,
+      ),
+    );
+
+    const contextTool = registrations.find(
+      ({ tool }) => tool.name === CLIPS_WEBMCP_TOOL_NAMES.context,
+    )?.tool;
+    await expect(
+      contextTool.execute({}, { signal: new AbortController().signal }),
+    ).rejects.toThrow(
+      "Next step: Ask the owner to open the Clips Share menu and choose Share with agents.",
     );
   });
 
@@ -347,7 +385,9 @@ describe("Clip WebMCP tools", () => {
       timestamp: "0:09",
       mimeType: "image/jpeg",
       imageUrl: `${window.location.origin}/api/agent-frame.jpg?id=rec-1&agent_access=token&atMs=9000`,
+      instructions: expect.stringContaining("choose Share with agents"),
     });
+    expect(result.instructions).toContain("Keep its id and any agent_access");
   });
 
   it("does not advertise frame extraction before a clip is ready", async () => {

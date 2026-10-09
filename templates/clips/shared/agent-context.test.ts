@@ -55,12 +55,17 @@ describe("agent clip context helpers", () => {
         "https://clips.example.com/api/agent-context.json?id=rec-1",
     });
 
-    expect(payload.instructions).toContain("this works without a browser");
+    expect(payload.instructions).toContain("Use apis.transcript");
+    expect(payload.instructions).toContain("keep the clip id");
+    expect(payload.instructions).toContain(
+      "fetch each recommendedFrames[].url",
+    );
+    expect(payload.instructions).toContain("choose Share with agents");
     expect(payload.webmcp.instructions).toContain(
       "For browser-independent access from any HTTP client",
     );
     expect(payload.webmcp.instructions).toContain(
-      "For a complete transcript, use the HTTP apis.transcript URL",
+      "Read the complete transcript from apis.transcript",
     );
     expect(payload.webmcp.instructions).toContain("bounded read-only access");
     expect(payload.webmcp.instructions).toContain(

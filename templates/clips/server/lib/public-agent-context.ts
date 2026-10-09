@@ -90,6 +90,58 @@ export type PublicAgentAccessResult =
   | { ok: true; access: PublicAgentAccess }
   | { ok: false; failure: PublicAgentFailure };
 
+export function describeAgentAccessFailure(
+  failure: PublicAgentFailure,
+): PublicAgentFailure {
+  if (failure.status === 404) {
+    return {
+      status: 404,
+      body: {
+        error: "This clip is unavailable from this link.",
+        nextStep:
+          "If it is private or password protected, ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link.",
+      },
+    };
+  }
+
+  if (failure.status === 401) {
+    return {
+      status: failure.status,
+      body: {
+        ...failure.body,
+        error: "This clip requires additional share access.",
+        nextStep:
+          "Ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link.",
+      },
+    };
+  }
+
+  if (failure.status === 410) {
+    return {
+      status: failure.status,
+      body: {
+        ...failure.body,
+        error: "This clip share link has expired.",
+        nextStep:
+          "Ask the owner to create a new link from the Clips Share menu with Share with agents.",
+      },
+    };
+  }
+
+  if (failure.status === 400 && failure.body.error === "id is required") {
+    return {
+      status: failure.status,
+      body: {
+        error: "The clip id is missing.",
+        nextStep:
+          "Use the complete agentContextUrl from the share page and keep its query parameters, including agent_access when present.",
+      },
+    };
+  }
+
+  return failure;
+}
+
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES = 200 * 1024 * 1024;
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_FILE_BYTES = 512 * 1024 * 1024;
 export const MAX_PUBLIC_AGENT_HISTORY_ITEMS = 100;
@@ -760,7 +812,7 @@ export function buildPublicAgentContext({
           ? [
               "This clip is readable as both text (transcript) and images (JPEG frames) — you can hear AND see it.",
               "To SEE the screen, GET apis.frame.urlTemplate with atMs (returns image/jpeg). Start with recommendedFrames, then fetch additional frames around transcript timestamps that matter for the task.",
-              "If you cannot load an image from a URL, you will only have the transcript — tell the user to open the clip in an image-capable agent (ChatGPT, Claude Code, Cursor, Codex) or to upload a frame image directly so you can see it.",
+              "If a frame request returns 401 or 404, explain that this link does not grant access. For a private clip, ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link. Keep the exact id and any agent_access query parameter from each supplied URL. If frames still cannot be loaded after access is confirmed, say that visual inspection is unavailable and report the failing frame URL without its agent_access value.",
             ]
           : []),
   ];

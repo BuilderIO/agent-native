@@ -28,6 +28,7 @@ import {
 } from "../../lib/pending-redactions.js";
 import {
   CLIPS_AGENT_ACCESS_PARAM,
+  describeAgentAccessFailure,
   loadPublicAgentAccess,
   loadRecordingMediaFile,
   loadScreenshotImage,
@@ -216,10 +217,11 @@ export default defineEventHandler(async (event: H3Event) => {
   });
 
   if (!accessResult.ok) {
-    setResponseStatus(event, accessResult.failure.status);
+    const failure = describeAgentAccessFailure(accessResult.failure);
+    setResponseStatus(event, failure.status);
     setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return accessResult.failure.body;
+    return failure.body;
   }
 
   const recording = accessResult.access.recording;

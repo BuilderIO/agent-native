@@ -106,7 +106,15 @@ async function fetchAgentJson(
       isRecord(payload) && typeof payload.error === "string"
         ? payload.error
         : `HTTP ${response.status}`;
-    throw new Error(`Clip agent request failed: ${detail}`);
+    const nextStep =
+      isRecord(payload) && typeof payload.nextStep === "string"
+        ? `Next step: ${payload.nextStep}`
+        : null;
+    throw new Error(
+      [`Clip agent request failed: ${detail}`, nextStep]
+        .filter(Boolean)
+        .join(" "),
+    );
   }
   return requiredRecord(payload, "Clip agent response");
 }
@@ -567,7 +575,7 @@ export function createClipAgentWebMcpActions({
           stringValue(optionalRecord(apis.frame)?.responseType) ?? "image/jpeg",
         sourceUrl: imageUrl,
         instructions:
-          "Fetch imageUrl as an image to SEE the recorded screen. The URL uses the same scoped access as this clip page.",
+          "Fetch the exact imageUrl as an image to SEE the recorded screen. Keep its id and any agent_access query parameter. If the request returns 401 or 404, explain that this link does not grant access; for a private clip, ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link.",
       };
     },
   });

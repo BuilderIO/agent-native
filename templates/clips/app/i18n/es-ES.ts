@@ -350,7 +350,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "Contexto de clip legible por el agente",
     agentInstructions:
-      "Obtenga agentContextUrl para la transcripción y el marco JPEG URLs. Busque el cuadro URLs para VER la pantalla, no solo leer la transcripción.",
+      "Abre primero agentContextUrl. Usa apis.transcript para obtener la transcripción completa y carga cada recommendedFrames[].url (o apis.frame.urlTemplate con atMs) como imagen para inspeccionar el vídeo. Conserva exactamente id y cualquier parámetro agent_access de la URL. Si una solicitud devuelve 401 o 404, explica que este enlace no concede acceso. Para un clip privado, pide al propietario que elija {{shareWithAgents}} en el menú Compartir de Clips y envíe el enlace generado.",
     untitledClip: "Clip sin título",
     incorrectPassword: "Contraseña incorrecta",
     passwordProtected: "Este clip está protegido con contraseña.",
@@ -615,7 +615,7 @@ const messages = {
     openInCodex: "Abrir en Codex",
     copyAgentPrompt: "Copiar indicación para agente",
     agentPrompt:
-      "Obtén esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Usa transcript.segments para el contexto hablado, obtén recommendedFrames o las URLs de la API de fotogramas para ver la pantalla y revisa browserDiagnostics si está presente para ver registros de consola redactados y metadatos de solicitudes fetch/XHR.",
+      "Lee esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Carga apis.transcript para obtener la transcripción completa y cada recommendedFrames[].url (o apis.frame.urlTemplate con atMs) como imagen para inspeccionar el vídeo. Conserva exactamente id y cualquier parámetro agent_access de la URL. Si una solicitud devuelve 401 o 404, explica que este enlace no concede acceso. Para un clip privado, pide al propietario que elija {{shareWithAgents}} en el menú Compartir de Clips y envíe el enlace generado. Usa también browserDiagnostics si está disponible para informar de un error.",
     agentTokenDescription:
       "Enlace temporal de solo lectura para agentes, porque este clip no es público. Caduca en 2 horas.",
     agentPublicDescription:

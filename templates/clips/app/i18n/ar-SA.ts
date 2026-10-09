@@ -336,7 +336,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "سياق مقطع قابل للقراءة من قبل الوكيل",
     agentInstructions:
-      "جلب AgentContextUrl للنص وإطار JPEG URLs. قم بإحضار الإطار URLs لرؤية الشاشة، وليس مجرد قراءة النص.",
+      "افتح agentContextUrl أولاً. استخدم apis.transcript للحصول على النص الكامل، واجلب كل recommendedFrames[].url (أو apis.frame.urlTemplate مع atMs) كصورة لفحص الفيديو. احتفظ بـ id وأي معامل agent_access في عنوان URL كما هو تماماً. إذا أعاد الطلب 401 أو 404، وضّح أن هذا الرابط لا يمنح حق الوصول. للمقطع الخاص، اطلب من المالك اختيار {{shareWithAgents}} من قائمة Clips Share وإرسال الرابط الذي تم إنشاؤه.",
     untitledClip: "مقطع بدون عنوان",
     incorrectPassword: "كلمة مرور غير صحيحة",
     passwordProtected: "هذا المقطع محمي بكلمة مرور",
@@ -599,7 +599,7 @@ const messages = {
     openInCodex: "فتح في Codex",
     copyAgentPrompt: "نسخ مطالبة الوكيل",
     agentPrompt:
-      "اجلب عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. استخدم transcript.segments للسياق المنطوق، واجلب recommendedFrames أو عناوين URL الخاصة بواجهة API للإطارات لرؤية الشاشة، وتحقق من browserDiagnostics إن وجدت لسجلات وحدة التحكم المنقحة وبيانات طلبات fetch/XHR الوصفية.",
+      "اقرأ عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. اجلب apis.transcript للنص الكامل، واجلب كل recommendedFrames[].url (أو apis.frame.urlTemplate مع atMs) كصورة لفحص الفيديو. احتفظ بـ id وأي معامل agent_access في عنوان URL كما هو تماماً. إذا أعاد الطلب 401 أو 404، وضّح أن هذا الرابط لا يمنح حق الوصول. للمقطع الخاص، اطلب من المالك اختيار {{shareWithAgents}} من قائمة Clips Share وإرسال الرابط الذي تم إنشاؤه. استخدم browserDiagnostics أيضاً عند توفرها لتقرير الأخطاء.",
     agentTokenDescription:
       "رابط مؤقت للقراءة فقط للوكلاء لأن هذا المقطع غير عام. تنتهي صلاحيته بعد ساعتين.",
     agentPublicDescription: "رابط للقراءة فقط للوكلاء. يعمل ما دام المقطع عاما.",

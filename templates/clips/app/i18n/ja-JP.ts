@@ -346,7 +346,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "エージェントが読み取り可能なクリップ コンテキスト",
     agentInstructions:
-      "トランスクリプトのagentContextUrlとJPEGフレームURLsを取得します。フレーム URLs をフェッチして、トランスクリプトを読むだけでなく、画面を確認します。",
+      "最初にagentContextUrlを開きます。完全なトランスクリプトにはapis.transcriptを使い、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。URLに含まれるidとagent_accessパラメーターはそのまま保持してください。リクエストが401または404を返した場合、このリンクではアクセスできないと説明します。非公開クリップの場合は、所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらってください。",
     untitledClip: "無題のクリップ",
     incorrectPassword: "パスワードが間違っています",
     passwordProtected: "このクリップはパスワードで保護されています",
@@ -610,7 +610,7 @@ const messages = {
     openInCodex: "Codex で開く",
     copyAgentPrompt: "エージェント用プロンプトをコピー",
     agentPrompt:
-      "この Clips エージェントコンテキスト URL を取得してください: {{agentContextUrl}}。音声の文脈には transcript.segments を使い、画面を見るために recommendedFrames またはフレーム API URL を取得し、browserDiagnostics がある場合は、編集済みのコンソールログと fetch/XHR リクエストのメタデータを確認してください。",
+      "このClipsエージェントコンテキストURLを読み取ってください: {{agentContextUrl}}。完全なトランスクリプトにはapis.transcriptを使い、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。URLに含まれるidとagent_accessパラメーターはそのまま保持してください。リクエストが401または404を返した場合、このリンクではアクセスできないと説明します。非公開クリップの場合は、所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらってください。バグ報告ではbrowserDiagnosticsがあれば確認してください。",
     agentTokenDescription:
       "このクリップは非公開のため、エージェント用の一時的な読み取り専用リンクです。2 時間で期限切れになります。",
     agentPublicDescription:

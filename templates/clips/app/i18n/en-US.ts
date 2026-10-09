@@ -281,7 +281,7 @@ const messages = {
       "The owner is making changes to this clip. The link will start working again when they have finished.",
     agentReadableContext: "Agent-readable clip context",
     agentInstructions:
-      "Fetch agentContextUrl for the transcript and JPEG frame URLs. Fetch the frame URLs to SEE the screen, not just read the transcript.",
+      "Open agentContextUrl first. Use apis.transcript for the complete transcript and fetch each recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as an image to inspect the video. Keep id and any agent_access query parameter exactly as provided. If a request returns 401 or 404, explain that this link does not grant access. For a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link.",
     untitledClip: "Untitled Clip",
     incorrectPassword: "Incorrect password",
     passwordProtected: "This clip is password-protected",
@@ -535,7 +535,7 @@ const messages = {
     openInCodex: "Open in Codex",
     copyAgentPrompt: "Copy agent prompt",
     agentPrompt:
-      "Fetch this Clips agent context URL: {{agentContextUrl}}. Use transcript.segments for spoken context, fetch recommendedFrames or the frame API URLs to see the screen, and check browserDiagnostics if present for redacted console logs and fetch/XHR request metadata.",
+      "Read this Clips agent context URL: {{agentContextUrl}}. Fetch apis.transcript for the complete transcript and fetch each recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as an image so you can inspect the video. Keep id and any agent_access query parameter exactly as provided. If a request returns 401 or 404, explain that this link does not grant access. For a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. Also use browserDiagnostics when present for a bug report.",
     agentTokenDescription:
       "Temporary read-only link for agents, since this clip is not public. Expires in 2 hours.",
     agentPublicDescription:

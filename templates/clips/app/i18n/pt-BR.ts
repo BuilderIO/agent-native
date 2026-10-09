@@ -347,7 +347,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "Contexto de clipe legível pelo agente",
     agentInstructions:
-      "Busque agentContextUrl para a transcrição e o quadro JPEG URLs. Busque o quadro URLs para VER a tela, não apenas ler a transcrição.",
+      "Abra agentContextUrl primeiro. Use apis.transcript para obter a transcrição completa e busque cada recommendedFrames[].url (ou apis.frame.urlTemplate com atMs) como imagem para analisar o vídeo. Preserve id e qualquer parâmetro agent_access exatamente como estão na URL. Se uma solicitação retornar 401 ou 404, explique que este link não concede acesso. Para um clipe privado, peça ao proprietário que escolha {{shareWithAgents}} no menu de compartilhamento do Clips e envie o link gerado.",
     untitledClip: "Clipe sem título",
     incorrectPassword: "Senha incorreta",
     passwordProtected: "Este clipe é protegido por senha",
@@ -611,7 +611,7 @@ const messages = {
     openInCodex: "Abrir no Codex",
     copyAgentPrompt: "Copiar prompt para agente",
     agentPrompt:
-      "Busque esta URL de contexto para agentes do Clips: {{agentContextUrl}}. Use transcript.segments para o contexto falado, busque recommendedFrames ou as URLs da API de quadros para ver a tela e confira browserDiagnostics, se presente, para logs de console redigidos e metadados de solicitações fetch/XHR.",
+      "Leia esta URL de contexto para agentes do Clips: {{agentContextUrl}}. Busque apis.transcript para obter a transcrição completa e cada recommendedFrames[].url (ou apis.frame.urlTemplate com atMs) como imagem para analisar o vídeo. Preserve id e qualquer parâmetro agent_access exatamente como estão na URL. Se uma solicitação retornar 401 ou 404, explique que este link não concede acesso. Para um clipe privado, peça ao proprietário que escolha {{shareWithAgents}} no menu de compartilhamento do Clips e envie o link gerado. Use browserDiagnostics quando disponível para relatar um problema.",
     agentTokenDescription:
       "Link temporário somente leitura para agentes, porque este clipe não é público. Expira em 2 horas.",
     agentPublicDescription:

@@ -352,7 +352,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "Vom Agenten lesbarer Clip-Kontext",
     agentInstructions:
-      "Rufen Sie agentContextUrl für das Transkript und den JPEG-Frame URLs ab. Rufen Sie den Frame „URLs“ ab, um den Bildschirm zu SEHEN, und nicht nur, um das Transkript zu lesen.",
+      "Öffne zuerst agentContextUrl. Verwende apis.transcript für das vollständige Transkript und rufe jedes recommendedFrames[].url (oder apis.frame.urlTemplate mit atMs) als Bild ab, um das Video zu sehen. Behalte id und jeden agent_access-Queryparameter genau wie angegeben bei. Erkläre bei HTTP 401 oder 404, dass dieser Link keinen Zugriff gewährt. Bitte bei einem privaten Clip den Eigentümer, im Clips-Share-Menü {{shareWithAgents}} zu wählen und den erzeugten Link zu senden.",
     untitledClip: "Unbenannter Clip",
     incorrectPassword: "Falsches Passwort",
     passwordProtected: "Dieser Clip ist passwortgeschützt",
@@ -621,7 +621,7 @@ const messages = {
     openInCodex: "In Codex öffnen",
     copyAgentPrompt: "Agent-Prompt kopieren",
     agentPrompt:
-      "Rufe diese Clips-Agent-Kontext-URL ab: {{agentContextUrl}}. Verwende transcript.segments fuer den gesprochenen Kontext, rufe recommendedFrames oder die Frame-API-URLs ab, um den Bildschirm zu sehen, und pruefe browserDiagnostics, falls vorhanden, fuer redigierte Konsolenprotokolle und fetch/XHR-Anfragemetadaten.",
+      "Lies diese Clips-Agent-Kontext-URL: {{agentContextUrl}}. Rufe apis.transcript für das vollständige Transkript und jedes recommendedFrames[].url (oder apis.frame.urlTemplate mit atMs) als Bild ab, um das Video zu sehen. Behalte id und jeden agent_access-Queryparameter genau wie angegeben bei. Erkläre bei HTTP 401 oder 404, dass dieser Link keinen Zugriff gewährt. Bitte bei einem privaten Clip den Eigentümer, im Clips-Share-Menü {{shareWithAgents}} zu wählen und den erzeugten Link zu senden. Nutze browserDiagnostics bei Fehlerberichten, falls vorhanden.",
     agentTokenDescription:
       "Temporärer Nur-Lese-Link für Agenten, da dieser Clip nicht öffentlich ist. Läuft in 2 Stunden ab.",
     agentPublicDescription:

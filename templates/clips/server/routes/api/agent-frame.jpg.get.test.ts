@@ -37,6 +37,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("../../lib/public-agent-context.js", () => ({
   CLIPS_AGENT_ACCESS_PARAM: "agent_access",
+  describeAgentAccessFailure: (failure: unknown) => failure,
   loadPublicAgentAccess: (...args: unknown[]) =>
     mockLoadPublicAgentAccess(...args),
   loadRecordingMediaFile: (...args: unknown[]) =>

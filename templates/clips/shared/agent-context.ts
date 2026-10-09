@@ -60,7 +60,8 @@ export const CLIPS_WEBMCP_INPUT_SCHEMAS = {
       atMs: {
         type: "number",
         minimum: 0,
-        description: "Video timestamp in milliseconds.",
+        description:
+          "Video timestamp in milliseconds; fetch the returned imageUrl as an image to inspect the frame.",
       },
     },
     required: ["atMs"],
@@ -89,7 +90,7 @@ export const CLIPS_WEBMCP_TOOL_DEFINITIONS = [
     name: CLIPS_WEBMCP_TOOL_NAMES.frame,
     title: "Get clip frame",
     description:
-      "Get a JPEG image URL for the clip at a requested video timestamp.",
+      "Get the clip's JPEG frame URL at a requested timestamp. Fetch the returned imageUrl as an image to inspect the video; its scoped access query is already included.",
     inputSchema: CLIPS_WEBMCP_INPUT_SCHEMAS.frame,
     availability: "ready",
     annotations: { readOnlyHint: true, untrustedContentHint: true },
@@ -101,7 +102,7 @@ export const CLIPS_WEBMCP_DISCOVERY = {
   scope: "page-local",
   tools: CLIPS_WEBMCP_TOOL_DEFINITIONS,
   instructions:
-    "For browser-independent access from any HTTP client, fetch agentContextUrl and use its apis.context, apis.transcript, and apis.frame URLs. For a complete transcript, use the HTTP apis.transcript URL. If this clip page is already open in a WebMCP-capable browser, list its page tools for bounded read-only access; clips-get-transcript may omit fullText or return a truncated result, and its sourceUrl points to the HTTP transcript. Use nextStartIndex for transcript pagination so overlapping segments are not lost.",
+    "For browser-independent access from any HTTP client, fetch the exact agentContextUrl and use its apis.context, apis.transcript, and apis.frame URLs. Keep the clip id and any agent_access query parameter exactly as provided on every request. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images to inspect the video. Do not stop at the transcript when frames are available. If a request returns 401 or 404, explain that this link does not grant access; for a private clip, ask its owner to open the Clips Share menu, choose Share with agents, and send the generated link. If this clip page is already open in a WebMCP-capable browser, list its page tools for bounded read-only access; clips-get-transcript may omit fullText or return a truncated result, and its sourceUrl points to the HTTP transcript. Use nextStartIndex for transcript pagination so overlapping segments are not lost.",
 };
 
 export type AgentClipReadiness = {
@@ -172,7 +173,7 @@ export function buildAgentDiscoveryPayload({
     }),
     instructions:
       readiness.instruction ??
-      "Fetch agentContextUrl for the transcript and JPEG frame URLs; this works without a browser. Use apis.transcript for the complete transcript. If the page is already open in a WebMCP-capable browser, its page tools provide bounded read-only access; clips-get-transcript may omit fullText or return a truncated result, so follow its sourceUrl for the complete transcript. Use nextStartIndex when paging transcript segments so overlapping segments are not lost. Fetch the frame URLs to SEE the screen, not just read the transcript.",
+      "Fetch the exact agentContextUrl and keep the clip id and any agent_access query parameter on every request. Use apis.transcript for the complete transcript and fetch each recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as an image to SEE the video; do not stop at the transcript when frames are available. If a request returns 401 or 404, explain that this link does not grant access. For a private clip, ask its owner to open the Clips Share menu, choose Share with agents, and send the generated link. If the page is already open in a WebMCP-capable browser, its page tools provide bounded read-only access; clips-get-transcript may omit fullText or return a truncated result, so follow its sourceUrl for the complete transcript. Use nextStartIndex when paging transcript segments so overlapping segments are not lost.",
   };
 }
 
