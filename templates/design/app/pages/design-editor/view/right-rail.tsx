@@ -7,7 +7,10 @@ import type { EditorContentAndComponents } from "../domains/use-editor-content-a
 import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorHistory } from "../domains/use-editor-history";
 import type { EditorModes } from "../domains/use-editor-modes";
-import { rightInspectorPanelClassName } from "../minimal-inspector";
+import {
+  rightInspectorPanelClassName,
+  shouldShowWidgetZoomFallback,
+} from "../minimal-inspector";
 import { TOP_BAR_HEIGHT_PX } from "../top-bar";
 
 export function renderRightRail({
@@ -21,6 +24,7 @@ export function renderRightRail({
   localPreviewRow,
   rightSidebarActions,
   topBarVisible,
+  topBarZoomVisible,
   renderResponsiveInteractBar,
   rightSidebarVisible,
   editPanelProps,
@@ -37,6 +41,7 @@ export function renderRightRail({
   localPreviewRow: ReactElement | null;
   rightSidebarActions: ReactElement;
   topBarVisible: boolean;
+  topBarZoomVisible: boolean;
   renderResponsiveInteractBar: (floating: boolean) => ReactElement;
   rightSidebarVisible: boolean;
   editPanelProps: Omit<
@@ -148,11 +153,14 @@ export function renderRightRail({
         </div>
       ) : null}
 
-      {/* Keep a fallback zoom control only when this widget has no top bar. */}
-      {widgetEmbed &&
-      minimalUi &&
-      !topBarVisible &&
-      (!rightSidebarVisible || uiHidden) ? (
+      {shouldShowWidgetZoomFallback({
+        widgetEmbed,
+        minimalUi,
+        topBarVisible,
+        topBarZoomVisible,
+        rightSidebarVisible,
+        uiHidden,
+      }) ? (
         <div
           data-design-widget-zoom
           className="absolute bottom-3 right-3 z-[90] flex h-7 items-center rounded-md border border-border bg-[var(--design-editor-panel-bg)] px-0.5 shadow-md"

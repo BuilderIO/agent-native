@@ -7,6 +7,7 @@ import {
   rightInspectorCanvasInset,
   rightInspectorPanelClassName,
   shouldAutoOpenMobileInspector,
+  shouldShowWidgetZoomFallback,
 } from "./minimal-inspector";
 import { readDesignEditorSource } from "./read-design-editor-source";
 
@@ -119,6 +120,50 @@ describe("shouldAutoOpenMobileInspector", () => {
         minimalUi: true,
         isMobileViewport: false,
         hasSelection: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldShowWidgetZoomFallback", () => {
+  const widgetDefaults = {
+    widgetEmbed: true,
+    minimalUi: true,
+    topBarVisible: true,
+    topBarZoomVisible: true,
+    rightSidebarVisible: false,
+    uiHidden: false,
+  };
+
+  it("keeps zoom available while widget top-bar controls are temporarily hidden", () => {
+    expect(
+      shouldShowWidgetZoomFallback({
+        ...widgetDefaults,
+        topBarZoomVisible: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not duplicate zoom when the top-bar control is visible", () => {
+    expect(shouldShowWidgetZoomFallback(widgetDefaults)).toBe(false);
+  });
+
+  it("does not show a second control over an open inspector", () => {
+    expect(
+      shouldShowWidgetZoomFallback({
+        ...widgetDefaults,
+        topBarZoomVisible: false,
+        rightSidebarVisible: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not add a widget fallback to the regular editor", () => {
+    expect(
+      shouldShowWidgetZoomFallback({
+        ...widgetDefaults,
+        widgetEmbed: false,
+        topBarZoomVisible: false,
       }),
     ).toBe(false);
   });

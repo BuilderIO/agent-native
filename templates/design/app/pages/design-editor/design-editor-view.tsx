@@ -1112,6 +1112,8 @@ export function renderDesignEditorView({
     widgetEmbed,
   });
   const topBarControlsVisible = !initialGenerationChromeLimited;
+  const topBarZoomControlVisible =
+    topBarControlsVisible && !responsiveInteractActive;
   // The mode switch used to live in the bottom toolbar, so it keeps that
   // toolbar's gating.
   const topBarShowsModes =
@@ -1395,9 +1397,7 @@ export function renderDesignEditorView({
             center={widgetEmbed && minimalUi ? projectTitleControl : undefined}
             widgetLayout={widgetEmbed}
             zoomControl={
-              topBarControlsVisible && !responsiveInteractActive
-                ? renderZoomControl("topbar")
-                : null
+              topBarZoomControlVisible ? renderZoomControl("topbar") : null
             }
             presence={
               topBarControlsVisible && !widgetEmbed ? presenceControl : null
@@ -1571,6 +1571,7 @@ export function renderDesignEditorView({
           localPreviewRow,
           rightSidebarActions,
           topBarVisible,
+          topBarZoomVisible: topBarZoomControlVisible,
           renderResponsiveInteractBar,
           rightSidebarVisible,
           editPanelProps,
