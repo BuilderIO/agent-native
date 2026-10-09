@@ -170,6 +170,235 @@ test("fixed regression pins reject skipped, expected-failure, and focused declar
   }
 });
 
+test("fixed regression pins reject enclosing disabled or focused suites", () => {
+  for (const modifier of ["fail", "skip", "fixme", "only"]) {
+    const source = [
+      'test.describe("outer suite", () => {',
+      '  test.describe("nested suite", () => {',
+      `    test.describe.${modifier}("inner suite", () => {`,
+      '      test("pinned behavior", () => {});',
+      "    });",
+      "  });",
+      "});",
+    ].join("\n");
+
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pinned behavior"),
+      /must run without/,
+      `test.describe.${modifier} must not disable a nested pin`,
+    );
+  }
+});
+
+test("fixed regression pins reject focused sibling tests and suites", () => {
+  const siblingTestOnly = [
+    'test.describe("active suite", () => {',
+    '  test("pinned behavior", () => {});',
+    '  test.only("another test", () => {});',
+    "});",
+  ].join("\n");
+  const siblingDescribeOnly = [
+    'test.describe("active suite", () => {',
+    '  test("pinned behavior", () => {});',
+    "});",
+    'test.describe.only("focused suite", () => {',
+    '  test("another test", () => {});',
+    "});",
+  ].join("\n");
+
+  assert.throws(
+    () => findDesignE2ETestLine(siblingTestOnly, "pinned behavior"),
+    /must run without/,
+  );
+  assert.throws(
+    () => findDesignE2ETestLine(siblingDescribeOnly, "pinned behavior"),
+    /must run without/,
+  );
+});
+
+test("unrelated skipped suites and skipped sibling tests do not hide a pin", () => {
+  const source = [
+    'test.describe("active suite", () => {',
+    '  test("pinned behavior", () => {});',
+    '  test.skip("skipped sibling", () => {});',
+    '  test("runtime-skipped sibling", () => { test.skip(true, "skip sibling"); });',
+    '  test("runtime-fixme sibling", () => { test.fixme(true, "fix sibling"); });',
+    '  test("expected-failure sibling", () => { test.fail(true, "expected failure"); });',
+    "});",
+    'test.describe.skip("unrelated suite", () => {',
+    '  test("another test", () => {});',
+    "});",
+    'test.describe("another unrelated suite", () => {',
+    '  test.skip(true, "skip this suite");',
+    '  test("a skipped suite test", () => {});',
+    "});",
+    'test("a skipped sibling", () => { test.skip(true, "skip only this test"); });',
+  ].join("\n");
+
+  assert.equal(findDesignE2ETestLine(source, "pinned behavior"), 2);
+});
+
+test("runtime skip, fixme, and fail annotations reject a pinned test body", () => {
+  for (const modifier of ["skip", "fixme", "fail"]) {
+    assert.throws(
+      () =>
+        findDesignE2ETestLine(
+          `test("pinned behavior", () => { test.${modifier}(true, "runtime annotation"); });`,
+          "pinned behavior",
+        ),
+      /must run without/,
+      `test.${modifier} inside the pinned body must not mask its result`,
+    );
+  }
+  assert.throws(
+    () =>
+      findDesignE2ETestLine(
+        'test("pinned behavior", ({ isMobile }) => { test.fixme(isMobile, "mobile unsupported"); });',
+        "pinned behavior",
+      ),
+    /Unable to inspect conditional test\.fixme/,
+  );
+});
+
+test("describe details overloads preserve enclosing and unrelated suite scope", () => {
+  const nestedDetails = [
+    'test.describe("outer", { tag: "@outer" }, () => {',
+    '  test.describe("inner", { tag: "@inner" }, () => {',
+    '    test("pinned behavior", () => {});',
+    "  });",
+    "});",
+  ].join("\n");
+  const unrelatedDetailsSuite = [
+    'test.describe("other", { tag: "@other" }, () => {',
+    '  test.skip(true, "skip only this suite");',
+    '  test("other behavior", () => {});',
+    "});",
+    'test("pinned behavior", () => {});',
+  ].join("\n");
+  const unrelatedModifiedDetailsSuite = [
+    'test.describe.skip("other", { tag: "@other" }, () => {',
+    '  test.skip(true, "skip only this suite");',
+    '  test("other behavior", () => {});',
+    "});",
+    'test("pinned behavior", () => {});',
+  ].join("\n");
+  const disabledDetailsSuite = [
+    'test.describe.skip("disabled", { tag: "@disabled" }, () => {',
+    '  test("pinned behavior", () => {});',
+    "});",
+  ].join("\n");
+  const fileSkipInsideDetailsSuite = [
+    'test.describe("conditional suite", { tag: "@conditional" }, () => {',
+    '  test.skip(true, "skip this suite");',
+    '  test("pinned behavior", () => {});',
+    "});",
+  ].join("\n");
+
+  assert.equal(findDesignE2ETestLine(nestedDetails, "pinned behavior"), 3);
+  assert.equal(
+    findDesignE2ETestLine(unrelatedDetailsSuite, "pinned behavior"),
+    5,
+  );
+  assert.equal(
+    findDesignE2ETestLine(unrelatedModifiedDetailsSuite, "pinned behavior"),
+    5,
+  );
+  assert.throws(
+    () => findDesignE2ETestLine(disabledDetailsSuite, "pinned behavior"),
+    /must run without/,
+  );
+  assert.throws(
+    () => findDesignE2ETestLine(fileSkipInsideDetailsSuite, "pinned behavior"),
+    /must run without/,
+  );
+});
+
+test("suppression-like comments, strings, and templates do not affect a pin", () => {
+  const source = [
+    '// test.describe.skip("fake suite", () => {});',
+    'const string = "test.only(\\"fake test\\", () => {});";',
+    'const template = `test.describe.fixme("fake suite", () => {});`;',
+    'const pattern = /test\\.skip\\(true, ".*"\\)/;',
+    '/* test.describe.only("fake focused suite", () => {}); */',
+    'test.describe("active suite", () => {',
+    '  test("pinned behavior", () => {});',
+    "});",
+  ].join("\n");
+
+  assert.equal(findDesignE2ETestLine(source, "pinned behavior"), 7);
+});
+
+test("template expressions are inspected while raw text and regex braces stay masked", () => {
+  const source = [
+    'const label = `value ${(() => ({ text: "}", pattern: /[{}]/ }))()}`;',
+    'test("pinned behavior", () => {});',
+  ].join("\n");
+
+  assert.equal(findDesignE2ETestLine(source, "pinned behavior"), 2);
+  assert.throws(
+    () =>
+      findDesignE2ETestLine(
+        'const label = `${test.skip(true, "disable file")}`;\ntest("pinned behavior", () => {});',
+        "pinned behavior",
+      ),
+    /must run without/,
+  );
+  assert.equal(
+    findDesignE2ETestLine(
+      'const label = `${"test.skip(true, \\"disabled\\")"}`;\ntest("pinned behavior", () => {});',
+      "pinned behavior",
+    ),
+    2,
+  );
+});
+
+test("statically unconditional file and enclosing suite skips reject pins", () => {
+  const fileSkip = [
+    'test.skip(true, "the whole file is disabled");',
+    'test("pinned behavior", () => {});',
+  ].join("\n");
+  const suiteSkip = [
+    'test.describe("outer suite", () => {',
+    '  test.describe("nested suite", () => {',
+    '    test.skip(true, "the suite is disabled");',
+    '    test("pinned behavior", () => {});',
+    "  });",
+    "});",
+  ].join("\n");
+
+  assert.throws(
+    () => findDesignE2ETestLine(fileSkip, "pinned behavior"),
+    /must run without/,
+  );
+  assert.throws(
+    () => findDesignE2ETestLine(suiteSkip, "pinned behavior"),
+    /must run without/,
+  );
+  assert.throws(
+    () =>
+      findDesignE2ETestLine(
+        'test.fixme(true, "the whole file is marked fixme");\ntest("pinned behavior", () => {});',
+        "pinned behavior",
+      ),
+    /must run without/,
+  );
+  assert.equal(
+    findDesignE2ETestLine(
+      'test.skip(false, "keep the file enabled");\ntest("pinned behavior", () => {});',
+      "pinned behavior",
+    ),
+    2,
+  );
+  assert.throws(
+    () =>
+      findDesignE2ETestLine(
+        'test.skip(process.platform === "win32", "platform skip");\ntest("pinned behavior", () => {});',
+        "pinned behavior",
+      ),
+    /Unable to inspect conditional test\.skip/,
+  );
+});
+
 test("modifier text inside an ordinary pinned title does not disable it", () => {
   assert.equal(
     findDesignE2ETestLine(
@@ -196,6 +425,8 @@ test("the resolver CLI distinguishes disabled pins from unreadable sources", () 
     const pins = DESIGN_E2E_REGRESSION_PINS.filter(
       ({ shard }) => shard === "inspector-1a",
     );
+    const firstPinFile = join(specs, pins[0]!.file);
+    const firstFilePins = pins.filter(({ file }) => file === pins[0]!.file);
     for (const file of new Set(pins.map((pin) => pin.file))) {
       writeFileSync(
         join(specs, file),
@@ -220,7 +451,55 @@ test("the resolver CLI distinguishes disabled pins from unreadable sources", () 
     assert.equal(result.status, 1, result.stderr);
     assert.match(result.stderr, /must run without test modifiers/);
     assert.equal(result.stdout, "");
-    rmSync(join(specs, pins[0]!.file));
+
+    writeFileSync(
+      firstPinFile,
+      [
+        ...firstFilePins.map(
+          (pin) => `test(${JSON.stringify(pin.title)}, () => {});`,
+        ),
+        'test.only("another test", () => {});',
+      ].join("\n"),
+    );
+    const focused = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        realpathSync(join(scripts, "design-e2e-regression-pins.ts")),
+        "inspector-1a",
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(focused.status, 1, focused.stderr);
+    assert.match(focused.stderr, /test\.only/);
+    assert.equal(focused.stdout, "");
+
+    writeFileSync(
+      firstPinFile,
+      [
+        'test.skip(process.platform === "win32", "conditional file skip");',
+        ...firstFilePins.map(
+          (pin) => `test(${JSON.stringify(pin.title)}, () => {});`,
+        ),
+      ].join("\n"),
+    );
+    const conditional = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        realpathSync(join(scripts, "design-e2e-regression-pins.ts")),
+        "inspector-1a",
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(conditional.status, 2, conditional.stderr);
+    assert.match(
+      conditional.stderr,
+      /Unable to inspect conditional test\.skip/,
+    );
+    assert.equal(conditional.stdout, "");
+
+    rmSync(firstPinFile);
     const unavailable = spawnSync(
       process.execPath,
       [
