@@ -24,6 +24,7 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 - Reports/alerts use SQL actions and cap at five recipients. Store large payloads in file/blob storage, not SQL or app state.
 - Never invent data or source semantics. For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - External MCP callers use direct cataloged actions for bounded reads and allowlisted mutations; use `ask_app` for interpretation, source selection, multi-step work, or unsupported actions.
+- Public-key replay origins are org- or owner-scoped: use `list-analytics-public-keys` to inspect safe metadata and `update-analytics-public-key` to append exact HTTPS origins. The update action preserves existing origins and key settings; reread the list action to verify the saved allowlist.
 
 ## Sessions and state
 

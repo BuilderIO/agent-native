@@ -704,6 +704,18 @@ export default {
     copied: "Copié",
     copy: "Copie",
     keyActions: "Actions clés {{name}}",
+    manageReplayOrigins: "Gérer les origines de relecture",
+    replayOriginsDescription:
+      "Ajoutez des origines HTTPS exactes, une par ligne. Les origines existantes seront conservées.",
+    currentReplayOrigins: "Origines actuellement autorisées",
+    anyReplayOriginAllowed: "Toute origine est actuellement autorisée.",
+    originsToAdd: "Origines à ajouter",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "Ajouter les origines",
+    addingReplayOrigins: "Ajout des origines…",
+    replayOriginsUpdateFailed:
+      "Impossible de mettre à jour les origines autorisées.",
+    cancel: "Annuler",
     lastUsed: "dernière utilisation {{date}}",
     neverUsed: "jamais utilisé",
     revoking: "Révoquer...",
