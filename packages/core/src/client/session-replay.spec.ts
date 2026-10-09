@@ -3925,7 +3925,10 @@ describe("session replay", () => {
     const firstResult = await first.startSessionReplay({
       publicKey: "anpk_test",
       endpoint: "https://analytics.example.test/session-replay",
-      extraProperties: { capture_context: "pre_auth" },
+      extraProperties: {
+        capture_context: "pre_auth",
+        pre_auth_base_path: "/app",
+      },
       maxEventsPerBatch: 1,
       flushIntervalMs: 100_000,
     });
@@ -3935,7 +3938,10 @@ describe("session replay", () => {
     const firstBody = await parseReplayUpload(
       fetchMock.mock.calls[0]?.[1] as RequestInit,
     );
-    expect(firstBody.properties).toEqual({ capture_context: "pre_auth" });
+    expect(firstBody.properties).toEqual({
+      capture_context: "pre_auth",
+      pre_auth_base_path: "/app",
+    });
     await first.stopSessionReplay();
 
     const storedSession = JSON.parse(

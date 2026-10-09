@@ -1503,6 +1503,7 @@ function isSensitiveReplayPropertyKey(key: string): boolean {
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
   const normalized = tokens.join("");
+  if (normalized === "preauthbasepath") return false;
   return (
     REPLAY_IDENTITY_PROPERTY_KEYS.has(normalized) ||
     tokens.some((token) => REPLAY_IDENTITY_PROPERTY_TOKENS.has(token)) ||
