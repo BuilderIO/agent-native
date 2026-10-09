@@ -274,6 +274,37 @@ describe("SearchModal", () => {
     clock.mockRestore();
   });
 
+  it("cancels a pending question when its query changes", async () => {
+    buildSearchIndexAsyncMock.mockResolvedValue([]);
+    let ready!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const onClose = vi.fn();
+    render(
+      <MemoryRouter>
+        <AssistantReadyProvider value={() => pending}>
+          <SearchModal open onClose={onClose} />
+        </AssistantReadyProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Earlier question" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Ask AI/ }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Revised question" },
+    });
+    await act(async () => ready());
+    expect(submitToAgent).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Ask AI/ }));
+    await waitFor(() =>
+      expect(submitToAgent).toHaveBeenCalledWith("Revised question"),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("leaves a reopened search alone when an earlier request finishes loading", async () => {
     buildSearchIndexAsyncMock.mockResolvedValue([]);
     let ready!: () => void;

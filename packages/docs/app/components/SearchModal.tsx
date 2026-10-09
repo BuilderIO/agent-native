@@ -424,7 +424,11 @@ export function SearchModal({
             type="text"
             placeholder={t("search.placeholder")}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              searchGeneration.current += 1;
+              setSubmitting(false);
+              setQuery(e.target.value);
+            }}
             className="flex-1 border-0 bg-transparent text-base text-[var(--fg)] outline-none placeholder:text-[var(--fg-secondary)]"
             aria-label={t("search.dialogLabel")}
           />
