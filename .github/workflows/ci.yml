@@ -720,24 +720,24 @@ jobs:
               record_failure "Determine change scope" "pre-auth replay selection was missing or invalid ($PRE_AUTH_REPLAY_E2E)"
             fi
 
+            case "$DESIGN_CANVAS_E2E" in
+              true)
+                require_success "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT"
+                ;;
+              false)
+                require_skipped "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT" "ran outside its selected paths"
+                ;;
+              *)
+                record_failure "Determine change scope" "Design canvas selection was missing or invalid ($DESIGN_CANVAS_E2E)"
+                ;;
+            esac
+
             if [[ "$DOCS_ONLY" == "true" ]]; then
               require_success "Docs checks" "$DOCS_RESULT"
               require_skipped "Fast tests (test-rest matrix)" "$TEST_REST_RESULT" "ran outside its selected paths"
               require_skipped "Fast tests targeted (test-targeted matrix)" "$TEST_TARGETED_RESULT" "ran outside its selected paths"
               success_message="Docs-only change: docs checks passed; fast-test lanes are not required."
             else
-              case "$DESIGN_CANVAS_E2E" in
-                true)
-                  require_success "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT"
-                  ;;
-                false)
-                  require_skipped "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT" "ran outside its selected paths"
-                  ;;
-                *)
-                  record_failure "Determine change scope" "Design canvas selection was missing or invalid ($DESIGN_CANVAS_E2E)"
-                  ;;
-              esac
-
               if [[ "$CI_FULL" == "true" ]]; then
                 if [[ "$HAS_TESTS" != "true" ]]; then
                   record_failure "Determine change scope" "full fast-test lanes were selected without test lanes (has_tests=$HAS_TESTS)"

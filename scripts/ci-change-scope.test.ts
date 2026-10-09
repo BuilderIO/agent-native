@@ -1183,6 +1183,29 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
       status: 0,
     },
     {
+      name: "docs-only changes still require unselected Design lanes to skip",
+      overrides: {
+        DOCS_ONLY: "true",
+        DOCS_RESULT: "success",
+        DESIGN_CANVAS_RESULT: "success",
+      },
+      status: 1,
+      outputIncludes:
+        "Design canvas interaction acceptance (matrix jobs): ran outside its selected paths (expected skipped, received success)",
+    },
+    {
+      name: "docs-only changes still require selected Design lanes to succeed",
+      overrides: {
+        DOCS_ONLY: "true",
+        DOCS_RESULT: "success",
+        DESIGN_CANVAS_E2E: "true",
+        DESIGN_CANVAS_RESULT: "failure",
+      },
+      status: 1,
+      outputIncludes:
+        "Design canvas interaction acceptance (matrix jobs): did not succeed (expected success, received failure)",
+    },
+    {
       name: "an unselected Design lane must skip",
       overrides: {},
       status: 0,
