@@ -30,6 +30,7 @@ import {
 } from "../file-upload/test-image-fixtures.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
+import * as experiments from "../observability/experiments.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
@@ -56,6 +57,7 @@ import {
   BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
   buildUserContentWithAttachments,
+  isAgentModelVisionCapable,
   DurableAttachmentReferenceRequiredError,
   serializeDurableDispatchPayload,
   callConnectedAgentReference,
@@ -889,6 +891,22 @@ describe("serializeDurableDispatchPayload", () => {
           name: "screen.png",
           data: "data:image/png;base64,INLINE_IMAGE_BYTES",
           url: "https://files.example.test/screen.png",
+          metadata: {
+            base64: "A".repeat(96),
+            bytes: new Uint8Array([0, 1, 2, 3]),
+            preview: {
+              url: "data:image/png;base64,INLINE_NESTED_PREVIEW_URL",
+              data: "data:image/png;base64,INLINE_NESTED_PREVIEW_BYTES",
+              bytes: [4, 5, 6],
+            },
+            references: [
+              {
+                thumbnail: {
+                  src: "data:image/png;base64,INLINE_NESTED_THUMBNAIL_URL",
+                },
+              },
+            ],
+          },
         },
       ],
       requestAttachments: [
@@ -906,7 +924,7 @@ describe("serializeDurableDispatchPayload", () => {
           parts: [
             {
               type: "image",
-              data: "INLINE_HISTORY_IMAGE_BYTES",
+              data: "data:image/png;base64,INLINE_HISTORY_IMAGE_BYTES",
               url: "https://files.example.test/history.png",
             },
           ],
@@ -916,10 +934,12 @@ describe("serializeDurableDispatchPayload", () => {
     const parsed = JSON.parse(payload);
 
     expect(payload).not.toContain("INLINE_");
+    expect(payload).not.toContain("data:image/");
     expect(parsed.attachments[0]).toEqual({
       type: "image",
       name: "screen.png",
       url: "https://files.example.test/screen.png",
+      metadata: { preview: {}, references: [{ thumbnail: {} }] },
     });
     expect(parsed.requestAttachments[0]).toEqual({
       type: "image",
@@ -931,6 +951,25 @@ describe("serializeDurableDispatchPayload", () => {
       type: "image",
       url: "https://files.example.test/history.png",
     });
+  });
+
+  it("preserves data URLs outside attachment fields", () => {
+    const preview = "data:image/png;base64,INLINE_UNRELATED_PREVIEW";
+    const payload = serializeDurableDispatchPayload({
+      metadata: { preview },
+    });
+
+    expect(JSON.parse(payload).metadata.preview).toBe(preview);
+  });
+
+  it("treats only recognizable data URLs as inline attachment data", () => {
+    const payload = serializeDurableDispatchPayload({
+      attachments: [
+        { type: "file", name: "notes.txt", data: "plain text metadata" },
+      ],
+    });
+
+    expect(JSON.parse(payload).attachments[0].data).toBe("plain text metadata");
   });
 
   it("fails closed when attachment bytes have no durable reference", () => {
@@ -946,6 +985,38 @@ describe("serializeDurableDispatchPayload", () => {
       }),
     ).toThrow(DurableAttachmentReferenceRequiredError);
   });
+
+  it("recognizes short raw base64 in attachment payload fields", () => {
+    const tinyGifBase64 = "R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+    expect(tinyGifBase64.length).toBeLessThan(64);
+    expect(() =>
+      serializeDurableDispatchPayload({
+        attachments: [
+          {
+            type: "image",
+            name: "tiny.gif",
+            data: tinyGifBase64,
+          },
+        ],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+
+  it.each([
+    ["raw base64 metadata", { metadata: { base64: "A".repeat(96) } }],
+    [
+      "nested preview URL",
+      { metadata: { preview: { url: "data:image/png;base64,INLINE" } } },
+    ],
+    ["nested byte arrays", { metadata: { bytes: [0, 1, 2, 3] } }],
+  ])(
+    "requires durable storage for an attachment with %s only",
+    (_label, attachment) => {
+      expect(() =>
+        serializeDurableDispatchPayload({ attachments: [attachment] }),
+      ).toThrow(DurableAttachmentReferenceRequiredError);
+    },
+  );
 
   it("requires a durable vision URL when an inline request image has only its original reference", () => {
     expect(() =>
@@ -975,9 +1046,48 @@ describe("serializeDurableDispatchPayload", () => {
       }),
     ).toThrow(DurableAttachmentReferenceRequiredError);
   });
+
+  it.each(["url", "referenceUrl"])(
+    "rejects raw base64 masquerading as an attachment %s",
+    (field) => {
+      expect(() =>
+        serializeDurableDispatchPayload({
+          attachments: [
+            {
+              type: "image",
+              name: "inline-url.png",
+              [field]: "A".repeat(96),
+            },
+          ],
+        }),
+      ).toThrow(DurableAttachmentReferenceRequiredError);
+    },
+  );
 });
 
 describe("buildUserContentWithAttachments", () => {
+  it.each([
+    ["Groq Llama 4 Scout", "meta-llama/llama-4-scout-17b-16e-instruct"],
+    ["Groq Qwen 3.6", "qwen/qwen3.6-27b"],
+    ["Mistral Small 3.2", "mistral-small-2506"],
+    ["Cohere Command A Vision", "command-a-vision-07-2025"],
+    ["Ollama Llama 3.2 Vision", "llama3.2-vision:90b"],
+    ["Ollama Gemma 3", "gemma3:12b"],
+  ])(
+    "recognizes vision support for %s despite provider defaults",
+    (_label, model) => {
+      expect(isAgentModelVisionCapable(model, false)).toBe(true);
+    },
+  );
+
+  it("keeps unknown models on providers without vision disabled", () => {
+    expect(isAgentModelVisionCapable("custom-text-model", false)).toBe(false);
+  });
+
+  it("retains engine vision support for unlisted models", () => {
+    expect(isAgentModelVisionCapable("custom-vision-model", true)).toBe(true);
+  });
+
   it("rehydrates a durable PDF reference into a provider file block", async () => {
     const url = "https://storage.example.test/uploads/reference.pdf";
     const inlinePdf = `data:application/pdf;base64,${PDF_BASE64}`;
@@ -2916,7 +3026,35 @@ describe("createProductionAgentHandler", () => {
                   name: "notes.txt",
                   fileId: "file-1",
                   mediaType: "text/plain",
+                  data: "data:text/plain;base64,SGVsbG8=",
                   url: "https://files.example/notes.txt",
+                },
+                {
+                  type: "file",
+                  name: "scan.png",
+                  fileId: "file-image-1",
+                  mediaType: "image/png",
+                  url: "https://files.example/scan-original.png",
+                },
+              ],
+              requestAttachments: [
+                {
+                  type: "image",
+                  name: "scan.png",
+                  contentType: "image/png",
+                  data: "data:image/png;base64,SGVsbG8=",
+                  url: "https://files.example/scan-resized.png",
+                  referenceUrl: "https://files.example/scan-original.png",
+                  fileId: "file-image-1",
+                },
+                {
+                  type: "image",
+                  name: "scan.png",
+                  contentType: "image/png",
+                  data: "data:image/png;base64,SGVsbG8=",
+                  url: "https://files.example/scan-resized.png",
+                  referenceUrl: "https://files.example/scan-original.png",
+                  fileId: "file-image-1",
                 },
               ],
               metadata: { queuedContext: "persisted" },
@@ -2998,12 +3136,35 @@ describe("createProductionAgentHandler", () => {
             id: "file-1",
             mediaType: "text/plain",
             contentType: "text/plain",
+            data: "data:text/plain;base64,SGVsbG8=",
             url: "https://files.example/notes.txt",
+          },
+          {
+            type: "file",
+            name: "scan.png",
+            id: "file-image-1",
+            mediaType: "image/png",
+            contentType: "image/png",
+            url: "https://files.example/scan-original.png",
+            referenceOnly: true,
+          },
+          {
+            type: "image",
+            name: "scan.png",
+            contentType: "image/png",
+            data: "data:image/png;base64,SGVsbG8=",
+            url: "https://files.example/scan-resized.png",
+            id: "file-image-1",
           },
         ],
         references: [],
         mode: "plan",
       });
+      expect(
+        (captured.request as { attachments: unknown[] }).attachments.filter(
+          (attachment) => (attachment as { type?: string }).type === "image",
+        ),
+      ).toHaveLength(1);
       expect(
         JSON.stringify(
           (captured.request as { requestContext?: unknown }).requestContext,
@@ -4009,6 +4170,150 @@ describe("createProductionAgentHandler", () => {
       }),
     );
     expect(JSON.stringify(userContent)).not.toContain(PNG_BASE64);
+  });
+
+  it("sends images to a vision-capable Mistral model despite the provider default", async () => {
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementationOnce(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "text-only-model",
+      supportedModels: ["text-only-model", "mistral-small-2506"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "The image is ready for analysis." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe this image",
+          model: "mistral-small-2506",
+          attachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              data: `data:image/png;base64,${PNG_BASE64}`,
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+    } finally {
+      preUpload.mockRestore();
+    }
+
+    const userContent = streamedMessages
+      .flatMap((messages) => messages)
+      .filter((message) => message.role === "user")
+      .flatMap((message) => message.content);
+    expect(userContent.some((part) => part.type === "image")).toBe(true);
+    expect(
+      userContent.some(
+        (part) =>
+          part.type === "text" &&
+          part.text.includes('code="vision-not-supported"'),
+      ),
+    ).toBe(false);
+  });
+
+  it("skips experiment assignment resolution for an explicit request model", async () => {
+    const resolveExperiment = vi
+      .spyOn(experiments, "resolveActiveExperimentConfig")
+      .mockResolvedValue({
+        configs: { model: "experiment-model" },
+        assignments: [{ experimentId: "experiment-1", variantId: "variant-b" }],
+      });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "default-model",
+      supportedModels: ["default-model", "explicit-model", "experiment-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Use my selected model",
+          model: "explicit-model",
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+      expect(resolveExperiment).not.toHaveBeenCalled();
+    } finally {
+      resolveExperiment.mockRestore();
+    }
   });
 
   it("does not treat an undefined system prompt rejection as a valid empty prompt", async () => {

@@ -61,6 +61,7 @@ const chatMocks = vi.hoisted(() => ({
   stuckBannerProps: null as any,
   failureProps: null as any,
   failurePropsHistory: [] as unknown[],
+  loopLimitProps: null as any,
   failureError: { code: "test-error", message: "Run failed" } as any,
   failureCopies: 1,
   failureRunIds: ["run-1"] as string[],
@@ -110,6 +111,12 @@ const chatMocks = vi.hoisted(() => ({
     fork: vi.fn(async () => ({ id: "thread-forked" })),
     cancel: vi.fn(async () => undefined),
     uploadFiles: vi.fn(async () => []),
+    reserveQueuedMessage: undefined as
+      | ((text: string) => { id: string })
+      | undefined,
+    cancelQueuedMessageReservation: undefined as
+      | ((messageId: string) => void)
+      | undefined,
   },
   createRuntime: vi.fn((options: unknown) => {
     chatMocks.runtimeOptions = options;
@@ -587,7 +594,10 @@ vi.mock("./chat/run-recovery.js", async (importOriginal) => ({
     chatMocks.setupCardPropsHistory.push(props);
     return React.createElement("div", { "data-testid": "builder-setup-card" });
   },
-  LoopLimitContinueCard: () => null,
+  LoopLimitContinueCard: (props: unknown) => {
+    chatMocks.loopLimitProps = props;
+    return null;
+  },
   PlanModeCallout: () => null,
   getRequestModeMetadata: () => undefined,
 }));
@@ -833,6 +843,7 @@ beforeEach(() => {
   chatMocks.stuckBannerProps = null;
   chatMocks.failureProps = null;
   chatMocks.failurePropsHistory = [];
+  chatMocks.loopLimitProps = null;
   chatMocks.failureError = { code: "test-error", message: "Run failed" };
   chatMocks.failureCopies = 1;
   chatMocks.failureRunIds = ["run-1"];
@@ -883,6 +894,8 @@ beforeEach(() => {
   chatMocks.control.resolveApproval.mockReset().mockResolvedValue(undefined);
   chatMocks.control.fork.mockReset().mockResolvedValue({ id: "thread-forked" });
   chatMocks.control.uploadFiles.mockReset().mockResolvedValue([]);
+  chatMocks.control.reserveQueuedMessage = undefined;
+  chatMocks.control.cancelQueuedMessageReservation = undefined;
   chatMocks.createRuntime.mockClear();
   chatMocks.createTransport
     .mockReset()
@@ -1354,6 +1367,119 @@ describe("AgentKitAssistantChat host behavior", () => {
         expect.objectContaining({ text: "Next turn" }),
       ]);
     } finally {
+      activeRunFinished.resolve();
+      await flush();
+    }
+  });
+
+  it("shows queued text before deferred readiness and attachment upload finish", async () => {
+    const at = "2026-10-09T00:00:00.000Z";
+    const activeRunFinished = Promise.withResolvers<void>();
+    const readiness = Promise.withResolvers<void>();
+    const readinessStarted = Promise.withResolvers<void>();
+    const upload = Promise.withResolvers<FilePart[]>();
+    const uploadStarted = Promise.withResolvers<void>();
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+      runId: "run-active",
+    }));
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id, threadId, text, attachments }) => ({
+        message: {
+          id: id ?? "queued-prepared",
+          threadId,
+          text,
+          createdAt: at,
+          attachments,
+        },
+      }),
+    );
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun, {
+      capabilities: {
+        attachments: true,
+        messageQueue: true,
+        uploads: true,
+      },
+      queueMessage,
+      async *subscribeToRun({ threadId, runId }) {
+        await activeRunFinished.promise;
+        yield {
+          id: "event-run-completed",
+          type: "run.completed",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: at,
+        };
+      },
+    });
+
+    vi.spyOn(client, "uploadFiles").mockImplementation(async () => {
+      uploadStarted.resolve();
+      return upload.promise;
+    });
+
+    try {
+      await client.sendMessage({
+        threadId: chatMocks.threadId,
+        text: "Current turn",
+      });
+      await mount(baseProps({ showModelSelector: false }));
+      vi.spyOn(client, "assertAiSetupReady").mockImplementation(async () => {
+        readinessStarted.resolve();
+        await readiness.promise;
+      });
+
+      let submission!: Promise<unknown>;
+      await act(async () => {
+        submission = chatMocks.composerProps.onSubmit(
+          "Next turn",
+          [new File(["notes"], "notes.txt", { type: "text/plain" })],
+          [],
+          { intent: "queued" },
+        );
+        await Promise.resolve();
+      });
+
+      await readinessStarted.promise;
+      const staged = client.getThread(chatMocks.threadId).queuedMessages;
+      expect(staged).toEqual([expect.objectContaining({ text: "Next turn" })]);
+      expect(staged[0]).not.toHaveProperty("attachments");
+      expect(queueMessage).not.toHaveBeenCalled();
+
+      readiness.resolve();
+      await uploadStarted.promise;
+      expect(client.getThread(chatMocks.threadId).queuedMessages).toEqual([
+        expect.objectContaining({ id: staged[0]?.id, text: "Next turn" }),
+      ]);
+      expect(queueMessage).not.toHaveBeenCalled();
+
+      upload.resolve([
+        {
+          type: "file",
+          name: "notes.txt",
+          mediaType: "text/plain",
+          url: "https://files.example.test/notes.txt",
+        },
+      ]);
+      await act(async () => submission);
+
+      expect(queueMessage).toHaveBeenCalledOnce();
+      expect(queueMessage.mock.calls[0]?.[0]).toMatchObject({
+        id: staged[0]?.id,
+        text: "Next turn",
+        attachments: [
+          {
+            type: "file",
+            name: "notes.txt",
+            url: "https://files.example.test/notes.txt",
+          },
+        ],
+      });
+    } finally {
+      readiness.resolve();
+      upload.resolve([]);
       activeRunFinished.resolve();
       await flush();
     }
@@ -4409,18 +4535,148 @@ describe("AgentKitAssistantChat host behavior", () => {
     ]);
   });
 
+  it("uploads imperative queued images before sending durable URL references", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    const imageDataUrl = "data:image/png;base64,SGVsbG8=";
+    const uploadedImage: FilePart = {
+      type: "file",
+      name: "image-1",
+      mediaType: "image/png",
+      url: "https://files.example.test/queued-image.png",
+    };
+    const steps: string[] = [];
+    chatMocks.control.uploadFiles.mockImplementation(async () => {
+      steps.push("upload");
+      return [uploadedImage];
+    });
+    chatMocks.control.queueMessage.mockImplementation(async () => {
+      steps.push("queue");
+      return undefined;
+    });
+    await mount(baseProps(), ref);
+
+    let result:
+      | Awaited<ReturnType<AssistantChatHandle["queueMessage"]>>
+      | undefined;
+    await act(async () => {
+      result = await ref.current!.queueMessage("Describe this later", [
+        imageDataUrl,
+      ]);
+    });
+
+    const queuedRequest = chatMocks.control.queueMessage.mock.calls[0]?.[0] as
+      | Record<string, any>
+      | undefined;
+    expect(result).toEqual({ status: "submitted" });
+    expect(steps).toEqual(["upload", "queue"]);
+    expect(queuedRequest).toMatchObject({
+      text: "Describe this later",
+      attachments: [uploadedImage],
+      requestAttachments: [
+        {
+          type: "image",
+          name: "image-1",
+          contentType: "image/png",
+          url: uploadedImage.url,
+        },
+      ],
+    });
+    expect(queuedRequest?.requestAttachments?.[0]).not.toHaveProperty("data");
+    expect(JSON.stringify(queuedRequest)).not.toContain(imageDataUrl);
+  });
+
+  it("rolls back and displays an error when imperative image storage fails", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    chatMocks.control.uploadFiles.mockRejectedValueOnce(
+      new Error("storage unavailable"),
+    );
+    await mount(baseProps(), ref);
+
+    await act(async () => {
+      await expect(
+        ref.current!.queueMessage("Describe this later", [
+          "data:image/png;base64,SGVsbG8=",
+        ]),
+      ).rejects.toThrow("storage unavailable");
+    });
+
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "agentChat.error.failed",
+    );
+  });
+
+  it.each([
+    {
+      code: "upload_too_large",
+      message: "agentChat.composer.fileTooLarge",
+    },
+    {
+      code: "upload_session_expired",
+      message: "agentChat.composer.sessionExpired",
+    },
+  ])(
+    "keeps typed upload failure visible and rolls back its reservation ($code)",
+    async ({ code, message }) => {
+      const ref = createRef<AssistantChatHandle>();
+      const reserve = vi.fn(() => ({ id: "reserved-upload" }));
+      const cancel = vi.fn();
+      chatMocks.control.reserveQueuedMessage = reserve;
+      chatMocks.control.cancelQueuedMessageReservation = cancel;
+      chatMocks.control.uploadFiles.mockRejectedValueOnce(
+        Object.assign(new Error(message), { code }),
+      );
+      await mount(baseProps(), ref);
+
+      await act(async () => {
+        await expect(
+          ref.current!.queueMessage("Describe this later", [
+            "data:image/png;base64,SGVsbG8=",
+          ]),
+        ).rejects.toThrow(message);
+      });
+
+      expect(reserve).toHaveBeenCalledOnce();
+      expect(cancel).toHaveBeenCalledWith("reserved-upload");
+      expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
+      expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+        message,
+      );
+    },
+  );
+
+  it("checks setup before uploading an imperative queued image", async () => {
+    chatMocks.readiness = {
+      canChat: false,
+      missing: true,
+      state: "missing",
+    };
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+
+    let result:
+      | Awaited<ReturnType<AssistantChatHandle["queueMessage"]>>
+      | undefined;
+    await act(async () => {
+      result = await ref.current!.queueMessage("Describe this later", [
+        "data:image/png;base64,SGVsbG8=",
+      ]);
+    });
+
+    expect(result).toEqual({
+      status: "rejected",
+      reason: "engine-not-configured",
+    });
+    expect(chatMocks.control.uploadFiles).not.toHaveBeenCalled();
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
+  });
+
   it("returns typed rejection results for imperative sends while the engine is unavailable", async () => {
     chatMocks.readiness = {
       canChat: false,
       missing: true,
       state: "missing",
     };
-    chatMocks.control.queueMessage.mockRejectedValueOnce(
-      Object.assign(new Error("AI setup is required before sending."), {
-        code: "AGENT_CHAT_AI_SETUP_REQUIRED",
-        state: "missing",
-      }),
-    );
     const ref = createRef<AssistantChatHandle>();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -4470,7 +4726,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       },
     ]);
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
 
     chatMocks.readiness = {
       canChat: false,
@@ -5275,6 +5531,66 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
   });
 
+  it.each([
+    {
+      name: "a missing durable reference",
+      filePart: {
+        type: "file",
+        name: "reference.png",
+        mediaType: "image/png",
+      },
+    },
+    {
+      name: "an inline data URL",
+      filePart: {
+        type: "file",
+        name: "reference.png",
+        mediaType: "image/png",
+        url: "data:image/png;base64,aW5saW5l",
+      },
+    },
+  ])("does not continue with $name", async ({ filePart }) => {
+    chatMocks.thread.messages = [
+      {
+        id: "user-continue-with-invalid-file",
+        role: "user",
+        parts: [
+          { type: "text", text: "Continue using this reference" },
+          filePart,
+        ],
+      },
+    ];
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.retryHasUnavailableAttachment).toBe(true);
+    await act(async () => {
+      chatMocks.failureProps.onContinue();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.failureProps.continueError).toBe(
+      "agentChat.recovery.continueUnavailable",
+    );
+  });
+
+  it("shows an error when protocol Continue rejects", async () => {
+    chatMocks.control.sendMessage.mockRejectedValueOnce(
+      new Error("transport unavailable"),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      chatMocks.failureProps.onContinue();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.failureProps.continueError).toBe(
+      "agentChat.recovery.continueUnavailable",
+    );
+  });
+
   it("replays attachments and run identity when the stuck banner continues", async () => {
     const referenceUrl = "https://files.example.test/stuck-reference.png";
     chatMocks.thread.messages = [
@@ -5332,6 +5648,41 @@ describe("AgentKitAssistantChat host behavior", () => {
       agentNativeRecoveryAction: "continue",
       agentNativeRecoveryOfRunId: "stuck-run-1",
     });
+  });
+
+  it("shows an error when the stuck-banner Continue rejects", async () => {
+    chatMocks.control.sendMessage.mockRejectedValueOnce(
+      new Error("transport unavailable"),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      chatMocks.stuckBannerProps.onRetry("stuck-run-1");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "agentChat.recovery.continueUnavailable",
+    );
+  });
+
+  it("shows an error when loop-limit Continue rejects", async () => {
+    chatMocks.failureError = { code: "loop_limit", message: "Limit reached" };
+    chatMocks.control.sendMessage.mockRejectedValueOnce(
+      new Error("transport unavailable"),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      chatMocks.loopLimitProps.onContinue();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain(
+      "agentChat.recovery.continueUnavailable",
+    );
   });
 
   it("strips appended context from Retry and preserves request metadata", async () => {

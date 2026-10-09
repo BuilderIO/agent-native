@@ -4340,6 +4340,14 @@ describe("upsertUserMessage", () => {
     expect(
       containsInlineAttachmentPayload({
         type: "image",
+        name: "tiny.gif",
+        contentType: "image/gif",
+        data: "R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
         name: "reference.png",
         url: "data:image/png;base64,INLINE_BYTES",
       }),
@@ -4368,6 +4376,14 @@ describe("upsertUserMessage", () => {
     expect(
       containsInlineAttachmentPayload({
         type: "image",
+        name: "tiny.gif",
+        contentType: "image/gif",
+        url: "R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
         name: "reference.png",
         metadata: { preview: `data:image/png;base64,${"A".repeat(128)}` },
       }),
@@ -4384,6 +4400,56 @@ describe("upsertUserMessage", () => {
         type: "image",
         name: "reference.png",
         metadata: { bytes: [0, 1, 2, 255] },
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "file",
+        data: "hello",
+      }),
+    ).toBe(false);
+    expect(
+      containsInlineAttachmentPayload({
+        attachments: [
+          {
+            data: `data:image/png;base64,${"A".repeat(128)}`,
+          },
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        metadata: {
+          attachments: [
+            {
+              nested: {
+                payload: {
+                  data: `data:image/png;base64,${"A".repeat(128)}`,
+                },
+              },
+            },
+          ],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        attachments: [{ data: "A".repeat(128) }],
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        attachments: [{ data: "hello" }],
+      }),
+    ).toBe(false);
+    expect(
+      containsInlineAttachmentPayload({
+        attachments: [{ metadata: { preview: "A".repeat(128) } }],
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        attachments: [{ bytes: new Uint8Array([0, 1, 2, 255]) }],
       }),
     ).toBe(true);
   });
@@ -4687,6 +4753,13 @@ describe("upsertUserMessage", () => {
         url: "data:image/png;base64,INLINE_THREAD_SQL_IMAGE_BYTES",
       },
     },
+    {
+      name: "an untyped data URL",
+      attachment: {
+        name: "unknown.png",
+        url: "data:image/png;base64,INLINE_THREAD_SQL_IMAGE_BYTES",
+      },
+    },
   ])("never persists an inline URL for $name", ({ attachment }) => {
     const message = buildUserMessage({
       text: "Keep the attachment visible without storing its bytes",
@@ -4704,6 +4777,78 @@ describe("upsertUserMessage", () => {
     expect(JSON.stringify(message)).not.toContain(
       "INLINE_THREAD_SQL_IMAGE_BYTES",
     );
+  });
+
+  it("does not persist nested unknown attachment payload fields", () => {
+    const message = buildUserMessage({
+      text: "Keep the visible text without storing nested bytes",
+      runId: "run-nested-inline-image",
+      attachments: [
+        {
+          type: "file",
+          name: "notes.txt",
+          text: "Visible notes",
+          metadata: {
+            attachments: [
+              {
+                url: "data:image/png;base64,NESTED_THREAD_SQL_IMAGE_BYTES",
+              },
+            ],
+          },
+        } as any,
+      ],
+    });
+
+    expect(message.attachments?.[0].content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("Visible notes"),
+    });
+    expect(JSON.stringify(message)).not.toContain("data:image/");
+    expect(JSON.stringify(message)).not.toContain(
+      "NESTED_THREAD_SQL_IMAGE_BYTES",
+    );
+  });
+
+  it("keeps short legacy text data without requiring binary storage", () => {
+    const message = buildUserMessage({
+      text: "Use these legacy notes",
+      runId: "run-legacy-text-data",
+      attachments: [
+        {
+          type: "file",
+          name: "legacy.txt",
+          contentType: "text/plain",
+          data: "hello",
+        } as any,
+      ],
+    });
+
+    expect(message.attachments?.[0].content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("\nhello\n"),
+    });
+    expect(JSON.stringify(message)).not.toContain("connect object storage");
+  });
+
+  it("does not persist raw base64 attachment data without storage", () => {
+    const base64 = "A".repeat(128);
+    const message = buildUserMessage({
+      text: "Keep the attachment visible without storing its bytes",
+      runId: "run-raw-base64-attachment",
+      attachments: [
+        {
+          type: "file",
+          name: "encoded.bin",
+          data: base64,
+        } as any,
+      ],
+    });
+
+    expect(message.attachments?.[0].content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("connect object storage"),
+    });
+    expect(JSON.stringify(message)).not.toContain(base64);
   });
 
   it("stores file attachments as URL references when a hosted URL exists", () => {

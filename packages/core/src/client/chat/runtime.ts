@@ -2483,13 +2483,19 @@ function boundedStructuredHistorySources(
   supplementalMessages: readonly AgentChatRuntimeMessage[],
 ): BoundedStructuredHistorySources {
   const historyMessages = messages ?? [];
+  const historyScanStart = Math.max(
+    0,
+    historyMessages.length - MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES,
+  );
+  const historyScanEnd = historyMessages.length;
   let currentPromptMessageIndex: number | undefined;
   let currentPromptScanLimited = false;
   let omitted = false;
   let toolHistoryOmitted = false;
   if (currentPrompt.trim()) {
     let visitedMessages = 0;
-    for (let index = historyMessages.length - 1; index >= 0; index--) {
+    let foundPromptCandidate = false;
+    for (let index = historyScanEnd - 1; index >= historyScanStart; index--) {
       if (visitedMessages >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
         currentPromptScanLimited = true;
         omitted = true;
@@ -2500,6 +2506,7 @@ function boundedStructuredHistorySources(
       const message = historyMessages[index]!;
       if (isSyntheticToolHistoryOmissionMessage(message)) continue;
       if (message.role !== "user" && message.role !== "assistant") continue;
+      foundPromptCandidate = true;
       if (message.role === "user") {
         const match = runtimeMessageTextMatches(message, currentPrompt);
         if (match.matches) currentPromptMessageIndex = index;
@@ -2511,14 +2518,19 @@ function boundedStructuredHistorySources(
       }
       break;
     }
+    if (!foundPromptCandidate && historyScanStart > 0) {
+      currentPromptScanLimited = true;
+      omitted = true;
+      toolHistoryOmitted = true;
+    }
   }
 
   let firstUserPromptMessageIndex: number | undefined;
-  const historyWindowEnd = Math.min(
+  const firstPromptScanEnd = Math.min(
     historyMessages.length,
     MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES,
   );
-  for (let index = 0; index < historyWindowEnd; index++) {
+  for (let index = 0; index < firstPromptScanEnd; index++) {
     if (index === currentPromptMessageIndex) continue;
     const message = historyMessages[index]!;
     if (
@@ -2536,7 +2548,7 @@ function boundedStructuredHistorySources(
   }
 
   let previousUserPromptMessageIndex: number | undefined;
-  for (let index = historyMessages.length - 1; index >= 0; index--) {
+  for (let index = historyScanEnd - 1; index >= historyScanStart; index--) {
     if (index === currentPromptMessageIndex) continue;
     const message = historyMessages[index]!;
     if (
@@ -2553,7 +2565,7 @@ function boundedStructuredHistorySources(
     }
   }
   const attachmentBearingUserPromptMessageIndices = new Set<number>();
-  for (let index = 0; index < historyMessages.length; index++) {
+  for (let index = historyScanEnd - 1; index >= historyScanStart; index--) {
     if (index === currentPromptMessageIndex) continue;
     const message = historyMessages[index]!;
     if (
@@ -2563,6 +2575,22 @@ function boundedStructuredHistorySources(
       )
     ) {
       attachmentBearingUserPromptMessageIndices.add(index);
+    }
+  }
+  if (
+    firstUserPromptMessageIndex !== undefined &&
+    firstUserPromptMessageIndex < historyScanStart
+  ) {
+    const firstUserPrompt = historyMessages[firstUserPromptMessageIndex]!;
+    if (
+      firstUserPrompt.role === "user" &&
+      firstUserPrompt.content.some(
+        (part) => part.type === "image" || part.type === "file",
+      )
+    ) {
+      attachmentBearingUserPromptMessageIndices.add(
+        firstUserPromptMessageIndex,
+      );
     }
   }
   const protectedUserPromptMessageIndices = new Set(
