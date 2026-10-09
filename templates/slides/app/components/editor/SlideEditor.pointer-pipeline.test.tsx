@@ -1463,7 +1463,17 @@ describe("SlideEditor rotate handle with transform transitions", () => {
       configurable: true,
       value: 40,
     });
-    const originalStyle = object.getAttribute("style");
+    const originalStyle = Array.from(
+      { length: object.style.length },
+      (_, index) => {
+        const property = object.style.item(index);
+        return [
+          property,
+          object.style.getPropertyValue(property),
+          object.style.getPropertyPriority(property),
+        ];
+      },
+    );
     const style = object.ownerDocument.createElement("style");
     style.textContent =
       '[style*="rotate("]:not([style*="rotate(20deg)"]) { transform: rotate(20deg) !important; }';
@@ -1480,7 +1490,16 @@ describe("SlideEditor rotate handle with transform transitions", () => {
       fireEvent.pointerMove(window, editor.init({ x: 710, y: 120 }));
       fireEvent.pointerUp(window, editor.init({ x: 710, y: 120 }));
 
-      expect(object.getAttribute("style")).toBe(originalStyle);
+      expect(
+        Array.from({ length: object.style.length }, (_, index) => {
+          const property = object.style.item(index);
+          return [
+            property,
+            object.style.getPropertyValue(property),
+            object.style.getPropertyPriority(property),
+          ];
+        }),
+      ).toEqual(originalStyle);
       expect(onUpdateSlide).not.toHaveBeenCalled();
     } finally {
       style.remove();
