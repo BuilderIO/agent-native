@@ -303,12 +303,6 @@ function currentDeployHostname(): string {
   }
 }
 
-function defaultHttp5xxAlertEnabled(): boolean {
-  const configured = boolEnv("ANALYTICS_DEFAULT_HTTP_5XX_ALERT_ENABLED");
-  if (configured !== null) return configured;
-  return currentDeployHostname() === "analytics.agent-native.com";
-}
-
 function defaultAgentChatStuckAlertEnabled(): boolean {
   const configured = boolEnv(
     "ANALYTICS_DEFAULT_AGENT_CHAT_STUCK_ALERT_ENABLED",
@@ -608,36 +602,6 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 
 function defaultAnalyticsAlertDefinitions(): DefaultAnalyticsAlertDefinition[] {
   const definitions: DefaultAnalyticsAlertDefinition[] = [];
-
-  if (defaultHttp5xxAlertEnabled()) {
-    definitions.push({
-      idPrefix: DEFAULT_HTTP_5XX_ALERT_ID_PREFIX,
-      name: "Hosted app HTTP 5xx spike",
-      description:
-        "Default Agent-Native alert for a spike in server responses with 5xx status codes.",
-      eventName: "http.response",
-      filters: [{ field: "properties.status_class", value: "5xx" }],
-      threshold: envInt(
-        "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_THRESHOLD",
-        5,
-        1,
-        1000,
-      ),
-      windowMinutes: envInt(
-        "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_WINDOW_MINUTES",
-        5,
-        1,
-        60,
-      ),
-      cooldownMinutes: envInt(
-        "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_COOLDOWN_MINUTES",
-        30,
-        0,
-        24 * 60,
-      ),
-      severity: "critical",
-    });
-  }
 
   if (defaultAgentChatStuckAlertEnabled()) {
     definitions.push({

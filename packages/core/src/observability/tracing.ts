@@ -96,7 +96,6 @@ const TRACKING_SPAN_NAMES = new Map([
   ["action.response", "action.client"],
   ["action_completed", "action.server"],
   ["action_failed", "action.server"],
-  ["http.response", "http.server"],
   ["$ai_generation", "llm.generation"],
   ["$ai_trace", "llm.trace"],
   ["agent_run_terminal", "agent.run.terminal"],
