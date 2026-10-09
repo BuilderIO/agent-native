@@ -2143,6 +2143,8 @@ describe("FirstRunOnboarding", () => {
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
       JSON.stringify([{ id: "content", path: "/content" }]),
     );
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubEnv("APP_BASE_PATH", "");
     Object.assign(window, {
       __reactRouterManifest: {
         routes: {
@@ -2154,12 +2156,10 @@ describe("FirstRunOnboarding", () => {
       },
     });
     window.history.replaceState(null, "", "/dispatch/home");
-    const basePath = "/dispatch";
-
     const router = createMemoryRouter(
       [
         {
-          path: "/home",
+          path: "/dispatch/home",
           element: (
             <TooltipProvider>
               <FirstRunOnboarding />
@@ -2167,11 +2167,11 @@ describe("FirstRunOnboarding", () => {
           ),
         },
         {
-          path: "/settings/model",
+          path: "/dispatch/settings/model",
           element: <div data-testid="model-settings-route" />,
         },
       ],
-      { basename: basePath, initialEntries: ["/dispatch/home"] },
+      { initialEntries: ["/dispatch/home"] },
     );
 
     await act(async () => {
