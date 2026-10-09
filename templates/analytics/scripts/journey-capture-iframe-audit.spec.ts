@@ -320,6 +320,36 @@ describe("replay iframe audit", () => {
     ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
   });
 
+  it("does not clip frames against boxless display-contents ancestors", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const contents = replayDocument.createElement("div");
+    contents.style.display = "contents";
+    contents.style.overflow = "hidden";
+    contents.style.contain = "paint";
+    replayDocument.body.append(contents);
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 20, height: 20 },
+      20,
+      20,
+      contents,
+    );
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
+  });
+
   it("does not clip an absolute frame by ancestors between it and its containing block", () => {
     const replayFrame = appendFrame(
       document,

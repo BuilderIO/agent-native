@@ -192,12 +192,14 @@ export function auditReplayIframeContent({
               paintContainment = true;
             }
           }
+          const hasBox = styles.display !== "contents";
           if (
-            paintContainment ||
-            (!overflowAppliesToViewport &&
-              ["auto", "clip", "hidden", "overlay", "scroll"].includes(
-                overflowX,
-              ))
+            hasBox &&
+            (paintContainment ||
+              (!overflowAppliesToViewport &&
+                ["auto", "clip", "hidden", "overlay", "scroll"].includes(
+                  overflowX,
+                )))
           ) {
             const left = ancestorBounds.left + ancestor.clientLeft * scaleX;
             visibleLeft = Math.max(visibleLeft, left);
@@ -207,11 +209,12 @@ export function auditReplayIframeContent({
             );
           }
           if (
-            paintContainment ||
-            (!overflowAppliesToViewport &&
-              ["auto", "clip", "hidden", "overlay", "scroll"].includes(
-                overflowY,
-              ))
+            hasBox &&
+            (paintContainment ||
+              (!overflowAppliesToViewport &&
+                ["auto", "clip", "hidden", "overlay", "scroll"].includes(
+                  overflowY,
+                )))
           ) {
             const top = ancestorBounds.top + ancestor.clientTop * scaleY;
             visibleTop = Math.max(visibleTop, top);
