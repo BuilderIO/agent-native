@@ -550,11 +550,8 @@ describe("apply-component-prop-edit linked path", () => {
   });
 
   it("preserves unsaved editor content when persisting an unlinked prop edit", async () => {
-    const content = `<button data-agent-native-node-id="plain-widget" data-agent-native-component="Widget" data-agent-native-prop-disabled="false">Continue</button>`;
-    const workingContent = content.replace(
-      ">Continue</button>",
-      ">Continue now</button>",
-    );
+    const content = `<main data-agent-native-node-id="existing-content">Draft</main>`;
+    const workingContent = `${content}<button data-agent-native-node-id="plain-widget" data-agent-native-component="Widget" data-agent-native-prop-disabled="false">Continue now</button>`;
     const file = {
       id: "plain-file",
       designId,
@@ -627,6 +624,50 @@ describe("apply-component-prop-edit linked path", () => {
         content: expect.stringContaining(">Continue now</button>"),
       }),
     );
+    expect(mocks.writeInlineSourceFilesBatch).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unlinked prop edit with stale versions when no editor snapshot is supplied", async () => {
+    const content = `<button data-agent-native-node-id="plain-widget" data-agent-native-component="Widget" data-agent-native-prop-disabled="false">Continue</button>`;
+    const file = {
+      id: "plain-file",
+      designId,
+      filename: "index.html",
+      fileType: "html",
+      content,
+      createdAt: null,
+      updatedAt: "plain-v1",
+    };
+    mocks.resolveSourceWorkspace.mockResolvedValue({
+      designId,
+      sourceType: "inline",
+      canEdit: true,
+      files: [file],
+      boardFileId: null,
+    });
+    mocks.readLiveSourceFile.mockImplementation(async (sourceFile) => ({
+      content: sourceFile.content,
+      versionHash: sourceContentHash(sourceFile.content),
+      language: "html",
+    }));
+
+    const result = await action.run({
+      designId,
+      fileId: file.id,
+      nodeId: "plain-widget",
+      edit: {
+        kind: "attribute",
+        attribute: "data-agent-native-prop-disabled",
+        value: "true",
+      },
+      source: {
+        expectedFiles: [{ fileId: file.id, versionHash: "stale-version" }],
+      },
+    });
+
+    expect(result).toMatchObject({ persisted: false, conflict: true });
+    expect(mocks.prepareInlineSourceEdit).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
     expect(mocks.writeInlineSourceFilesBatch).not.toHaveBeenCalled();
   });
 

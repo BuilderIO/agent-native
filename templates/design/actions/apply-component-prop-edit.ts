@@ -453,6 +453,8 @@ async function persistLinkedComponentEdit(args: {
     | { kind: "resetOverrides" }
     | ComponentStructureEdit;
   expectedFiles: Array<{ fileId: string; versionHash: string }>;
+  currentContent?: string;
+  revision?: string;
 }): Promise<Record<string, unknown>> {
   const workspace = await resolveSourceWorkspace(args.designId, {
     includeContent: true,
@@ -502,19 +504,47 @@ async function persistLinkedComponentEdit(args: {
       content,
     }),
   );
-  let targetPropertyEdit:
-    | ReturnType<typeof applyComponentPropertyEdit>
-    | undefined;
   if (
     args.edit.kind === "attribute" &&
     args.edit.attribute.startsWith(COMPONENT_PROP_PREFIX)
   ) {
-    targetPropertyEdit = applyComponentPropertyEdit({
-      documents,
+    const currentContent = args.currentContent;
+    const targetPropertyEdit = applyComponentPropertyEdit({
+      documents:
+        currentContent !== undefined
+          ? documents.map((document) =>
+              document.source.fileId === args.fileId
+                ? { ...document, content: currentContent }
+                : document,
+            )
+          : documents,
       target: { fileId: args.fileId, nodeId: args.nodeId },
       edit: args.edit,
     });
     if (targetPropertyEdit.status === "not-linked") {
+      const targetFile = liveFiles.find(({ file }) => file.id === args.fileId);
+      const canReconcileTargetContent = Boolean(
+        args.currentContent !== undefined &&
+        args.revision &&
+        targetFile?.file.updatedAt === args.revision &&
+        expected.get(args.fileId) === sourceContentHash(args.currentContent),
+      );
+      if (
+        liveFiles.some(
+          ({ file, versionHash }) =>
+            expected.get(file.id) !== versionHash &&
+            !(file.id === args.fileId && canReconcileTargetContent),
+        )
+      ) {
+        return {
+          designId: args.designId,
+          nodeId: args.nodeId,
+          persisted: false,
+          conflict: true,
+          error:
+            "A source file changed since this component edit was prepared. Refresh the design and retry.",
+        };
+      }
       return {
         designId: args.designId,
         nodeId: args.nodeId,
@@ -716,13 +746,11 @@ async function persistLinkedComponentEdit(args: {
       }
     }
   } else {
-    transformed =
-      targetPropertyEdit ??
-      applyComponentPropertyEdit({
-        documents,
-        target: { fileId: args.fileId, nodeId: args.nodeId },
-        edit: args.edit,
-      });
+    transformed = applyComponentPropertyEdit({
+      documents,
+      target: { fileId: args.fileId, nodeId: args.nodeId },
+      edit: args.edit,
+    });
   }
   if (transformed.status !== "updated") {
     return {
@@ -1222,6 +1250,10 @@ export default defineAction({
         fileId,
         edit: linkedEdit,
         expectedFiles: source.expectedFiles,
+        ...(source.currentContent !== undefined
+          ? { currentContent: source.currentContent }
+          : {}),
+        ...(source.revision !== undefined ? { revision: source.revision } : {}),
       });
       if (
         !isLinkedComponentAttributeEdit ||
