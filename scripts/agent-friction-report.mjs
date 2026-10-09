@@ -2287,7 +2287,7 @@ const FEEDBACK_REPLY_DETAIL_ISSUE_BASE =
   /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+jargon[- ]heavy|overly\s+jargon[- ]heavy|excessively\s+jargon[- ]heavy|too\s+much\s+jargon|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|too\s+many\s+commit\s+hashes?|less\s+technical|less\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|more\s+concise|more\s+succinct|succinct|briefer|shorter|(?:should\s+not|shouldn't)\s+(?:(?:include|contain|have)\s+)?(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|should\s+(?:include|contain|have)\s+no\s+(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|(?:without|free\s+of)\s+(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information))/i
     .source;
 const FEEDBACK_REPLY_DETAIL_DIRECT_STYLE_ACTION =
-  /\b(?:shorten|trim|simplify)\s+(?:(?:the|a|an|my|your|our|these|those|this|that)\s+)?(?:(?:feedback)\s+)?(?:repl(?:y|ies)|responses?|updates?)\b/i
+  /\b(?:shorten|trim|simplify)\s+(?:(?:the|a|an|my|your|our|these|those|this|that)\s+)?(?:feedback\s+(?:repl(?:y|ies)|responses?|updates?)|(?:repl(?:y|ies)|responses?|updates?)\s+(?:to|about|for)\s+(?:(?:the|a|an|my|your|our|these|those|this|that)\s+)?(?:(?:customer|user|reporter)\s+)?feedback)\b/i
     .source;
 const FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE =
   /keep\s+(?:(?:technical|implementation|internal|deployment|all|any|the)\s+){0,2}(?:details?|information)\s+out\s+of/i
@@ -2304,7 +2304,7 @@ const FEEDBACK_REPLY_DETAIL_OMISSION =
   /(?:(?:don['’]t|do not|shouldn['’]t|should not)\s+(?:include|mention|say|write|share|post|list|describe|cover|discuss|add|use|quote|give|put|provide)|(?:avoid|skip|omit|remove)(?:\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using|giving|putting|providing))?|leave out|stop\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using|giving|putting|providing))/i
     .source;
 const FEEDBACK_REPLY_DETAIL_EXAMPLE_PREFIX =
-  "(?:\\b(?:for\\s+(?:example|instance|illustration)|as\\s+an?\\s+(?:example|illustration)|such\\s+as)|\\b(?:examples?|samples?|illustrations?)(?:\\s+(?:instruction|request|sentence|reply|response|correction))?\\s*:|\\be\\.g\\.)[^.!?;]{0,100}\\b";
+  "(?:\\b(?:for\\s+(?:example|instance|illustration)|as\\s+an?\\s+(?:example|illustration)|such\\s+as)(?:\\s*[, :]\\s*)?|\\b(?:examples?|samples?|illustrations?)(?:\\s+(?:instruction|request|sentence|reply|response|correction))?\\s*:|\\be\\.g\\.\\s*,?\\s*)[^.!?;,]{0,100}\\b";
 const FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION =
   FEEDBACK_REPLY_DETAIL_EXAMPLE_PREFIX +
   FEEDBACK_REPLY_DETAIL_OMISSION +
@@ -2829,11 +2829,11 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "Replies are way too long; please shorten them."],
   [true, "Replies should be more concise."],
   [true, "Replies should be shorter."],
-  [true, "Can you shorten the reply?"],
+  [true, "Can you shorten the feedback reply?"],
   [true, "Make the replies briefer."],
   [true, "Replies should be more succinct."],
-  [true, "Trim the replies."],
-  [true, "Simplify the replies."],
+  [true, "Trim the feedback replies."],
+  [true, "Simplify the feedback replies."],
   [false, "I don't want replies to be shorter."],
   [false, "I don't want replies to be more succinct."],
   [false, "Please don't make replies more concise."],
@@ -2959,15 +2959,30 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
     false,
     "Please respond on the issue and trim the trailing whitespace in the README.",
   ],
-  [true, "Please simplify the reply."],
-  [true, "Trim the response."],
-  [true, "Shorten your reply."],
+  [true, "Please simplify the feedback reply."],
+  [true, "Trim the feedback response."],
+  [true, "Shorten your feedback reply."],
   [true, "Please shorten the feedback reply."],
   [true, "Trim the feedback response."],
   [true, "Simplify our feedback replies."],
+  [true, "Trim the response to customer feedback."],
+  [true, "Simplify the reply about feedback."],
+  [false, "Simplify the response schema for the endpoint."],
+  [false, "Trim the response payload from the provider."],
+  [false, "Shorten server responses."],
+  [false, "Trim API responses."],
+  [false, "Shorten the replies in the dashboard."],
   [false, "For example, shorten the reply."],
   [false, "Example instruction: trim the response."],
   [false, "E.g., simplify a feedback reply."],
+  [
+    true,
+    "For example, the message has a clear cause, but shorten the feedback reply.",
+  ],
+  [
+    true,
+    "For example, shorten the feedback reply, but trim the feedback response.",
+  ],
   [false, "For example, don't include commit hashes in replies."],
   [
     false,
