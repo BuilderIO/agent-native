@@ -42,7 +42,7 @@ jobs:
           - shard: runtime-budget
     services:
       postgres:
-        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        image: public.ecr.aws/docker/library/postgres:17-alpine
         env:
           POSTGRES_DB: design_e2e
           POSTGRES_HOST_AUTH_METHOD: trust

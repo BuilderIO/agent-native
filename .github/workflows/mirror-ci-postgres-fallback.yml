@@ -30,8 +30,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
-      # Copy the public Docker Official Images tags daily. The manifest digest
-      # check keeps the anonymous GHCR image identical to its upstream source.
+      # Stage each Docker Official Images tag and validate it before promotion.
       - name: Mirror Postgres tags
         run: |
           set -euo pipefail
@@ -41,6 +40,7 @@ jobs:
 
           for tag in 17-alpine 18-alpine; do
             source_image="$source_repository:$tag"
+            staging_image="$mirror_repository:staging-$tag"
             mirror_image="$mirror_repository:$tag"
             source_digest="$(docker buildx imagetools inspect "$source_image" | awk '$1 == "Digest:" { print $2; exit }')"
             if [[ -z "$source_digest" ]]; then
@@ -50,7 +50,7 @@ jobs:
             sleep 2
 
             for attempt in 1 2 3 4 5; do
-              if docker buildx imagetools create --tag "$mirror_image" "$source_image"; then
+              if docker buildx imagetools create --tag "$staging_image" "$source_image"; then
                 break
               fi
               if [[ "$attempt" -eq 5 ]]; then
@@ -60,11 +60,30 @@ jobs:
               sleep $((attempt * 10))
             done
 
-            mirror_digest="$(docker buildx imagetools inspect "$mirror_image" | awk '$1 == "Digest:" { print $2; exit }')"
-            if [[ "$source_digest" != "$mirror_digest" ]]; then
-              echo "::error::digest mismatch for $tag: source=$source_digest mirror=$mirror_digest"
+            staging_digest="$(docker buildx imagetools inspect "$staging_image" | awk '$1 == "Digest:" { print $2; exit }')"
+            if [[ "$source_digest" != "$staging_digest" ]]; then
+              echo "::error::digest mismatch for $tag: source=$source_digest staging=$staging_digest"
               exit 1
             fi
-            echo "Mirrored $source_image at $mirror_digest"
+            docker buildx imagetools create --tag "$mirror_image" "$staging_image"
+            mirror_digest="$(docker buildx imagetools inspect "$mirror_image" | awk '$1 == "Digest:" { print $2; exit }')"
+            if [[ "$source_digest" != "$mirror_digest" ]]; then
+              echo "::error::digest mismatch after promoting $tag: source=$source_digest mirror=$mirror_digest"
+              exit 1
+            fi
+            echo "Promoted verified $source_image at $mirror_digest"
             sleep 2
+          done
+
+          # GITHUB_TOKEN links the package to this public repository. Verify
+          # anonymous access after publishing so private packages fail here.
+          docker logout ghcr.io
+          for tag in 17-alpine 18-alpine; do
+            mirror_image="$mirror_repository:$tag"
+            anonymous_digest="$(docker buildx imagetools inspect "$mirror_image" | awk '$1 == "Digest:" { print $2; exit }')"
+            if [[ -z "$anonymous_digest" ]]; then
+              echo "::error::anonymous access to $mirror_image failed"
+              exit 1
+            fi
+            echo "Anonymous GHCR access verified for $mirror_image at $anonymous_digest"
           done
