@@ -861,13 +861,7 @@ test.describe("groups", () => {
         name: "Opacity",
         exact: true,
       });
-      const opacityBounds = await opacity.boundingBox();
-      if (!opacityBounds)
-        throw new Error("Selection color opacity slider is missing");
-      await page.mouse.click(
-        opacityBounds.x + opacityBounds.width / 2,
-        opacityBounds.y + opacityBounds.height / 2,
-      );
+      await opacity.click();
       await page.keyboard.press("Escape");
 
       const readPaints = () =>
