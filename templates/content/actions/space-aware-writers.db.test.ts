@@ -15,9 +15,18 @@ const actionEffects = vi.hoisted(() => ({
   ),
   recordGenerationCreativeContext: vi.fn(
     async (input: { artifactId: string } & Record<string, unknown>) => {
+      const existing = actionEffects.generationContexts.get(input.artifactId);
+      if (input.onlyIfMissing && existing) return existing;
       actionEffects.generationContexts.set(input.artifactId, input);
+      return input;
     },
   ),
+  validateGenerationCreativeContext: vi.fn(async () => ({
+    contextMode: "off" as const,
+    contextPackId: null,
+    reuseLabels: [],
+    results: [],
+  })),
   track: vi.fn(),
   writeAppState: vi.fn(async () => undefined),
 }));
@@ -41,6 +50,8 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   getGenerationCreativeContext: actionEffects.getGenerationCreativeContext,
   recordGenerationCreativeContext:
     actionEffects.recordGenerationCreativeContext,
+  validateGenerationCreativeContext:
+    actionEffects.validateGenerationCreativeContext,
 }));
 
 vi.mock("./_local-file-documents.js", async (importOriginal) => {
@@ -279,9 +290,23 @@ describe("space-aware document writers", () => {
     ).resolves.toHaveLength(1);
     expect(actionEffects.writeAppState).toHaveBeenCalledTimes(2);
     expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledTimes(
-      1,
+      2,
+    );
+    expect(
+      actionEffects.recordGenerationCreativeContext,
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        contextMode: "off",
+        contextPackId: null,
+        reuseLabels: [],
+        elementProvenance: [],
+        onlyIfMissing: true,
+      }),
     );
     expect(actionEffects.track).toHaveBeenCalledTimes(1);
+    expect(
+      actionEffects.validateGenerationCreativeContext,
+    ).toHaveBeenCalledTimes(1);
 
     const conflicts = [
       () =>
@@ -306,12 +331,12 @@ describe("space-aware document writers", () => {
     }
     expect(actionEffects.writeAppState).toHaveBeenCalledTimes(2);
     expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledTimes(
-      1,
+      2,
     );
     expect(actionEffects.track).toHaveBeenCalledTimes(1);
   });
 
-  it("retries failed creation provenance without duplicating the document event", async () => {
+  it("repairs a committed creation provenance projection on replay", async () => {
     const input = {
       id: "optimistic-create-provenance-retry",
       title: "Provenance retry",
@@ -321,10 +346,16 @@ describe("space-aware document writers", () => {
     actionEffects.generationContexts.delete(input.id);
     actionEffects.getGenerationCreativeContext.mockClear();
     actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockClear();
     actionEffects.track.mockClear();
     actionEffects.writeAppState.mockClear();
-    actionEffects.recordGenerationCreativeContext.mockRejectedValueOnce(
-      new Error("provenance store unavailable"),
+    const recordGeneration =
+      actionEffects.recordGenerationCreativeContext.getMockImplementation();
+    actionEffects.recordGenerationCreativeContext.mockImplementationOnce(
+      async (record) => {
+        await recordGeneration?.(record);
+        throw new Error("projection store unavailable");
+      },
     );
 
     const create = () =>
@@ -332,18 +363,37 @@ describe("space-aware document writers", () => {
         createDocument.run(input),
       );
 
-    await expect(create()).rejects.toThrow("provenance store unavailable");
-    const retries = await Promise.all([create(), create()]);
-    expect(retries).toHaveLength(2);
-    expect(retries[0]).toMatchObject({ id: input.id, title: input.title });
-    expect(retries[1]).toMatchObject({ id: input.id, title: input.title });
+    await expect(create()).rejects.toThrow("projection store unavailable");
+    expect(actionEffects.generationContexts.get(input.id)).toMatchObject({
+      contextMode: "off",
+      contextPackId: null,
+    });
 
-    expect(actionEffects.getGenerationCreativeContext).toHaveBeenCalledTimes(3);
+    actionEffects.validateGenerationCreativeContext.mockClear();
+    const replayed = await create();
+    expect(replayed).toMatchObject({ id: input.id, title: input.title });
+    expect(
+      actionEffects.validateGenerationCreativeContext,
+    ).not.toHaveBeenCalled();
+    expect(actionEffects.getGenerationCreativeContext).toHaveBeenCalledTimes(1);
     expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledTimes(
       2,
     );
-    expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledWith(
+    expect(
+      actionEffects.recordGenerationCreativeContext,
+    ).toHaveBeenLastCalledWith(
       expect.objectContaining({ onlyIfMissing: true }),
+    );
+    expect(
+      actionEffects.recordGenerationCreativeContext,
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        contextMode: "off",
+        contextPackId: null,
+        reuseLabels: [],
+        elementProvenance: [],
+        onlyIfMissing: true,
+      }),
     );
     expect(actionEffects.generationContexts.has(input.id)).toBe(true);
     expect(actionEffects.track).toHaveBeenCalledTimes(1);
@@ -353,6 +403,90 @@ describe("space-aware document writers", () => {
         .from(schema.documents)
         .where(eq(schema.documents.id, input.id)),
     ).resolves.toHaveLength(1);
+  });
+
+  it("uses persisted Creative Context when settings or pack access change before replay", async () => {
+    const input = {
+      id: "optimistic-create-context-access-replay",
+      title: "Context access retry",
+      contextPackId: "context-pack-revoked-after-create",
+    };
+    const reuseLabel = {
+      itemId: "context-item",
+      itemVersionId: "context-item-version",
+      kind: "brand-voice",
+      label: "Brand voice",
+      dataRole: "untrusted-reference" as const,
+      influence: "reference-conditioned" as const,
+    };
+    actionEffects.generationContexts.delete(input.id);
+    actionEffects.getGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockResolvedValueOnce({
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+      reuseLabels: [reuseLabel],
+      results: [],
+    });
+
+    const create = () =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        createDocument.run(input),
+      );
+    await expect(create()).resolves.toMatchObject({
+      id: input.id,
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+    });
+    expect(
+      actionEffects.validateGenerationCreativeContext,
+    ).toHaveBeenCalledTimes(1);
+
+    const persistedContext = actionEffects.generationContexts.get(input.id);
+    expect(persistedContext).toMatchObject({
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+    });
+
+    actionEffects.validateGenerationCreativeContext.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockImplementation(() => {
+      throw new Error("current pack access was revoked");
+    });
+    await expect(create()).resolves.toMatchObject({
+      id: input.id,
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+    });
+    expect(
+      actionEffects.validateGenerationCreativeContext,
+    ).not.toHaveBeenCalled();
+    expect(actionEffects.generationContexts.get(input.id)).toMatchObject({
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+    });
+    expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(
+      actionEffects.recordGenerationCreativeContext,
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        contextMode: "auto",
+        contextPackId: null,
+        reuseLabels: [],
+        elementProvenance: [],
+        onlyIfMissing: true,
+      }),
+    );
+
+    actionEffects.validateGenerationCreativeContext.mockImplementation(
+      async () => ({
+        contextMode: "off",
+        contextPackId: null,
+        reuseLabels: [],
+        results: [],
+      }),
+    );
   });
 
   it("lets ordinary organization members create root pages and databases while guests remain read-only", async () => {

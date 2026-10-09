@@ -144,13 +144,6 @@ async function recordDocumentCreationContextIfMissing(input: {
   reuseLabels: DocumentCreationProvenance["reuseLabels"];
   elementProvenance: CreativeContextElementProvenance[];
 }): Promise<void> {
-  const existing = await getGenerationCreativeContext({
-    appId: "content",
-    artifactType: "document",
-    artifactId: input.artifactId,
-  });
-  if (existing) return;
-
   await recordGenerationCreativeContext({
     appId: "content",
     artifactType: "document",
@@ -161,6 +154,38 @@ async function recordDocumentCreationContextIfMissing(input: {
     elementProvenance: input.elementProvenance,
     onlyIfMissing: true,
   });
+}
+
+async function repairDocumentCreationContextProjection(input: {
+  artifactId: string;
+  reuseLabels: CreativeContextReuseLabel[];
+}): Promise<DocumentCreationProvenance | null> {
+  const identity = {
+    appId: "content",
+    artifactType: "document",
+    artifactId: input.artifactId,
+  };
+  const existing = await getGenerationCreativeContext(identity);
+  if (!existing) return null;
+
+  // Keep the retry on the same local or isolated storage path as the persisted record.
+  const repaired = await recordGenerationCreativeContext({
+    ...identity,
+    contextMode: existing.contextMode === "off" ? "off" : "auto",
+    contextPackId: null,
+    reuseLabels: [],
+    elementProvenance: [],
+    onlyIfMissing: true,
+  });
+  const persisted = repaired ?? existing;
+  return {
+    contextMode: persisted.contextMode,
+    contextPackId: persisted.contextPackId,
+    reuseLabels: input.reuseLabels.map((label) => ({
+      ...label,
+      influence: label.influence ?? "reference-conditioned",
+    })),
+  };
 }
 
 function documentCreationResult(
@@ -386,6 +411,20 @@ export default defineAction({
       }
     }
 
+    if (existingAccess) {
+      const persistedCreativeContext =
+        await repairDocumentCreationContextProjection({
+          artifactId: id,
+          reuseLabels: args.reuseLabels,
+        });
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return documentCreationResult(
+        existingAccess.resource as typeof schema.documents.$inferSelect,
+        existingAccess.role,
+        persistedCreativeContext,
+      );
+    }
+
     const hasCreativeContextInput = Boolean(
       args.contextPackId ||
       args.contextModeOverride ||
@@ -423,22 +462,6 @@ export default defineAction({
               label: "Net-new document",
             },
           ];
-
-    if (existingAccess) {
-      if (creativeContextProvenance) {
-        await recordDocumentCreationContextIfMissing({
-          artifactId: id,
-          ...creativeContextProvenance,
-          elementProvenance: elementProvenanceFor(id),
-        });
-      }
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return documentCreationResult(
-        existingAccess.resource as typeof schema.documents.$inferSelect,
-        existingAccess.role,
-        creativeContextProvenance,
-      );
-    }
 
     let ownerEmail = currentUserEmail;
     let orgId = getRequestOrgId() ?? null;
