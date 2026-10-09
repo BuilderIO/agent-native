@@ -1538,6 +1538,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Click the site controls icon to the left of the address bar, open Site settings, then set Local network to Allow.",
       permissionPromptRetry: "Retry connection",
+      previewCredentialsUnavailableTitle:
+        "Local preview credentials are unavailable",
+      previewCredentialsUnavailableDescription:
+        "Reconnect this Screen's localhost connection in the inspector, then retry.",
+      publicPreviewUnavailableDescription:
+        "Localhost previews are not shared with public viewers. Open this Design as a collaborator to view this Screen.",
+      previewCredentialsRetry: "Retry credentials",
       confirmationRetryExhausted:
         "Live editor bridge did not confirm after several attempts.",
       connectionNotConfirmed:

@@ -1589,6 +1589,12 @@ export default {
       permissionPromptSettingsInstructions:
         "ऐड्रेस बार के बाईं ओर साइट कंट्रोल आइकन पर क्लिक करें, साइट सेटिंग खोलें, फिर लोकल नेटवर्क को ‘अनुमति दें’ पर सेट करें।",
       permissionPromptRetry: "कनेक्शन फिर से आज़माएँ",
+      previewCredentialsUnavailableTitle: "लोकल प्रीव्यू क्रेडेंशियल उपलब्ध नहीं हैं",
+      previewCredentialsUnavailableDescription:
+        "इंस्पेक्टर में इस स्क्रीन का localhost कनेक्शन फिर से जोड़ें, फिर दोबारा कोशिश करें।",
+      publicPreviewUnavailableDescription:
+        "लोकलहोस्ट प्रीव्यू सार्वजनिक दर्शकों के साथ साझा नहीं किए जाते। इस स्क्रीन को देखने के लिए इस डिज़ाइन को सहयोगी के रूप में खोलें।",
+      previewCredentialsRetry: "क्रेडेंशियल फिर से आज़माएँ",
     },
   },
   multiScreenCanvas: {
