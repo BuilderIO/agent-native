@@ -933,6 +933,10 @@ const POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS = 250;
 const POSTGRES_STATEMENT_TIMEOUT_RESET_MS = 5_000;
 const POSTGRES_MAX_INT = 2_147_483_647;
 
+function defaultPostgresStatementTimeoutMs(): number {
+  return postgresStatementTimeoutMs(dbOpTimeoutMs());
+}
+
 export function hasExplicitDbTimeout(statement: DbExecStatement): boolean {
   if (typeof statement === "string") return false;
   const timeoutMs = Number(statement.timeoutMs);
@@ -1345,10 +1349,15 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
 
 export function neonPoolOptions(): {
   max: number;
+  statement_timeout: number;
   idle_in_transaction_session_timeout?: number;
 } {
   return {
     max: neonPoolMax(),
+    // A startup parameter, not a per-query SET: RESET statement_timeout
+    // returns to this value rather than the server default, so every pooled
+    // connection starts at the default budget and stays there between queries.
+    statement_timeout: defaultPostgresStatementTimeoutMs(),
     ...(isServerlessRuntime()
       ? { idle_in_transaction_session_timeout: 30_000 }
       : {}),
@@ -1732,21 +1741,28 @@ async function createDbExecInternal(
         rowsAffected: result.rowCount ?? 0,
       };
     }
+    // Only a budget that differs from the default touches the session. The
+    // client is handed to direct client.query callers after release, so a
+    // custom budget must be reset before it returns to the pool. A connection
+    // error discards the client instead, so there is nothing to reset.
     async function queryNeonClientWithStatementTimeout(
       client: any,
       sql: Parameters<DbExec["execute"]>[0],
       remainingMs: () => number,
       markClientForDiscard: () => void,
     ) {
-      const statementTimeoutMs = postgresStatementTimeoutMs(remainingMs());
+      const statementTimeoutMs = postgresStatementTimeoutMs(
+        dbExecQueryBudget(sql).timeoutMs,
+      );
+      if (statementTimeoutMs === defaultPostgresStatementTimeoutMs()) {
+        return queryNeonClient(client, sql, remainingMs());
+      }
       await queryNeonClient(
         client,
         `SET statement_timeout = ${statementTimeoutMs}`,
         remainingMs(),
       );
-      try {
-        return await queryNeonClient(client, sql, remainingMs());
-      } finally {
+      const resetStatementTimeout = async () => {
         try {
           await queryNeonClient(
             client,
@@ -1760,7 +1776,16 @@ async function createDbExecInternal(
             err instanceof Error ? err.message : err,
           );
         }
+      };
+      let result: Awaited<ReturnType<typeof queryNeonClient>>;
+      try {
+        result = await queryNeonClient(client, sql, remainingMs());
+      } catch (err) {
+        if (!isConnectionError(err)) await resetStatementTimeout();
+        throw err;
       }
+      await resetStatementTimeout();
+      return result;
     }
     async function queryNeonHttp(sql: Parameters<DbExec["execute"]>[0]) {
       if (!httpSql) {
@@ -1847,18 +1872,15 @@ async function createDbExecInternal(
             client.release(err);
           };
           let discardClient = false;
-
           try {
-            const result = hasExplicitDbTimeout(sql)
-              ? await queryNeonClientWithStatementTimeout(
-                  client,
-                  sql,
-                  remainingAttemptMs,
-                  () => {
-                    discardClient = true;
-                  },
-                )
-              : await queryNeonClient(client, sql, remainingAttemptMs());
+            const result = await queryNeonClientWithStatementTimeout(
+              client,
+              sql,
+              remainingAttemptMs,
+              () => {
+                discardClient = true;
+              },
+            );
             releaseClient(discardClient ? true : undefined);
             return result;
           } catch (err) {
