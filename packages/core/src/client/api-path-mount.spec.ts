@@ -145,6 +145,26 @@ describe("appMountPath", () => {
     expect(appBasePath()).toBe("/dispatch");
   });
 
+  it("uses the workspace app identity to recover a mounted root catch-all", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "content", path: "/content" }]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/dispatch/missing" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "/" },
+          catchall: { id: "catchall", parentId: "root", path: "*" },
+        },
+      },
+    });
+
+    expect(appBasePath()).toBe("/dispatch");
+  });
+
   it("keeps a root route inside its live workspace mount when omitted by the manifest", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
