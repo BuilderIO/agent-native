@@ -216,16 +216,16 @@ describe("gradientAngleDegrees", () => {
     expect(angle).toBeCloseTo(104.04, 1);
   });
 
-  it("matches the plane fit of Figma's own render of the fills-effects frame", () => {
+  it("resolves an oblique gradient from normalized handle coordinates", () => {
     const angle = gradientAngleDegrees(
       {
         gradientHandlePositions: [
-          { x: 0.35355679414159913, y: 0.5605996593321734 },
-          { x: 1.0606703824247974, y: -0.14651392895102483 },
-          { x: 0.7071135882831983, y: 0.9141564534737725 },
+          { x: 0.25, y: 0.75 },
+          { x: 0.75, y: 0.25 },
+          { x: 0.5, y: 1 },
         ],
       },
-      { width: 180, height: 90 },
+      { width: 120, height: 60 },
     );
     expect(angle).toBeCloseTo(26.57, 1);
   });

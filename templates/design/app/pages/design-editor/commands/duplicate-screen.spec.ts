@@ -20,7 +20,6 @@ import {
 } from "./duplicate-screen";
 import { runUndo } from "./undo";
 
-// Figma uses 40px for duplication; Design keeps its board-wide 56px gap.
 const DESIGN_SCREEN_GAP = 56;
 
 const ref = <T>(current: T) => ({ current });

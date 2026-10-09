@@ -169,7 +169,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       hasConcurrentMarker: content.includes(
         "Screen A source updated during upload",
       ),
-      hasUploadUrl: /qa-figma-import-assets/.test(content),
+      hasUploadUrl: /qa-import-assets/.test(content),
       contentLength: content.length,
     });
   });
@@ -407,7 +407,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     const payload = JSON.parse(clientBody || "{}") as {
       url?: string;
     };
-    expect(payload.url).toMatch(/^\/api\/qa-figma-import-assets\//);
+    expect(payload.url).toMatch(/^\/api\/qa-import-assets\//);
     const staleUpdateResponse = await staleUpdateResponsePromise;
     const staleUpdateBody = await staleUpdateResponse.text();
     const staleUpdateResult = JSON.parse(staleUpdateBody) as {
@@ -534,7 +534,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     const retryUploadBody = await retryUploadResponse.text();
     expect(retryUploadResponse.status(), retryUploadBody).toBe(200);
     const retryPayload = JSON.parse(retryUploadBody) as { url?: string };
-    expect(retryPayload.url).toMatch(/^\/api\/qa-figma-import-assets\//);
+    expect(retryPayload.url).toMatch(/^\/api\/qa-import-assets\//);
     await expect
       .poll(
         async () =>
@@ -772,7 +772,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       ms: Date.now() - timelineStart,
       event: "server-collab-source-before-upload-release",
       hasMarker: collabSourceBeforeRelease.includes(marker),
-      hasUploadUrl: /qa-figma-import-assets/.test(collabSourceBeforeRelease),
+      hasUploadUrl: /qa-import-assets/.test(collabSourceBeforeRelease),
     });
     expect(await readScreenHtml(page, designId, screenAId)).toContain(marker);
     await expect(activeFrame.locator("body")).not.toContainText(marker);
@@ -798,7 +798,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
           >;
           return (
             body.id === screenAId &&
-            /qa-figma-import-assets/.test(String(body.content ?? ""))
+            /qa-import-assets/.test(String(body.content ?? ""))
           );
         } catch {
           return false;
@@ -811,7 +811,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
     await uploadDone;
     const uploadResponseBody = await uploadResponse.text();
     const uploadResult = JSON.parse(uploadResponseBody) as { url?: string };
-    expect(uploadResult.url).toMatch(/^\/api\/qa-figma-import-assets\//);
+    expect(uploadResult.url).toMatch(/^\/api\/qa-import-assets\//);
 
     const fileUpdateResponse = await fileUpdateResponsePromise;
     const requestBody = fileUpdateResponse.request().postDataJSON() as Record<

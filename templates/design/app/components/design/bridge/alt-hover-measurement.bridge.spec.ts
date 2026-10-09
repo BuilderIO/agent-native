@@ -87,7 +87,7 @@ async function measure(hovered: Box) {
   }
 }
 
-describe("Alt-hover measurement matches Figma", () => {
+describe("Alt-hover measurement", () => {
   it("shows both gaps with dashed runs to a diagonal neighbour", async () => {
     expect(
       await measure({ left: 519, top: 400, width: 200, height: 120 }),
