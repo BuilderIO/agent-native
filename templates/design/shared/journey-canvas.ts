@@ -497,7 +497,6 @@ export const createJourneyCanvasInputSchema = z
 
 export type JourneyNode = z.infer<typeof journeyNodeSchema>;
 export type JourneyFrame = z.infer<typeof journeyFrameSchema>;
-type JourneyExample = JourneyNode["examples"][number];
 export type CreateJourneyCanvasInput = z.infer<
   typeof createJourneyCanvasInputSchema
 >;
