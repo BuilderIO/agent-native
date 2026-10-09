@@ -382,13 +382,34 @@ async function stableBox(
 }
 
 async function openOverview(page: Page, designId: string, screens: number) {
-  await page.goto(appPath(`/design/${designId}?view=overview`), {
+  await page.goto(appPath(`/design/${designId}?view=overview&zoom=60`), {
     waitUntil: "domcontentloaded",
   });
   await expect(page.locator("[data-screen-shell]")).toHaveCount(screens, {
     timeout: 30_000,
   });
   await stableBox(page.locator("[data-screen-card]").first());
+  await expect(page.getByRole("button", { name: "60%" })).toBeVisible();
+  for (const card of await page.locator("[data-screen-card]").all()) {
+    await expect(card).toBeInViewport();
+  }
+}
+
+async function selectedScreenIds(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    Array.isArray((window as any).__designSelection?.selectedScreenIds)
+      ? [...(window as any).__designSelection.selectedScreenIds]
+      : [],
+  );
+}
+
+async function zoomTo50Percent(page: Page) {
+  await page
+    .getByRole("button", { name: /^\d+%$/ })
+    .first()
+    .click();
+  await page.getByRole("menuitem", { name: "Zoom to 50%" }).click();
+  await expect(page.getByRole("button", { name: "50%" })).toBeVisible();
 }
 
 test.describe("overview canvas: multi-select, marquee enclosure, pan/zoom", () => {
@@ -399,37 +420,28 @@ test.describe("overview canvas: multi-select, marquee enclosure, pan/zoom", () =
     const { designId } = await createIconScreensDesign(request);
     try {
       await openOverview(page, designId, 3);
+      const screenIds = await page
+        .locator("[data-screen-shell]")
+        .evaluateAll((screens) =>
+          screens
+            .map((screen) => screen.getAttribute("data-frame-id"))
+            .filter((id): id is string => id !== null),
+        );
       const labels = page.locator("[data-frame-label]");
       await labels.nth(0).click();
+      await zoomTo50Percent(page);
+      await expect(labels.nth(1)).toBeInViewport();
       await labels.nth(1).click({ modifiers: ["Shift"] });
+      await zoomTo50Percent(page);
+      await expect(labels.nth(2)).toBeInViewport();
       await labels.nth(2).click({ modifiers: ["Shift"] });
 
       await expect
-        .poll(
-          () =>
-            page
-              .locator("[data-frame-label][data-frame-selected='true']")
-              .count()
-              .catch(() => -1),
-          { timeout: 5_000 },
-        )
-        .toBeGreaterThanOrEqual(0);
-      const selectedCount = await page.evaluate(() => {
-        const labels = Array.from(
-          document.querySelectorAll("[data-frame-label]"),
-        );
-        return labels.filter(
-          (el) =>
-            el.getAttribute("aria-selected") === "true" ||
-            el.getAttribute("data-selected") === "true" ||
-            el.className.includes("selected"),
-        ).length;
-      });
-      if (selectedCount > 0) {
-        expect(selectedCount).toBe(3);
-      } else {
-        test.skip(true, "no discoverable per-label selected attribute");
-      }
+        .poll(() => selectedScreenIds(page))
+        .toEqual(expect.arrayContaining(screenIds));
+      await expect
+        .poll(() => selectedScreenIds(page))
+        .toHaveLength(screenIds.length);
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }
@@ -442,46 +454,101 @@ test.describe("overview canvas: multi-select, marquee enclosure, pan/zoom", () =
     const { designId } = await createIconScreensDesign(request);
     try {
       await openOverview(page, designId, 3);
-      const homeCard = (await page
-        .locator("[data-screen-card]")
+      const screens = page.locator("[data-screen-shell]");
+      const homeId = await screens.nth(0).getAttribute("data-frame-id");
+      const activeScreenId = await screens.nth(1).getAttribute("data-frame-id");
+      expect(homeId).toBeTruthy();
+      expect(activeScreenId).toBeTruthy();
+      const activeScreenLabel = page.locator(
+        `[data-screen-shell][data-frame-id="${activeScreenId}"] [data-frame-label]`,
+      );
+      await expect(activeScreenLabel).toBeInViewport();
+      await activeScreenLabel.click();
+      await expect
+        .poll(() => selectedScreenIds(page))
+        .toEqual([activeScreenId]);
+      const selectionBeforeEscape = await page.evaluate(() => {
+        const selection = (window as any).__designSelection;
+        return {
+          activeTool: selection?.activeTool,
+          mode: selection?.mode,
+          viewMode: selection?.viewMode,
+        };
+      });
+      expect(selectionBeforeEscape).toEqual({
+        activeTool: "move",
+        mode: "edit",
+        viewMode: "overview",
+      });
+      await expect(page.locator("[data-frame-selection-box]")).toHaveCount(1);
+      await expect(page.getByRole("treeitem", { selected: true })).toHaveCount(
+        1,
+      );
+      const surface = page.locator("[data-multi-screen-canvas-surface]");
+      await surface.evaluate((element: HTMLElement) =>
+        element.focus({ preventScroll: true }),
+      );
+      await expect
+        .poll(() =>
+          surface.evaluate((element) => document.activeElement === element),
+        )
+        .toBe(true);
+      await page.keyboard.press("Escape");
+      await expect
+        .poll(() => selectedScreenIds(page))
+        .toEqual([activeScreenId]);
+      await expect(page.locator("[data-frame-selection-box]")).toHaveCount(0);
+      await expect(page.getByRole("treeitem", { selected: true })).toHaveCount(
+        0,
+      );
+      await zoomTo50Percent(page);
+      await expect
+        .poll(() => selectedScreenIds(page))
+        .toEqual([activeScreenId]);
+      const homeShell = (await page
+        .locator(`[data-screen-shell][data-frame-id="${homeId}"]`)
         .first()
         .boundingBox())!;
+      const surfaceBox = (await surface.boundingBox())!;
 
-      await page.mouse.move(homeCard.x + homeCard.width - 10, homeCard.y - 40);
+      const marqueeFrom = { x: homeShell.x - 30, y: homeShell.y - 30 };
+      const partialMarqueeTo = { x: homeShell.x + 15, y: homeShell.y + 15 };
+      const fullMarqueeTo = {
+        x: homeShell.x + homeShell.width + 30,
+        y: homeShell.y + homeShell.height + 30,
+      };
+      expect(marqueeFrom.x).toBeGreaterThanOrEqual(surfaceBox.x);
+      expect(marqueeFrom.y).toBeGreaterThanOrEqual(surfaceBox.y);
+      expect(fullMarqueeTo.x).toBeLessThanOrEqual(
+        surfaceBox.x + surfaceBox.width,
+      );
+      expect(fullMarqueeTo.y).toBeLessThanOrEqual(
+        surfaceBox.y + surfaceBox.height,
+      );
+
+      await page.mouse.move(marqueeFrom.x, marqueeFrom.y);
       await page.mouse.down();
-      await page.mouse.move(homeCard.x + homeCard.width + 60, homeCard.y + 40, {
+      await page.mouse.move(partialMarqueeTo.x, partialMarqueeTo.y, {
         steps: 10,
       });
       await page.mouse.up();
-      await page.waitForTimeout(300);
-      let selected = await page.evaluate(
-        () =>
-          document.querySelectorAll("[data-frame-label][aria-selected='true']")
-            .length,
+      await expect
+        .poll(() => selectedScreenIds(page))
+        .toEqual([activeScreenId]);
+      await expect(page.locator("[data-frame-selection-box]")).toHaveCount(0);
+      await expect(page.getByRole("treeitem", { selected: true })).toHaveCount(
+        0,
       );
-      expect(
-        selected,
-        "a marquee that only clips the frame's edge must not select a top-level screen",
-      ).toBe(0);
 
-      await page.mouse.move(homeCard.x - 30, homeCard.y - 30);
+      await page.mouse.move(marqueeFrom.x, marqueeFrom.y);
       await page.mouse.down();
-      await page.mouse.move(
-        homeCard.x + homeCard.width + 30,
-        homeCard.y + homeCard.height + 30,
-        { steps: 10 },
-      );
+      await page.mouse.move(fullMarqueeTo.x, fullMarqueeTo.y, { steps: 10 });
       await page.mouse.up();
-      await page.waitForTimeout(300);
-      selected = await page.evaluate(
-        () =>
-          document.querySelectorAll("[data-frame-label][aria-selected='true']")
-            .length,
-      );
-      expect(
-        selected,
-        "a marquee that fully encloses the top-level screen must select it",
-      ).toBeGreaterThanOrEqual(1);
+      await expect.poll(() => selectedScreenIds(page)).toEqual([homeId]);
+      await expect(page.locator("[data-frame-selection-box]")).toHaveCount(1);
+      await expect(
+        page.getByRole("treeitem", { selected: true }),
+      ).toContainText("Home");
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }
@@ -494,34 +561,23 @@ test.describe("overview canvas: multi-select, marquee enclosure, pan/zoom", () =
     const { designId } = await createIconScreensDesign(request);
     try {
       await openOverview(page, designId, 3);
-      const worldBefore = await page.evaluate(() => {
-        const world = document.querySelector(
-          "[data-multi-screen-canvas-world]",
-        );
-        return world ? getComputedStyle(world).transform : null;
-      });
-      expect(
-        worldBefore,
-        "no canvas world element to read a zoom transform from",
-      ).toBeTruthy();
+      const card = await stableBox(page.locator("[data-screen-card]").first());
+      const scale = () =>
+        page.evaluate(() => {
+          const world = document.querySelector(
+            "[data-multi-screen-canvas-world]",
+          );
+          const transform = world ? getComputedStyle(world).transform : null;
+          return transform ? new DOMMatrixReadOnly(transform).a : null;
+        });
+      const scaleBefore = await scale();
+      expect(scaleBefore).toBeGreaterThan(0);
 
-      const centre = page.viewportSize()!;
-      await page.mouse.move(centre.width / 2, centre.height / 2);
+      await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2);
       await page.keyboard.down(MOD);
       await page.mouse.wheel(0, -400);
       await page.keyboard.up(MOD);
-      await page.waitForTimeout(400);
-
-      const worldAfter = await page.evaluate(() => {
-        const world = document.querySelector(
-          "[data-multi-screen-canvas-world]",
-        );
-        return world ? getComputedStyle(world).transform : null;
-      });
-      expect(
-        worldAfter,
-        `cmd+scroll must change the canvas transform (zoom). before=${worldBefore} after=${worldAfter}`,
-      ).not.toBe(worldBefore);
+      await expect.poll(scale).toBeGreaterThan(scaleBefore!);
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }
