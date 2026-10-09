@@ -352,7 +352,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     expect(claimSignal?.aborted).toBe(true);
   });
 
-  it("propagates response-body read failures instead of returning an empty claim", async () => {
+  it("propagates malformed response JSON instead of returning an empty claim", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (
         url === "/_agent-native/browser-sessions/tab-1/requests/claim" &&
@@ -362,7 +362,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
           ok: true,
           status: 200,
           json: async () => {
-            throw new DOMException("Aborted", "AbortError");
+            throw new SyntaxError("Invalid JSON");
           },
         } as Response;
       }
@@ -373,7 +373,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
       fetch: fetchMock as unknown as typeof fetch,
     });
 
-    await expect(bridge.claimOnce()).rejects.toThrow("Aborted");
+    await expect(bridge.claimOnce()).rejects.toThrow("Invalid JSON");
   });
 
   it("registers direct embedded context and actions without postMessage", async () => {

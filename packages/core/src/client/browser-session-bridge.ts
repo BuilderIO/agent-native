@@ -108,13 +108,7 @@ function fetchImpl(
 }
 
 async function readJsonResponse(response: Response): Promise<any> {
-  let body: any;
-  try {
-    body = await response.json();
-  } catch (error) {
-    if (!(error instanceof SyntaxError)) throw error;
-    body = {};
-  }
+  const body = await response.json();
   if (!response.ok || body?.ok === false) {
     throw new Error(
       typeof body?.error === "string"
