@@ -2057,6 +2057,8 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
   });
 
   it("projects a root mount for a workspace app without mount metadata", async () => {
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
 
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
