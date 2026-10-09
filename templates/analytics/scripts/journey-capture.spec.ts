@@ -733,6 +733,8 @@ describe("browser journey capture", () => {
           playheadOffsetMs: 5,
           observedAt: "2026-10-09T00:00:00.011Z",
           messages: [{ role: "user", text: "api_key=example-secret" }],
+          truncatedMessages: true,
+          truncatedCharacters: true,
         },
       },
       { ok: false, reason: "assets_not_capturable" },
@@ -743,6 +745,8 @@ describe("browser journey capture", () => {
           playheadOffsetMs: 15,
           observedAt: "2026-10-09T00:00:00.021Z",
           messages: [{ role: "user", text: "second prompt" }],
+          truncatedMessages: false,
+          truncatedCharacters: false,
         },
       },
     ];
@@ -842,16 +846,30 @@ describe("browser journey capture", () => {
         ctx.provenanceOmittedSnapshots,
         recordingPlan.items.length,
       );
-      const sidecar = await readFile(sidecarPath, "utf8");
+      const sidecar = JSON.parse(await readFile(sidecarPath, "utf8"));
       expect((await stat(sidecarPath)).mode & 0o777).toBe(0o600);
-      expect(sidecar).toContain('"treeSourceEventAt": "source-event-one"');
-      expect(sidecar).toContain('"requestedOffsetMs": 10');
-      expect(sidecar).toContain('"observedOffsetMs": 10');
-      expect(sidecar).toContain('"playheadOffsetMs": 5');
-      expect(sidecar).toContain('"unrecordedSnapshots": 0');
-      expect(sidecar).toContain("[REDACTED]");
-      expect(sidecar).not.toContain("example-secret");
-      expect(sidecar).not.toContain("attemptId");
+      expect(sidecar.snapshots[0]).toMatchObject({
+        treeSourceEventAt: "source-event-one",
+        observedSeek: {
+          requestedOffsetMs: 10,
+          observedOffsetMs: 10,
+          playheadOffsetMs: 5,
+        },
+        extractorTruncation: {
+          truncatedMessages: true,
+          truncatedCharacters: true,
+        },
+        truncation: {
+          messages: false,
+          messageCharacters: false,
+          totalCharacters: false,
+        },
+        messages: [{ role: "user", text: "api_key=[REDACTED]" }],
+      });
+      expect(sidecar.coverage.unrecordedSnapshots).toBe(0);
+      const serializedSidecar = JSON.stringify(sidecar);
+      expect(serializedSidecar).not.toContain("example-secret");
+      expect(serializedSidecar).not.toContain("attemptId");
     } finally {
       await close(appServer);
       await rm(outDir, { recursive: true, force: true });
@@ -1118,6 +1136,8 @@ describe("browser journey capture", () => {
           playheadOffsetMs: 5,
           observedAt: "2026-10-09T00:00:00.011Z",
           messages: [{ role: "user", text: "private prompt text" }],
+          truncatedMessages: false,
+          truncatedCharacters: false,
         },
       },
     ];

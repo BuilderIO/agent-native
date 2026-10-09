@@ -314,6 +314,10 @@ export interface PromptProvenanceSnapshot {
   };
   captureOutcome: { status: "captured" } | { status: "failed"; reason: string };
   messages: ReturnType<typeof sanitizePromptProvenanceCandidates>["messages"];
+  extractorTruncation: {
+    truncatedMessages: boolean;
+    truncatedCharacters: boolean;
+  };
   truncation: ReturnType<
     typeof sanitizePromptProvenanceCandidates
   >["truncation"];
@@ -1018,6 +1022,8 @@ type BrowserPromptReply =
         playheadOffsetMs: number;
         observedAt: string;
         messages: unknown[];
+        truncatedMessages: boolean;
+        truncatedCharacters: boolean;
       };
     }
   | { ok: false; reason: string };
@@ -1433,6 +1439,10 @@ export async function captureBrowserRecording(
               ? { status: "failed", reason: captureFailureReason }
               : { status: "captured" },
             messages: sanitized.messages,
+            extractorTruncation: {
+              truncatedMessages: reply.value.truncatedMessages,
+              truncatedCharacters: reply.value.truncatedCharacters,
+            },
             truncation: sanitized.truncation,
           });
         } catch (error) {

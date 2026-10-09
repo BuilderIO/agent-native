@@ -2119,7 +2119,11 @@ async function readReplayJsonBounded(
   response: Response,
   maxBytes: number,
   limitError: string,
-): Promise<{ value: unknown; byteLength: number }> {
+): Promise<{
+  value: unknown;
+  byteLength: number;
+  bytes: Uint8Array<ArrayBuffer>;
+}> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error("replay_response_body_unavailable");
   const parts: Uint8Array[] = [];
@@ -2148,6 +2152,7 @@ async function readReplayJsonBounded(
     return {
       value: JSON.parse(new TextDecoder().decode(bytes)),
       byteLength,
+      bytes,
     };
   } catch {
     throw new Error("replay_response_invalid");
@@ -2187,19 +2192,13 @@ async function fetchBoundedReplayCaptureChunks(
   ) {
     throw new Error("replay_capture_manifest_invalid");
   }
-  if (chunks.length > MAX_SESSION_REPLAY_CAPTURE_CHUNKS) {
-    throw new Error("replay_capture_chunk_limit_exceeded");
-  }
   const targetTimestamp = recordingStartedAtMs + captureThroughOffsetMs;
   if (!Number.isSafeInteger(targetTimestamp)) {
     throw new Error("replay_capture_offset_invalid");
   }
 
-  const loaded: ReplayChunkEvents[] = [];
-  let declaredBytes = 0;
-  let declaredEvents = 0;
-  let receivedBytes = 0;
-  let previousTimestamp = Number.NEGATIVE_INFINITY;
+  let manifestBytes = 0;
+  let manifestEvents = 0;
   for (const [index, chunk] of chunks.entries()) {
     if (
       !isRecord(chunk) ||
@@ -2210,19 +2209,49 @@ async function fetchBoundedReplayCaptureChunks(
       !Number.isSafeInteger(chunk.eventCount) ||
       chunk.eventCount < 0 ||
       typeof chunk.checksum !== "string" ||
-      !chunk.checksum ||
+      !/^[\da-f]{64}$/i.test(chunk.checksum) ||
       typeof chunk.bytesPath !== "string" ||
-      !isReplayCaptureChunkPath(chunk.bytesPath, recordingId, chunk.seq)
+      !isReplayCaptureChunkPath(
+        chunk.bytesPath,
+        recordingId,
+        chunk.seq,
+        options.agentAccessToken,
+      )
     ) {
       throw new Error("replay_capture_manifest_invalid");
     }
-    declaredBytes += chunk.byteLength;
-    declaredEvents += chunk.eventCount;
+    manifestBytes += chunk.byteLength;
+    manifestEvents += chunk.eventCount;
     if (
-      declaredBytes > MAX_SESSION_REPLAY_CAPTURE_BYTES ||
-      declaredEvents > MAX_SESSION_REPLAY_CAPTURE_EVENTS ||
-      !Number.isSafeInteger(declaredBytes) ||
-      !Number.isSafeInteger(declaredEvents)
+      !Number.isSafeInteger(manifestBytes) ||
+      !Number.isSafeInteger(manifestEvents)
+    ) {
+      throw new Error("replay_capture_manifest_invalid");
+    }
+  }
+  if (
+    manifestBytes !== recording.totalBytes ||
+    manifestEvents !== recording.eventCount
+  ) {
+    throw new Error("replay_capture_manifest_incomplete");
+  }
+
+  const loaded: ReplayChunkEvents[] = [];
+  let prefixDeclaredBytes = 0;
+  let prefixDeclaredEvents = 0;
+  let receivedBytes = 0;
+  let previousTimestamp = Number.NEGATIVE_INFINITY;
+  for (const chunk of chunks) {
+    if (loaded.length >= MAX_SESSION_REPLAY_CAPTURE_CHUNKS) {
+      throw new Error("replay_capture_chunk_limit_exceeded");
+    }
+    prefixDeclaredBytes += chunk.byteLength;
+    prefixDeclaredEvents += chunk.eventCount;
+    if (
+      prefixDeclaredBytes > MAX_SESSION_REPLAY_CAPTURE_BYTES ||
+      prefixDeclaredEvents > MAX_SESSION_REPLAY_CAPTURE_EVENTS ||
+      !Number.isSafeInteger(prefixDeclaredBytes) ||
+      !Number.isSafeInteger(prefixDeclaredEvents)
     ) {
       throw new Error("replay_capture_limit_exceeded");
     }
@@ -2239,12 +2268,31 @@ async function fetchBoundedReplayCaptureChunks(
       }
       throw error;
     }
-    const { value: payload, byteLength: responseBytes } =
-      await readReplayJsonBounded(
-        response,
-        MAX_SESSION_REPLAY_CAPTURE_CHUNK_BYTES,
-        "replay_capture_chunk_too_large",
-      );
+    const responseSequence = response.headers.get("x-session-replay-seq");
+    const responseChecksum = response.headers.get("x-session-replay-checksum");
+    if (
+      responseSequence !== String(chunk.seq) ||
+      responseChecksum?.toLowerCase() !== chunk.checksum.toLowerCase()
+    ) {
+      throw new Error("replay_capture_chunk_header_mismatch");
+    }
+    const {
+      value: payload,
+      byteLength: responseBytes,
+      bytes: responseBody,
+    } = await readReplayJsonBounded(
+      response,
+      MAX_SESSION_REPLAY_CAPTURE_CHUNK_BYTES,
+      "replay_capture_chunk_too_large",
+    );
+    if (responseBytes !== chunk.byteLength) {
+      throw new Error("replay_capture_chunk_size_mismatch");
+    }
+    if (
+      (await replaySha256Hex(responseBody)) !== chunk.checksum.toLowerCase()
+    ) {
+      throw new Error("replay_capture_chunk_checksum_mismatch");
+    }
     receivedBytes += responseBytes;
     if (receivedBytes > MAX_SESSION_REPLAY_CAPTURE_BYTES) {
       throw new Error("replay_capture_limit_exceeded");
@@ -2256,6 +2304,9 @@ async function fetchBoundedReplayCaptureChunks(
     for (const event of events) {
       if (
         !isRecord(event) ||
+        !Number.isInteger(event.type) ||
+        event.type < 0 ||
+        event.type > 6 ||
         typeof event.timestamp !== "number" ||
         !Number.isFinite(event.timestamp) ||
         event.timestamp < previousTimestamp
@@ -2271,26 +2322,44 @@ async function fetchBoundedReplayCaptureChunks(
       eventCount: chunk.eventCount,
       events,
     });
-    if (previousTimestamp >= targetTimestamp) break;
+    if (previousTimestamp > targetTimestamp) break;
   }
   return loaded;
+}
+
+async function replaySha256Hex(
+  bytes: Uint8Array<ArrayBuffer>,
+): Promise<string> {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error("replay_capture_checksum_unavailable");
+  }
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 }
 
 function isReplayCaptureChunkPath(
   bytesPath: string,
   recordingId: string,
   seq: number,
+  agentAccessToken?: string,
 ): boolean {
   const origin =
     globalThis.window?.location?.origin ??
     globalThis.location?.origin ??
     "http://localhost";
   const url = new URL(bytesPath, origin);
+  const queryIsScoped = agentAccessToken
+    ? url.searchParams.size === 1 &&
+      url.searchParams.get(SESSION_REPLAY_AGENT_ACCESS_PARAM) ===
+        agentAccessToken
+    : url.searchParams.size === 0;
   if (
     url.origin !== origin ||
     url.username ||
     url.password ||
-    url.search ||
+    !queryIsScoped ||
     url.hash
   ) {
     return false;

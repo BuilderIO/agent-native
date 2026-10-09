@@ -110,6 +110,70 @@ describe("sanitizePromptProvenanceCandidates", () => {
     expect(JSON.stringify(result)).not.toContain("signing-value");
   });
 
+  it("redacts credential assignments whose names have no word delimiters", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      { role: "user", text: "dbpassword=fake-db-password-value" },
+      { role: "user", text: "githubtoken: fake-github-token-value" },
+      { role: "user", text: "clientsecret=fake-client-secret-value" },
+      {
+        role: "user",
+        text: "awssecretaccesskey=fake-aws-secret-access-key-value",
+      },
+      { role: "user", text: "passwordless_mode=true" },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "dbpassword=[REDACTED]",
+      "githubtoken: [REDACTED]",
+      "clientsecret=[REDACTED]",
+      "awssecretaccesskey=[REDACTED]",
+      "passwordless_mode=true",
+    ]);
+    for (const value of [
+      "fake-db-password-value",
+      "fake-github-token-value",
+      "fake-client-secret-value",
+      "fake-aws-secret-access-key-value",
+    ]) {
+      expect(JSON.stringify(result)).not.toContain(value);
+    }
+  });
+
+  it("omits messages with ambiguous space-separated credential values", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      {
+        role: "user",
+        text: "Run the tool with --password fake flag value --region test",
+      },
+      {
+        role: "user",
+        text: "My password is fake natural phrase value\nfollow-up text",
+      },
+      {
+        role: "user",
+        text: "export GITHUB_TOKEN fake exported token value",
+      },
+      {
+        role: "user",
+        text: "I changed my password yesterday; no value is included.",
+      },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "[REDACTED]",
+      "[REDACTED]",
+      "[REDACTED]",
+      "I changed my password yesterday; no value is included.",
+    ]);
+    for (const value of [
+      "fake flag value",
+      "fake natural phrase value",
+      "fake exported token value",
+    ]) {
+      expect(JSON.stringify(result)).not.toContain(value);
+    }
+  });
+
   it("redacts complete authorization values, including unknown schemes", () => {
     const result = sanitizePromptProvenanceCandidates([
       { role: "user", text: "Authorization: Basic fake-basic-value" },

@@ -6,6 +6,11 @@ const AUTHORIZATION_ASSIGNMENT =
   /(["']?)(authorization|proxy-authorization|cookie2?|set-cookie)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\\r\n])*)"|'((?:\\.|[^'\\\r\n])*)'|([^\r\n]*))/gi;
 const ASSIGNMENT =
   /(["']?)([a-z][a-z0-9_.-]*)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\r\n]*))/gi;
+const SPACE_SEPARATED_CREDENTIAL_FORMS = [
+  /(?:^|\s)--?([a-z][a-z0-9_.-]*)[ \t]+\S/gim,
+  /\bexport[ \t]+([a-z][a-z0-9_.-]*)[ \t]+\S/gi,
+  /\b(?:(?:my|our|your|the)[ \t]+)?([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)?)[ \t]+(?:is|equals)[ \t]+\S/gi,
+] as const;
 const BEARER_VALUE = /\bbearer\s+[a-z0-9._~+/-]+=*/gi;
 const SQL_CODE_BLOCK = /```(?:sql|postgres(?:ql)?)\b[\s\S]*?```/gi;
 const SQL_STATEMENT =
@@ -96,14 +101,33 @@ function isCredentialKey(key: string): boolean {
   ) {
     return true;
   }
-  return parts.some(
-    (part, index) =>
-      ["access", "api", "private", "secret", "signing"].includes(part) &&
-      parts[index + 1] === "key",
+  if (
+    parts.some(
+      (part, index) =>
+        ["access", "api", "private", "secret", "signing"].includes(part) &&
+        parts[index + 1] === "key",
+    )
+  ) {
+    return true;
+  }
+  const compact = normalized.replace(/[^a-z0-9]/g, "");
+  return /(?:password|passwd|passphrase|secret|token|credential|credentials|authorization|authentication|auth|cookie|session|(?:api|access|private|secret|signing)key)$/.test(
+    compact,
   );
 }
 
+function hasSpaceSeparatedCredential(text: string): boolean {
+  for (const pattern of SPACE_SEPARATED_CREDENTIAL_FORMS) {
+    for (const match of text.matchAll(pattern)) {
+      if (isCredentialKey(match[1] ?? "")) return true;
+    }
+  }
+  return false;
+}
+
 function redactCredentials(text: string): string {
+  if (hasSpaceSeparatedCredential(text)) return "[REDACTED]";
+
   return text
     .replace(
       AUTHORIZATION_ASSIGNMENT,
