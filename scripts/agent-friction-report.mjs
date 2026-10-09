@@ -2296,7 +2296,7 @@ const FEEDBACK_REPLY_DETAIL_OMISSION =
 const FEEDBACK_REPLY_DETAIL_NEGATION = [
   "\\b" +
     FEEDBACK_REPLY_CONTEXT +
-    "\\b[^.!?;]{0,100}\\b(?:(?:is|are|seem|seems|look|looks|sound|sounds)\\s+)?(?:not|isn't|aren't|wasn't|weren't)\\s+(?:too\\s+)?(?:technical|detailed?|too\\s+much\\s+(?:(?:technical|implementation|internal|deployment)\\s+)?detail)\\b",
+    "\\b[^.!?;]{0,100}\\b(?:(?:is|are|seem|seems|look|looks|sound|sounds)\\s+)?(?:not|no\\s+longer|isn't|aren't|wasn't|weren't)\\s+(?:too\\s+)?(?:technical|detailed?|too\\s+much\\s+(?:(?:technical|implementation|internal|deployment)\\s+)?detail)\\b",
   "\\b(?:don['’]t|do not|shouldn['’]t|should not)\\b[^.!?;]{0,100}\\b(?:make|keep|write|use)\\b[^.!?;]{0,100}\\b" +
     FEEDBACK_REPLY_CONTEXT +
     "\\b[^.!?;]{0,100}\\bless\\s+(?:technical|detail)\\b",
@@ -2324,6 +2324,16 @@ const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
       "\\b(?:keep|make|write|use)\\b[^.!?;]{0,100}\\b" +
         FEEDBACK_REPLY_CONTEXT +
         "\\b[^.!?;]{0,100}\\b(?:at\\s+)?(?:a\\s+)?high[- ]level\\b",
+      "\\b(?:keep|make|write|use)\\b[^.!?;]{0,100}\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b[^.!?;]{0,100}\\b(?:concise|brief|plain\\s+english|plain[- ]language)\\b",
+      "\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b[^.!?;]{0,100};\\s*(?!(?:don['’]t|do not|shouldn['’]t|should not)\\s+post\\s+(?:until|after|once|before|when)\\b)" +
+        FEEDBACK_REPLY_DETAIL_OMISSION +
+        "\\b\\s+(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
+        FEEDBACK_REPLY_DETAIL_TARGET +
+        "\\b",
       "\\b" +
         FEEDBACK_REPLY_CONTEXT +
         "\\b[^.!?;]{0,100}\\b" +
@@ -2356,6 +2366,8 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "Replies are too technical."],
   [true, "Leave out publisher details from replies."],
   [true, "Please keep replies at a high level."],
+  [true, "Please keep feedback replies concise and in plain English."],
+  [true, "Reply after deployment; don't mention deployment details."],
   [true, "Don't include commit hashes or CI results in replies."],
   [true, "Don't include commit hashes in responses."],
   [true, "Replies should not include any more technical details."],
@@ -2378,6 +2390,8 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [false, "Replies are too high level."],
   [false, "Your replies are already high level."],
   [false, "I like the high-level replies."],
+  [false, "I like concise and plain-English replies."],
+  [false, "Replies are no longer too technical."],
   [false, "Don’t skip technical details in your reply."],
   [false, "Replies are not too technical."],
   [false, "Replies aren't too technical."],
