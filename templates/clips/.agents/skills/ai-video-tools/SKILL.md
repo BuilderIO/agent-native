@@ -237,6 +237,7 @@ A future pass could add server-side streaming transcription (Deepgram Nova-3 / A
 - Don't render a robot, sparkle, or wand icon for AI affordances — all three are overplayed. Prefer plain text (or a neutral verb icon like `IconBolt`) for AI buttons.
 - Don't dump entire transcripts into `sendToAgentChat` context. Pass the id; let the agent fetch.
 - Don't `await` the agent's response from an action. Fire and forget; results arrive via other actions.
+- Don't deliver queued Clips AI requests (`queueAiRequest` kinds and `generate-workflow`) through a chat panel. `useAutoTitleBridge` in `_app.tsx` starts each one with `startBackgroundAgentSession` (stable operation id) and a monitor persists terminal status, so work never depends on the Agent tab being mounted.
 
 ## Related skills
 
