@@ -172,7 +172,11 @@ function workspacePathBasePath(): string {
   const segment = pathname.split("/").find(Boolean);
   if (!segment || isFrameworkSegment(segment) || segment === "api") return "";
   const mounts = workspaceAppMountPaths();
-  if (!mounts) return "";
+  if (!mounts) {
+    throw new Error(
+      "Cannot resolve workspace app mount path without explicit mount metadata.",
+    );
+  }
   return (
     [...mounts]
       .filter((mount) => pathMatchesBasePath(pathname, mount))

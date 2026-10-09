@@ -83,7 +83,7 @@ describe("appMountPath", () => {
     expect(appMountPath("/home")).toBe("");
   });
 
-  it("does not infer a workspace mount without positive path metadata", () => {
+  it("fails when a workspace mount has no positive path metadata", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubGlobal("window", {
       location: { pathname: "/nope" },
@@ -96,8 +96,12 @@ describe("appMountPath", () => {
       },
     });
 
-    expect(appBasePath()).toBe("");
-    expect(appMountPath("/")).toBe("");
+    expect(() => appBasePath()).toThrow(
+      "Cannot resolve workspace app mount path without explicit mount metadata.",
+    );
+    expect(() => appMountPath("/")).toThrow(
+      "Cannot resolve workspace app mount path without explicit mount metadata.",
+    );
   });
 
   it("does not infer a mount from an unmatched URL and a root index route", () => {
