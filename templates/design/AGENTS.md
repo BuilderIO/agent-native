@@ -22,7 +22,7 @@ For shared contracts, read the matching guide in `.agents/skills/`.
 
 ## Framework Docs
 
-Use local docs: `pnpm action docs-search --query "<topic>"` searches; `--slug "<slug>"` reads.
+Use local docs: `pnpm action docs-search --query "<topic>"` searches; `pnpm action docs-search --slug "<slug>"` reads.
 
 ## Actions
 
