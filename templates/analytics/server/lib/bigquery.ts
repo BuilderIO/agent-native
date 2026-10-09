@@ -78,6 +78,7 @@ function isMaximumBytesBilledError(status: number, responseText: string) {
       ...(response.error?.errors ?? []).map((error) => error.message),
     ]);
   } catch {
+    // coercion-ok: Unparseable provider errors are rethrown by the caller and are not byte-cap failures.
     return false;
   }
 }
