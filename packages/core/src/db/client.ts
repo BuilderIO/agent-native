@@ -930,8 +930,15 @@ function sqlAndArgs(sql: DbExecStatement): {
 }
 
 const POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS = 250;
-const POSTGRES_STATEMENT_TIMEOUT_RESET_MS = 5_000;
 const POSTGRES_MAX_INT = 2_147_483_647;
+
+// TRAP: keep this module-level. sharedDbPool hands the same clients to every
+// DbExec, so per-exec state would miss a budget another exec left on a connection.
+const neonSessionStatementTimeoutMs = new WeakMap<object, number>();
+
+function defaultPostgresStatementTimeoutMs(): number {
+  return postgresStatementTimeoutMs(dbOpTimeoutMs());
+}
 
 export function hasExplicitDbTimeout(statement: DbExecStatement): boolean {
   if (typeof statement === "string") return false;
@@ -1732,35 +1739,25 @@ async function createDbExecInternal(
         rowsAffected: result.rowCount ?? 0,
       };
     }
+    // Plain queries expect the default budget too, so a connection left at a
+    // custom budget by an earlier query is restored before they run.
     async function queryNeonClientWithStatementTimeout(
       client: any,
       sql: Parameters<DbExec["execute"]>[0],
       remainingMs: () => number,
-      markClientForDiscard: () => void,
     ) {
-      const statementTimeoutMs = postgresStatementTimeoutMs(remainingMs());
-      await queryNeonClient(
-        client,
-        `SET statement_timeout = ${statementTimeoutMs}`,
-        remainingMs(),
-      );
-      try {
-        return await queryNeonClient(client, sql, remainingMs());
-      } finally {
-        try {
-          await queryNeonClient(
-            client,
-            "RESET statement_timeout",
-            Math.max(remainingMs(), POSTGRES_STATEMENT_TIMEOUT_RESET_MS),
-          );
-        } catch (err) {
-          markClientForDiscard();
-          console.warn(
-            "[db/neon] statement timeout reset failed; discarding connection:",
-            err instanceof Error ? err.message : err,
-          );
-        }
+      const statementTimeoutMs = hasExplicitDbTimeout(sql)
+        ? postgresStatementTimeoutMs(dbExecQueryBudget(sql).timeoutMs)
+        : defaultPostgresStatementTimeoutMs();
+      if (neonSessionStatementTimeoutMs.get(client) !== statementTimeoutMs) {
+        await queryNeonClient(
+          client,
+          `SET statement_timeout = ${statementTimeoutMs}`,
+          remainingMs(),
+        );
+        neonSessionStatementTimeoutMs.set(client, statementTimeoutMs);
       }
+      return queryNeonClient(client, sql, remainingMs());
     }
     async function queryNeonHttp(sql: Parameters<DbExec["execute"]>[0]) {
       if (!httpSql) {
@@ -1846,25 +1843,16 @@ async function createDbExecInternal(
             released = true;
             client.release(err);
           };
-          let discardClient = false;
-
           try {
-            const result = hasExplicitDbTimeout(sql)
-              ? await queryNeonClientWithStatementTimeout(
-                  client,
-                  sql,
-                  remainingAttemptMs,
-                  () => {
-                    discardClient = true;
-                  },
-                )
-              : await queryNeonClient(client, sql, remainingAttemptMs());
-            releaseClient(discardClient ? true : undefined);
+            const result = await queryNeonClientWithStatementTimeout(
+              client,
+              sql,
+              remainingAttemptMs,
+            );
+            releaseClient();
             return result;
           } catch (err) {
-            releaseClient(
-              discardClient || isConnectionError(err) ? true : undefined,
-            );
+            releaseClient(isConnectionError(err) ? true : undefined);
             throw err;
           }
         }, maxAttempts);
@@ -1915,12 +1903,25 @@ async function createDbExecInternal(
             },
           };
           try {
+            // Restoring the session budget inside BEGIN means a rollback reverts
+            // it along with the transaction, so the tracked value stays accurate.
+            const sessionStatementTimeoutMs =
+              defaultPostgresStatementTimeoutMs();
+            const restoreSession =
+              neonSessionStatementTimeoutMs.get(client) !==
+              sessionStatementTimeoutMs;
             await queryNeonClient(
               client,
-              "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
+              restoreSession
+                ? `BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000; SET statement_timeout = ${sessionStatementTimeoutMs}`
+                : "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
             );
             const result = await runHoldingPoolConnection(pool, () => fn(tx));
             await queryNeonClient(client, "COMMIT");
+            neonSessionStatementTimeoutMs.set(
+              client,
+              sessionStatementTimeoutMs,
+            );
             releaseClient();
             return result;
           } catch (err) {
