@@ -374,6 +374,7 @@ async function processRecurringJobsWithLease(
             recovery?.state === "settle" ||
             recovery?.state === "unrecoverable"
           ) {
+            await assertCanStart();
             const history =
               recovery.state === "settle" ? recovery.history : null;
             // Keep the recovery marker until history is durable; a restart can
@@ -386,11 +387,13 @@ async function processRecurringJobsWithLease(
                 recovery.errorCode,
                 {
                   requirePersisted: true,
+                  expectedRunId: history.runId,
                   ...(history.dispatchPending
                     ? { expectedClaimedAt: history.claimedAt }
                     : {}),
                 },
               );
+            await assertCanStart();
             await recordExecutionOutcome(
               resource,
               {

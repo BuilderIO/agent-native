@@ -809,6 +809,14 @@ export class AutomationRunHistoryWriteError extends Error {
   }
 }
 
+export class AutomationRunHistoryClaimLostError extends Error {
+  readonly errorCode = "background_automation_claim_lost";
+  constructor(readonly historyId: string) {
+    super(automationRecoveryMessagesForLocale().unreadable);
+    this.name = "AutomationRunHistoryClaimLostError";
+  }
+}
+
 export interface FinishAutomationRunOptions {
   requirePersisted?: boolean;
   /**
@@ -824,6 +832,8 @@ export interface FinishAutomationRunOptions {
    * stale terminal write.
    */
   expectedClaimedAt?: number | null;
+  /** Successors share the firing id, so recovery must also fence its worker. */
+  expectedRunId?: string | null;
 }
 
 export async function finishAutomationRun(
@@ -845,12 +855,13 @@ export async function finishAutomationRun(
     options.notify !== false &&
     Boolean(row?.notification_email);
   const claimGuard = options.expectedClaimedAt !== undefined;
+  const runGuard = options.expectedRunId !== undefined;
   const update = await getDbExec().execute({
     sql: `UPDATE ${TABLE}
           SET status = ?, finished_at = ?, error = ?, error_code = ?,
               failure_alert_state = ?, failure_alert_next_attempt_at = ?,
               failure_alert_claimed_at = NULL
-          WHERE id = ? AND status = 'running'${claimGuard ? " AND claimed_at IS NOT DISTINCT FROM ?" : ""}`,
+          WHERE id = ? AND status = 'running'${claimGuard ? " AND claimed_at IS NOT DISTINCT FROM ?" : ""}${runGuard ? " AND run_id IS NOT DISTINCT FROM ?" : ""}`,
     args: [
       status,
       finishedAt,
@@ -862,6 +873,7 @@ export async function finishAutomationRun(
       shouldQueueFailureAlert ? finishedAt : null,
       id,
       ...(claimGuard ? [options.expectedClaimedAt] : []),
+      ...(runGuard ? [options.expectedRunId] : []),
     ],
   });
   if (
@@ -869,7 +881,13 @@ export async function finishAutomationRun(
     (!row || Number(update.rowsAffected ?? 0) === 0)
   ) {
     const durable = await getAutomationRun(id);
-    if (!durable || durable.finishedAt === null || durable.status !== status)
+    if (
+      !durable ||
+      durable.finishedAt === null ||
+      durable.status !== status ||
+      (runGuard && durable.runId !== options.expectedRunId) ||
+      (claimGuard && durable.claimedAt !== options.expectedClaimedAt)
+    )
       throw new AutomationRunHistoryWriteError(id);
   }
   if (!row || Number(update.rowsAffected ?? 0) === 0) return;
@@ -920,15 +938,21 @@ export async function attachAutomationRunThread(
   id: string,
   threadId: string,
   runId: string,
-  options: { requirePersisted?: boolean } = {},
+  options: { requirePersisted?: boolean; expectedRunId?: string | null } = {},
 ): Promise<void> {
   await ensureTable();
+  const runGuard = options.expectedRunId !== undefined;
   const update = await getDbExec().execute({
-    sql: `UPDATE ${TABLE} SET thread_id = ?, run_id = ? WHERE id = ?`,
-    args: [threadId, runId, id],
+    sql: `UPDATE ${TABLE} SET thread_id = ?, run_id = ? WHERE id = ? AND status = 'running'${runGuard ? " AND run_id IS NOT DISTINCT FROM ?" : ""}`,
+    args: [threadId, runId, id, ...(runGuard ? [options.expectedRunId] : [])],
   });
-  if (options.requirePersisted && Number(update.rowsAffected ?? 0) !== 1)
+  if (
+    (options.requirePersisted || runGuard) &&
+    Number(update.rowsAffected ?? 0) !== 1
+  ) {
+    if (runGuard) throw new AutomationRunHistoryClaimLostError(id);
     throw new AutomationRunHistoryWriteError(id);
+  }
 }
 
 export async function deleteAutomationRuns(

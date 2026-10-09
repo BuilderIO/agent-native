@@ -114,6 +114,7 @@ import {
 import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   attachAutomationRunThread,
+  AutomationRunHistoryClaimLostError,
   finishAutomationRun,
   startAutomationRun,
   type StartAutomationRunOptions,
@@ -695,13 +696,20 @@ async function recordRunThread(
   threadId: string,
   runId: string,
   strict: boolean,
+  expectedRunId?: string,
 ): Promise<void> {
   if (!historyId) return;
   try {
     await attachAutomationRunThread(historyId, threadId, runId, {
       requirePersisted: strict,
+      ...(expectedRunId !== undefined ? { expectedRunId } : {}),
     });
   } catch (err) {
+    if (err instanceof AutomationRunHistoryClaimLostError)
+      throw new BackgroundAutomationRunError(
+        deliveryNoteForEvents(null),
+        err.errorCode,
+      );
     if (strict)
       throw new BackgroundAutomationRunError(
         deliveryNoteForEvents(null),
@@ -1199,6 +1207,7 @@ async function executeBackgroundAutomation(
             thread.id,
             runId,
             Boolean(options.historyId),
+            options.resume?.previousRunId,
           );
           if (!(await claimBackgroundRun(runId)))
             throw new Error(

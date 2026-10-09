@@ -227,6 +227,8 @@ describe("runBackgroundAutomation — confirmed work", () => {
         owner: automation.resource.owner,
         automation: automation.name,
         path: automation.resource.path,
+        runId: "prior",
+        threadId,
       });
       getThreadMock.mockResolvedValueOnce({
         id: threadId,
@@ -2098,6 +2100,103 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
     }
   });
 
+  it.each(["reassigned", "settled"])(
+    "does not start or finish a successor after its firing history is %s",
+    async (state) => {
+      const runStore = await import("../agent/run-store.js");
+      const history = await import("./run-history.js");
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const automation = precondition(`history-race-${state}`);
+      const threadId = `thread-history-race-${state}`;
+      const turnId = `turn-history-race-${state}`;
+      const historyId = await history.startAutomationRun({
+        owner: automation.resource.owner,
+        automation: automation.name,
+        path: automation.resource.path,
+        runId: "prior",
+        threadId,
+      });
+      getThreadMock.mockResolvedValueOnce({
+        id: threadId,
+        title: "Interrupted",
+        preview: "",
+        messageCount: 1,
+        threadData: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "Original request" }],
+              metadata: { custom: { submittedTurnId: turnId } },
+            },
+          ],
+        }),
+      });
+      const journal = vi
+        .spyOn(runStore, "getCurrentTurnRunEventsForThread")
+        .mockImplementationOnce(async () => {
+          if (state === "reassigned")
+            await history.attachAutomationRunThread(
+              historyId,
+              threadId,
+              "live-successor",
+            );
+          else
+            await history.finishAutomationRun(
+              historyId,
+              "error",
+              "Already settled",
+            );
+          return [];
+        });
+      const claim = vi
+        .spyOn(runStore, "tryClaimRunSlot")
+        .mockImplementation(async (id, runId, _staleMs, options) => {
+          await runStore.insertRun(runId, id, options!.turnId!, {
+            dispatchMode: "background",
+            afterInsert: options!.afterInsert,
+          });
+          return { claimed: true, activeRunId: null };
+        });
+      const finish = vi.spyOn(history, "finishAutomationRun");
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+      try {
+        await expect(
+          runBackgroundAutomation(
+            runOptions(automation, {
+              historyId,
+              resume: {
+                historyId,
+                threadId,
+                turnId,
+                previousRunId: "prior",
+                hardDeadlineAt: Date.now() + 60_000,
+              },
+            }),
+            standardDeps,
+          ),
+        ).rejects.toMatchObject({
+          errorCode: "background_automation_claim_lost",
+        });
+        expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
+        expect(finish).toHaveBeenCalledTimes(state === "settled" ? 1 : 0);
+        expect(await history.getAutomationRun(historyId)).toMatchObject({
+          runId: state === "reassigned" ? "live-successor" : "prior",
+          status: state === "reassigned" ? "running" : "error",
+        });
+        const workers = await pglite.query(
+          `SELECT id FROM agent_runs WHERE turn_id = $1`,
+          [turnId],
+        );
+        expect(workers.rows).toEqual([]);
+      } finally {
+        journal.mockRestore();
+        claim.mockRestore();
+        finish.mockRestore();
+      }
+    },
+  );
+
   it("leaves a resumed firing retryable when lease is lost at worker start", async () => {
     const runStore = await import("../agent/run-store.js");
     const history = await import("./run-history.js");
@@ -2182,6 +2281,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
       });
       expect(attach).toHaveBeenCalledWith(historyId, threadId, rows[0]!.id, {
         requirePersisted: true,
+        expectedRunId: `previous-${name}`,
       });
       getThreadMock.mockResolvedValueOnce({
         id: threadId,

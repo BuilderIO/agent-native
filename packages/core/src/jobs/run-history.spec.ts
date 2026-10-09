@@ -196,6 +196,73 @@ describe("automation run history", () => {
     }
   });
 
+  it("keeps history owned by a successor when recovery settles a stale worker snapshot", async () => {
+    executeMock
+      .mockResolvedValueOnce({ rows: [row({ run_id: "old-worker" })] })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+    await finishAutomationRun("run-1", "error", "stale", undefined, {
+      expectedRunId: "old-worker",
+    });
+    const settle = executeMock.mock.calls[1]![0] as DbExecStatement;
+    await attachAutomationRunThread("run-1", "thread-1", "successor", {
+      requirePersisted: true,
+      expectedRunId: "old-worker",
+    });
+    const attach = executeMock.mock.calls[2]![0] as DbExecStatement;
+    const pglite = await createTestPglite();
+    try {
+      await pglite.exec(`CREATE TABLE automation_runs (
+        id TEXT PRIMARY KEY, status TEXT NOT NULL, run_id TEXT, thread_id TEXT,
+        finished_at BIGINT, error TEXT, error_code TEXT, claimed_at BIGINT,
+        failure_alert_state TEXT, failure_alert_next_attempt_at BIGINT,
+        failure_alert_claimed_at BIGINT
+      )`);
+      await pglite.query(`INSERT INTO automation_runs (id,status,run_id)
+        VALUES ('run-1','running','old-worker')`);
+      expect((await pglite.query(attach.sql, attach.args)).rowCount).toBe(1);
+      expect((await pglite.query(settle.sql, settle.args)).rowCount).toBe(0);
+      expect(
+        (
+          await pglite.query(
+            `SELECT status, run_id, finished_at FROM automation_runs`,
+          )
+        ).rows,
+      ).toEqual([
+        { status: "running", run_id: "successor", finished_at: null },
+      ]);
+      await pglite.query(`UPDATE automation_runs SET run_id = 'old-worker'`);
+      expect((await pglite.query(settle.sql, settle.args)).rowCount).toBe(1);
+      expect((await pglite.query(attach.sql, attach.args)).rowCount).toBe(0);
+    } finally {
+      await pglite.close();
+    }
+  });
+
+  it("rejects a guarded terminal retry for a different worker even with the same status", async () => {
+    executeMock.mockImplementation(async (input: DbExecStatement) =>
+      input.sql.startsWith("SELECT")
+        ? {
+            rows: [
+              row({
+                run_id: "successor",
+                status: "error",
+                finished_at: Date.now(),
+              }),
+            ],
+          }
+        : { rows: [], rowsAffected: 0 },
+    );
+    await expect(
+      finishAutomationRun("run-1", "error", "stale", undefined, {
+        requirePersisted: true,
+        expectedRunId: "old-worker",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "background_automation_history_write_failed",
+    });
+    expect(emitMock).not.toHaveBeenCalled();
+  });
+
   it("filters run history to the requesting app while keeping legacy rows", async () => {
     await listAutomationRuns({
       owners: ["alice@example.com"],

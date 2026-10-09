@@ -217,7 +217,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
         "skipped",
         expect.stringContaining("disabled"),
         undefined,
-        { requirePersisted: true },
+        { requirePersisted: true, expectedRunId: fixture.history.runId },
       );
       expect(runAgentLoopMock).not.toHaveBeenCalled();
       const stored = parseJobResource(resourcePutMock.mock.calls.at(-1)?.[2]);
@@ -628,7 +628,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
         "error",
         expect.stringContaining("Delivery outcome is unknown"),
         "tool_call_journal_unreadable",
-        { requirePersisted: true },
+        { requirePersisted: true, expectedRunId: fixture.history.runId },
       );
       expect(
         parseJobResource(resourcePutMock.mock.calls.at(-1)?.[2]).meta,
@@ -662,7 +662,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
         "error",
         expect.stringContaining("Delivery outcome is unknown"),
         "automation_no_op_evidence_unreadable",
-        { requirePersisted: true },
+        { requirePersisted: true, expectedRunId: fixture.history.runId },
       );
       expect(
         parseJobResource(resourcePutMock.mock.calls.at(-1)?.[2]).meta,
@@ -1249,6 +1249,38 @@ describe("stale automation run-lock recovery across trigger types", () => {
       fixture.restore();
     }
   });
+
+  it.each(["lost", "unavailable"])(
+    "does not settle an inspected firing after lease renewal is %s",
+    async (problem) => {
+      const fixture = interruptedScheduledJob(4);
+      const finish = vi
+        .spyOn(runHistory, "finishAutomationRun")
+        .mockResolvedValue();
+      const renewal = vi.spyOn(
+        schedulerHealth,
+        "renewAutomationSchedulerLease",
+      );
+      vi.mocked(runStore.getCurrentTurnEventsForThread).mockImplementationOnce(
+        async () => {
+          if (problem === "lost") renewal.mockResolvedValue(false);
+          else
+            renewal.mockRejectedValue(new Error("lease database unavailable"));
+          return [];
+        },
+      );
+      try {
+        await processRecurringJobs(recoveryDeps);
+        expect(finish).not.toHaveBeenCalled();
+        expect(resourcePutMock).not.toHaveBeenCalled();
+        expect(runAgentLoopMock).not.toHaveBeenCalled();
+      } finally {
+        renewal.mockRestore();
+        finish.mockRestore();
+        fixture.restore();
+      }
+    },
+  );
 
   it("counts exhausted recovery as one failed firing and applies runtime backoff", async () => {
     const fixture = interruptedScheduledJob(4);
