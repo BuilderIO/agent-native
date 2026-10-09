@@ -44,6 +44,18 @@ function clampRange(
   return { from: a, to: b };
 }
 
+function sameTextAt(
+  before: ProseMirrorNode,
+  after: ProseMirrorNode,
+  range: CommentHighlightSpec,
+): boolean {
+  return (
+    range.to <= after.content.size &&
+    after.textBetween(range.from, range.to, "\n") ===
+      before.textBetween(range.from, range.to, "\n")
+  );
+}
+
 function buildDecorations(
   doc: ProseMirrorNode,
   specs: CommentHighlightSpec[],
@@ -93,7 +105,7 @@ export function createCommentHighlightPlugin() {
         hoveredId: null,
         decorations: DecorationSet.empty,
       }),
-      apply(tr, value, _oldState, newState) {
+      apply(tr, value, oldState, newState) {
         const meta = tr.getMeta(commentHighlightKey) as
           | CommentHighlightMeta
           | undefined;
@@ -109,13 +121,14 @@ export function createCommentHighlightPlugin() {
           if (meta.activeId !== undefined) activeId = meta.activeId;
           if (meta.hoveredId !== undefined) hoveredId = meta.hoveredId;
         } else if (tr.docChanged) {
-          specs = specs
-            .map((s) => ({
-              threadId: s.threadId,
-              from: tr.mapping.map(s.from, 1),
-              to: tr.mapping.map(s.to, -1),
-            }))
-            .filter((s) => s.to > s.from);
+          specs = specs.flatMap((s) => {
+            const from = tr.mapping.map(s.from, 1);
+            const to = tr.mapping.map(s.to, -1);
+            if (to > from) return [{ threadId: s.threadId, from, to }];
+            // Swapping in an identical document, as a collaborative reconcile
+            // or a decision readback does, collapses every range inside it.
+            return sameTextAt(oldState.doc, newState.doc, s) ? [s] : [];
+          });
           if (pending) {
             const from = tr.mapping.map(pending.from, 1);
             const to = tr.mapping.map(pending.to, -1);

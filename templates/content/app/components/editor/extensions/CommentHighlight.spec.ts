@@ -78,4 +78,30 @@ describe("CommentHighlight", () => {
       hovered: "comment-highlight",
     });
   });
+
+  it("survives an identical document swap but not deletion of its text", () => {
+    let state = EditorState.create({
+      doc: doc("alpha beta"),
+      plugins: [createCommentHighlightPlugin()],
+    });
+    state = state.apply(
+      state.tr.setMeta(commentHighlightKey, {
+        specs: [{ threadId: "t1", from: 7, to: 11 }],
+      }),
+    );
+
+    const swapped = state.apply(
+      state.tr.replaceWith(
+        0,
+        state.doc.content.size,
+        doc("alpha beta").content,
+      ),
+    );
+    expect(commentHighlightKey.getState(swapped)!.specs).toEqual([
+      { threadId: "t1", from: 7, to: 11 },
+    ]);
+
+    const deleted = state.apply(state.tr.delete(6, 11));
+    expect(commentHighlightKey.getState(deleted)!.specs).toEqual([]);
+  });
 });
