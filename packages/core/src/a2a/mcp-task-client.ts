@@ -61,6 +61,9 @@ export function createMcpAgentTaskClient(
       options?.deadlineMs == null ? Infinity : options.deadlineMs - Date.now(),
     );
     if (timeoutMs <= 0) throw new Error("A2A request timeout");
+    // Once submission starts, return its durable handle even if dispatch takes
+    // longer than the request budget; abandoning it can cause duplicate work.
+    if (method === "message/send") return invokeUnbounded(method, params);
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([

@@ -446,23 +446,80 @@ describe("handleJsonRpc", () => {
     ).rejects.toMatchObject({ errorCode: "service_principal_inactive" });
   });
 
-  it("bounds local durable submission while its dispatch is still pending", async () => {
+  it("returns the durable handle when local dispatch exceeds the request budget", async () => {
     vi.useFakeTimers();
     const { createMcpAgentTaskClient } = await import("./mcp-task-client.js");
     const client = createMcpAgentTaskClient(customHandler, mockEvent());
-    vi.mocked(fetch).mockImplementationOnce(() => new Promise(() => {}));
+    let finishDispatch!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishDispatch = resolve;
+        }),
+    );
+    const options = {
+      async: true,
+      deadlineMs: Date.now() + 100,
+      idempotencyKey: "local-delayed-dispatch",
+    };
+    const message = {
+      role: "user" as const,
+      parts: [{ type: "text" as const, text: "read only" }],
+    };
     const pending = runWithRequestContext(
       { userEmail: "alice@example.test", orgId: "org-1" },
-      () =>
-        client.send(
-          { role: "user", parts: [{ type: "text", text: "read only" }] },
-          { async: true, deadlineMs: Date.now() + 100 },
-        ),
+      () => client.send(message, options),
+    );
+    const settled = vi.fn();
+    void pending.then(settled);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(settled).not.toHaveBeenCalled();
+    finishDispatch(new Response("ok"));
+    const task = await pending;
+    const recovered = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-1" },
+      () => client.getTask(task.id),
+    );
+    expect(recovered.id).toBe(task.id);
+    const retry = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-1" },
+      () => client.send(message, { ...options, deadlineMs: Date.now() + 100 }),
+    );
+    expect(retry.id).toBe(task.id);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("rejects an expired local submission before creating or dispatching work", async () => {
+    const { createMcpAgentTaskClient } = await import("./mcp-task-client.js");
+    const client = createMcpAgentTaskClient(customHandler, mockEvent());
+    await expect(
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        () =>
+          client.send(
+            { role: "user", parts: [{ type: "text", text: "read only" }] },
+            { deadlineMs: Date.now() - 1 },
+          ),
+      ),
+    ).rejects.toThrow("timeout");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(evaluateServicePrincipalMock).not.toHaveBeenCalled();
+  });
+
+  it("bounds local status reads while admission is still pending", async () => {
+    vi.useFakeTimers();
+    const { createMcpAgentTaskClient } = await import("./mcp-task-client.js");
+    evaluateServicePrincipalMock.mockImplementationOnce(
+      () => new Promise(() => {}),
+    );
+    const client = createMcpAgentTaskClient(customHandler, mockEvent());
+    const pending = runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-1" },
+      () => client.getTask("task-1", { requestTimeoutMs: 100 }),
     );
     const assertion = expect(pending).rejects.toThrow("timeout");
     await vi.advanceTimersByTimeAsync(100);
     await assertion;
-    await vi.advanceTimersByTimeAsync(200);
   });
 
   it("rejects invalid JSON-RPC requests", async () => {
