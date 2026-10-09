@@ -659,6 +659,7 @@ export async function runBackgroundAutomation(
     });
     await recordRunOutcome(
       historyId,
+      runIdRef.current,
       "error",
       transition.pause
         ? pausedMessage(
@@ -682,6 +683,7 @@ export async function runBackgroundAutomation(
   }
   await recordRunOutcome(
     historyId,
+    runIdRef.current,
     result.status,
     result.status === "skipped" ? result.reason : undefined,
     undefined,
@@ -821,6 +823,7 @@ async function persistBackgroundAutomationTurn(input: {
 
 async function recordRunOutcome(
   historyId: string | null,
+  expectedRunId: string | null,
   status: "success" | "error" | "skipped",
   error?: string,
   errorCode?: string,
@@ -834,7 +837,7 @@ async function recordRunOutcome(
         ? undefined
         : {
             notify,
-            ...(strict ? { requirePersisted: true } : {}),
+            ...(strict ? { requirePersisted: true, expectedRunId } : {}),
           };
     await finishAutomationRun(
       historyId,

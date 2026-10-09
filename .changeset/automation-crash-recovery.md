@@ -50,3 +50,5 @@ Keep start and completion journal events bound to the same pre-invocation argume
 Honor explicit successful tool outcomes during replay classification without interpreting arbitrary result text as a legacy failure marker.
 
 Fence recovery settlement by the scheduler lease and inspected worker identity, and atomically reject successors whose firing was settled or reassigned before admission.
+
+Apply worker-identity fences to every runner outcome and permanent recovery rejection, and revalidate scheduler ownership immediately before projecting terminal status.

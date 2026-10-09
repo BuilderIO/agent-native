@@ -1000,6 +1000,89 @@ describe("stale automation run-lock recovery across trigger types", () => {
     },
   );
 
+  it.each([
+    ["preflight", "lease lost"],
+    ["dispatch", "lease lost"],
+    ["preflight", "worker changed"],
+    ["dispatch", "worker changed"],
+  ])(
+    "fences rejected recovery at %s when %s during its evidence read",
+    async (stage, race) => {
+      const fixture = interruptedScheduledJob();
+      const identity = vi.spyOn(
+        automationRunner,
+        "resolveBackgroundAutomationIdentity",
+      );
+      if (stage === "dispatch")
+        identity.mockResolvedValueOnce({
+          ok: true,
+          identity: { userEmail: fixture.resource.owner },
+        } as any);
+      identity.mockResolvedValueOnce({
+        ok: false,
+        code: "owner_missing",
+        reason: "Owner removed",
+      });
+      const renewal = vi.spyOn(
+        schedulerHealth,
+        "renewAutomationSchedulerLease",
+      );
+      vi.mocked(runStore.getCurrentTurnEventsForThread)
+        .mockResolvedValueOnce([])
+        .mockImplementationOnce(async () => {
+          if (race === "lease lost") renewal.mockResolvedValue(false);
+          else fixture.history.runId = "live-successor";
+          return [];
+        });
+      const finish = vi
+        .spyOn(runHistory, "finishAutomationRun")
+        .mockRejectedValue(
+          new runHistory.AutomationRunHistoryWriteError(fixture.history.id),
+        );
+      try {
+        await processRecurringJobs(recoveryDeps);
+        if (race === "lease lost") expect(finish).not.toHaveBeenCalled();
+        else
+          expect(finish).toHaveBeenCalledWith(
+            fixture.history.id,
+            "error",
+            expect.any(String),
+            "owner_missing",
+            { requirePersisted: true, expectedRunId: "killed-worker" },
+          );
+        expect(resourcePutMock).not.toHaveBeenCalled();
+        expect(runAgentLoopMock).not.toHaveBeenCalled();
+      } finally {
+        identity.mockRestore();
+        renewal.mockRestore();
+        finish.mockRestore();
+        fixture.restore();
+      }
+    },
+  );
+
+  it("retains the running marker when lease loss occurs during the outcome resource read", async () => {
+    const fixture = interruptedScheduledJob(4);
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue();
+    const renewal = vi.spyOn(schedulerHealth, "renewAutomationSchedulerLease");
+    resourceGetByPathMock.mockImplementationOnce(async () => {
+      renewal.mockResolvedValue(false);
+      return fixture.resource;
+    });
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(finish).toHaveBeenCalledOnce();
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+    } finally {
+      finish.mockRestore();
+      renewal.mockRestore();
+      fixture.restore();
+    }
+  });
+
   it.each(["preflight", "dispatch"])(
     "settles rejected recovery with confirmed delivery at %s",
     async (stage) => {
@@ -1029,7 +1112,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
           "error",
           expect.stringContaining("send-test-email"),
           "owner_missing",
-          { requirePersisted: true },
+          { requirePersisted: true, expectedRunId: "killed-worker" },
         );
         const meta = parseJobResource(
           resourcePutMock.mock.calls.at(-1)![2],

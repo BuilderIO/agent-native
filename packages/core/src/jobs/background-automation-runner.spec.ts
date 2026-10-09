@@ -2100,7 +2100,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
     }
   });
 
-  it.each(["reassigned", "settled"])(
+  it.each(["reassigned", "settled", "pre-claim failure"])(
     "does not start or finish a successor after its firing history is %s",
     async (state) => {
       const runStore = await import("../agent/run-store.js");
@@ -2135,6 +2135,8 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
       const journal = vi
         .spyOn(runStore, "getCurrentTurnRunEventsForThread")
         .mockImplementationOnce(async () => {
+          if (state === "pre-claim failure")
+            throw new Error("journal database temporarily unavailable");
           if (state === "reassigned")
             await history.attachAutomationRunThread(
               historyId,
@@ -2158,6 +2160,26 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
           });
           return { claimed: true, activeRunId: null };
         });
+      const turnRef = vi.spyOn(runStore, "getRunTurnRef");
+      const evidence = vi.spyOn(runStore, "getCurrentTurnEventsForThread");
+      if (state === "pre-claim failure") {
+        turnRef.mockResolvedValueOnce({ threadId, turnId });
+        evidence.mockImplementationOnce(async () => {
+          await history.attachAutomationRunThread(
+            historyId,
+            threadId,
+            "live-successor",
+          );
+          return [
+            {
+              type: "tool_done",
+              tool: "send-test-email",
+              result: "Sent",
+              completedSideEffect: true,
+            },
+          ];
+        });
+      }
       const finish = vi.spyOn(history, "finishAutomationRun");
       vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
       try {
@@ -2176,13 +2198,16 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
             standardDeps,
           ),
         ).rejects.toMatchObject({
-          errorCode: "background_automation_claim_lost",
+          errorCode:
+            state === "pre-claim failure"
+              ? "background_automation_history_write_failed"
+              : "background_automation_claim_lost",
         });
         expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
-        expect(finish).toHaveBeenCalledTimes(state === "settled" ? 1 : 0);
+        expect(finish).toHaveBeenCalledTimes(state === "reassigned" ? 0 : 1);
         expect(await history.getAutomationRun(historyId)).toMatchObject({
-          runId: state === "reassigned" ? "live-successor" : "prior",
-          status: state === "reassigned" ? "running" : "error",
+          runId: state === "settled" ? "prior" : "live-successor",
+          status: state === "settled" ? "error" : "running",
         });
         const workers = await pglite.query(
           `SELECT id FROM agent_runs WHERE turn_id = $1`,
@@ -2190,6 +2215,8 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
         );
         expect(workers.rows).toEqual([]);
       } finally {
+        turnRef.mockRestore();
+        evidence.mockRestore();
         journal.mockRestore();
         claim.mockRestore();
         finish.mockRestore();
@@ -2308,7 +2335,12 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
         "success",
         undefined,
         undefined,
-        { notify: true, requirePersisted: true },
+        {
+          notify: true,
+          requirePersisted: true,
+          expectedRunId: vi.mocked(runAgentLoopDirectWithSoftTimeout).mock
+            .calls[0]![0].runId,
+        },
       );
     } finally {
       journal.mockRestore();

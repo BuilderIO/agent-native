@@ -393,7 +393,6 @@ async function processRecurringJobsWithLease(
                     : {}),
                 },
               );
-            await assertCanStart();
             await recordExecutionOutcome(
               resource,
               {
@@ -422,6 +421,7 @@ async function processRecurringJobsWithLease(
                       : {}),
                   }
                 : undefined,
+              assertCanStart,
             );
             continue;
           }
@@ -537,6 +537,7 @@ async function processRecurringJobsWithLease(
                 message: identity.reason,
                 precondition: true,
               },
+              assertCanStart,
             );
             continue;
           }
@@ -576,6 +577,7 @@ async function processRecurringJobsWithLease(
                 message: reservedIdentityMessage(identity.identity.userEmail),
                 precondition: true,
               },
+              assertCanStart,
             );
             continue;
           }
@@ -756,6 +758,7 @@ async function rejectAutomationRecovery(
   resume: AutomationResume,
   now: Date,
   failure: AutomationFailure,
+  assertCanWrite?: () => Promise<void>,
 ): Promise<JobExecutionResult> {
   if (!isPermanentIdentityFailure(failure.code))
     throw new Error(failure.message);
@@ -768,8 +771,10 @@ async function rejectAutomationRecovery(
     deliveryNote: deliveryNoteForEvents(events),
   };
   const error = withDeliveryNote(failure.message, recordedFailure.deliveryNote);
+  await assertCanWrite?.();
   await finishAutomationRun(resume.historyId, "error", error, failure.code, {
     requirePersisted: true,
+    expectedRunId: resume.previousRunId,
   });
   await recordExecutionOutcome(
     resource,
@@ -788,6 +793,7 @@ async function rejectAutomationRecovery(
       pauseImmediately: !meta.lastRunManual,
       eventId: resume.historyId,
     },
+    assertCanWrite,
   );
   return { status: "error", error };
 }
@@ -1121,11 +1127,18 @@ async function executeJob(
   // investigation.
   if (!identity.ok) {
     if (options.resume)
-      return rejectAutomationRecovery(resource, meta, options.resume, now, {
-        code: identity.code ?? "owner_unverifiable",
-        message: identity.reason,
-        precondition: true,
-      });
+      return rejectAutomationRecovery(
+        resource,
+        meta,
+        options.resume,
+        now,
+        {
+          code: identity.code ?? "owner_unverifiable",
+          message: identity.reason,
+          precondition: true,
+        },
+        options.assertCanStart,
+      );
     return recordIdentityFailure(
       resource,
       meta,
@@ -1140,11 +1153,18 @@ async function executeJob(
   const jobUserEmail = identity.identity.userEmail;
   const jobOrgId = identity.identity.orgId;
   if (options.resume && isReservedIdentityBlocked(jobUserEmail))
-    return rejectAutomationRecovery(resource, meta, options.resume, now, {
-      code: OWNER_RESERVED_ERROR_CODE,
-      message: reservedIdentityMessage(jobUserEmail),
-      precondition: true,
-    });
+    return rejectAutomationRecovery(
+      resource,
+      meta,
+      options.resume,
+      now,
+      {
+        code: OWNER_RESERVED_ERROR_CODE,
+        message: reservedIdentityMessage(jobUserEmail),
+        precondition: true,
+      },
+      options.assertCanStart,
+    );
 
   if (
     options.manual &&
@@ -1376,14 +1396,19 @@ async function executeJob(
       deps,
     );
 
-    await recordExecutionOutcome(resource, {
-      lastRun: meta.lastRun,
-      lastStatus: result.status,
-      lastError: result.status === "skipped" ? result.reason : undefined,
-      advanceSchedule: options.advanceSchedule,
-      expectedLastRun: meta.lastRun,
-      expectedHistoryId: meta.lastHistoryId,
-    });
+    await recordExecutionOutcome(
+      resource,
+      {
+        lastRun: meta.lastRun,
+        lastStatus: result.status,
+        lastError: result.status === "skipped" ? result.reason : undefined,
+        advanceSchedule: options.advanceSchedule,
+        expectedLastRun: meta.lastRun,
+        expectedHistoryId: meta.lastHistoryId,
+      },
+      undefined,
+      options.assertCanStart,
+    );
     console.log(`[recurring-jobs] Job "${jobName}" ${result.status}.`);
     return {
       status: result.status,
@@ -1412,6 +1437,7 @@ async function executeJob(
         expectedHistoryId: meta.lastHistoryId,
       },
       { failure, countTowardPause: !options.manual, eventId: historyId },
+      options.assertCanStart,
     );
     console.error(
       `[recurring-jobs] Job "${jobName}" failed (${failure.code}):`,
@@ -1540,6 +1566,7 @@ async function recordExecutionOutcome(
   resource: Resource,
   outcome: ExecutionOutcome,
   failed?: ExecutionFailure,
+  assertCanWrite?: () => Promise<void>,
 ): Promise<void> {
   const latest = await resourceGetByPath(resource.owner, resource.path);
   if (!latest) {
@@ -1624,6 +1651,7 @@ async function recordExecutionOutcome(
       ).toISOString();
     }
   }
+  await assertCanWrite?.();
   if (!(await updateResource(latest, meta, current.body, extra))) {
     console.log(
       `[recurring-jobs] "${resource.path}" changed while its outcome was being recorded; dropping the outcome.`,
