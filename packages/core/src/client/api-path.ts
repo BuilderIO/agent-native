@@ -156,12 +156,10 @@ function hasExplicitWorkspaceRootPath(): boolean {
   if (typeof window === "undefined") return false;
   const config = window as Window & {
     __AGENT_NATIVE_CONFIG__?: { workspaceAppPath?: unknown };
-    __reactRouterContext?: { basename?: unknown };
   };
   const env = clientEnv();
   return (
     isDeclaredRootPath(config.__AGENT_NATIVE_CONFIG__?.workspaceAppPath) ||
-    isDeclaredRootPath(config.__reactRouterContext?.basename) ||
     isDeclaredRootPath(env?.VITE_APP_BASE_PATH ?? env?.APP_BASE_PATH)
   );
 }

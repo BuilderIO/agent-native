@@ -180,14 +180,33 @@ describe("appMountPath", () => {
     expect(appBasePath()).toBe("");
   });
 
-  it("preserves a root router basename before the router is mounted", () => {
+  it("preserves the default root router basename without mount metadata", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    const context = { basename: "/" };
     vi.stubGlobal("window", {
-      location: { pathname: "/settings/model" },
-      __reactRouterContext: { basename: "/" },
+      location: { pathname: "/dispatch/home" },
+      __reactRouterContext: context,
     });
 
-    expect(appBasePath()).toBe("");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(configureClientRouterBasename()).toBe(false);
+    expect(context.basename).toBe("/");
+    expect(error).toHaveBeenCalledOnce();
+  });
+
+  it("matches the current workspace mount when the router basename defaults to root", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    const context = { basename: "/" };
+    vi.stubGlobal("window", {
+      location: { pathname: "/dispatch/home" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppMountPaths: ["/dispatch"] },
+      __reactRouterContext: context,
+    });
+
+    expect(appBasePath()).toBe("/dispatch");
+    expect(configureClientRouterBasename()).toBe(true);
+    expect(context.basename).toBe("/dispatch");
   });
 
   it("keeps an explicit root mount above matching sibling mounts", () => {
