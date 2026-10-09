@@ -5,6 +5,7 @@ import {
   getAgentEngineReadiness,
   subscribeAgentEngineReadiness,
   type AgentEngineConfiguredState,
+  type AgentEngineReadinessSource,
 } from "./agent-engine-readiness.js";
 
 export {
@@ -24,6 +25,7 @@ export interface UseAgentEngineConfiguredResult {
 export interface UseAgentEngineConfiguredOptions {
   tabId?: string | null;
   threadId?: string | null;
+  source?: AgentEngineReadinessSource;
 }
 
 const RETRY_BASE_MS = 2000;
@@ -68,14 +70,14 @@ export function useAgentEngineConfigured(
 
     const check = async () => {
       const nextState = enabled
-        ? await ensureAgentEngineReadiness()
+        ? await ensureAgentEngineReadiness({ source: options?.source })
         : "configured";
       applyState(nextState);
     };
 
     const unsubscribe = subscribeAgentEngineReadiness(
       () => {
-        applyState(getAgentEngineReadiness());
+        applyState(getAgentEngineReadiness(options?.source));
       },
       { enabled, ...options },
     );
@@ -95,9 +97,11 @@ export function useAgentEngineConfigured(
       if (retryTimer !== undefined) clearTimeout(retryTimer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [enabled, options?.tabId, options?.threadId]);
+  }, [enabled, options?.source, options?.tabId, options?.threadId]);
 
-  const effectiveState = enabled ? getAgentEngineReadiness() : "configured";
+  const effectiveState = enabled
+    ? getAgentEngineReadiness(options?.source)
+    : "configured";
   return {
     canChat: enabled && effectiveState === "configured",
     missing: enabled && effectiveState === "missing",

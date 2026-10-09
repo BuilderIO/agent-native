@@ -648,6 +648,7 @@ describe("createAgentNativeChatRuntime", () => {
 
   afterEach(() => {
     resetAgentEngineReadinessForTests();
+    vi.useRealTimers();
   });
 
   it("keeps the original request context when a run-timeout stream closes without done", async () => {
@@ -857,6 +858,35 @@ describe("createAgentNativeChatRuntime", () => {
       expect.stringContaining("/_agent-native/agent-engine/status"),
       apiUrl,
     ]);
+  });
+
+  it("keeps asynchronous auth headers inside the runtime readiness deadline", async () => {
+    vi.useFakeTimers();
+    let resolveHeaders!: (value: HeadersInit) => void;
+    const pendingHeaders = new Promise<HeadersInit>((resolve) => {
+      resolveHeaders = resolve;
+    });
+    const headers = vi.fn(() => pendingHeaders);
+    const fetchMock = vi.fn(async () => sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntimeImpl({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-readiness-headers-timeout",
+      headers,
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    const turn = session.startTurn({ prompt: "Wait for auth headers" });
+    const blockedTurn = expect(turn).rejects.toMatchObject({
+      name: AgentChatAiSetupRequiredError.name,
+      state: "unavailable",
+    });
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    await blockedTurn;
+
+    expect(headers).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
+    resolveHeaders({ Authorization: "Bearer test" });
   });
 
   it("blocks a new turn when the readiness route returns 503", async () => {

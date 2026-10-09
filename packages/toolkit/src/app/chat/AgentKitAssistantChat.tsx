@@ -50,6 +50,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { dispatchAgentChatRunning } from "@agent-native/core/client/agent-chat";
 import {
+  agentEngineStatusUrlForChatApi,
   isLocalRuntimeEngine,
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
@@ -1344,9 +1345,19 @@ const AgentKitAssistantChatBody = forwardRef<
   const resumedAfterSetupRef = useRef(new Set<string>());
   const t = useT();
   const providerChecksEnabled = !isLocalRuntimeEngine(props.selectedEngine);
+  const readinessSource = useMemo(
+    () => ({
+      statusUrl: agentEngineStatusUrlForChatApi(
+        props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
+      ),
+      credentials: "include" as const,
+    }),
+    [props.apiUrl],
+  );
   const readiness = useAgentEngineConfigured(providerChecksEnabled, {
     tabId: props.tabId,
     threadId,
+    source: readinessSource,
   });
   const modelCatalogPending =
     props.showModelSelector !== false && props.modelListLoading === true;

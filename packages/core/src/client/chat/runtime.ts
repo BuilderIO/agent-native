@@ -4084,17 +4084,17 @@ export function createAgentNativeChatRuntime(
         ) !== undefined;
       if (isAdmittedContinuation) return;
       const candidateEngine = metadata?.engine ?? options.engine;
-      const readinessHeaders = await resolveHeaders(options.headers, {
-        sessionId: session.id,
-        turnId,
-      });
       return requireAgentEngineConfiguredForDispatch({
         engine:
           typeof candidateEngine === "string" ? candidateEngine : undefined,
         source: {
           statusUrl: agentEngineStatusUrlForChatApi(apiUrl),
           fetch: fetchImpl,
-          headers: readinessHeaders,
+          headers: () =>
+            resolveHeaders(options.headers, {
+              sessionId: session.id,
+              turnId,
+            }),
         },
       });
     },

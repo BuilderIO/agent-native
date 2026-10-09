@@ -13,6 +13,7 @@ import {
   requireAgentEngineConfiguredForDispatch,
   resetAgentEngineReadinessForTests,
   subscribeAgentEngineReadiness,
+  type AgentEngineReadinessSource,
 } from "./agent-engine-readiness.js";
 import { agentNativePath } from "./api-path.js";
 import {
@@ -51,6 +52,15 @@ function ScopedProbe({
   threadId?: string;
 }) {
   const status = useAgentEngineConfigured(true, { tabId, threadId });
+  return <output>{status.state}</output>;
+}
+
+function ReadinessSourceProbe({
+  source,
+}: {
+  source: AgentEngineReadinessSource;
+}) {
+  const status = useAgentEngineConfigured(true, { source });
   return <output>{status.state}</output>;
 }
 
@@ -478,6 +488,29 @@ describe("useAgentEngineConfigured", () => {
     });
     expect(container.querySelector("output")?.dataset.canChat).toBe("true");
     expect(fetch).toHaveBeenCalled();
+  });
+
+  it("uses the supplied transport source for the composer readiness check", async () => {
+    const fetch = vi.fn(async () =>
+      jsonResponse({ configured: true, chatEligible: true }),
+    );
+    const source: AgentEngineReadinessSource = {
+      statusUrl:
+        "https://clips.example.test/_agent-native/agent-engine/status",
+      fetch: fetch as typeof globalThis.fetch,
+      credentials: "include",
+    };
+
+    await act(async () => {
+      root.render(<ReadinessSourceProbe source={source} />);
+    });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+
+    expect(container.textContent).toBe("configured");
+    expect(fetch).toHaveBeenCalledWith(
+      source.statusUrl,
+      expect.objectContaining({ credentials: "include" }),
+    );
   });
 
   it("returns missing immediately from the shared status fetch helper", async () => {
@@ -920,6 +953,61 @@ describe("useAgentEngineConfigured", () => {
 
     await expect(replacementProbe).resolves.toBe("configured");
     await expect(pendingSend).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a later caller's longer deadline when an invalidated probe is replaced", async () => {
+    vi.useFakeTimers();
+    let resolveOldProbe!: (response: Response) => void;
+    let resolveReplacementProbe!: (response: Response) => void;
+    const fetch = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveOldProbe = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveReplacementProbe = resolve;
+          }),
+      );
+    const source = {
+      statusUrl:
+        "https://caller-deadline.example.test/_agent-native/agent-engine/status",
+      fetch: fetch as typeof globalThis.fetch,
+    };
+    const shortCaller = ensureAgentEngineReadiness({
+      source,
+      fresh: true,
+      timeoutMs: 25,
+    });
+    const longCaller = ensureAgentEngineReadiness({
+      source,
+      fresh: true,
+      timeoutMs: 100,
+    });
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(10);
+    invalidateAgentEngineReadiness(source);
+    resolveOldProbe(jsonResponse({ configured: false, chatEligible: false }));
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+
+    let longCallerSettled = false;
+    void longCaller.then(() => {
+      longCallerSettled = true;
+    });
+    await vi.advanceTimersByTimeAsync(16);
+    await expect(shortCaller).resolves.toBe("unavailable");
+    expect(longCallerSettled).toBe(false);
+
+    resolveReplacementProbe(
+      jsonResponse({ configured: true, chatEligible: true }),
+    );
+    await expect(longCaller).resolves.toBe("configured");
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 

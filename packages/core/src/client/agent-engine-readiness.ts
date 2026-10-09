@@ -506,18 +506,9 @@ async function ensureStoreReadiness(
     .catch(() => "unavailable" as const)
     .then((nextState) => {
       if (requestRevision !== store.revision) {
-        const remainingTimeoutMs =
-          callerDeadline === undefined
-            ? undefined
-            : callerDeadline - Date.now();
-        if (remainingTimeoutMs !== undefined && remainingTimeoutMs <= 0) {
-          return "unavailable" as const;
-        }
+        if (store.inFlight === request) store.inFlight = null;
         return ensureStoreReadiness(store, {
           ...(fresh ? { fresh: true } : {}),
-          ...(remainingTimeoutMs === undefined
-            ? {}
-            : { timeoutMs: remainingTimeoutMs }),
         });
       }
       store.resolvedAt = Date.now();

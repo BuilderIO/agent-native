@@ -136,6 +136,8 @@ export {
   requireAgentEngineConfiguredForDispatch,
   subscribeAgentEngineReadiness,
   LOCAL_RUNTIME_ENGINE_IDS,
+  agentEngineStatusUrlForChatApi,
+  type AgentEngineReadinessSource,
 } from "../agent-engine-readiness.js";
 export {
   AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES,

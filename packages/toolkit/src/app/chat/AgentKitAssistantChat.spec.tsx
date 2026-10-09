@@ -75,6 +75,7 @@ const chatMocks = vi.hoisted(() => ({
   requestComposerFocus: vi.fn(),
   persistThreadSnapshot: vi.fn(async () => undefined),
   readiness: { canChat: true, missing: false, state: "configured" },
+  readinessOptions: null as unknown,
   fetchProviderState: vi.fn(async () => chatMocks.readiness.state),
   fileUploadStatus: {
     data: { configured: true },
@@ -549,7 +550,10 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
     },
     ExternalAgentNudge: () => null,
     useDevMode: () => ({ isDevMode: true }),
-    useAgentEngineConfigured: () => chatMocks.readiness,
+    useAgentEngineConfigured: (_enabled: boolean, options?: unknown) => {
+      chatMocks.readinessOptions = options;
+      return chatMocks.readiness;
+    },
     fetchAgentEngineConfiguredState: chatMocks.fetchProviderState,
     isLocalRuntimeEngine: (engine?: string) =>
       ["codex-cli", "claude-cli", "pi-cli", "opencode-cli"].includes(
@@ -822,6 +826,7 @@ beforeEach(() => {
   chatMocks.failureCopies = 1;
   chatMocks.failureRunIds = ["run-1"];
   chatMocks.connectionError = null;
+  chatMocks.readinessOptions = null;
   chatMocks.setupCardProps = null;
   chatMocks.setupCardPropsHistory = [];
   chatMocks.providerGateProps = null;
@@ -892,6 +897,20 @@ describe("AgentKitAssistantChat host behavior", () => {
     await mount(baseProps());
 
     expect(chatMocks.rootProps.slots.widget).toBe(AgentKitActionWidget);
+  });
+
+  it("checks readiness on the configured chat API server", async () => {
+    await mount(
+      baseProps({ apiUrl: "https://clips.example.test/_agent-native/agent-chat" }),
+    );
+
+    expect(chatMocks.readinessOptions).toMatchObject({
+      source: {
+        statusUrl:
+          "https://clips.example.test/_agent-native/agent-engine/status",
+        credentials: "include",
+      },
+    });
   });
 
   it("asks for a title on the engine and model the first prompt was sent with", async () => {
