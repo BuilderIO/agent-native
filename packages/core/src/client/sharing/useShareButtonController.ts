@@ -150,6 +150,8 @@ export function useShareButtonController(
   } = useShareQuery<ShareButtonSharesResponse>(
     options.resourceType,
     options.resourceId,
+    open,
+    0,
   );
   const { setVisibility, share, unshare } = useShareMutations();
   const visibilityGuard = useShareMutationGuard();
@@ -168,10 +170,9 @@ export function useShareButtonController(
       if (nextOpen) {
         setActiveShareTab(shareTabDefaultValue);
         options.shareTabs?.onValueChange?.(shareTabDefaultValue);
-        if (visibilityOverride === null) void sharesQuery.refetch();
       }
     },
-    [options, shareTabDefaultValue, sharesQuery, visibilityOverride],
+    [options, shareTabDefaultValue],
   );
 
   useEffect(() => {
