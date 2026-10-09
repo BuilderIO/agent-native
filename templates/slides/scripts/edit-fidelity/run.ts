@@ -1169,6 +1169,24 @@ async function runChatTypingRegression(page: Page, base: string) {
 
 async function runMobileImportStatusRegression(page: Page, base: string) {
   const problems: string[] = [];
+  const importedDeckId = "mobile-import-status-success";
+  const importedDeck = {
+    id: importedDeckId,
+    title: "Mobile import status regression",
+    createdAt: "2026-10-08T00:00:00.000Z",
+    updatedAt: "2026-10-08T00:00:00.000Z",
+    visibility: "private",
+    createdByMe: true,
+    aspectRatio: "16:9",
+    slides: [
+      {
+        id: "mobile-import-status-slide",
+        content: "<div>Imported slide</div>",
+        layout: "title",
+        notes: "",
+      },
+    ],
+  };
   const fixturePath = path.join(
     WORKTREE_ROOT,
     "packages/creative-context/src/eval/fixtures/launch-system-v1.pptx",
@@ -1204,7 +1222,34 @@ async function runMobileImportStatusRegression(page: Page, base: string) {
     resolveImportStarted = resolve;
   });
 
-  await page.setViewportSize({ width: 375, height: 812 });
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.route("**/_agent-native/actions/*", async (route: any) => {
+    const request = route.request();
+    if (request.method() !== "GET") return route.continue();
+    const actionPath = new URL(request.url()).pathname;
+    const body =
+      actionPath === "/_agent-native/actions/list-decks"
+        ? { count: 1, decks: [importedDeck] }
+        : actionPath === "/_agent-native/actions/get-deck"
+          ? importedDeck
+          : actionPath === "/_agent-native/actions/get-deck-access-status"
+            ? {
+                exists: true,
+                hasAccess: true,
+                signedIn: true,
+                viewerEmail: null,
+                viewerName: null,
+                role: "owner",
+                visibility: "private",
+              }
+            : null;
+    if (body === null) return route.continue();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+  });
   await page.route("**/api/uploads", async (route: any) => {
     if (route.request().method() !== "POST") return route.continue();
     uploadRequestSeen = true;
@@ -1239,7 +1284,11 @@ async function runMobileImportStatusRegression(page: Page, base: string) {
         await route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify({ id: "", imported: true, slideCount: 1 }),
+          body: JSON.stringify({
+            id: importedDeckId,
+            imported: true,
+            slideCount: 1,
+          }),
         });
       } finally {
         finishImportRoute();
@@ -1250,6 +1299,12 @@ async function runMobileImportStatusRegression(page: Page, base: string) {
   try {
     await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
     await ensureSignedIn(page);
+    if ((await page.getByRole("status").count()) === 0) {
+      problems.push(
+        "desktop import live region was missing from the accessibility tree",
+      );
+    }
+    await page.setViewportSize({ width: 375, height: 812 });
     const fileChooser = page.waitForEvent("filechooser");
     await page.getByRole("button", { name: "Import" }).click();
     await page.getByRole("menuitem", { name: "PPT" }).click();
@@ -1312,9 +1367,47 @@ async function runMobileImportStatusRegression(page: Page, base: string) {
       );
     }
 
+    const importResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/import-pptx") &&
+        response.request().method() === "POST",
+      { timeout: 10_000 },
+    );
     releaseImport();
     await importRouteFinished;
-    await status.waitFor({ state: "hidden", timeout: 10_000 });
+    const importResponse = await importResponsePromise;
+    if (!importResponse.ok()) {
+      problems.push("PowerPoint import action did not return success");
+    } else {
+      const result = await importResponse.json();
+      if (
+        result?.id !== importedDeckId ||
+        result?.imported !== true ||
+        result?.slideCount !== 1
+      ) {
+        problems.push(
+          "PowerPoint import action returned an invalid success result",
+        );
+      }
+    }
+    try {
+      await page.waitForURL(`**/deck/${importedDeckId}`, { timeout: 10_000 });
+    } catch {
+      problems.push("successful import did not open its new deck");
+    }
+    try {
+      await page.locator("[data-slides-editor-root]").waitFor({
+        state: "visible",
+        timeout: 10_000,
+      });
+    } catch {
+      problems.push(
+        "imported deck editor did not load after successful import",
+      );
+    }
+    if (await status.isVisible()) {
+      problems.push("mobile import status remained after successful import");
+    }
     return problems;
   } finally {
     releaseUpload();
@@ -1334,6 +1427,7 @@ async function runMobileImportStatusRegression(page: Page, base: string) {
       }
     }
     await page.unroute("**/_agent-native/actions/import-pptx");
+    await page.unroute("**/_agent-native/actions/*");
     await page.unroute("**/api/uploads");
   }
 }
@@ -6618,7 +6712,7 @@ async function main() {
         return 1;
       }
       console.log(
-        "[edit-fidelity] mobile PowerPoint import status stayed visible while pending and cleared when the upload finished",
+        "[edit-fidelity] mobile PowerPoint import status stayed visible while pending and cleared after successful import",
       );
       return 0;
     }

@@ -141,15 +141,14 @@ export function ImportDeckButton({
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-          {busy && (
-            <span
-              className="slides-home-import-status text-xs text-muted-foreground"
-              role="status"
-              aria-live="polite"
-            >
-              {t("editorToolbar.importing")}
-            </span>
-          )}
+          <span
+            className="slides-home-import-status sr-only text-xs text-muted-foreground"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {busy ? t("editorToolbar.importing") : ""}
+          </span>
         </div>
       </PopoverAnchor>
       <input

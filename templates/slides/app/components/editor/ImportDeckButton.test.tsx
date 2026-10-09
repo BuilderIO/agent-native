@@ -147,6 +147,7 @@ describe("toolbar deck import", () => {
         }),
     );
     render(<Harness onImport={onImport} />);
+    expect(screen.getByRole("status").textContent).toBe("");
     openMenu();
     fireEvent.click(await screen.findByRole("menuitem", { name: "PPT" }));
     selectFile(new File(["source"], "source.pptx"));
@@ -159,7 +160,9 @@ describe("toolbar deck import", () => {
     expect(screen.getByRole("status").textContent).toBe("Importing...");
 
     await act(async () => resolveImport(true));
-    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe(""),
+    );
   });
   it("opens object storage setup instead of the file picker when storage is missing", () => {
     storageStatus.configured = false;
