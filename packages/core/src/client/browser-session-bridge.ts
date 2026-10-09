@@ -91,6 +91,15 @@ class BrowserSessionRequestTimeoutError extends Error {
   }
 }
 
+class BrowserSessionRequestSerializationError extends Error {
+  constructor(error: unknown) {
+    super(
+      `Browser-session request body could not be serialized: ${messageError(error).message}`,
+    );
+    this.name = "BrowserSessionRequestSerializationError";
+  }
+}
+
 function messageError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -146,6 +155,16 @@ async function postJson(
   body: unknown,
   signal?: AbortSignal,
 ): Promise<any> {
+  let serializedBody: string;
+  try {
+    const serialized = JSON.stringify(body ?? {});
+    if (serialized === undefined) {
+      throw new Error("JSON.stringify did not return a request body");
+    }
+    serializedBody = serialized;
+  } catch (error) {
+    throw new BrowserSessionRequestSerializationError(error);
+  }
   const controller =
     typeof AbortController === "undefined" ? null : new AbortController();
   const abortFromSignal = () => controller?.abort();
@@ -170,7 +189,7 @@ async function postJson(
         "Content-Type": "application/json",
         "X-Agent-Native-CSRF": "1",
       },
-      body: JSON.stringify(body ?? {}),
+      body: serializedBody,
       ...(controller
         ? { signal: controller.signal }
         : signal
@@ -722,6 +741,25 @@ export function createAgentNativeBrowserSessionBridge(
           { ok: true, result },
         );
       } catch (error) {
+        if (error instanceof BrowserSessionRequestSerializationError) {
+          try {
+            await postJson(
+              options,
+              `/${encodePathSegment(sessionId)}/requests/${encodePathSegment(
+                request.id,
+              )}/complete`,
+              { ok: false, error: error.message },
+            );
+          } catch (completionError) {
+            const combinedError = new AggregateError(
+              [error, completionError],
+              `Browser-session request "${request.id}" failed and its failure could not be reported`,
+            );
+            requestPoll.onError(combinedError, { force: true });
+            throw combinedError;
+          }
+          return request;
+        }
         requestPoll.onError(error, { force: true });
         throw error;
       }

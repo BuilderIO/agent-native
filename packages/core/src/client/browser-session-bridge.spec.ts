@@ -284,6 +284,57 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     ]);
   });
 
+  it("reports action results that cannot be serialized", async () => {
+    const completionBodies: unknown[] = [];
+    const runAction = vi.fn(async () => ({ value: 1n }));
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/requests/claim")) {
+        return jsonResponse({
+          ok: true,
+          request: {
+            id: "req-serialization-failed",
+            sessionId: "tab-1",
+            type: "run-action",
+            name: "select-row",
+            args: {},
+            status: "claimed",
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 60_000,
+          },
+        });
+      }
+      if (url.endsWith("/requests/req-serialization-failed/complete")) {
+        completionBodies.push(JSON.parse(String(init?.body)));
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch ${init?.method} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      sessionId: "tab-1",
+      getContext: () => ({}),
+      actions: [
+        {
+          name: "select-row",
+          description: "Select a visible row",
+          schema: { type: "object" },
+          run: runAction,
+        },
+      ],
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    const claimed = await bridge.claimOnce();
+
+    expect(claimed).toMatchObject({ id: "req-serialization-failed" });
+    expect(runAction).toHaveBeenCalledOnce();
+    expect(completionBodies).toEqual([
+      {
+        ok: false,
+        error: expect.stringContaining("Do not know how to serialize a BigInt"),
+      },
+    ]);
+  });
+
   it.each(["timeout", "stop"])(
     "reports completion failures after a poll %s abort",
     async (abortMode) => {
