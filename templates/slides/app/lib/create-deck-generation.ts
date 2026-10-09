@@ -295,6 +295,7 @@ type CreateDeck = (
   options?: {
     noDefaultSlides?: boolean;
     designSystemId?: string | null;
+    creation?: { method: "generated" };
   },
 ) => Deck;
 
@@ -449,6 +450,7 @@ export async function startDeckGeneration({
     deck = createDeck(undefined, {
       noDefaultSlides: true,
       designSystemId,
+      creation: { method: "generated" },
     });
   });
   if (!deck) return "failed";
