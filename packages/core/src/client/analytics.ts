@@ -933,7 +933,13 @@ function parseAttribution<T>(raw: string | null): T | null {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return null;
     }
-    return parsed as T;
+    // Every field is a string; a corrupted non-string one would make source
+    // detection throw, so it is dropped like any unreadable value.
+    const touch: Record<string, string> = {};
+    for (const [field, value] of Object.entries(parsed)) {
+      if (typeof value === "string") touch[field] = value;
+    }
+    return touch as T;
   } catch {
     // coercion-ok: an unparseable value holds no touch; the caller tries the
     // next source.
