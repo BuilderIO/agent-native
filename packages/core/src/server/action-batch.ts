@@ -30,6 +30,10 @@ const ITEM_RESPONSE_HEADERS = [
   "x-agent-native-browser-persist",
 ] as const;
 
+// Items share one database pool. On serverless that pool holds one connection,
+// and more items than this queue for it until their connect budget runs out.
+const ITEM_CONCURRENCY = 4;
+
 export interface ActionBatchBinding {
   /** The app's HTTP pipeline (`nitroApp.fetch`). Each item is a real GET through it. */
   fetch: (request: Request) => Response | Promise<Response>;
@@ -65,10 +69,31 @@ export async function runActionBatch(
   }
   const base = `${origin}${getConfiguredAppBasePath()}${ACTION_ROUTE_PREFIX}`;
   const headers = forwardedItemHeaders(ctx?.requestHeaders);
-  const results = await Promise.all(
-    input.requests.map((item) => dispatchItem(item, base, headers, bound)),
+  const results = await mapWithConcurrency(
+    input.requests,
+    ITEM_CONCURRENCY,
+    (item) => dispatchItem(item, base, headers, bound),
   );
   return { results };
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await run(items[index]);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  );
+  return results;
 }
 
 /**

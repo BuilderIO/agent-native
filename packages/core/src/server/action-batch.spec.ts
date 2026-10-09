@@ -270,4 +270,35 @@ describe("get-actions-batch dispatch", () => {
     ).rejects.toThrow();
     expect(seen).toHaveLength(0);
   });
+
+  it("runs at most four items at once and resolves all of them", async () => {
+    let running = 0;
+    let peak = 0;
+    bindActionBatch({
+      fetch: async () => {
+        running += 1;
+        peak = Math.max(peak, running);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        running -= 1;
+        return jsonResponse({ ok: true });
+      },
+      actions,
+    });
+
+    const { results } = await withOrigin(() =>
+      runActionBatch(
+        {
+          requests: Array.from({ length: 50 }, (_, index) => ({
+            action: "list-designs",
+            query: `page=${index}`,
+          })),
+        },
+        { caller: "http" } as any,
+      ),
+    );
+
+    expect(results).toHaveLength(50);
+    expect(results.every((result) => result.status === 200)).toBe(true);
+    expect(peak).toBe(4);
+  });
 });
