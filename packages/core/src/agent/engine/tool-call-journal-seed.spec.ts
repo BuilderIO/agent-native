@@ -392,7 +392,7 @@ describe("loadedSkillPagesContext", () => {
           isError: false,
         },
       ],
-      new Set(["skill-slide-editing"]),
+      new Map([["skill-slide-editing", ""]]),
     );
 
     expect(result.length).toBeLessThanOrEqual(32_000);
@@ -417,7 +417,11 @@ describe("loadedSkillPagesContext", () => {
         read("skill-design", 8_000),
         read("skill-editing", 20_000),
       ],
-      new Set(["skill-old", "skill-mid", "skill-design", "skill-editing"]),
+      new Map(
+        ["skill-old", "skill-mid", "skill-design", "skill-editing"].map(
+          (slug) => [slug, ""],
+        ),
+      ),
     );
 
     expect(result.length).toBeLessThanOrEqual(32_000);
@@ -426,5 +430,23 @@ describe("loadedSkillPagesContext", () => {
     );
     expect(result).toContain("Skill page truncated");
     expect(result).not.toContain("## skill-old");
+  });
+});
+
+describe("loadedSkillPagesContext staleness", () => {
+  it("drops saved pages that no longer contain the current skill body", () => {
+    const read = (content: string) => ({
+      name: "docs-search",
+      input: { slug: "skill-a" },
+      content,
+      isError: false,
+    });
+    const bodies = new Map([["skill-a", "new instructions"]]);
+    expect(
+      loadedSkillPagesContext([read("# Skill: a\nold instructions")], bodies),
+    ).toBe("");
+    expect(
+      loadedSkillPagesContext([read("# Skill: a\nnew instructions")], bodies),
+    ).toContain("new instructions");
   });
 });

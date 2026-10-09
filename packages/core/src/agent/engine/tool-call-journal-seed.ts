@@ -150,11 +150,13 @@ const LOADED_SKILL_PAGE_MAX_CHARS = 16_000;
 
 /**
  * `visibleSlugs` are pages whose full result is still in the model's history;
- * they are skipped so the same page is not sent twice.
+ * they are skipped so the same page is not sent twice. A saved page is reused
+ * only if it still contains the skill's current body, so edited or truncated
+ * pages are re-read instead.
  */
 export function loadedSkillPagesContext(
   results: readonly PriorTurnToolResultSummary[],
-  allowedSlugs: ReadonlySet<string>,
+  currentSkillBodies: ReadonlyMap<string, string>,
   visibleSlugs: ReadonlySet<string> = new Set(),
 ): string {
   const pages = new Map<string, string>();
@@ -168,9 +170,10 @@ export function loadedSkillPagesContext(
     if (
       typeof slug !== "string" ||
       !slug.startsWith("skill-") ||
-      !allowedSlugs.has(slug) ||
+      !currentSkillBodies.has(slug) ||
       !result.content.startsWith("# Skill:") ||
-      result.content.includes("Doc not found:")
+      result.content.includes("Doc not found:") ||
+      !result.content.includes(currentSkillBodies.get(slug)!.trim())
     ) {
       continue;
     }
