@@ -190,7 +190,7 @@ describe("parseJourneyEventRow", () => {
   });
 
   it("keeps only complete exact replay ID and start links for internal lookup", () => {
-    const replayStartedAt = "2026-10-01T12:00:03.000Z";
+    const replayStartedAt = "2026-10-01T14:00:03+02";
     expect(
       parseJourneyEventRow(
         eventRow("s1", "pageview", 3, {
@@ -200,13 +200,24 @@ describe("parseJourneyEventRow", () => {
       ),
     ).toMatchObject({
       sessionReplayId: "client-replay-test",
-      sessionReplayStartedAt: replayStartedAt,
+      sessionReplayStartedAt: "2026-10-01T12:00:03.000Z",
     });
     expect(
       parseJourneyEventRow(
         eventRow("s1", "pageview", 3, {
           session_replay_id: "client-replay-test",
           session_replay_started_at: "not-a-time",
+        }),
+      ),
+    ).toMatchObject({
+      sessionReplayId: null,
+      sessionReplayStartedAt: null,
+    });
+    expect(
+      parseJourneyEventRow(
+        eventRow("s1", "pageview", 3, {
+          session_replay_id: "client-replay-test",
+          session_replay_started_at: "2026-02-30T12:00:03.000Z",
         }),
       ),
     ).toMatchObject({

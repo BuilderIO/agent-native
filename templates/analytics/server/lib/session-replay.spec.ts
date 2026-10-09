@@ -3718,7 +3718,7 @@ describe("listJourneyRecordings", () => {
         {
           sessionId: "event-session",
           clientRecordingId: recording.clientRecordingId,
-          startedAt: "2026-10-01T14:00:00+02:00",
+          startedAt: "2026-10-01T14:00:00+02",
         },
       ],
     );
@@ -3732,6 +3732,29 @@ describe("listJourneyRecordings", () => {
     expect(where).toContain("client_recording_id");
     expect(where).toContain("started_at");
     expect(where).toContain("owner_email");
+  });
+
+  it("rejects impossible dates instead of matching a rollover date", async () => {
+    const recording = {
+      ...row("rolled-date"),
+      clientRecordingId: "client-rolled-date",
+      clientStartedAt: "2026-03-02T12:00:00.000Z",
+    };
+    const { read, limits } = await readWith(
+      [recording],
+      [],
+      [
+        {
+          sessionId: "event-session",
+          clientRecordingId: recording.clientRecordingId,
+          startedAt: "2026-02-30T12:00:00.000Z",
+        },
+      ],
+    );
+
+    expect(read.complete).toBe(false);
+    expect(read.recordings).toEqual([]);
+    expect(limits).toEqual([]);
   });
 
   it("matches the preserved client start when ingest clamps the stored start", async () => {

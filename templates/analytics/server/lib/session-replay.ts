@@ -66,6 +66,7 @@ import {
 } from "./first-party-analytics.js";
 import { MAX_SESSION_ID_LENGTH } from "./indexed-text.js";
 import type { JourneyRecording, RecordingViewport } from "./journey-tree.js";
+import { canonicalReplayLinkTimestamp } from "./replay-link-timestamp.js";
 import { parseIngestBody } from "./request-errors.js";
 import {
   pruneSessionEventIndex,
@@ -2288,7 +2289,7 @@ export async function listJourneyRecordings(
     { clientRecordingId: string; startedAt: string; sessionIds: Set<string> }
   >();
   for (const link of replayLinks) {
-    const startedAt = replayTimestamp(link.startedAt);
+    const startedAt = canonicalReplayLinkTimestamp(link.startedAt);
     if (
       !link.sessionId ||
       !link.clientRecordingId ||

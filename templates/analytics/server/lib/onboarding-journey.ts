@@ -26,6 +26,7 @@ import {
   type JourneySession,
   type ViewportConstraints,
 } from "./journey-tree.js";
+import { canonicalReplayLinkTimestamp } from "./replay-link-timestamp.js";
 import {
   listJourneyRecordings,
   type JourneyReplayLink,
@@ -202,15 +203,14 @@ export function parseJourneyEventRow(
     return null;
   }
   const sessionReplayId = text(raw.session_replay_id);
-  const sessionReplayStartedAt = text(raw.session_replay_started_at);
+  const sessionReplayStartedAt = canonicalReplayLinkTimestamp(
+    raw.session_replay_started_at,
+  );
   const hasExactReplayLink =
     sessionReplayId !== null &&
     sessionReplayId.length > 0 &&
     sessionReplayStartedAt !== null &&
-    sessionReplayStartedAt.length > 0 &&
-    sessionReplayId.length <= MAX_SESSION_ID_LENGTH &&
-    sessionReplayStartedAt.length <= 64 &&
-    parseJourneyTimestampMs(sessionReplayStartedAt) !== null;
+    sessionReplayId.length <= MAX_SESSION_ID_LENGTH;
   return {
     id,
     sessionId,
