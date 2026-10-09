@@ -2125,12 +2125,7 @@ function applyDefaultSsrCacheHeader(headers, status, pathname, isRecoveryAlias =
   const varyByQuery =
     (headers.get(SSR_QUERY_CACHE_KEY_HEADER) || "").trim().toLowerCase() === "query";
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
-  if (!isSsrHtmlOrDataResponse(headers, status, pathname)) {
-    if (isRecoveryAlias) {
-      headers.set("cache-control", CHUNK_RECOVERY_ALIAS_CACHE_CONTROL);
-    }
-    return;
-  }
+  if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
   headers.delete("set-cookie");
   const vary = headers.get("vary");

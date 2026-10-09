@@ -292,12 +292,7 @@ function applyDefaultSsrCacheHeader(
   const responseRequestsQueryVary =
     headers.get(SSR_QUERY_CACHE_KEY_HEADER)?.trim().toLowerCase() === "query";
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
-  if (!isSsrHtmlOrDataResponse(headers, status, pathname)) {
-    if (isRecoveryAlias) {
-      headers.set("cache-control", resolveChunkRecoveryCacheControl());
-    }
-    return;
-  }
+  if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
   // Recovery uses one fixed path alias, not caller-controlled query values.
   // Keep Netlify's default cache ID: deploy-context invalidation refreshes this

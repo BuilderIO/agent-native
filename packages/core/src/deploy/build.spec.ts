@@ -1496,6 +1496,14 @@ export function createRequestHandler() {
           },
         });
       }
+      if (url.pathname === "/private-json.data") {
+        return new Response('{"private":true}', {
+          headers: {
+            "cache-control": "private, no-store",
+            "content-type": "application/json",
+          },
+        });
+      }
       return new Response('["data"]', {
         headers: {
           "cache-control": url.pathname === "/private.data" ? "private, no-store" : "no-cache",
@@ -2164,6 +2172,22 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     );
 
     expect(response.headers.get("cache-control")).toBe("no-cache");
+    expect(response.headers.get("cdn-cache-control")).toBeNull();
+    expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
+  });
+
+  it("preserves explicit cache policy on non-SSR recovery responses", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request(
+        `https://app.test/private-json.data${CHUNK_RECOVERY_PATH_SUFFIX}`,
+      ),
+      {},
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(response.headers.get("cdn-cache-control")).toBeNull();
     expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
   });

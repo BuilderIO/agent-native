@@ -410,6 +410,25 @@ describe("createH3SSRHandler", () => {
     );
   });
 
+  it("preserves explicit cache policy on non-SSR recovery responses", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response('{"private":true}', {
+        headers: {
+          "cache-control": "private, no-store",
+          "content-type": "application/json",
+        },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent(`/private-json${CHUNK_RECOVERY_PATH_SUFFIX}`),
+    );
+
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expectNoDefaultCdnCacheHeaders(response);
+  });
+
   it("preserves full Netlify query variation for marked public redirects", async () => {
     process.env.SITE_ID = "site-test";
     mocks.requestHandler.mockResolvedValueOnce(
