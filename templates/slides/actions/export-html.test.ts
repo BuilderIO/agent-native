@@ -1,13 +1,45 @@
 import { Window } from "happy-dom";
 import { expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => ({
+  resolveAccess: vi.fn(),
+  track: vi.fn(),
+}));
+
 vi.mock("@agent-native/core/server", () => ({}));
-vi.mock("@agent-native/core/server/request-context", () => ({}));
-vi.mock("@agent-native/core/sharing", () => ({}));
-vi.mock("@agent-native/core/tracking", () => ({}));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => "local@example.com",
+}));
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: mocks.resolveAccess,
+}));
+vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
 vi.mock("../server/db/index.js", () => ({}));
 
-import { buildStandaloneHtml } from "./export-html";
+import exportHtml, { buildStandaloneHtml } from "./export-html";
+
+it("reports a failed HTML export once, then rethrows", async () => {
+  mocks.resolveAccess.mockResolvedValue({
+    resource: { data: JSON.stringify({ slides: [] }) },
+  });
+
+  await expect(
+    exportHtml.run({ deckId: "deck-1" }, { caller: "ui" } as never),
+  ).rejects.toThrow("Cannot export empty deck");
+
+  expect(mocks.track).toHaveBeenCalledTimes(1);
+  expect(mocks.track.mock.calls[0][0]).toBe("deck_exported");
+  expect(mocks.track.mock.calls[0][1]).toMatchObject({
+    caller: "ui",
+    output_id: "deck-1",
+    output_type: "deck",
+    export_format: "html",
+    render_location: "server",
+    status: "failed",
+    error_type: "empty_deck",
+    slide_count: 0,
+  });
+});
 
 it("navigates exported slides with controls and keyboard", async () => {
   const window = new Window({ settings: { enableJavaScriptEvaluation: true } });

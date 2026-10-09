@@ -10,12 +10,16 @@ const requestString = (value: unknown) =>
         ? value.url
         : (JSON.stringify(value) ?? "");
 
-const { buildDeckPptxBlobMock, retargetPptxForGoogleSlidesMock } = vi.hoisted(
-  () => ({
+const { buildDeckPptxBlobMock, retargetPptxForGoogleSlidesMock, trackMock } =
+  vi.hoisted(() => ({
     buildDeckPptxBlobMock: vi.fn(),
     retargetPptxForGoogleSlidesMock: vi.fn(async (blob: Blob) => blob),
-  }),
-);
+    trackMock: vi.fn(async () => undefined),
+  }));
+
+vi.mock("@agent-native/core/client/analytics", () => ({
+  track: trackMock,
+}));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => `/slides${path}`,
@@ -186,5 +190,140 @@ describe("exportDeckToGoogleSlides", () => {
     expect(buildDeckPptxBlobMock).not.toHaveBeenCalled();
     expect(URL.createObjectURL).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("hands deck analytics to the upload route and marks the PPTX step", async () => {
+    vi.mocked(fetch).mockImplementation((async (input: RequestInfo | URL) => {
+      const url = requestString(input);
+      return url.endsWith("/_agent-native/google-docs/status")
+        ? new Response(JSON.stringify({ connected: true }))
+        : url.endsWith("/api/exports/pptx")
+          ? serverPptxResponse()
+          : new Response(
+              JSON.stringify({ url: "https://docs.google.com/d/new" }),
+            );
+    }) as unknown as typeof fetch);
+
+    await exportDeckToGoogleSlides(
+      "Quarterly Review",
+      [{ id: "slide-1" }, { id: "slide-2" }],
+      "16:9",
+      () =>
+        fetchDeckPptxFromServer(
+          "deck-1",
+          "Could not export PPTX.",
+          "google_slides",
+        ),
+      { deckId: "deck-1", generationAttemptId: "attempt-1" },
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/slides/api/exports/pptx",
+      expect.objectContaining({
+        body: JSON.stringify({
+          deckId: "deck-1",
+          exportPurpose: "google_slides",
+        }),
+      }),
+    );
+    const uploadCall = vi
+      .mocked(fetch)
+      .mock.calls.find(([url]) =>
+        requestString(url).endsWith("/api/exports/google-slides"),
+      );
+    const form = (uploadCall?.[1] as RequestInit).body as FormData;
+    expect(form.get("deckId")).toBe("deck-1");
+    expect(form.get("renderLocation")).toBe("server");
+    expect(form.get("slideCount")).toBeNull();
+    expect(form.get("generationAttemptId")).toBeNull();
+    expect(trackMock).not.toHaveBeenCalled();
+  });
+
+  it("reports one failed export when the PPTX never reaches the upload route", async () => {
+    vi.mocked(fetch).mockImplementation(
+      async () => new Response(JSON.stringify({ connected: true })),
+    );
+    buildDeckPptxBlobMock.mockRejectedValue(new Error("render failed"));
+
+    await expect(
+      exportDeckToGoogleSlides(
+        "Quarterly Review",
+        [{ id: "slide-1" }],
+        undefined,
+        undefined,
+        { deckId: "deck-1" },
+      ),
+    ).rejects.toThrow("render failed");
+
+    expect(trackMock).toHaveBeenCalledTimes(1);
+    expect(trackMock).toHaveBeenCalledWith("deck_exported", {
+      output_id: "deck-1",
+      output_type: "deck",
+      export_format: "google_slides",
+      render_location: "browser",
+      status: "failed",
+      error_type: "export_error",
+      slide_count: 1,
+      app_name: "slides",
+      template_name: "slides",
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a failed export when Google Drive is not connected", async () => {
+    vi.mocked(fetch).mockImplementation(
+      async () => new Response(JSON.stringify({ connected: false })),
+    );
+
+    const result = await exportDeckToGoogleSlides(
+      "Quarterly Review",
+      [{ id: "slide-1" }],
+      undefined,
+      undefined,
+      { deckId: "deck-1" },
+    );
+
+    expect(result).toMatchObject({ requiresConnection: true });
+    expect(trackMock).toHaveBeenCalledTimes(1);
+    expect(trackMock).toHaveBeenCalledWith(
+      "deck_exported",
+      expect.objectContaining({
+        export_format: "google_slides",
+        status: "failed",
+        error_type: "google_not_connected",
+      }),
+    );
+  });
+
+  it("reports a failed export when the upload request never reaches the route", async () => {
+    vi.mocked(fetch).mockImplementation((async (input: RequestInfo | URL) => {
+      if (requestString(input).includes("/api/exports/google-slides")) {
+        throw new TypeError("Failed to fetch");
+      }
+      return new Response(JSON.stringify({ connected: true }));
+    }) as typeof fetch);
+    buildDeckPptxBlobMock.mockResolvedValue({
+      blob: new Blob(["pptx"]),
+      filename: "deck.pptx",
+    });
+
+    await expect(
+      exportDeckToGoogleSlides(
+        "Quarterly Review",
+        [{ id: "slide-1" }],
+        undefined,
+        undefined,
+        { deckId: "deck-1" },
+      ),
+    ).rejects.toThrow("Failed to fetch");
+
+    expect(trackMock).toHaveBeenCalledTimes(1);
+    expect(trackMock).toHaveBeenCalledWith(
+      "deck_exported",
+      expect.objectContaining({
+        status: "failed",
+        error_type: "network_error",
+      }),
+    );
   });
 });
