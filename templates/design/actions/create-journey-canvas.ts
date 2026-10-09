@@ -244,6 +244,7 @@ export default defineAction({
     const stagedSourceAppByRowId = new Map<string, string>();
     let createdDesignId: string | undefined;
     let mutationStarted = false;
+    let mutationUpdatedAt: string | undefined;
     let boardFileId: string | undefined;
     let previousBoardContent: string | undefined;
     let nextBoardContent: string | undefined;
@@ -252,7 +253,7 @@ export default defineAction({
       const blobOwnerEmail =
         existingAccess?.resource.ownerEmail ?? requesterEmail;
       const db = getDb();
-      let totalImageBytes = 0;
+      let stagedImageBytes = 0;
       if (stagedScreens.length > 0) {
         const stagedFrameIds = stagedScreens.map(
           ({ attachment }) => attachment!.stagedFrameId!,
@@ -318,22 +319,25 @@ export default defineAction({
               },
             );
           }
-          totalImageBytes += reusable.sizeBytes;
+          stagedImageBytes += reusable.sizeBytes;
         }
       }
-      if (totalImageBytes > MAX_TOTAL_IMAGE_BYTES) {
+      if (stagedImageBytes > MAX_TOTAL_IMAGE_BYTES) {
         fail("The journey screenshots exceed 256 MiB in total.", {
           errorCode: "journey_screenshots_too_large",
           statusCode: 413,
         });
       }
-      const stagedImageBytes = totalImageBytes;
       const preflightedSourceAttachments = new Map<
         string,
         { sizeBytes: number; sha256: string }
       >();
+      let preflightedSourceImageBytes = 0;
       for (let index = 0; index < sourceAttachmentScreens.length; ) {
-        const remainingImageBytes = MAX_TOTAL_IMAGE_BYTES - totalImageBytes;
+        const remainingImageBytes =
+          MAX_TOTAL_IMAGE_BYTES -
+          stagedImageBytes -
+          preflightedSourceImageBytes;
         const batchSize = Math.max(
           1,
           Math.min(
@@ -355,7 +359,10 @@ export default defineAction({
           (total, frame) => total + frame.data.byteLength,
           0,
         );
-        if (totalImageBytes + batchBytes > MAX_TOTAL_IMAGE_BYTES) {
+        if (
+          stagedImageBytes + preflightedSourceImageBytes + batchBytes >
+          MAX_TOTAL_IMAGE_BYTES
+        ) {
           fail("The journey screenshots exceed 256 MiB in total.", {
             errorCode: "journey_screenshots_too_large",
             statusCode: 413,
@@ -367,7 +374,7 @@ export default defineAction({
             sha256: digest(frame.data),
           });
         }
-        totalImageBytes += batchBytes;
+        preflightedSourceImageBytes += batchBytes;
         index += batch.length;
       }
       let uploadedImageBytes = 0;
@@ -491,7 +498,8 @@ export default defineAction({
       await mutateDesignData({
         designId,
         lockSourceMutation: true,
-        mutate: (current) => {
+        mutate: (current, { updatedAt }) => {
+          mutationUpdatedAt = updatedAt;
           const frames = withoutJourneyEntries(current.canvasFrames);
           // A refresh redraws in place; only a first draw goes below existing content.
           const previous = current.journeyCanvasOrigin;
@@ -901,6 +909,7 @@ export default defineAction({
       const landingStatus = mutationStarted
         ? await writeMayHaveLanded({
             designId,
+            updatedAt: mutationUpdatedAt,
             screens: plan.screens.map((screen) => {
               const attachment = screen.attachment;
               const blob = attachment
@@ -1049,6 +1058,7 @@ async function findUnreferencedStoredBlobs(args: {
 /** Unknown verification must preserve resources but cannot turn the failed write into success. */
 async function writeMayHaveLanded(args: {
   designId: string;
+  updatedAt: string | undefined;
   screens: readonly {
     fileId: string;
     html: string;
@@ -1058,6 +1068,18 @@ async function writeMayHaveLanded(args: {
   try {
     await assertAccess("design", args.designId, "editor");
     const db = getDb();
+    const [design] = await db
+      .select({ updatedAt: schema.designs.updatedAt })
+      .from(schema.designs)
+      .where(
+        and(
+          accessFilter(schema.designs, schema.designShares),
+          eq(schema.designs.id, args.designId),
+        ),
+      )
+      .limit(1);
+    const designVersionMatches =
+      args.updatedAt !== undefined && design?.updatedAt === args.updatedAt;
     const files = await db
       .select({
         id: schema.designFiles.id,
@@ -1134,7 +1156,9 @@ async function writeMayHaveLanded(args: {
         }
       }
     }
-    if (filesMatch && screenshotsMatch) return "landed";
+    if (designVersionMatches && filesMatch && screenshotsMatch) {
+      return "landed";
+    }
     if (anyScreenFound || expectedHandleStillReferenced) {
       return "unknown";
     }

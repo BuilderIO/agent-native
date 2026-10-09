@@ -132,7 +132,7 @@ vi.mock("../server/db/index.js", () => {
   return {
     getDb: mocks.getDb,
     schema: {
-      designs: table("designs", ["id"]),
+      designs: table("designs", ["id", "updatedAt"]),
       designShares: table("designShares", ["designId"]),
       designFiles: table("designFiles", [
         "id",
@@ -311,6 +311,9 @@ beforeEach(() => {
       }
       if (fields.includes("id") && fields.includes("sizeBytes")) {
         return mocks.chain(state.preflightStagedRows);
+      }
+      if (fields.length === 1 && fields.includes("updatedAt")) {
+        return mocks.chain(state.landedSelects.shift() ?? []);
       }
       return dbSelects++ === 0
         ? mocks.chain([{ ...BOARD_FILE, content: state.boardContent }])
@@ -589,6 +592,7 @@ describe("create-journey-canvas run", () => {
       [],
     ];
     mocks.state.landedSelects = [
+      [{ updatedAt: "2026-10-08T10:00:00.000Z" }],
       [{ id: screen.fileId, content: screen.html }],
       [
         {
@@ -986,6 +990,38 @@ describe("create-journey-canvas run", () => {
 
     expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
   });
+
+  it("does not count preflighted source bytes again while uploading them", async () => {
+    const input = rawInput([]);
+    const templateNode = input.tree.nodes[0]!;
+    const count = 15;
+    input.tree.nodes = Array.from({ length: count }, (_, index) => ({
+      ...templateNode,
+      key: `step-${index}`,
+      label: `Step ${index}`,
+      examples: [
+        {
+          ...templateNode.examples[0]!,
+          sessionId: `session-${index}`,
+          recordingId: `recording-${index}`,
+        },
+      ],
+    }));
+    input.frames = Array.from({ length: count }, (_, index) =>
+      frame(`step-${index}`, { attachmentRef: `ref-${index}` }),
+    );
+    const image = Buffer.alloc(10 * 1024 * 1024);
+    image.set(PNG);
+    mocks.resolveAttachment.mockResolvedValue({
+      status: "ok",
+      file: { data: image },
+    });
+
+    const result = await action.run(parsed(input), {} as any);
+
+    expect(result.frameCount).toBe(count);
+    expect(mocks.putPrivateBlob).toHaveBeenCalledTimes(count);
+  });
 });
 
 describe("create-journey-canvas exposure", () => {
@@ -1141,6 +1177,7 @@ describe("create-journey-canvas failures", () => {
     const input = parsed(rawInput([frame("a", { attachmentRef: "ref-a" })]));
     const screen = planJourneyCanvas(input, "generated-1").screens[0]!;
     mocks.state.landedSelects = [
+      [{ updatedAt: "2026-10-08T10:00:00.000Z" }],
       [{ id: screen.fileId, content: screen.html }],
       [
         {
@@ -1149,9 +1186,11 @@ describe("create-journey-canvas failures", () => {
         },
       ],
     ];
-    mocks.mutateDesignData.mockRejectedValueOnce(
-      new Error("Design not found after commit"),
-    );
+    const commitMutation = mocks.mutateDesignData.getMockImplementation()!;
+    mocks.mutateDesignData.mockImplementationOnce(async (...args) => {
+      await commitMutation(...args);
+      throw new Error("Design not found after commit");
+    });
     const result = await action.run(input, {} as any);
     expect(result.designId).toBe("generated-1");
     expect(mocks.deleteDesign).not.toHaveBeenCalled();
@@ -1163,8 +1202,15 @@ describe("create-journey-canvas failures", () => {
       rawInput([frame("a", { imageUrl: "https://img.example.test/a.png" })]),
     );
     const screen = planJourneyCanvas(input, "generated-1").screens[0]!;
-    mocks.state.landedSelects = [[{ id: screen.fileId, content: screen.html }]];
-    mocks.mutateDesignData.mockRejectedValueOnce(new Error("not applied"));
+    mocks.state.landedSelects = [
+      [{ updatedAt: "2026-10-08T10:00:00.000Z" }],
+      [{ id: screen.fileId, content: screen.html }],
+    ];
+    const commitMutation = mocks.mutateDesignData.getMockImplementation()!;
+    mocks.mutateDesignData.mockImplementationOnce(async (...args) => {
+      await commitMutation(...args);
+      throw new Error("committed response lost");
+    });
     const result = await action.run(input, {} as any);
     expect(result.designId).toBe("generated-1");
     expect(mocks.deleteDesign).not.toHaveBeenCalled();
@@ -1277,6 +1323,7 @@ describe("create-journey-canvas failures", () => {
     const screen = planJourneyCanvas(input, "generated-1").screens[0]!;
     mocks.putPrivateBlob.mockResolvedValueOnce(handle);
     mocks.state.landedSelects = [
+      [{ updatedAt: "2026-10-08T10:00:00.001Z" }],
       [{ id: screen.fileId, content: `${screen.html}<!-- editor change -->` }],
       [
         {
@@ -1286,13 +1333,51 @@ describe("create-journey-canvas failures", () => {
       ],
       [{ blobHandle: JSON.stringify(handle) }],
     ];
-    mocks.mutateDesignData.mockRejectedValueOnce(new Error("response lost"));
+    const commitMutation = mocks.mutateDesignData.getMockImplementation()!;
+    mocks.mutateDesignData.mockImplementationOnce(async (...args) => {
+      await commitMutation(...args);
+      throw new Error("response lost");
+    });
 
     await expect(action.run(input, {} as any)).rejects.toThrow("response lost");
 
     expect(mocks.deleteDesign).not.toHaveBeenCalled();
     expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
     expect(mocks.state.landedSelects).toEqual([]);
+  });
+
+  it("does not treat matching pre-existing screens as proof that a refresh committed", async () => {
+    const input = parsed({
+      ...rawInput([frame("a", { attachmentRef: "ref-a" })]),
+      designId: "design-1",
+    });
+    const handle = {
+      id: "existing-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: true,
+    };
+    const screen = planJourneyCanvas(input, "design-1").screens[0]!;
+    mocks.putPrivateBlob.mockResolvedValueOnce(handle);
+    mocks.state.landedSelects = [
+      [{ updatedAt: "2026-10-08T09:59:00.000Z" }],
+      [{ id: screen.fileId, content: screen.html }],
+      [
+        {
+          id: screen.attachment!.rowId,
+          blobHandle: JSON.stringify(handle),
+        },
+      ],
+      [{ blobHandle: JSON.stringify(handle) }],
+    ];
+    mocks.mutateDesignData.mockRejectedValueOnce(new Error("board conflict"));
+
+    await expect(action.run(input, {} as any)).rejects.toThrow(
+      "board conflict",
+    );
+
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
   });
 
   it("cleans unreferenced uploads after an ambiguous refresh without deleting the Design", async () => {
@@ -1309,6 +1394,7 @@ describe("create-journey-canvas failures", () => {
     };
     mocks.putPrivateBlob.mockResolvedValueOnce(handle);
     mocks.state.landedSelects = [
+      [],
       [
         {
           id: screen.fileId,
