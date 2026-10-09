@@ -15,7 +15,7 @@ vi.mock("./action-change.js", () => ({
     fallback: boolean,
   ) => entry.readOnly ?? fallback,
   notifyActionChange: vi.fn(),
-  notifyActionChangeForResponse: vi.fn(),
+  notifyActionChangeForResponse: vi.fn(async () => true),
 }));
 
 function makePostEvent(opts: {

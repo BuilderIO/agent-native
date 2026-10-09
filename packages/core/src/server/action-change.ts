@@ -14,10 +14,10 @@ export async function notifyActionChange(
   await writeActionChangeMarker(options);
 }
 
-export async function notifyActionChangeForResponse(
+export function notifyActionChangeForResponse(
   options: NotifyActionChangeOptions,
-): Promise<void> {
-  await writeActionChangeMarkerForResponse(options);
+): Promise<boolean> {
+  return writeActionChangeMarkerForResponse(options);
 }
 
 export function notifyActionChangeInBackground(

@@ -11,6 +11,7 @@ import {
 } from "./request-context.js";
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());
+const mockMarkerLanded = vi.hoisted(() => vi.fn(() => true));
 const mockResolveOrgIdForEmail = vi.hoisted(() => vi.fn());
 const mockResolveOrgByDomain = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn(async () => null));
@@ -80,8 +81,10 @@ vi.mock("./action-change.js", () => ({
     fallback: boolean,
   ) => entry.readOnly ?? fallback,
   notifyActionChange: (...args: unknown[]) => mockNotifyActionChange(...args),
-  notifyActionChangeForResponse: (...args: unknown[]) =>
-    mockNotifyActionChange(...args),
+  notifyActionChangeForResponse: async (...args: unknown[]) => {
+    mockNotifyActionChange(...args);
+    return mockMarkerLanded();
+  },
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -134,6 +137,8 @@ describe("mountActionRoutes", () => {
     delete process.env.AGENT_NATIVE_BUILD_ID;
     delete process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION;
     mockNotifyActionChange.mockReset();
+    mockMarkerLanded.mockReset();
+    mockMarkerLanded.mockReturnValue(true);
     mockResolveOrgIdForEmail.mockReset();
     mockResolveOrgByDomain.mockReset();
     mockResolveOrgByDomain.mockResolvedValue({
@@ -194,7 +199,7 @@ describe("mountActionRoutes", () => {
       _responseHeaders: {
         "cache-control": "no-store",
         "access-control-expose-headers":
-          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,X-Agent-Native-Browser-Persist,x-agent-native-widget-session-expired",
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,X-Agent-Native-Browser-Persist,X-Agent-Native-Change-Marker,x-agent-native-widget-session-expired",
         "x-agent-native-client-mismatch": "1",
       },
     });

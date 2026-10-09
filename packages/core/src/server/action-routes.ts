@@ -48,6 +48,10 @@ import {
   ACTION_BROWSER_PERSIST_HEADER,
 } from "../shared/action-browser-persist.js";
 import {
+  ACTION_CHANGE_MARKER_FAILED,
+  ACTION_CHANGE_MARKER_HEADER,
+} from "../shared/action-change-marker-header.js";
+import {
   LLM_PROVIDER_MISSING_ERROR_CODE,
   LLM_PROVIDER_MISSING_STATUS,
 } from "../shared/action-error-codes.js";
@@ -720,7 +724,7 @@ function mountActionRoutesInternal(
         setResponseHeader(
           event,
           "Access-Control-Expose-Headers",
-          `X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,${ACTION_BROWSER_PERSIST_HEADER},${MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER}`,
+          `X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,${ACTION_BROWSER_PERSIST_HEADER},${ACTION_CHANGE_MARKER_HEADER},${MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER}`,
         );
 
         const isFrontendMutation =
@@ -1490,7 +1494,7 @@ function mountActionRoutesInternal(
                 caller !== "mcp-widget" &&
                 actionCallEmitsChange(entry, params, method === "GET")
               ) {
-                await notifyActionChangeForResponse({
+                const markerLanded = await notifyActionChangeForResponse({
                   actionName: name,
                   ...actionChangeResource(entry, params, result),
                   ...(userEmail ? { owner: userEmail } : {}),
@@ -1503,6 +1507,13 @@ function mountActionRoutesInternal(
                       }
                     : {}),
                 });
+                if (!markerLanded) {
+                  setResponseHeader(
+                    event,
+                    ACTION_CHANGE_MARKER_HEADER,
+                    ACTION_CHANGE_MARKER_FAILED,
+                  );
+                }
               }
 
               if (typeof result === "string") {

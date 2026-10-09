@@ -282,7 +282,7 @@ describe("notifyActionChange", () => {
         actionName: "update-project",
         owner: "owner@example.com",
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(warn).toHaveBeenCalledWith(
       "[action-change] durable marker write failed:",
       "database unavailable",
