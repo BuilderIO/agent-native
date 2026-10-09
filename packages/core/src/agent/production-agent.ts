@@ -5442,7 +5442,8 @@ export async function runAgentLoop(opts: {
     journalRead.status === "read" ? journalRead.priorToolCalls : [];
   const journaledPriorToolResults =
     journalRead.status === "read" ? journalRead.priorToolResults : [];
-  let loadedSkillsContext = "";
+  let threadSkillPages = new Map<string, string>();
+  let allowedJournalSlugs = new Set<string>();
   const hasLoadedSkillPage = journaledPriorToolResults.some((result) => {
     const input =
       result.input && typeof result.input === "object"
@@ -5462,16 +5463,10 @@ export async function runAgentLoop(opts: {
   if (reuseJournaledSkillPages || threadSkillSlugs.length > 0) {
     const skillUserEmail = opts.ownerEmail ?? getRequestUserEmail();
     const { loadSkillDocPages } = await import("../scripts/docs/search.js");
-    const threadSkillPages = await loadSkillDocPages(
+    threadSkillPages = await loadSkillDocPages(
       threadSkillSlugs,
       skillUserEmail,
     );
-    for (const [slug, page] of threadSkillPages) {
-      if (skillPageIntactInHistory(messages, slug, page)) {
-        threadSkillPages.delete(slug);
-      }
-    }
-    let allowedJournalSlugs = new Set<string>();
     if (reuseJournaledSkillPages) {
       const { loadAgentsBundle, getRuntimeSkillsForUser, skillDocsSlug } =
         await import("../server/agents-bundle.js");
@@ -5483,15 +5478,27 @@ export async function runAgentLoop(opts: {
         runtimeSkills.map((skill) => skillDocsSlug(skill.meta.name)),
       );
     }
-    loadedSkillsContext = loadedSkillPagesContext(
+  }
+  // Dedupe against the messages the model actually receives: memory
+  // compaction and retry trimming can remove a page that `messages` still has.
+  const continuationSystemPromptFor = (
+    sentMessages: readonly EngineMessage[],
+  ): string => {
+    const pages = new Map(threadSkillPages);
+    for (const [slug, page] of pages) {
+      if (skillPageIntactInHistory(sentMessages, slug, page)) {
+        pages.delete(slug);
+      }
+    }
+    const loadedSkillsContext = loadedSkillPagesContext(
       reuseJournaledSkillPages ? journaledPriorToolResults : [],
-      threadSkillPages,
+      pages,
       allowedJournalSlugs,
     );
-  }
-  const continuationSystemPrompt = loadedSkillsContext
-    ? `${systemPrompt}\n\n${loadedSkillsContext}`
-    : systemPrompt;
+    return loadedSkillsContext
+      ? `${systemPrompt}\n\n${loadedSkillsContext}`
+      : systemPrompt;
+  };
   toolCallHistory.push(...journaledPriorToolCalls);
   toolResultHistory.push(...journaledPriorToolResults);
   const unreadableJournalStop: TerminalActionStop | null =
@@ -5713,7 +5720,7 @@ export async function runAgentLoop(opts: {
           model,
           systemPrompt: completingFollowUpSuggestions
             ? FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT
-            : continuationSystemPrompt,
+            : continuationSystemPromptFor(contextMessages),
           messages: contextMessages,
           tools: loopBreakerCloseout
             ? []

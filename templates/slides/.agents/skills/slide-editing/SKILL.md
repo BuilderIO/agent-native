@@ -53,10 +53,12 @@ or "make it beautiful", read `slide-design`; a linked system's tokens still win.
 3. Write with `update-slide`: `deckId`, `slideId`, and ordered `edits` (exact
    replace, insert before/after, replace between markers, regex). Edits apply
    atomically under the deck lock, so one failed edit writes nothing.
-   - **Selected text:** if `view-screen` returns an exact `selectedText` range
-     and `currentSlideId`, send one literal replace with the selected text as
-     `find`, `expectedMatches: 1`, and `currentSlideContentHash` as
-     `baseContentHash`. Skip `get-deck`, `fullContent`, and layout-fit waits.
+   - **Selected text:** if `view-screen` returns an exact `selectedText` range,
+     send one literal replace with the selected text as `find` and
+     `expectedMatches: 1`. Use `selectionSlideId` and
+     `selectionSlideContentHash` when present (the selection can be on another
+     slide); otherwise `currentSlideId` and `currentSlideContentHash`. Never
+     pair a `selectionSlideId` with the current slide's hash. Skip `get-deck`, `fullContent`, and layout-fit waits.
    - **Otherwise** (truncated, ambiguous, split by markup, or structural): call
      `get-deck` with that `slideId` (`compact=false` for full HTML, plus
      `format=true` for code-style work) and use its `contentHash` as
