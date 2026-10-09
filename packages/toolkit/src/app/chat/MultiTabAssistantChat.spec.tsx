@@ -676,6 +676,52 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("uses the current context namespace for a prefilled context", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{
+            type: "desktop-app",
+            id: "calendar",
+            contextKey: "desktop-app:calendar",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{
+            type: "desktop-app",
+            id: "mail",
+            contextKey: "desktop-app:mail",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected message: hello",
+        submit: false,
+      });
+    });
+
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: "Selected message: hello",
+        contextNamespace: "desktop-app:mail",
+      }),
+      { focus: false },
+    );
+  });
+
   it("reports a rejected queued submission instead of leaving it unhandled", async () => {
     const results: unknown[] = [];
     const onResult = (event: Event) =>

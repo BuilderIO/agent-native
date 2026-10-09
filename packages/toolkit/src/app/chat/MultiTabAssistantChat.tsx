@@ -2297,6 +2297,7 @@ export function MultiTabAssistantChat({
     availableModels,
     bumpModelSelectionVersion,
     clearContextInTab,
+    contextNamespace,
     createThread,
     isNewThread,
     openTabIds,
