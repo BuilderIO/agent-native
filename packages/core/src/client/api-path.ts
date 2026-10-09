@@ -8,6 +8,7 @@ import {
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { initializeAgentNativeClient } from "./client-bootstrap.js";
+import { routeTemplateForPath } from "./route-template.js";
 
 export function frameworkRoutePrefix(): string {
   const configured = injectedAgentNativeConfig().runtime?.frameworkRoutePrefix;
@@ -142,8 +143,40 @@ function workspacePathBasePath(): string {
   if (!segment || isFrameworkSegment(segment) || segment === "api") return "";
   const basePath = normalizeBasePath(segment);
   const mounts = workspaceAppMountPaths();
-  if (mounts && !mounts.has(basePath)) return "";
+  if (mounts && !mounts.has(basePath)) {
+    const routes = (
+      window as Window & {
+        __reactRouterManifest?: {
+          routes?: Record<
+            string,
+            { id: string; parentId?: string; path?: string; index?: boolean }
+          >;
+        };
+      }
+    ).__reactRouterManifest?.routes;
+    const localPathname = pathname.slice(basePath.length) || "/";
+    const routeForFullPath = routeTemplateForPath(pathname, routes);
+    const routeForLocalPath = routeTemplateForPath(localPathname, routes);
+    if (
+      routeForLocalPath &&
+      (!routeForFullPath ||
+        routeTemplateSpecificity(routeForLocalPath) >
+          routeTemplateSpecificity(routeForFullPath))
+    ) {
+      return basePath;
+    }
+    return "";
+  }
   return basePath;
+}
+
+function routeTemplateSpecificity(template: string): number {
+  const segments = template.split("/").filter(Boolean);
+  return segments.reduce(
+    (score, segment) =>
+      score + (segment === "*" ? -2 : /^:[\w-]+$/.test(segment) ? 3 : 10),
+    segments.length,
+  );
 }
 
 function externalEmbedTargetBasePath(): string {

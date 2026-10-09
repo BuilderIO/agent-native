@@ -25,6 +25,45 @@ describe("appMountPath", () => {
     );
   });
 
+  it("restores an omitted live mount from the app route manifest", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "content", path: "/content" }]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/dispatch/home" },
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "/" },
+          home: { id: "home", parentId: "root", path: "home" },
+        },
+      },
+    });
+
+    expect(appBasePath()).toBe("/dispatch");
+  });
+
+  it("does not treat a root app route as an omitted workspace mount", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "content", path: "/content" }]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/settings/model" },
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "/" },
+          settings: { id: "settings", parentId: "root", path: "settings" },
+          model: { id: "model", parentId: "settings", path: "model" },
+        },
+      },
+    });
+
+    expect(appBasePath()).toBe("");
+  });
+
   it("keeps a root route inside its live workspace mount when omitted by the manifest", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(

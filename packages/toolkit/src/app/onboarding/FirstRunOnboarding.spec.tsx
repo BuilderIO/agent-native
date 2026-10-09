@@ -228,6 +228,11 @@ describe("FirstRunOnboarding", () => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     window.history.replaceState(null, "", "/");
+    delete (
+      window as Window & {
+        __reactRouterManifest?: unknown;
+      }
+    ).__reactRouterManifest;
   });
 
   it("renders nothing while an ineligible member's status is resolving", () => {
@@ -2131,19 +2136,30 @@ describe("FirstRunOnboarding", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("keeps manual setup inside a live mount missing from the workspace manifest", async () => {
+  it("restores a missing workspace mount before manual setup navigation", async () => {
     mocks.useActualRouter = true;
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
       JSON.stringify([{ id: "content", path: "/content" }]),
     );
-    window.history.replaceState(null, "", "/dispatch/");
+    Object.assign(window, {
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "/" },
+          home: { id: "home", parentId: "root", path: "home" },
+          settings: { id: "settings", parentId: "root", path: "settings" },
+          model: { id: "model", parentId: "settings", path: "model" },
+        },
+      },
+    });
+    window.history.replaceState(null, "", "/dispatch/home");
+    const basePath = "/dispatch";
 
     const router = createMemoryRouter(
       [
         {
-          path: "/",
+          path: "/home",
           element: (
             <TooltipProvider>
               <FirstRunOnboarding />
@@ -2151,11 +2167,11 @@ describe("FirstRunOnboarding", () => {
           ),
         },
         {
-          path: "/dispatch/settings/model",
-          element: <div data-testid="mounted-model-settings-route" />,
+          path: "/settings/model",
+          element: <div data-testid="model-settings-route" />,
         },
       ],
-      { initialEntries: ["/"] },
+      { basename: basePath, initialEntries: ["/dispatch/home"] },
     );
 
     await act(async () => {
@@ -2174,9 +2190,7 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(
-      document.body.querySelector(
-        '[data-testid="mounted-model-settings-route"]',
-      ),
+      document.body.querySelector('[data-testid="model-settings-route"]'),
     ).not.toBeNull();
     expect(router.state.location.pathname).toBe("/dispatch/settings/model");
   });
