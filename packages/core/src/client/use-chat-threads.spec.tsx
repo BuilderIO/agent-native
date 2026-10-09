@@ -1492,6 +1492,69 @@ describe("useChatThreads", () => {
     );
   });
 
+  it("reconfirms a route thread when its history scope changes", async () => {
+    const scopeA = { type: "workspace-app", id: "app-a" };
+    const scopeB = { type: "workspace-app", id: "app-b" };
+    const savedThread: ChatThreadSummary = {
+      id: "scope-cache-route-thread",
+      title: "Scope A",
+      preview: "saved in scope A",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: scopeA,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.startsWith("/chat/threads?") && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (
+        url ===
+          "/chat/threads/scope-cache-route-thread?scopeType=workspace-app&scopeId=app-a" &&
+        !init
+      ) {
+        return jsonResponse(savedThread);
+      }
+      if (
+        url ===
+          "/chat/threads/scope-cache-route-thread?scopeType=workspace-app&scopeId=app-b" &&
+        !init
+      ) {
+        return new Response(null, { status: 404 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    let activeScope = scopeA;
+    function Harness() {
+      hook = useChatThreads("/chat", "scope-cache-route-test", activeScope, {
+        routeThreadId: "scope-cache-route-thread",
+        isolateHistoryByScope: true,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+    expect(hook!.isThreadPersisted("scope-cache-route-thread")).toBe(true);
+
+    activeScope = scopeB;
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+
+    expect(hook!.isThreadPersisted("scope-cache-route-thread")).toBe(false);
+    expect(hook!.isNewThread("scope-cache-route-thread")).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/chat/threads/scope-cache-route-thread?scopeType=workspace-app&scopeId=app-b",
+    );
+  });
+
   it("classifies a missing route thread as a draft without exposing saved state", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/chat/threads" && !init) {

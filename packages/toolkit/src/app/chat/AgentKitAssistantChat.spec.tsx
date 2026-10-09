@@ -96,10 +96,14 @@ const chatMocks = vi.hoisted(() => ({
   useRealRoot: false,
   realComposerController: null as AgentKitClient | null,
   useRealChat: false,
+  routeControllerPersistenceThroughTransport: false,
   omitSuggestionsSlot: false,
   voiceTranscriptRegistration: null as any,
   runtime: { kind: "runtime" },
-  transport: { kind: "transport" },
+  transport: {
+    kind: "transport",
+    persistThreadSnapshot: vi.fn(async () => undefined),
+  },
   transportOptions: null as any,
   renderMarkdownToClipboardHtml: vi.fn(),
   writeClipboardText: vi.fn(),
@@ -268,7 +272,26 @@ vi.mock("../agentkit/react/index.js", async () => {
             requestComposerFocus: chatMocks.requestComposerFocus,
             controller: {
               getThread: () => chatMocks.readThread(),
-              persistThreadSnapshot: chatMocks.persistThreadSnapshot,
+              persistThreadSnapshot: (
+                threadId: string,
+                messages?: AgentMessage[],
+              ) => {
+                const persist =
+                  chatMocks.routeControllerPersistenceThroughTransport
+                    ? chatMocks.rootProps?.transport?.persistThreadSnapshot
+                    : undefined;
+                if (typeof persist === "function") {
+                  return persist({
+                    threadId,
+                    snapshot: {
+                      messages: messages ?? [],
+                      events: [],
+                      runs: [],
+                    },
+                  });
+                }
+                return chatMocks.persistThreadSnapshot(threadId, messages);
+              },
               assertAiSetupReady: async () => {
                 const state = await chatMocks.fetchProviderState();
                 if (state === "configured") return;
@@ -882,6 +905,7 @@ beforeEach(() => {
   chatMocks.useRealRoot = false;
   chatMocks.realComposerController = null;
   chatMocks.useRealChat = false;
+  chatMocks.routeControllerPersistenceThroughTransport = false;
   chatMocks.omitSuggestionsSlot = false;
   chatMocks.voiceTranscriptRegistration = null;
   chatMocks.control.sendMessage.mockReset().mockResolvedValue(undefined);
@@ -6292,6 +6316,116 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(onSaveThread.mock.calls[1]?.[1].threadData).not.toBe(
       onSaveThread.mock.calls[0]?.[1].threadData,
     );
+  });
+
+  it("serializes transport and thread saves across a chat remount", async () => {
+    let resolveFirstTransport: (() => void) | undefined;
+    const firstTransportSave = new Promise<void>((resolve) => {
+      resolveFirstTransport = resolve;
+    });
+    const saveOrder: string[] = [];
+    const persistThreadSnapshot = vi.fn(
+      async (input: { snapshot: { messages: AgentMessage[] } }) => {
+        const lastMessageId = input.snapshot.messages.at(-1)?.id;
+        saveOrder.push(`transport:${lastMessageId}`);
+        if (lastMessageId === "remount-first-message") {
+          await firstTransportSave;
+        }
+      },
+    );
+    const transport = {
+      persistThreadSnapshot,
+    } as unknown as AgentTransport;
+    const createTransport = () => transport;
+    const firstOnSaveThread = vi.fn(() => {
+      saveOrder.push("thread:first");
+      return true;
+    });
+    const secondOnSaveThread = vi.fn(() => {
+      saveOrder.push("thread:second");
+      return true;
+    });
+    chatMocks.routeControllerPersistenceThroughTransport = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "GET") {
+          return new Response(null, { status: 404 });
+        }
+        if (init?.method === "POST") {
+          return Response.json({
+            id: "thread-1",
+            ownerEmail: "first@example.test",
+            title: "",
+            preview: "",
+            threadData: JSON.stringify({ messages: [], agentKit: {} }),
+            messageCount: 0,
+            createdAt: "2026-10-07T12:00:00.000Z",
+            updatedAt: "2026-10-07T12:00:00.000Z",
+            scope: null,
+          });
+        }
+        return Response.json([]);
+      }),
+    );
+
+    const firstMessage = {
+      id: "remount-first-message",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-10-07T12:00:00.000Z",
+      parts: [{ type: "text", text: "First persisted snapshot" }],
+    } as AgentMessage;
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      messages: [firstMessage],
+    };
+
+    try {
+      await mount(
+        baseProps({ createTransport, onSaveThread: firstOnSaveThread }),
+      );
+      await flush();
+      expect(saveOrder).toEqual(["transport:remount-first-message"]);
+      expect(firstOnSaveThread).not.toHaveBeenCalled();
+
+      await unmount();
+      const secondMessage = {
+        id: "remount-second-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:01:00.000Z",
+        parts: [{ type: "text", text: "Newer persisted snapshot" }],
+      } as AgentMessage;
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        messages: [firstMessage, secondMessage],
+      };
+      await mount(
+        baseProps({ createTransport, onSaveThread: secondOnSaveThread }),
+      );
+      await flush();
+
+      expect(saveOrder).toEqual(["transport:remount-first-message"]);
+      expect(firstOnSaveThread).not.toHaveBeenCalled();
+      expect(secondOnSaveThread).not.toHaveBeenCalled();
+
+      resolveFirstTransport?.();
+      await flush();
+      await flush();
+
+      expect(saveOrder).toEqual([
+        "transport:remount-first-message",
+        "thread:first",
+        "transport:remount-second-message",
+        "thread:second",
+      ]);
+      expect(firstOnSaveThread).toHaveBeenCalledOnce();
+      expect(secondOnSaveThread).toHaveBeenCalledOnce();
+    } finally {
+      resolveFirstTransport?.();
+      await unmount();
+    }
   });
 
   it("bounds retries when a snapshot cannot be saved", async () => {
