@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => {
   const chain = (rows: unknown[]) => {
     const link: Record<string, any> = {
       from: vi.fn(() => link),
+      innerJoin: vi.fn(() => link),
       where: vi.fn(() => link),
       for: vi.fn(() => link),
       limit: vi.fn(async () => rows),
@@ -109,6 +110,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: vi.fn(() => ({ accessFilter: true })),
   assertAccess: mocks.assertAccess,
 }));
 vi.mock("drizzle-orm", () => ({
@@ -131,6 +133,7 @@ vi.mock("../server/db/index.js", () => {
     getDb: mocks.getDb,
     schema: {
       designs: table("designs", ["id"]),
+      designShares: table("designShares", ["designId"]),
       designFiles: table("designFiles", [
         "id",
         "designId",
@@ -1281,6 +1284,7 @@ describe("create-journey-canvas failures", () => {
           blobHandle: JSON.stringify(handle),
         },
       ],
+      [{ blobHandle: JSON.stringify(handle) }],
     ];
     mocks.mutateDesignData.mockRejectedValueOnce(new Error("response lost"));
 
@@ -1289,6 +1293,38 @@ describe("create-journey-canvas failures", () => {
     expect(mocks.deleteDesign).not.toHaveBeenCalled();
     expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
     expect(mocks.state.landedSelects).toEqual([]);
+  });
+
+  it("cleans unreferenced uploads after an ambiguous refresh without deleting the Design", async () => {
+    const input = parsed({
+      ...rawInput([frame("a", { attachmentRef: "ref-a" })]),
+      designId: "design-1",
+    });
+    const screen = planJourneyCanvas(input, "design-1").screens[0]!;
+    const handle = {
+      id: "unreferenced-upload",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: true,
+    };
+    mocks.putPrivateBlob.mockResolvedValueOnce(handle);
+    mocks.state.landedSelects = [
+      [
+        {
+          id: screen.fileId,
+          content: `${screen.html}<!-- concurrent edit -->`,
+        },
+      ],
+      [],
+      [],
+      [],
+    ];
+    mocks.mutateDesignData.mockRejectedValueOnce(new Error("conflict"));
+
+    await expect(action.run(input, {} as any)).rejects.toThrow("conflict");
+
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
+    expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(handle);
   });
 
   it("refuses to overwrite a board whose live collaboration content changed after it was read", async () => {

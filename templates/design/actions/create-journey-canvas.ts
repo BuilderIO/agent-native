@@ -9,7 +9,7 @@ import {
 import type { PrivateBlobHandle } from "@agent-native/core/private-blob";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, like } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
@@ -959,8 +959,17 @@ export default defineAction({
           collabSyncPending,
         };
       }
-      if (landingStatus === "not_landed") {
-        if (createdDesignId) {
+      if (landingStatus === "not_landed" || landingStatus === "unknown") {
+        const blobCleanup = await findUnreferencedStoredBlobs({
+          designId,
+          blobs: [...newlyStored.values()],
+        });
+        if (
+          blobCleanup.verified &&
+          !blobCleanup.hasReferences &&
+          landingStatus === "not_landed" &&
+          createdDesignId
+        ) {
           try {
             await deleteDesign.run({ id: createdDesignId }, context);
           } catch (cleanupError) {
@@ -970,9 +979,11 @@ export default defineAction({
             );
           }
         }
-        await discardPrivateBlobs(
-          [...newlyStored.values()].map((blob) => blob.blobHandle),
-        );
+        if (blobCleanup.verified && blobCleanup.unreferenced.length) {
+          await discardPrivateBlobs(
+            blobCleanup.unreferenced.map((blob) => blob.blobHandle),
+          );
+        }
       }
       throw error;
     }
@@ -986,6 +997,54 @@ export default defineAction({
       : null;
   },
 });
+
+async function findUnreferencedStoredBlobs(args: {
+  designId: string;
+  blobs: readonly StoredReplayScreenshotBlob[];
+}): Promise<{
+  verified: boolean;
+  hasReferences: boolean;
+  unreferenced: StoredReplayScreenshotBlob[];
+}> {
+  const blobsByHandle = new Map(
+    args.blobs.map((blob) => [JSON.stringify(blob.blobHandle), blob]),
+  );
+  if (blobsByHandle.size === 0) {
+    return { verified: true, hasReferences: false, unreferenced: [] };
+  }
+  try {
+    const rows = await getDb()
+      .select({ blobHandle: schema.designBoardReplayScreenshots.blobHandle })
+      .from(schema.designBoardReplayScreenshots)
+      .innerJoin(
+        schema.designs,
+        eq(schema.designBoardReplayScreenshots.designId, schema.designs.id),
+      )
+      .where(
+        and(
+          accessFilter(schema.designs, schema.designShares),
+          eq(schema.designBoardReplayScreenshots.designId, args.designId),
+          inArray(schema.designBoardReplayScreenshots.blobHandle, [
+            ...blobsByHandle.keys(),
+          ]),
+        ),
+      );
+    const referencedHandles = new Set(rows.map((row) => row.blobHandle));
+    return {
+      verified: true,
+      hasReferences: referencedHandles.size > 0,
+      unreferenced: [...blobsByHandle]
+        .filter(([handle]) => !referencedHandles.has(handle))
+        .map(([, blob]) => blob),
+    };
+  } catch (error) {
+    console.warn(
+      "[design-journey-canvas] Could not verify newly uploaded screenshot references; keeping uploaded blobs:",
+      error,
+    );
+    return { verified: false, hasReferences: false, unreferenced: [] };
+  }
+}
 
 /** Unknown verification must preserve resources but cannot turn the failed write into success. */
 async function writeMayHaveLanded(args: {
