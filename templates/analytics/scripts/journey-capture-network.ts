@@ -203,45 +203,68 @@ export async function resolvePinnedAddresses(
   return addresses;
 }
 
-function readSocket(socket: Socket) {
+function readSocket(socket: Socket): {
+  read(byteLength: number): Promise<Buffer>;
+  release(): void;
+} {
   let buffer = Buffer.alloc(0);
   let failure: Error | undefined;
   let wake: (() => void) | undefined;
+  let released = false;
   const notify = () => {
     wake?.();
     wake = undefined;
   };
-  socket.on("data", (chunk: Buffer) => {
+  const onData = (chunk: Buffer) => {
     buffer = Buffer.concat([buffer, chunk]);
     if (buffer.byteLength > 1_024) {
       failure = new Error("replay_socks_handshake_invalid");
       socket.destroy();
     }
     notify();
-  });
-  socket.once("error", (error) => {
+  };
+  const onError = (error: Error) => {
     failure = error;
     notify();
-  });
-  socket.once("end", () => {
+  };
+  const onEnd = () => {
     failure ??= new Error("replay_socks_client_closed");
     notify();
-  });
-  socket.once("close", () => {
+  };
+  const onClose = () => {
     failure ??= new Error("replay_socks_client_closed");
     notify();
-  });
+  };
+  socket.on("data", onData);
+  socket.once("error", onError);
+  socket.once("end", onEnd);
+  socket.once("close", onClose);
 
-  return async (byteLength: number): Promise<Buffer> => {
-    while (buffer.byteLength < byteLength && !failure) {
-      await new Promise<void>((resolve) => {
-        wake = resolve;
-      });
-    }
-    if (failure) throw failure;
-    const result = buffer.subarray(0, byteLength);
-    buffer = buffer.subarray(byteLength);
-    return result;
+  return {
+    async read(byteLength: number): Promise<Buffer> {
+      while (buffer.byteLength < byteLength && !failure) {
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+        });
+      }
+      if (failure) throw failure;
+      const result = buffer.subarray(0, byteLength);
+      buffer = buffer.subarray(byteLength);
+      return result;
+    },
+    release() {
+      if (released) return;
+      released = true;
+      socket.pause();
+      socket.off("data", onData);
+      socket.off("error", onError);
+      socket.off("end", onEnd);
+      socket.off("close", onClose);
+      if (buffer.byteLength > 0 && !socket.destroyed) {
+        socket.unshift(buffer);
+      }
+      buffer = Buffer.alloc(0);
+    },
   };
 }
 
@@ -365,38 +388,38 @@ async function handleSocksClient(
   connect: ReplayConnect,
 ): Promise<void> {
   socket.setTimeout(15_000, () => socket.destroy());
-  const read = readSocket(socket);
+  const reader = readSocket(socket);
   let upstream: Socket | undefined;
   try {
-    const greeting = await read(2);
+    const greeting = await reader.read(2);
     if (greeting[0] !== 5) {
       socket.destroy();
       return;
     }
-    const methods = await read(greeting[1]!);
+    const methods = await reader.read(greeting[1]!);
     if (!methods.includes(0)) {
       socket.end(Buffer.from([5, 255]));
       return;
     }
     socket.write(Buffer.from([5, 0]));
 
-    const request = await read(4);
+    const request = await reader.read(4);
     if (request[0] !== 5 || request[1] !== 1 || request[2] !== 0) {
       socksReply(socket, 7);
       return;
     }
     let hostname: string;
     if (request[3] === 1) {
-      hostname = Array.from(await read(4)).join(".");
+      hostname = Array.from(await reader.read(4)).join(".");
     } else if (request[3] === 3) {
-      const hostLength = (await read(1))[0]!;
+      const hostLength = (await reader.read(1))[0]!;
       if (hostLength === 0) {
         socksReply(socket, 8);
         return;
       }
-      hostname = (await read(hostLength)).toString("utf8");
+      hostname = (await reader.read(hostLength)).toString("utf8");
     } else if (request[3] === 4) {
-      const address = await read(16);
+      const address = await reader.read(16);
       hostname = Array.from({ length: 8 }, (_value, index) =>
         address.readUInt16BE(index * 2).toString(16),
       ).join(":");
@@ -404,7 +427,7 @@ async function handleSocksClient(
       socksReply(socket, 8);
       return;
     }
-    const port = (await read(2)).readUInt16BE(0);
+    const port = (await reader.read(2)).readUInt16BE(0);
     upstream = await connectPinnedDestination(
       hostname,
       port,
@@ -416,6 +439,7 @@ async function handleSocksClient(
       upstream.destroy();
       return;
     }
+    reader.release();
     socket.setTimeout(0);
     socket.write(Buffer.from([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]));
     socket.pipe(upstream);

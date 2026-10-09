@@ -171,8 +171,9 @@ describe("journey capture replay network relay", () => {
       expect([...(await socksConnect(socket, "recorded.com", 443))]).toEqual([
         5, 0, 0, 1, 0, 0, 0, 0, 0, 0,
       ]);
+      const tunneledPayload = "x".repeat(2_048);
       socket.write(
-        "GET /image.png HTTP/1.1\r\nHost: recorded.com\r\nConnection: close\r\n\r\n",
+        `GET /image.png HTTP/1.1\r\nHost: recorded.com\r\nX-Payload: ${tunneledPayload}\r\nConnection: close\r\n\r\n`,
       );
       let response = "";
       await new Promise<void>((resolve, reject) => {
