@@ -12,6 +12,7 @@ const callNames: string[] = [];
 const modelsSeen: string[] = [];
 const imageDataUrlsSeen: string[] = [];
 const imageSha256Seen: string[] = [];
+const imageUrlsSeen: string[] = [];
 const requestSummaries: Array<{
   designId: string;
   roles: string[];
@@ -38,6 +39,8 @@ const toolCallsSeen: Array<{
 }> = [];
 let generationIssued = false;
 let editIssued = false;
+let holdResponseFor: string | null = null;
+let releaseHeldResponse: (() => void) | null = null;
 const text = (v: unknown) =>
   typeof v === "string"
     ? v
@@ -70,6 +73,7 @@ function collectImageDataUrls(value: unknown): string[] {
             ? String((imageUrl as Record<string, unknown>).url)
             : undefined;
       if (url?.startsWith("data:image/")) found.push(url);
+      else if (url) imageUrlsSeen.push(url);
     } else if (record.type === "image") {
       const mediaType =
         typeof record.mediaType === "string" ? record.mediaType : undefined;
@@ -178,6 +182,7 @@ const server = createServer(async (req, res) => {
         callNames,
         modelsSeen,
         imageSha256Seen,
+        imageUrlsSeen,
         requestSummaries,
         toolCallsSeen,
       }),
@@ -204,11 +209,33 @@ const server = createServer(async (req, res) => {
     callNames.length = 0;
     modelsSeen.length = 0;
     imageDataUrlsSeen.length = 0;
+    imageUrlsSeen.length = 0;
     imageSha256Seen.length = 0;
     requestSummaries.length = 0;
     toolCallsSeen.length = 0;
     generationIssued = false;
     editIssued = false;
+    holdResponseFor = null;
+    releaseHeldResponse?.();
+    res.writeHead(204).end();
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/__hold-next-response") {
+    const { userMessageStartsWith } = await readBody(req);
+    if (typeof userMessageStartsWith !== "string" || !userMessageStartsWith) {
+      res.writeHead(400).end("userMessageStartsWith is required");
+      return;
+    }
+    holdResponseFor = userMessageStartsWith;
+    res.writeHead(204).end();
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/__release-held-response") {
+    if (!releaseHeldResponse) {
+      res.writeHead(409).end("no response is held");
+      return;
+    }
+    releaseHeldResponse();
     res.writeHead(204).end();
     return;
   }
@@ -274,6 +301,23 @@ const server = createServer(async (req, res) => {
         })),
       ),
   });
+  const latestUserMessage = text(
+    messages.filter((message: any) => message.role === "user").at(-1)?.content,
+  );
+  // Only the agent turn offers tools; a title request for the same text does not.
+  if (
+    holdResponseFor &&
+    availableTools.length > 0 &&
+    latestUserMessage.startsWith(holdResponseFor)
+  ) {
+    holdResponseFor = null;
+    await new Promise<void>((resolve) => {
+      releaseHeldResponse = () => {
+        releaseHeldResponse = null;
+        resolve();
+      };
+    });
+  }
   if (all.includes("Generate a very short title")) {
     const id = ++requestId;
     res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8" });

@@ -5,24 +5,24 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconBorderRadius,
   IconBrush,
   IconChevronDown,
   IconChevronRight,
-  IconCircle,
+  IconDownload,
   IconFileText,
   IconFolder,
   IconLetterCase,
   IconPalette,
   IconPlus,
-  IconRefresh,
-  IconRuler,
-  IconSpacingVertical,
+  IconSearch,
   IconShadow,
+  IconSpacingHorizontal,
   IconUpload,
 } from "@tabler/icons-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
+import { LeftPanelHeader } from "@/components/design/editor/LeftPanelHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -102,14 +102,19 @@ function typeLabel(type: DesignToken["type"]): {
     case "typography":
       return { label: "Typography", Icon: IconLetterCase };
     case "spacing":
-      return { label: "Spacing", Icon: IconSpacingVertical };
+      return { label: "Spacing & Layout", Icon: IconSpacingHorizontal };
     case "radius":
-      return { label: "Radius", Icon: IconRuler };
+      return { label: "Radius", Icon: IconBorderRadius };
     case "shadow":
       return { label: "Shadows & Effects", Icon: IconShadow };
     default:
       return { label: "Other", Icon: IconBrush };
   }
+}
+
+function TokenTypeIcon({ type }: { type: DesignToken["type"] }) {
+  const { Icon } = typeLabel(type);
+  return <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />;
 }
 
 interface TokenRowProps {
@@ -144,37 +149,31 @@ function TokenRow({
   return (
     <div
       className={cn(
-        "group flex min-h-[28px] items-center gap-2 rounded px-2 py-0.5",
-        "hover:bg-accent/40 transition-colors",
+        "group flex h-8 items-center gap-2 px-4 transition-colors hover:bg-accent/40",
         editing && "bg-accent/60",
       )}
     >
-      {/* Swatch or type icon */}
+      <span className="size-4 shrink-0" aria-hidden />
       {showSwatch ? (
-        <span
-          className="size-3.5 flex-none rounded-sm ring-1 ring-border/50"
-          style={{ backgroundColor: token.value }}
-          aria-hidden
-        />
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          <span
+            className="size-4 rounded-[3px] ring-1 ring-inset ring-border"
+            style={{ backgroundColor: token.value }}
+            aria-hidden
+          />
+        </span>
       ) : (
-        <IconCircle
-          className="size-3.5 flex-none text-muted-foreground/30"
-          aria-hidden
-        />
+        <TokenTypeIcon type={token.type} />
       )}
-
-      {/* Friendly name */}
       <button
         type="button"
-        className="min-w-0 flex-1 cursor-pointer truncate bg-transparent p-0 text-left !text-[11px] text-foreground"
+        className="min-w-0 flex-1 cursor-pointer truncate bg-transparent p-0 text-left !text-[11px] leading-4 tracking-[0.055px] text-foreground"
         onClick={onStartEdit}
         aria-label={`Edit ${token.name}`}
-        title={token.name}
+        title={`${token.name} (${token.cssVar})`}
       >
         {token.name}
       </button>
-
-      {/* Value / edit input */}
       {editing ? (
         <Input
           ref={inputRef}
@@ -186,42 +185,18 @@ function TokenRow({
             if (e.key === "Escape") onCancelEdit();
           }}
           onBlur={onCommit}
-          className="h-5 w-24 px-1 py-0 !text-[11px] font-mono md:!text-[11px]"
+          className="h-6 w-24 px-1 py-0 !text-[11px] font-mono md:!text-[11px]"
         />
       ) : (
         <button
           type="button"
-          className="max-w-[6rem] cursor-pointer truncate bg-transparent p-0 text-right font-mono text-[10px] text-muted-foreground hover:text-foreground"
+          className="max-w-[6rem] shrink-0 cursor-pointer truncate bg-transparent p-0 text-right font-mono !text-[11px] leading-4 text-muted-foreground hover:text-foreground"
           title={token.value}
           aria-label={`Edit value for ${token.name}`}
           onClick={onStartEdit}
         >
           {token.value}
         </button>
-      )}
-
-      {/* CSS var chip (hidden when editing, visible on hover) */}
-      {!editing && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="pointer-events-none hidden max-w-[5.5rem] shrink-0 cursor-default select-all truncate rounded bg-muted px-1 py-0 font-mono text-[9px] text-muted-foreground/70 group-hover:inline-block">
-              {token.cssVar}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent className="font-mono text-xs">
-            {token.cssVar}
-          </TooltipContent>
-        </Tooltip>
-      )}
-
-      {/* Source chip */}
-      {!editing && (
-        <Badge
-          variant="outline"
-          className="pointer-events-none hidden h-4 shrink-0 cursor-default px-1 py-0 text-[9px] text-muted-foreground/60 group-hover:flex"
-        >
-          {token.source}
-        </Badge>
       )}
     </div>
   );
@@ -247,31 +222,30 @@ function TokenGroupSection({
   onCancelEdit,
 }: TokenGroupSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const { label, Icon } = typeLabel(group.type);
+  const { label } = typeLabel(group.type);
 
   return (
-    <div>
+    <div className="border-t border-border first:border-t-0">
       <button
         type="button"
         onClick={() => setCollapsed((c) => !c)}
-        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left hover:bg-accent/30"
+        aria-expanded={!collapsed}
+        className="flex h-10 w-full cursor-pointer items-center pr-3 text-left hover:bg-accent/30"
       >
-        {collapsed ? (
-          <IconChevronRight className="size-3 text-muted-foreground/50" />
-        ) : (
-          <IconChevronDown className="size-3 text-muted-foreground/50" />
-        )}
-        <Icon className="size-3 text-muted-foreground/60" />
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {label}
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {collapsed ? (
+            <IconChevronRight className="size-3" />
+          ) : (
+            <IconChevronDown className="size-3" />
+          )}
         </span>
-        <span className="ml-auto text-[10px] tabular-nums text-muted-foreground/40">
-          {group.tokens.length}
+        <span className="min-w-0 flex-1 truncate !text-[11px] font-[550] leading-4 tracking-[0.055px] text-foreground">
+          {label}
         </span>
       </button>
 
       {!collapsed && (
-        <div className="pb-1">
+        <div>
           {group.tokens.map((token) => (
             <TokenRow
               key={token.cssVar}
@@ -290,10 +264,117 @@ function TokenGroupSection({
   );
 }
 
-type TokenCreateMode = "menu" | "add" | "text";
+type ImportMode = "menu" | "text";
 
-interface NewTokenPopoverProps {
+const DEFAULT_TOKEN_VAR = "--my-token";
+// guard:allow-raw-color — default value for a new token input, not UI styling
+const DEFAULT_TOKEN_VALUE = "#000000";
+
+function HeaderIconPopover({
+  label,
+  icon,
+  open,
+  onOpenChange,
+  children,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 cursor-pointer rounded-md text-foreground"
+              aria-label={label}
+            >
+              {icon}
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="end" className="w-72 p-2 text-[12px]">
+        {children}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function AddTokenPopover({
+  onAdd,
+}: {
   onAdd: (cssVar: string, value: string) => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [cssVar, setCssVar] = useState(DEFAULT_TOKEN_VAR);
+  const [value, setValue] = useState(DEFAULT_TOKEN_VALUE);
+
+  const reset = () => {
+    setCssVar(DEFAULT_TOKEN_VAR);
+    setValue(DEFAULT_TOKEN_VALUE);
+  };
+
+  return (
+    <HeaderIconPopover
+      label={t("designEditor.tokens.newToken")}
+      icon={<IconPlus className="size-4" />}
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) reset();
+      }}
+    >
+      <div className="space-y-2 p-1">
+        <div className="space-y-1">
+          <label className="text-[10px] font-medium text-muted-foreground">
+            {t("designEditor.tokens.cssVar")}
+          </label>
+          <Input
+            value={cssVar}
+            onChange={(e) => setCssVar(e.target.value)}
+            className="h-6 font-mono !text-[11px] md:!text-[11px]"
+            placeholder={DEFAULT_TOKEN_VAR}
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-[10px] font-medium text-muted-foreground">
+            {t("designEditor.tokens.value")}
+          </label>
+          <Input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="h-6 font-mono !text-[11px] md:!text-[11px]"
+            // guard:allow-raw-color — example value in an input placeholder, not UI styling
+            placeholder="#3B82F6"
+          />
+        </div>
+        <Button
+          type="button"
+          className="h-7 w-full cursor-pointer !text-[11px]"
+          onClick={() => {
+            onAdd(normalizeCssVarName(cssVar), value.trim());
+            setOpen(false);
+            reset();
+          }}
+          disabled={!cssVar.trim() || !value.trim()}
+        >
+          {t("designEditor.tokens.add")}
+        </Button>
+      </div>
+    </HeaderIconPopover>
+  );
+}
+
+interface ImportTokensPopoverProps {
   onImportFiles: (
     files: TokenImportFile[],
   ) => Promise<ImportDesignTokensResult>;
@@ -302,31 +383,19 @@ interface NewTokenPopoverProps {
   isPending: boolean;
 }
 
-function NewTokenPopover({
-  onAdd,
+function ImportTokensPopover({
   onImportFiles,
   onImportText,
   onImportCurrentDesign,
   isPending,
-}: NewTokenPopoverProps) {
+}: ImportTokensPopoverProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<TokenCreateMode>("menu");
-  const [cssVar, setCssVar] = useState("--my-token");
-  const [value, setValue] = useState("#000000");
+  const [mode, setMode] = useState<ImportMode>("menu");
   const [text, setText] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
-  const t = useT();
-
-  const handleAdd = () => {
-    onAdd(normalizeCssVarName(cssVar), value.trim());
-    setOpen(false);
-    setMode("menu");
-    setCssVar("--my-token");
-    setValue("#000000");
-    setText("");
-  };
 
   const runImport = async (
     importer: () => Promise<ImportDesignTokensResult>,
@@ -347,17 +416,6 @@ function NewTokenPopover({
     }
   };
 
-  const closeOrReset = (nextOpen: boolean) => {
-    setOpen(nextOpen);
-    if (!nextOpen) {
-      setMode("menu");
-      setStatus(null);
-      setCssVar("--my-token");
-      setValue("#000000");
-      setText("");
-    }
-  };
-
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.currentTarget.files;
     event.currentTarget.value = "";
@@ -366,143 +424,97 @@ function NewTokenPopover({
   };
 
   return (
-    <Popover open={open} onOpenChange={closeOrReset}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-6 cursor-pointer gap-1 px-2 !text-[11px] text-muted-foreground hover:text-foreground"
-        >
-          <IconPlus className="size-3" />
-          {t("designEditor.tokens.newToken")}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 p-2 text-[12px]">
-        {mode === "menu" ? (
-          <div className="space-y-0.5">
-            <TokenCreateOption
-              icon={<IconPlus className="size-3.5" />}
-              title="Add one token"
-              description="Create a single CSS variable by hand."
-              onClick={() => setMode("add")}
-              disabled={isPending}
-            />
-            <TokenCreateOption
-              icon={<IconUpload className="size-3.5" />}
-              title="Import a set from text"
-              description="Paste CSS variables, theme notes, or token JSON."
-              onClick={() => setMode("text")}
-              disabled={isPending}
-            />
-            <TokenCreateOption
-              icon={<IconFileText className="size-3.5" />}
-              title="Import from a file"
-              description="Read colors, spacing, and type from selected files."
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isPending}
-            />
-            <TokenCreateOption
-              icon={<IconFolder className="size-3.5" />}
-              title="Import from a folder"
-              description="Scan a small source folder for token definitions."
-              onClick={() => folderInputRef.current?.click()}
-              disabled={isPending}
-            />
-            <TokenCreateOption
-              icon={<IconPalette className="size-3.5" />}
-              title="Import from current design"
-              description="Extract reusable tokens already used on the canvas."
-              onClick={() => void runImport(onImportCurrentDesign)}
-              disabled={isPending}
-            />
-          </div>
-        ) : mode === "add" ? (
-          <div className="space-y-2 p-1">
-            <TokenCreateBackButton onClick={() => setMode("menu")} />
-            <div className="space-y-1">
-              <label className="text-[10px] font-medium text-muted-foreground">
-                {t("designEditor.tokens.cssVar")}
-              </label>
-              <Input
-                value={cssVar}
-                onChange={(e) => setCssVar(e.target.value)}
-                className="h-6 font-mono !text-[11px] md:!text-[11px]"
-                placeholder="--my-token"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-medium text-muted-foreground">
-                {t("designEditor.tokens.value")}
-              </label>
-              <Input
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                className="h-6 font-mono !text-[11px] md:!text-[11px]"
-                placeholder="#3B82F6"
-              />
-            </div>
-            <Button
-              type="button"
-              className="h-7 w-full cursor-pointer !text-[11px]"
-              onClick={handleAdd}
-              disabled={!cssVar.trim() || !value.trim()}
-            >
-              {t("designEditor.tokens.add")}
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-2 p-1">
-            <TokenCreateBackButton onClick={() => setMode("menu")} />
-            <p className="text-[10px] leading-snug text-muted-foreground">
-              Paste a token set from CSS, JSON, Tailwind config, or design
-              notes.
-            </p>
-            <Textarea
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              placeholder={t("designEditor.tokens.pastePlaceholder")}
-              className="min-h-24 resize-none font-mono !text-[11px]"
-            />
-            <Button
-              type="button"
-              className="h-7 w-full cursor-pointer !text-[11px]"
-              disabled={isPending || !text.trim()}
-              onClick={() => void runImport(() => onImportText(text))}
-            >
-              {t("designEditor.tokens.importPasted")}
-            </Button>
-          </div>
-        )}
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept={TOKEN_IMPORT_ACCEPT}
-          className="hidden"
-          onChange={handleFileChange}
-        />
-        <input
-          ref={folderInputRef}
-          type="file"
-          multiple
-          accept={TOKEN_IMPORT_ACCEPT}
-          className="hidden"
-          onChange={handleFileChange}
-          {...({ directory: "", webkitdirectory: "" } as Record<
-            string,
-            string
-          >)}
-        />
-
-        {status && (
-          <p className="mt-2 px-1 text-[10px] leading-snug text-muted-foreground">
-            {status}
+    <HeaderIconPopover
+      label={t("designEditor.tokens.import")}
+      icon={<IconDownload className="size-4" />}
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          setMode("menu");
+          setStatus(null);
+          setText("");
+        }
+      }}
+    >
+      {mode === "menu" ? (
+        <div className="space-y-0.5">
+          <TokenCreateOption
+            icon={<IconUpload className="size-3.5" />}
+            title="Import a set from text"
+            description="Paste CSS variables, theme notes, or token JSON."
+            onClick={() => setMode("text")}
+            disabled={isPending}
+          />
+          <TokenCreateOption
+            icon={<IconFileText className="size-3.5" />}
+            title="Import from a file"
+            description="Read colors, spacing, and type from selected files."
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isPending}
+          />
+          <TokenCreateOption
+            icon={<IconFolder className="size-3.5" />}
+            title="Import from a folder"
+            description="Scan a small source folder for token definitions."
+            onClick={() => folderInputRef.current?.click()}
+            disabled={isPending}
+          />
+          <TokenCreateOption
+            icon={<IconPalette className="size-3.5" />}
+            title="Import from current design"
+            description="Extract reusable tokens already used on the canvas."
+            onClick={() => void runImport(onImportCurrentDesign)}
+            disabled={isPending}
+          />
+        </div>
+      ) : (
+        <div className="space-y-2 p-1">
+          <TokenCreateBackButton onClick={() => setMode("menu")} />
+          <p className="text-[10px] leading-snug text-muted-foreground">
+            Paste a token set from CSS, JSON, Tailwind config, or design notes.
           </p>
-        )}
-      </PopoverContent>
-    </Popover>
+          <Textarea
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            placeholder={t("designEditor.tokens.pastePlaceholder")}
+            className="min-h-24 resize-none font-mono !text-[11px]"
+          />
+          <Button
+            type="button"
+            className="h-7 w-full cursor-pointer !text-[11px]"
+            disabled={isPending || !text.trim()}
+            onClick={() => void runImport(() => onImportText(text))}
+          >
+            {t("designEditor.tokens.importPasted")}
+          </Button>
+        </div>
+      )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept={TOKEN_IMPORT_ACCEPT}
+        className="hidden"
+        onChange={handleFileChange}
+      />
+      <input
+        ref={folderInputRef}
+        type="file"
+        multiple
+        accept={TOKEN_IMPORT_ACCEPT}
+        className="hidden"
+        onChange={handleFileChange}
+        {...({ directory: "", webkitdirectory: "" } as Record<string, string>)}
+      />
+
+      {status && (
+        <p className="mt-2 px-1 text-[10px] leading-snug text-muted-foreground">
+          {status}
+        </p>
+      )}
+    </HeaderIconPopover>
   );
 }
 
@@ -596,6 +608,7 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
   const designIdRef = useRef(designId);
   designIdRef.current = designId;
 
+  const [search, setSearch] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
 
@@ -682,48 +695,71 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     return handleImportSuccess(result, requestDesignId);
   };
 
-  const groups = data?.groups ?? [];
   const tokenCount = data?.tokenCount ?? 0;
+  const searchOpen = search !== null;
+  const query = (search ?? "").trim().toLowerCase();
+  const allGroups = data?.groups;
+  const groups = useMemo(() => {
+    if (!allGroups || !query) return allGroups ?? [];
+    return allGroups
+      .map((group) => ({
+        ...group,
+        tokens: group.tokens.filter((token) =>
+          [token.name, token.cssVar, token.value].some((field) =>
+            field.toLowerCase().includes(query),
+          ),
+        ),
+      }))
+      .filter((group) => group.tokens.length > 0);
+  }, [allGroups, query]);
+  const hasTokens = (allGroups?.length ?? 0) > 0;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
-        <div className="flex items-center gap-1.5">
-          <span className="!text-[11px] font-semibold text-foreground">
-            {t("designEditor.tokens.title")}
-          </span>
-          {tokenCount > 0 && (
-            <span className="tabular-nums text-[10px] text-muted-foreground/50">
-              ({tokenCount})
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-6 cursor-pointer text-muted-foreground/60 hover:text-foreground"
-                onClick={() => void refetch()}
-                aria-label={t("designEditor.tokens.refresh")}
-              >
-                <IconRefresh className="size-3" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("designEditor.tokens.refresh")}</TooltipContent>
-          </Tooltip>
-          <NewTokenPopover
-            onAdd={handleNewToken}
-            onImportFiles={importFiles}
-            onImportText={importText}
-            onImportCurrentDesign={importCurrentDesign}
-            isPending={importMutation.isPending}
+      <LeftPanelHeader>
+        <span className="min-w-0 flex-1 truncate pl-2 !text-xs leading-4 text-muted-foreground">
+          {t("designEditor.tokens.count", { count: tokenCount })}
+        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 cursor-pointer rounded-md text-foreground"
+              aria-label={t("designEditor.tokens.search")}
+              aria-pressed={searchOpen}
+              onClick={() => setSearch(searchOpen ? null : "")}
+            >
+              <IconSearch className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("designEditor.tokens.search")}</TooltipContent>
+        </Tooltip>
+        <ImportTokensPopover
+          onImportFiles={importFiles}
+          onImportText={importText}
+          onImportCurrentDesign={importCurrentDesign}
+          isPending={importMutation.isPending}
+        />
+        <AddTokenPopover onAdd={handleNewToken} />
+      </LeftPanelHeader>
+
+      {searchOpen && (
+        <div className="shrink-0 border-b border-border px-2 py-1.5">
+          <Input
+            autoFocus
+            value={search ?? ""}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setSearch(null);
+            }}
+            aria-label={t("designEditor.tokens.search")}
+            placeholder={t("designEditor.tokens.search")}
+            className="h-7 !text-xs md:!text-xs"
           />
         </div>
-      </div>
+      )}
 
       {/* Body */}
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -739,7 +775,7 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
           </div>
         )}
 
-        {!isLoading && groups.length === 0 && (
+        {!isLoading && !hasTokens && (
           <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
             <IconPalette className="size-6 text-muted-foreground/30" />
             <p className="!text-[11px] leading-snug text-muted-foreground/60">
@@ -751,8 +787,14 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
           </div>
         )}
 
+        {!isLoading && hasTokens && groups.length === 0 && (
+          <p className="px-4 py-6 text-center !text-[11px] text-muted-foreground">
+            {t("designEditor.tokens.noMatches")}
+          </p>
+        )}
+
         {!isLoading && groups.length > 0 && (
-          <div className="pb-2">
+          <div>
             {groups.map((group) => (
               <TokenGroupSection
                 key={group.type}

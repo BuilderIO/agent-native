@@ -38,6 +38,7 @@ import {
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import { hasSpecifiedDesignPrompt } from "../shared/specified-design-prompt.js";
 
 const VARIANT_GAP = 96;
 const MAX_COLUMNS = 3;
@@ -53,19 +54,6 @@ const DEFAULT_RESPONSIVE_BREAKPOINTS = [MOBILE_WIDTH].map((widthPx) => ({
   widthPx,
   prefix: widthToPrefix(widthPx),
 }));
-
-const SPECIFICATION_SIGNAL_PATTERNS = [
-  /\b(?:attached|uploaded|reference|mockup|screenshot|wireframe|source of truth|source-of-truth)\b/i,
-  /\b(?:\d+\s*[- ]\s*col(?:umn)?|grid spec|layout spec|section order|feature list)\b/i,
-  /\b(?:design system|brand system|brand kit|visual language|tokens?)\b/i,
-] as const;
-
-export function hasSpecifiedDesignPrompt(prompt?: string): boolean {
-  const value = prompt?.trim() ?? "";
-  if (!value) return false;
-  if (resolveCanvasIntent(value).kind === "fixed") return true;
-  return SPECIFICATION_SIGNAL_PATTERNS.some((pattern) => pattern.test(value));
-}
 
 function isModelVisibleImageAttachment(attachment: {
   type?: string;
@@ -840,9 +828,10 @@ export default defineAction({
     "complex apps, " +
     "make each variant a " +
     "compact representative screen; pass concise labels/descriptions/features " +
-    "and omit content only for open-ended exploration. For a brief with a " +
-    "specific product surface, reference, layout, or design system, provide " +
-    "complete self-contained HTML for every variant; the generic fallback is " +
+    "and omit content only for open-ended exploration. For a fixed canvas " +
+    "(exact size, ad, social post), an attached reference image, or a brief " +
+    "with a specific reference, layout, or design system, provide complete " +
+    "self-contained HTML for every variant; the generic fallback is " +
     "blocked there. Design will render compact screens from direction data only " +
     "for open-ended exploration. Expand the chosen direction after the user " +
     "picks. Exact pixel dimensions in the original brief set every variant's " +

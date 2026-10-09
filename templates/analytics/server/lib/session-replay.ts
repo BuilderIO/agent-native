@@ -39,6 +39,7 @@ import {
   not,
   or,
   sql,
+  type AnyColumn,
 } from "drizzle-orm";
 
 import { isScreenshotSize } from "../../shared/png.js";
@@ -65,6 +66,7 @@ import {
 } from "./first-party-analytics.js";
 import { MAX_SESSION_ID_LENGTH } from "./indexed-text.js";
 import type { JourneyRecording, RecordingViewport } from "./journey-tree.js";
+import { canonicalReplayLinkTimestamp } from "./replay-link-timestamp.js";
 import { parseIngestBody } from "./request-errors.js";
 import {
   pruneSessionEventIndex,
@@ -85,6 +87,7 @@ import {
   prunePerformanceAggregates,
   slowSessionConditions,
 } from "./session-performance.js";
+import { sessionRecordingAssociationsReady } from "./session-recording-associations.js";
 
 export type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -442,12 +445,14 @@ function replayIngestByteLength(
 }
 
 function replayTimestamp(value: unknown): string | null {
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === "number" || typeof value === "string") {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  if (typeof value === "number") {
     const d = new Date(value);
     return Number.isNaN(d.getTime()) ? null : d.toISOString();
   }
-  return null;
+  return canonicalReplayLinkTimestamp(value);
 }
 
 function replayMinIso(values: Array<string | null | undefined>): string | null {
@@ -1578,6 +1583,54 @@ function replayTextContains(column: unknown, query: string) {
   return sql`lower(coalesce(${column}, '')) like ${`%${escapeSqlLike(query.toLowerCase())}%`} escape '\\'`;
 }
 
+function recordingHasObservedSession(
+  recordingId: AnyColumn,
+  legacySessionId: AnyColumn,
+  sessionId: string,
+  associationsReady: boolean,
+) {
+  if (!associationsReady) return eq(legacySessionId, sessionId);
+  const association = schema.sessionRecordingSessionAssociations;
+  return sql`(
+    exists (
+      select 1 from ${association}
+      where ${association.recordingId} = ${recordingId}
+        and ${association.sessionId} = ${sessionId}
+    )
+    or (
+      ${legacySessionId} = ${sessionId}
+      and not exists (
+        select 1 from ${association}
+        where ${association.recordingId} = ${recordingId}
+      )
+    )
+  )`;
+}
+
+function recordingHasObservedSessionMatch(
+  recordingId: AnyColumn,
+  legacySessionId: AnyColumn,
+  query: string,
+  associationsReady: boolean,
+) {
+  if (!associationsReady) return replayTextContains(legacySessionId, query);
+  const association = schema.sessionRecordingSessionAssociations;
+  return sql`(
+    exists (
+      select 1 from ${association}
+      where ${association.recordingId} = ${recordingId}
+        and ${replayTextContains(association.sessionId, query)}
+    )
+    or (
+      ${replayTextContains(legacySessionId, query)}
+      and not exists (
+        select 1 from ${association}
+        where ${association.recordingId} = ${recordingId}
+      )
+    )
+  )`;
+}
+
 function replayVisibleIdentityCondition() {
   return or(
     replayTextContains(schema.sessionRecordings.userId, "@"),
@@ -1601,12 +1654,20 @@ function replayPlayableEventsCondition() {
   );
 }
 
-function replayListSearchCondition(query: string | undefined) {
+function replayListSearchCondition(
+  query: string | undefined,
+  associationsReady: boolean,
+) {
   const q = query?.trim();
   if (!q) return null;
   return or(
     replayTextContains(schema.sessionRecordings.id, q),
-    replayTextContains(schema.sessionRecordings.sessionId, q),
+    recordingHasObservedSessionMatch(
+      schema.sessionRecordings.id,
+      schema.sessionRecordings.sessionId,
+      q,
+      associationsReady,
+    ),
     replayTextContains(schema.sessionRecordings.clientRecordingId, q),
     replayTextContains(schema.sessionRecordings.userId, q),
     replayTextContains(schema.sessionRecordings.userKey, q),
@@ -1678,6 +1739,7 @@ export async function recordSessionReplayChunks(
         id: newRecordingId,
         publicKeyId: key.id,
         clientRecordingId: clampedInput.clientRecordingId,
+        clientStartedAt: input.startedAt,
         sessionId: clampedInput.sessionId,
         userId: clampedInput.userId,
         anonymousId: clampedInput.anonymousId,
@@ -1745,8 +1807,39 @@ export async function recordSessionReplayChunks(
     Number(recording.chunkCount ?? 0) === 0 &&
     Number(recording.eventCount ?? 0) === 0 &&
     existingChunks.length === 0;
+  const associationsReady = await sessionRecordingAssociationsReady(db);
+  if (
+    !associationsReady &&
+    !wasEmptyRecording &&
+    clampedInput.sessionId !== recording.sessionId
+  ) {
+    throw replayError(
+      "Replay storage is temporarily unavailable; retry this chunk",
+      503,
+      60,
+    );
+  }
 
   const ingestId = replayId("sri");
+  const cleanUpFailedIngest = async () => {
+    await Promise.all(uploadedBlobHandles.map(deleteReplayBlobHandleQuietly));
+    await db
+      .delete(schema.sessionReplayIngests)
+      .where(eq(schema.sessionReplayIngests.id, ingestId))
+      .catch((releaseError: unknown) => {
+        console.error(
+          "[session-replay] failed to release replay usage reservation",
+          { ingestId, publicKeyId: key.id, error: releaseError },
+        );
+      });
+    if (wasEmptyRecording) {
+      await deleteEmptyReplayRecordingPlaceholder(db, {
+        id: recording.id,
+        ownerEmail: key.ownerEmail,
+        orgId: key.orgId,
+      });
+    }
+  };
   try {
     await db.insert(schema.sessionReplayIngests).values({
       id: ingestId,
@@ -1809,29 +1902,8 @@ export async function recordSessionReplayChunks(
         orgId: key.orgId,
       });
     }
-
-    if (rowsToInsert.length) {
-      await db.insert(schema.sessionReplayChunks).values(rowsToInsert);
-    }
-    uploadedBlobHandles.length = 0;
   } catch (error) {
-    await Promise.all(uploadedBlobHandles.map(deleteReplayBlobHandleQuietly));
-    await db
-      .delete(schema.sessionReplayIngests)
-      .where(eq(schema.sessionReplayIngests.id, ingestId))
-      .catch((releaseError: unknown) => {
-        console.error(
-          "[session-replay] failed to release replay usage reservation",
-          { ingestId, publicKeyId: key.id, error: releaseError },
-        );
-      });
-    if (wasEmptyRecording) {
-      await deleteEmptyReplayRecordingPlaceholder(db, {
-        id: recording.id,
-        ownerEmail: key.ownerEmail,
-        orgId: key.orgId,
-      });
-    }
+    await cleanUpFailedIngest();
     throw error;
   }
 
@@ -1879,52 +1951,99 @@ export async function recordSessionReplayChunks(
   );
   const recordingEnded =
     clampedInput.status === "completed" || recording.status === "completed";
-
-  await db
-    .update(schema.sessionRecordings)
-    .set({
-      sessionId: clampedInput.sessionId,
-      userId: clampedInput.userId ?? recording.userId ?? null,
-      anonymousId: clampedInput.anonymousId ?? recording.anonymousId ?? null,
-      userKey: clampedInput.userKey ?? recording.userKey ?? null,
-      startedAt,
-      endedAt,
-      durationMs,
-      chunkCount,
-      eventCount,
-      totalBytes,
-      pageCount: Math.max(
-        Number(recording.pageCount ?? 0),
-        clampedInput.pageCount,
-      ),
-      errorCount,
-      networkErrorCount: Math.max(
-        Number(recording.networkErrorCount ?? 0),
-        clampedInput.networkErrorCount,
-      ),
-      rageClickCount,
-      privacyMode:
-        clampedInput.privacyMode !== "unknown"
-          ? clampedInput.privacyMode
-          : (recording.privacyMode ?? "unknown"),
-      firstUrl: recording.firstUrl ?? clampedInput.url,
-      lastUrl: clampedInput.url ?? recording.lastUrl ?? null,
-      path: clampedInput.path ?? recording.path ?? null,
-      hostname: clampedInput.hostname ?? recording.hostname ?? null,
-      referrer: clampedInput.referrer ?? recording.referrer ?? null,
-      app: clampedInput.app ?? recording.app ?? null,
-      template: clampedInput.template ?? recording.template ?? null,
-      status: recordingEnded ? "completed" : "active",
-      metadata: JSON.stringify(metadata),
-      updatedAt: ingestedAt,
-      lastIngestedAt: ingestedAt,
-    })
-    .where(eq(schema.sessionRecordings.id, recording.id));
+  const recordedSessionId =
+    rowsToInsert.length > 0 && (associationsReady || wasEmptyRecording)
+      ? clampedInput.sessionId
+      : recording.sessionId;
+  const recordingUpdate = {
+    sessionId: recordedSessionId,
+    userId: clampedInput.userId ?? recording.userId ?? null,
+    anonymousId: clampedInput.anonymousId ?? recording.anonymousId ?? null,
+    userKey: clampedInput.userKey ?? recording.userKey ?? null,
+    startedAt,
+    endedAt,
+    durationMs,
+    chunkCount,
+    eventCount,
+    totalBytes,
+    pageCount: Math.max(
+      Number(recording.pageCount ?? 0),
+      clampedInput.pageCount,
+    ),
+    errorCount,
+    networkErrorCount: Math.max(
+      Number(recording.networkErrorCount ?? 0),
+      clampedInput.networkErrorCount,
+    ),
+    rageClickCount,
+    privacyMode:
+      clampedInput.privacyMode !== "unknown"
+        ? clampedInput.privacyMode
+        : (recording.privacyMode ?? "unknown"),
+    firstUrl: recording.firstUrl ?? clampedInput.url,
+    lastUrl: clampedInput.url ?? recording.lastUrl ?? null,
+    path: clampedInput.path ?? recording.path ?? null,
+    hostname: clampedInput.hostname ?? recording.hostname ?? null,
+    referrer: clampedInput.referrer ?? recording.referrer ?? null,
+    app: clampedInput.app ?? recording.app ?? null,
+    template: clampedInput.template ?? recording.template ?? null,
+    status: recordingEnded ? "completed" : "active",
+    metadata: JSON.stringify(metadata),
+    updatedAt: ingestedAt,
+    lastIngestedAt: ingestedAt,
+  };
+  try {
+    await db.transaction(async (tx: any) => {
+      if (rowsToInsert.length) {
+        await tx.insert(schema.sessionReplayChunks).values(rowsToInsert);
+      }
+      if (rowsToInsert.length && associationsReady) {
+        const previousAssociations = await tx
+          .select({
+            sessionId: schema.sessionRecordingSessionAssociations.sessionId,
+          })
+          .from(schema.sessionRecordingSessionAssociations)
+          .where(
+            eq(
+              schema.sessionRecordingSessionAssociations.recordingId,
+              recording.id,
+            ),
+          )
+          .limit(1);
+        const sessionIds = new Set<string>([clampedInput.sessionId]);
+        if (
+          previousAssociations.length === 0 &&
+          existingChunks.length > 0 &&
+          recording.sessionId
+        ) {
+          sessionIds.add(recording.sessionId);
+        }
+        await tx
+          .insert(schema.sessionRecordingSessionAssociations)
+          .values(
+            [...sessionIds].map((sessionId) => ({
+              id: replayId("srsa"),
+              recordingId: recording.id,
+              sessionId,
+            })),
+          )
+          .onConflictDoNothing();
+      }
+      await tx
+        .update(schema.sessionRecordings)
+        .set(recordingUpdate)
+        .where(eq(schema.sessionRecordings.id, recording.id));
+    });
+    uploadedBlobHandles.length = 0;
+  } catch (error) {
+    await cleanUpFailedIngest();
+    throw error;
+  }
 
   const insertedSeqs = new Set(rowsToInsert.map((row) => row.seq));
   await recordReplayFriction({
     recordingId: recording.id,
-    sessionId: clampedInput.sessionId,
+    sessionId: recordedSessionId,
     ownerEmail: key.ownerEmail,
     orgId: key.orgId,
     priorChunkCount: existingChunks.length,
@@ -1979,6 +2098,9 @@ export async function listSessionRecordings(
     return (await listSessionRecordingsPage(scope, filters)).recordings;
   }
   const db = getDb() as any;
+  const associationsReady = Boolean(filters.sessionId || filters.query?.trim())
+    ? await sessionRecordingAssociationsReady(db)
+    : false;
   const limit = Math.min(
     MAX_SESSION_RECORDINGS_LIMIT,
     Math.max(1, filters.limit ?? DEFAULT_SESSION_RECORDINGS_LIMIT),
@@ -1999,7 +2121,14 @@ export async function listSessionRecordings(
     conditions.push(eq(schema.sessionRecordings.template, filters.template));
   }
   if (filters.sessionId) {
-    conditions.push(eq(schema.sessionRecordings.sessionId, filters.sessionId));
+    conditions.push(
+      recordingHasObservedSession(
+        schema.sessionRecordings.id,
+        schema.sessionRecordings.sessionId,
+        filters.sessionId,
+        associationsReady,
+      ),
+    );
   }
   if (filters.userId) {
     conditions.push(
@@ -2037,7 +2166,7 @@ export async function listSessionRecordings(
   if (filters.status) {
     conditions.push(eq(schema.sessionRecordings.status, filters.status));
   }
-  const search = replayListSearchCondition(filters.query);
+  const search = replayListSearchCondition(filters.query, associationsReady);
   if (search) conditions.push(search);
 
   const rows = await db
@@ -2052,9 +2181,15 @@ export async function listSessionRecordings(
 const JOURNEY_RECORDING_BATCH = 400;
 const JOURNEY_RECORDINGS_PER_SESSION = 5;
 
+export interface JourneyReplayLink {
+  sessionId: string;
+  clientRecordingId: string;
+  startedAt: string;
+}
+
 export interface JourneyRecordingsRead {
   recordings: JourneyRecording[];
-  /** False when a batch hit its row ceiling or a row had no usable start time. */
+  /** False when a read is capped or a provided link or recording is invalid, ambiguous, or unusable. */
   complete: boolean;
 }
 
@@ -2067,40 +2202,70 @@ export async function listJourneyRecordings(
   scope: SessionReplayScope,
   sessionIds: readonly string[],
   range: { fromIso: string; toIso: string },
+  replayLinks: readonly JourneyReplayLink[] = [],
 ): Promise<JourneyRecordingsRead> {
+  if (!sessionIds.length && !replayLinks.length) {
+    return { recordings: [], complete: true };
+  }
   const db = getDb() as any;
+  const associationsReady = sessionIds.length
+    ? await sessionRecordingAssociationsReady(db)
+    : false;
   const r = schema.sessionRecordings;
   const recordings: JourneyRecording[] = [];
   let complete = true;
   for (let i = 0; i < sessionIds.length; i += JOURNEY_RECORDING_BATCH) {
     const batch = sessionIds.slice(i, i + JOURNEY_RECORDING_BATCH);
     const limit = batch.length * JOURNEY_RECORDINGS_PER_SESSION;
-    const read = await db
-      .select({
-        id: r.id,
-        sessionId: r.sessionId,
-        startedAt: r.startedAt,
-        endedAt: r.endedAt,
-        durationMs: r.durationMs,
-        metadata: r.metadata,
-      })
-      .from(r)
-      .where(
-        and(
-          accessFilter(r, schema.sessionRecordingShares, {
-            userEmail: scope.userEmail,
-            orgId: scope.orgId ?? undefined,
-          }),
-          replayVisibleIdentityCondition(),
-          replayPlayableEventsCondition(),
-          inArray(r.sessionId, batch),
-          gte(r.startedAt, range.fromIso),
-          lte(r.startedAt, range.toIso),
-        ),
-      )
-      .orderBy(asc(r.startedAt), asc(r.id))
-      // One row past the ceiling tells a batch that ended there from one cut.
-      .limit(limit + 1);
+    const selection = {
+      id: r.id,
+      sessionId: associationsReady
+        ? sql<string>`coalesce(${schema.sessionRecordingSessionAssociations.sessionId}, ${r.sessionId})`
+        : r.sessionId,
+      startedAt: r.startedAt,
+      endedAt: r.endedAt,
+      durationMs: r.durationMs,
+      metadata: r.metadata,
+    };
+    const sessionMatch = associationsReady
+      ? or(
+          inArray(schema.sessionRecordingSessionAssociations.sessionId, batch),
+          and(
+            isNull(schema.sessionRecordingSessionAssociations.recordingId),
+            inArray(r.sessionId, batch),
+          ),
+        )
+      : inArray(r.sessionId, batch);
+    const predicates = and(
+      accessFilter(r, schema.sessionRecordingShares, {
+        userEmail: scope.userEmail,
+        orgId: scope.orgId ?? undefined,
+      }),
+      replayVisibleIdentityCondition(),
+      replayPlayableEventsCondition(),
+      sessionMatch,
+      gte(r.startedAt, range.fromIso),
+      lte(r.startedAt, range.toIso),
+    );
+    const read = associationsReady
+      ? await db
+          .select(selection)
+          .from(r)
+          .leftJoin(
+            schema.sessionRecordingSessionAssociations,
+            eq(schema.sessionRecordingSessionAssociations.recordingId, r.id),
+          )
+          .where(predicates)
+          .orderBy(asc(r.startedAt), asc(r.id))
+          // One row past the ceiling tells a batch that ended there from one cut.
+          .limit(limit + 1)
+      : await db
+          .select(selection)
+          .from(r)
+          .where(predicates)
+          .orderBy(asc(r.startedAt), asc(r.id))
+          // One row past the ceiling tells a batch that ended there from one cut.
+          .limit(limit + 1);
     if (read.length > limit) complete = false;
     const rows = read.slice(0, limit);
     for (const row of rows) {
@@ -2120,7 +2285,129 @@ export async function listJourneyRecordings(
       });
     }
   }
-  return { recordings, complete };
+
+  const linkSessionsByPair = new Map<
+    string,
+    { clientRecordingId: string; startedAt: string; sessionIds: Set<string> }
+  >();
+  for (const link of replayLinks) {
+    const startedAt = canonicalReplayLinkTimestamp(link.startedAt);
+    if (
+      !link.sessionId ||
+      !link.clientRecordingId ||
+      link.clientRecordingId.length > MAX_SESSION_ID_LENGTH ||
+      link.startedAt.length > 64 ||
+      !startedAt
+    ) {
+      complete = false;
+      continue;
+    }
+    const key = JSON.stringify([link.clientRecordingId, startedAt]);
+    const pair = linkSessionsByPair.get(key) ?? {
+      clientRecordingId: link.clientRecordingId,
+      startedAt,
+      sessionIds: new Set<string>(),
+    };
+    pair.sessionIds.add(link.sessionId);
+    linkSessionsByPair.set(key, pair);
+  }
+  const exactLinks = [...linkSessionsByPair.entries()];
+  for (let i = 0; i < exactLinks.length; i += JOURNEY_RECORDING_BATCH) {
+    const pendingBatches = [exactLinks.slice(i, i + JOURNEY_RECORDING_BATCH)];
+    while (pendingBatches.length) {
+      const batch = pendingBatches.pop();
+      if (!batch?.length) continue;
+      const exactMatch = or(
+        ...batch.map(([, link]) =>
+          and(
+            eq(r.clientRecordingId, link.clientRecordingId),
+            or(
+              eq(r.clientStartedAt, link.startedAt),
+              and(isNull(r.clientStartedAt), eq(r.startedAt, link.startedAt)),
+            ),
+          ),
+        ),
+      );
+      const read = await db
+        .select({
+          id: r.id,
+          clientRecordingId: r.clientRecordingId,
+          clientStartedAt: r.clientStartedAt,
+          startedAt: r.startedAt,
+          endedAt: r.endedAt,
+          durationMs: r.durationMs,
+          metadata: r.metadata,
+        })
+        .from(r)
+        .where(
+          and(
+            accessFilter(r, schema.sessionRecordingShares, {
+              userEmail: scope.userEmail,
+              orgId: scope.orgId ?? undefined,
+            }),
+            replayVisibleIdentityCondition(),
+            replayPlayableEventsCondition(),
+            exactMatch,
+          ),
+        )
+        .orderBy(asc(r.startedAt), asc(r.id))
+        .limit(batch.length + 1);
+      if (read.length > batch.length) {
+        complete = false;
+        if (batch.length > 1) {
+          const midpoint = Math.floor(batch.length / 2);
+          pendingBatches.push(batch.slice(midpoint), batch.slice(0, midpoint));
+        }
+        continue;
+      }
+      const rowsByPair = new Map<string, typeof read>();
+      for (const row of read) {
+        const key = JSON.stringify([
+          row.clientRecordingId,
+          row.clientStartedAt ?? row.startedAt,
+        ]);
+        const matches = rowsByPair.get(key) ?? [];
+        matches.push(row);
+        rowsByPair.set(key, matches);
+      }
+      for (const [key, link] of batch) {
+        const matches = rowsByPair.get(key) ?? [];
+        if (matches.length > 1) {
+          complete = false;
+          continue;
+        }
+        const row = matches[0];
+        if (!row) {
+          continue;
+        }
+        const startedAtMs = Date.parse(row.startedAt);
+        const endedAtMs = row.endedAt ? Date.parse(row.endedAt) : null;
+        if (!Number.isFinite(startedAtMs) || Number.isNaN(endedAtMs)) {
+          complete = false;
+          continue;
+        }
+        for (const sessionId of link.sessionIds) {
+          recordings.push({
+            id: row.id,
+            sessionId,
+            startedAtMs,
+            endedAtMs,
+            durationMs: row.durationMs ?? null,
+            viewport: readRecordingViewport(row.metadata),
+          });
+        }
+      }
+    }
+  }
+
+  const uniqueRecordings = new Map<string, JourneyRecording>();
+  for (const recording of recordings) {
+    uniqueRecordings.set(
+      JSON.stringify([recording.id, recording.sessionId]),
+      recording,
+    );
+  }
+  return { recordings: [...uniqueRecordings.values()], complete };
 }
 
 export interface SessionRecordingPage {
@@ -2248,6 +2535,9 @@ export async function listSessionRecordingsPage(
     );
   }
   const db = getDb() as any;
+  const associationsReady = Boolean(filters.sessionId || filters.query?.trim())
+    ? await sessionRecordingAssociationsReady(db)
+    : false;
   const internalDomains = await sessionInternalDomains(scope);
   const visitorDomain = sessionVisitorDomain();
   const conditions: any[] = [
@@ -2263,7 +2553,14 @@ export async function listSessionRecordingsPage(
   if (filters.template)
     conditions.push(eq(schema.sessionRecordings.template, filters.template));
   if (filters.sessionId)
-    conditions.push(eq(schema.sessionRecordings.sessionId, filters.sessionId));
+    conditions.push(
+      recordingHasObservedSession(
+        schema.sessionRecordings.id,
+        schema.sessionRecordings.sessionId,
+        filters.sessionId,
+        associationsReady,
+      ),
+    );
   if (filters.userId)
     conditions.push(
       or(
@@ -2333,7 +2630,7 @@ export async function listSessionRecordingsPage(
       ),
     );
   }
-  const search = replayListSearchCondition(filters.query);
+  const search = replayListSearchCondition(filters.query, associationsReady);
   if (search) conditions.push(search);
   conditions.push(
     ...(await sessionEventFilterConditions(scope, {
@@ -2465,6 +2762,7 @@ export async function resolveSessionReplayLink(
   scope: SessionReplayScope,
 ): Promise<SessionReplayLinkResolution | null> {
   const db = getDb() as any;
+  const associationsReady = await sessionRecordingAssociationsReady(db);
   const [row] = await db
     .select({
       id: schema.sessionRecordings.id,
@@ -2484,7 +2782,12 @@ export async function resolveSessionReplayLink(
     .from(schema.sessionRecordings)
     .where(
       and(
-        eq(schema.sessionRecordings.sessionId, input.sessionId),
+        recordingHasObservedSession(
+          schema.sessionRecordings.id,
+          schema.sessionRecordings.sessionId,
+          input.sessionId,
+          associationsReady,
+        ),
         eq(schema.sessionRecordings.clientRecordingId, input.clientRecordingId),
         eq(schema.sessionRecordings.ownerEmail, scope.userEmail),
         scope.orgId

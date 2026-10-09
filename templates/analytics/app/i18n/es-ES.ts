@@ -1110,6 +1110,7 @@ export default {
   },
   sqlDashboard: {
     customRange: "Rango personalizado",
+    allValues: "Todos",
     untitledDashboard: "Panel de control sin título",
     dashboardFallback: "panel",
     viewOnly: "Tiene acceso de solo lectura a este panel.",

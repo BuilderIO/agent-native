@@ -147,6 +147,10 @@ import {
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
 import {
+  DurableAttachmentReferenceRequiredError,
+  stripInlineBytes,
+} from "../shared/inline-bytes.js";
+import {
   isReasoningEffort,
   normalizeReasoningEffortForRequest,
   stepDownReasoningEffort,
@@ -178,6 +182,7 @@ import {
   readContextXraySystemSections,
 } from "./context-xray/manifest.js";
 import {
+  AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   backgroundRuntimeDiagnosticDetail,
@@ -200,6 +205,7 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isContextOverflowCode,
   isContextOverflowMessage,
+  isInvalidAttachmentProviderMessage,
   isProviderConnectionErrorMessage,
   PROVIDER_RATE_LIMITED_ERROR_CODE,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
@@ -233,6 +239,8 @@ import {
 } from "./engine/tool-call-journal-seed.js";
 import {
   backfillEngineMessagesToolResults,
+  INTERRUPTED_TOOL_RESULT_MARKER,
+  isInterruptedToolResult,
   stringifyToolUseInputForGateway,
   unmatchedToolResultReplayText,
 } from "./engine/translate-anthropic.js";
@@ -1932,6 +1940,40 @@ const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
 const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
 const MAX_INLINE_SKILL_REFERENCE_CHARS = 40_000;
+
+const MAX_LOADED_SKILL_SLUGS = 16;
+const LOADED_SKILL_SLUG_PATTERN = /^skill-[a-z0-9]+(?:-+[a-z0-9]+)*$/;
+
+export function normalizeLoadedSkillSlugs(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const slugs = value.filter(
+    (slug): slug is string =>
+      typeof slug === "string" &&
+      slug.length <= 200 &&
+      LOADED_SKILL_SLUG_PATTERN.test(slug),
+  );
+  return [...new Set(slugs.reverse())]
+    .slice(0, MAX_LOADED_SKILL_SLUGS)
+    .reverse();
+}
+
+function skillPageIntactInHistory(
+  messages: readonly EngineMessage[],
+  slug: string,
+  page: string,
+): boolean {
+  const ending = page.trimEnd().slice(-200);
+  return messages.some((message) =>
+    message.content.some(
+      (part) =>
+        part.type === "tool-result" &&
+        part.toolName === "docs-search" &&
+        !part.isError &&
+        part.toolInput.includes(JSON.stringify(slug)) &&
+        part.content.includes(ending),
+    ),
+  );
+}
 export function resolveSourceSweepToolCallThreshold(): number {
   return getAppConfig().agent.sourceSweepToolCallThreshold;
 }
@@ -1975,78 +2017,12 @@ function generateRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export class DurableAttachmentReferenceRequiredError extends Error {
-  readonly code = "attachment_storage_required";
-
-  constructor() {
-    super(
-      "An attachment has inline bytes but no durable file URL. Configure file storage and retry this background run.",
-    );
-    this.name = "DurableAttachmentReferenceRequiredError";
-  }
-}
-
-function isDataUrlReference(value: unknown): boolean {
-  return typeof value === "string" && /^\s*data:/i.test(value);
-}
-
-function hasDurableAttachmentUrl(value: unknown): boolean {
-  return (
-    typeof value === "string" &&
-    value.trim().length > 0 &&
-    !isDataUrlReference(value)
-  );
-}
-
-function sanitizeDurableAttachment(
-  value: unknown,
-  attachmentContext = false,
-): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeDurableAttachment(item));
-  }
-  if (!value || typeof value !== "object") return value;
-
-  const item = value as Record<string, unknown>;
-  const isAttachment =
-    attachmentContext ||
-    item.type === "image" ||
-    item.type === "file" ||
-    item.type === "document";
-  if (
-    isAttachment &&
-    (isDataUrlReference(item.url) || isDataUrlReference(item.referenceUrl))
-  ) {
-    throw new DurableAttachmentReferenceRequiredError();
-  }
-
-  const hasInlineData = isAttachment && item.data !== undefined;
-  if (
-    hasInlineData &&
-    !hasDurableAttachmentUrl(item.url) &&
-    !hasDurableAttachmentUrl(item.referenceUrl)
-  ) {
-    throw new DurableAttachmentReferenceRequiredError();
-  }
-
-  const sanitized: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(item)) {
-    if (key === "data" && hasInlineData) continue;
-    if (key === "attachments" || key === "requestAttachments") {
-      sanitized[key] = Array.isArray(child)
-        ? child.map((attachment) => sanitizeDurableAttachment(attachment, true))
-        : sanitizeDurableAttachment(child);
-    } else {
-      sanitized[key] = sanitizeDurableAttachment(child);
-    }
-  }
-  return sanitized;
-}
+export { DurableAttachmentReferenceRequiredError };
 
 export function serializeDurableDispatchPayload(
   body: Record<string, unknown>,
 ): string {
-  const payload = JSON.stringify(sanitizeDurableAttachment(body));
+  const payload = JSON.stringify(stripInlineBytes(body, "reject"));
   if (typeof payload !== "string") {
     throw new TypeError("Durable dispatch payload could not be serialized");
   }
@@ -2496,6 +2472,72 @@ export function buildUserContentWithAttachments(opts: {
   });
 
   return userContent;
+}
+
+/** Images reach only a model that reads them; the model learns one was withheld. */
+function replaceImagesForModelWithoutVision(
+  messages: EngineMessage[],
+  model: string,
+): EngineMessage[] {
+  const note = `<chat-attachment-processing-error code="model-without-vision" model="${escapeAttachmentAttribute(model)}">An attached image was not sent because the active model cannot read images. Do not infer or describe its contents. Tell the user to switch to a vision-capable model if the image matters.</chat-attachment-processing-error>`;
+  return messages.map((message) =>
+    message.content.some((part) => part.type === "image")
+      ? {
+          ...message,
+          content: message.content.map((part) =>
+            part.type === "image"
+              ? { type: "text" as const, text: note }
+              : part,
+          ),
+        }
+      : message,
+  );
+}
+
+/**
+ * Every engine's stop error passes through here with the request in hand, so
+ * this is where a provider's rejection of an inline attachment becomes the
+ * non-retryable `invalid_attachment`: resending the same bytes fails the same
+ * way, and an `http_400` lets Retry loop on it.
+ */
+function engineStopError(
+  event: Extract<EngineEvent, { type: "stop" }>,
+  messages: EngineMessage[],
+): EngineError {
+  const error = event.error ?? "Engine stream error";
+  const parts = messages.flatMap((message) => message.content);
+  const hasInlineAttachment = parts.some(
+    (part) =>
+      part.type === "image" ||
+      part.type === "file" ||
+      (part.type === "tool-result" && (part.images?.length ?? 0) > 0),
+  );
+  const attachmentRejected =
+    event.errorCode === "invalid_attachment" ||
+    (hasInlineAttachment &&
+      (event.statusCode === 413 ||
+        ((event.statusCode === undefined ||
+          event.statusCode === 400 ||
+          event.statusCode === 422) &&
+          isInvalidAttachmentProviderMessage(error))));
+  const names = parts.flatMap((part) =>
+    part.type === "file" && part.filename ? [`"${part.filename}"`] : [],
+  );
+  return new EngineError(
+    attachmentRejected
+      ? `The model provider rejected an attachment in this request${names.length > 0 ? ` (${names.join(", ")})` : ""}: ${error}`
+      : error,
+    {
+      errorCode: attachmentRejected ? "invalid_attachment" : event.errorCode,
+      upgradeUrl: event.upgradeUrl,
+      statusCode: event.statusCode,
+      providerRetryable: attachmentRejected ? false : event.providerRetryable,
+      contextOverflow: event.contextOverflow,
+      requestId: event.requestId,
+      requestShape: event.requestShape,
+      retryAfterMs: event.retryAfterMs,
+    },
+  );
 }
 
 export function appendRequestAttachmentContextToResumedHistory(
@@ -3696,8 +3738,6 @@ export function isCachedToolResultVisibleInContext(
   return false;
 }
 
-const INTERRUPTED_TOOL_RESULT_MARKER =
-  "Interrupted before this tool returned a result.";
 const INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS = 5_000;
 const MAX_IDENTICAL_TOOL_ERRORS = 3;
 export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 3;
@@ -3797,9 +3837,10 @@ function seedWriteToolInterruptionsFromHistory(
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
       if (
-        typeof part.content === "string" &&
-        (part.content === INTERRUPTED_TOOL_RESULT_MARKER ||
-          (part.isError === true && isToolCallTimeoutResult(part.content)))
+        isInterruptedToolResult(part.content) ||
+        (part.isError === true &&
+          typeof part.content === "string" &&
+          isToolCallTimeoutResult(part.content))
       ) {
         const key = toolCallCacheKey(call.name, call.input);
         interruptions.set(key, (interruptions.get(key) ?? 0) + 1);
@@ -5135,6 +5176,7 @@ export async function runAgentLoop(opts: {
   finalResponseGuardRequestText?: string;
   threadId?: string;
   turnId?: string;
+  loadedSkillSlugs?: readonly string[];
   runSoftTimeoutMs?: number;
   toolLimits?: {
     timeoutMs?: number;
@@ -5407,7 +5449,8 @@ export async function runAgentLoop(opts: {
     journalRead.status === "read" ? journalRead.priorToolCalls : [];
   const journaledPriorToolResults =
     journalRead.status === "read" ? journalRead.priorToolResults : [];
-  let loadedSkillsContext = "";
+  let threadSkillPages = new Map<string, string>();
+  let currentJournalSkillBodies = new Map<string, string>();
   const hasLoadedSkillPage = journaledPriorToolResults.some((result) => {
     const input =
       result.input && typeof result.input === "object"
@@ -5421,21 +5464,46 @@ export async function runAgentLoop(opts: {
       result.content.startsWith("# Skill:")
     );
   });
-  if (isInternalContinuationTurn(messages) && hasLoadedSkillPage) {
-    const { loadAgentsBundle, getRuntimeSkillsForUser, skillDocsSlug } =
-      await import("../server/agents-bundle.js");
-    const runtimeSkills = await getRuntimeSkillsForUser(
-      await loadAgentsBundle(),
-      opts.ownerEmail ?? getRequestUserEmail(),
+  const reuseJournaledSkillPages =
+    isInternalContinuationTurn(messages) && hasLoadedSkillPage;
+  const threadSkillSlugs = opts.loadedSkillSlugs ?? [];
+  if (reuseJournaledSkillPages || threadSkillSlugs.length > 0) {
+    const skillUserEmail = opts.ownerEmail ?? getRequestUserEmail();
+    const { loadSkillDocPages } = await import("../scripts/docs/search.js");
+    threadSkillPages = await loadSkillDocPages(
+      threadSkillSlugs,
+      skillUserEmail,
     );
-    loadedSkillsContext = loadedSkillPagesContext(
-      journaledPriorToolResults,
-      new Set(runtimeSkills.map((skill) => skillDocsSlug(skill.meta.name))),
-    );
+    if (reuseJournaledSkillPages) {
+      const { loadAgentsBundle, getRuntimeSkillsForUser, skillDocsSlug } =
+        await import("../server/agents-bundle.js");
+      const runtimeSkills = await getRuntimeSkillsForUser(
+        await loadAgentsBundle(),
+        skillUserEmail,
+      );
+      currentJournalSkillBodies = new Map(
+        runtimeSkills.map((skill) => [
+          skillDocsSlug(skill.meta.name),
+          skill.content,
+        ]),
+      );
+    }
   }
-  const continuationSystemPrompt = loadedSkillsContext
-    ? `${systemPrompt}\n\n${loadedSkillsContext}`
-    : systemPrompt;
+  // Dedupe against the messages the model actually receives: memory
+  // compaction and retry trimming can remove a page that `messages` still has.
+  const continuationSystemPromptFor = (
+    sentMessages: readonly EngineMessage[],
+  ): string => {
+    const loadedSkillsContext = loadedSkillPagesContext(
+      reuseJournaledSkillPages ? journaledPriorToolResults : [],
+      threadSkillPages,
+      currentJournalSkillBodies,
+      (slug, page) => skillPageIntactInHistory(sentMessages, slug, page),
+    );
+    return loadedSkillsContext
+      ? `${systemPrompt}\n\n${loadedSkillsContext}`
+      : systemPrompt;
+  };
   toolCallHistory.push(...journaledPriorToolCalls);
   toolResultHistory.push(...journaledPriorToolResults);
   const unreadableJournalStop: TerminalActionStop | null =
@@ -5653,12 +5721,16 @@ export async function runAgentLoop(opts: {
             providerOptions.anthropic;
           providerOptions = { ...providerOptions, anthropic };
         }
+        const engineMessages =
+          engine.capabilities.vision === false
+            ? replaceImagesForModelWithoutVision(contextMessages, model)
+            : contextMessages;
         const streamOpts = {
           model,
           systemPrompt: completingFollowUpSuggestions
             ? FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT
-            : continuationSystemPrompt,
-          messages: contextMessages,
+            : continuationSystemPromptFor(engineMessages),
+          messages: engineMessages,
           tools: loopBreakerCloseout
             ? []
             : completingFollowUpSuggestions
@@ -5685,7 +5757,7 @@ export async function runAgentLoop(opts: {
         };
 
         usage.llmCalls = (usage.llmCalls ?? 0) + 1;
-        notifyModelInputObserver(opts.onModelInput, contextMessages);
+        notifyModelInputObserver(opts.onModelInput, engineMessages);
         const eventStream = engine.stream(streamOpts);
         let thinkingBuffer = "";
         const toolInputNames = new Map<string, string>();
@@ -5969,16 +6041,7 @@ export async function runAgentLoop(opts: {
             } else if (event.type === "stop") {
               terminalStopReason = event.reason;
               if (event.reason === "error") {
-                throw new EngineError(event.error ?? "Engine stream error", {
-                  errorCode: event.errorCode,
-                  upgradeUrl: event.upgradeUrl,
-                  statusCode: event.statusCode,
-                  providerRetryable: event.providerRetryable,
-                  contextOverflow: event.contextOverflow,
-                  requestId: event.requestId,
-                  requestShape: event.requestShape,
-                  retryAfterMs: event.retryAfterMs,
-                });
+                throw engineStopError(event, engineMessages);
               }
             }
             if (hasNoProgressStalled()) {
@@ -8846,13 +8909,23 @@ async function readAdmittedQueuedMessagePromotion(opts: {
   };
 }
 
-function queuedPromotionAttachments(
+/** @internal exported for unit tests only */
+export function queuedPromotionAttachments(
   attachments: unknown[],
 ): AgentChatAttachment[] {
   return attachments.map((value) => {
     const file = queuedPromotionRecord(value)!;
+    // A saved queue entry is always a file part; the media type decides whether
+    // the model sees pixels (image) or a file reference.
+    const isImage =
+      typeof file.mediaType === "string" &&
+      file.mediaType
+        .split(";", 1)[0]!
+        .trim()
+        .toLowerCase()
+        .startsWith("image/");
     return {
-      type: "file",
+      type: isImage ? "image" : "file",
       name: file.name,
       ...(typeof file.fileId === "string" ? { id: file.fileId } : {}),
       ...(typeof file.mediaType === "string"
@@ -9479,6 +9552,7 @@ export function createProductionAgentHandler(
       message,
       history: submittedHistory = [],
       structuredHistory: submittedStructuredHistory,
+      loadedSkillSlugs: requestedLoadedSkillSlugs,
       references: submittedReferences = [],
       threadId,
       attachments,
@@ -9636,6 +9710,9 @@ export function createProductionAgentHandler(
       });
     const mutableBody = body as unknown as Record<string, unknown>;
     if (!isBackgroundWorker) {
+      // A client can submit this private field, so overwrite it at the boundary.
+      mutableBody[AGENT_CHAT_BROWSER_SESSION_ID_FIELD] =
+        getRequestContext()?.browserSessionId ?? null;
       delete mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD];
     }
     if (dispatchToBackground) {
@@ -10186,7 +10263,9 @@ export function createProductionAgentHandler(
     }> = [];
 
     try {
-      if (ownerEmail) {
+      // A pinned request model suppresses the experiment's model override, so
+      // resolving would assign (and persist) a variant this turn never ran.
+      if (ownerEmail && !requestModelIsExplicit) {
         const { resolveActiveExperimentConfig } =
           await import("../observability/experiments.js");
         const expConfig = await resolveActiveExperimentConfig(ownerEmail);
@@ -11949,6 +12028,9 @@ export function createProductionAgentHandler(
           maxIterations: loopSettings.maxIterations,
           maxRunInputTokens: loopSettings.maxRunInputTokens,
           priorTurnInputTokens: turnInputTokens,
+          loadedSkillSlugs: normalizeLoadedSkillSlugs(
+            requestedLoadedSkillSlugs,
+          ),
           finalResponseGuard: options.finalResponseGuard,
           finalResponseGuardRequestText: messageToPersist,
           ...(resolvedRunSoftTimeoutMs > 0

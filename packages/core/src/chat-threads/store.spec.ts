@@ -21,6 +21,7 @@ import {
   applySubmittedUserMessage,
   buildUserMessage,
 } from "../agent/thread-data-builder.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import {
   adoptThreadScopeIfUnscoped,
   createThreadShareLink,
@@ -301,6 +302,123 @@ describe("chat thread store", () => {
     ]);
     expect(row!.message_count).toBe(2);
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
+  });
+
+  describe("inline attachment bytes", () => {
+    const pixels = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
+    const uploaded =
+      "https://cdn.builder.io/api/v1/image/assets%2Fspace%2Fkept";
+    const imageMessage = {
+      id: "user-2",
+      role: "user",
+      content: [
+        { type: "text", text: `compare with ${pixels}` },
+        { type: "image", image: pixels },
+      ],
+      attachments: [
+        {
+          id: "a1",
+          type: "image",
+          name: "local.png",
+          contentType: "image/png",
+          content: [{ type: "image", image: pixels }],
+        },
+        {
+          id: "a2",
+          type: "image",
+          name: "kept.png",
+          contentType: "image/png",
+          content: [{ type: "image", image: pixels }],
+          metadata: { uploadUrl: uploaded },
+        },
+        {
+          id: "a3",
+          type: "file",
+          name: "spec.pdf",
+          content: [
+            {
+              type: "file",
+              data: "JVBERi0xLjQ=",
+              mimeType: "application/pdf",
+              filename: "spec.pdf",
+            },
+          ],
+        },
+      ],
+    };
+
+    it("stores a client snapshot with upload URLs and visible placeholders, never bytes", async () => {
+      await updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          messages: [
+            { message: userMessage, parentId: null },
+            { message: imageMessage, parentId: "user-1" },
+          ],
+        }),
+        "Thread",
+        "make this slide better",
+        2,
+      );
+
+      assertNoInlineImageBytes(row!.thread_data, "thread_data");
+      const stored = JSON.parse(row!.thread_data).messages[1].message;
+      expect(stored.content).toEqual([
+        { type: "text", text: "compare with [inline image/png data omitted]" },
+        { type: "file", mediaType: "image/png", omitted: "inline-bytes" },
+      ]);
+      expect(stored.attachments.map((att: any) => att.content[0])).toEqual([
+        { type: "file", mediaType: "image/png", omitted: "inline-bytes" },
+        { type: "image", image: uploaded },
+        {
+          type: "file",
+          mimeType: "application/pdf",
+          filename: "spec.pdf",
+          name: "spec.pdf",
+          mediaType: "application/pdf",
+          omitted: "inline-bytes",
+        },
+      ]);
+    });
+
+    it("scrubs bytes a legacy row already holds on its next write", async () => {
+      row!.thread_data = JSON.stringify({
+        messages: [{ message: imageMessage, parentId: null }],
+      });
+
+      await updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          messages: [{ message: userMessage, parentId: null }],
+        }),
+        "Thread",
+        "make this slide better",
+        1,
+      );
+
+      expect(row!.thread_data).toContain('"id":"user-2"');
+      assertNoInlineImageBytes(row!.thread_data, "thread_data");
+    });
+
+    it("forks without copying the source's inline bytes", async () => {
+      row!.thread_data = JSON.stringify({
+        messages: [{ message: imageMessage, parentId: null }],
+      });
+      let inserted: string | undefined;
+      const execute = executeMock.getMockImplementation()!;
+      executeMock.mockImplementation(async (query: any) => {
+        if (/INSERT INTO chat_threads/i.test(query.sql)) {
+          inserted = query.args[4];
+          return { rows: [], rowsAffected: 1 };
+        }
+        return execute(query);
+      });
+
+      await forkThread("thread-1", "user@example.com", { id: "thread-fork" });
+
+      expect(inserted).toContain('"id":"user-2"');
+      assertNoInlineImageBytes(inserted, "forked thread_data");
+    });
   });
 
   it("recounts delta history against the latest row after a CAS conflict", async () => {

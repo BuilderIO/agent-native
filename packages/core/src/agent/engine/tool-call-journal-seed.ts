@@ -145,11 +145,14 @@ export const JOURNALED_TOOL_REPLAY_PREFIX =
   "(Already completed in an earlier interrupted attempt - not re-run to avoid a duplicate side effect.)\n\n";
 export const RECOVERED_TOOL_REPLAY_PREFIX =
   "(Recovered from prior interrupted chunk — action already completed.)\n\n";
-const LOADED_SKILL_CONTEXT_MAX_CHARS = 24_000;
+const LOADED_SKILL_CONTEXT_MAX_CHARS = 40_000;
+const OMITTED_NOTICE_RESERVE_CHARS = 1_000;
 
 export function loadedSkillPagesContext(
   results: readonly PriorTurnToolResultSummary[],
-  allowedSlugs: ReadonlySet<string>,
+  threadPages: ReadonlyMap<string, string>,
+  currentSkillBodies: ReadonlyMap<string, string>,
+  isInHistory: (slug: string, page: string) => boolean = () => false,
 ): string {
   const pages = new Map<string, string>();
   for (const result of results) {
@@ -159,32 +162,58 @@ export function loadedSkillPagesContext(
         ? (result.input as Record<string, unknown>)
         : null;
     const slug = input?.slug;
+    const currentBody =
+      typeof slug === "string" ? currentSkillBodies.get(slug) : undefined;
+    // A journaled read may predate a skill edit or have been truncated; only
+    // reuse it if it still holds the skill's current body.
     if (
       typeof slug !== "string" ||
       !slug.startsWith("skill-") ||
-      !allowedSlugs.has(slug) ||
+      currentBody === undefined ||
       !result.content.startsWith("# Skill:") ||
-      result.content.includes("Doc not found:")
+      result.content.includes("Doc not found:") ||
+      !result.content.includes(currentBody.trim())
     ) {
       continue;
     }
     pages.delete(slug);
     pages.set(slug, result.content);
   }
+  const merged = new Map(threadPages);
+  for (const [slug, page] of pages) {
+    merged.delete(slug);
+    merged.set(slug, page);
+  }
+  for (const [slug, page] of merged) {
+    if (isInHistory(slug, page)) merged.delete(slug);
+  }
+  return renderLoadedSkillPages(merged);
+}
+
+// Newest reads win the budget: they are likeliest to apply to the current task.
+function renderLoadedSkillPages(pages: ReadonlyMap<string, string>): string {
   if (pages.size === 0) return "";
 
   const opening =
-    "<already-loaded-skills>These skill pages were already read earlier in this turn. Reuse them instead of calling docs-search again. If a page is marked truncated, read only when missing detail matters.\n";
+    "<already-loaded-skills>These skill pages were already read earlier in this conversation. Reuse them instead of calling docs-search again. If a page is marked truncated or listed as omitted, read it with docs-search when missing detail matters.\n";
   const closing = "\n</already-loaded-skills>";
   let remaining =
-    LOADED_SKILL_CONTEXT_MAX_CHARS - opening.length - closing.length;
+    LOADED_SKILL_CONTEXT_MAX_CHARS -
+    opening.length -
+    closing.length -
+    OMITTED_NOTICE_RESERVE_CHARS;
   const blocks: string[] = [];
-  for (const [slug, page] of pages) {
+  const entries = [...pages].reverse();
+  let omitted: string[] = [];
+  for (const [index, [slug, page]] of entries.entries()) {
     const heading = `\n## ${slug}\n`;
-    if (remaining <= heading.length) break;
+    if (remaining <= heading.length) {
+      omitted = entries.slice(index).map(([omittedSlug]) => omittedSlug);
+      break;
+    }
     const truncated = page.length > remaining - heading.length;
     const marker = truncated
-      ? "\n[Skill page truncated to fit continuation context.]"
+      ? "\n[Skill page truncated to fit loaded-skill context.]"
       : "";
     const body = page.slice(
       0,
@@ -192,9 +221,21 @@ export function loadedSkillPagesContext(
     );
     blocks.push(`${heading}${body}${marker}`);
     remaining -= heading.length + body.length + marker.length;
-    if (truncated) break;
+    if (truncated) {
+      omitted = entries.slice(index + 1).map(([omittedSlug]) => omittedSlug);
+      break;
+    }
   }
-  return blocks.length > 0 ? `${opening}${blocks.join("\n")}${closing}` : "";
+  if (blocks.length === 0) return "";
+  if (omitted.length > 0) {
+    const prefix =
+      "\n[Omitted to fit loaded-skill context; read with docs-search if needed: ";
+    const names = omitted
+      .join(", ")
+      .slice(0, OMITTED_NOTICE_RESERVE_CHARS - prefix.length - 4);
+    blocks.push(`${prefix}${names}]`);
+  }
+  return `${opening}${blocks.join("\n")}${closing}`;
 }
 
 export function seedRepeatedToolCallCountsFromJournal(

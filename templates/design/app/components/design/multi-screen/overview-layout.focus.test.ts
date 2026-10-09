@@ -4,6 +4,7 @@ import {
   getFocusedLineupFitScale,
   getFocusedLineupFillHeight,
   getFocusedLineupScale,
+  getWidgetFitPaddingPx,
   resolveFocusedLineupScreenId,
 } from "./overview-layout";
 
@@ -178,5 +179,26 @@ describe("getFocusedLineupFillHeight", () => {
         maxScale: 1,
       }),
     ).toBe(860);
+  });
+});
+
+describe("getWidgetFitPaddingPx", () => {
+  it("caps the margin in a very large pane", () => {
+    expect(getWidgetFitPaddingPx(2400, 2000)).toBe(96);
+  });
+
+  it("scales the margin down so a narrow pane keeps room for the artboard", () => {
+    expect(getWidgetFitPaddingPx(1040, 800)).toBe(40);
+    expect(getWidgetFitPaddingPx(360, 700)).toBe(18);
+  });
+
+  it("gives a larger pane at least as much room to fit into", () => {
+    const room = (width: number, height: number) =>
+      height - 2 * getWidgetFitPaddingPx(width, height);
+    expect(room(1100, 900)).toBeGreaterThan(room(620, 860));
+  });
+
+  it("never drops below a visible margin", () => {
+    expect(getWidgetFitPaddingPx(120, 90)).toBe(16);
   });
 });
