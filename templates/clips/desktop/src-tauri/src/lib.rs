@@ -281,6 +281,8 @@ pub fn run() {
             rewind_clip::rewind_clip_cancel,
             rewind_clip::rewind_agent_handoff_upload,
             rewind_clip::rewind_agent_handoff_preview,
+            rewind_clip::rewind_preview_window,
+            rewind_clip::rewind_preview_discard,
             rewind_capture_suspension::rewind_capture_suspension_acquire,
             rewind_capture_suspension::rewind_capture_suspension_release,
             recording_indicator::recording_pill_prewarm,

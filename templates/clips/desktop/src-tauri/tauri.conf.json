@@ -14,7 +14,11 @@
     "macOSPrivateApi": true,
     "windows": [],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/screen-memory/previews/**"]
+      }
     }
   },
   "bundle": {

@@ -1,5 +1,57 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
+  lookbackContext: {
+    includeLast: "Letzte einbeziehen",
+    whatIsThis: "Was ist das?",
+    off: "Aus",
+    custom: "Benutzerdefiniert…",
+    customLabel: "Benutzerdefinierte Dauer",
+    customAmount: "Dauer",
+    customUnit: "Einheit",
+    unitSeconds: "Sekunden",
+    unitMinutes: "Minuten",
+    customSave: "Dauer verwenden",
+    customErrorEmpty: "Gib eine Dauer ein.",
+    customErrorInvalid: "Gib eine ganze Zahl in Sekunden oder Minuten ein.",
+    customErrorTooLong: "Höchstens 5 Min.",
+    turnOnRewind: "Rewind aktivieren",
+    rewindOffTitle: "Rewind aktivieren",
+    rewindOffBody:
+      "Rewind speichert lokal einen Verlauf deines Bildschirms, damit du die letzten Minuten vor einer Aufnahme einbeziehen kannst. Filmmaterial wird nur hochgeladen, wenn du es einbeziehst oder freigibst.",
+    requestFailed:
+      "Frühere Bildschirmzeit konnte nicht einbezogen werden. Die Aufnahme läuft ohne sie weiter.",
+    localOnlyUnavailable:
+      "Frühere Bildschirmzeit wird bei rein lokalen Aufnahmen nicht gespeichert.",
+    saving: "{{window}} davor wird gespeichert…",
+    ready: "Mit {{window}} davor",
+    failed: "Frühere Bildschirmzeit konnte nicht gespeichert werden",
+    unreadable: "Frühere Bildschirmzeit konnte nicht geprüft werden",
+    edit: "Bearbeiten",
+    editTitle: "Frühere Bildschirmzeit",
+    editSave: "Speichern",
+    editFailed:
+      "Das Zeitfenster konnte nicht gespeichert werden. Versuch es erneut.",
+    previewPreparing: "Vorschau wird vorbereitet…",
+    previewFailed: "Die Vorschau konnte nicht vorbereitet werden.",
+    previewLabel: "Vorschau der früheren Bildschirmzeit",
+    retry: "Erneut versuchen",
+    playSelection: "Auswahl abspielen",
+    removeFailed:
+      "Frühere Bildschirmzeit für die verworfene Aufnahme konnte nicht entfernt werden.",
+    scrubberStart: "Beginnt",
+    scrubberEnd: "Endet",
+    scrubberLength: "Dauer",
+    scrubberStartHandle: "Fensterbeginn",
+    scrubberEndHandle: "Fensterende",
+    tab: "Kontext",
+    label: "Bildschirm vor der Aufnahme",
+    window: "{{start}}–{{end}} vor der Aufnahme",
+    savingEarlierTime: "Frühere Bildschirmzeit wird gespeichert…",
+    loadFailed: "Frühere Bildschirmzeit konnte nicht geladen werden.",
+    empty: "An diesem Clip ist keine frühere Bildschirmzeit angehängt.",
+    larger: "Vergrößern",
+    editHint: "Bearbeite das Zeitfenster in Clips Desktop.",
+  },
   agentChat: {
     setup: {
       connectBuilder: "Builder.io nutzen",
@@ -843,6 +895,9 @@ const messages = {
     labWisprFlow: "Sprachdiktat",
     labWisprFlowDescription:
       "Sprachdiktat in Clips Desktop ein- oder ausblenden.",
+    labLookbackContext: "Frühere Bildschirmzeit einbeziehen",
+    labLookbackContextDescription:
+      "Bis zu fünf Minuten Bildschirmzeit vor einer Aufnahme als passiven Kontext anhängen. Standardmäßig deaktiviert.",
     uploadWorkspaceTitle: "Aktiver Arbeitsbereich",
     uploadWorkspaceDescription:
       "Wähle den Arbeitsbereich, den Clips für neue Aufnahmen einschließlich Desktop-Uploads verwendet.",

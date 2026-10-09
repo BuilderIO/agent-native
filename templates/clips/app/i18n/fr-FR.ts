@@ -2,6 +2,57 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "Redimensionner ou fermer les réponses",
   },
+  lookbackContext: {
+    includeLast: "Inclure les derniers",
+    whatIsThis: "Qu'est-ce que c'est ?",
+    off: "Désactivé",
+    custom: "Personnalisé…",
+    customLabel: "Durée personnalisée",
+    customAmount: "Durée",
+    customUnit: "Unité",
+    unitSeconds: "secondes",
+    unitMinutes: "minutes",
+    customSave: "Utiliser la durée",
+    customErrorEmpty: "Saisissez une durée.",
+    customErrorInvalid: "Saisissez un nombre entier de secondes ou de minutes.",
+    customErrorTooLong: "Limitez-la à 5 min maximum.",
+    turnOnRewind: "Activer Rewind",
+    rewindOffTitle: "Activer Rewind",
+    rewindOffBody:
+      "Rewind conserve un historique local de votre écran afin que vous puissiez inclure les dernières minutes avant un enregistrement. Les séquences vidéo ne sont envoyées que si vous les incluez ou les approuvez.",
+    requestFailed:
+      "Impossible d'inclure le temps d'écran antérieur. L'enregistrement continue sans lui.",
+    localOnlyUnavailable:
+      "Le temps d'écran antérieur n'est pas enregistré pour les enregistrements locaux uniquement.",
+    saving: "Enregistrement de {{window}} avant…",
+    ready: "Avec {{window}} avant",
+    failed: "Impossible d'enregistrer le temps d'écran antérieur",
+    unreadable: "Impossible de vérifier le temps d'écran antérieur",
+    edit: "Modifier",
+    editTitle: "Temps d'écran antérieur",
+    editSave: "Enregistrer",
+    editFailed: "Impossible d'enregistrer la fenêtre. Réessayez.",
+    previewPreparing: "Préparation de l'aperçu…",
+    previewFailed: "Impossible de préparer l'aperçu.",
+    previewLabel: "Aperçu du temps d'écran antérieur",
+    retry: "Réessayer",
+    playSelection: "Lire la sélection",
+    removeFailed:
+      "Impossible de supprimer le temps d'écran antérieur de l'enregistrement abandonné.",
+    scrubberStart: "Début",
+    scrubberEnd: "Fin",
+    scrubberLength: "Durée",
+    scrubberStartHandle: "Début de la fenêtre",
+    scrubberEndHandle: "Fin de la fenêtre",
+    tab: "Contexte",
+    label: "Écran avant l'enregistrement",
+    window: "{{start}}–{{end}} avant l'enregistrement",
+    savingEarlierTime: "Enregistrement du temps d'écran antérieur…",
+    loadFailed: "Impossible de charger le temps d'écran antérieur.",
+    empty: "Aucun temps d'écran antérieur n'est joint à ce clip.",
+    larger: "Agrandir",
+    editHint: "Modifiez la fenêtre dans Clips Desktop.",
+  },
   agentChat: {
     setup: {
       connectBuilder: "Utiliser Builder.io",
@@ -837,6 +888,9 @@ const messages = {
     labWisprFlow: "Dictée vocale",
     labWisprFlowDescription:
       "Afficher ou masquer la dictée vocale dans Clips Desktop.",
+    labLookbackContext: "Inclure le temps d'écran antérieur",
+    labLookbackContextDescription:
+      "Joindre jusqu'à cinq minutes de temps d'écran antérieur à un enregistrement comme contexte passif. Désactivé par défaut.",
     uploadWorkspaceTitle: "Espace actif",
     uploadWorkspaceDescription:
       "Choisissez l’espace utilisé par Clips pour les nouveaux enregistrements, y compris ceux importés depuis le bureau.",

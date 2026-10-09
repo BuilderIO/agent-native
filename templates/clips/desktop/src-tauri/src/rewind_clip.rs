@@ -1144,6 +1144,114 @@ pub(crate) fn clear_preview_artifacts(app: &AppHandle) -> Result<(), String> {
     }
 }
 
+const REWIND_PREVIEW_MAX_MILLISECONDS: i64 = (RETROSPECTIVE_5_MINUTES * 1_000) as i64;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RewindPreviewWindow {
+    path: String,
+    duration_ms: u64,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+fn rewind_preview_directory(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("app data directory unavailable: {error}"))?
+        .join("screen-memory")
+        .join("previews"))
+}
+
+fn validate_preview_window(started_at: &str, ended_at: &str) -> Result<(), String> {
+    let started = DateTime::parse_from_rfc3339(started_at)
+        .map_err(|_| "Rewind preview start must be an RFC3339 timestamp.".to_string())?
+        .with_timezone(&Utc);
+    let ended = DateTime::parse_from_rfc3339(ended_at)
+        .map_err(|_| "Rewind preview end must be an RFC3339 timestamp.".to_string())?
+        .with_timezone(&Utc);
+    let duration_ms = ended.signed_duration_since(started).num_milliseconds();
+    if duration_ms <= 0 {
+        return Err("Rewind preview end must be after its start.".into());
+    }
+    if duration_ms > REWIND_PREVIEW_MAX_MILLISECONDS {
+        return Err("Rewind preview must be 5 minutes or shorter.".into());
+    }
+    Ok(())
+}
+
+fn rewind_preview_file_name() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    // A reused RandomState hashes the same way every time, so build a new one per name.
+    let token = std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish();
+    format!("preview-{token:016x}.mp4")
+}
+
+#[tauri::command]
+pub(crate) async fn rewind_preview_window(
+    app: AppHandle,
+    started_at: String,
+    ended_at: String,
+) -> Result<RewindPreviewWindow, String> {
+    validate_preview_window(&started_at, &ended_at)?;
+    let directory = rewind_preview_directory(&app)?;
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("Rewind preview folder unavailable: {error}"))?;
+    let output = directory.join(rewind_preview_file_name());
+    let worker_output = output.clone();
+    let materialized = tauri::async_runtime::spawn_blocking(move || {
+        materialize_wall_clock_exact(&app, &started_at, &ended_at, worker_output, false, false)
+    })
+    .await
+    .map_err(|error| format!("Rewind preview worker failed: {error}"))?;
+    let artifact = match materialized {
+        Ok(artifact) => artifact,
+        Err(error) => {
+            let _ = std::fs::remove_file(&output);
+            return Err(error);
+        }
+    };
+    Ok(RewindPreviewWindow {
+        path: output.to_string_lossy().into_owned(),
+        duration_ms: u64::try_from(artifact.duration_ms)
+            .map_err(|_| "Rewind preview duration is out of range.".to_string())?,
+        width: artifact.width,
+        height: artifact.height,
+    })
+}
+
+#[tauri::command]
+pub(crate) async fn rewind_preview_discard(app: AppHandle, path: String) -> Result<(), String> {
+    let directory = rewind_preview_directory(&app)?;
+    let file = resolve_discardable_preview(std::path::Path::new(&path), &directory)?;
+    std::fs::remove_file(&file)
+        .map_err(|error| format!("could not discard Rewind preview: {error}"))
+}
+
+fn resolve_discardable_preview(
+    path: &std::path::Path,
+    directory: &std::path::Path,
+) -> Result<PathBuf, String> {
+    let canonical_directory = std::fs::canonicalize(directory)
+        .map_err(|error| format!("Rewind preview folder unavailable: {error}"))?;
+    let canonical_file = std::fs::canonicalize(path)
+        .map_err(|error| format!("Rewind preview file unavailable: {error}"))?;
+    if !is_path_inside_directory(&canonical_file, &canonical_directory) || !canonical_file.is_file()
+    {
+        return Err("Only Rewind preview files can be discarded.".into());
+    }
+    Ok(canonical_file)
+}
+
+// Both arguments must be canonical: `starts_with` compares components lexically, so a raw
+// `previews/../secret.mp4` would pass against `previews`.
+fn is_path_inside_directory(file: &std::path::Path, directory: &std::path::Path) -> bool {
+    file.starts_with(directory)
+}
+
 fn materialize(
     app: &AppHandle,
     state: &State<'_, RewindClipState>,
@@ -1907,5 +2015,95 @@ mod tests {
         cleanup_expired_preview_artifacts(&directory, std::time::Duration::ZERO).unwrap();
         assert!(!preview.exists());
         let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn rewind_preview_window_accepts_utc_and_offset_ranges_up_to_five_minutes() {
+        assert!(validate_preview_window("2026-10-09T12:00:00Z", "2026-10-09T12:00:30Z").is_ok());
+        assert!(
+            validate_preview_window("2026-10-09T08:00:00-04:00", "2026-10-09T12:00:30Z").is_ok()
+        );
+        assert!(validate_preview_window("2026-10-09T11:55:00Z", "2026-10-09T12:00:00Z").is_ok());
+    }
+
+    #[test]
+    fn rewind_preview_window_rejects_bad_ranges_with_clear_errors() {
+        let empty = validate_preview_window("2026-10-09T12:00:00Z", "2026-10-09T12:00:00Z");
+        assert_eq!(
+            empty.unwrap_err(),
+            "Rewind preview end must be after its start."
+        );
+        let reversed = validate_preview_window("2026-10-09T12:00:30Z", "2026-10-09T12:00:00Z");
+        assert_eq!(
+            reversed.unwrap_err(),
+            "Rewind preview end must be after its start."
+        );
+        let too_long = validate_preview_window("2026-10-09T12:00:00Z", "2026-10-09T12:05:00.001Z");
+        assert_eq!(
+            too_long.unwrap_err(),
+            "Rewind preview must be 5 minutes or shorter."
+        );
+        let not_rfc3339 = validate_preview_window("2026-10-09 12:00:00", "2026-10-09T12:00:30Z");
+        assert_eq!(
+            not_rfc3339.unwrap_err(),
+            "Rewind preview start must be an RFC3339 timestamp."
+        );
+        let bad_end = validate_preview_window("2026-10-09T12:00:00Z", "soon");
+        assert_eq!(
+            bad_end.unwrap_err(),
+            "Rewind preview end must be an RFC3339 timestamp."
+        );
+    }
+
+    #[test]
+    fn rewind_preview_inside_check_is_component_based() {
+        let directory = std::path::Path::new("/data/screen-memory/previews");
+        assert!(is_path_inside_directory(
+            std::path::Path::new("/data/screen-memory/previews/preview-1.mp4"),
+            directory
+        ));
+        assert!(!is_path_inside_directory(
+            std::path::Path::new("/data/screen-memory/previews-old/preview-1.mp4"),
+            directory
+        ));
+        assert!(!is_path_inside_directory(
+            std::path::Path::new("/data/screen-memory/segments/a.mp4"),
+            directory
+        ));
+    }
+
+    #[test]
+    fn rewind_preview_discard_only_removes_files_inside_previews() {
+        let base = std::env::temp_dir().join(format!(
+            "clips-rewind-preview-discard-test-{}",
+            Utc::now().timestamp_micros()
+        ));
+        let previews = base.join("previews");
+        std::fs::create_dir_all(&previews).unwrap();
+        let inside = previews.join("preview-inside.mp4");
+        let outside = base.join("outside.mp4");
+        std::fs::write(&inside, b"preview").unwrap();
+        std::fs::write(&outside, b"not a preview").unwrap();
+
+        let traversal = previews.join("..").join("outside.mp4");
+        assert!(resolve_discardable_preview(&traversal, &previews).is_err());
+        assert!(resolve_discardable_preview(&outside, &previews).is_err());
+        assert!(resolve_discardable_preview(&previews, &previews).is_err());
+        assert!(resolve_discardable_preview(&previews.join("missing.mp4"), &previews).is_err());
+        assert!(outside.exists());
+
+        let resolved = resolve_discardable_preview(&inside, &previews).unwrap();
+        std::fs::remove_file(&resolved).unwrap();
+        assert!(!inside.exists());
+
+        #[cfg(unix)]
+        {
+            let link = previews.join("preview-link.mp4");
+            std::os::unix::fs::symlink(&outside, &link).unwrap();
+            assert!(resolve_discardable_preview(&link, &previews).is_err());
+            assert!(outside.exists());
+        }
+
+        let _ = std::fs::remove_dir_all(base);
     }
 }
