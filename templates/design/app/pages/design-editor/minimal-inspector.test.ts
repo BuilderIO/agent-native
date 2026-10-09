@@ -7,6 +7,7 @@ import {
   rightInspectorCanvasInset,
   rightInspectorPanelClassName,
   shouldAutoOpenMobileInspector,
+  shouldShowWidgetZoomFallback,
 } from "./minimal-inspector";
 import { readDesignEditorSource } from "./read-design-editor-source";
 
@@ -124,6 +125,50 @@ describe("shouldAutoOpenMobileInspector", () => {
   });
 });
 
+describe("shouldShowWidgetZoomFallback", () => {
+  const widgetDefaults = {
+    widgetEmbed: true,
+    minimalUi: true,
+    topBarVisible: true,
+    topBarZoomVisible: true,
+    rightSidebarVisible: false,
+    uiHidden: false,
+  };
+
+  it("keeps zoom available while widget top-bar controls are temporarily hidden", () => {
+    expect(
+      shouldShowWidgetZoomFallback({
+        ...widgetDefaults,
+        topBarZoomVisible: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not duplicate zoom when the top-bar control is visible", () => {
+    expect(shouldShowWidgetZoomFallback(widgetDefaults)).toBe(false);
+  });
+
+  it("does not show a second control over an open inspector", () => {
+    expect(
+      shouldShowWidgetZoomFallback({
+        ...widgetDefaults,
+        topBarZoomVisible: false,
+        rightSidebarVisible: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not add a widget fallback to the regular editor", () => {
+    expect(
+      shouldShowWidgetZoomFallback({
+        ...widgetDefaults,
+        widgetEmbed: false,
+        topBarZoomVisible: false,
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("rightInspectorPanelClassName", () => {
   it("uses the docked rail outside minimal mode", () => {
     expect(rightInspectorPanelClassName(false)).toBe(
@@ -167,5 +212,12 @@ describe("DesignEditor minimal inspector wiring", () => {
   it("renders the floating inspector card class in minimal mode", () => {
     expect(editorSource).toContain("rightInspectorPanelClassName");
     expect(editorSource).toContain("rightInspectorPanelClassName(minimalUi)");
+  });
+
+  it("renders the widget title in one place when minimal UI is disabled", () => {
+    expect(editorSource).toContain(
+      "widgetEmbed && minimalUi ? projectTitleControl : undefined",
+    );
+    expect(editorSource).toContain("projectTitleControl,");
   });
 });

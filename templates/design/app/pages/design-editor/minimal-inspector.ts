@@ -45,6 +45,29 @@ export function rightInspectorCanvasInset({
   return visible && !widgetEmbed && !minimalUi ? width : 0;
 }
 
+export function shouldShowWidgetZoomFallback({
+  widgetEmbed,
+  minimalUi,
+  topBarVisible,
+  topBarZoomVisible,
+  rightSidebarVisible,
+  uiHidden,
+}: {
+  widgetEmbed: boolean;
+  minimalUi: boolean;
+  topBarVisible: boolean;
+  topBarZoomVisible: boolean;
+  rightSidebarVisible: boolean;
+  uiHidden: boolean;
+}): boolean {
+  return (
+    widgetEmbed &&
+    minimalUi &&
+    (!topBarVisible || !topBarZoomVisible) &&
+    (!rightSidebarVisible || uiHidden)
+  );
+}
+
 export const DOCKED_RIGHT_INSPECTOR_CLASSNAME =
   "absolute inset-y-0 right-0 z-[70] hidden h-full min-h-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex";
 

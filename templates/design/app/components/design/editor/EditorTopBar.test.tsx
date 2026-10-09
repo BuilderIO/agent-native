@@ -116,6 +116,37 @@ describe("EditorTopBar", () => {
     await unmount();
   });
 
+  it("keeps the widget title, zoom and Share beside a compact mode menu", async () => {
+    const { host, unmount } = await renderBar({
+      widgetLayout: true,
+      center: <button data-slot="title">Product Launch Demo</button>,
+      zoomControl: <button data-slot="zoom">67%</button>,
+      presence: <span data-slot="presence" />,
+      actions: <button data-slot="share">Share</button>,
+    });
+    const bar = host.querySelector<HTMLElement>("[data-design-top-bar]");
+    expect(
+      bar?.classList.contains(
+        "grid-cols-[max-content_minmax(0,1fr)_max-content]",
+      ),
+    ).toBe(true);
+    expect(
+      host.querySelector("[data-design-widget-mode-switch]"),
+    ).not.toBeNull();
+    expect(
+      host.querySelector("[data-design-widget-mode-trigger]")?.textContent,
+    ).toContain("designEditor.topBar.modeDesign");
+    expect(
+      bar
+        ?.querySelector("[data-slot=zoom]")
+        ?.parentElement?.classList.contains("flex"),
+    ).toBe(true);
+    expect(host.querySelector("[data-slot=title]")).not.toBeNull();
+    expect(host.querySelector("[data-slot=share]")).not.toBeNull();
+    expect(host.querySelector("[data-slot=presence]")).toBeNull();
+    await unmount();
+  });
+
   it("spans the inspector width with presence and actions only when it is docked", async () => {
     const docked = await renderBar({
       inspectorWidth: 240,
