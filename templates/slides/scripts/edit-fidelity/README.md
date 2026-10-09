@@ -130,8 +130,8 @@ pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20 --browser
 ```
 
 The `slides-authoring-fuzz-soak.yml` workflow is manual (`workflow_dispatch`). It
-runs 20 seeds of 500 steps for Chromium, WebKit, and Firefox in four five-seed
-shards per browser. PR CI runs one bounded 80-step smoke seed (seed 16) per
+runs 20 seeds of 500 steps for each browser, with one seed per job and at most
+four jobs at a time. PR CI runs one bounded 80-step smoke seed (seed 16) per
 browser. It does not run the full soak.
 
 ## Authoring parity checklist
