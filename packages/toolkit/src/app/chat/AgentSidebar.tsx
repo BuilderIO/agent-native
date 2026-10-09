@@ -43,6 +43,7 @@ import { useActionQuery } from "@agent-native/core/client/hooks";
 import { shouldParentFrameOwnAgentPanel } from "@agent-native/core/client/host";
 import {
   getFramePostMessageTargetOrigin,
+  isTrustedBuilderMessage,
   isTrustedFrameMessage,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
@@ -734,12 +735,13 @@ export function AgentSidebar({
     const handleOpenThread = (event: Event) =>
       replayAfterMount(event.type, event);
     const handleReference = (event: Event) => {
-      if (!composerReadyRef.current)
-        pendingPanelEvents.current.push(
-          new CustomEvent(event.type, {
-            detail: (event as CustomEvent).detail,
-          }),
-        );
+      if (composerReadyRef.current) return;
+      pendingPanelEvents.current.push(
+        new CustomEvent(event.type, {
+          detail: (event as CustomEvent).detail,
+        }),
+      );
+      setBackgroundPanelActive(true);
     };
     const handleComposerReady = (event: Event) => {
       const element = (event as CustomEvent).detail;
@@ -754,7 +756,11 @@ export function AgentSidebar({
       for (const queued of pending) window.dispatchEvent(queued);
     };
     const handleMessage = (event: MessageEvent) => {
-      if (!isTrustedFrameMessage(event)) return;
+      if (
+        !isTrustedFrameMessage(event) &&
+        !(isComposerReferenceEvent(event) && isTrustedBuilderMessage(event))
+      )
+        return;
       if (
         isComposerReferenceEvent(event)
           ? composerReadyRef.current
@@ -779,6 +785,7 @@ export function AgentSidebar({
           source: event.source,
         }),
       );
+      setBackgroundPanelActive(true);
     };
 
     window.addEventListener(AGENT_PANEL_SET_MODE_EVENT, handleSetMode);

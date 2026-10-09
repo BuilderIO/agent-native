@@ -6,6 +6,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AGENT_CHAT_INSERT_REFERENCE_EVENT } from "../../composer/runtime-adapters.js";
+
+const mockTrust = vi.hoisted(() => ({ frame: true, builder: false }));
+
 const mockHostedHarness = vi.hoisted(() => ({
   configured: false,
   enabled: false,
@@ -45,6 +49,7 @@ vi.mock("./AgentSidebarPanel.js", async () => {
         window.addEventListener("agent-panel:open-settings", record);
         window.addEventListener("agent-chat:open-thread", record);
         window.addEventListener("message", record);
+        window.addEventListener(AGENT_CHAT_INSERT_REFERENCE_EVENT, record);
         onReadyChange?.(true);
         return () => {
           onReadyChange?.(false);
@@ -52,6 +57,7 @@ vi.mock("./AgentSidebarPanel.js", async () => {
           window.removeEventListener("agent-panel:open-settings", record);
           window.removeEventListener("agent-chat:open-thread", record);
           window.removeEventListener("message", record);
+          window.removeEventListener(AGENT_CHAT_INSERT_REFERENCE_EVENT, record);
         };
       }, [onReadyChange]);
       return (
@@ -89,7 +95,8 @@ vi.mock("@agent-native/core/client/host", async (importOriginal) => {
   return {
     ...actual,
     getFramePostMessageTargetOrigin: () => null,
-    isTrustedFrameMessage: () => true,
+    isTrustedFrameMessage: () => mockTrust.frame,
+    isTrustedBuilderMessage: () => mockTrust.builder,
     shouldParentFrameOwnAgentPanel: () => false,
   };
 });
@@ -187,6 +194,8 @@ afterEach(() => {
 
 beforeEach(() => {
   mockPanel.events = [];
+  mockTrust.frame = true;
+  mockTrust.builder = false;
   window.history.replaceState({}, "", "/");
   mockHostedHarness.configured = false;
   mockHostedHarness.enabled = false;
@@ -208,6 +217,48 @@ describe("AgentSidebar panel", () => {
     expect(
       container?.querySelector("[data-agent-sidebar-panel-loaded]"),
     ).toBeNull();
+
+    mockTrust.frame = false;
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.submitChat",
+            data: { message: "Untrusted" },
+          },
+        }),
+      );
+    });
+    expect(mockPanel.imports).toBe(0);
+    mockTrust.builder = true;
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.submitChat",
+            data: { message: "Builder-only submission" },
+          },
+        }),
+      );
+    });
+    expect(mockPanel.imports).toBe(0);
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://builder.io",
+          source: window,
+          data: {
+            type: "agentNative.insertComposerReference",
+            data: { type: "file", path: "/builder.md" },
+          },
+        }),
+      );
+    });
+    expect(mockPanel.imports).toBe(1);
+    expect(
+      container?.querySelector("[data-agent-sidebar-state='open']"),
+    ).toBeNull();
+    mockTrust.frame = true;
 
     await act(async () => {
       window.dispatchEvent(
@@ -232,6 +283,11 @@ describe("AgentSidebar panel", () => {
             type: "agentNative.submitChat",
             data: { message: "Draft this", submit: false },
           },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative:insert-composer-reference", {
+          detail: { type: "file", path: "/custom-event.md" },
         }),
       );
       window.dispatchEvent(
@@ -288,14 +344,64 @@ describe("AgentSidebar panel", () => {
         }),
       );
     });
-    expect(mockPanel.events).toHaveLength(5);
+    expect(mockPanel.events).toHaveLength(7);
     expect(mockPanel.events[4]).toEqual({
+      type: "message",
+      detail: {
+        type: "agentNative.insertComposerReference",
+        data: { type: "file", path: "/builder.md" },
+      },
+    });
+    expect(mockPanel.events).toContainEqual({
       type: "message",
       detail: {
         type: "agentNative.insertComposerReference",
         data: { type: "file", path: "/reference.md" },
       },
     });
+    expect(mockPanel.events).toContainEqual({
+      type: "agentNative:insert-composer-reference",
+      detail: { type: "file", path: "/custom-event.md" },
+    });
+  });
+
+  it.each([
+    "agentNative.submitChat",
+    "agentNative.setChatContext",
+    "agentNative.removeChatContext",
+    "agentNative.clearChatContext",
+    "agentNative.insertComposerReference",
+  ])("activates a closed body to deliver %s", async (type) => {
+    renderSidebar(false);
+    await act(async () => {});
+    expect(container?.querySelector("textarea")).toBeNull();
+    const data = {
+      type,
+      data: {
+        message: "Draft",
+        key: "context",
+        type: "file",
+        path: "/reference.md",
+        openSidebar: false,
+      },
+    };
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", { data }));
+    });
+    expect(container?.querySelector("textarea")).toBeTruthy();
+    expect(
+      container?.querySelector("[data-agent-sidebar-state='open']"),
+    ).toBeNull();
+    if (type === "agentNative.insertComposerReference") {
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agentNative:composer-reference-ready", {
+            detail: container?.querySelector("textarea"),
+          }),
+        );
+      });
+    }
+    expect(mockPanel.events).toEqual([{ type: "message", detail: data }]);
   });
 
   it.each(["/?agentSidebar=open", "/?threadId=thread-example"])(

@@ -353,9 +353,9 @@ export function resolveReasoningEffortSelection(
 }
 
 export const AGENT_CHAT_INSERT_REFERENCE_EVENT =
-  "agent-native:insert-composer-reference";
+  "agentNative:insert-composer-reference";
 export const AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE =
-  "agent-native:insert-composer-reference";
+  "agentNative.insertComposerReference";
 
 export function formatPromptContextItems(
   items: readonly AgentChatContextItem[] | undefined,
