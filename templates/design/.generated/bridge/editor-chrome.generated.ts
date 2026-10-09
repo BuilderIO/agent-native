@@ -10627,11 +10627,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       BracketLeft: "["
     };
     function normalizedHotkeyChar(e) {
-      if (e.altKey) {
-        var fromCode = ALT_CODE_KEYS[e.code];
-        if (fromCode) return fromCode;
-      }
       var key = e.key;
+      if (/^[a-z]$/i.test(key || "")) return key.toLowerCase();
+      var fromCode = ALT_CODE_KEYS[e.code];
+      if (fromCode) return fromCode;
       return key && key.length === 1 ? key.toLowerCase() : key;
     }
     function isApplePlatformBridge() {
@@ -10643,20 +10642,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       return isApplePlatformBridge() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
     }
     function isIgnoreAutoLayoutChord(e) {
-      return isApplePlatformBridge() ? Boolean(e.ctrlKey && !e.metaKey) : bridgeIgnoreAutoLayoutKeyPressed || String(e && e.key).toLowerCase() === "s";
+      return isApplePlatformBridge() ? Boolean(e.ctrlKey && !e.metaKey) : bridgeIgnoreAutoLayoutKeyPressed || normalizedHotkeyChar(e || {}) === "s";
     }
     function isIgnoreAutoLayoutChordForDragPoint(e) {
       if (isApplePlatformBridge()) {
         return Boolean(e.ctrlKey && !e.metaKey);
       }
       if (typeof e.ignoreAutoLayoutKeyPressed === "boolean") {
-        return e.ignoreAutoLayoutKeyPressed || String(e && e.key).toLowerCase() === "s";
+        return e.ignoreAutoLayoutKeyPressed || normalizedHotkeyChar(e || {}) === "s";
       }
       return isIgnoreAutoLayoutChord(e);
     }
     function isShowShortcutsChord(e) {
-      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
-      return e.key === "?" || e.key === "/";
+      if (!isPlatformPrimaryChord(e) || !e.shiftKey || e.altKey) return false;
+      var key = normalizedHotkeyChar(e);
+      return key === "?" || key === "/";
     }
     function shouldForwardDesignHotkey(e) {
       if (isShowShortcutsChord(e)) return true;
@@ -10665,7 +10665,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         return false;
       var key = e.key;
       var normalized = normalizedHotkeyChar(e);
-      var primary = e.metaKey || e.ctrlKey;
+      var primary = isPlatformPrimaryChord(e);
+      var isControlAltHotkey = e.ctrlKey && !e.metaKey && e.altKey && !e.shiftKey && ["h", "t", "v"].indexOf(normalized) !== -1;
+      if (isControlAltHotkey) return true;
+      var isSecondaryControlChord = e.ctrlKey && !e.metaKey && (!e.altKey && (!e.shiftKey && normalized === "g" || e.shiftKey && (e.code === "Digit4" || e.code === "BracketRight" || e.code === "BracketLeft")) || isApplePlatformBridge() && !e.altKey && !e.shiftKey && normalized === "c");
+      if ((e.metaKey || e.ctrlKey) && !primary && !isSecondaryControlChord) {
+        return false;
+      }
       var isArrangeBracketChord = (e.code === "BracketRight" || e.code === "BracketLeft") && (!primary && !e.altKey && !e.shiftKey || primary && !e.shiftKey || e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey);
       if (isArrangeBracketChord) return true;
       if (key === "Escape" || key === "Enter") return true;
@@ -20691,7 +20697,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       "keydown",
       function(e) {
         if (interactionMode) return;
-        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
           var wasIgnoreAutoLayoutPressed = bridgeIgnoreAutoLayoutKeyPressed;
           bridgeIgnoreAutoLayoutKeyPressed = true;
           if (!wasIgnoreAutoLayoutPressed) {
@@ -20785,8 +20791,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (!shouldForwardDesignHotkey(e)) return;
         var key = e.key;
-        var normalized = key && key.length === 1 ? key.toLowerCase() : key;
-        var primary = e.metaKey || e.ctrlKey;
+        var normalized = normalizedHotkeyChar(e);
+        var primary = isPlatformPrimaryChord(e);
         var plainPasteHotkey = primary && normalized === "v" && !e.altKey && !e.shiftKey;
         if (e.key === "Escape" && cancelActiveBridgeDrag()) {
           stopNativeInteraction(e);
@@ -20821,7 +20827,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       parentDocument.__agentNativeDesignModifierListeners = modifierListenerWindows;
       modifierListenerWindows.get(window)?.cleanup();
       var onParentModifierKeyDown = function(e) {
-        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
           if (!bridgeIgnoreAutoLayoutKeyPressed) {
             bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(
               e,
@@ -20832,7 +20838,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       };
       var onParentModifierKeyUp = function(e) {
-        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
           if (bridgeIgnoreAutoLayoutKeyPressed) {
             bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(
               e,
@@ -20867,7 +20873,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.addEventListener(
       "keyup",
       function(e) {
-        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
           var wasIgnoreAutoLayoutPressed = bridgeIgnoreAutoLayoutKeyPressed;
           bridgeIgnoreAutoLayoutKeyPressed = false;
           if (wasIgnoreAutoLayoutPressed) {
@@ -21350,7 +21356,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       function onKeyDown(ev) {
         if (ev.isComposing || ev.keyCode === 229) return;
-        var metaOrCtrl = ev.metaKey || ev.ctrlKey;
+        var metaOrCtrl = isPlatformPrimaryChord(ev);
         if (ev.key === "Escape" || ev.key === "Enter" && metaOrCtrl && !ev.altKey && !ev.shiftKey) {
           ev.preventDefault();
           ev.stopPropagation();
@@ -21364,14 +21370,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           scheduleTextEditingChromeUpdate();
           return;
         }
-        if (programmaticTextEdit && metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "z") {
+        if (programmaticTextEdit && metaOrCtrl && !ev.altKey && normalizedHotkeyChar(ev) === "z") {
           ev.preventDefault();
           ev.stopPropagation();
           finish(false);
           postDesignHotkey(ev);
           return;
         }
-        var formatKey = metaOrCtrl && !ev.altKey ? ev.key.toLowerCase() : "";
+        var formatKey = metaOrCtrl && !ev.altKey ? normalizedHotkeyChar(ev) : "";
         if (TEXT_EDIT_FORMATS[formatKey]) {
           ev.preventDefault();
           applyTextEditFormat(formatKey);

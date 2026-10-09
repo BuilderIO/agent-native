@@ -13354,11 +13354,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   };
 
   function normalizedHotkeyChar(e) {
-    if (e.altKey) {
-      var fromCode = ALT_CODE_KEYS[e.code];
-      if (fromCode) return fromCode;
-    }
     var key = e.key;
+    if (/^[a-z]$/i.test(key || "")) return key.toLowerCase();
+    var fromCode = ALT_CODE_KEYS[e.code];
+    if (fromCode) return fromCode;
     return key && key.length === 1 ? key.toLowerCase() : key;
   }
 
@@ -13381,7 +13380,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return isApplePlatformBridge()
       ? Boolean(e.ctrlKey && !e.metaKey)
       : bridgeIgnoreAutoLayoutKeyPressed ||
-          String(e && e.key).toLowerCase() === "s";
+          normalizedHotkeyChar(e || {}) === "s";
   }
 
   function isIgnoreAutoLayoutChordForDragPoint(e): boolean {
@@ -13390,15 +13389,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (typeof e.ignoreAutoLayoutKeyPressed === "boolean") {
       return (
-        e.ignoreAutoLayoutKeyPressed || String(e && e.key).toLowerCase() === "s"
+        e.ignoreAutoLayoutKeyPressed || normalizedHotkeyChar(e || {}) === "s"
       );
     }
     return isIgnoreAutoLayoutChord(e);
   }
 
   function isShowShortcutsChord(e) {
-    if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
-    return e.key === "?" || e.key === "/";
+    if (!isPlatformPrimaryChord(e) || !e.shiftKey || e.altKey) return false;
+    var key = normalizedHotkeyChar(e);
+    return key === "?" || key === "/";
   }
 
   function shouldForwardDesignHotkey(e) {
@@ -13408,7 +13408,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return false;
     var key = e.key;
     var normalized = normalizedHotkeyChar(e);
-    var primary = e.metaKey || e.ctrlKey;
+    var primary = isPlatformPrimaryChord(e);
+    var isControlAltHotkey =
+      e.ctrlKey &&
+      !e.metaKey &&
+      e.altKey &&
+      !e.shiftKey &&
+      ["h", "t", "v"].indexOf(normalized) !== -1;
+    if (isControlAltHotkey) return true;
+    var isSecondaryControlChord =
+      e.ctrlKey &&
+      !e.metaKey &&
+      ((!e.altKey &&
+        ((!e.shiftKey && normalized === "g") ||
+          (e.shiftKey &&
+            (e.code === "Digit4" ||
+              e.code === "BracketRight" ||
+              e.code === "BracketLeft")))) ||
+        (isApplePlatformBridge() &&
+          !e.altKey &&
+          !e.shiftKey &&
+          normalized === "c"));
+    if ((e.metaKey || e.ctrlKey) && !primary && !isSecondaryControlChord) {
+      return false;
+    }
     var isArrangeBracketChord =
       (e.code === "BracketRight" || e.code === "BracketLeft") &&
       ((!primary && !e.altKey && !e.shiftKey) ||
@@ -26558,7 +26581,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "keydown",
     function (e) {
       if (interactionMode) return;
-      if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+      if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
         var wasIgnoreAutoLayoutPressed = bridgeIgnoreAutoLayoutKeyPressed;
         bridgeIgnoreAutoLayoutKeyPressed = true;
         if (!wasIgnoreAutoLayoutPressed) {
@@ -26672,8 +26695,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       if (!shouldForwardDesignHotkey(e)) return;
       var key = e.key;
-      var normalized = key && key.length === 1 ? key.toLowerCase() : key;
-      var primary = e.metaKey || e.ctrlKey;
+      var normalized = normalizedHotkeyChar(e);
+      var primary = isPlatformPrimaryChord(e);
       var plainPasteHotkey =
         primary && normalized === "v" && !e.altKey && !e.shiftKey;
       if (e.key === "Escape" && cancelActiveBridgeDrag()) {
@@ -26717,7 +26740,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       modifierListenerWindows;
     modifierListenerWindows.get(window)?.cleanup();
     var onParentModifierKeyDown = function (e) {
-      if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+      if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
         if (!bridgeIgnoreAutoLayoutKeyPressed) {
           bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(
             e,
@@ -26728,7 +26751,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     };
     var onParentModifierKeyUp = function (e) {
-      if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+      if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
         if (bridgeIgnoreAutoLayoutKeyPressed) {
           bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(
             e,
@@ -26768,7 +26791,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   document.addEventListener(
     "keyup",
     function (e) {
-      if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+      if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
         var wasIgnoreAutoLayoutPressed = bridgeIgnoreAutoLayoutKeyPressed;
         bridgeIgnoreAutoLayoutKeyPressed = false;
         if (wasIgnoreAutoLayoutPressed) {
@@ -27370,7 +27393,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     function onKeyDown(ev) {
       if (ev.isComposing || ev.keyCode === 229) return;
-      var metaOrCtrl = ev.metaKey || ev.ctrlKey;
+      var metaOrCtrl = isPlatformPrimaryChord(ev);
       if (
         ev.key === "Escape" ||
         (ev.key === "Enter" && metaOrCtrl && !ev.altKey && !ev.shiftKey)
@@ -27391,7 +27414,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         programmaticTextEdit &&
         metaOrCtrl &&
         !ev.altKey &&
-        ev.key.toLowerCase() === "z"
+        normalizedHotkeyChar(ev) === "z"
       ) {
         ev.preventDefault();
         ev.stopPropagation();
@@ -27399,7 +27422,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         postDesignHotkey(ev);
         return;
       }
-      var formatKey = metaOrCtrl && !ev.altKey ? ev.key.toLowerCase() : "";
+      var formatKey = metaOrCtrl && !ev.altKey ? normalizedHotkeyChar(ev) : "";
       if (TEXT_EDIT_FORMATS[formatKey]) {
         ev.preventDefault();
         applyTextEditFormat(formatKey);

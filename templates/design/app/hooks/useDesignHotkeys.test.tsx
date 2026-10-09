@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { isEditorHotkeyBlockedByShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
 
 import {
+  isDesignHotkeyBlockedByOpenLayer,
   isDesignHotkeyEditableTarget,
   isDesignHistoryHotkeyTarget,
   isNativeKeyboardActivationTarget,
@@ -39,6 +40,31 @@ describe("isDesignHotkeyEditableTarget", () => {
 
     markedInput.remove();
     ordinaryInput.remove();
+  });
+});
+
+describe("isDesignHotkeyBlockedByOpenLayer", () => {
+  it("blocks canvas keys while a menu or popover is open", () => {
+    const target = document.createElement("div");
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("data-state", "open");
+    document.body.append(target, menu);
+
+    expect(isDesignHotkeyBlockedByOpenLayer(target)).toBe(true);
+
+    menu.setAttribute("data-state", "closed");
+    const popover = document.createElement("div");
+    popover.setAttribute("role", "dialog");
+    popover.setAttribute("data-state", "open");
+    document.body.append(popover);
+    expect(isDesignHotkeyBlockedByOpenLayer(target)).toBe(true);
+
+    popover.setAttribute("data-state", "closed");
+    expect(isDesignHotkeyBlockedByOpenLayer(target)).toBe(false);
+    target.remove();
+    menu.remove();
+    popover.remove();
   });
 });
 
@@ -96,15 +122,37 @@ function dispatchKey(
   init: KeyboardEventInit & { code?: string } = {},
   target: EventTarget = window,
 ) {
+  const ownPlatformDescriptor = Object.getOwnPropertyDescriptor(
+    navigator,
+    "platform",
+  );
+  if (!navigatorPlatformOverride) {
+    Object.defineProperty(navigator, "platform", {
+      configurable: true,
+      value: init.metaKey && !init.ctrlKey ? "MacIntel" : "Win32",
+    });
+  }
   const event = new KeyboardEvent("keydown", {
     key,
     bubbles: true,
     cancelable: true,
     ...init,
   });
-  target.dispatchEvent(event);
+  try {
+    target.dispatchEvent(event);
+  } finally {
+    if (!navigatorPlatformOverride) {
+      if (ownPlatformDescriptor) {
+        Object.defineProperty(navigator, "platform", ownPlatformDescriptor);
+      } else {
+        Reflect.deleteProperty(navigator, "platform");
+      }
+    }
+  }
   return event;
 }
+
+let navigatorPlatformOverride: string | null = null;
 
 async function withSelectedText(text: string, run: () => Promise<void> | void) {
   const node = document.createElement("p");
@@ -127,6 +175,8 @@ async function withNavigatorPlatform(
   platform: string,
   run: () => void | Promise<void>,
 ) {
+  const previousOverride = navigatorPlatformOverride;
+  navigatorPlatformOverride = platform;
   const ownDescriptor = Object.getOwnPropertyDescriptor(navigator, "platform");
   Object.defineProperty(navigator, "platform", {
     configurable: true,
@@ -140,6 +190,7 @@ async function withNavigatorPlatform(
     } else {
       Reflect.deleteProperty(navigator, "platform");
     }
+    navigatorPlatformOverride = previousOverride;
   }
 }
 
