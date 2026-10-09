@@ -606,6 +606,7 @@ test.describe.serial("rare-but-real unique paths", () => {
       .toMatchObject({ valid: true, outside: true });
   });
 
+  // oracle: none — verifies the editor shortcut without asserting native Figma parity.
   test("paste-properties (Cmd+Opt+C / Cmd+Opt+V) copies style only, leaving position and size alone", async ({
     page,
   }) => {
