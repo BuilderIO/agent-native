@@ -704,11 +704,13 @@ const updateDocumentAction = defineAction({
         observedBaseRevision !==
           documentRevisionToken(snapshot.bodyRevision, snapshot.content);
       const snapshotTime = Date.parse(snapshot.updatedAt);
-      const compareTimestamp = (timestamp: string | undefined) => {
-        const baseTime = saveObservationTimestampSchema.safeParse(timestamp)
-          .success
-          ? Date.parse(timestamp!)
-          : NaN;
+      const compareTimestampKey = (timestamp: string | undefined) => {
+        const parsed = saveObservationTimestampSchema.safeParse(timestamp);
+        return parsed.success ? [parsed.data !== snapshot.updatedAt] : [];
+      };
+      const compareLoadedTimestamp = (timestamp: string | undefined) => {
+        const parsed = saveObservationTimestampSchema.safeParse(timestamp);
+        const baseTime = parsed.success ? Date.parse(parsed.data) : NaN;
         return Number.isFinite(baseTime) && Number.isFinite(snapshotTime)
           ? [baseTime !== snapshotTime]
           : [];
@@ -717,12 +719,12 @@ const updateDocumentAction = defineAction({
         ...(observedBaseRevision &&
         parseDocumentRevisionToken(observedBaseRevision)
           ? [bodyBaseStale]
-          : compareTimestamp(args.baseUpdatedAt)),
+          : compareTimestampKey(args.baseUpdatedAt)),
         ...(args.baseTitle !== undefined
           ? [args.baseTitle !== snapshot.title]
           : []),
-        ...compareTimestamp(args.recoveryExpectedUpdatedAt),
-        ...compareTimestamp(args.loadedUpdatedAt),
+        ...compareTimestampKey(args.recoveryExpectedUpdatedAt),
+        ...compareLoadedTimestamp(args.loadedUpdatedAt),
       ];
       measurement.stale_base =
         staleComparisons.length === 0

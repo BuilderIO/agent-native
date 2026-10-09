@@ -2178,6 +2178,135 @@ describe("update-document compare-and-swap", () => {
 });
 
 describe("update-document save outcome counts", () => {
+  it.each(["baseUpdatedAt", "recoveryExpectedUpdatedAt"] as const)(
+    "observes the matching %s key on a successful body write",
+    async (field) => {
+      const id = await createDocument({ content: "Body" });
+      const before = await documentRow(id);
+      const result = await measuredSave(
+        () =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            updateDocumentAction.run({
+              id,
+              content: "Changed body",
+              [field]: before.updatedAt,
+            }),
+          ),
+        {
+          outcome: "written",
+          stale_base: "false",
+          history_effect: "transition",
+        },
+      );
+      expect(result).toMatchObject({ content: "Changed body" });
+      expect((await documentRow(id)).content).toBe("Changed body");
+    },
+  );
+
+  it.each(["equivalent", "older"] as const)(
+    "observes the %s loaded timestamp with the existing empty-body guard",
+    async (base) => {
+      const id = await createDocument({ content: "Hydrated body" });
+      const before = await documentRow(id);
+      const result = await measuredSave(
+        () =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            updateDocumentAction.run(
+              {
+                id,
+                content: "<empty-block/>",
+                baseRevision: documentRevisionToken(
+                  before.bodyRevision,
+                  before.content,
+                ),
+                authoredBaseRevision: documentRevisionToken(
+                  before.bodyRevision,
+                  before.content,
+                ),
+                authoredBaseContent: before.content,
+                authoredCandidateContent: "<empty-block/>",
+                editorSessionId: nextId("loaded-time-editor"),
+                editorEditGeneration: 1,
+                loadedUpdatedAt:
+                  base === "equivalent"
+                    ? before.updatedAt.replace("Z", "+00:00")
+                    : "2020-01-01T00:00:00.000Z",
+                loadedContentWasEmpty: false,
+                browserSaveAttemptId: nextId("loaded-time-guard"),
+              },
+              { caller: "frontend", userEmail: OWNER },
+            ),
+          ),
+        {
+          outcome: base === "equivalent" ? "written" : "conflict",
+          stale_base: base === "equivalent" ? "false" : "true",
+          history_effect: base === "equivalent" ? "transition" : "none",
+          ...(base === "older" ? { reason_code: "stale_empty_body" } : {}),
+        },
+      );
+      if (base === "equivalent") {
+        expect(result).toMatchObject({ content: "<empty-block/>" });
+        expect((await documentRow(id)).content).toBe("<empty-block/>");
+      } else {
+        expect(result).toMatchObject({ conflict: true });
+        expect(await documentRow(id)).toEqual(before);
+        expect(
+          await getDb()
+            .select()
+            .from(schema.documentVersions)
+            .where(eq(schema.documentVersions.documentId, id)),
+        ).toHaveLength(0);
+      }
+    },
+  );
+
+  it.each(
+    (["baseUpdatedAt", "recoveryExpectedUpdatedAt"] as const).flatMap((field) =>
+      (["equivalent", "submillisecond"] as const).map((format) => ({
+        field,
+        format,
+      })),
+    ),
+  )(
+    "observes the rejected $format $field key on a body write",
+    async ({ field, format }) => {
+      const id = await createDocument({ content: "Body" });
+      const before = await documentRow(id);
+      const timestamp = before.updatedAt.replace(
+        "Z",
+        format === "equivalent" ? "+00:00" : "1Z",
+      );
+      expect(Date.parse(timestamp)).toBe(Date.parse(before.updatedAt));
+      const result = await measuredSave(
+        () =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            updateDocumentAction.run({
+              id,
+              content: "Changed body",
+              [field]: timestamp,
+            }),
+          ),
+        {
+          outcome: "conflict",
+          stale_base: "true",
+          history_effect: "none",
+          reason_code:
+            field === "baseUpdatedAt"
+              ? "timestamp_cas_conflict"
+              : "recovery_base_changed",
+        },
+      );
+      expect(result).toMatchObject({ conflict: true });
+      expect(await documentRow(id)).toEqual(before);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, id)),
+      ).toHaveLength(0);
+    },
+  );
+
   it.each(
     (
       ["baseUpdatedAt", "loadedUpdatedAt", "recoveryExpectedUpdatedAt"] as const
@@ -2219,7 +2348,7 @@ describe("update-document save outcome counts", () => {
             base === "numeric" ||
             base === "invalid-date"
               ? "unknown"
-              : base === "equivalent"
+              : base === "equivalent" && field === "loadedUpdatedAt"
                 ? "false"
                 : "true",
           history_effect: "none",
