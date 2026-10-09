@@ -680,6 +680,148 @@ describe("document descriptions through external MCP", () => {
     }
   });
 
+  it("revalidates an inline collection's current host before detaching", async () => {
+    const host = await createPage({ title: "Original inline host" });
+    const privateHost = await createPage({ title: "Private replacement host" });
+    await getDb()
+      .update(schema.documents)
+      .set({ ownerEmail: outsider })
+      .where(eq(schema.documents.id, privateHost.id));
+    const created = await callJson(ownerClient, "create-content-database", {
+      parentId: host.id,
+      title: "Host authority race",
+      spaceId: (await readRow(host.id)).spaceId,
+      idempotencyKey: "host-authority-race",
+    });
+    const databaseId = created.database.id;
+    const documentId = created.database.documentId;
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ ownerDocumentId: host.id, ownerBlockId: "host-authority-block" })
+      .where(eq(schema.contentDatabases.id, databaseId));
+    const before = await readRow(documentId);
+    const metadata =
+      await import("../server/lib/document-metadata-updated-at.js");
+    const acquireCollection = metadata.lockDocumentMetadataDatabase;
+    const spy = vi
+      .spyOn(metadata, "lockDocumentMetadataDatabase")
+      .mockImplementationOnce(async (args) => {
+        const locked = await acquireCollection(args);
+        await args.db
+          .update(schema.contentDatabases)
+          .set({ ownerDocumentId: privateHost.id })
+          .where(eq(schema.contentDatabases.id, databaseId));
+        return locked;
+      });
+    try {
+      const moveDocument = (await import("./move-document.js")).default;
+      await expect(
+        runWithRequestContext({ userEmail: owner }, () =>
+          moveDocument.run({ id: documentId, parentId: null }),
+        ),
+      ).rejects.toThrow("ownerDocumentId");
+      expect(await readRow(documentId)).toEqual(before);
+      const [database] = await getDb()
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId));
+      expect(database.ownerDocumentId).toBe(host.id);
+      expect(database.ownerBlockId).toBe("host-authority-block");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("completes an inline collection move racing a description update", async () => {
+    const host = await createPage({ title: "Inline collection host" });
+    const created = await callJson(ownerClient, "create-content-database", {
+      parentId: host.id,
+      title: "Inline move race",
+      spaceId: (await readRow(host.id)).spaceId,
+      idempotencyKey: "inline-move-race",
+    });
+    const databaseId = created.database.id;
+    const documentId = created.database.documentId;
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ ownerDocumentId: host.id, ownerBlockId: "inline-move-block" })
+      .where(eq(schema.contentDatabases.id, databaseId));
+    const metadata =
+      await import("../server/lib/document-metadata-updated-at.js");
+    const acquireCollection = metadata.lockDocumentMetadataDatabase;
+    let collectionHeld!: () => void;
+    let moveRequested!: () => void;
+    let releaseMetadata!: () => void;
+    const held = new Promise<void>((resolve) => (collectionHeld = resolve));
+    const attempted = new Promise<void>((resolve) => (moveRequested = resolve));
+    const release = new Promise<void>((resolve) => (releaseMetadata = resolve));
+    const spy = vi
+      .spyOn(metadata, "lockDocumentMetadataDatabase")
+      .mockImplementationOnce(async (args) => {
+        const locked = await acquireCollection(args);
+        collectionHeld();
+        await release;
+        return locked;
+      })
+      .mockImplementationOnce((args) => {
+        moveRequested();
+        return acquireCollection(args);
+      });
+    const update = callJson(ownerClient, "update-document", {
+      id: documentId,
+      description: "Guidance retained after detachment",
+    });
+    const moveDocument = (await import("./move-document.js")).default;
+    let move: ReturnType<typeof moveDocument.run> | undefined;
+    try {
+      await Promise.race([
+        held,
+        update.then(() => {
+          throw new Error(
+            "Metadata completed before holding its collection lock",
+          );
+        }),
+      ]);
+      if (databaseUrl.startsWith("pglite:")) {
+        releaseMetadata();
+        await update;
+      }
+      move = runWithRequestContext({ userEmail: owner }, () =>
+        moveDocument.run({ id: documentId, parentId: null }),
+      );
+      await Promise.race([
+        attempted,
+        move.then(() => {
+          throw new Error(
+            "Move completed before attempting its collection lock",
+          );
+        }),
+      ]);
+      releaseMetadata();
+      const results = await Promise.allSettled([update, move]);
+      expect(results.map((result) => result.status)).toEqual([
+        "fulfilled",
+        "fulfilled",
+      ]);
+      const document = await readRow(documentId);
+      expect(document.parentId).toBeNull();
+      expect(document.description).toBe("Guidance retained after detachment");
+      const [database] = await getDb()
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId));
+      expect(database.ownerDocumentId).toBeNull();
+      expect(database.ownerBlockId).toBeNull();
+      expect(Date.parse(database.updatedAt)).toBeGreaterThanOrEqual(
+        Date.parse((await update).updatedAt),
+      );
+    } finally {
+      releaseMetadata();
+      await Promise.allSettled([update, ...(move ? [move] : [])]);
+      spy.mockRestore();
+    }
+  });
+
   it("rejects unauthorized updates and external body replacement without applying either patch", async () => {
     const created = await createPage({
       title: "Private description",

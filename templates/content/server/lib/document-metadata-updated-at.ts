@@ -49,12 +49,11 @@ export async function lockDocumentMetadataDatabase(
   return databases[0]?.id ?? null;
 }
 
-export async function nextDocumentMetadataUpdatedAt(
+export async function assertDocumentMetadataDatabaseScope(
   args: DocumentMetadataScope & {
-    currentUpdatedAt: string;
     lockedDatabaseId: string | null;
   },
-): Promise<string> {
+) {
   const databases = await selectDocumentMetadataDatabases(args);
   const database = databases[0];
   if (
@@ -63,6 +62,16 @@ export async function nextDocumentMetadataUpdatedAt(
   ) {
     metadataScopeChanged();
   }
+  return database;
+}
+
+export async function nextDocumentMetadataUpdatedAt(
+  args: DocumentMetadataScope & {
+    currentUpdatedAt: string;
+    lockedDatabaseId: string | null;
+  },
+): Promise<string> {
+  const database = await assertDocumentMetadataDatabaseScope(args);
   const updatedAt = nextDocumentUpdatedAt(args.currentUpdatedAt);
   return database
     ? nextDocumentUpdatedAt(database.updatedAt, Date.parse(updatedAt))
