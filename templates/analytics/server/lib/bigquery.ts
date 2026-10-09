@@ -66,6 +66,7 @@ export class BigQueryMaximumBytesBilledError extends Error {
 
 function isMaximumBytesBilledError(status: number, responseText: string) {
   if (status !== 400) return false;
+  if (hasMaximumBytesBilledMessage([responseText])) return true;
   try {
     const response = JSON.parse(responseText) as {
       error?: {
@@ -78,7 +79,7 @@ function isMaximumBytesBilledError(status: number, responseText: string) {
       ...(response.error?.errors ?? []).map((error) => error.message),
     ]);
   } catch {
-    // coercion-ok: Unparseable provider errors are rethrown by the caller and are not byte-cap failures.
+    // coercion-ok: Invalid bodies without the exact cap marker stay generic errors thrown by the caller.
     return false;
   }
 }
