@@ -6846,7 +6846,7 @@ describe("get-actions-batch through mounted action routes", () => {
     expect(results[2]).toEqual({
       status: 403,
       error: { error: "Not allowed for this deck", errorCode: "forbidden" },
-      headers: {},
+      headers: { "x-agent-native-browser-persist": "allow" },
     });
     expect(listRun).toHaveBeenCalledTimes(1);
     expect(saveRun).not.toHaveBeenCalled();
