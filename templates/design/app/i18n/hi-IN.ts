@@ -1265,6 +1265,8 @@ export default {
     downloadFigmaSvg: "Figma के लिए डाउनलोड करें (SVG)",
     downloadZip: "ZIP डाउनलोड करें",
     downloadPdfAllScreens: "PDF डाउनलोड करें (सभी स्क्रीन)",
+    publishApp: "ऐप प्रकाशित करें",
+    exportOptions: "निर्यात विकल्प",
     exportHtml: "HTML निर्यात करें",
     exportPdf: "निर्यात PDF",
     copyCodingHandoff: "कोडिंग हैंडऑफ़ कॉपी करें",

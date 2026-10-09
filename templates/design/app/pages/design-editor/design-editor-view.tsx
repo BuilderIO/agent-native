@@ -97,6 +97,7 @@ import { renderPublishWaitlistControl } from "./view/publish-waitlist-control";
 import { renderResponsiveInteractToolbar } from "./view/responsive-interact-toolbar";
 import { renderRightRail } from "./view/right-rail";
 import { renderRightSidebarActions } from "./view/right-sidebar-actions";
+import { ShareExportMenu } from "./view/share-export-menu";
 import { renderSignedOutPersistenceActions } from "./view/signed-out-persistence-actions";
 import { renderZoomMenu } from "./view/zoom-menu";
 import { VisualEditWebMcp } from "./VisualEditWebMcp";
@@ -958,36 +959,56 @@ export function renderDesignEditorView({
       </Button>
     ) : null;
 
+  const shareSegmentClassName =
+    "!border-primary !bg-primary !text-primary-foreground shadow-none hover:!border-primary/90 hover:!bg-primary/90 hover:!text-primary-foreground focus-visible:ring-ring [&_svg]:!text-primary-foreground";
   const renderShareControl = (dense: boolean) =>
     hostEmbeddedEditor ? null : canRenderAuthenticatedShare ? (
-      <ShareButton
-        resourceType="design"
-        resourceId={id}
-        resourceTitle={design.title}
-        hideTriggerIcon
-        defaultOpen={shouldOpenShare}
-        shareUrl={editorShareUrl}
-        shareUrlLabel={t(
-          hasLocalhostScreens
-            ? "designEditor.liveCanvasLink"
-            : "designEditor.shareEditorLink",
-        )}
-        shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
-        roleCopy={{
-          commenter: {
-            label: t("designEditor.commenterRoleLabel"),
-            description: t("designEditor.commenterRoleDescription"),
-          },
-        }}
-        shareTabs={designShareTabs}
-        popoverClassName={designSharePopoverClassName}
-        triggerClassName={cn(
-          dense
-            ? "h-[var(--design-control-height)] px-[var(--design-baseline-unit)] text-xs"
-            : "h-[var(--design-row-height)] px-[calc(var(--design-baseline-unit)*1.5)] text-sm",
-          "rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]",
-        )}
-      />
+      <div className="flex items-center">
+        <ShareButton
+          resourceType="design"
+          resourceId={id}
+          resourceTitle={design.title}
+          hideTriggerIcon
+          defaultOpen={shouldOpenShare}
+          shareUrl={editorShareUrl}
+          shareUrlLabel={t(
+            hasLocalhostScreens
+              ? "designEditor.liveCanvasLink"
+              : "designEditor.shareEditorLink",
+          )}
+          shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
+          roleCopy={{
+            commenter: {
+              label: t("designEditor.commenterRoleLabel"),
+              description: t("designEditor.commenterRoleDescription"),
+            },
+          }}
+          shareTabs={designShareTabs}
+          popoverClassName={designSharePopoverClassName}
+          triggerClassName={cn(
+            dense
+              ? "h-[var(--design-control-height)] px-[var(--design-baseline-unit)] text-xs"
+              : "h-[var(--design-row-height)] px-[calc(var(--design-baseline-unit)*1.5)] text-sm",
+            "rounded-r-none",
+            shareSegmentClassName,
+          )}
+        />
+        <ShareExportMenu
+          editorCore={editorCore}
+          editorGenerationAndAccess={editorGenerationAndAccess}
+          editorFilesAndSaving={editorFilesAndSaving}
+          editorActiveScreenAndGeometry={editorActiveScreenAndGeometry}
+          editorExportAndHandoff={editorExportAndHandoff}
+          editorLayerActions={editorLayerActions}
+          className={cn(
+            dense
+              ? "h-[var(--design-control-height)]"
+              : "h-[var(--design-row-height)]",
+            "relative rounded-l-none before:absolute before:inset-y-0 before:left-0 before:w-px before:bg-primary-foreground",
+            shareSegmentClassName,
+          )}
+        />
+      </div>
     ) : sessionResolved ? (
       signedOutPersistenceActions
     ) : null;

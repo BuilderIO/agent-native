@@ -1270,6 +1270,8 @@ export default {
     downloadFigmaSvg: "Figma용으로 다운로드(SVG)",
     downloadZip: "ZIP 다운로드",
     downloadPdfAllScreens: "PDF 다운로드 (모든 화면)",
+    publishApp: "앱 게시",
+    exportOptions: "내보내기 옵션",
     exportHtml: "HTML 내보내기",
     exportPdf: "PDF 내보내기",
     copyCodingHandoff: "코딩 인계 복사",
