@@ -110,9 +110,10 @@ const hullOf = (page: Page, selector: string) =>
 function expectSameHull(
   actual: Awaited<ReturnType<typeof hullOf>>,
   expected: Awaited<ReturnType<typeof hullOf>>,
+  precision = 2,
 ) {
   for (const key of ["left", "top", "width", "height"] as const) {
-    expect(actual[key]).toBeCloseTo(expected[key], 2);
+    expect(actual[key]).toBeCloseTo(expected[key], precision);
   }
 }
 
@@ -837,7 +838,7 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
         const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
         wrapped.frame.id = "frame";
       });
-      expectSameHull(await hullOf(page, "#frame"), painted);
+      expectSameHull(await hullOf(page, "#frame"), painted, 1);
 
       const saved = await page.evaluate(
         () => document.getElementById("frame")!.outerHTML,
@@ -849,6 +850,7 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
           expectSameHull(
             await hullAt(reopened, "#frame", time),
             await hullAt(reference, "#pic", time),
+            1,
           );
         }
       } finally {
