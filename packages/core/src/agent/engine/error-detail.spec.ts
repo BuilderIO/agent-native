@@ -113,6 +113,25 @@ describe("isProviderConnectionErrorMessage", () => {
     ).toBe(undefined);
   });
 
+  it.each([
+    "image exceeds 5 MB maximum: 7340032 bytes > 5242880 bytes",
+    "Could not process image",
+    "Invalid image.",
+    "You uploaded an unsupported image. Please make sure your image is below 20 MB in size.",
+    "Unable to process input image. Please retry.",
+    "Provided image is not valid.",
+    "Image too large",
+  ])("names a provider image rejection without a status: %s", (message) => {
+    expect(classifyTerminalErrorCode(message)).toBe("invalid_attachment");
+  });
+
+  it.each([
+    "Image generation is not supported for this model.",
+    "Prompt is too long for this model; the attached image exceeds the input token limit.",
+  ])("leaves an image-adjacent non-rejection unclassified: %s", (message) => {
+    expect(classifyTerminalErrorCode(message)).toBeUndefined();
+  });
+
   it("names the Builder gateway internal-error envelope", () => {
     expect(
       classifyTerminalErrorCode(
@@ -248,6 +267,8 @@ describe("isProviderConnectionErrorMessage", () => {
     [400, "Invalid 'input[0].content[1].file_url': string too long."],
     [422, "Unsupported image format for media_type image/tiff."],
     [400, "The image size exceeds the provider's maximum allowed size."],
+    [400, "Could not process image"],
+    [400, "Invalid image."],
   ])(
     "classifies a structured attachment rejection with status %i as non-retryable",
     (statusCode, message) => {

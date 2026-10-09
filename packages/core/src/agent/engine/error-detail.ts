@@ -133,7 +133,13 @@ const PROVIDER_ATTACHMENT_FIELD_PATTERN =
 const PROVIDER_ATTACHMENT_REJECTION_PATTERN =
   /\b(?:invalid|unsupported|not supported|does not support|too large|too big|too long|exceeds?|over(?:sized|size| the)? limit|maximum (?:allowed )?(?:size|length)|(?:size|length) limit|malformed)\b/i;
 
-function isInvalidAttachmentProviderMessage(message: string): boolean {
+// Phrasings Anthropic, OpenAI, Google, and the Builder gateway use for an
+// image they refused. Specific enough to classify without a status code.
+const PROVIDER_IMAGE_REJECTION_PATTERN =
+  /\bimage exceeds \d+(?:\.\d+)?\s*mb\b|\b(?:could not|unable to) process (?:the )?(?:input )?image\b|\binvalid image\b|\bunsupported image\b|\bimage (?:is )?too (?:large|big)\b|\bprovided image is not valid\b/i;
+
+export function isInvalidAttachmentProviderMessage(message: string): boolean {
+  if (PROVIDER_IMAGE_REJECTION_PATTERN.test(message)) return true;
   for (const match of message.matchAll(PROVIDER_ATTACHMENT_FIELD_PATTERN)) {
     const index = match.index ?? 0;
     const start = Math.max(0, index - 100);
@@ -316,6 +322,9 @@ export function classifyTerminalErrorCode(
   }
   if (msg.includes("stream ended without a stop event")) {
     return "builder_gateway_network_error";
+  }
+  if (PROVIDER_IMAGE_REJECTION_PATTERN.test(message)) {
+    return "invalid_attachment";
   }
   if (
     msg.includes("reasoning_effort are not supported") ||

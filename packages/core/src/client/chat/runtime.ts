@@ -1,5 +1,8 @@
 import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
-import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
+import {
+  isInlineDataUrl,
+  type AgentSuggestion,
+} from "@agent-native/agentkit/protocol";
 
 import type { ActionChatUIConfig } from "../../action-ui.js";
 import {
@@ -331,6 +334,8 @@ export interface AgentChatRuntimeContinueInput {
   readonly prompt?: string;
   readonly approval?: AgentChatRuntimeApprovalResponse;
   readonly connection?: AgentChatRuntimeConnectionResponse;
+  /** Durable references to the continued turn's attachments; never bytes. */
+  readonly attachments?: readonly AgentChatRuntimeAttachment[];
   readonly metadata?: AgentChatRuntimeMetadata;
   readonly abortSignal?: AbortSignal;
 }
@@ -1672,13 +1677,52 @@ export function createHttpAgentChatRuntime<
   return runtime;
 }
 
+/**
+ * What an earlier user turn's file or image becomes in replayed history: its
+ * name, type, and durable URL, so a later turn can still refer to it. Inline
+ * bytes are never replayed.
+ */
+function historyAttachmentStub(
+  message: AgentChatRuntimeMessage,
+  part: AgentChatRuntimeMessage["content"][number],
+): string | undefined {
+  if (message.role !== "user") return undefined;
+  if (part.type !== "file" && part.type !== "image") return undefined;
+  const name = part.type === "file" ? part.filename : part.alt;
+  const url =
+    typeof part.url === "string" && !isInlineDataUrl(part.url)
+      ? part.url
+      : undefined;
+  return `[attached: ${[name || part.type, part.mediaType, url].filter(Boolean).join(" ")}]`;
+}
+
+/** Reasoning is the model's own scratch work and is never replayed as history. */
 function runtimeMessageText(message: AgentChatRuntimeMessage): string {
   return message.content
     .map((part) =>
-      part.type === "text" || part.type === "reasoning" ? part.text : "",
+      part.type === "text"
+        ? part.text
+        : (historyAttachmentStub(message, part) ?? ""),
     )
     .filter(Boolean)
     .join("\n");
+}
+
+function isUserAsk(message: AgentChatRuntimeMessage): boolean {
+  return (
+    message.role === "user" &&
+    message.content.some(
+      (part) =>
+        (part.type === "text" && part.text.trim()) ||
+        historyAttachmentStub(message, part) !== undefined,
+    )
+  );
+}
+
+function hasHistoryAttachment(message: AgentChatRuntimeMessage): boolean {
+  return message.content.some(
+    (part) => historyAttachmentStub(message, part) !== undefined,
+  );
 }
 
 function isSyntheticToolHistoryOmissionMessage(
@@ -1743,6 +1787,9 @@ const MAX_STRUCTURED_HISTORY_SOURCE_PARTS =
   MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS +
   MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS;
 const MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES = 1024;
+const MAX_PINNED_ATTACHMENT_PROMPTS = 32;
+/** Above every other candidate, so the byte budget drops pinned asks last. */
+const PINNED_USER_PROMPT_TEXT_PRIORITY = 4;
 const MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS =
   MAX_STRUCTURED_HISTORY_SOURCE_PARTS * 4;
 const TOOL_INPUT_OMISSION_TEXT =
@@ -2423,7 +2470,7 @@ function runtimeMessageTextMatches(
       return { matches: true, complete: false };
     }
     scannedParts++;
-    if (part.type !== "text" && part.type !== "reasoning") continue;
+    if (part.type !== "text") continue;
     if (!part.text) continue;
     if (hasText) {
       if (expected[offset] !== "\n") return { matches: false, complete: true };
@@ -2476,6 +2523,7 @@ function boundedStructuredHistorySources(
   }
 
   let firstUserPromptMessageIndex: number | undefined;
+  const attachmentPromptMessageIndices: number[] = [];
   const historyWindowStart = Math.max(
     0,
     historyMessages.length - MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES,
@@ -2487,16 +2535,12 @@ function boundedStructuredHistorySources(
   ) {
     if (index === currentPromptMessageIndex) continue;
     const message = historyMessages[index]!;
-    if (
-      message.role === "user" &&
-      message.content.some(
-        (part) =>
-          (part.type === "text" || part.type === "reasoning") &&
-          part.text.trim(),
-      )
-    ) {
+    if (message.role !== "user") continue;
+    if (firstUserPromptMessageIndex === undefined && isUserAsk(message)) {
       firstUserPromptMessageIndex = index;
-      break;
+    }
+    if (hasHistoryAttachment(message)) {
+      attachmentPromptMessageIndices.push(index);
     }
   }
 
@@ -2504,36 +2548,49 @@ function boundedStructuredHistorySources(
   if (preservePreviousUserPrompt) {
     for (let index = historyMessages.length - 1; index >= 0; index--) {
       if (index === currentPromptMessageIndex) continue;
-      const message = historyMessages[index]!;
-      if (
-        message.role === "user" &&
-        message.content.some(
-          (part) =>
-            (part.type === "text" || part.type === "reasoning") &&
-            part.text.trim(),
-        )
-      ) {
+      if (isUserAsk(historyMessages[index]!)) {
         previousUserPromptMessageIndex = index;
         break;
       }
     }
   }
-  const protectedUserPromptMessageIndices = new Set(
-    [firstUserPromptMessageIndex, previousUserPromptMessageIndex].filter(
-      (index): index is number => index !== undefined,
-    ),
+  // The first ask ("LinkedIn ad 1200x627 PNG") and every turn that attached a
+  // file stay in the window however long the agentic tail after them grows.
+  // ponytail: only the newest 32 attachment turns are pinned; older ones fall
+  // back to the newest-first window.
+  const pinnedUserPromptMessageIndices = new Set(
+    [
+      firstUserPromptMessageIndex,
+      previousUserPromptMessageIndex,
+      ...attachmentPromptMessageIndices.slice(-MAX_PINNED_ATTACHMENT_PROMPTS),
+    ].filter((index): index is number => index !== undefined),
   );
   const regularTextPartLimit =
     MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS -
-    protectedUserPromptMessageIndices.size;
+    pinnedUserPromptMessageIndices.size;
 
   const selectedReversed: StructuredHistorySourceMessage[] = [];
+  const pinnedPromptsAdded = new Set<number>();
   let selectedToolPartCount = 0;
   let selectedTextPartCount = 0;
   let scannedPartCount = 0;
   let visitedMessageCount = 0;
   let toolBoundary: StructuredHistorySourceBoundary | undefined;
   let stop = false;
+  const addPinnedPromptText = (
+    parts: StructuredHistorySourcePart[],
+    messageIndex: number,
+  ): void => {
+    pinnedPromptsAdded.add(messageIndex);
+    const text = runtimeMessageText(historyMessages[messageIndex]!);
+    if (!text.trim()) return;
+    if (selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS) {
+      omitted = true;
+      return;
+    }
+    selectedTextPartCount++;
+    parts.push({ type: "text", text });
+  };
   const visitMessage = (
     message: AgentChatRuntimeMessage,
     list: StructuredHistorySourceBoundary["list"],
@@ -2552,18 +2609,16 @@ function boundedStructuredHistorySources(
     }
     visitedMessageCount++;
     if (message.role !== "user" && message.role !== "assistant") return;
-    const isFirstUserPrompt =
-      list === "messages" && messageIndex === firstUserPromptMessageIndex;
-    const isPreviousUserPrompt =
-      list === "messages" && messageIndex === previousUserPromptMessageIndex;
-    const isProtectedUserPrompt = isFirstUserPrompt || isPreviousUserPrompt;
+    const isPinnedUserPrompt =
+      list === "messages" && pinnedUserPromptMessageIndices.has(messageIndex);
     const partsReversed: StructuredHistorySourcePart[] = [];
-    let protectedPromptTextAdded = false;
     for (
       let partIndex = message.content.length - 1;
       partIndex >= 0;
       partIndex--
     ) {
+      const part = message.content[partIndex]!;
+      if (part.type === "reasoning") continue;
       if (scannedPartCount >= MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS) {
         omitted = true;
         toolHistoryOmitted = true;
@@ -2572,36 +2627,15 @@ function boundedStructuredHistorySources(
         break;
       }
       scannedPartCount++;
-      const part = message.content[partIndex]!;
+      const attachmentStub = historyAttachmentStub(message, part);
       const isToolPart =
         (part.type === "tool-call" && message.role === "assistant") ||
         part.type === "tool-result";
-      const isTextPart = part.type === "text" || part.type === "reasoning";
+      const isTextPart = part.type === "text" || attachmentStub !== undefined;
       if (!isToolPart && !isTextPart) continue;
-      if (isProtectedUserPrompt && isTextPart) {
-        if (!protectedPromptTextAdded) {
-          const text = message.content
-            .filter(
-              (candidate) =>
-                candidate.type === "text" || candidate.type === "reasoning",
-            )
-            .map((candidate) =>
-              candidate.type === "text" || candidate.type === "reasoning"
-                ? candidate.text
-                : "",
-            )
-            .join("\n");
-          if (text.trim()) {
-            if (
-              selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS
-            ) {
-              omitted = true;
-            } else {
-              selectedTextPartCount++;
-              partsReversed.push({ type: "text", text });
-            }
-          }
-          protectedPromptTextAdded = true;
+      if (isPinnedUserPrompt && isTextPart) {
+        if (!pinnedPromptsAdded.has(messageIndex)) {
+          addPinnedPromptText(partsReversed, messageIndex);
         }
         continue;
       }
@@ -2630,15 +2664,19 @@ function boundedStructuredHistorySources(
         }
         selectedTextPartCount++;
       }
-      partsReversed.push(part);
+      partsReversed.push(
+        attachmentStub === undefined
+          ? part
+          : { type: "text", text: attachmentStub },
+      );
     }
     if (partsReversed.length) {
       selectedReversed.push({
         message,
         parts: partsReversed.reverse(),
         priority: list === "supplemental",
-        textPriority: isPreviousUserPrompt
-          ? 2
+        textPriority: isPinnedUserPrompt
+          ? PINNED_USER_PROMPT_TEXT_PRIORITY
           : list === "supplemental"
             ? 1
             : 0,
@@ -2657,6 +2695,23 @@ function boundedStructuredHistorySources(
   for (let index = historyMessages.length - 1; index >= 0 && !stop; index--) {
     if (index === currentPromptMessageIndex) continue;
     visitMessage(historyMessages[index]!, "messages", index);
+  }
+  // The newest-first scan stops long before the first turns of a long agentic
+  // thread; the pinned asks it never reached are replayed anyway.
+  for (const index of [...pinnedUserPromptMessageIndices].sort(
+    (left, right) => right - left,
+  )) {
+    if (pinnedPromptsAdded.has(index)) continue;
+    const parts: StructuredHistorySourcePart[] = [];
+    addPinnedPromptText(parts, index);
+    if (parts.length) {
+      selectedReversed.push({
+        message: historyMessages[index]!,
+        parts,
+        priority: false,
+        textPriority: PINNED_USER_PROMPT_TEXT_PRIORITY,
+      });
+    }
   }
 
   return {
@@ -2884,7 +2939,7 @@ function nativeStructuredHistoryFromMessages(
     };
 
     for (const part of parts) {
-      if (part.type === "text" || part.type === "reasoning") {
+      if (part.type === "text") {
         if (
           jsonStringByteLengthWithinLimit(
             part.text,
@@ -4266,6 +4321,9 @@ export function createAgentNativeChatRuntime(
         [CONTINUE_OF_RUN_METADATA_KEY]: _continueOf,
         ...previousMetadata
       } = previousTurn?.metadata ?? {};
+      const turnToContinue = continuation.attachments?.length
+        ? { ...previousTurn, attachments: continuation.attachments }
+        : previousTurn;
       const approval = continuation.approval;
       const connection = continuation.connection;
       const messageStateKey = continuation.turnId ?? session.id;
@@ -4281,7 +4339,7 @@ export function createAgentNativeChatRuntime(
         const messageState = messageStates.get(messageStateKey);
         if (messageState) messageState.message.connectionPending = false;
         return startTurn({
-          ...previousTurn,
+          ...turnToContinue,
           prompt:
             continuation.prompt ??
             `The ${connection.id} connection is now available. Continue the requested work.`,
@@ -4304,7 +4362,7 @@ export function createAgentNativeChatRuntime(
         const messageState = messageStates.get(messageStateKey);
         if (messageState) messageState.message.approvalPending = false;
         return startTurn({
-          ...previousTurn,
+          ...turnToContinue,
           prompt: continuation.prompt,
           metadata: {
             ...previousMetadata,
@@ -4327,7 +4385,7 @@ export function createAgentNativeChatRuntime(
       const messageState = messageStates.get(messageStateKey);
       if (messageState) messageState.message.approvalPending = false;
       return startTurn({
-        ...previousTurn,
+        ...turnToContinue,
         prompt:
           continuation.prompt ??
           "Approved. Go ahead and run the requested action.",
