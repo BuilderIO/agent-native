@@ -508,23 +508,28 @@ test.describe("interaction: guided walkthrough - create a simple button componen
       .getByRole("button", { name: "Add fill" });
     if ((await addFill.count()) > 0) {
       await addFill.click();
-      const hexInput = fillSection
-        .locator('input[aria-label*="hex" i]')
-        .first();
-      if ((await hexInput.count()) > 0) {
-        await hexInput.fill("DEB0FB");
-        await hexInput.press("Enter");
+      const colorInput = fillSection.getByRole("textbox", { name: "Color" });
+      if ((await colorInput.count()) > 0) {
+        await colorInput.first().fill("DEB0FB");
+        await colorInput.first().press("Enter");
       }
     }
-    await page.waitForTimeout(200);
-    html = await fileContent(page, "index.html");
-    const fillStyle = styleOf(html, wrapperId);
-    const fillApplied =
-      /deb0fb/i.test(fillStyle["background-color"] ?? "") ||
-      /deb0fb/i.test(fillStyle["background"] ?? "");
+    let fillApplied = false;
+    await expect
+      .poll(async () => {
+        html = await fileContent(page, "index.html");
+        const fillStyle = styleOf(html, wrapperId);
+        fillApplied =
+          /deb0fb/i.test(fillStyle["background-color"] ?? "") ||
+          /deb0fb/i.test(fillStyle["background"] ?? "");
+        return fillApplied;
+      })
+      .toBe(true);
 
     const strokeSection = inspectorSection(page, /^Stroke$/i);
-    const addStroke = strokeSection.getByRole("button", { name: "Add stroke" });
+    const addStroke = strokeSection
+      .getByRole("button", { name: "Add stroke" })
+      .last();
     let strokeApplied = false;
     if ((await addStroke.count()) > 0) {
       await addStroke.click();
@@ -549,9 +554,14 @@ test.describe("interaction: guided walkthrough - create a simple button componen
     let radiusApplied = false;
     try {
       await setScrubInput(appearanceSection, "Corner radius", "1000");
-      html = await fileContent(page, "index.html");
-      const radiusStyle = styleOf(html, wrapperId);
-      radiusApplied = /1000px/.test(radiusStyle["border-radius"] ?? "");
+      await expect
+        .poll(async () => {
+          html = await fileContent(page, "index.html");
+          const radiusStyle = styleOf(html, wrapperId);
+          radiusApplied = /1000px/.test(radiusStyle["border-radius"] ?? "");
+          return radiusApplied;
+        })
+        .toBe(true);
     } catch {
       radiusApplied = false;
     }
@@ -568,9 +578,14 @@ test.describe("interaction: guided walkthrough - create a simple button componen
       });
       if ((await dropShadowItem.count()) > 0) {
         await dropShadowItem.click();
-        html = await fileContent(page, "index.html");
-        const shadowStyle = styleOf(html, wrapperId);
-        shadowApplied = Boolean(shadowStyle["box-shadow"]);
+        await expect
+          .poll(async () => {
+            html = await fileContent(page, "index.html");
+            const shadowStyle = styleOf(html, wrapperId);
+            shadowApplied = Boolean(shadowStyle["box-shadow"]);
+            return shadowApplied;
+          })
+          .toBe(true);
       }
     }
 
@@ -579,11 +594,16 @@ test.describe("interaction: guided walkthrough - create a simple button componen
     try {
       await setScrubInput(autoLayoutSection, "Left / Right", "32");
       await setScrubInput(autoLayoutSection, "Top / Bottom", "24");
-      html = await fileContent(page, "index.html");
-      const paddingStyle = styleOf(html, wrapperId);
-      paddingApplied =
-        /32px/.test(paddingStyle["padding-left"] ?? "") &&
-        /24px/.test(paddingStyle["padding-top"] ?? "");
+      await expect
+        .poll(async () => {
+          html = await fileContent(page, "index.html");
+          const paddingStyle = styleOf(html, wrapperId);
+          paddingApplied =
+            /32px/.test(paddingStyle["padding-left"] ?? "") &&
+            /24px/.test(paddingStyle["padding-top"] ?? "");
+          return paddingApplied;
+        })
+        .toBe(true);
     } catch {
       paddingApplied = false;
     }

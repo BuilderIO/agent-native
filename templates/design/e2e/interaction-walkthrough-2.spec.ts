@@ -402,10 +402,10 @@ function inspectorSection(page: Page, title: RegExp | string) {
 }
 
 async function setScrubInput(page: Page, label: string, value: string) {
-  const input = page.locator(`input[aria-label="${label}" i]`).first();
+  const input = page.locator(`input[aria-label="${label}" i]:visible`).last();
+  await expect(input).toBeVisible({ timeout: 5_000 });
   await input.fill(value);
   await input.press("Enter");
-  await page.waitForTimeout(300);
 }
 
 async function focusCanvas(page: Page): Promise<void> {
@@ -886,8 +886,9 @@ test.describe("interaction: tutorial 2 — responsive card with auto layout and 
     await expect(addMinWidth).toBeVisible({ timeout: 5_000 });
     await addMinWidth.click();
     await setScrubInput(page, "Min width", "200");
-    html = await fileContent(request, designId);
-    expect(html).toMatch(/min-width:\s*200px/);
+    await expect
+      .poll(() => fileContent(request, designId))
+      .toMatch(/min-width:\s*200px/);
   });
 
   test("Cmd+Opt+K creates a native component from the selected frame", async ({

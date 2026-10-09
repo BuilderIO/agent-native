@@ -472,6 +472,9 @@ async function heldPanelDrag(
   const target = layerRow(page, targetName);
   await expect(source).toBeVisible();
   await expect(target).toBeVisible();
+  await target.evaluate((element) =>
+    element.scrollIntoView({ block: "center", inline: "nearest" }),
+  );
   const sourceBox = await source.boundingBox();
   const targetBox = await target.boundingBox();
   if (!sourceBox || !targetBox) throw new Error("layer row has no box");

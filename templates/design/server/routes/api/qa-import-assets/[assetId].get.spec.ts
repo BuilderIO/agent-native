@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockCreateReadStream = vi.hoisted(() => vi.fn());
 const mockStat = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
+const mockIsSessionResolutionUnavailable = vi.hoisted(() => vi.fn());
 const mockStreamFile = vi.hoisted(() => vi.fn());
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
 const mockSetResponseHeader = vi.hoisted(() => vi.fn());
@@ -21,6 +22,8 @@ vi.mock("node:fs/promises", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
+  isSessionResolutionUnavailable: (...args: unknown[]) =>
+    mockIsSessionResolutionUnavailable(...args),
   streamFile: (...args: unknown[]) => mockStreamFile(...args),
 }));
 
@@ -80,6 +83,7 @@ describe("GET /api/qa-import-assets/:assetId", () => {
       },
     );
     mockGetSession.mockResolvedValue({ email: "qa-owner@example.test" });
+    mockIsSessionResolutionUnavailable.mockReturnValue(false);
     mockAssetPaths.mockReturnValue([
       "/private/qa-owner/0f0f0f0f-1111-4222-8333-444444444444.png",
     ]);
@@ -122,6 +126,20 @@ describe("GET /api/qa-import-assets/:assetId", () => {
     await expect(handler(event as never)).rejects.toBe(sessionError);
 
     expect(event.status).toBe(200);
+    expect(mockAssetPaths).not.toHaveBeenCalled();
+  });
+
+  it("returns a retryable response for a recorded session-resolution outage", async () => {
+    mockGetSession.mockResolvedValue(null);
+    mockIsSessionResolutionUnavailable.mockReturnValue(true);
+    const event = makeEvent();
+
+    await expect(handler(event as never)).resolves.toEqual({
+      error: "Session unavailable",
+    });
+
+    expect(event.status).toBe(503);
+    expect(event.headers.get("Retry-After")).toBe("5");
     expect(mockAssetPaths).not.toHaveBeenCalled();
   });
 

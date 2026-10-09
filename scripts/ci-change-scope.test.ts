@@ -920,6 +920,45 @@ test("runs fixed Design regression pins even when their spec files changed", () 
   );
 });
 
+test("fast-tests gates the selected browser checks on their actual job results", () => {
+  const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  const fastTestsJobStart = workflow.indexOf("  fast-tests:\n");
+  assert.notEqual(fastTestsJobStart, -1, "missing fast-tests workflow job");
+  const nextJobHeader = workflow
+    .slice(fastTestsJobStart + 1)
+    .match(/\n  [a-z][a-z0-9_-]*:\n/);
+  const nextJobIndex = nextJobHeader?.index;
+  const fastTestsJobEnd =
+    nextJobIndex === undefined
+      ? undefined
+      : fastTestsJobStart + 1 + nextJobIndex;
+  const fastTestsJob = workflow.slice(fastTestsJobStart, fastTestsJobEnd);
+  const needsStart = fastTestsJob.indexOf("    needs:");
+  const needsEnd = fastTestsJob.indexOf("    if:", needsStart);
+  assert.ok(needsStart >= 0 && needsEnd > needsStart);
+  const needs = fastTestsJob.slice(needsStart, needsEnd);
+  assert.ok(needs.includes("design-canvas-interaction-acceptance"));
+  assert.ok(needs.includes("pre-auth-session-replay-smoke"));
+  assert.ok(
+    fastTestsJob.includes(
+      "DESIGN_CANVAS_RESULT: ${{ needs.design-canvas-interaction-acceptance.result }}",
+    ),
+  );
+  assert.match(
+    fastTestsJob,
+    /if \[ "\$DESIGN_CANVAS_E2E" = "true" \]; then\s+if \[ "\$DESIGN_CANVAS_RESULT" != "success" \]; then\s+echo "::error::Design canvas interaction acceptance did not succeed \(\$DESIGN_CANVAS_RESULT\)"\s+exit 1\s+fi/,
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      "PRE_AUTH_REPLAY_RESULT: ${{ needs.pre-auth-session-replay-smoke.result }}",
+    ),
+  );
+  assert.match(
+    fastTestsJob,
+    /if \[ "\$PRE_AUTH_REPLAY_E2E" = "true" \]; then\s+if \[ "\$PRE_AUTH_REPLAY_RESULT" != "success" \]; then\s+echo "::error::pre-auth session replay smoke did not succeed \(\$PRE_AUTH_REPLAY_RESULT\)"\s+exit 1\s+fi/,
+  );
+});
+
 test("selects the pre-auth replay browser smoke for its runtime paths", () => {
   for (const path of [
     "packages/core/src/app-config/analytics.ts",

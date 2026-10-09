@@ -76,6 +76,16 @@ test("title-shaped text in comments, strings, templates, and regexes is ignored"
   assert.equal(findDesignE2ETestLine(source, "the pinned behavior"), 13);
 });
 
+test("inline test registrations are found without matching properties or larger identifiers", () => {
+  const source = [
+    'fixture.test("the pinned behavior", () => {});',
+    'contest("the pinned behavior", () => {});',
+    'enabled && test("the pinned behavior", () => {});',
+  ].join("\n");
+
+  assert.equal(findDesignE2ETestLine(source, "the pinned behavior"), 3);
+});
+
 test("a static template literal can be used as a test title", () => {
   assert.equal(
     findDesignE2ETestLine(

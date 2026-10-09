@@ -441,8 +441,8 @@ export function findDesignE2ETestLine(source: string, title: string): number {
     .map((quote) => escapeRegExp(makeSourceString(title, quote)))
     .join("|");
   const testCall = new RegExp(
-    `^[\\t ]*test(?:[\\t ]*\\.[\\t ]*(?:fail|fixme|only|skip))?[\\t ]*\\([\\t\\r\\n ]*(?:${literals})(?=[\\t\\r\\n ]*[,\\)])`,
-    "gm",
+    `(?<![\\w$.])test(?:[\\t ]*\\.[\\t ]*(?:fail|fixme|only|skip))?[\\t ]*\\([\\t\\r\\n ]*(?:${literals})(?=[\\t\\r\\n ]*[,\\)])`,
+    "g",
   );
   const lines: number[] = [];
   for (const match of source.matchAll(testCall)) {
