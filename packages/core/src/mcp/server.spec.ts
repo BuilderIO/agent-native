@@ -182,6 +182,8 @@ const embedSessionMocks = vi.hoisted(() => {
         scope: input.scope,
         createdAtMs: Date.now(),
         expiresAtMs: Date.now() + 60_000,
+        renewalExpiresAtMs:
+          input.renewalExpiresAtMs ?? Date.now() + 30 * 24 * 60 * 60 * 1000,
       });
       return {
         ticket,
@@ -2413,6 +2415,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     const originalTicket = embedSessionMocks.renewalTickets.get(sourceTicket);
     expect(originalTicket).toBeDefined();
+    originalTicket.renewalExpiresAtMs = Date.now() + 7 * 24 * 60 * 60 * 1000;
     embedSessionMocks.renewalTickets.set("foreign-user-ticket", {
       ...originalTicket,
       ownerEmail: "another@example.com",
@@ -2471,6 +2474,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           "capability:mcp-directory-widget-write:",
         ),
         ttlSeconds: 900,
+        renewalExpiresAtMs: originalTicket.renewalExpiresAtMs,
       },
     );
     const writeScope =
@@ -2821,6 +2825,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         targetPath: "/design/design-42?__an_mcp_chat_bridge=1",
         scope: expect.stringContaining("capability:mcp-directory-widget-read:"),
         ttlSeconds: 900,
+        renewalExpiresAtMs: expect.any(Number),
       },
     );
     const { allowsMcpDirectoryWidgetReadAction } =

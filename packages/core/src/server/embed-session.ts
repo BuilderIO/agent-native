@@ -18,6 +18,7 @@ import {
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
   isMcpDirectoryWidgetCapabilityScope,
+  isMcpDirectoryWidgetWriteCapabilityScope,
   MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH,
 } from "../shared/embed-auth.js";
 import { normalizeAppPath } from "../shared/sign-in-journey.js";
@@ -78,6 +79,7 @@ export interface EmbedSessionTicketInput {
   targetPath: string;
   scope?: string | null;
   ttlSeconds?: number;
+  renewalExpiresAtMs?: number;
 }
 
 export interface EmbedSessionTicket {
@@ -804,11 +806,21 @@ export async function createEmbedSessionTicket(
   const createdAt = Date.now();
   const ttlSeconds = input.ttlSeconds ?? DEFAULT_TICKET_TTL_SECONDS;
   const expiresAt = createdAt + Math.max(1, ttlSeconds) * 1000;
-  const renewalExpiresAt = isMcpDirectoryWidgetCapabilityScope(
+  const widgetCapability = isMcpDirectoryWidgetCapabilityScope(
     input.scope ?? undefined,
-  )
-    ? createdAt + MCP_DIRECTORY_WIDGET_RENEWAL_TTL_MS
+  );
+  const renewalExpiryCap = createdAt + MCP_DIRECTORY_WIDGET_RENEWAL_TTL_MS;
+  const renewalExpiresAt = widgetCapability
+    ? Math.min(input.renewalExpiresAtMs ?? renewalExpiryCap, renewalExpiryCap)
     : null;
+  if (
+    widgetCapability &&
+    (renewalExpiresAt === null ||
+      !Number.isSafeInteger(renewalExpiresAt) ||
+      renewalExpiresAt <= createdAt)
+  ) {
+    throw new Error("Embed session ticket has an invalid renewal deadline.");
+  }
   const client = getDbExec();
   const insert = async (tx: DbExec) => {
     if (!capabilityScope) {
@@ -925,8 +937,12 @@ export async function resolveEmbedSessionTokenForHost(
   if (!verified.ok || !embedTokenMatchesHostname(hostname, verified.claims)) {
     return null;
   }
+  const scope = verified.claims.scope;
+  const revokesWithOwner =
+    !isEmbedCapabilityScope(scope) ||
+    isMcpDirectoryWidgetWriteCapabilityScope(scope);
   if (
-    !isEmbedCapabilityScope(verified.claims.scope) &&
+    revokesWithOwner &&
     (await embedSessionIsRevoked(
       verified.claims.ownerEmail,
       Math.min(
@@ -1003,10 +1019,13 @@ export async function consumeEmbedSessionTicket(
   const expiresAt = numberOrNull(row.expires_at ?? row.expiresAt);
   const consumedAt = numberOrNull(row.consumed_at ?? row.consumedAt);
   const ownerEmail = stringOrUndefined(row.owner_email ?? row.ownerEmail);
+  const scope = stringOrUndefined(row.scope);
   const ticketOwnerKey = redactedIdentifier(normalizedEmail(ownerEmail));
   const orgId = stringOrUndefined(row.org_id ?? row.orgId);
   const ticketOrgKey = redactedIdentifier(orgId);
-  const capabilityScope = isEmbedCapabilityScope(stringOrUndefined(row.scope));
+  const capabilityScope = isEmbedCapabilityScope(scope);
+  const revokesWithOwner =
+    !capabilityScope || isMcpDirectoryWidgetWriteCapabilityScope(scope);
   if (!ownerEmail || createdAt === null || expiresAt === null) {
     options.onResult?.({
       outcome: "invalid-row",
@@ -1022,7 +1041,9 @@ export async function consumeEmbedSessionTicket(
     return null;
   }
   const identityMismatchAllowed =
-    options.allowCapabilityIdentityMismatch && capabilityScope;
+    options.allowCapabilityIdentityMismatch &&
+    capabilityScope &&
+    !isMcpDirectoryWidgetWriteCapabilityScope(scope);
   if (consumedAt != null) {
     options.onResult?.({
       outcome: "already-consumed",
@@ -1081,7 +1102,7 @@ export async function consumeEmbedSessionTicket(
   ): Promise<
     "consumed" | "revoked" | "expired" | "consumption-race" | "invalid-row"
   > => {
-    if (!capabilityScope) {
+    if (revokesWithOwner) {
       const key = ownerHash(ownerEmail);
       if (!key) return "invalid-row";
       await lockEmbedSessionsForOwner(tx, key);
@@ -1101,15 +1122,15 @@ export async function consumeEmbedSessionTicket(
     return result.rowsAffected === 0 ? "consumption-race" : "consumed";
   };
   let outcome: Awaited<ReturnType<typeof claim>>;
-  if (capabilityScope) {
-    outcome = await claim(client);
-  } else {
+  if (revokesWithOwner) {
     if (!client.transaction) {
       throw new Error(
         "Embed ticket consumption requires database transactions.",
       );
     }
     outcome = await client.transaction(claim);
+  } else {
+    outcome = await claim(client);
   }
   if (outcome !== "consumed") {
     options.onResult?.({

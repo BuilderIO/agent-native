@@ -21,6 +21,8 @@ import {
   EMBED_SESSION_COOKIE,
   EMBED_TARGET_HEADER,
   EMBED_TARGET_QUERY_PARAM,
+  createMcpDirectoryWidgetReadCapability,
+  createMcpDirectoryWidgetWriteCapability,
 } from "../shared/embed-auth.js";
 import {
   requestMatchesEmbedTarget,
@@ -124,6 +126,141 @@ describe("embed session tokens", () => {
     ).resolves.toBeNull();
   });
 
+  it("rejects revoked write-widget tickets", async () => {
+    const ticketCreatedAtMs = Date.now() - 1000;
+    const revokedBefore = Date.now() - 500;
+    dbExec.execute.mockImplementation(async ({ sql }: any) =>
+      sql.includes("SELECT revoked_before")
+        ? { rows: [{ revoked_before: revokedBefore }] }
+        : { rows: [], rowsAffected: 1 },
+    );
+    const scope = createMcpDirectoryWidgetWriteCapability({
+      appId: "content",
+      resourceUri: "ui://content/shell",
+      resourceIds: { documentId: "doc_123" },
+      userEmail: "owner@example.com",
+      expiresAtMs: Date.now() + 60_000,
+      readActionArguments: {},
+      writeActionArguments: {
+        "update-document": { documentId: "doc_123" },
+      },
+    });
+    expect(scope).toBeDefined();
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "content.example.test",
+      targetPath: "/page/doc_123",
+      scope: scope!,
+      ticketCreatedAtMs,
+    });
+
+    await expect(
+      resolveEmbedSessionTokenForHost(token, "content.example.test"),
+    ).resolves.toBeNull();
+    expect(dbExec.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("SELECT revoked_before"),
+      }),
+    );
+  });
+
+  it("rejects a write-widget ticket created before logout when redeemed later", async () => {
+    const createdAt = Date.now() - 1000;
+    const revokedBefore = Date.now() - 500;
+    dbExec.transaction.mockClear();
+    dbExec.execute.mockImplementation(async ({ sql }: any) => {
+      if (sql.includes("FROM agent_native_embed_tickets")) {
+        return {
+          rows: [
+            {
+              owner_email: "owner@example.com",
+              target_path: "/page/doc_123",
+              scope: "capability:mcp-directory-widget-write:example",
+              created_at: createdAt,
+              expires_at: Date.now() + 60_000,
+              consumed_at: null,
+            },
+          ],
+        };
+      }
+      if (sql.includes("SELECT revoked_before")) {
+        return { rows: [{ revoked_before: revokedBefore }] };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+    const onResult = vi.fn();
+
+    await expect(
+      consumeEmbedSessionTicket("pre-logout-widget-ticket", {
+        allowCapabilityIdentityMismatch: true,
+        onResult,
+      }),
+    ).resolves.toBeNull();
+
+    expect(onResult).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "revoked" }),
+    );
+    expect(dbExec.transaction).toHaveBeenCalled();
+  });
+
+  it("does not allow another signed-in user to redeem a write-widget ticket", async () => {
+    const createdAt = Date.now();
+    dbExec.transaction.mockClear();
+    dbExec.execute.mockImplementation(async ({ sql }: any) =>
+      sql.includes("FROM agent_native_embed_tickets")
+        ? {
+            rows: [
+              {
+                owner_email: "owner@example.com",
+                target_path: "/page/doc_123",
+                scope: "capability:mcp-directory-widget-write:example",
+                created_at: createdAt,
+                expires_at: Date.now() + 60_000,
+                consumed_at: null,
+              },
+            ],
+          }
+        : { rows: [], rowsAffected: 1 },
+    );
+
+    await expect(
+      consumeEmbedSessionTicket("other-user-widget-ticket", {
+        expectedOwnerEmail: "other@example.com",
+        allowCapabilityIdentityMismatch: true,
+      }),
+    ).resolves.toBeNull();
+    expect(dbExec.transaction).not.toHaveBeenCalled();
+  });
+
+  it("preserves read-widget sessions after owner revocation", async () => {
+    const ticketCreatedAtMs = Date.now() - 1000;
+    const scope = createMcpDirectoryWidgetReadCapability({
+      appId: "content",
+      resourceUri: "ui://content/shell",
+      resourceIds: { documentId: "doc_123" },
+      actionArguments: {
+        "get-document": { documentId: "doc_123" },
+      },
+    });
+    expect(scope).toBeDefined();
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "content.example.test",
+      targetPath: "/page/doc_123",
+      scope: scope!,
+      ticketCreatedAtMs,
+    });
+    dbExec.execute.mockResolvedValue({
+      rows: [{ revoked_before: Date.now() }],
+      rowsAffected: 0,
+    });
+
+    await expect(
+      resolveEmbedSessionTokenForHost(token, "content.example.test"),
+    ).resolves.toMatchObject({ ownerEmail: "owner@example.com", scope });
+    expect(dbExec.execute).not.toHaveBeenCalled();
+  });
+
   it("finds signed sibling-host cookie owners for logout without authenticating them", async () => {
     const siblingToken = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
@@ -182,6 +319,28 @@ describe("embed session tickets", () => {
     expect(inserted[0].args[6]).toBe(Date.now() + 15 * 60 * 1000);
     expect(inserted[0].args[7]).toBeNull();
     expect(inserted[0].args[8]).toBe(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  });
+
+  it("preserves the original renewal cutoff when minting a renewed ticket", async () => {
+    const inserted: { sql: string; args: unknown[] }[] = [];
+    const renewalExpiresAtMs = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    dbExec.execute.mockImplementation(async ({ sql, args }: any) => {
+      if (sql.includes("INSERT INTO agent_native_embed_tickets")) {
+        inserted.push({ sql, args });
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await createEmbedSessionTicket({
+      ownerEmail: "owner@example.com",
+      targetPath: "/page/doc_123",
+      scope: "capability:mcp-directory-widget-write:example",
+      ttlSeconds: 15 * 60,
+      renewalExpiresAtMs,
+    });
+
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0].args[8]).toBe(renewalExpiresAtMs);
   });
 
   it("keeps renewal available after the short-lived widget ticket expires", async () => {

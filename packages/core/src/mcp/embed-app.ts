@@ -2049,24 +2049,21 @@ export function embedApp(
       const displayMode = hostState().context?.displayMode;
       if (displayMode !== "fullscreen") {
         if (!supportedDisplayMode("fullscreen")) {
-          directoryWidgetOpenRequested = false;
-          updateDirectoryWidgetLayout();
           notifyHostHeight();
+          await launchEmbed();
           return;
         }
         try {
           const granted = await requestHostDisplayMode("fullscreen");
           if (granted?.mode !== "fullscreen") {
-            directoryWidgetOpenRequested = false;
-            updateDirectoryWidgetLayout();
             notifyHostHeight();
+            await launchEmbed();
             return;
           }
         } catch (err) {
-          directoryWidgetOpenRequested = false;
-          updateDirectoryWidgetLayout();
-          notifyHostHeight();
           console.warn("[agent-native] MCP host could not open the widget fullscreen", err);
+          notifyHostHeight();
+          await launchEmbed();
           return;
         }
       }

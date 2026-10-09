@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createMcpDirectoryWidgetReadCapability } from "../shared/embed-auth.js";
+import {
+  createMcpDirectoryWidgetReadCapability,
+  createMcpDirectoryWidgetWriteCapability,
+} from "../shared/embed-auth.js";
 
 const setResponseHeader = vi.hoisted(() => vi.fn());
 
@@ -620,6 +623,42 @@ describe("createEmbedStartRouteHandler", () => {
       "/page/doc-1?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&agentSidebar=closed",
     );
     expect(res.headers.get("Location")).not.toContain("capability");
+  });
+
+  it("binds write-widget session revocation to the original ticket timestamp", async () => {
+    const ticketCreatedAtMs = Date.now() - 500;
+    const scope = createMcpDirectoryWidgetWriteCapability({
+      appId: "content",
+      resourceUri: "ui://content/shell-v69",
+      resourceIds: { documentId: "doc-1" },
+      userEmail: "reviewer@example.test",
+      expiresAtMs: Date.now() + 60_000,
+      readActionArguments: { "get-document": { id: "doc-1" } },
+      writeActionArguments: { "update-document": { id: "doc-1" } },
+    });
+    expect(scope).toBeDefined();
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "reviewer@example.test",
+      orgId: "org-widget",
+      targetPath: "/page/doc-1",
+      scope,
+      expiresAt: Date.now() + 60_000,
+      ticketCreatedAtMs,
+    });
+
+    const handler = createEmbedStartRouteHandler();
+    const res: Response = await handler(
+      fakeEvent("GET", { ticket: "directory-write-ticket" }),
+    );
+
+    expect(res.status).toBe(302);
+    expect(signEmbedSessionToken).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "reviewer@example.test",
+        scope,
+        ticketCreatedAtMs,
+      }),
+    );
   });
 
   it("strips an untrusted directory widget marker from embed targets", async () => {

@@ -879,7 +879,7 @@ return { openDirectoryWidget, isOpen: () => directoryWidgetOpenRequested };`,
         expect(openDirectoryWidget.isOpen()).toBe(true);
       });
 
-      it("keeps the editor compact when the host keeps the widget inline", async () => {
+      it("opens the editor in-pane when the host keeps the widget inline", async () => {
         const html = htmlFor("directory");
         const requested: string[] = [];
         const calls: string[] = [];
@@ -917,44 +917,78 @@ return { openDirectoryWidget, isOpen: () => directoryWidgetOpenRequested };`,
         expect(requested).toEqual(["fullscreen"]);
         expect(calls).toContain("height");
         expect(calls).not.toContain("external");
-        expect(calls).not.toContain("embed");
-        expect(openDirectoryWidget.isOpen()).toBe(false);
+        expect(calls).toContain("embed");
+        expect(openDirectoryWidget.isOpen()).toBe(true);
       });
 
-      it("does not open the app outside the pane when fullscreen is unavailable", async () => {
+      it("launches the app in the pane when fullscreen is unavailable", async () => {
         const html = htmlFor("directory");
         const calls: string[] = [];
+        const body = { dataset: { widgetMode: "inline" } };
         const openDirectoryWidget = new Function(
+          "fillsPane",
           "hostState",
+          "body",
           "supportedDisplayMode",
           "requestHostDisplayMode",
-          "updateDirectoryWidgetLayout",
           "notifyHostHeight",
-          "launchEmbed",
-          "openHostLink",
+          "openStartUrl",
+          "openUrl",
+          "wantsEmbed",
+          "shouldSelfNavigateToApp",
+          "setMessage",
+          "withChatBridgeParam",
+          "isEmbedStartUrl",
+          "shouldTransplantAppDocument",
+          "shouldRenderControlledAppFrame",
+          "renderFrame",
           `let directoryWidgetOpenRequested = false;
+let lastHostDisplayMode = "";
+let startedFor = "";
+let appFrame = null;
+${functionSource(html, "updateDirectoryWidgetLayout")}
+${functionSource(html, "isCompactDirectoryWidget")}
 ${functionSource(html, "openDirectoryWidget")}
-return { openDirectoryWidget, isOpen: () => directoryWidgetOpenRequested };`,
+${functionSource(html, "launchEmbed")}
+return {
+  openDirectoryWidget,
+  isOpen: () => directoryWidgetOpenRequested,
+  widgetMode: () => body.dataset.widgetMode
+};`,
         )(
+          true,
           () => ({ context: { displayMode: "inline" } }),
+          body,
           () => false,
           async () => calls.push("request"),
-          () => calls.push("layout"),
           () => calls.push("height"),
-          async () => calls.push("embed"),
-          async () => calls.push("external"),
+          "https://design.example/design/1",
+          "",
+          () => true,
+          () => {
+            calls.push("launch");
+            return true;
+          },
+          (message: string) => calls.push(message),
+          (url: string) => url,
+          () => true,
+          () => false,
+          () => true,
+          (url: string) => calls.push(`frame:${url}`),
         ) as {
           openDirectoryWidget: () => Promise<void>;
           isOpen: () => boolean;
+          widgetMode: () => string;
         };
 
         await openDirectoryWidget.openDirectoryWidget();
 
         expect(calls).toContain("height");
         expect(calls).not.toContain("request");
-        expect(calls).not.toContain("embed");
-        expect(calls).not.toContain("external");
-        expect(openDirectoryWidget.isOpen()).toBe(false);
+        expect(calls).toContain("launch");
+        expect(calls).toContain("frame:https://design.example/design/1");
+        expect(openDirectoryWidget.isOpen()).toBe(true);
+        expect(openDirectoryWidget.widgetMode()).toBe("pane");
       });
 
       it("restores the compact transcript row when the host returns from fullscreen", () => {

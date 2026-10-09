@@ -64,6 +64,48 @@ describe("contentWidgetEditCapabilities", () => {
     ).toEqual({ canEditDocument: false, canEditDatabaseRows: false });
   });
 
+  it("does not expose row editing when the grant has no authoritative space", () => {
+    const context = {
+      ...widgetReadContext,
+      mcpDirectoryWidgetWrite: {
+        appId: "content",
+        resourceIds: {
+          databaseId: "database-1",
+          databaseDocumentId: "document-1",
+          documentId: "document-1",
+        },
+        actionNames: ["add-database-item", "update-database-item"],
+      },
+    };
+
+    expect(
+      contentWidgetEditCapabilities(context, {
+        id: "document-1",
+        spaceId: "space-1",
+        databaseId: "database-1",
+        databaseDocumentId: "document-1",
+      }),
+    ).toEqual({ canEditDocument: false, canEditDatabaseRows: false });
+  });
+
+  it("keeps an exact document write grant usable without a space ID", () => {
+    const context = {
+      ...widgetReadContext,
+      mcpDirectoryWidgetWrite: {
+        appId: "content",
+        resourceIds: { documentId: "document-1" },
+        actionNames: ["update-document"],
+      },
+    };
+
+    expect(
+      contentWidgetEditCapabilities(context, {
+        id: "document-1",
+        spaceId: "space-1",
+      }),
+    ).toEqual({ canEditDocument: true, canEditDatabaseRows: false });
+  });
+
   it("does not enable editing for read-only tickets or another app", () => {
     expect(
       contentWidgetEditCapabilities(

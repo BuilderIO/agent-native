@@ -1714,11 +1714,16 @@ async function renewMcpDirectoryWidgetEmbedSession(
   }
 
   const appId = config.appId ?? config.name;
+  const renewalNow = Date.now();
+  const capabilityExpiresAtMs = Math.min(
+    renewalNow + MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
+    originalTicket.renewalExpiresAtMs,
+  );
   const scope = renewMcpDirectoryWidgetCapabilityScope(originalTicket.scope, {
     appId,
     userEmail: identity.userEmail,
     orgId: callerOrgId,
-    expiresAtMs: Date.now() + MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
+    expiresAtMs: capabilityExpiresAtMs,
     readAllowed: hasMcpOAuthScope(identity.oauthScopes, "mcp:read"),
     writeAllowed: hasMcpOAuthScope(identity.oauthScopes, "mcp:write"),
   });
@@ -1745,7 +1750,11 @@ async function renewMcpDirectoryWidgetEmbedSession(
     orgId: callerOrgId,
     targetPath,
     scope,
-    ttlSeconds: 15 * 60,
+    ttlSeconds: Math.max(
+      1,
+      Math.ceil((capabilityExpiresAtMs - renewalNow) / 1000),
+    ),
+    renewalExpiresAtMs: originalTicket.renewalExpiresAtMs,
   });
   const startPath = buildEmbedStartPath(ticket.ticket);
   return {

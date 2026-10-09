@@ -26,6 +26,7 @@ export function contentWidgetEditCapabilities(
     grant.actionNames.includes("update-document");
   const canEditDatabaseRows =
     sameSpace &&
+    !!grant.resourceIds.spaceId &&
     !!document.databaseId &&
     !!document.databaseDocumentId &&
     grant.resourceIds.databaseId === document.databaseId &&
