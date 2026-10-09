@@ -7,6 +7,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { pngDimensions } from "../server/lib/png-dimensions.js";
 import {
   discardPrivateBlobs,
   resolveReplayScreenshotStorage,
@@ -17,9 +18,9 @@ import { JOURNEY_STAGED_REPLAY_ROW_PREFIX } from "../shared/journey-canvas.js";
 const MAX_STAGE_FRAMES = 8;
 const MAX_STAGE_BODY_BYTES = 5 * 1024 * 1024;
 const MAX_STAGE_ENCODED_IMAGE_BYTES = 4_800_000;
-const MAX_VIEWPORT_DIMENSION = 16_384;
-const MAX_IMAGE_PIXELS = 100_000_000;
-const STAGE_APP_PREFIX = "journey-canvas-stage:v1:";
+const MAX_VIEWPORT_DIMENSION = 8_192;
+const MAX_IMAGE_PIXELS = 16_000_000;
+const STAGE_APP_PREFIX = "journey-canvas-stage:v2:";
 
 const frameSchema = z
   .object({
@@ -33,9 +34,7 @@ const frameSchema = z
     app: z
       .string()
       .trim()
-      .min(1)
-      .max(128)
-      .refine((value) => !value.includes("\u0000")),
+      .regex(/^[a-z][a-z0-9-]{0,127}$/),
     route: z
       .string()
       .trim()
@@ -104,25 +103,17 @@ function decodePng(frame: StageFrame): Uint8Array {
       statusCode: 400,
     });
   }
-  if (
-    data.byteLength < 24 ||
-    data.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a" ||
-    data.subarray(12, 16).toString("ascii") !== "IHDR"
-  ) {
+  const dimensions = pngDimensions(data, {
+    maxDimension: MAX_VIEWPORT_DIMENSION,
+    maxPixels: MAX_IMAGE_PIXELS,
+  });
+  if (!dimensions) {
     fail("Each staged screenshot must be a valid PNG image.", {
       errorCode: "journey_frame_invalid_png",
       statusCode: 400,
     });
   }
-  const width = data.readUInt32BE(16);
-  const height = data.readUInt32BE(20);
-  if (
-    width !== frame.width ||
-    height !== frame.height ||
-    width > MAX_VIEWPORT_DIMENSION ||
-    height > MAX_VIEWPORT_DIMENSION ||
-    width * height > MAX_IMAGE_PIXELS
-  ) {
+  if (dimensions.width !== frame.width || dimensions.height !== frame.height) {
     fail(
       "PNG dimensions must match the frame metadata and fit the supported viewport limits.",
       {
@@ -139,7 +130,14 @@ function stageRowId(designId: string, importId: string, frameKey: string) {
 }
 
 function stageMarker(frame: StageFrame, importId: string, data: Uint8Array) {
-  return `${STAGE_APP_PREFIX}${importId}:${digest(frame.frameKey)}:${digest(data)}:${frame.app}`;
+  return `${STAGE_APP_PREFIX}${Buffer.from(
+    JSON.stringify({
+      importId,
+      frameKeyHash: digest(frame.frameKey),
+      imageSha256: digest(data),
+      app: frame.app,
+    }),
+  ).toString("base64url")}`;
 }
 
 function chunks<T>(items: readonly T[], size: number): T[][] {
@@ -201,11 +199,13 @@ export default defineAction({
     }
     const access = await assertAccess("design", input.designId, "editor");
     const design = access.resource as typeof schema.designs.$inferSelect;
-    const storage = await resolveReplayScreenshotStorage(
-      input.allowEncryptedPublicUploadFallback,
-    );
-    const providerId =
-      storage.kind === "private-provider" ? storage.providerId : undefined;
+    let storagePromise:
+      | ReturnType<typeof resolveReplayScreenshotStorage>
+      | undefined;
+    const resolveStorage = () =>
+      (storagePromise ??= resolveReplayScreenshotStorage(
+        input.allowEncryptedPublicUploadFallback,
+      ));
     const db = getDb();
     const stagedFrames: Array<{
       frameKey: string;
@@ -273,10 +273,14 @@ export default defineAction({
             };
           }
 
+          const storage = await resolveStorage();
           const stored = await storeReplayScreenshotBytesAsPrivateBlob({
             data,
             blobOwnerEmail: design.ownerEmail,
-            providerId,
+            providerId:
+              storage.kind === "private-provider"
+                ? storage.providerId
+                : undefined,
             rowId: id,
             designId: input.designId,
             replayId: frame.replayId,

@@ -164,6 +164,7 @@ describe("create-journey-canvas input", () => {
         frame("signup", 0, {
           imageUrl: undefined,
           stagedFrameId: "jcu_opaque-frame-id",
+          route: "/home",
         }),
       ],
     });
@@ -217,6 +218,7 @@ describe("create-journey-canvas input", () => {
           frame("signup", 0, {
             imageUrl: undefined,
             stagedFrameId: "jcu_opaque-frame-id",
+            route: "/home",
           }),
         ],
       }),
@@ -234,6 +236,7 @@ describe("create-journey-canvas input", () => {
           frame("signup", 0, {
             imageUrl: undefined,
             stagedFrameId: "jcu_opaque-frame-id",
+            route: "/app/settings",
           }),
         ],
       }),
@@ -243,6 +246,7 @@ describe("create-journey-canvas input", () => {
       (candidate) => candidate.nodeKey === "signup",
     )!;
     expect(screen.attachment?.stagedFrameId).toBe("jcu_opaque-frame-id");
+    expect(screen.attachment?.route).toBe("/app/settings");
     expect(screen.html).toContain(
       `${REPLAY_SCREENSHOT_ROUTE}${screen.attachment!.rowId}`,
     );
@@ -298,6 +302,7 @@ describe("create-journey-canvas input", () => {
       "designId",
       "frames",
       "includeScreenshotless",
+      "locale",
       "maxExamplesPerNode",
       "title",
       "tree",
@@ -459,8 +464,9 @@ describe("planJourneyCanvas", () => {
       dateLabel: "Event time (UTC)",
       recordingId: "rec-signup-1",
       offsetMs: 4_000,
-      sourceEventOffsetMs: 4_000,
-      replayObservedAt: "2026-10-01T12:00:00.000Z",
+      offsetIsObserved: false,
+      checkpointOffsetMs: 4_000,
+      replayObservedAt: null,
       screenshotCapturedAt: "2026-10-08T09:30:00.000Z",
     });
     expect(root.html).toContain("Event time (UTC) 2026-10-01T12:00:00.000Z");
@@ -480,7 +486,9 @@ describe("planJourneyCanvas", () => {
           frame("signup", 0, {
             imageUrl: undefined,
             stagedFrameId: "jcu_replay-offset",
+            route: "/home",
             screenshotOffsetMs: 4_600,
+            recordingStartedAt: "2026-10-01T11:59:56.000Z",
           }),
         ],
       }),
@@ -490,12 +498,14 @@ describe("planJourneyCanvas", () => {
     expect(root.provenance).toMatchObject({
       eventAt: "2026-10-01T12:00:00.000Z",
       offsetMs: 4_600,
-      sourceEventOffsetMs: 4_000,
+      offsetIsObserved: true,
+      checkpointOffsetMs: 4_000,
       replayObservedAt: "2026-10-01T12:00:00.600Z",
     });
     expect(root.attachment?.offsetMs).toBe(4_600);
     expect(root.html).toContain("Replay offset 4,600 ms");
-    expect(root.html).toContain("Source event offset 4,000 ms");
+    expect(root.html).not.toContain("Checkpoint seek target 4,000 ms");
+    expect(root.html).toContain("Analytics checkpoint offset 4,000 ms");
     expect(root.html).toContain("Replay observed 2026-10-01T12:00:00.600Z UTC");
     expect(root.frame.height).toBe(
       CARD_PROVENANCE_HEADER_HEIGHT + 20 + 12 + 225,
@@ -513,7 +523,7 @@ describe("planJourneyCanvas", () => {
     const root = result.screens.find((screen) => screen.nodeKey === "signup")!;
 
     expect(root.html).toContain(
-      "360 sessions continued on unpictured paths · 36% of this step",
+      "260 continued on unpictured paths · 26% of this step",
     );
     expect(root.html).toContain("header .coverage-note");
     expect(root.frame.height).toBe(
@@ -656,7 +666,8 @@ describe("planJourneyCanvas", () => {
           frame("signup", 0),
           attachedFrame(0, {
             outputTitle: "Case-management prototype",
-            actor: "actor@example.test",
+            observedState: "Prompt is visible before generation.",
+            actor: "first-actor@example.test",
             actorSource: "recording metadata",
             dateLabel: "Replay observation (UTC)",
             evidenceStatus: "rendered_output_observed",
@@ -666,12 +677,12 @@ describe("planJourneyCanvas", () => {
           }),
           attachedFrame(1, {
             outputTitle: "Create test case modal",
-            actor: "actor@example.test",
+            observedState: "The first output is visible.",
+            actor: "second-actor@example.test",
             actorSource: "recording metadata",
-            dateLabel: "Replay observation (UTC)",
+            dateLabel: "Event time (UTC)",
             evidenceStatus: "rendered_output_observed",
-            prompt: "Build a <test> prototype.",
-            promptTranslation: "Build a prototype.",
+            prompt: "Create a modal for test cases.",
             promptSource: "reviewed replay prompt",
           }),
         ],
@@ -680,26 +691,46 @@ describe("planJourneyCanvas", () => {
     const screens = result.screens
       .filter((screen) => screen.nodeKey === outputKey)
       .sort((a, b) => a.exampleIndex - b.exampleIndex);
+    const html = screens[0]?.html ?? "";
+    const exampleHeader = (index: number) =>
+      new RegExp(
+        `<section class="example-provenance" data-index="${index}"[^>]*>([\\s\\S]*?)</section>`,
+      ).exec(html)?.[1] ?? "";
 
     expect(screens).toHaveLength(2);
-    expect(screens[0]?.html).toContain(
+    expect(exampleHeader(0)).toContain(
       "Replay observation (UTC) 2026-10-01T17:49:59.308Z",
     );
-    expect(screens[0]?.html).toContain('data-index="1"');
-    expect(screens[0]?.html).toContain(
+    expect(exampleHeader(0)).toContain(
+      'title="UTC timestamp: 2026-10-01T17:49:59.308Z"',
+    );
+    expect(exampleHeader(0)).toContain(
+      "Actor (recording): first-actor@example.test",
+    );
+    expect(exampleHeader(0)).toContain("Prompt is visible before generation.");
+    expect(exampleHeader(0)).toContain("Prompt: Build a prototype.");
+    expect(exampleHeader(0)).toContain("Build a &lt;test&gt; prototype.");
+    expect(exampleHeader(1)).toContain(
+      "Replay observation (UTC) 2026-10-01T17:51:39.308Z",
+    );
+    expect(exampleHeader(1)).toContain(
       'title="UTC timestamp: 2026-10-01T17:51:39.308Z"',
     );
-    expect(screens[0]?.html).toContain(
-      "Evidence: rendered output observed; no completion event claimed",
+    expect(exampleHeader(1)).toContain(
+      "Actor (recording): second-actor@example.test",
     );
-    expect(screens[0]?.html).toContain("Actor (recording): actor@example.test");
-    expect(screens[0]?.html).toContain("Prompt: Build a prototype.");
-    expect(screens[0]?.html).toContain("Build a &lt;test&gt; prototype.");
-    expect(screens[0]?.html).toContain("Example 1 of 2");
-    expect(screens[0]?.html).toContain("Example 2 of 2");
+    expect(exampleHeader(1)).toContain("The first output is visible.");
+    expect(exampleHeader(1)).toContain(
+      "Prompt: Create a modal for test cases.",
+    );
     expect(screens[0]?.html).toMatch(
       /:checked~header \.example-provenance\[data-index="1"\]\{display:block\}/,
     );
+    expect(screens[0]?.html).toMatch(
+      /:checked~main \.example-frame\[data-index="1"\]\{display:flex\}/,
+    );
+    expect(screens[0]?.html).toContain("Example 1 of 2");
+    expect(screens[0]?.html).toContain("Example 2 of 2");
     expect(screens[0]?.html).toMatch(
       /aria-label="Show example 1 of 2" checked/,
     );
@@ -720,7 +751,7 @@ describe("planJourneyCanvas", () => {
     const observed = referenceNode(outputKey, "signup", 2, [
       {
         ...example("completed-output"),
-        ts: "2026-09-28T22:07:06.840Z",
+        ts: "2026-09-28T15:07:06.840-07:00",
         offsetMs: 545_313,
       },
     ]);
@@ -735,14 +766,14 @@ describe("planJourneyCanvas", () => {
             attachmentRef: "attachment:v1:completed-output",
             width: 1536,
             height: 826,
-            capturedAt: "2026-10-08T22:17:00.000Z",
+            capturedAt: "2026-10-08T15:17:00.000-07:00",
             caption: {
               outputTitle: "A comfort routine with measurable potential",
               actor: "actor@example.test",
               actorSource: "recording user identity",
               dateLabel: "Replay observation (UTC)",
               evidenceStatus: "generation_completed",
-              evidenceAt: "2026-09-28T22:07:01.840Z",
+              evidenceAt: "2026-09-28T15:07:01.840-07:00",
               prompt: "Create a six-slide deck.",
               promptSource: "recorded composer DOM text",
             },
@@ -756,11 +787,15 @@ describe("planJourneyCanvas", () => {
       "Replay observation (UTC) 2026-09-28T22:07:06.840Z",
     );
     expect(screen.html).toContain(
+      'title="UTC timestamp: 2026-09-28T22:07:06.840Z"',
+    );
+    expect(screen.html).toContain(
       "Evidence: generation_completed event (2026-09-28T22:07:01.840Z UTC)",
     );
+    expect(screen.html).toContain("Screenshot captured 2026-10-08 UTC");
     expect(screen.html).toContain("Actor (recording): actor@example.test");
     expect(screen.frame.height).toBe(
-      CARD_PROVENANCE_HEADER_HEIGHT + 48 + 12 + Math.round(360 / (1536 / 826)),
+      CARD_PROVENANCE_HEADER_HEIGHT + 48 + Math.round(360 / (1536 / 826)),
     );
   });
 
@@ -783,7 +818,7 @@ describe("planJourneyCanvas", () => {
     expect(mobile.frame.width).toBe(360);
     expect(mobile.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 12 + 720);
     expect(mobile.html).toContain(
-      "500 sessions continued on unpictured paths · 100% of this step",
+      "500 continued on unpictured paths · 100% of this step",
     );
     const wide = plan(
       rawInput({ frames: [frame("signup", 0, { width: 5000, height: 500 })] }),

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -18,6 +20,7 @@ const mocks = vi.hoisted(() => {
     const link: Record<string, any> = {
       from: vi.fn(() => link),
       where: vi.fn(() => link),
+      for: vi.fn(() => link),
       limit: vi.fn(async () => rows),
       then: (
         resolve: (value: unknown[]) => unknown,
@@ -27,7 +30,13 @@ const mocks = vi.hoisted(() => {
     return link;
   };
   const tx = {
-    select: vi.fn(() => chain(state.selectQueue.shift() ?? [])),
+    select: vi.fn((projection: Record<string, unknown> = {}) => {
+      const fields = Object.keys(projection);
+      if (fields.includes("app") && fields.includes("replayId")) {
+        return chain(state.stagedRows.shift() ?? []);
+      }
+      return chain(state.selectQueue.shift() ?? []);
+    }),
     insert: vi.fn((table: { name: string }) => ({
       values: vi.fn(
         async (rows: Array<Record<string, any>> | Record<string, any>) => {
@@ -133,6 +142,7 @@ vi.mock("../server/db/index.js", () => {
         "id",
         "designId",
         "app",
+        "route",
         "replayId",
         "capturedAt",
         "offsetMs",
@@ -141,6 +151,7 @@ vi.mock("../server/db/index.js", () => {
         "mimeType",
         "sizeBytes",
         "blobHandle",
+        "sourceStageId",
       ]),
     },
   };
@@ -224,11 +235,30 @@ function rawInput(frames: Array<Record<string, unknown>>) {
 const frame = (nodeKey: string, extra: Record<string, unknown>) => ({
   nodeKey,
   exampleIndex: 0,
+  route: "/home",
   width: 1440,
   height: 900,
   capturedAt: "2026-10-08T09:30:00.000Z",
   ...extra,
 });
+
+const stageImportId = "import-1";
+const stageFrameKey = "a\u00000";
+const stageFrameKeyHash = createHash("sha256")
+  .update(stageFrameKey)
+  .digest("hex");
+const stageFrameId = `jcu_${createHash("sha256")
+  .update(`design-1\u0000${stageImportId}\u0000${stageFrameKey}`)
+  .digest("hex")
+  .slice(0, 40)}`;
+const stageAppMarker = `journey-canvas-stage:v2:${Buffer.from(
+  JSON.stringify({
+    importId: stageImportId,
+    frameKeyHash: stageFrameKeyHash,
+    imageSha256: "a".repeat(64),
+    app: "design",
+  }),
+).toString("base64url")}`;
 
 const parsed = (input: ReturnType<typeof rawInput>) =>
   (action as any).schema.parse(input);
@@ -460,9 +490,9 @@ describe("create-journey-canvas run", () => {
     mocks.state.stagedRows = [
       [
         {
-          id: "jcu_stage-1",
-          app: "journey-canvas-stage:v1:import-1:hash:payload:slides",
-          route: "a",
+          id: stageFrameId,
+          app: stageAppMarker,
+          route: "/home",
           replayId: "a-r1",
           capturedAt: "2026-10-08T09:30:00.000Z",
           offsetMs: 2_600,
@@ -477,7 +507,7 @@ describe("create-journey-canvas run", () => {
     const input = parsed({
       ...rawInput([
         frame("a", {
-          stagedFrameId: "jcu_stage-1",
+          stagedFrameId: stageFrameId,
           screenshotOffsetMs: 2_600,
         }),
       ]),
@@ -498,6 +528,8 @@ describe("create-journey-canvas run", () => {
       replayId: "a-r1",
       app: "design",
       offsetMs: 2_600,
+      route: "/home",
+      sourceStageId: stageFrameId,
     });
     expect(mocks.state.deletes).toContainEqual(
       expect.objectContaining({ table: "designBoardReplayScreenshots" }),
@@ -515,7 +547,7 @@ describe("create-journey-canvas run", () => {
     const input = parsed({
       ...rawInput([
         frame("a", {
-          stagedFrameId: "jcu_stage-1",
+          stagedFrameId: stageFrameId,
           caption: { prompt: "Updated caption after the lost response" },
         }),
       ]),
@@ -529,7 +561,8 @@ describe("create-journey-canvas run", () => {
         {
           id: finalRowId,
           app: "design",
-          route: "a",
+          route: "/home",
+          sourceStageId: stageFrameId,
           replayId: "a-r1",
           capturedAt: "2026-10-08T09:30:00.000Z",
           offsetMs: 2_000,

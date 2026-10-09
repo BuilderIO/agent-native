@@ -1,3 +1,5 @@
+import { deflateSync } from "node:zlib";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -38,14 +40,45 @@ vi.mock("../server/lib/replay-screenshot-blobs.js", () => ({
 
 import action from "./stage-journey-canvas-frames.js";
 
-const png = (width: number, height: number) => {
-  const data = Buffer.alloc(25);
-  data.set(Buffer.from("89504e470d0a1a0a", "hex"), 0);
-  data.writeUInt32BE(13, 8);
-  data.write("IHDR", 12, "ascii");
-  data.writeUInt32BE(width, 16);
-  data.writeUInt32BE(height, 20);
-  return data;
+const crc32 = (data: Buffer) => {
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+};
+
+const pngChunk = (name: string, body: Buffer) => {
+  const type = Buffer.from(name, "ascii");
+  const chunk = Buffer.alloc(body.length + 12);
+  chunk.writeUInt32BE(body.length, 0);
+  type.copy(chunk, 4);
+  body.copy(chunk, 8);
+  chunk.writeUInt32BE(crc32(Buffer.concat([type, body])), body.length + 8);
+  return chunk;
+};
+
+const png = (width: number, height: number, pixelValue = 0) => {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const rows = Buffer.alloc(height * (width * 4 + 1));
+  for (let row = 0; row < height; row += 1) {
+    const start = row * (width * 4 + 1);
+    rows[start] = 0;
+    rows[start + 1] = pixelValue;
+  }
+  return Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", deflateSync(rows)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
 };
 
 function input(image = png(4, 3)) {
@@ -170,6 +203,7 @@ describe("stage-journey-canvas-frames", () => {
       first.stagedFrames[0]?.stagedFrameId,
     );
     expect(mocks.storeBytes).toHaveBeenCalledTimes(1);
+    expect(mocks.resolveStorage).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a blob when post-insert verification cannot confirm its committed row", async () => {
@@ -184,8 +218,7 @@ describe("stage-journey-canvas-frames", () => {
 
   it("rejects reuse of an import key for changed PNG data", async () => {
     await run(input());
-    const changedData = png(4, 3);
-    changedData[24] = 1;
+    const changedData = png(4, 3, 1);
 
     await expect(run(input(changedData))).rejects.toMatchObject({
       errorCode: "journey_frame_idempotency_conflict",
@@ -202,6 +235,21 @@ describe("stage-journey-canvas-frames", () => {
       }),
     ).rejects.toMatchObject({
       errorCode: "journey_frame_dimensions_mismatch",
+      statusCode: 400,
+    });
+    expect(mocks.storeBytes).not.toHaveBeenCalled();
+  });
+
+  it("rejects a truncated PNG even when its header dimensions are present", async () => {
+    const truncated = Buffer.alloc(24);
+    truncated.set(Buffer.from("89504e470d0a1a0a", "hex"), 0);
+    truncated.writeUInt32BE(13, 8);
+    truncated.write("IHDR", 12, "ascii");
+    truncated.writeUInt32BE(4, 16);
+    truncated.writeUInt32BE(3, 20);
+
+    await expect(run(input(truncated))).rejects.toMatchObject({
+      errorCode: "journey_frame_invalid_png",
       statusCode: 400,
     });
     expect(mocks.storeBytes).not.toHaveBeenCalled();
