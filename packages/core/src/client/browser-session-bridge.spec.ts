@@ -500,10 +500,15 @@ describe("createAgentNativeBrowserSessionBridge", () => {
   it("does not let a stopped claim disconnect a restarted session", async () => {
     let claimSignal: AbortSignal | undefined;
     let claimCount = 0;
+    let registrationCount = 0;
     const deletedSessionIds: string[] = [];
+    const lifecycle: string[] = [];
+    const pendingDeletes: Array<() => void> = [];
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";
       if (url === "/_agent-native/browser-sessions" && method === "POST") {
+        registrationCount++;
+        lifecycle.push(`register-${registrationCount}`);
         const body = JSON.parse(String(init?.body));
         return Promise.resolve(
           jsonResponse({
@@ -519,6 +524,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
       }
       if (url.endsWith("/requests/claim") && method === "POST") {
         claimCount++;
+        lifecycle.push(`claim-${claimCount}`);
         if (claimCount > 1) {
           return Promise.resolve(jsonResponse({ ok: true, request: null }));
         }
@@ -533,30 +539,57 @@ describe("createAgentNativeBrowserSessionBridge", () => {
       }
       if (url.endsWith("/tab-1") && method === "DELETE") {
         deletedSessionIds.push(url.split("/").at(-1) ?? "");
-        return Promise.resolve(jsonResponse({ ok: true, deleted: true }));
+        lifecycle.push("delete-start");
+        return new Promise<Response>((resolve) => {
+          pendingDeletes.push(() => {
+            lifecycle.push("delete-complete");
+            resolve(jsonResponse({ ok: true, deleted: true }));
+          });
+        });
       }
       throw new Error(`Unexpected fetch ${method} ${url}`);
     });
     const bridge = createAgentNativeBrowserSessionBridge({
       sessionId: "tab-1",
       session: { id: "tab-1" },
-      pollMs: 500,
-      heartbeatMs: 500,
+      pollMs: 60_000,
+      heartbeatMs: 60_000,
       fetch: fetchMock as unknown as typeof fetch,
     });
 
     bridge.start();
     await vi.waitFor(() => expect(claimSignal).toBeDefined());
+    await vi.waitFor(() => expect(registrationCount).toBe(1));
 
     bridge.stop();
+    expect(bridge.sessionId).toBeNull();
     bridge.start();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const restartedClaim = bridge.claimOnce();
+    await vi.waitFor(() => expect(pendingDeletes).toHaveLength(1));
+    await new Promise<void>((resolve) => setTimeout(resolve, 60));
 
     expect(claimSignal?.aborted).toBe(true);
-    expect(deletedSessionIds).toEqual(["tab-1"]);
+    expect(claimCount).toBe(1);
+    expect(registrationCount).toBe(1);
+    expect(lifecycle).toEqual(["register-1", "claim-1", "delete-start"]);
+
+    pendingDeletes.shift()?.();
+    await restartedClaim;
+    expect(registrationCount).toBeGreaterThanOrEqual(2);
+    expect(claimCount).toBe(2);
+    expect(lifecycle.indexOf("delete-complete")).toBeLessThan(
+      lifecycle.indexOf("register-2"),
+    );
+    expect(lifecycle.indexOf("register-2")).toBeLessThan(
+      lifecycle.indexOf("claim-2"),
+    );
     expect(bridge.sessionId).toBe("tab-1");
 
     bridge.stop();
+    await vi.waitFor(() => expect(pendingDeletes).toHaveLength(1));
+    pendingDeletes.shift()?.();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(deletedSessionIds).toEqual(["tab-1", "tab-1"]);
   });
 
   it("disconnects the session when a claim response body times out", async () => {

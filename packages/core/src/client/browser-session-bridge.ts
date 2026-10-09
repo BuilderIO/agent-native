@@ -598,61 +598,77 @@ export function createAgentNativeBrowserSessionBridge(
   let lastWebMcpTools: AgentNativeWebMcpTool[] | undefined;
   let activeRequestCount = 0;
   const requestExpiryTimers = new Set<ReturnType<typeof setTimeout>>();
+  // A delayed cleanup must finish before a restart reuses its session ID.
+  let sessionMutationQueue: Promise<void> = Promise.resolve();
+
+  function serializeSessionMutation<T>(
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const result = sessionMutationQueue.then(operation);
+    sessionMutationQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
 
   async function refreshRegistration(
     signal?: AbortSignal,
   ): Promise<AgentNativeBrowserSessionRecord> {
-    const direct = hasDirectHost(options);
-    const hostOptions = hostRequestOptions(options);
-    const [context, actions, webmcpTools] = direct
-      ? await Promise.all([
-          resolveDirectContext(
-            options,
-            currentSessionId ?? fallbackSessionId ?? undefined,
-          ),
-          resolveDirectActionManifest(options).catch(() => []),
-          resolveWebMcpTools(options),
-        ])
-      : await Promise.all([
-          requestAgentNativeHostContext(hostOptions),
-          requestAgentNativeHostActions(hostOptions).catch(() => []),
-          resolveWebMcpTools(options),
-        ]);
-    lastWebMcpTools = webmcpTools;
-    const hostSession = context.session;
-    if (!currentSessionId) {
-      currentSessionId =
-        fallbackSessionId || hostSession?.id || browserSessionId();
-      fallbackSessionId = currentSessionId;
-    }
-    const session = normalizeSession(
-      currentSessionId,
-      options.label,
-      hostSession,
-      context.url,
-    );
-    const body = await postJson(
-      options,
-      "",
-      {
-        session,
-        sessionId: currentSessionId,
-        context,
-        actions,
-        ...(lastWebMcpTools !== undefined
-          ? { webmcpTools: lastWebMcpTools }
-          : {}),
-        ttlMs: options.ttlMs,
-      },
-      signal,
-    );
-    return body.session as AgentNativeBrowserSessionRecord;
+    return serializeSessionMutation(async () => {
+      const direct = hasDirectHost(options);
+      const hostOptions = hostRequestOptions(options);
+      const [context, actions, webmcpTools] = direct
+        ? await Promise.all([
+            resolveDirectContext(
+              options,
+              currentSessionId ?? fallbackSessionId ?? undefined,
+            ),
+            resolveDirectActionManifest(options).catch(() => []),
+            resolveWebMcpTools(options),
+          ])
+        : await Promise.all([
+            requestAgentNativeHostContext(hostOptions),
+            requestAgentNativeHostActions(hostOptions).catch(() => []),
+            resolveWebMcpTools(options),
+          ]);
+      lastWebMcpTools = webmcpTools;
+      const hostSession = context.session;
+      if (!currentSessionId) {
+        currentSessionId =
+          fallbackSessionId || hostSession?.id || browserSessionId();
+        fallbackSessionId = currentSessionId;
+      }
+      const session = normalizeSession(
+        currentSessionId,
+        options.label,
+        hostSession,
+        context.url,
+      );
+      const body = await postJson(
+        options,
+        "",
+        {
+          session,
+          sessionId: currentSessionId,
+          context,
+          actions,
+          ...(lastWebMcpTools !== undefined
+            ? { webmcpTools: lastWebMcpTools }
+            : {}),
+          ttlMs: options.ttlMs,
+        },
+        signal,
+      );
+      return body.session as AgentNativeBrowserSessionRecord;
+    });
   }
 
   async function claimOnce(
     signal?: AbortSignal,
   ): Promise<AgentNativeBrowserSessionRequest | null> {
     const claimStopGeneration = stopGeneration;
+    await sessionMutationQueue;
     if (!currentSessionId) {
       await refreshRegistration(signal);
     }
@@ -671,7 +687,9 @@ export function createAgentNativeBrowserSessionBridge(
       const timedOut = error instanceof BrowserSessionRequestTimeoutError;
       if (claimStopGeneration === stopGeneration && timedOut) {
         try {
-          await deleteJson(options, `/${encodePathSegment(sessionId)}`);
+          await serializeSessionMutation(() =>
+            deleteJson(options, `/${encodePathSegment(sessionId)}`),
+          );
           if (
             claimStopGeneration === stopGeneration &&
             currentSessionId === sessionId
@@ -869,19 +887,24 @@ export function createAgentNativeBrowserSessionBridge(
         document.removeEventListener("visibilitychange", onVisibility);
         onVisibility = undefined;
       }
-      if (currentSessionId) {
-        const sessionId = currentSessionId;
-        void deleteJson(options, `/${encodePathSegment(sessionId)}`).catch(
-          (error) => {
-            requestPoll.onError(
-              new Error(
-                `Failed to disconnect browser session "${sessionId}" after stop; outstanding requests may remain active until expiry: ${messageError(error).message}`,
-              ),
-              { force: true },
-            );
-          },
-        );
-      }
+      let cleanupSessionId = currentSessionId ?? undefined;
+      currentSessionId = null;
+      void serializeSessionMutation(async () => {
+        cleanupSessionId ??= currentSessionId ?? fallbackSessionId ?? undefined;
+        if (!cleanupSessionId) return;
+        if (currentSessionId === cleanupSessionId) currentSessionId = null;
+        await deleteJson(options, `/${encodePathSegment(cleanupSessionId)}`);
+        if (currentSessionId === cleanupSessionId) currentSessionId = null;
+      }).catch((error) => {
+        if (cleanupSessionId) {
+          requestPoll.onError(
+            new Error(
+              `Failed to disconnect browser session "${cleanupSessionId}" after stop; outstanding requests may remain active until expiry: ${messageError(error).message}`,
+            ),
+            { force: true },
+          );
+        }
+      });
     },
     refreshRegistration,
     claimOnce,
