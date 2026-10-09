@@ -287,7 +287,6 @@ export default defineAction({
         async (tx) => {
           const table = schema.designBoardReplayScreenshots;
           const now = Date.now();
-          const cutoff = now - JOURNEY_STAGED_REPLAY_MAX_AGE_MS;
           const stagedScope = and(
             eq(table.designId, input.designId),
             like(table.id, likePrefix(JOURNEY_STAGED_REPLAY_ROW_PREFIX)),
