@@ -19,14 +19,10 @@ jobs:
   mirror:
     name: Mirror Postgres service images
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
-    env:
-      REGISTRY: ghcr.io/builderio/agent-native-ci-postgres
-      IMAGES: postgres:17-alpine postgres:18-alpine
-      SOURCE: public.ecr.aws/docker/library
     steps:
       - name: Log in to GHCR
         env:
@@ -36,17 +32,19 @@ jobs:
       - name: Copy images with retries
         run: |
           set -euo pipefail
-          for image in $IMAGES; do
+          registry=ghcr.io/builderio/agent-native-ci-postgres
+          source=public.ecr.aws/docker/library
+          for image in postgres:17-alpine postgres:18-alpine; do
             tag="${image#postgres:}"
             for attempt in 1 2 3 4 5; do
-              if docker buildx imagetools create --tag "$REGISTRY:$tag" "$SOURCE/$image"; then
+              if docker buildx imagetools create --tag "$registry:$tag" "$source/$image"; then
                 break
               fi
               if [ "$attempt" -eq 5 ]; then
                 echo "::error::could not copy $image after 5 attempts"
                 exit 1
               fi
-              sleep $((attempt * 120))
+              sleep $((attempt * 60))
             done
-            docker buildx imagetools inspect "$REGISTRY:$tag"
+            docker buildx imagetools inspect "$registry:$tag"
           done

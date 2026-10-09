@@ -686,9 +686,10 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith("Tell me more");
     expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
-      key: expect.stringMatching(/^prefill-context-/),
+      key: "prefill-context",
       title: "Spider-Man: Brand New Day",
       context: '{"movieId":969681}',
+      composerOnly: true,
     });
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
@@ -705,7 +706,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
     expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
-      key: expect.stringMatching(/^prefill-context-/),
+      key: "prefill-context",
       title: "Active app context",
       context: "Selected rows: a, b",
       composerOnly: true,
@@ -725,11 +726,31 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
     expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
-      key: expect.stringMatching(/^prefill-context-/),
+      key: "prefill-context",
       title: "Active app context",
       context: "Selected rows: a, b",
       composerOnly: true,
     });
+  });
+
+  it("refuses a prefill context over the composer limit instead of staging it", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this",
+        context: "x".repeat(64 * 1024 + 1),
+        submit: false,
+        openSidebar: true,
+      });
+    });
+
+    expect(chatHandleMocks.setComposerContextItem).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("not staged"),
+    );
+    consoleError.mockRestore();
   });
 
   it("shows a visible fallback chip when a prefill has no prompt text", () => {
@@ -743,7 +764,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
 
     expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
-      key: expect.stringMatching(/^prefill-context-/),
+      key: "prefill-context",
       title: "Active app context",
       context: "Selected rows: a, b",
       composerOnly: true,

@@ -76,6 +76,7 @@ import React, {
   useCallback,
 } from "react";
 
+import { COMPOSER_CONTEXT_MAX_BYTES } from "../../composer/context-items.js";
 import { AgentKitAssistantChat } from "./AgentKitAssistantChat.js";
 import {
   ChatHistoryList,
@@ -2151,12 +2152,21 @@ export function MultiTabAssistantChat({
         context && submit
           ? appendAgentChatContextToMessage(message, context)
           : message;
-      const prefillKey = `prefill-context-${submitMessageId ?? Date.now()}`;
-      // Unlabeled context stays unseen only when there is prompt text to send
-      // with it; an empty prefill would otherwise leave nothing to act on.
+      // One prefill context per composer, like the draft it accompanies: a newer
+      // prefill replaces it, so repeated prefills cannot pile up submit-limit items.
+      const prefillKey = "prefill-context";
       const hasPromptText = message.trim().length > 0;
+      const contextBytes = new TextEncoder().encode(context ?? "").length;
+      if (!submit && contextBytes > COMPOSER_CONTEXT_MAX_BYTES) {
+        // Over the limit, every later submit would fail until the next prefill, so it is refused here.
+        console.error(
+          `Prefill context is ${contextBytes} bytes, over the ${COMPOSER_CONTEXT_MAX_BYTES}-byte composer limit; not staged.`,
+        );
+      }
+      // Hidden only when there is prompt text to send with it; an empty prefill
+      // would otherwise leave nothing visible to act on.
       const prefillContext: AgentChatContextItem | undefined =
-        !submit && context
+        !submit && context && contextBytes <= COMPOSER_CONTEXT_MAX_BYTES
           ? {
               key: prefillKey,
               title:
@@ -2167,7 +2177,7 @@ export function MultiTabAssistantChat({
                       defaultValue: "Active app context",
                     })),
               context,
-              ...(contextLabel ? {} : { composerOnly: true }),
+              composerOnly: true,
               ...(!contextLabel && hasPromptText ? { hidden: true } : {}),
             }
           : undefined;
