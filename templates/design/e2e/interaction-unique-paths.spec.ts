@@ -419,7 +419,7 @@ test.describe.serial("rare-but-real unique paths", () => {
     ).toBe(true);
   });
 
-  // oracle: none — preserves the reported workflow; this test does not assert native Figma output.
+  // Checks the overlay behavior between two nearby objects.
   test("Alt-hovering another object while one is selected shows a measurement overlay between them", async ({
     page,
   }) => {
@@ -606,7 +606,7 @@ test.describe.serial("rare-but-real unique paths", () => {
       .toMatchObject({ valid: true, outside: true });
   });
 
-  // oracle: none — verifies the editor shortcut without asserting native Figma parity.
+  // Checks that the editor shortcut copies style while preserving geometry.
   test("paste-properties (Cmd+Opt+C / Cmd+Opt+V) copies style only, leaving position and size alone", async ({
     page,
   }) => {
