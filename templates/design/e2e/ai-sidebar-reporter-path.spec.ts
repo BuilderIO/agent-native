@@ -1368,7 +1368,7 @@ test("Design chat keeps uploaded image bytes out of every SQL table", async ({
   const uploaded = await uploadImage(page, sidebarComposer, 2_300_000);
   const rewrittenRequests = await routeImageAsOwnedStorageUrl(
     page,
-    "responsive-card-art-photo.png",
+    "card-art-photo.png",
     { useOriginalReference: true },
   );
   await sidebarPrompt.fill(`${IMAGE_PROMPT} ${marker} uploaded`);
