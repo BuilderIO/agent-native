@@ -17,7 +17,13 @@ import {
 import { build } from "esbuild";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath, cdpScreenshot, selectByText } from "./helpers";
+import {
+  appPath,
+  cdpScreenshot,
+  createFixtureDesign,
+  designFrame,
+  selectByText,
+} from "./helpers";
 
 let baseURL = e2eBaseURL();
 let designId = "";
@@ -974,6 +980,7 @@ test("duplicates a URL-backed React component through undo and redo", async ({
   );
 });
 
+// oracle: none — validates recovery after a local preview snapshot fails, not visual parity.
 test("keeps a URL screen selected when its static snapshot fails", async ({
   page,
   request,
@@ -1021,4 +1028,149 @@ test("keeps a URL screen selected when its static snapshot fails", async ({
       .locator("[data-sonner-toast], [role='alert']")
       .filter({ hasText: /snapshot|bridge|failed|could not/i }),
   ).toBeVisible({ timeout: 10_000 });
+});
+
+// oracle: none — validates bridge registration against app state, not a measured Figma result.
+test("registers an inactive local Screen at its current bridge endpoint", async ({
+  page,
+  request,
+}) => {
+  const isolatedDesignId = await createFixtureDesign(
+    page,
+    `Inactive local preview ${Date.now()}`,
+  );
+  try {
+    const staticFile = await postAction(request, "create-file", {
+      designId: isolatedDesignId,
+      filename: "active-static.html",
+      content:
+        "<!doctype html><html><body><main>Editable static screen</main></body></html>",
+      fileType: "html",
+    });
+    const staticScreenId = String(staticFile.id ?? "");
+    if (!staticScreenId) throw new Error("create-file returned no screen id");
+
+    const opened = await postAction(request, "add-localhost-screens", {
+      designId: isolatedDesignId,
+      connectionId,
+      paths: ["/inactive-preview"],
+    });
+    const localScreenId = opened.screens?.[0]?.id;
+    if (!localScreenId) {
+      throw new Error("add-localhost-screens returned no local Screen");
+    }
+    const expectedBridgeUrl = String(opened.bridgeUrl ?? "");
+    if (!expectedBridgeUrl) {
+      throw new Error("add-localhost-screens returned no bridge URL");
+    }
+    const expectedBridgeOrigin = new URL(expectedBridgeUrl).origin;
+    const staleBridgeOrigin = new URL(baseURL).origin;
+    await postAction(request, "update-design", {
+      id: isolatedDesignId,
+      dataOperations: [
+        {
+          op: "set",
+          path: ["screenMetadata", localScreenId, "bridgeUrl"],
+          value: staleBridgeOrigin,
+        },
+        {
+          op: "set",
+          path: ["screenMetadata", localScreenId, "previewToken"],
+          value: "stale-preview-token",
+        },
+      ],
+    });
+
+    const successfulRegistrations: string[] = [];
+    const registrationAttempts: Array<{
+      origin: string;
+      hasPreviewToken: boolean;
+      usedStaleMetadataToken: boolean;
+    }> = [];
+    const failedRegistrations: Array<{ origin: string; status: number }> = [];
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (url.pathname !== "/live-edit-bridge" || request.method() !== "POST") {
+        return;
+      }
+      const payload = request.postDataJSON() as { designId?: string };
+      if (payload.designId !== isolatedDesignId) return;
+      const previewToken = request.headers()["x-design-preview-token"];
+      registrationAttempts.push({
+        origin: url.origin,
+        hasPreviewToken: Boolean(previewToken),
+        usedStaleMetadataToken: previewToken === "stale-preview-token",
+      });
+    });
+    page.on("response", (response) => {
+      const url = new URL(response.url());
+      if (
+        url.pathname !== "/live-edit-bridge" ||
+        response.request().method() !== "POST"
+      ) {
+        return;
+      }
+      const payload = response.request().postDataJSON() as {
+        designId?: string;
+      };
+      if (payload.designId === isolatedDesignId) {
+        if (response.ok()) {
+          successfulRegistrations.push(payload.designId);
+        } else {
+          failedRegistrations.push({
+            origin: url.origin,
+            status: response.status(),
+          });
+        }
+      }
+    });
+
+    await page.context().grantPermissions(["local-network-access"], {
+      origin: new URL(baseURL).origin,
+    });
+    await page.goto(
+      appPath(
+        `/design/${isolatedDesignId}?editorView=overview&screen=${encodeURIComponent(staticScreenId)}`,
+      ),
+      { waitUntil: "domcontentloaded" },
+    );
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("tree", { name: "Layers" })).toBeVisible();
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("screen"))
+      .toBe(staticScreenId);
+    await expect(
+      page.getByRole("button", { name: "All screens", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
+    const staticScreenRow = page.locator(
+      '[data-screen-row][title="active-static.html"]',
+    );
+    await expect(staticScreenRow).toBeVisible();
+    await expect(staticScreenRow).not.toHaveAttribute("aria-current", "page");
+    await expect(
+      page.locator(
+        `[data-screen-shell][data-frame-id="${localScreenId}"] iframe[data-design-preview-iframe]`,
+      ),
+    ).toBeAttached();
+    await expect
+      .poll(() => successfulRegistrations.length, { timeout: 20_000 })
+      .toBeGreaterThan(0);
+    expect(registrationAttempts.length).toBeGreaterThan(0);
+    expect(
+      registrationAttempts.every(
+        (attempt) =>
+          attempt.origin === expectedBridgeOrigin &&
+          attempt.hasPreviewToken &&
+          !attempt.usedStaleMetadataToken,
+      ),
+    ).toBe(true);
+    expect(failedRegistrations).toEqual([]);
+    await expect(
+      designFrame(page, localScreenId).getByText("Local workbench fixture"),
+    ).toBeVisible();
+  } finally {
+    await postAction(request, "delete-design", { id: isolatedDesignId });
+  }
 });

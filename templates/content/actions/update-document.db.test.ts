@@ -1045,6 +1045,59 @@ describe("update-document compare-and-swap", () => {
     ).rejects.toMatchObject({ errorCode: "INVALID_BROWSER_SAVE_ATTEMPT" });
   });
 
+  it("renames a document through a title-only widget write", async () => {
+    const id = await createDocument({ title: "Before", content: "Body" });
+    const grant = {
+      appId: "content",
+      resourceIds: { documentId: id },
+      actionNames: ["update-document"],
+    };
+    const rename = (
+      args: Record<string, unknown>,
+      mcpDirectoryWidgetWrite = grant,
+    ) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(
+          { id, ...args },
+          {
+            caller: "mcp-widget-write" as const,
+            userEmail: OWNER,
+            mcpDirectoryWidgetWrite,
+          },
+        ),
+      );
+
+    const attemptId = nextId("widget-title-save");
+    await expect(
+      rename({
+        title: "After",
+        baseTitle: "Before",
+        historySessionId: nextId("widget-title-session"),
+        browserSaveAttemptId: attemptId,
+      }),
+    ).resolves.toMatchObject({
+      browserSaveAttempt: { attemptId, result: "applied" },
+    });
+    expect(await documentRow(id)).toMatchObject({
+      title: "After",
+      content: "Body",
+    });
+
+    await rename({ title: "Final" });
+    expect(await documentRow(id)).toMatchObject({
+      title: "Final",
+      content: "Body",
+    });
+
+    await expect(
+      rename(
+        { title: "Elsewhere" },
+        { ...grant, resourceIds: { documentId: "another-document" } },
+      ),
+    ).rejects.toMatchObject({ errorCode: "mcp_widget_write_scope_mismatch" });
+    expect(await documentRow(id)).toMatchObject({ title: "Final" });
+  });
+
   it.each([
     "missing grant",
     "wrong document",

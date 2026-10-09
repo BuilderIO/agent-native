@@ -1635,6 +1635,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Cliquez sur l’icône de commandes du site à gauche de la barre d’adresse, ouvrez les paramètres du site, puis définissez Réseau local sur Autoriser.",
       permissionPromptRetry: "Réessayer la connexion",
+      previewCredentialsUnavailableTitle:
+        "Les identifiants de l’aperçu local ne sont pas disponibles",
+      previewCredentialsUnavailableDescription:
+        "Reconnectez la connexion localhost de cet écran dans l’inspecteur, puis réessayez.",
+      publicPreviewUnavailableDescription:
+        "Les aperçus localhost ne sont pas partagés avec les visiteurs publics. Ouvrez ce design comme collaborateur pour voir cet écran.",
+      previewCredentialsRetry: "Réessayer les identifiants",
     },
   },
   multiScreenCanvas: {

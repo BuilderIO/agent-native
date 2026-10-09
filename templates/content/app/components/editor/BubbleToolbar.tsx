@@ -1,5 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconArrowBackUp,
+  IconArrowForwardUp,
   IconBold,
   IconCheck,
   IconChevronDown,
@@ -7,8 +9,14 @@ import {
   IconUnderline,
   IconStrikethrough,
   IconCode,
+  IconDots,
   IconLink,
+  IconLinkOff,
+  IconList,
+  IconListNumbers,
   IconMessageCircle,
+  IconSquareCheck,
+  IconX,
 } from "@tabler/icons-react";
 import {
   NodeSelection,
@@ -19,8 +27,26 @@ import {
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type MouseEvent,
+} from "react";
 
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Popover,
   PopoverContent,
@@ -31,6 +57,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useElementWidthValue } from "@/hooks/use-element-width-value";
 import { cn } from "@/lib/utils";
 
 import {
@@ -52,6 +79,13 @@ export interface BubbleToolbarProps {
     range?: CommentRange,
     suggestionId?: string,
   ) => void;
+  /**
+   * Render as an always-visible strip with touch-sized targets instead of the
+   * floating selection bubble. Adds list and history actions; omits comments.
+   */
+  docked?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
 // Suggested text exists only in the author's draft, so a page comment anchored
@@ -150,6 +184,50 @@ export function selectionHasColorableText(
   });
   return hasText;
 }
+
+type ToolbarAction = {
+  icon: React.ElementType;
+  title: string;
+  action: () => void;
+  isActive: () => boolean;
+  /** Docked strip only: a one-shot command with no on/off state. */
+  momentary?: boolean;
+  /** Docked strip only: the floating bubble never shows without a selection. */
+  disabled?: () => boolean;
+};
+
+type DockedEntry =
+  | { id: string; kind: "text-style" }
+  | { id: string; kind: "color" }
+  | { id: string; kind: "action"; item: ToolbarAction };
+
+// One touch-sized cell per control. The strip lays out whole cells and moves
+// what does not fit into the overflow menu.
+const DOCKED_CELL_PX = 44;
+// Until the strip is measured, assume the narrowest inline frame so no control
+// is ever laid out past the edge.
+const DOCKED_UNMEASURED_SLOTS = 8;
+
+const dockedButtonFill =
+  "flex size-9 items-center justify-center rounded-md group-hover:bg-accent group-hover:text-accent-foreground group-aria-pressed:bg-accent group-aria-pressed:text-accent-foreground group-data-[state=open]:bg-accent group-data-[state=open]:text-accent-foreground";
+
+const DockedButton = forwardRef<
+  HTMLButtonElement,
+  ButtonHTMLAttributes<HTMLButtonElement>
+>(({ className, children, ...props }, ref) => (
+  <button
+    ref={ref}
+    type="button"
+    className={cn(
+      "group flex size-11 shrink-0 items-center justify-center rounded-md text-foreground/80 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40",
+      className,
+    )}
+    {...props}
+  >
+    <span className={dockedButtonFill}>{children}</span>
+  </button>
+));
+DockedButton.displayName = "DockedButton";
 
 function toolbarEditChain(editor: Editor) {
   if (!editor.isEditable) return null;
@@ -254,9 +332,24 @@ export function shouldShowBubbleToolbar({
   return !selectionIncludesBubbleToolbarExcludedNode(state, from, to);
 }
 
-export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
+export function BubbleToolbar({
+  editor,
+  onComment,
+  docked = false,
+  onUndo,
+  onRedo,
+}: BubbleToolbarProps) {
   const t = useT();
   const [bubbleMenuKey] = useState(() => new PluginKey("contentBubbleToolbar"));
+  const dockedRef = useRef<HTMLDivElement>(null);
+  const dockedSlots = useElementWidthValue(
+    dockedRef,
+    (width) => Math.max(2, Math.floor(width / DOCKED_CELL_PX)),
+    DOCKED_UNMEASURED_SLOTS,
+    docked,
+  );
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const pendingOverflowAction = useRef<(() => void) | null>(null);
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [textStyleOpen, setTextStyleOpen] = useState(false);
@@ -276,7 +369,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   );
 
   useEffect(() => {
-    if (typeof ResizeObserver === "undefined") return;
+    if (docked || typeof ResizeObserver === "undefined") return;
     const target = editor.view.dom;
     let previousSize: { width: number; height: number } | undefined;
     let frame: number | undefined;
@@ -304,7 +397,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       observer.disconnect();
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, [editor, bubbleMenuKey]);
+  }, [editor, bubbleMenuKey, docked]);
 
   const createCommentFromSelection = useCallback(() => {
     if (!onComment) return false;
@@ -356,6 +449,11 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       if (from !== to) {
         textStyleSelection.current = { from, to };
         colorSelection.current = { from, to };
+      } else if (docked) {
+        // The docked strip stays visible with a caret; a range remembered from
+        // an earlier selection must not be restored over it.
+        textStyleSelection.current = null;
+        colorSelection.current = null;
       }
     };
     editor.on("selectionUpdate", syncTextStyle);
@@ -365,7 +463,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       editor.off("selectionUpdate", syncTextStyle);
       editor.off("transaction", syncTextStyle);
     };
-  }, [editor]);
+  }, [editor, docked]);
 
   const textStyles = [
     {
@@ -435,6 +533,10 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     if (value) setRecentColor({ attribute, value });
     colorApplied.current = true;
     setColorOpen(false);
+    if (overflowOpen) {
+      pendingOverflowAction.current = () => editor.commands.focus();
+      setOverflowOpen(false);
+    }
   };
 
   const activeTextColor = getSelectionNotionSpanAttribute(editor, "color");
@@ -475,7 +577,8 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
           if (event.detail === 0) applyColor(attribute, value);
         }}
         className={cn(
-          "relative flex size-8 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "relative flex items-center justify-center rounded-md border border-border bg-background text-sm font-semibold hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          docked ? "size-11" : "size-8",
           isActive && "ring-2 ring-foreground",
         )}
       >
@@ -598,6 +701,11 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     };
   }, [editor, openLinkInput]);
 
+  const closeLinkInput = () => {
+    setShowLinkInput(false);
+    setLinkUrl("");
+  };
+
   const handleSetLink = () => {
     const chain = toolbarEditChain(editor);
     if (!chain) return;
@@ -610,74 +718,87 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     } else {
       chain.focus().extendMarkRange("link").unsetLink().run();
     }
-    setShowLinkInput(false);
-    setLinkUrl("");
+    closeLinkInput();
+  };
+
+  const handleRemoveLink = () => {
+    toolbarEditChain(editor)?.focus().extendMarkRange("link").unsetLink().run();
+    closeLinkInput();
   };
 
   const toggleLink = () => {
     openLinkInput();
   };
 
+  const boldItem: ToolbarAction = {
+    icon: IconBold,
+    title: t("editor.bold"),
+    action: () => toolbarEditChain(editor)?.focus().toggleBold().run(),
+    isActive: () => editor.isActive("bold"),
+  };
+  const italicItem: ToolbarAction = {
+    icon: IconItalic,
+    title: t("editor.italic"),
+    action: () => toolbarEditChain(editor)?.focus().toggleItalic().run(),
+    isActive: () => editor.isActive("italic"),
+  };
+  const underlineItem: ToolbarAction = {
+    icon: IconUnderline,
+    title: t("editor.underline"),
+    action: () => {
+      if (!editor.isEditable) return;
+      const active =
+        editor.isActive("underline") ||
+        getSelectionNotionSpanAttribute(editor, "underline") === "true";
+      editor.commands.focus();
+      setSelectionNotionSpanAttribute(
+        editor,
+        "underline",
+        active ? null : "true",
+      );
+    },
+    isActive: () =>
+      editor.isActive("underline") ||
+      getSelectionNotionSpanAttribute(editor, "underline") === "true",
+    disabled: () => editor.state.selection.empty,
+  };
+  const strikeItem: ToolbarAction = {
+    icon: IconStrikethrough,
+    title: t("editor.strikethrough"),
+    action: () => toolbarEditChain(editor)?.focus().toggleStrike().run(),
+    isActive: () => editor.isActive("strike"),
+  };
+  const codeItem: ToolbarAction = {
+    icon: IconCode,
+    title: t("editor.code"),
+    action: () => toolbarEditChain(editor)?.focus().toggleCode().run(),
+    isActive: () => editor.isActive("code"),
+  };
+  const linkItem: ToolbarAction = {
+    icon: IconLink,
+    title: t("editor.link"),
+    action: toggleLink,
+    isActive: () => editor.isActive("link"),
+    disabled: () => editor.state.selection.empty && !editor.isActive("link"),
+  };
+
+  const colorable = selectionHasColorableText(
+    editor.state,
+    editor.state.selection.from,
+    editor.state.selection.to,
+  );
+
   const items = [
     { type: "text-style" as const },
-    ...(selectionHasColorableText(
-      editor.state,
-      editor.state.selection.from,
-      editor.state.selection.to,
-    )
-      ? [{ type: "color" as const }]
-      : []),
+    ...(colorable ? [{ type: "color" as const }] : []),
     { type: "divider" as const },
-    {
-      icon: IconBold,
-      title: t("editor.bold"),
-      action: () => toolbarEditChain(editor)?.focus().toggleBold().run(),
-      isActive: () => editor.isActive("bold"),
-    },
-    {
-      icon: IconItalic,
-      title: t("editor.italic"),
-      action: () => toolbarEditChain(editor)?.focus().toggleItalic().run(),
-      isActive: () => editor.isActive("italic"),
-    },
-    {
-      icon: IconUnderline,
-      title: t("editor.underline"),
-      action: () => {
-        if (!editor.isEditable) return;
-        const active =
-          editor.isActive("underline") ||
-          getSelectionNotionSpanAttribute(editor, "underline") === "true";
-        editor.commands.focus();
-        setSelectionNotionSpanAttribute(
-          editor,
-          "underline",
-          active ? null : "true",
-        );
-      },
-      isActive: () =>
-        editor.isActive("underline") ||
-        getSelectionNotionSpanAttribute(editor, "underline") === "true",
-    },
-    {
-      icon: IconStrikethrough,
-      title: t("editor.strikethrough"),
-      action: () => toolbarEditChain(editor)?.focus().toggleStrike().run(),
-      isActive: () => editor.isActive("strike"),
-    },
-    {
-      icon: IconCode,
-      title: t("editor.code"),
-      action: () => toolbarEditChain(editor)?.focus().toggleCode().run(),
-      isActive: () => editor.isActive("code"),
-    },
+    boldItem,
+    italicItem,
+    underlineItem,
+    strikeItem,
+    codeItem,
     { type: "divider" as const },
-    {
-      icon: IconLink,
-      title: t("editor.link"),
-      action: toggleLink,
-      isActive: () => editor.isActive("link"),
-    },
+    linkItem,
     ...(onComment
       ? [
           { type: "divider" as const },
@@ -690,6 +811,476 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
         ]
       : []),
   ];
+
+  // Docked strip, highest priority first: later entries overflow first.
+  const dockedEntries: DockedEntry[] = docked
+    ? [
+        { id: "text-style", kind: "text-style" },
+        { id: "bold", kind: "action", item: boldItem },
+        { id: "italic", kind: "action", item: italicItem },
+        {
+          id: "bulletList",
+          kind: "action",
+          item: {
+            icon: IconList,
+            title: t("editor.slash.bulletedList"),
+            action: () =>
+              toolbarEditChain(editor)?.focus().toggleBulletList().run(),
+            isActive: () => editor.isActive("bulletList"),
+          },
+        },
+        {
+          id: "orderedList",
+          kind: "action",
+          item: {
+            icon: IconListNumbers,
+            title: t("editor.slash.numberedList"),
+            action: () =>
+              toolbarEditChain(editor)?.focus().toggleOrderedList().run(),
+            isActive: () => editor.isActive("orderedList"),
+          },
+        },
+        { id: "link", kind: "action", item: linkItem },
+        ...(onUndo
+          ? [
+              {
+                id: "undo",
+                kind: "action" as const,
+                item: {
+                  icon: IconArrowBackUp,
+                  title: t("editor.toolbar.undo"),
+                  action: onUndo,
+                  isActive: () => false,
+                  momentary: true,
+                  disabled: () => !editor.can().undo(),
+                },
+              },
+            ]
+          : []),
+        ...(onRedo
+          ? [
+              {
+                id: "redo",
+                kind: "action" as const,
+                item: {
+                  icon: IconArrowForwardUp,
+                  title: t("editor.toolbar.redo"),
+                  action: onRedo,
+                  isActive: () => false,
+                  momentary: true,
+                  disabled: () => !editor.can().redo(),
+                },
+              },
+            ]
+          : []),
+        { id: "underline", kind: "action", item: underlineItem },
+        { id: "strike", kind: "action", item: strikeItem },
+        { id: "code", kind: "action", item: codeItem },
+        { id: "color", kind: "color" },
+        ...(editor.schema.nodes.taskList
+          ? [
+              {
+                id: "taskList",
+                kind: "action" as const,
+                item: {
+                  icon: IconSquareCheck,
+                  title: t("editor.slash.todoList"),
+                  action: () =>
+                    toolbarEditChain(editor)?.focus().toggleTaskList().run(),
+                  isActive: () => editor.isActive("taskList"),
+                },
+              },
+            ]
+          : []),
+      ]
+    : [];
+  const dockedVisibleCount =
+    dockedEntries.length <= dockedSlots
+      ? dockedEntries.length
+      : dockedSlots - 1;
+  const dockedVisible = dockedEntries.slice(0, dockedVisibleCount);
+  const dockedOverflow = dockedEntries.slice(dockedVisibleCount);
+  const hasDockedOverflow = dockedOverflow.length > 0;
+
+  useEffect(() => {
+    if (!hasDockedOverflow) setOverflowOpen(false);
+  }, [hasDockedOverflow]);
+
+  const renderTextStyle = () => (
+    <Popover
+      key="text-style"
+      open={textStyleOpen}
+      onOpenChange={(open) => {
+        if (open) {
+          textStyleApplied.current = false;
+          restoreEditorFocusOnClose.current = false;
+          const { from, to } = editor.state.selection;
+          if (from !== to) textStyleSelection.current = { from, to };
+        }
+        setTextStyleOpen(open);
+      }}
+    >
+      <PopoverTrigger asChild>
+        {docked ? (
+          <DockedButton
+            aria-label={`${t("editor.slash.turnInto")}: ${selectedTextStyle.label}`}
+          >
+            <span className="flex items-center gap-0.5 text-sm font-semibold">
+              <span>{selectedTextStyle.menuLabel}</span>
+              <IconChevronDown size={12} strokeWidth={2} />
+            </span>
+          </DockedButton>
+        ) : (
+          <button
+            type="button"
+            aria-label={`${t("editor.slash.turnInto")}: ${selectedTextStyle.label}`}
+            className="flex h-8 min-w-14 items-center justify-between gap-1 rounded px-2 text-sm font-medium text-popover-foreground/85 hover:bg-accent hover:text-accent-foreground"
+          >
+            <span>{selectedTextStyle.shortLabel}</span>
+            <IconChevronDown size={14} strokeWidth={2} />
+          </button>
+        )}
+      </PopoverTrigger>
+      <PopoverContent
+        portalled={false}
+        align="start"
+        sideOffset={docked ? 4 : 24}
+        collisionPadding={docked ? 8 : undefined}
+        className={docked ? "w-52 p-1" : "w-44 p-1"}
+        onEscapeKeyDown={() => {
+          restoreEditorFocusOnClose.current = true;
+          window.setTimeout(() => editor.commands.focus(), 0);
+        }}
+        onCloseAutoFocus={(event) => {
+          if (textStyleApplied.current || restoreEditorFocusOnClose.current) {
+            event.preventDefault();
+          }
+          if (restoreEditorFocusOnClose.current) {
+            editor.commands.focus();
+          }
+          textStyleApplied.current = false;
+          restoreEditorFocusOnClose.current = false;
+        }}
+      >
+        <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
+          {t("editor.slash.turnInto")}
+        </div>
+        <div
+          role="menu"
+          aria-label={t("editor.slash.turnInto")}
+          className="flex flex-col gap-0.5"
+        >
+          {textStyles.map((style) => {
+            const isSelected = style.value === textStyle;
+            return (
+              <button
+                key={style.value}
+                type="button"
+                role="menuitemradio"
+                aria-checked={isSelected}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  applyTextStyle(style.value);
+                }}
+                onClick={(event) => {
+                  if (event.detail === 0) {
+                    applyTextStyle(style.value);
+                  }
+                }}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded px-2 text-left text-sm",
+                  docked ? "h-11" : "h-8",
+                  isSelected
+                    ? "bg-accent text-accent-foreground"
+                    : "text-popover-foreground hover:bg-accent hover:text-accent-foreground",
+                )}
+              >
+                <span className="w-6 shrink-0 text-xs font-semibold text-muted-foreground">
+                  {style.menuLabel}
+                </span>
+                <span className="flex-1">{style.label}</span>
+                {isSelected ? <IconCheck size={15} strokeWidth={2.25} /> : null}
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+
+  const colorPanel = (
+    <>
+      {recentColor ? (
+        <div className="mb-2">
+          <div className="mb-1 text-xs font-medium text-muted-foreground">
+            {t("editor.color.recentlyUsed")}
+          </div>
+          <div role="menu">
+            {renderColorChoice(recentColor.attribute, recentColor.value)}
+          </div>
+        </div>
+      ) : null}
+      <div className="mb-2">
+        <div className="mb-1 text-xs font-medium text-muted-foreground">
+          {t("editor.textColor")}
+        </div>
+        <div
+          role="menu"
+          aria-label={t("editor.textColor")}
+          className="grid grid-cols-5 gap-1"
+        >
+          {renderColorChoice("color", null)}
+          {COLOR_NAMES.map((name) => renderColorChoice("color", name))}
+        </div>
+      </div>
+      <div>
+        <div className="mb-1 text-xs font-medium text-muted-foreground">
+          {t("editor.backgroundColor")}
+        </div>
+        <div
+          role="menu"
+          aria-label={t("editor.backgroundColor")}
+          className="grid grid-cols-5 gap-1"
+        >
+          {renderColorChoice("bgColor", null)}
+          {COLOR_NAMES.map((name) =>
+            renderColorChoice("bgColor", `${name}_bg`),
+          )}
+        </div>
+      </div>
+    </>
+  );
+
+  const renderColor = () => (
+    <Popover
+      key="color"
+      open={colorOpen}
+      onOpenChange={(open) => {
+        if (open) {
+          colorApplied.current = false;
+          restoreEditorFocusOnClose.current = false;
+          const { from, to } = editor.state.selection;
+          if (from !== to) colorSelection.current = { from, to };
+        }
+        setColorOpen(open);
+      }}
+    >
+      <PopoverTrigger asChild>
+        {docked ? (
+          <DockedButton
+            aria-label={t("editor.color.label")}
+            disabled={!colorable}
+          >
+            <span className="text-sm font-semibold">A</span>
+          </DockedButton>
+        ) : (
+          <button
+            type="button"
+            aria-label={t("editor.color.label")}
+            className={cn(
+              "flex size-8 items-center justify-center rounded text-sm font-semibold text-popover-foreground/85 hover:bg-accent hover:text-accent-foreground",
+              colorOpen && "bg-accent text-accent-foreground",
+            )}
+          >
+            A
+          </button>
+        )}
+      </PopoverTrigger>
+      <PopoverContent
+        portalled={false}
+        align="start"
+        sideOffset={docked ? 4 : 24}
+        collisionPadding={docked ? 8 : undefined}
+        className={docked ? "w-64 p-2" : "w-52 p-2"}
+        onEscapeKeyDown={() => {
+          restoreEditorFocusOnClose.current = true;
+          window.setTimeout(() => editor.commands.focus(), 0);
+        }}
+        onCloseAutoFocus={(event) => {
+          if (colorApplied.current || restoreEditorFocusOnClose.current) {
+            event.preventDefault();
+          }
+          if (restoreEditorFocusOnClose.current) {
+            editor.commands.focus();
+          }
+          colorApplied.current = false;
+          restoreEditorFocusOnClose.current = false;
+        }}
+      >
+        {colorPanel}
+      </PopoverContent>
+    </Popover>
+  );
+
+  const keepEditorSelection = (event: MouseEvent<HTMLElement>) => {
+    // The link field must take focus; every other control must not.
+    if (event.target instanceof HTMLInputElement) return;
+    event.preventDefault();
+  };
+
+  const renderDockedAction = (id: string, item: ToolbarAction) => {
+    const Icon = item.icon;
+    return (
+      <Tooltip key={id}>
+        <TooltipTrigger asChild>
+          <DockedButton
+            aria-label={item.title}
+            aria-pressed={item.momentary ? undefined : item.isActive()}
+            disabled={item.disabled?.()}
+            onClick={() => item.action()}
+          >
+            <Icon size={18} strokeWidth={2} />
+          </DockedButton>
+        </TooltipTrigger>
+        <TooltipContent>{item.title}</TooltipContent>
+      </Tooltip>
+    );
+  };
+
+  const renderDockedOverflow = () => (
+    <DropdownMenu open={overflowOpen} onOpenChange={setOverflowOpen}>
+      <DropdownMenuTrigger asChild>
+        <DockedButton aria-label={t("editor.media.more")}>
+          <IconDots size={18} strokeWidth={2} />
+        </DockedButton>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        side="bottom"
+        collisionPadding={8}
+        className="min-w-52"
+        onCloseAutoFocus={(event) => {
+          // Run after the menu has released focus, so the command's own focus
+          // (editor or link field) is not pulled back to the trigger.
+          const pending = pendingOverflowAction.current;
+          pendingOverflowAction.current = null;
+          if (!pending) return;
+          event.preventDefault();
+          pending();
+        }}
+      >
+        {dockedOverflow.map((entry) => {
+          if (entry.kind === "color") {
+            return (
+              <DropdownMenuSub key={entry.id}>
+                <DropdownMenuSubTrigger
+                  inset
+                  disabled={!colorable}
+                  className="h-11 gap-3"
+                >
+                  <span aria-hidden="true" className="text-sm font-semibold">
+                    A
+                  </span>
+                  {t("editor.color.label")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent
+                  collisionPadding={8}
+                  className="w-64 p-2"
+                >
+                  {colorPanel}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            );
+          }
+          if (entry.kind !== "action") return null;
+          const { item } = entry;
+          const Icon = item.icon;
+          const onSelect = () => {
+            pendingOverflowAction.current = item.action;
+          };
+          const content = (
+            <>
+              <Icon size={18} strokeWidth={2} />
+              <span>{item.title}</span>
+            </>
+          );
+          return item.momentary ? (
+            <DropdownMenuItem
+              key={entry.id}
+              inset
+              disabled={item.disabled?.()}
+              onSelect={onSelect}
+              className="h-11 gap-3"
+            >
+              {content}
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuCheckboxItem
+              key={entry.id}
+              checked={item.isActive()}
+              disabled={item.disabled?.()}
+              onSelect={onSelect}
+              className="h-11 gap-3"
+            >
+              {content}
+            </DropdownMenuCheckboxItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  if (docked) {
+    return (
+      <div
+        ref={dockedRef}
+        role="toolbar"
+        aria-label={t("editor.toolbar.formatting")}
+        data-content-widget-format-toolbar=""
+        className="flex h-12 w-full min-w-0 shrink-0 items-center border-b bg-background"
+        onMouseDown={keepEditorSelection}
+      >
+        {showLinkInput ? (
+          <div className="flex min-w-0 flex-1 items-center gap-1 ps-3">
+            <input
+              autoFocus
+              type="url"
+              aria-label={t("editor.pasteLink")}
+              placeholder={t("editor.pasteLink")}
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSetLink();
+                if (e.key === "Escape") closeLinkInput();
+              }}
+              className="h-11 min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground"
+            />
+            <button
+              type="button"
+              onClick={handleSetLink}
+              className="h-11 shrink-0 rounded-md px-3 text-sm font-medium text-primary outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            >
+              {t("editor.apply")}
+            </button>
+            {editor.isActive("link") ? (
+              <DockedButton
+                aria-label={t("editor.removeLink")}
+                onClick={handleRemoveLink}
+              >
+                <IconLinkOff size={18} strokeWidth={2} />
+              </DockedButton>
+            ) : null}
+            <DockedButton
+              aria-label={t("comments.cancel")}
+              onClick={closeLinkInput}
+            >
+              <IconX size={18} strokeWidth={2} />
+            </DockedButton>
+          </div>
+        ) : (
+          <>
+            {dockedVisible.map((entry) => {
+              if (entry.kind === "text-style") return renderTextStyle();
+              if (entry.kind === "color") return renderColor();
+              return renderDockedAction(entry.id, entry.item);
+            })}
+            {hasDockedOverflow ? renderDockedOverflow() : null}
+          </>
+        )}
+      </div>
+    );
+  }
 
   return (
     <BubbleMenu
@@ -713,10 +1304,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
             onChange={(e) => setLinkUrl(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") handleSetLink();
-              if (e.key === "Escape") {
-                setShowLinkInput(false);
-                setLinkUrl("");
-              }
+              if (e.key === "Escape") closeLinkInput();
             }}
             className="bg-transparent border-none outline-none text-popover-foreground text-sm w-40 sm:w-48 px-1 py-1 placeholder:text-muted-foreground"
           />
@@ -729,15 +1317,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
           {editor.isActive("link") ? (
             <button
               type="button"
-              onClick={() => {
-                toolbarEditChain(editor)
-                  ?.focus()
-                  .extendMarkRange("link")
-                  .unsetLink()
-                  .run();
-                setShowLinkInput(false);
-                setLinkUrl("");
-              }}
+              onClick={handleRemoveLink}
               className="px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground"
             >
               {t("editor.removeLink")}
@@ -756,210 +1336,17 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
               );
             }
             if ("type" in item && item.type === "text-style") {
-              return (
-                <Popover
-                  key="text-style"
-                  open={textStyleOpen}
-                  onOpenChange={(open) => {
-                    if (open) {
-                      textStyleApplied.current = false;
-                      restoreEditorFocusOnClose.current = false;
-                      const { from, to } = editor.state.selection;
-                      if (from !== to)
-                        textStyleSelection.current = { from, to };
-                    }
-                    setTextStyleOpen(open);
-                  }}
-                >
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={`${t("editor.slash.turnInto")}: ${selectedTextStyle.label}`}
-                      className="flex h-8 min-w-14 items-center justify-between gap-1 rounded px-2 text-sm font-medium text-popover-foreground/85 hover:bg-accent hover:text-accent-foreground"
-                    >
-                      <span>{selectedTextStyle.shortLabel}</span>
-                      <IconChevronDown size={14} strokeWidth={2} />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    portalled={false}
-                    align="start"
-                    sideOffset={24}
-                    className="w-44 p-1"
-                    onEscapeKeyDown={() => {
-                      restoreEditorFocusOnClose.current = true;
-                      window.setTimeout(() => editor.commands.focus(), 0);
-                    }}
-                    onCloseAutoFocus={(event) => {
-                      if (
-                        textStyleApplied.current ||
-                        restoreEditorFocusOnClose.current
-                      ) {
-                        event.preventDefault();
-                      }
-                      if (restoreEditorFocusOnClose.current) {
-                        editor.commands.focus();
-                      }
-                      textStyleApplied.current = false;
-                      restoreEditorFocusOnClose.current = false;
-                    }}
-                  >
-                    <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
-                      {t("editor.slash.turnInto")}
-                    </div>
-                    <div
-                      role="menu"
-                      aria-label={t("editor.slash.turnInto")}
-                      className="flex flex-col gap-0.5"
-                    >
-                      {textStyles.map((style) => {
-                        const isSelected = style.value === textStyle;
-                        return (
-                          <button
-                            key={style.value}
-                            type="button"
-                            role="menuitemradio"
-                            aria-checked={isSelected}
-                            onPointerDown={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              applyTextStyle(style.value);
-                            }}
-                            onClick={(event) => {
-                              if (event.detail === 0) {
-                                applyTextStyle(style.value);
-                              }
-                            }}
-                            className={cn(
-                              "flex h-8 w-full items-center gap-2 rounded px-2 text-left text-sm",
-                              isSelected
-                                ? "bg-accent text-accent-foreground"
-                                : "text-popover-foreground hover:bg-accent hover:text-accent-foreground",
-                            )}
-                          >
-                            <span className="w-6 shrink-0 text-xs font-semibold text-muted-foreground">
-                              {style.menuLabel}
-                            </span>
-                            <span className="flex-1">{style.label}</span>
-                            {isSelected ? (
-                              <IconCheck size={15} strokeWidth={2.25} />
-                            ) : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              );
+              return renderTextStyle();
             }
             if ("type" in item && item.type === "color") {
-              return (
-                <Popover
-                  key="color"
-                  open={colorOpen}
-                  onOpenChange={(open) => {
-                    if (open) {
-                      colorApplied.current = false;
-                      restoreEditorFocusOnClose.current = false;
-                      const { from, to } = editor.state.selection;
-                      if (from !== to) colorSelection.current = { from, to };
-                    }
-                    setColorOpen(open);
-                  }}
-                >
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={t("editor.color.label")}
-                      className={cn(
-                        "flex size-8 items-center justify-center rounded text-sm font-semibold text-popover-foreground/85 hover:bg-accent hover:text-accent-foreground",
-                        colorOpen && "bg-accent text-accent-foreground",
-                      )}
-                    >
-                      A
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    portalled={false}
-                    align="start"
-                    sideOffset={24}
-                    className="w-52 p-2"
-                    onEscapeKeyDown={() => {
-                      restoreEditorFocusOnClose.current = true;
-                      window.setTimeout(() => editor.commands.focus(), 0);
-                    }}
-                    onCloseAutoFocus={(event) => {
-                      if (
-                        colorApplied.current ||
-                        restoreEditorFocusOnClose.current
-                      ) {
-                        event.preventDefault();
-                      }
-                      if (restoreEditorFocusOnClose.current) {
-                        editor.commands.focus();
-                      }
-                      colorApplied.current = false;
-                      restoreEditorFocusOnClose.current = false;
-                    }}
-                  >
-                    {recentColor ? (
-                      <div className="mb-2">
-                        <div className="mb-1 text-xs font-medium text-muted-foreground">
-                          {t("editor.color.recentlyUsed")}
-                        </div>
-                        <div role="menu">
-                          {renderColorChoice(
-                            recentColor.attribute,
-                            recentColor.value,
-                          )}
-                        </div>
-                      </div>
-                    ) : null}
-                    <div className="mb-2">
-                      <div className="mb-1 text-xs font-medium text-muted-foreground">
-                        {t("editor.textColor")}
-                      </div>
-                      <div
-                        role="menu"
-                        aria-label={t("editor.textColor")}
-                        className="grid grid-cols-5 gap-1"
-                      >
-                        {renderColorChoice("color", null)}
-                        {COLOR_NAMES.map((name) =>
-                          renderColorChoice("color", name),
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="mb-1 text-xs font-medium text-muted-foreground">
-                        {t("editor.backgroundColor")}
-                      </div>
-                      <div
-                        role="menu"
-                        aria-label={t("editor.backgroundColor")}
-                        className="grid grid-cols-5 gap-1"
-                      >
-                        {renderColorChoice("bgColor", null)}
-                        {COLOR_NAMES.map((name) =>
-                          renderColorChoice("bgColor", `${name}_bg`),
-                        )}
-                      </div>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              );
+              return renderColor();
             }
             const {
               icon: Icon,
               title,
               action,
               isActive,
-            } = item as {
-              icon: React.ElementType;
-              title: string;
-              action: () => void;
-              isActive: () => boolean;
-            };
+            } = item as ToolbarAction;
             return (
               <Tooltip key={title}>
                 <TooltipTrigger asChild>
