@@ -348,7 +348,7 @@ describe("createH3SSRHandler", () => {
     expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
   });
 
-  it("normalizes recovery paths and excludes caller-controlled recovery queries from the cache key", async () => {
+  it("normalizes recovery paths and disables caching only for the fixed recovery alias", async () => {
     process.env.SITE_ID = "site-test";
     const handler = createH3SSRHandler(() => ({})) as any;
     const recoveryUrls = [
@@ -365,17 +365,23 @@ describe("createH3SSRHandler", () => {
         }),
       );
       const response = await handler(createEvent(recoveryUrl));
+      const isRecoveryAlias = recoveryUrl.includes(CHUNK_RECOVERY_PATH_SUFFIX);
+      const expectedCacheHeaders = isRecoveryAlias
+        ? DISABLED_SSR_CACHE_HEADERS
+        : DEFAULT_SSR_CACHE_HEADERS;
 
       expect(response.headers.get("cache-control")).toBe(
-        DEFAULT_SSR_CACHE_CONTROL,
+        expectedCacheHeaders["cache-control"],
       );
       expect(response.headers.get("cdn-cache-control")).toBe(
-        DEFAULT_SSR_CDN_CACHE_CONTROL,
+        expectedCacheHeaders["cdn-cache-control"],
       );
       expect(response.headers.get("netlify-cdn-cache-control")).toBe(
-        DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
+        expectedCacheHeaders["netlify-cdn-cache-control"],
       );
-      expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
+      expect(response.headers.get("netlify-vary")).toBe(
+        isRecoveryAlias ? null : "query=_routes|index",
+      );
     }
 
     expect(mocks.requestHandler.mock.calls[0]?.[0].url).toContain("/page?");

@@ -5,6 +5,7 @@ import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
+  DISABLED_SSR_CACHE_HEADERS as NO_STORE_SSR_CACHE_HEADERS,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -66,6 +67,13 @@ function stripChunkRecoveryPathSuffix(pathname: string): string {
   if (!pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX)) return pathname;
   const routePath = pathname.slice(0, -CHUNK_RECOVERY_PATH_SUFFIX.length);
   return routePath || "/";
+}
+
+function isChunkRecoveryPath(pathname: string): boolean {
+  return (
+    pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX) ||
+    pathname.endsWith(`${CHUNK_RECOVERY_PATH_SUFFIX}/`)
+  );
 }
 
 function stripBasePath(pathname: string, basePath: string): string {
@@ -241,12 +249,14 @@ function isSsrHtmlOrDataResponse(
  * ┌──────────────────────────────────────────────────────────────────────────┐
  * │ SSR IS A PUBLIC, HARD-CDN-CACHED SHELL — SERVED IDENTICALLY TO EVERYONE.   │
  * │                                                                            │
- * │ Every SSR HTML / React Router `.data` response gets the same public        │
+ * │ Normal SSR HTML / React Router `.data` responses get the same public       │
  * │ stale-while-revalidate policy for ALL visitors, authenticated or not, so   │
- * │ the edge serves one shared copy and never stampedes origin.                │
+ * │ the edge serves one shared copy and never stampedes origin. The one fixed  │
+ * │ recovery alias is no-store at every cache layer, so stale shells cannot    │
+ * │ trap a failed chunk recovery in either the browser or the CDN.             │
  * │                                                                            │
  * │ DO NOT reintroduce per-user / cookie-based cache variation here (no        │
- * │ `private`, no `no-store`, no `Vary: Cookie`, no "authenticated → don't     │
+ * │ `private`, no `Vary: Cookie`, no "authenticated → don't                    │
  * │ cache" branch). That makes pages uncacheable for every logged-in visitor,  │
  * │ which is slow and expensive — exactly the regression this guardrail        │
  * │ prevents. The reason it is SAFE to hard-cache is that the SSR response is  │
@@ -261,9 +271,8 @@ function isSsrHtmlOrDataResponse(
  * │ AGENT_NATIVE_SSR_CACHE (see `resolveSsrCacheHeaders`), for hosts that do   │
  * │ not purge their CDN on deploy. What remains forbidden is PER-REQUEST /     │
  * │ PER-USER response variation — no `private`, no `Vary: Cookie`, and no     │
- * │ request-specific content. The reserved recovery suffix adds one path key  │
- * │ for the same shell; strip it before rendering and never vary on nonce or  │
- * │ arbitrary query values.                                                    │
+ * │ request-specific content. The reserved recovery suffix selects the same   │
+ * │ shell without varying on a nonce or arbitrary query value.                 │
  * └──────────────────────────────────────────────────────────────────────────┘
  *
  * The same sharing rule governs any DIAGNOSTIC header on this response. A
@@ -278,11 +287,20 @@ function applyDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
+  isRecoveryAlias = false,
 ) {
   const responseRequestsQueryVary =
     headers.get(SSR_QUERY_CACHE_KEY_HEADER)?.trim().toLowerCase() === "query";
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
-  if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
+  if (!isSsrHtmlOrDataResponse(headers, status, pathname)) {
+    if (isRecoveryAlias) {
+      for (const [name, value] of Object.entries(NO_STORE_SSR_CACHE_HEADERS)) {
+        headers.set(name, value);
+      }
+      headers.delete("netlify-vary");
+    }
+    return;
+  }
 
   // Recovery uses one fixed path alias, not caller-controlled query values.
   // Keep Netlify's default cache ID: deploy-context invalidation refreshes this
@@ -310,13 +328,22 @@ function applyDefaultSsrCacheHeader(
     else headers.delete("vary");
   }
 
-  for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
+  const cacheHeaders = isRecoveryAlias
+    ? NO_STORE_SSR_CACHE_HEADERS
+    : resolveSsrCacheHeaders();
+  for (const [name, value] of Object.entries(cacheHeaders)) {
     headers.set(name, value);
   }
-  const cacheKeyHeaders = resolveSsrCacheKeyHeaders(undefined, { varyByQuery });
-  const netlifyVary = cacheKeyHeaders["netlify-vary"];
-  if (netlifyVary) headers.set("netlify-vary", netlifyVary);
-  else headers.delete("netlify-vary");
+  if (isRecoveryAlias) {
+    headers.delete("netlify-vary");
+  } else {
+    const cacheKeyHeaders = resolveSsrCacheKeyHeaders(undefined, {
+      varyByQuery,
+    });
+    const netlifyVary = cacheKeyHeaders["netlify-vary"];
+    if (netlifyVary) headers.set("netlify-vary", netlifyVary);
+    else headers.delete("netlify-vary");
+  }
 }
 
 function applyDefaultSpeculationRulesHeader(
@@ -374,6 +401,7 @@ async function rewriteMountedResponse(
   basePath: string,
   pathname: string,
   requestUrl: string,
+  isRecoveryAlias = false,
 ): Promise<Response> {
   const clientConfigScript =
     [
@@ -394,7 +422,12 @@ async function rewriteMountedResponse(
       .filter(Boolean)
       .join("") || null;
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSsrCacheHeader(
+    headers,
+    response.status,
+    pathname,
+    isRecoveryAlias,
+  );
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
@@ -441,9 +474,9 @@ export function createH3SSRHandler(getBuild: () => unknown) {
   const handler = createRequestHandler(getBuild as any);
   return defineEventHandler(async (event) => {
     const basePath = getAppBasePath();
-    const p = stripChunkRecoveryPathSuffix(
-      stripAppBasePath(event.url.pathname),
-    );
+    const appPath = stripAppBasePath(event.url.pathname);
+    const isRecoveryAlias = isChunkRecoveryPath(appPath);
+    const p = stripChunkRecoveryPathSuffix(appPath);
     if (isFrameworkOrAssetPath(p)) {
       return new Response(null, { status: 404 });
     }
@@ -470,6 +503,7 @@ export function createH3SSRHandler(getBuild: () => unknown) {
           basePath,
           p,
           request.url,
+          isRecoveryAlias,
         );
       }
       return await rewriteMountedResponse(
@@ -477,6 +511,7 @@ export function createH3SSRHandler(getBuild: () => unknown) {
         basePath,
         p,
         request.url,
+        isRecoveryAlias,
       );
     } catch (err) {
       console.error("[ssr-handler] SSR error:", err);

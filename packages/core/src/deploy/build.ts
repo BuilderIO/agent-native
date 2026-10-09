@@ -49,6 +49,7 @@ import {
 import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
+  DISABLED_SSR_CACHE_HEADERS,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -1621,6 +1622,11 @@ function stripChunkRecoveryPathSuffix(pathname) {
   return routePath || "/";
 }
 
+function isChunkRecoveryPath(pathname) {
+  return pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX) ||
+    pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX + "/");
+}
+
 function parseActionSearchParams(searchParams) {
   const params = {};
   for (const [rawKey, value] of searchParams.entries()) {
@@ -2017,6 +2023,7 @@ function injectHeadScript(html, script) {
 
 // Resolved from AGENT_NATIVE_SSR_CACHE at build time.
 const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
+const CHUNK_RECOVERY_CACHE_HEADERS = ${JSON.stringify(DISABLED_SSR_CACHE_HEADERS)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const SSR_QUERY_CACHE_KEY_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_KEY_HEADER)};
 const CHUNK_RECOVERY_PATH_SUFFIX = ${JSON.stringify(CHUNK_RECOVERY_PATH_SUFFIX)};
@@ -2112,11 +2119,19 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
  * Always overwrite route cache hints so generated edge workers cannot drift
  * from the canonical Nitro/Netlify handler or send normal pages to origin.
  */
-function applyDefaultSsrCacheHeader(headers, status, pathname) {
+function applyDefaultSsrCacheHeader(headers, status, pathname, isRecoveryAlias = false) {
   const varyByQuery =
     (headers.get(SSR_QUERY_CACHE_KEY_HEADER) || "").trim().toLowerCase() === "query";
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
-  if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
+  if (!isSsrHtmlOrDataResponse(headers, status, pathname)) {
+    if (isRecoveryAlias) {
+      for (const [name, value] of Object.entries(CHUNK_RECOVERY_CACHE_HEADERS)) {
+        headers.set(name, value);
+      }
+      headers.delete("netlify-vary");
+    }
+    return;
+  }
 
   headers.delete("set-cookie");
   const vary = headers.get("vary");
@@ -2132,16 +2147,21 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
     else headers.delete("vary");
   }
 
-  for (const [name, value] of Object.entries(SSR_CACHE_HEADERS)) {
+  const cacheHeaders = isRecoveryAlias ? CHUNK_RECOVERY_CACHE_HEADERS : SSR_CACHE_HEADERS;
+  for (const [name, value] of Object.entries(cacheHeaders)) {
     headers.set(name, value);
   }
-  const netlifyVary = varyByQuery
-    ? SSR_CACHE_KEY_HEADERS["netlify-vary"]
-      ? "query"
-      : undefined
-    : SSR_CACHE_KEY_HEADERS["netlify-vary"];
-  if (netlifyVary) headers.set("netlify-vary", netlifyVary);
-  else headers.delete("netlify-vary");
+  if (isRecoveryAlias) {
+    headers.delete("netlify-vary");
+  } else {
+    const netlifyVary = varyByQuery
+      ? SSR_CACHE_KEY_HEADERS["netlify-vary"]
+        ? "query"
+        : undefined
+      : SSR_CACHE_KEY_HEADERS["netlify-vary"];
+    if (netlifyVary) headers.set("netlify-vary", netlifyVary);
+    else headers.delete("netlify-vary");
+  }
 }
 
 function applyDefaultSpeculationRulesHeader(headers, status, basePath) {
@@ -2178,7 +2198,7 @@ function applyImmutableAssetCacheHeaders(response, request) {
   });
 }
 
-async function rewriteMountedResponse(response, basePath, pathname, request) {
+async function rewriteMountedResponse(response, basePath, pathname, request, isRecoveryAlias = false) {
   const clientConfigScript =
     [
       getSentryClientConfigScript(),
@@ -2191,7 +2211,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
       .filter(Boolean)
       .join("") || null;
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname, isRecoveryAlias);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
@@ -2269,9 +2289,9 @@ function isStaticAppShellRequest(request) {
 async function fetchStaticAppShell(request, env) {
   if (!env?.ASSETS || !isStaticAppShellRequest(request)) return null;
   const basePath = getAppBasePath();
-  const p = stripChunkRecoveryPathSuffix(
-    stripAppBasePath(new URL(request.url).pathname)
-  );
+  const appPath = stripAppBasePath(new URL(request.url).pathname);
+  const isRecoveryAlias = isChunkRecoveryPath(appPath);
+  const p = stripChunkRecoveryPathSuffix(appPath);
   const shellRequest = requestWithPathname(
     requestWithMethod(request, "GET"),
     "/index.html",
@@ -2293,9 +2313,10 @@ async function fetchStaticAppShell(request, env) {
       basePath,
       p,
       request,
+      isRecoveryAlias,
     );
   }
-  return rewriteMountedResponse(response, basePath, p, request);
+  return rewriteMountedResponse(response, basePath, p, request, isRecoveryAlias);
 }
 
 // API route handlers
@@ -2380,9 +2401,9 @@ ${
   const rrHandler = createRequestHandler(() => serverBuild);
   app.all("/**", defineEventHandler(async (event) => {
     const basePath = getAppBasePath();
-    const p = stripChunkRecoveryPathSuffix(
-      stripAppBasePath(new URL(event.req.url).pathname)
-    );
+    const appPath = stripAppBasePath(new URL(event.req.url).pathname);
+    const isRecoveryAlias = isChunkRecoveryPath(appPath);
+    const p = stripChunkRecoveryPathSuffix(appPath);
     if (
       p.startsWith("/.well-known/") ||
       isFrameworkPath(p) ||
@@ -2409,14 +2430,16 @@ ${
         }),
         basePath,
         p,
-        getRequest
+        getRequest,
+        isRecoveryAlias
       );
     }
     return rewriteMountedResponse(
       await runWithRequestContext(anonymousContext, () => rrHandler(request)),
       basePath,
       p,
-      request
+      request,
+      isRecoveryAlias
     );
   }));`
     : ""
