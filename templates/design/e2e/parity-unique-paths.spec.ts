@@ -616,7 +616,27 @@ test.describe.serial("rare-but-real unique paths", () => {
       "true",
     );
     await page.keyboard.press(`${MOD}+Alt+c`);
-    await page.waitForTimeout(100);
+    const beta = await frameNode(page, "Beta Button");
+    await beta.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      document.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          button: 2,
+          buttons: 2,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+        }),
+      );
+    });
+    await waitForBridge(page, "element-contextmenu");
+    const contextMenu = page.getByRole("menu").last();
+    await contextMenu.getByRole("menuitem", { name: "Copy/Paste as" }).hover();
+    await expect(
+      page.getByRole("menuitem", { name: /Paste properties/ }),
+    ).toBeEnabled();
+    await page.keyboard.press("Escape");
     await selectByTextDeep(page, "Alpha Button");
     await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
       "aria-selected",
@@ -626,7 +646,19 @@ test.describe.serial("rare-but-real unique paths", () => {
       await frameNode(page, "Alpha Button")
     ).boundingBox())!;
     await page.keyboard.press(`${MOD}+Alt+v`);
-    await page.waitForTimeout(200);
+    await expect
+      .poll(
+        async () =>
+          await (
+            await frameNode(page, "Alpha Button")
+          ).evaluate((element) => getComputedStyle(element).backgroundColor),
+        {
+          timeout: 15_000,
+          message:
+            "paste-properties should apply the copied fill color (#22c55e) onto the target",
+        },
+      )
+      .toBe("rgb(34, 197, 94)");
     const afterBox = (await (
       await frameNode(page, "Alpha Button")
     ).boundingBox())!;
@@ -639,10 +671,7 @@ test.describe.serial("rare-but-real unique paths", () => {
         Math.abs(afterBox.y - beforeBox.y) < 2,
       "paste-properties must not move the target's position",
     ).toBe(true);
-    expect(
-      bg,
-      "paste-properties should apply the copied fill color (#22c55e) onto the target",
-    ).toBe("rgb(34, 197, 94)");
+    expect(bg).toBe("rgb(34, 197, 94)");
   });
 
   test("Shift+H / Shift+V flip the selection about its own bounding box", async ({
