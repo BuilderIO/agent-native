@@ -126,13 +126,13 @@ describe("buildJourneyTree", () => {
     );
   });
 
-  it("keeps n = dropoffN + continuing sessions for every node", () => {
+  it("accounts for drop-off, represented children, and unrepresented continuation", () => {
     const { nodes } = buildJourneyTree(SESSIONS, new Map(), OPTIONS);
     for (const node of nodes) {
       const childN = nodes
         .filter((candidate) => candidate.parentKey === node.key)
         .reduce((sum, candidate) => sum + candidate.n, 0);
-      expect(node.n, node.key).toBe(node.dropoffN + childN);
+      expect(node.n, node.key).toBe(node.dropoffN + childN + node.deeperN);
     }
   });
 
@@ -165,7 +165,7 @@ describe("buildJourneyTree", () => {
     const childN = nodes
       .filter((candidate) => candidate.parentKey === choice.key)
       .reduce((sum, candidate) => sum + candidate.n, 0);
-    expect(choice.n).toBe(choice.dropoffN + childN);
+    expect(choice.n).toBe(choice.dropoffN + childN + choice.deeperN);
   });
 
   it("counts sessions cut at maxDepth in n but not as drop-off", () => {
@@ -176,7 +176,11 @@ describe("buildJourneyTree", () => {
     const node = byKey(nodes);
     expect(nodes.every((candidate) => candidate.depth <= 2)).toBe(true);
     // a, b, c continue past depth 2; d ends there.
-    expect(node.get("signup > role")).toMatchObject({ n: 4, dropoffN: 1 });
+    expect(node.get("signup > role")).toMatchObject({
+      n: 4,
+      dropoffN: 1,
+      deeperN: 3,
+    });
   });
 
   it("keeps a step key that contains the path delimiter apart from a two-step path", () => {

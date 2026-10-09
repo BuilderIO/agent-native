@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { ActionRunContext } from "../action.js";
 import {
   queueTrackingEvent,
@@ -9,6 +11,7 @@ import { isTestIdentity } from "../server/test-identity.js";
 import {
   canonicalTrackingEvent,
   legacyLifecycleEvent,
+  TRACKING_EVENT_ALIAS_ID_PROPERTY,
   withCanonicalTrackingProperties,
 } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_PROPERTY } from "../shared/analytics-platform.js";
@@ -175,6 +178,12 @@ export function track(
       ? { test_identity: true, test_identity_email: testIdentity }
       : {}),
   });
+  const canonical = canonicalTrackingEvent(name, trackedProperties);
+  if (canonical) {
+    const aliasId = randomUUID();
+    trackedProperties[TRACKING_EVENT_ALIAS_ID_PROPERTY] = aliasId;
+    canonical.properties[TRACKING_EVENT_ALIAS_ID_PROPERTY] = aliasId;
+  }
 
   emitTrackingEvent(name, trackedProperties, {
     userId,
@@ -190,7 +199,6 @@ export function track(
     queueTrackingEvent(name, trackedProperties, telemetryOrigin);
   }
 
-  const canonical = canonicalTrackingEvent(name, trackedProperties);
   if (canonical) {
     emitTrackingEvent(canonical.name, canonical.properties, {
       userId,
