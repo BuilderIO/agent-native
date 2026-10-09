@@ -3,4 +3,4 @@
 ---
 
 Allow action mutations to pass request headers independently of their payload.
-Permit the Content recovery telemetry header through existing action and embed CORS preflights.
+Permit the Content recovery telemetry header through existing action, embed, generated-worker and global auth-guard CORS preflights.

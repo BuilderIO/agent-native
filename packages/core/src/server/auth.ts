@@ -3025,6 +3025,7 @@ function applyCorsHeaders(
           "Authorization",
           "X-Requested-With",
           "X-Request-Source",
+          "X-Content-Save-Origin",
           "X-Agent-Native-CSRF",
           "X-User-Timezone",
           "X-Agent-Native-Desktop-Verifier",

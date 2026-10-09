@@ -2851,13 +2851,22 @@ export default {
     const response = await worker.fetch(
       new Request("https://app.test/_agent-native/actions/ping", {
         method: "OPTIONS",
+        headers: {
+          origin: "https://content-ui.example.test",
+          "access-control-request-method": "POST",
+          "access-control-request-headers":
+            "content-type,x-content-save-origin",
+        },
       }),
       {},
       {},
     );
 
     expect(response.status).toBe(204);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(response.headers.get("Access-Control-Allow-Credentials")).toBeNull();
     const allowHeaders = response.headers.get("Access-Control-Allow-Headers");
+    expect(allowHeaders).toContain("X-Content-Save-Origin");
     expect(allowHeaders).toContain("X-Agent-Native-Frontend");
     expect(allowHeaders).toContain("X-Agent-Native-Client-Compatibility");
     expect(allowHeaders).toContain("X-Agent-Native-Build-Id");
