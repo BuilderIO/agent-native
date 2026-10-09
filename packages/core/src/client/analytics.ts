@@ -19,7 +19,10 @@ import {
   ANALYTICS_CLIENT_PLATFORM_PROPERTY,
   type AnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
-import { hasAttributionSource } from "../shared/attribution-source.js";
+import {
+  hasAttributionSource,
+  type AttributionTouch,
+} from "../shared/attribution-source.js";
 import { resolveLaneEndpoint } from "../shared/environment-lanes.js";
 import {
   classifyErrorNoise,
@@ -938,19 +941,7 @@ function parseAttribution<T>(raw: string | null): T | null {
   }
 }
 
-/**
- * The stored touch, or its cookie when storage is blocked, cleared, or holds
- * an unreadable value. The cookie is what signup reads, so a touch that
- * survives only there still counts, and capture must not overwrite it as if
- * this were a first visit.
- */
-function readStoredAttribution<T>(
-  storageKey: string,
-  cookieName: string,
-): T | null {
-  if (typeof window === "undefined") return null;
-  const stored = parseAttribution<T>(safeStorageGet(storageKey));
-  if (stored) return stored;
+function readAttributionCookieValue<T>(cookieName: string): T | null {
   const cookie = readAttributionCookie(cookieName);
   if (!cookie) return null;
   try {
@@ -959,6 +950,23 @@ function readStoredAttribution<T>(
     // coercion-ok: a malformed cookie encoding holds no touch.
     return null;
   }
+}
+
+/**
+ * The stored touch, unless only its cookie says where the visitor came from:
+ * storage can be blocked, cleared, or hold an unreadable or empty value. The
+ * cookie is what signup reads, so a source that survives only there still
+ * counts, and capture must not overwrite it as if this were a first visit.
+ */
+function readStoredAttribution<T extends AttributionTouch>(
+  storageKey: string,
+  cookieName: string,
+): T | null {
+  if (typeof window === "undefined") return null;
+  const stored = parseAttribution<T>(safeStorageGet(storageKey));
+  if (hasAttributionSource(stored)) return stored;
+  const cookie = readAttributionCookieValue<T>(cookieName);
+  return hasAttributionSource(cookie) ? cookie : (stored ?? cookie);
 }
 
 export function getFirstTouchAttribution(): FirstTouchAttribution | null {
