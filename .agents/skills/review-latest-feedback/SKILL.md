@@ -245,27 +245,22 @@ Do not change code for an unrelated product idea, praise, status update, merge
 or review request, irrelevant bot forward, duplicate, or work outside the
 invocation's ownership.
 
-**Subjective UX requests require human review.** Requests to add a button or
-other chrome, or to change its visibility, placement, or emphasis, are product
-proposals. A report that a working control is hard to find is still a
-discoverability preference, not a verified defect. Do not implement these
-requests during an automatic sweep. In the run recap, preserve the reporter's
-request, note which existing controls and contextual surfaces you checked, and
-list a small set of possible approaches with your recommendation and tradeoff.
-Record **Skipped** for the sweep, with human product review as the reason; do
-not claim or reply to the reporter just to ask them to choose a design.
+**Subjective UX requests need human review.** Adding buttons/chrome, or changing
+visibility, placement, emphasis, or discoverability—including “hard to find”
+reports—is a product proposal, not an objective defect. Unless the invoking
+user approves a concrete approach in this task or via the `:upvote:` gate
+below, skip it during automatic sweeps. Recap the request, checked surfaces,
+options, recommendation, and tradeoff. Record approval as human-directed and
+limited to that approach. If claimed, keep 👀 and post **Skipped** once; don't
+ask the reporter to choose.
 
-Automatically fix UI issues only when the evidence shows an objective defect:
-a broken interaction, wrong result, misalignment, overlap or clipping,
-illegibility, unusable focus or hit target, jank, jitter, measurable slowness,
-or a behavioral regression. A reporter request is useful evidence, but is not
-product signoff. Only the invoking user's explicit current-task approval or
-their `:upvote:` below authorizes a subjective UI change. When the report may
-describe both a defect and a preference, investigate and disposition them
-separately. Measure failures with `text-heavy-ui`.
+Auto-fix objective UI defects only: broken behavior/result, misalignment,
+overlap/clipping, illegibility, unusable focus/hit target, jank, jitter,
+measurable slowness, regression. Separate defects from preferences; measure
+failures with `text-heavy-ui`.
 
-Requests for a new capability still follow the invoking identity's `:upvote:`
-gate. Content remains Alice's area unless the invocation claims it.
+New capabilities need the invoking identity's `:upvote:` gate. Content stays
+Alice's unless the invocation claims it.
 
 ### `:upvote:` authorizes feature requests
 

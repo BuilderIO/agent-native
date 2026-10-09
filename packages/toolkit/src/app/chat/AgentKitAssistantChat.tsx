@@ -3599,6 +3599,26 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           className="agentkit-activities-static agentkit-active-run-actions"
           data-agentkit-active-run-id-copy="true"
         >
+          {activeRunRequestIdCopyStatus ? (
+            <span
+              className={cn(
+                "agentkit-active-run-actions-feedback",
+                activeRunRequestIdCopyStatus === "failed" && "text-destructive",
+              )}
+              role={
+                activeRunRequestIdCopyStatus === "failed" ? "alert" : "status"
+              }
+            >
+              {activeRunRequestIdCopyStatus === "copied" ? (
+                <IconCircleCheck size={14} aria-hidden="true" />
+              ) : (
+                <IconAlertTriangle size={14} aria-hidden="true" />
+              )}
+              {activeRunRequestIdCopyStatus === "copied"
+                ? t("agentChat.common.copied")
+                : t("agentChat.recovery.copyFailed")}
+            </span>
+          ) : null}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <IconButton
@@ -3622,18 +3642,6 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          {activeRunRequestIdCopyStatus ? (
-            <span
-              className="sr-only"
-              role={
-                activeRunRequestIdCopyStatus === "failed" ? "alert" : "status"
-              }
-            >
-              {activeRunRequestIdCopyStatus === "copied"
-                ? t("agentChat.common.copied")
-                : t("agentChat.recovery.copyFailed")}
-            </span>
-          ) : null}
         </div>
       ) : null}
       {handoffMessages.map((message) => (

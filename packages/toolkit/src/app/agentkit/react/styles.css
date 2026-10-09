@@ -1393,7 +1393,18 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 
 .agentkit-active-run-actions {
   display: flex;
+  align-items: center;
+  gap: 0.25rem;
   justify-content: flex-end;
+}
+
+.agentkit-active-run-actions-feedback {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding-inline: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
 }
 
 .agentkit-active-run-actions-trigger {

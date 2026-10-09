@@ -1175,11 +1175,32 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
 
     expect(chatMocks.writeClipboardText).toHaveBeenCalledWith("run-active");
-    expect(
-      container.querySelector(
-        '[data-agentkit-active-run-id-copy] [role="status"]',
-      )?.textContent,
-    ).toBe("agentChat.common.copied");
+    const copiedFeedback = container.querySelector(
+      '[data-agentkit-active-run-id-copy] [role="status"]',
+    );
+    expect(copiedFeedback?.textContent).toContain("agentChat.common.copied");
+    expect(copiedFeedback?.classList.contains("sr-only")).toBe(false);
+
+    chatMocks.writeClipboardText.mockResolvedValueOnce(false);
+    await act(async () => {
+      actionsTrigger?.focus();
+      actionsTrigger?.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" }),
+      );
+      await Promise.resolve();
+    });
+    const retryMenuItem = document.body.querySelector('[role="menuitem"]');
+    await act(async () => {
+      retryMenuItem?.click();
+      await Promise.resolve();
+    });
+    const failedFeedback = container.querySelector(
+      '[data-agentkit-active-run-id-copy] [role="alert"]',
+    );
+    expect(failedFeedback?.textContent).toContain(
+      "agentChat.recovery.copyFailed",
+    );
+    expect(failedFeedback?.classList.contains("sr-only")).toBe(false);
   });
 
   it("does not duplicate Thinking after the run becomes active", async () => {
