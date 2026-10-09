@@ -34,6 +34,22 @@ describe("haveSameSlidesAgentScope", () => {
     ).toBe(buildSlidesAgentContext(nextSelection, "deck-1").contextVersion);
   });
 
+  it("keeps selected target boundaries when ids contain separators", () => {
+    const multipleTargets = {
+      ...initialSelection,
+      items: [{ objectId: "a" }, { objectId: "b" }],
+    };
+    const singleTarget = {
+      ...initialSelection,
+      items: [{ objectId: "a|b" }],
+    };
+
+    expect(haveSameSlidesAgentScope(multipleTargets, singleTarget)).toBe(false);
+    expect(
+      buildSlidesAgentContext(multipleTargets, "deck-1").contextVersion,
+    ).not.toBe(buildSlidesAgentContext(singleTarget, "deck-1").contextVersion);
+  });
+
   it.each([
     ["deck", { ...initialSelection, deckId: "deck-2" }],
     ["slide", { ...initialSelection, slideId: "slide-2" }],

@@ -92,12 +92,12 @@ export function buildSlidesAgentContext(
     .join("\n");
   return {
     context,
-    contextVersion: [
+    contextVersion: JSON.stringify([
       deckId,
       slideId ?? "",
       slideNumber ?? "",
-      ...itemKeys,
-    ].join("|"),
+      itemKeys,
+    ]),
   };
 }
 
