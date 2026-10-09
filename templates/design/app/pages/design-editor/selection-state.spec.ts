@@ -181,6 +181,19 @@ describe("explicit overview screen selection provenance", () => {
     ).toEqual(["picked-screen"]);
   });
 
+  it("keeps a Shift-marquee Screen explicit after its owner layer is reported", () => {
+    expect(
+      updateExplicitOverviewScreenSelection({
+        previousSelectedScreenIds: ["home-screen", "hit-screen"],
+        selectedScreenIds: ["home-screen", "hit-screen"],
+        currentExplicitScreenIds: ["home-screen"],
+        ownerDerivedScreenIds: new Set(["home-screen", "hit-screen"]),
+        additive: true,
+        marqueeSelectedScreenIds: ["hit-screen"],
+      }),
+    ).toEqual(["home-screen", "hit-screen"]);
+  });
+
   it("treats a replacement selection as explicit even for the prior layer owner", () => {
     expect(
       updateExplicitOverviewScreenSelection({
