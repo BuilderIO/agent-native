@@ -306,6 +306,12 @@ function resolveView(
     return "extensions";
   }
   if (pathname === "/admin") return "admin";
+  if (
+    pathname === "/admin/integrations" ||
+    pathname.startsWith("/admin/integrations/")
+  ) {
+    return "integrations";
+  }
   if (pathname === "/admin/agents" || pathname.startsWith("/admin/agents/")) {
     return "connected-agents";
   }

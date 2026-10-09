@@ -40,6 +40,7 @@ export function normalizeOAuthReturnPath(
       const dispatchRoutes = new Set([
         "overview",
         "apps",
+        "settings",
         "metrics",
         "vault",
         "integrations",
