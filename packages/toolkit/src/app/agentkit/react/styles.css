@@ -1403,7 +1403,7 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   align-items: center;
   gap: 0.25rem;
   padding-inline: 0.25rem;
-  color: var(--muted-foreground);
+  color: var(--agentkit-text-muted);
   font-size: 0.75rem;
 }
 

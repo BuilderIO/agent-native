@@ -277,10 +277,11 @@ the query also returns ordinary replies and old polls that happen to carry the
 reaction. Take the ones that name a concrete improvement; skip the rest
 without comment.
 
-An upvote endorses a **feature or UX change** and skips only the clear-bug bar;
-it does not change ownership, reaction, verification, or question-budget rules.
-Build the smallest endorsed version, name Sid or Alice, and state requested
-versus actual behavior in the recap. Add `👀` before investigation or
+An upvote endorses an otherwise out-of-scope **feature request** and skips only
+the clear-bug bar; it does not change ownership, reaction, verification, or
+question-budget rules. Subjective UX proposals remain review-only as above.
+Build the smallest eligible endorsed version, name Sid or Alice, and state
+requested versus actual behavior in the recap. Add `👀` before investigation or
 delegation and read it back. Keep it evidence-limited until Phase 2's four bars
 hold; then use **Shipped**, adding `✅` only if it meets **Fixed**.
 
