@@ -5,6 +5,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
 import { useActionMutation, useActionQuery } from "./use-action.js";
 
 describe("useActionMutation", () => {
@@ -146,22 +147,41 @@ describe("useActionMutation resource-scoped invalidation", () => {
     vi.unstubAllGlobals();
   });
 
+  // A batch POST gets one result per request, as the batch action answers; any
+  // other reply trips the action failure circuit and blocks later fetches.
   function actionFetchMock() {
-    return vi.fn(
-      async () =>
-        new Response(JSON.stringify({ ok: true }), {
+    return vi.fn(async (input: unknown, init?: RequestInit) => {
+      const json = (body: unknown) =>
+        new Response(JSON.stringify(body), {
           headers: { "Content-Type": "application/json" },
-        }),
-    );
+        });
+      if (
+        init?.method === "POST" &&
+        String(input).endsWith(`/${ACTION_BATCH_ACTION_NAME}`)
+      ) {
+        const { requests } = JSON.parse(String(init.body));
+        return json({
+          results: requests.map(() => ({ status: 200, body: { ok: true } })),
+        });
+      }
+      return json({ ok: true });
+    });
   }
 
+  // Two or more same-tick GETs travel as one batch POST, so the action names
+  // come from its body rather than from the URL.
   function refetchedActionNames(fetch: ReturnType<typeof actionFetchMock>) {
     return fetch.mock.calls
-      .filter(([, init]) => (init?.method ?? "GET") === "GET")
-      .map(
-        ([input]) =>
-          String(input).split("/_agent-native/actions/")[1]!.split("?")[0],
-      )
+      .flatMap(([input, init]) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (method === "POST" && url.endsWith(`/${ACTION_BATCH_ACTION_NAME}`)) {
+          const { requests } = JSON.parse(String(init?.body));
+          return requests.map((request: { action: string }) => request.action);
+        }
+        if (method !== "GET") return [];
+        return [url.split("/_agent-native/actions/")[1]!.split("?")[0]];
+      })
       .sort();
   }
 
