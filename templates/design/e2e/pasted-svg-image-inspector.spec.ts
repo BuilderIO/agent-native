@@ -483,7 +483,8 @@ test("pasted SVG is an editable sized layer and image scale mode writes object-f
       .getByRole("treeitem", { level: 4 })
       .filter({ has: page.getByRole("button", { name: "PATH", exact: true }) });
     await expect(pathRow).toBeVisible();
-    await pathRow.click();
+    await pathRow.locator("[data-layer-row-button]").click();
+    await expect(pathRow).toHaveAttribute("aria-selected", "true");
     const fillSection = page
       .getByRole("heading", { name: "Fill", exact: true })
       .locator("xpath=ancestor::section");
@@ -566,7 +567,7 @@ test("stroke gradient edits stay on the selected nested pasted-SVG shape", async
     await groupRow.getByRole("button", { name: "Expand layer" }).click();
     const shapeRows = layers.getByRole("treeitem", { level: 4 });
     await expect(shapeRows).toHaveCount(2);
-    await shapeRows.nth(0).click();
+    await shapeRows.nth(0).locator("[data-layer-row-button]").click();
     await expect(shapeRows.nth(0)).toHaveAttribute("aria-selected", "true");
 
     const stroke = page
