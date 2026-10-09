@@ -4,14 +4,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   row: null as Record<string, unknown> | null,
+  extraRows: [] as Array<Record<string, unknown>>,
   getDb: vi.fn(),
   assertAccess: vi.fn(),
   getRequestUserEmail: vi.fn(),
   resolveStorage: vi.fn(),
   storeBytes: vi.fn(),
   discardPrivateBlobs: vi.fn(),
+  deleteStagedBlobs: vi.fn(),
+  queueStagedCleanup: vi.fn(),
+  withDesignMutation: vi.fn(),
   verificationMismatch: false,
   selectCount: 0,
+  transactionSelectCount: 0,
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -36,6 +41,13 @@ vi.mock("../server/lib/replay-screenshot-blobs.js", () => ({
   discardPrivateBlobs: mocks.discardPrivateBlobs,
   resolveReplayScreenshotStorage: mocks.resolveStorage,
   storeReplayScreenshotBytesAsPrivateBlob: mocks.storeBytes,
+}));
+vi.mock("../server/lib/visual-edit-snapshot-blobs.js", () => ({
+  deleteVisualEditSnapshotBlobs: mocks.deleteStagedBlobs,
+  queueVisualEditSnapshotBlobCleanupInTransaction: mocks.queueStagedCleanup,
+}));
+vi.mock("../server/source-workspace.js", () => ({
+  withDesignSourceMutationTransaction: mocks.withDesignMutation,
 }));
 
 import action from "./stage-journey-canvas-frames.js";
@@ -102,6 +114,28 @@ function input(image = png(4, 3)) {
   };
 }
 
+function stagedRow(sizeBytes: number, boardFileId: string) {
+  return {
+    id: "jcu_existing-frame",
+    boardFileId,
+    app: "journey-canvas-stage:v2:existing-marker",
+    route: "/home",
+    replayId: "existing-replay",
+    capturedAt: "2026-10-08T12:00:00.000Z",
+    offsetMs: 1_000,
+    viewportWidth: 4,
+    viewportHeight: 3,
+    sizeBytes,
+    blobHandle: JSON.stringify({
+      id: "existing-blob",
+      provider: "private-provider-1",
+      opaque: true,
+      encrypted: false,
+    }),
+    createdAt: new Date().toISOString(),
+  };
+}
+
 const run = action.run as (
   value: unknown,
   context?: unknown,
@@ -110,6 +144,7 @@ const run = action.run as (
 describe("stage-journey-canvas-frames", () => {
   beforeEach(() => {
     mocks.row = null;
+    mocks.extraRows = [];
     mocks.getRequestUserEmail.mockReset().mockReturnValue("actor@example.test");
     mocks.assertAccess.mockReset().mockResolvedValue({
       resource: {
@@ -132,21 +167,42 @@ describe("stage-journey-canvas-frames", () => {
       sizeBytes: data.byteLength,
     }));
     mocks.discardPrivateBlobs.mockReset().mockResolvedValue(undefined);
+    mocks.deleteStagedBlobs.mockReset().mockResolvedValue(false);
+    mocks.queueStagedCleanup.mockReset().mockResolvedValue(undefined);
     mocks.verificationMismatch = false;
     mocks.selectCount = 0;
-    mocks.getDb.mockReset().mockReturnValue({
+    mocks.transactionSelectCount = 0;
+    const selectRows = (selectNumber: number) => {
+      if (selectNumber === 1) return mocks.row ? [mocks.row] : [];
+      if (mocks.row && mocks.verificationMismatch && selectNumber >= 3) {
+        return [{ ...mocks.row, app: "different-frame" }];
+      }
+      if (selectNumber === 2 || selectNumber === 3) {
+        return [...mocks.extraRows, ...(mocks.row ? [mocks.row] : [])];
+      }
+      return mocks.row ? [mocks.row] : [];
+    };
+    const tx = {
       select: vi.fn(() => {
+        const selectNumber = ++mocks.selectCount;
+        const transactionSelectNumber = ++mocks.transactionSelectCount;
         const builder = {
           from: vi.fn(() => builder),
           where: vi.fn(() => builder),
-          limit: vi.fn(async () => {
-            mocks.selectCount += 1;
-            if (!mocks.row) return [];
-            if (mocks.verificationMismatch && mocks.selectCount === 2) {
-              return [{ ...mocks.row, app: "different-frame" }];
-            }
-            return [mocks.row];
-          }),
+          orderBy: vi.fn(() => builder),
+          for: vi.fn(() => builder),
+          limit: vi.fn(() => builder),
+          then: (
+            resolve: (value: unknown[]) => unknown,
+            reject: (error: unknown) => unknown,
+          ) =>
+            Promise.resolve(
+              selectRows(
+                transactionSelectNumber === 0
+                  ? selectNumber
+                  : transactionSelectNumber,
+              ),
+            ).then(resolve, reject),
         };
         return builder;
       }),
@@ -155,13 +211,27 @@ describe("stage-journey-canvas-frames", () => {
           onConflictDoNothing: vi.fn(() => ({
             returning: vi.fn(async () => {
               if (mocks.row) return [];
-              mocks.row = row;
+              mocks.row = { ...row };
               return [{ id: row.id }];
             }),
           })),
         })),
       })),
-    });
+      delete: vi.fn(() => ({
+        where: vi.fn(async () => {
+          mocks.row = null;
+        }),
+      })),
+    };
+    mocks.getDb.mockReset().mockReturnValue(tx);
+    mocks.withDesignMutation
+      .mockReset()
+      .mockImplementation(
+        async (_designId: string, callback: (value: typeof tx) => unknown) => {
+          mocks.transactionSelectCount = 0;
+          return callback(tx);
+        },
+      );
   });
 
   it("stores native PNGs under Design ownership and keeps raw frame keys out of SQL", async () => {
@@ -204,6 +274,49 @@ describe("stage-journey-canvas-frames", () => {
     );
     expect(mocks.storeBytes).toHaveBeenCalledTimes(1);
     expect(mocks.resolveStorage).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes aged unpromoted rows and requires a fresh import id", async () => {
+    await run(input());
+    const oldBlobHandle = mocks.row?.blobHandle;
+    mocks.row!.createdAt = new Date(
+      Date.now() - 8 * 24 * 60 * 60 * 1_000,
+    ).toISOString();
+
+    await expect(run(input())).rejects.toMatchObject({
+      errorCode: "journey_staged_frame_expired",
+      statusCode: 410,
+    });
+
+    expect(mocks.queueStagedCleanup).toHaveBeenCalledWith(expect.anything(), [
+      oldBlobHandle,
+    ]);
+    expect(mocks.deleteStagedBlobs).toHaveBeenCalled();
+    expect(mocks.row).toBeNull();
+  });
+
+  it("enforces per-Design staged-byte limits across repeated imports", async () => {
+    mocks.extraRows = [
+      stagedRow(512 * 1024 * 1024, "journey-canvas-stage:older-import"),
+    ];
+
+    await expect(run(input())).rejects.toMatchObject({
+      errorCode: "journey_staging_quota_exceeded",
+      statusCode: 413,
+    });
+    expect(mocks.storeBytes).not.toHaveBeenCalled();
+  });
+
+  it("enforces the per-import byte limit before storing new frames", async () => {
+    mocks.extraRows = [
+      stagedRow(256 * 1024 * 1024, "journey-canvas-stage:import-1"),
+    ];
+
+    await expect(run(input())).rejects.toMatchObject({
+      errorCode: "journey_staging_quota_exceeded",
+      statusCode: 413,
+    });
+    expect(mocks.storeBytes).not.toHaveBeenCalled();
   });
 
   it("stores equivalent capture timestamps in canonical UTC form", async () => {

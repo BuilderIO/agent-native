@@ -453,6 +453,7 @@ describe("create-journey-canvas run", () => {
       ownerEmail: "designer@example.test",
       orgId: null,
     });
+    expect(mocks.resolveAttachment).toHaveBeenCalledTimes(4);
     expect(mocks.putPrivateBlob).toHaveBeenCalledTimes(2);
     expect(mocks.putPrivateBlob.mock.calls[0]![0]).toMatchObject({
       ownerEmail: "designer@example.test",
@@ -979,6 +980,29 @@ describe("create-journey-canvas failures", () => {
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
     expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
     expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+  });
+
+  it("rejects attachment bytes that change between bounded preflight and storage", async () => {
+    const changedPng = Buffer.from(PNG);
+    changedPng[changedPng.length - 1] = changedPng.at(-1)! ^ 1;
+    mocks.resolveAttachment
+      .mockResolvedValueOnce({ status: "ok", file: { data: PNG } })
+      .mockResolvedValueOnce({
+        status: "ok",
+        file: { data: new Uint8Array(changedPng) },
+      });
+
+    await expect(
+      action.run(
+        parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
+        {} as any,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "journey_attachment_changed_after_preflight",
+      statusCode: 409,
+    });
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
     expect(mocks.createDesign).not.toHaveBeenCalled();
   });
 

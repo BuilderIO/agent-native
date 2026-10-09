@@ -35,6 +35,7 @@ export const JOURNEY_STAGED_REPLAY_ROW_PREFIX = "jcu_";
 export const JOURNEY_BOARD_ID_PREFIX = "jc-";
 export const JOURNEY_FILENAME_PREFIX = "journey-";
 export const REPLAY_SCREENSHOT_ROUTE = "/api/design-board-replay-screenshots/";
+export const JOURNEY_STAGED_REPLAY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export const MAX_JOURNEY_NODES = 300;
 export const MAX_JOURNEY_FRAMES = 900;

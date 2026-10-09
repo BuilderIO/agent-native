@@ -122,7 +122,7 @@ function parseStagedBlobHandle(value: string): PrivateBlobHandle | null {
   return isValidReplayScreenshotBlobHandle(handle) ? handle : null;
 }
 
-function digest(value: string): string {
+function digest(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
@@ -322,7 +322,11 @@ export default defineAction({
           statusCode: 413,
         });
       }
-      const resolvedSourceAttachments = new Map<string, Uint8Array>();
+      const stagedImageBytes = totalImageBytes;
+      const preflightedSourceAttachments = new Map<
+        string,
+        { sizeBytes: number; sha256: string }
+      >();
       for (let index = 0; index < sourceAttachmentScreens.length; ) {
         const remainingImageBytes = MAX_TOTAL_IMAGE_BYTES - totalImageBytes;
         const batchSize = Math.max(
@@ -353,21 +357,56 @@ export default defineAction({
           });
         }
         for (const frame of resolved) {
-          resolvedSourceAttachments.set(frame.rowId, frame.data);
+          preflightedSourceAttachments.set(frame.rowId, {
+            sizeBytes: frame.data.byteLength,
+            sha256: digest(frame.data),
+          });
         }
         totalImageBytes += batchBytes;
         index += batch.length;
       }
+      let uploadedImageBytes = 0;
       for (const batch of chunks(sourceAttachmentScreens, UPLOAD_CONCURRENCY)) {
+        const resolved = await Promise.all(
+          batch.map(async ({ attachment }) => ({
+            attachment: attachment!,
+            data: await resolveAttachmentScreenshotBytes({
+              attachmentRef: attachment!.ref!,
+              requesterEmail,
+            }),
+          })),
+        );
+        const batchBytes = resolved.reduce(
+          (total, frame) => total + frame.data.byteLength,
+          0,
+        );
+        const changedAttachment = resolved.find(({ attachment, data }) => {
+          const preflight = preflightedSourceAttachments.get(attachment.rowId);
+          return (
+            !preflight ||
+            preflight.sizeBytes !== data.byteLength ||
+            preflight.sha256 !== digest(data)
+          );
+        });
+        if (
+          changedAttachment ||
+          stagedImageBytes + uploadedImageBytes + batchBytes >
+            MAX_TOTAL_IMAGE_BYTES
+        ) {
+          fail(
+            changedAttachment
+              ? "A screenshot attachment changed after preflight. Retry with a stable private attachment."
+              : "The journey screenshots exceed 256 MiB in total.",
+            {
+              errorCode: changedAttachment
+                ? "journey_attachment_changed_after_preflight"
+                : "journey_screenshots_too_large",
+              statusCode: changedAttachment ? 409 : 413,
+            },
+          );
+        }
         const results = await Promise.allSettled(
-          batch.map(async ({ attachment }) => {
-            const data = resolvedSourceAttachments.get(attachment!.rowId);
-            if (!data) {
-              fail("A screenshot attachment was not verified before storage.", {
-                errorCode: "journey_attachment_preflight_failed",
-                statusCode: 503,
-              });
-            }
+          resolved.map(async ({ attachment, data }) => {
             const blob = await storeReplayScreenshotBytesAsPrivateBlob({
               data,
               blobOwnerEmail,
@@ -385,6 +424,7 @@ export default defineAction({
         );
         const rejected = results.find((result) => result.status === "rejected");
         if (rejected) throw rejected.reason;
+        uploadedImageBytes += batchBytes;
       }
 
       if (!input.designId) {
