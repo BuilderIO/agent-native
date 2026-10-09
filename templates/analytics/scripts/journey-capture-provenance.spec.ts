@@ -174,6 +174,48 @@ describe("sanitizePromptProvenanceCandidates", () => {
     }
   });
 
+  it("redacts multiword credential assignment keys", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      { role: "user", text: "API Key: fake-api-key-placeholder" },
+      { role: "user", text: "Client Secret = fake-client-secret-placeholder" },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "API Key: [REDACTED]",
+      "Client Secret = [REDACTED]",
+    ]);
+    expect(JSON.stringify(result)).not.toContain("fake-api-key-placeholder");
+    expect(JSON.stringify(result)).not.toContain(
+      "fake-client-secret-placeholder",
+    );
+  });
+
+  it("redacts provider-shaped API tokens without a key label", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      { role: "user", text: "ghp_FAKE_EXAMPLE_TOKEN_VALUE_1234567890" },
+      { role: "user", text: "AKIAFAKEEXAMPLE00000" },
+      {
+        role: "user",
+        text: "sk-proj-fake_example_token_value_1234567890",
+      },
+      { role: "user", text: "The docs mention a github token prefix." },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "[REDACTED]",
+      "[REDACTED]",
+      "[REDACTED]",
+      "The docs mention a github token prefix.",
+    ]);
+    for (const value of [
+      "ghp_FAKE_EXAMPLE_TOKEN_VALUE_1234567890",
+      "AKIAFAKEEXAMPLE00000",
+      "sk-proj-fake_example_token_value_1234567890",
+    ]) {
+      expect(JSON.stringify(result)).not.toContain(value);
+    }
+  });
+
   it("redacts complete authorization values, including unknown schemes", () => {
     const result = sanitizePromptProvenanceCandidates([
       { role: "user", text: "Authorization: Basic fake-basic-value" },

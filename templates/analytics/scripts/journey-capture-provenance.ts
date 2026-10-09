@@ -5,13 +5,15 @@ const MAX_TOTAL_CHARACTERS = 8_000;
 const AUTHORIZATION_ASSIGNMENT =
   /(["']?)(authorization|proxy-authorization|cookie2?|set-cookie)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\\r\n])*)"|'((?:\\.|[^'\\\r\n])*)'|([^\r\n]*))/gi;
 const ASSIGNMENT =
-  /(["']?)([a-z][a-z0-9_.-]*)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\r\n]*))/gi;
+  /(["']?)([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)*)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\r\n]*))/gi;
 const SPACE_SEPARATED_CREDENTIAL_FORMS = [
   /(?:^|\s)--?([a-z][a-z0-9_.-]*)[ \t]+\S/gim,
   /\bexport[ \t]+([a-z][a-z0-9_.-]*)[ \t]+\S/gi,
   /\b(?:(?:my|our|your|the)[ \t]+)?([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)?)[ \t]+(?:is|equals)[ \t]+\S/gi,
 ] as const;
 const BEARER_VALUE = /\bbearer\s+[a-z0-9._~+/-]+=*/gi;
+const PROVIDER_TOKEN =
+  /\b(?:github_pat_[a-z0-9_]{20,}|gh[pousr]_[a-z0-9_]{20,}|AKIA[A-Z0-9]{16}|ASIA[A-Z0-9]{16}|sk-proj-[a-z0-9_-]{20,}|sk-ant-[a-z0-9_-]{20,}|(?:sk|rk)_(?:live|test)_[a-z0-9]{16,}|AIza[a-z0-9_-]{35}|xox[baprs]-[a-z0-9-]{10,}|npm_[a-z0-9]{30,})\b/gi;
 const SQL_CODE_BLOCK = /```(?:sql|postgres(?:ql)?)\b[\s\S]*?```/gi;
 const SQL_STATEMENT =
   /(^|\n|\b(?:sql|query|statement)\s*:\s*)(?:select\b[\s\S]*?\bfrom\b[\s\S]*?|insert\s+into\b[\s\S]*?|update\s+[\w."\x60]+\s+set\b[\s\S]*?|delete\s+from\b[\s\S]*?|create\s+(?:table|index|view|schema)\b[\s\S]*?|alter\s+table\b[\s\S]*?|drop\s+(?:table|index|view|schema)\b[\s\S]*?|with\b[\s\S]*?\bas\b[\s\S]*?\bselect\b[\s\S]*?)(?:;|$)/i;
@@ -154,7 +156,8 @@ function redactCredentials(text: string): string {
         return `${keyQuote}${key}${keyQuote}${delimiter}${valueQuote}[REDACTED]${valueQuote}`;
       },
     )
-    .replace(BEARER_VALUE, "Bearer [REDACTED]");
+    .replace(BEARER_VALUE, "Bearer [REDACTED]")
+    .replace(PROVIDER_TOKEN, "[REDACTED]");
 }
 
 function omitSqlAndBase64Payloads(text: string): string {
