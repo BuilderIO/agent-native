@@ -1130,6 +1130,102 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     }
   });
 
+  it("preserves case-sensitive animated custom properties in keyframe fallback", async () => {
+    const css =
+      '@property --brandColor { syntax: "<angle>"; inherits: false; initial-value: 0deg; } .ruled { animation: variable-turn 4s linear infinite; } @keyframes variable-turn { from { --brandColor: 0deg; transform: rotate(0deg); } to { --brandColor: 120deg; transform: rotate(var(--brandColor)); } }';
+    const page = await openPage(css, imageHtml());
+    try {
+      const saved = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const animation = image.getAnimations()[0] as CSSAnimation;
+        // Chromium omits custom properties from getKeyframes(), so model the
+        // fallback data returned by browsers that expose authored custom keys.
+        Object.defineProperty(animation.effect!, "getKeyframes", {
+          configurable: true,
+          value: () =>
+            [
+              {
+                offset: 0,
+                easing: "linear",
+                composite: "auto",
+                "--brandColor": "0deg",
+                transform: "rotate(0deg)",
+              },
+              {
+                offset: 1,
+                easing: "linear",
+                composite: "auto",
+                "--brandColor": "120deg",
+                transform: "rotate(var(--brandColor))",
+              },
+            ] as Keyframe[],
+        });
+        animation.currentTime = 2000;
+        Object.defineProperty(document.styleSheets[0], "cssRules", {
+          configurable: true,
+          get() {
+            throw new DOMException("blocked", "SecurityError");
+          },
+        });
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return wrapped.frame.outerHTML;
+      });
+      expect(saved).toContain("--brandColor:");
+      expect(saved).not.toContain("--brand-color:");
+
+      const reopened = await openPage(css, saved);
+      const reference = await openPage(css, imageHtml());
+      try {
+        for (const time of [0, 1000, 2000, 3000]) {
+          expectSameHull(
+            await hullAt(reopened, "#frame", time),
+            await hullAt(reference, "#pic", time),
+            1,
+          );
+        }
+      } finally {
+        await reopened.close();
+        await reference.close();
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("keeps non-ASCII custom properties referenced by animated transforms", async () => {
+    const css =
+      '@property --角度 { syntax: "<angle>"; inherits: false; initial-value: 0deg; } .ruled { animation: variable-turn 4s linear infinite; } @keyframes variable-turn { from { --角度: 0deg; transform: rotate(0deg); } to { --角度: 120deg; transform: rotate(var(--角度)); } }';
+    const page = await openPage(css, imageHtml());
+    try {
+      const saved = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.getAnimations()[0].currentTime = 2000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return wrapped.frame.outerHTML;
+      });
+      expect(saved).toContain("--角度:");
+
+      const reopened = await openPage(css, saved);
+      const reference = await openPage(css, imageHtml());
+      try {
+        for (const time of [0, 1000, 2000, 3000]) {
+          expectSameHull(
+            await hullAt(reopened, "#frame", time),
+            await hullAt(reference, "#pic", time),
+            1,
+          );
+        }
+      } finally {
+        await reopened.close();
+        await reference.close();
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
   it("escapes authored keyframe values in saved crop styles", async () => {
     const page = await openPage("", imageHtml());
     try {
@@ -1436,21 +1532,27 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
         document.getElementById("pic")!.classList.add("moving"),
       );
       await page.waitForTimeout(300);
-      const painted = await hullOf(page, "#pic");
       const imageStyle = await page.evaluate(() => {
+        const rect = (element: Element) => {
+          const { left, top, width, height } = element.getBoundingClientRect();
+          return { left, top, width, height };
+        };
         const image = document.getElementById("pic") as HTMLImageElement;
+        const painted = rect(image);
         const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
         wrapped.frame.id = "frame";
         const transitionDuringCrop = getComputedStyle(image).transition;
         wrapped.restoreTransitions();
         return {
+          painted,
+          frame: rect(wrapped.frame),
           transform: getComputedStyle(image).transform,
           transitionDuringCrop,
           restoredTransition: getComputedStyle(image).transition,
         };
       });
 
-      expectSameHull(await hullOf(page, "#frame"), painted);
+      expectSameHull(imageStyle.frame, imageStyle.painted);
       expect(imageStyle.transform).toBe("none");
       expect(imageStyle.transitionDuringCrop).toBe("none");
       expect(imageStyle.restoredTransition).toMatch(/transform 1s linear/);
@@ -1462,6 +1564,100 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
           () => getComputedStyle(document.getElementById("pic")!).transform,
         ),
       ).toBe("none");
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("keeps a transform animation when an active transition masks it during crop", async () => {
+    const css =
+      "@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .ruled { transform: rotate(0deg); transition: transform 1s linear; } .moving { transform: rotate(90deg); } .animated { animation: spin 4s linear infinite; }";
+    const page = await openPage(css, imageHtml());
+    try {
+      await page.evaluate(() =>
+        document.getElementById("pic")!.classList.add("moving"),
+      );
+      await page.waitForTimeout(150);
+      const started = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.classList.add("animated");
+        const animations = image.getAnimations();
+        const transition = animations.find(
+          (animation) => "transitionProperty" in animation,
+        ) as (Animation & { transitionProperty: string }) | undefined;
+        const cssAnimation = animations.find(
+          (animation) => "animationName" in animation,
+        ) as CSSAnimation | undefined;
+        if (transition && cssAnimation)
+          cssAnimation.currentTime = transition.currentTime;
+        return {
+          animationNames: animations
+            .filter((animation) => "animationName" in animation)
+            .map((animation) => (animation as CSSAnimation).animationName),
+          transitionProperties: animations
+            .filter((animation) => "transitionProperty" in animation)
+            .map(
+              (animation) =>
+                (animation as Animation & { transitionProperty: string })
+                  .transitionProperty,
+            ),
+        };
+      });
+      expect(started.animationNames).toContain("spin");
+      expect(started.transitionProperties).toContain("transform");
+
+      const cropped = await page.evaluate(() => {
+        const rect = (element: Element) => {
+          const { left, top, width, height } = element.getBoundingClientRect();
+          return { left, top, width, height };
+        };
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const painted = rect(image);
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        const frameAnimation = wrapped.frame.getAnimations()[0] as
+          | CSSAnimation
+          | undefined;
+        const frame = rect(wrapped.frame);
+        const animationName = frameAnimation?.animationName;
+        const pausedState = frameAnimation?.playState;
+        wrapped.resumeAnimations();
+        return {
+          painted,
+          frame,
+          animationName,
+          resumedState: frameAnimation?.playState,
+          markup: wrapped.frame.outerHTML,
+          pausedState,
+        };
+      });
+      expectSameHull(cropped.frame, cropped.painted, 1);
+      expect(cropped.animationName).toMatch(/^fmd_crop_/);
+      expect(cropped.pausedState).toBe("paused");
+      expect(cropped.resumedState).toBe("running");
+
+      const reopened = await openPage(css, cropped.markup);
+      const reference = await openPage(css, imageHtml());
+      try {
+        await reference.evaluate(() =>
+          document.getElementById("pic")!.classList.add("moving"),
+        );
+        await reference.waitForTimeout(150);
+        await reference.evaluate(() =>
+          document.getElementById("pic")!.classList.add("animated"),
+        );
+        await reference.waitForTimeout(1000);
+        for (const time of [0, 1000, 2000, 3000]) {
+          expectSameHull(
+            await hullAt(reopened, "#frame", time),
+            await hullAt(reference, "#pic", time),
+            1,
+          );
+        }
+      } finally {
+        await reopened.close();
+        await reference.close();
+      }
     } finally {
       await page.close();
     }

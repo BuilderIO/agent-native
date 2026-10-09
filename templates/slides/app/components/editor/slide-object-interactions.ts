@@ -1614,7 +1614,9 @@ function keyframeProperties(animation: CSSAnimation): Set<string> {
       )
         continue;
       properties.add(
-        property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`),
+        property.startsWith("--")
+          ? property
+          : property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`),
       );
     }
   }
@@ -2285,15 +2287,13 @@ function moveSlideObjectTransform(
     ]),
   );
 
-  const activeFrameProperties = new Set(
-    winningAnimatedProperties.filter(
-      (property) => !transitionedProperties.has(property),
-    ),
-  );
+  // A canceled transition supplies the painted starting pose, but it must not
+  // hide the animation track that continues underneath it.
+  const activeFrameProperties = new Set(winningAnimatedProperties);
   // A transform keyframe that uses var(--x) must travel with the custom
   // property track that supplies it, including chained custom properties.
   const referencedCustomProperties = new Set<string>();
-  const varPattern = /var\(\s*(--[\w-]+)/g;
+  const varPattern = /var\(\s*(--(?:[\w-]|[^\u0000-\u007f])+)/g;
   for (const plan of plans) {
     const properties = keyframes.get(plan)!;
     for (const property of activeFrameProperties) {

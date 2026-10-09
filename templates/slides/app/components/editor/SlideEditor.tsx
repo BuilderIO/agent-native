@@ -7493,13 +7493,32 @@ export default function SlideEditor({
       // or written until the pointer travels past the drag threshold.
       let members: SlideObjectRotationMember[] = [];
       let originalStyles = new Map<string, string | null>();
+      let originalTransforms: Array<{
+        element: HTMLElement;
+        value: string;
+        priority: string;
+      }> = [];
       let began: "pending" | "ready" | "failed" = "pending";
       const beginRotation = () => {
         if (began !== "pending") return began === "ready";
         began = "failed";
         let targets = selectedObjects ?? [];
+        const inlineTransforms = new Map<
+          HTMLElement,
+          { value: string; priority: string }
+        >();
+        for (const target of targets) {
+          inlineTransforms.set(target, {
+            value: target.style.getPropertyValue("transform"),
+            priority: target.style.getPropertyPriority("transform"),
+          });
+        }
         if (promotionSource) {
           const element = promotionSource;
+          inlineTransforms.set(element, {
+            value: element.style.getPropertyValue("transform"),
+            priority: element.style.getPropertyPriority("transform"),
+          });
           promotion = {
             element,
             snapshot: {
@@ -7537,6 +7556,15 @@ export default function SlideEditor({
             member.element.getAttribute("style"),
           ]),
         );
+        originalTransforms = members.map((member) => {
+          const originalElement = promotionSource ?? member.element;
+          const originalTransform = inlineTransforms.get(originalElement) ??
+            inlineTransforms.get(member.element) ?? {
+              value: member.element.style.getPropertyValue("transform"),
+              priority: member.element.style.getPropertyPriority("transform"),
+            };
+          return { element: originalElement, ...originalTransform };
+        });
         began = "ready";
         return true;
       };
@@ -7553,6 +7581,11 @@ export default function SlideEditor({
       const applyDelta = (deltaDegrees: number) => {
         const plan = rotateSlideObjectMembers(members, deltaDegrees);
         if (plan.size !== members.length) return;
+        const transforms: Array<{
+          element: HTMLElement;
+          value: string;
+          priority: string;
+        }> = [];
         for (const member of members) {
           const next = plan.get(member.objectId);
           if (!next) continue;
@@ -7560,12 +7593,13 @@ export default function SlideEditor({
             member.element,
             planSlideObjectGeometry(member.element, next.geometry),
           );
-          member.element.style.setProperty(
-            "transform",
-            next.transform,
-            member.element.style.getPropertyPriority("transform"),
-          );
+          transforms.push({
+            element: member.element,
+            value: next.transform,
+            priority: member.element.style.getPropertyPriority("transform"),
+          });
         }
+        restoreSlideObjectTransformSnapshots(transforms);
         changed = Math.abs(deltaDegrees) > 0.01;
         if (multiSelection.size > 0) {
           scheduleMultiSelectionRects(multiSelection);
@@ -7596,6 +7630,7 @@ export default function SlideEditor({
             }
           }
         }
+        restoreSlideObjectTransformSnapshots(originalTransforms);
         if (multiSelection.size > 0) {
           refreshMultiSelectionRects(multiSelection);
         } else {
