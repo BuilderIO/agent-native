@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getFocusedLineupFitScale,
   getFocusedLineupFillHeight,
   getFocusedLineupScale,
   resolveFocusedLineupScreenId,
@@ -9,7 +10,7 @@ import {
 describe("resolveFocusedLineupScreenId", () => {
   const screenIds = ["a", "b", "c"];
 
-  it("prefers the selected screen, then the requested one, then the active one", () => {
+  it("prefers the requested screen, then selection, then active screen", () => {
     expect(
       resolveFocusedLineupScreenId({
         screenIds,
@@ -17,15 +18,15 @@ describe("resolveFocusedLineupScreenId", () => {
         requestedScreenId: "b",
         activeScreenId: "a",
       }),
-    ).toBe("c");
+    ).toBe("b");
     expect(
       resolveFocusedLineupScreenId({
         screenIds,
-        selectedScreenIds: [],
-        requestedScreenId: "b",
+        selectedScreenIds: ["c"],
+        requestedScreenId: null,
         activeScreenId: "a",
       }),
-    ).toBe("b");
+    ).toBe("c");
     expect(
       resolveFocusedLineupScreenId({
         screenIds,
@@ -114,6 +115,26 @@ describe("getFocusedLineupScale", () => {
         maxScale: 1,
       }),
     ).toBe(minScale);
+  });
+});
+
+describe("getFocusedLineupFitScale", () => {
+  it.each([
+    [620, 860],
+    [1100, 900],
+  ])("fits a tall screen inside a %ipx by %ipx pane", (width, height) => {
+    const scale = getFocusedLineupFitScale({
+      frameWidth: 1440,
+      frameHeight: 2560,
+      availableWidth: width,
+      availableHeight: height,
+      minScale: 0.1,
+      maxScale: 1,
+    });
+
+    expect(scale).toBeCloseTo(Math.min(width / 1440, height / 2560), 6);
+    expect(1440 * scale).toBeLessThanOrEqual(width);
+    expect(2560 * scale).toBeLessThanOrEqual(height);
   });
 });
 

@@ -117,6 +117,18 @@ jobs:
             pnpm exec playwright test --shard=${{ matrix.shard }}/8
           fi
 
+      # These specs skip themselves unless the loopback provider is on, so
+      # without this step nothing in CI proves the model receives uploaded
+      # image bytes or that an ad keeps its exact size.
+      - name: Run chat attachment and sizing loopback E2E
+        if: matrix.shard == 1
+        working-directory: templates/design
+        timeout-minutes: 15
+        env:
+          E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+          E2E_AI_SIDEBAR_LOOPBACK: "1"
+        run: pnpm exec playwright test e2e/ai-sidebar-reporter-path.spec.ts
+
       - name: Build Design for production
         if: matrix.shard == 'runtime-budget'
         working-directory: templates/design

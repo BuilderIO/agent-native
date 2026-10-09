@@ -10,6 +10,7 @@ import { getDb, schema } from "../../db/index.js";
 import {
   applyAgentJsonHeaders,
   buildPublicAgentContext,
+  describeAgentAccessFailure,
   loadAgentBugReport,
   loadAgentBrowserDiagnostics,
   loadAgentCtas,
@@ -33,8 +34,9 @@ export default defineEventHandler(async (event: H3Event) => {
   });
 
   if (!accessResult.ok) {
-    setResponseStatus(event, accessResult.failure.status);
-    return accessResult.failure.body;
+    const failure = describeAgentAccessFailure(accessResult.failure);
+    setResponseStatus(event, failure.status);
+    return failure.body;
   }
 
   const recording = accessResult.access.recording;

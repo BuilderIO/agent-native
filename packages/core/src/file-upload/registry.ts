@@ -28,18 +28,36 @@ export function listFileUploadProviders(): FileUploadProvider[] {
   return [...providers.values()];
 }
 
-/** Resolve a public upload URL only through a provider that claims ownership. */
+/**
+ * Resolve a public upload URL only through a provider that claims ownership.
+ * Each provider is checked independently: one provider whose check throws
+ * (S3 reads its config from the DB) must not hide another's positive claim, so
+ * this throws only when no provider claims the URL and at least one could not
+ * answer — "unverifiable", never reported as "not owned".
+ */
 export async function findFileUploadProviderOwningUrl(
   url: string,
 ): Promise<FileUploadProvider | null> {
-  const candidates = [...providers.values()];
-  if (!candidates.includes(builderFileUploadProvider)) {
-    candidates.push(builderFileUploadProvider);
-  }
+  const candidates = [
+    builderFileUploadProvider,
+    ...[...providers.values()].filter((p) => p !== builderFileUploadProvider),
+  ];
+  const failures: unknown[] = [];
+  const unverifiable: string[] = [];
   for (const provider of candidates) {
-    if (provider.isOwnedUrl && (await provider.isOwnedUrl(url))) {
-      return provider;
+    if (!provider.isOwnedUrl) continue;
+    try {
+      if (await provider.isOwnedUrl(url)) return provider;
+    } catch (error) {
+      failures.push(error);
+      unverifiable.push(provider.id);
     }
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures,
+      `Upload URL ownership is unverifiable: ${unverifiable.join(", ")} failed its check`,
+    );
   }
   return null;
 }

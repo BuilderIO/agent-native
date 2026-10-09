@@ -25,6 +25,7 @@ import {
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
+import { stripInlineBytes } from "../shared/inline-bytes.js";
 import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import { registerShareableResource } from "../sharing/registry.js";
 import { roleSatisfies, type ShareRole } from "../sharing/schema.js";
@@ -1034,10 +1035,13 @@ export async function forkThread(
     return null;
   }
   const id = opts?.id ?? generateId();
-  const threadData = forkThreadData(
-    source.threadData,
-    id,
-    snapshot?.fromMessageId,
+  const threadData = JSON.stringify(
+    stripInlineBytes(
+      JSON.parse(
+        forkThreadData(source.threadData, id, snapshot?.fromMessageId),
+      ),
+      "placeholder",
+    ),
   );
   const now = Date.now();
   const title = source.title ? `${source.title} (fork)` : "";
@@ -1457,7 +1461,10 @@ export async function updateThreadData(
             annotationConflicts.push(conflict),
         },
       );
-      nextThreadData = JSON.stringify(merged);
+      // Client snapshots can predate their upload URL, so inline bytes become a
+      // visible placeholder rather than failing the save; legacy rows are
+      // scrubbed on their next write.
+      nextThreadData = JSON.stringify(stripInlineBytes(merged, "placeholder"));
       nextMessageCount = countThreadMessages(merged, messageCount);
 
       const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);

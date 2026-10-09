@@ -34,7 +34,7 @@ const isoDate = z
 
 export default defineAction({
   description:
-    'Build the onboarding journey tree for a date window: per-session step sequences (signup, onboarding questions, setup method, app entry, first action, first output) folded into a prefix tree. format "tree" returns { window, app, rootN, coverage, nodes } for sessions that entered onboarding, plus standaloneSetup for Home chat integration events in sessions without onboarding; its root and percentages have a separate denominator. Each node has n, pctOfRoot, pctOfParent, dropoffN/dropoffPct (last observed step, not a confirmed exit), deeperN (sessions with a later observed step omitted below this node), and example sessions with recordingId, a recording-start-relative offsetMs, and viewport. format "summary" returns the same counts as indented outlines with no examples. Check each tree\'s coverage.truncated first: true means its event sample, requested depth, or node list cut that tree; notes explain why. Use it to plan onboarding storyboards or find where users stop. For a standalone storyboard, pass standaloneSetup as the top-level tree to journey:capture.',
+    'Return an access-scoped per-session onboarding tree through explicit saved-output events, preserving session counts and direct-parent denominators. followUpMode "session" keeps existing bounded same-session counts. "person" adds aggregate-only activity joined by direct canonical auth_user_id across first-party sessions and apps over a fixed 30-day horizon. It separates selected-session activity, outside-session/app activity and their overlap, no activity after a fully observed horizon, right-censoring, unknown identity, identity coverage, and read completeness. Its minute-aligned observationWatermark freezes event and receive time. Unknown identity and sessions without a selected step never count as inactive; no-activity is window-bounded evidence, not permanent churn. Output and attempt IDs are never returned. Check coverage.truncated before interpreting counts.',
   schema: z.object({
     dateFrom: isoDate.describe(
       "Inclusive UTC start date, YYYY-MM-DD. Sessions that began earlier appear mid-journey, so start a day before the period you care about.",
@@ -55,6 +55,13 @@ export default defineAction({
       .default("exclude_builder")
       .describe(
         'Builder-employee scope, as in the onboarding metrics: "exclude_builder" (default), "only_builder", or "all". Test identities are always excluded.',
+      ),
+    followUpMode: z
+      .enum(["session", "person"])
+      .optional()
+      .default("session")
+      .describe(
+        'Follow-up grain: "session" (default) keeps existing same-session counts; "person" adds a scoped 30-day cross-session, cross-app estimate joined only by direct canonical auth_user_id.',
       ),
     format: z
       .enum(["tree", "summary"])
@@ -184,6 +191,7 @@ export default defineAction({
         dateTo: args.dateTo,
         app: args.app,
         emailFilter: args.emailFilter,
+        followUpMode: args.followUpMode,
         format: args.format,
         maxNodes: args.maxNodes,
         maxDepth: args.maxDepth,

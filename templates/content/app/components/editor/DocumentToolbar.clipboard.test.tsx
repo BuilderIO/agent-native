@@ -34,6 +34,8 @@ vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
     typeof import("@agent-native/core/client/mcp-app-host")
   >()),
   useIsMcpAppWidgetEmbed: () => false,
+  useIsMcpDirectoryWidgetReadOnlyEmbed: () => false,
+  useIsMcpDirectoryWidgetWriteEmbed: () => false,
 }));
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),

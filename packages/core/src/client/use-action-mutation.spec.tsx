@@ -72,4 +72,64 @@ describe("useActionMutation", () => {
     await expect(result).resolves.toEqual({ ok: true });
     expect(settled).toBe(true);
   });
+
+  it.each(["static", "factory"])(
+    "passes %s request headers separately from the mutation payload",
+    async (kind) => {
+      const fetch = vi.fn().mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ ok: true }), {
+            headers: { "Content-Type": "application/json" },
+          }),
+      );
+      vi.stubGlobal("fetch", fetch);
+      let mutation:
+        | ReturnType<
+            typeof useActionMutation<Record<string, boolean>, { id: string }>
+          >
+        | undefined;
+      const requestHeaders = { "X-Content-Save-Origin": "recovery" };
+      const factory = vi.fn(() => requestHeaders);
+      function Probe() {
+        mutation = useActionMutation<Record<string, boolean>, { id: string }>(
+          "save-record",
+          {
+            headers: kind === "static" ? requestHeaders : factory,
+            skipActionQueryInvalidation: true,
+          },
+        );
+        return null;
+      }
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      containers.push(container);
+      const root = createRoot(container);
+      roots.push(root);
+      const queryClient = new QueryClient({
+        defaultOptions: { mutations: { retry: false } },
+      });
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <Probe />
+          </QueryClientProvider>,
+        ),
+      );
+      const payload = { id: "page" };
+      await act(async () => {
+        await expect(mutation!.mutateAsync(payload)).resolves.toEqual({
+          ok: true,
+        });
+      });
+      expect(fetch).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          body: JSON.stringify(payload),
+          headers: expect.objectContaining(requestHeaders),
+        }),
+      );
+      if (kind === "factory") expect(factory).toHaveBeenCalledWith(payload);
+      expect(payload).toEqual({ id: "page" });
+    },
+  );
 });

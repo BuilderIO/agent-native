@@ -9,8 +9,13 @@ import {
 } from "./first-party-analytics.js";
 import {
   buildOnboardingJourneyEventsSql,
+  buildOnboardingJourneyFollowupSql,
+  buildOnboardingJourneyPersonFollowupSql,
   isCalendarDate,
   type OnboardingJourneyEventsFilters,
+  type OnboardingJourneyObservationWindow,
+  type OnboardingJourneyPersonMember,
+  type OnboardingJourneyTerminalStep,
 } from "./first-party-metric-catalog.js";
 
 const { PGlite } = createRequire(
@@ -53,6 +58,7 @@ describe("onboarding journey events SQL", () => {
         user_key text,
         session_id text,
         timestamp text NOT NULL,
+        received_at text NOT NULL,
         event_date text,
         app text,
         template text,
@@ -67,7 +73,7 @@ describe("onboarding journey events SQL", () => {
   }
 
   async function insert(
-    sessionId: string,
+    sessionId: string | null,
     eventName: string,
     second: number,
     options: {
@@ -82,13 +88,13 @@ describe("onboarding journey events SQL", () => {
     const stamp = `${date}T12:00:${String(second).padStart(2, "0")}.000Z`;
     await client.query(
       `INSERT INTO analytics_events
-        (id, event_name, user_id, anonymous_id, session_id, timestamp, event_date, app, template, hostname, path, properties)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, 'clips.agent-native.com', $9, $10)`,
+        (id, event_name, user_id, anonymous_id, session_id, timestamp, received_at, event_date, app, template, hostname, path, properties)
+       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $8, 'clips.agent-native.com', $9, $10)`,
       [
         `ev-${nextId++}`,
         eventName,
         options.email ?? null,
-        `anon-${sessionId}`,
+        `anon-${sessionId ?? "missing"}`,
         sessionId,
         stamp,
         date,
@@ -111,11 +117,69 @@ describe("onboarding journey events SQL", () => {
     };
   }
 
+  function observation(
+    overrides: Partial<OnboardingJourneyObservationWindow> = {},
+  ): OnboardingJourneyObservationWindow {
+    const nextDate = new Date(
+      Date.parse(`${today}T00:00:00Z`) + 24 * 60 * 60 * 1000,
+    )
+      .toISOString()
+      .slice(0, 10);
+    const observationCutoff =
+      overrides.observationCutoff ?? `${nextDate}T00:00:00.000Z`;
+    return {
+      observationCutoff,
+      observationDate:
+        overrides.observationDate ?? observationCutoff.slice(0, 10),
+      observationWatermark: overrides.observationWatermark ?? observationCutoff,
+      ...overrides,
+    };
+  }
+
   async function run(
     overrides: Partial<OnboardingJourneyEventsFilters> = {},
     page = { limit: 1000, offset: 0 },
+    window = observation(),
   ) {
-    const sql = buildOnboardingJourneyEventsSql(filters(overrides), page);
+    const sql = buildOnboardingJourneyEventsSql(
+      filters(overrides),
+      page,
+      window,
+    );
+    const scoped = scopedAnalyticsSql(sql, SCOPE);
+    const result = (await client.query(scoped.sql, scoped.args)) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    return result.rows;
+  }
+
+  async function runFollowup(
+    terminals: readonly OnboardingJourneyTerminalStep[],
+    filterOverrides: Partial<OnboardingJourneyEventsFilters> = {},
+    window = observation(),
+  ) {
+    const sql = buildOnboardingJourneyFollowupSql(
+      filters(filterOverrides),
+      terminals,
+      window,
+    );
+    const scoped = scopedAnalyticsSql(sql, SCOPE);
+    const result = (await client.query(scoped.sql, scoped.args)) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    return result.rows;
+  }
+
+  async function runPersonFollowup(
+    members: readonly OnboardingJourneyPersonMember[],
+    filterOverrides: Partial<OnboardingJourneyEventsFilters> = {},
+    window = observation(),
+  ) {
+    const sql = buildOnboardingJourneyPersonFollowupSql(
+      filters(filterOverrides),
+      members,
+      window,
+    );
     const scoped = scopedAnalyticsSql(sql, SCOPE);
     const result = (await client.query(scoped.sql, scoped.args)) as {
       rows: Array<Record<string, unknown>>;
@@ -164,14 +228,271 @@ describe("onboarding journey events SQL", () => {
     });
   }
 
-  it("is accepted by the first-party validators and BigQuery translation", async () => {
+  it("validates and translates both frozen journey and follow-up reads", async () => {
     await setup();
-    const sql = buildOnboardingJourneyEventsSql(filters(), {
-      limit: 10,
-      offset: 0,
+    const window = observation();
+    const journeySql = buildOnboardingJourneyEventsSql(
+      filters(),
+      { limit: 10, offset: 0 },
+      window,
+    );
+    const followupSql = buildOnboardingJourneyFollowupSql(
+      filters(),
+      [
+        {
+          sessionId: "session-1",
+          stepKey: "step:role",
+          tsMs: Date.parse(`${today}T12:00:00.000Z`),
+        },
+      ],
+      window,
+    );
+    const personFollowupSql = buildOnboardingJourneyPersonFollowupSql(
+      filters(),
+      [
+        {
+          sessionId: "session-1",
+          stepKey: "step:role",
+          tsMs: Date.parse(`${today}T12:00:00.000Z`),
+          app: "clips",
+          authUserId: "person-1",
+        },
+      ],
+      observation({ observationWatermark: window.observationCutoff }),
+    );
+    for (const sql of [journeySql, followupSql, personFollowupSql]) {
+      expect(() => validateFirstPartyAnalyticsSql(sql)).not.toThrow();
+      expect(() => assertFirstPartyAnalyticsBigQuerySql(sql)).not.toThrow();
+      expect(sql).toContain(window.observationCutoff);
+    }
+  });
+
+  it("keeps template-like terminal values literal and aggregates activity once per session", async () => {
+    await setup();
+    const sql = buildOnboardingJourneyFollowupSql(
+      filters(),
+      [
+        {
+          sessionId: "session-{{unknown}}-{{timeRange}}",
+          stepKey: "step:{{observationCutoff}}",
+          tsMs: Date.parse(`${today}T12:00:00.000Z`),
+        },
+      ],
+      observation(),
+    );
+
+    expect(sql).toContain("'session-{{unknown}}-{{timeRange}}' AS session_id");
+    expect(sql).toContain("'step:{{observationCutoff}}' AS terminal_step_key");
+    expect(sql).toContain(
+      "MAX(later.timestamp::timestamptz) AS last_activity_at",
+    );
+    expect(sql).not.toContain("WHEN EXISTS (");
+  });
+
+  it("uses the same date, app, test, Builder, identity, and cutoff scope for later activity", async () => {
+    await setup();
+    await seedSessions();
+    await insert("identity-switch", "signup", 3, {
+      email: "eve@example.com",
     });
-    expect(() => validateFirstPartyAnalyticsSql(sql)).not.toThrow();
-    expect(() => assertFirstPartyAnalyticsBigQuerySql(sql)).not.toThrow();
+    await insert("identity-switch", "onboarding_step_viewed", 4, {
+      email: "eve@example.com",
+      properties: { flow: "first_run", step_id: "role" },
+    });
+    // The selected terminal step is authenticated; this later native event is
+    // anonymous in the same session and therefore has a different funnel key.
+    await insert("identity-switch", "button_click", 5);
+    await insert("no-later", "signup", 3, { email: "frank@example.com" });
+    await insert("no-later", "onboarding_step_viewed", 4, {
+      email: "frank@example.com",
+      properties: { flow: "first_run", step_id: "role" },
+    });
+    // An event exactly at the exclusive cutoff is not observed.
+    await insert("no-later", "button_click", 6);
+
+    const terminals = [
+      "normal",
+      "identity-switch",
+      "no-later",
+      "employee",
+      "qa",
+      "old",
+      "design",
+    ].map(
+      (sessionId): OnboardingJourneyTerminalStep => ({
+        sessionId,
+        stepKey: "step:role",
+        tsMs: Date.parse(`${today}T12:00:04.000Z`),
+      }),
+    );
+    const cutoff = `${today}T12:00:06.000Z`;
+    const window = observation({ observationCutoff: cutoff });
+    const rows = await runFollowup(terminals, { app: "clips" }, window);
+
+    expect(rows).toEqual([
+      {
+        terminal_step_key: "step:role",
+        cohort_sessions: 3,
+        later_recorded_activity: 2,
+      },
+    ]);
+    const journeyRows = await run({ app: "clips" }, undefined, window);
+    expect(sessionsOf(journeyRows)).toEqual([
+      "identity-switch",
+      "no-later",
+      "normal",
+    ]);
+  });
+
+  it("classifies canonical people across sessions and first-party apps within a fixed horizon", async () => {
+    await setup();
+    const terminalAt = Date.parse(`${today}T12:00:04.000Z`);
+    const oldTerminalAt = Date.parse(`${longAgo}T12:00:04.000Z`);
+    await insert("same-session", "button_click", 5, {
+      email: "same@example.com",
+      properties: { auth_user_id: "person-same" },
+    });
+    await insert("both-selected", "button_click", 5, {
+      email: "both@example.com",
+      properties: { auth_user_id: "person-both" },
+    });
+    await insert("other-app", "button_click", 6, {
+      email: "outside@example.com",
+      template: "design",
+      properties: { auth_user_id: "person-outside" },
+    });
+    await insert("both-outside", "button_click", 6, {
+      email: "both@example.com",
+      template: "design",
+      properties: { auth_user_id: "person-both" },
+    });
+    await insert("unavailable", "button_click", 7);
+    await insert("builder-activity", "button_click", 8, {
+      email: "dev@builder.io",
+      template: "design",
+      properties: { auth_user_id: "person-outside" },
+    });
+    await insert("test-identity-activity", "button_click", 9, {
+      email: "qa+autoz1@example.com",
+      template: "design",
+      properties: { auth_user_id: "person-outside" },
+    });
+
+    const members: OnboardingJourneyPersonMember[] = [
+      {
+        sessionId: "same-session",
+        stepKey: "step:role",
+        tsMs: terminalAt,
+        app: "clips",
+        authUserId: "person-same",
+      },
+      {
+        sessionId: "both-selected",
+        stepKey: "step:role",
+        tsMs: terminalAt,
+        app: "clips",
+        authUserId: "person-both",
+      },
+      {
+        sessionId: "outside-terminal",
+        stepKey: "step:role",
+        tsMs: terminalAt,
+        app: "clips",
+        authUserId: "person-outside",
+      },
+      {
+        sessionId: "no-activity",
+        stepKey: "step:role",
+        tsMs: oldTerminalAt,
+        app: "clips",
+        authUserId: "person-no-activity",
+      },
+      {
+        sessionId: "censored",
+        stepKey: "step:role",
+        tsMs: terminalAt,
+        app: "clips",
+        authUserId: "person-censored",
+      },
+      {
+        sessionId: "unavailable",
+        stepKey: "step:role",
+        tsMs: terminalAt,
+        app: "clips",
+        authUserId: null,
+      },
+    ];
+    const watermark = observation({
+      observationWatermark: `${new Date(Date.parse(`${today}T00:00:00Z`) + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}T00:00:00.000Z`,
+    });
+    const rows = await runPersonFollowup(members, { app: "clips" }, watermark);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      terminal_step_key: "step:role",
+      canonical_people: 5,
+      identity_unavailable_sessions: 1,
+      later_activity_in_selected_session: 2,
+      later_activity_outside_selected_session_or_app: 2,
+      later_activity_in_both_selected_and_outside: 1,
+      later_activity_observed_anywhere: 3,
+      no_activity_observed_within_horizon: 1,
+      right_censored_horizon: 1,
+      fully_observed_canonical_people: 1,
+      identity_unavailable_with_selected_session_activity: 1,
+      identity_unavailable_with_outside_session_or_app_activity: 0,
+    });
+  });
+
+  it("keeps Builder filtering session-scoped and counts sessionless activity as outside", async () => {
+    await setup();
+    const terminalAt = Date.parse(`${today}T12:00:02.000Z`);
+    await insert("builder-cohort", "onboarding_step_viewed", 2, {
+      email: "dev@builder.io",
+      properties: {
+        flow: "first_run",
+        step_id: "role",
+        auth_user_id: "person-builder",
+      },
+    });
+    await insert("builder-cohort", "button_click", 3, {
+      properties: { auth_user_id: "person-builder" },
+    });
+    await insert(null, "button_click", 4, {
+      email: "dev@builder.io",
+      template: "design",
+      properties: { auth_user_id: "person-builder" },
+    });
+    await insert("unclassified-session", "button_click", 5, {
+      template: "design",
+      properties: { auth_user_id: "person-builder" },
+    });
+
+    const rows = await runPersonFollowup(
+      [
+        {
+          sessionId: "builder-cohort",
+          stepKey: "step:role",
+          tsMs: terminalAt,
+          app: "clips",
+          authUserId: "person-builder",
+        },
+      ],
+      { emailFilter: "only_builder" },
+      observation({
+        observationWatermark: `${new Date(Date.parse(`${today}T00:00:00Z`) + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}T00:00:00.000Z`,
+      }),
+    );
+
+    expect(rows).toMatchObject([
+      {
+        canonical_people: 1,
+        later_activity_in_selected_session: 1,
+        later_activity_outside_selected_session_or_app: 1,
+        later_activity_in_both_selected_and_outside: 1,
+        later_activity_observed_anywhere: 1,
+      },
+    ]);
   });
 
   it("selects renderable Design output events for onboarding sessions", async () => {
@@ -192,6 +513,295 @@ describe("onboarding journey events SQL", () => {
       "signup",
       "design_output_created",
     ]);
+  });
+
+  it("links a sessionless saved Clip only through one exact cohort output and attempt pair", async () => {
+    await setup();
+    const exactLink = {
+      output_id: "clip-exact",
+      recording_attempt_id: "attempt-exact",
+    };
+    await insert("exact-session", "signup", 1, {
+      email: "alice@example.com",
+    });
+    await insert("exact-session", "recording_started", 2, {
+      properties: exactLink,
+    });
+    await insert("exact-session", "recording_started", 3, {
+      properties: exactLink,
+    });
+    await insert(null, "recording_ready", 4, {
+      properties: {
+        ...exactLink,
+        output_type: "clip",
+      },
+    });
+
+    const ambiguousLink = {
+      output_id: "clip-ambiguous",
+      recording_attempt_id: "attempt-ambiguous",
+    };
+    for (const sessionId of ["ambiguous-a", "ambiguous-b"]) {
+      await insert(sessionId, "signup", 5, {
+        email: `${sessionId}@example.com`,
+      });
+      await insert(sessionId, "recording_started", 6, {
+        properties: ambiguousLink,
+      });
+    }
+    await insert(null, "recording_ready", 7, {
+      properties: {
+        ...ambiguousLink,
+        output_type: "clip",
+      },
+    });
+    await insert(null, "recording_ready", 8, {
+      properties: {
+        output_id: "clip-unmatched",
+        recording_attempt_id: "attempt-unmatched",
+        output_type: "clip",
+      },
+    });
+    await insert("wrong-attempt", "signup", 9, {
+      email: "wrong@example.com",
+    });
+    await insert("wrong-attempt", "recording_started", 10, {
+      properties: {
+        output_id: "clip-same-output",
+        recording_attempt_id: "attempt-one",
+      },
+    });
+    await insert(null, "recording_ready", 11, {
+      properties: {
+        output_id: "clip-same-output",
+        recording_attempt_id: "attempt-two",
+        output_type: "clip",
+      },
+    });
+
+    const rows = await run({ app: "clips" });
+    const readyRows = rows.filter(
+      (row) => row.event_name === "recording_ready",
+    );
+
+    expect(readyRows.map((row) => row.session_id)).toEqual(["exact-session"]);
+    expect(readyRows[0]).toMatchObject({ attempt_id: "attempt-exact" });
+    expect(readyRows[0]).not.toHaveProperty("output_id");
+    expect(readyRows[0]).not.toHaveProperty("recording_attempt_id");
+  });
+
+  it("links a sessionless Slide completion through its exact viewed output and attempt", async () => {
+    await setup();
+    await insert("slides-session", "signup", 1, {
+      email: "slides@example.com",
+      template: "slides",
+    });
+    await insert("slides-session", "output_viewed", 2, {
+      template: "slides",
+      properties: {
+        output_id: "deck-1",
+        output_type: "deck",
+        generation_attempt_id: "attempt-1",
+      },
+    });
+    await insert(null, "generation_completed", 3, {
+      template: "slides",
+      properties: {
+        output_id: "deck-1",
+        output_type: "deck",
+        generation_attempt_id: "attempt-1",
+      },
+    });
+    await insert(null, "generation_failed", 4, {
+      template: "slides",
+      properties: {
+        output_id: "deck-2",
+        output_type: "deck",
+        generation_attempt_id: "attempt-2",
+      },
+    });
+    await insert(null, "generation_outcome_unresolved", 5, {
+      template: "slides",
+      properties: {
+        output_id: "deck-3",
+        output_type: "deck",
+        generation_attempt_id: "attempt-3",
+      },
+    });
+    await insert("slides-session", "deck_edited", 6, {
+      template: "slides",
+      properties: { output_id: "deck-2", output_type: "deck" },
+    });
+
+    const rows = await run({ app: "slides" });
+
+    expect(rows.map((row) => [row.event_name, row.session_id])).toEqual([
+      ["signup", "slides-session"],
+      ["generation_completed", "slides-session"],
+    ]);
+    expect(rows.some((row) => row.event_name === "output_viewed")).toBe(false);
+    expect(rows.some((row) => row.event_name === "deck_edited")).toBe(false);
+    expect(rows.some((row) => row.event_name === "generation_failed")).toBe(
+      false,
+    );
+    expect(
+      rows.some((row) => row.event_name === "generation_outcome_unresolved"),
+    ).toBe(false);
+    expect(rows[1]).toMatchObject({ attempt_id: "attempt-1" });
+    expect(rows.some((row) => row.generation_attempt_id)).toBe(false);
+    expect(rows.some((row) => row.output_id)).toBe(false);
+  });
+
+  it("links a new sessionless Slide completion from its accepted attempt", async () => {
+    await setup();
+    const attempt = {
+      generation_attempt_id: "initial-attempt",
+    };
+    await insert("initial-deck", "signup", 1, {
+      email: "initial@example.com",
+      template: "Slides",
+    });
+    await insert("initial-deck", "generation_started", 2, {
+      template: "Slides",
+      properties: attempt,
+    });
+    await insert("initial-deck", "generation_request_accepted", 3, {
+      template: "SLIDES",
+      properties: { ...attempt, output_id: "new-deck" },
+    });
+    await insert(null, "generation_completed", 4, {
+      template: "sLiDeS",
+      properties: {
+        ...attempt,
+        output_id: "new-deck",
+        output_type: "deck",
+      },
+    });
+
+    const rows = await run({ app: "slides" });
+
+    expect(rows.map((row) => [row.event_name, row.session_id])).toEqual([
+      ["signup", "initial-deck"],
+      ["generation_started", "initial-deck"],
+      ["generation_request_accepted", "initial-deck"],
+      ["generation_completed", "initial-deck"],
+    ]);
+    expect(rows.every((row) => row.template_name === "slides")).toBe(true);
+    expect(rows.some((row) => row.output_id)).toBe(false);
+    expect(rows.some((row) => row.generation_attempt_id)).toBe(false);
+  });
+
+  it("preserves sessionless Slides attempt outcomes by exact output and attempt", async () => {
+    await setup();
+    await insert("slides-retry", "signup", 1, {
+      email: "retry@example.com",
+      template: "slides",
+    });
+    const exactAttempts = [
+      ["retry-deck", "failed-attempt"],
+      ["retry-deck", "retry-attempt"],
+      ["unresolved-deck", "unresolved-attempt"],
+      ["accepted-deck", "accepted-attempt"],
+      ["stuck-deck", "stuck-attempt"],
+      ["cancelled-deck", "cancelled-attempt"],
+      ["abandoned-deck", "abandoned-attempt"],
+      ["complete-deck", "complete-attempt"],
+      ["absent-deck", "absent-attempt"],
+    ] as const;
+    for (const [outputId, attemptId] of exactAttempts) {
+      await insert("slides-retry", "generation_started", 2, {
+        template: "slides",
+        properties: {
+          output_id: outputId,
+          output_type: "deck",
+          generation_attempt_id: attemptId,
+        },
+      });
+    }
+
+    const sessionlessEvents = [
+      ["generation_failed", "retry-deck", "failed-attempt", {}],
+      [
+        "generation_outcome_unresolved",
+        "unresolved-deck",
+        "unresolved-attempt",
+        { persisted_output: true },
+      ],
+      ["generation_request_accepted", "accepted-deck", "accepted-attempt", {}],
+      ["generation_stuck", "stuck-deck", "stuck-attempt", {}],
+      ["generation_cancelled", "cancelled-deck", "cancelled-attempt", {}],
+      ["generation_abandoned", "abandoned-deck", "abandoned-attempt", {}],
+      ["generation_completed", "retry-deck", "retry-attempt", {}],
+      ["generation_completed", "complete-deck", "complete-attempt", {}],
+      // A retry reuses the deck ID, so its exact attempt ID must also match.
+      ["generation_completed", "retry-deck", "missing-attempt", {}],
+    ] as const;
+    for (const [eventName, outputId, attemptId, extra] of sessionlessEvents) {
+      await insert(null, eventName, 3, {
+        template: "slides",
+        properties: {
+          output_id: outputId,
+          output_type: "deck",
+          generation_attempt_id: attemptId,
+          ...extra,
+        },
+      });
+    }
+
+    for (const sessionId of ["ambiguous-a", "ambiguous-b"]) {
+      await insert(sessionId, "signup", 4, {
+        email: `${sessionId}@example.com`,
+        template: "slides",
+      });
+      await insert(sessionId, "generation_started", 5, {
+        template: "slides",
+        properties: {
+          output_id: "ambiguous-deck",
+          output_type: "deck",
+          generation_attempt_id: "ambiguous-attempt",
+        },
+      });
+    }
+    await insert(null, "generation_completed", 6, {
+      template: "slides",
+      properties: {
+        output_id: "ambiguous-deck",
+        output_type: "deck",
+        generation_attempt_id: "ambiguous-attempt",
+      },
+    });
+
+    const rows = await run({ app: "slides" });
+    const linked = rows
+      .filter((row) => row.session_id === "slides-retry")
+      .map((row) => row.event_name);
+
+    expect(linked).toContain("generation_failed");
+    expect(linked).toContain("generation_outcome_unresolved");
+    expect(linked).toContain("generation_request_accepted");
+    expect(linked).toContain("generation_stuck");
+    expect(linked).toContain("generation_cancelled");
+    expect(linked).toContain("generation_abandoned");
+    expect(linked).toContain("generation_completed");
+    expect(
+      rows.filter((row) => row.event_name === "generation_completed"),
+    ).toHaveLength(2);
+    expect(
+      rows.some(
+        (row) =>
+          row.session_id === "ambiguous-a" &&
+          row.event_name === "generation_completed",
+      ),
+    ).toBe(false);
+    expect(
+      rows.some(
+        (row) =>
+          row.session_id === "ambiguous-b" &&
+          row.event_name === "generation_completed",
+      ),
+    ).toBe(false);
+    expect(rows.some((row) => row.output_id)).toBe(false);
+    expect(rows.some((row) => row.generation_attempt_id)).toBe(false);
   });
 
   it("returns standalone chat setup sessions outside onboarding denominators", async () => {
@@ -252,6 +862,28 @@ describe("onboarding journey events SQL", () => {
     ]);
     expect(normal[0]).toMatchObject({ path: "/sign-in" });
     expect(normal[3]).toMatchObject({ step_id: "role", method_id: null });
+  });
+
+  it("selects attempt ids only as an internal journey field", async () => {
+    await setup();
+    await insert("slides", "signup", 1, {
+      email: "person@example.com",
+      template: "slides",
+    });
+    await insert("slides", "generation_started", 2, {
+      template: "slides",
+      properties: { generation_attempt_id: "private-generation-attempt" },
+    });
+
+    const rows = await run({ app: "slides" });
+    const started = rows.find((row) => row.event_name === "generation_started");
+
+    expect(started).toMatchObject({
+      session_id: "slides",
+      attempt_id: "private-generation-attempt",
+    });
+    expect(started).not.toHaveProperty("generation_attempt_id");
+    expect(started).not.toHaveProperty("properties");
   });
 
   it("selects Builder aliases and custom-key outcomes without returning raw properties", async () => {
@@ -360,6 +992,9 @@ describe("onboarding journey events SQL", () => {
     expect(Object.keys(builderRows[2]!).sort()).toEqual([
       "action",
       "alias_id",
+      "app",
+      "attempt_id",
+      "auth_user_id",
       "event_name",
       "flow",
       "id",
@@ -371,6 +1006,7 @@ describe("onboarding journey events SQL", () => {
       "source",
       "step_id",
       "step_index",
+      "template_name",
       "timestamp",
     ]);
     expect(builderRows[2]).not.toHaveProperty("ignored");
