@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
   getDb: vi.fn(),
+  getQuery: vi.fn(),
   getRouterParam: vi.fn(),
   getSession: vi.fn(),
   readPrivateBlob: vi.fn(),
@@ -48,6 +49,7 @@ vi.mock("h3", () => ({
     statusMessage: string;
   }) => Object.assign(new Error(statusMessage), { statusCode, statusMessage }),
   defineEventHandler: (handler: unknown) => handler,
+  getQuery: mocks.getQuery,
   getRouterParam: mocks.getRouterParam,
   setResponseHeader: mocks.setResponseHeader,
 }));
@@ -95,6 +97,7 @@ describe("GET /api/design-board-replay-screenshots/:screenshotId", () => {
       orgId: "org-id",
     });
     mocks.getRouterParam.mockReturnValue("screenshot-id");
+    mocks.getQuery.mockReturnValue({});
     mocks.runWithRequestContext.mockImplementation((_context, callback) =>
       callback(),
     );
@@ -134,17 +137,11 @@ describe("GET /api/design-board-replay-screenshots/:screenshotId", () => {
     expect(mocks.setResponseHeader).toHaveBeenCalledWith(
       expect.anything(),
       "Cross-Origin-Resource-Policy",
-      "cross-origin",
-    );
-    const policyHeaderCall = mocks.setResponseHeader.mock.calls.findIndex(
-      ([, name]) => name === "Cross-Origin-Resource-Policy",
-    );
-    expect(mocks.readPrivateBlob.mock.invocationCallOrder[0]!).toBeLessThan(
-      mocks.setResponseHeader.mock.invocationCallOrder[policyHeaderCall]!,
+      "same-origin",
     );
   });
 
-  it("does not relax resource policy when private blob integrity checks fail", async () => {
+  it("keeps the same-origin resource policy when private blob integrity checks fail", async () => {
     mocks.readPrivateBlob.mockResolvedValue({
       data: new Uint8Array([...imageData, 0]),
       mimeType: "image/png",
@@ -155,14 +152,14 @@ describe("GET /api/design-board-replay-screenshots/:screenshotId", () => {
       statusMessage: "Stored screenshot failed integrity checks",
     });
 
-    expect(mocks.setResponseHeader).not.toHaveBeenCalledWith(
+    expect(mocks.setResponseHeader).toHaveBeenCalledWith(
       expect.anything(),
       "Cross-Origin-Resource-Policy",
-      expect.anything(),
+      "same-origin",
     );
   });
 
-  it("does not relax resource policy or read a screenshot when viewer access is denied", async () => {
+  it("keeps the same-origin resource policy and does not read a screenshot when viewer access is denied", async () => {
     mocks.assertAccess.mockRejectedValue(
       Object.assign(new Error("Forbidden"), {
         statusCode: 403,
@@ -176,11 +173,23 @@ describe("GET /api/design-board-replay-screenshots/:screenshotId", () => {
     });
 
     expect(mocks.readPrivateBlob).not.toHaveBeenCalled();
-    expect(mocks.setResponseHeader).not.toHaveBeenCalledWith(
+    expect(mocks.setResponseHeader).toHaveBeenCalledWith(
       expect.anything(),
       "Cross-Origin-Resource-Policy",
-      expect.anything(),
+      "same-origin",
     );
+  });
+
+  it("rejects a parent bridge scope that does not own the screenshot", async () => {
+    mocks.getQuery.mockReturnValue({ designId: "another-design-id" });
+
+    await expect(handler(makeEvent() as never)).rejects.toMatchObject({
+      statusCode: 404,
+      statusMessage: "Screenshot not found",
+    });
+
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.readPrivateBlob).not.toHaveBeenCalled();
   });
 
   it("rejects fallback handles without both prefixes and encryption", async () => {

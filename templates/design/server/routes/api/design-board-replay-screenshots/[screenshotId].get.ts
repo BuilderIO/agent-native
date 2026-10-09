@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
+  getQuery,
   getRouterParam,
   setResponseHeader,
 } from "h3";
@@ -42,6 +43,7 @@ function parsePrivateBlobHandle(value: string): PrivateBlobHandle {
 }
 
 export default defineEventHandler(async (event) => {
+  setResponseHeader(event, "Cross-Origin-Resource-Policy", "same-origin");
   setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
   setResponseHeader(event, "Pragma", "no-cache");
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
@@ -76,6 +78,18 @@ export default defineEventHandler(async (event) => {
         .where(eq(schema.designBoardReplayScreenshots.id, screenshotId))
         .limit(1);
       if (!screenshot) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: "Screenshot not found",
+        });
+      }
+
+      const requestedDesignId = getQuery(event).designId;
+      if (
+        requestedDesignId !== undefined &&
+        (typeof requestedDesignId !== "string" ||
+          requestedDesignId !== screenshot.designId)
+      ) {
         throw createError({
           statusCode: 404,
           statusMessage: "Screenshot not found",
@@ -139,7 +153,6 @@ export default defineEventHandler(async (event) => {
         });
       }
 
-      setResponseHeader(event, "Cross-Origin-Resource-Policy", "cross-origin");
       setResponseHeader(event, "Content-Type", screenshot.mimeType);
       setResponseHeader(event, "Content-Length", String(blob.data.byteLength));
       setResponseHeader(

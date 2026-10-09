@@ -1,59 +1,222 @@
 import { expect, test } from "@playwright/test";
 
-import { appPath } from "./helpers";
+import { e2eBaseURL } from "./base-url";
+import { E2E_MENTION_EMAIL, E2E_PASSWORD } from "./global-setup";
 
-const SCREENSHOT_PATH =
-  "/api/design-board-replay-screenshots/e2e-private-preview";
+const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SYNTHETIC_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/bksAAAAASUVORK5CYII=",
   "base64",
 );
+const NOW = "2026-10-09T12:00:00.000Z";
 
-test("loads a synthetic private replay image in the read-only presentation iframe", async ({
+function actionUrl(name: string): string {
+  return `${BASE_URL}/_agent-native/actions/${name}`;
+}
+
+test("renders an authorized private replay image in the opaque presentation frame", async ({
+  browser,
   page,
 }) => {
-  const createDesign = await page.request.post(
-    appPath("/_agent-native/actions/create-design"),
-    { data: { title: "Private screenshot preview", projectType: "prototype" } },
-  );
-  expect(createDesign.ok()).toBe(true);
-  const created = await createDesign.json();
-  const designId = created?.id ?? created?.data?.id ?? created?.design?.id;
+  const design = await page.request.post(actionUrl("create-design"), {
+    data: { title: "Private screenshot preview E2E", projectType: "prototype" },
+  });
+  expect(design.ok(), await design.text()).toBe(true);
+  const designBody = await design.json();
+  const designId =
+    designBody?.id ?? designBody?.data?.id ?? designBody?.design?.id;
   expect(designId).toBeTruthy();
 
+  const viewerContext = await browser.newContext();
+  const deniedContext = await browser.newContext();
+
   try {
-    const createFile = await page.request.post(
-      appPath("/_agent-native/actions/create-file"),
+    const staged = await page.request.post(
+      actionUrl("stage-journey-canvas-frames"),
       {
         data: {
           designId,
-          filename: "index.html",
-          fileType: "html",
-          content: `<!doctype html><html><body><img data-e2e-private-preview alt="" width="1" height="1" src="${SCREENSHOT_PATH}"></body></html>`,
+          importId: `private-preview-${Date.now()}`,
+          frames: [
+            {
+              frameKey: "synthetic-frame",
+              replayId: "synthetic-replay",
+              app: "design",
+              route: "/synthetic-private-preview",
+              offsetMs: 0,
+              width: 1,
+              height: 1,
+              capturedAt: NOW,
+              pngBase64: SYNTHETIC_PNG.toString("base64"),
+            },
+          ],
         },
       },
     );
-    expect(createFile.ok()).toBe(true);
+    expect(staged.ok(), await staged.text()).toBe(true);
+    const stagedBody = await staged.json();
+    const stagedFrameId = stagedBody?.stagedFrames?.[0]?.stagedFrameId;
+    expect(stagedFrameId).toBeTruthy();
 
-    let imageResponseHeaders: Record<string, string> | undefined;
-    page.on("response", async (response) => {
-      if (response.url().includes(SCREENSHOT_PATH)) {
-        imageResponseHeaders = await response.allHeaders();
-      }
+    const createdCanvas = await page.request.post(
+      actionUrl("create-journey-canvas"),
+      {
+        data: {
+          title: "Synthetic private screenshot preview",
+          designId,
+          tree: {
+            window: { from: NOW, to: NOW },
+            app: "design",
+            rootN: 1,
+            coverage: {
+              sessionsWithEvents: 1,
+              sessionsWithReplay: 1,
+              truncated: false,
+            },
+            nodes: [
+              {
+                kind: "step",
+                key: "design::synthetic-preview",
+                label: "Synthetic preview",
+                parentKey: null,
+                depth: 0,
+                examples: [
+                  {
+                    sessionId: "synthetic-session",
+                    recordingId: "synthetic-replay",
+                    ts: NOW,
+                    offsetMs: 0,
+                    viewport: { width: 1, height: 1 },
+                  },
+                ],
+                n: 1,
+                pctOfRoot: 100,
+                pctOfParent: 100,
+                dropoffN: 0,
+                dropoffPct: 0,
+              },
+            ],
+          },
+          frames: [
+            {
+              nodeKey: "design::synthetic-preview",
+              sourceApp: "design",
+              route: "/synthetic-private-preview",
+              exampleIndex: 0,
+              stagedFrameId,
+              screenshotOffsetMs: 0,
+              recordingStartedAt: NOW,
+              width: 1,
+              height: 1,
+              capturedAt: NOW,
+            },
+          ],
+        },
+      },
+    );
+    expect(createdCanvas.ok(), await createdCanvas.text()).toBe(true);
+
+    const designRead = await page.request.get(actionUrl("get-design"), {
+      params: { id: designId },
     });
-    await page.route(`**${SCREENSHOT_PATH}`, (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "image/png",
-        headers: { "Cross-Origin-Resource-Policy": "cross-origin" },
-        body: SYNTHETIC_PNG,
-      }),
+    expect(designRead.ok(), await designRead.text()).toBe(true);
+    const readBody = await designRead.json();
+    const screenshotPath = (readBody?.files ?? [])
+      .map((file: { content?: string }) => file.content ?? "")
+      .map(
+        (content: string) =>
+          content.match(
+            /\/api\/design-board-replay-screenshots\/(jcs_[A-Za-z0-9_-]+)/,
+          )?.[0],
+      )
+      .find((path: string | undefined) => path);
+    expect(screenshotPath).toBeTruthy();
+
+    const createFile = await page.request.post(actionUrl("create-file"), {
+      data: {
+        designId,
+        filename: "index.html",
+        fileType: "html",
+        content: `<!doctype html><html><body><img data-e2e-private-preview alt="" width="1" height="1" src="${screenshotPath}"></body></html>`,
+      },
+    });
+    expect(createFile.ok(), await createFile.text()).toBe(true);
+
+    const grant = await page.request.post(actionUrl("share-resource"), {
+      data: {
+        resourceType: "design",
+        resourceId: designId,
+        principalType: "user",
+        principalId: E2E_MENTION_EMAIL,
+        role: "viewer",
+        notify: false,
+      },
+    });
+    expect(grant.ok(), await grant.text()).toBe(true);
+
+    const viewerLogin = await viewerContext.request.post(
+      `${BASE_URL}/_agent-native/auth/login`,
+      { data: { email: E2E_MENTION_EMAIL, password: E2E_PASSWORD } },
+    );
+    expect(viewerLogin.ok(), await viewerLogin.text()).toBe(true);
+    const viewerPage = await viewerContext.newPage();
+
+    const viewerDesign = await viewerContext.request.get(
+      actionUrl("get-design"),
+      { params: { id: designId } },
+    );
+    expect(viewerDesign.ok(), await viewerDesign.text()).toBe(true);
+    expect(await viewerDesign.json()).toMatchObject({ accessRole: "viewer" });
+
+    const scopedScreenshotUrl = `${BASE_URL}${screenshotPath}?designId=${encodeURIComponent(designId)}`;
+    const authorizedResponse =
+      await viewerContext.request.get(scopedScreenshotUrl);
+    expect(authorizedResponse.status()).toBe(200);
+    expect(authorizedResponse.headers()["cross-origin-resource-policy"]).toBe(
+      "same-origin",
+    );
+    expect((await authorizedResponse.body()).subarray(0, 8)).toEqual(
+      Buffer.from("89504e470d0a1a0a", "hex"),
     );
 
-    await page.goto(appPath(`/present/${designId}`), {
+    const deniedRegistration = await deniedContext.request.post(
+      `${BASE_URL}/_agent-native/auth/register`,
+      {
+        data: {
+          email: "bob+private-preview-e2e@local.test",
+          password: E2E_PASSWORD,
+        },
+      },
+    );
+    expect([200, 201, 409]).toContain(deniedRegistration.status());
+    const deniedLogin = await deniedContext.request.post(
+      `${BASE_URL}/_agent-native/auth/login`,
+      {
+        data: {
+          email: "bob+private-preview-e2e@local.test",
+          password: E2E_PASSWORD,
+        },
+      },
+    );
+    expect(deniedLogin.ok(), await deniedLogin.text()).toBe(true);
+    const deniedResponse = await deniedContext.request.get(scopedScreenshotUrl);
+    expect(deniedResponse.status()).toBe(403);
+    expect(deniedResponse.headers()["cross-origin-resource-policy"]).toBe(
+      "same-origin",
+    );
+
+    let screenshotResponseHeaders: Record<string, string> | undefined;
+    viewerPage.on("response", async (response) => {
+      if (new URL(response.url()).pathname === screenshotPath) {
+        screenshotResponseHeaders = await response.allHeaders();
+      }
+    });
+    await viewerPage.goto(`${BASE_URL}/present/${designId}`, {
       waitUntil: "domcontentloaded",
     });
-    const screen = page.locator("iframe[data-design-preview-iframe]").first();
+    const screen = viewerPage
+      .locator("iframe[data-design-preview-iframe]")
+      .first();
     await expect(screen).toBeVisible({ timeout: 45_000 });
     expect(await screen.getAttribute("sandbox")).not.toContain(
       "allow-same-origin",
@@ -68,13 +231,18 @@ test("loads a synthetic private replay image in the read-only presentation ifram
       )
       .toBe(1);
     await expect
-      .poll(() => imageResponseHeaders?.["cross-origin-resource-policy"])
-      .toBe("cross-origin");
+      .poll(() => screenshotResponseHeaders?.["cross-origin-resource-policy"])
+      .toBe("same-origin");
   } finally {
-    await page.request
-      .post(appPath("/_agent-native/actions/delete-design"), {
-        data: { id: designId },
-      })
-      .catch(() => undefined);
+    const deletion = await page.request.post(actionUrl("delete-design"), {
+      data: { id: designId },
+    });
+    if (!deletion.ok()) {
+      throw new Error(
+        `Could not clean up the synthetic E2E design: ${deletion.status()}`,
+      );
+    }
+    await viewerContext.close();
+    await deniedContext.close();
   }
 });

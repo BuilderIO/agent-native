@@ -24,6 +24,10 @@ import {
 } from "react-router";
 
 import { appendHitTestResponder } from "@/components/design/design-canvas/hit-test";
+import {
+  connectPrivateReplayScreenshotPreview,
+  preparePrivateReplayScreenshotPreviewDocument,
+} from "@/components/design/design-canvas/private-replay-screenshot-preview";
 import { reviewThreadIdFromHash } from "@/components/design/review-link";
 import { ReviewCommentsPanel } from "@/components/design/ReviewCommentsPanel";
 import { QueryErrorState } from "@/components/QueryErrorState";
@@ -128,6 +132,13 @@ export default function Present() {
         appendHitTestResponder(activeFile?.content ?? ""),
       ),
     [activeFile?.content],
+  );
+  const previewDocument = useMemo(
+    () =>
+      preparePrivateReplayScreenshotPreviewDocument(
+        withLocalRuntimes(reviewableContent),
+      ),
+    [reviewableContent],
   );
   const reviewCommentCount =
     readDesignReviewSummary(reviewQuery.data)?.openCount ??
@@ -271,9 +282,17 @@ export default function Present() {
       <div className="present-review-canvas h-full w-full">
         <iframe
           {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
-          srcDoc={withLocalRuntimes(reviewableContent)}
+          srcDoc={previewDocument.html}
           sandbox="allow-scripts"
           data-design-preview-iframe
+          onLoad={(event) =>
+            connectPrivateReplayScreenshotPreview(
+              event.currentTarget,
+              previewDocument.screenshotPaths,
+              previewDocument.nonce,
+              id,
+            )
+          }
           className="h-full w-full border-0"
           title={`${design.title} — ${activeFile.filename}`}
         />

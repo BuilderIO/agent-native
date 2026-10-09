@@ -42,7 +42,9 @@ jobs:
           - shard: runtime-budget
     services:
       postgres:
-        image: postgres:17-alpine
+        # Docker Official Image mirror; this OCI digest matches postgres:17-alpine.
+        # https://gallery.ecr.aws/docker/library/postgres and https://hub.docker.com/_/postgres
+        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_DB: design_e2e
           POSTGRES_HOST_AUTH_METHOD: trust

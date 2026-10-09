@@ -8,6 +8,10 @@ import {
   type CSSProperties,
 } from "react";
 
+import {
+  connectPrivateReplayScreenshotPreview,
+  preparePrivateReplayScreenshotPreviewDocument,
+} from "@/components/design/design-canvas/private-replay-screenshot-preview";
 import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "@/components/design/scaled-iframe-paint";
 import { cn } from "@/lib/utils";
 
@@ -59,11 +63,12 @@ export function TemplatePreview({
     sessionReplayVisibility.visible;
   const naturalWidth = Math.max(width ?? 1280, 320);
   const naturalHeight = Math.max(height ?? 720, 240);
-  const document = useMemo(
-    () =>
-      html ? templatePreviewDocument(html, { recordSessionReplay }) : undefined,
-    [html, recordSessionReplay],
-  );
+  const document = useMemo(() => {
+    if (!html) return undefined;
+    return preparePrivateReplayScreenshotPreviewDocument(
+      templatePreviewDocument(html, { recordSessionReplay }),
+    );
+  }, [html, recordSessionReplay]);
 
   useEffect(() => {
     if (!interactive) return;
@@ -223,11 +228,19 @@ export function TemplatePreview({
           ? { [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }
           : {})}
         title={title}
-        srcDoc={document}
+        srcDoc={document?.html}
         sandbox="allow-scripts"
         {...{ credentialless: "" }}
         referrerPolicy="no-referrer"
         loading={interactive ? "eager" : "lazy"}
+        onLoad={(event) => {
+          const frame = event.currentTarget;
+          connectPrivateReplayScreenshotPreview(
+            frame,
+            document?.screenshotPaths ?? [],
+            document?.nonce ?? null,
+          );
+        }}
         tabIndex={interactive ? 0 : -1}
         aria-hidden={!interactive || undefined}
         className={cn(

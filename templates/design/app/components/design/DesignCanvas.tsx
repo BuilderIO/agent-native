@@ -178,6 +178,10 @@ import {
   routePendingTextEditKey,
   schedulePendingTextEditActivation,
 } from "./design-canvas/pending-text-edit";
+import {
+  connectPrivateReplayScreenshotPreview,
+  preparePrivateReplayScreenshotPreviewDocument,
+} from "./design-canvas/private-replay-screenshot-preview";
 import { DeviceFrame } from "./DeviceFrame";
 import { dndHostLog } from "./dnd-debug";
 import type { RelativeStyleOperation } from "./edit-panel/style-change-types";
@@ -3409,6 +3413,14 @@ export function DesignCanvas({
     iframeSourceProvenance,
     transparentBackground,
   ]);
+
+  const privateScreenshotPreview = useMemo(
+    () =>
+      readOnly || snapshotOnly
+        ? preparePrivateReplayScreenshotPreviewDocument(srcdoc ?? "")
+        : { html: srcdoc ?? "", screenshotPaths: [], nonce: null },
+    [readOnly, snapshotOnly, srcdoc],
+  );
 
   const srcdocVersionRef = useRef({ srcdoc, version: 0 });
   if (srcdocVersionRef.current.srcdoc !== srcdoc) {
@@ -7381,7 +7393,9 @@ export function DesignCanvas({
           key={iframeElementIdentity}
           ref={iframeRef}
           src={externalPreviewUrl ?? undefined}
-          srcDoc={externalPreviewUrl ? undefined : srcdoc}
+          srcDoc={
+            externalPreviewUrl ? undefined : privateScreenshotPreview.html
+          }
           sandbox={getDesignCanvasIframeSandbox({
             externalPreview: Boolean(externalPreviewUrl),
             readOnly: readOnly || snapshotOnly,
@@ -7406,6 +7420,14 @@ export function DesignCanvas({
             );
           }}
           onLoad={(event) => {
+            if (!externalPreviewUrl) {
+              connectPrivateReplayScreenshotPreview(
+                event.currentTarget,
+                privateScreenshotPreview.screenshotPaths,
+                privateScreenshotPreview.nonce,
+                designId,
+              );
+            }
             tabFocusedLiveFrames.delete(event.currentTarget);
             markExternalPreviewDocumentLoaded();
             if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
