@@ -1620,9 +1620,11 @@ export function CommentsSidebar({
         });
       }
       if (outcome === "busy") {
+        // Restored before the delete: a delete whose response is lost may
+        // still have removed the reply, and a leftover reply is visible.
+        replyDrafts.restoreSubmittedDraft(thread.threadId, reply.operationId);
         try {
           await deleteComment.mutateAsync({ id: reply.id, documentId });
-          replyDrafts.restoreSubmittedDraft(thread.threadId, reply.operationId);
         } catch (error) {
           toast.error(t("empty.genericError"), {
             description: error instanceof Error ? error.message : undefined,

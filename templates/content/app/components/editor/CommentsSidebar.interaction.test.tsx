@@ -481,10 +481,14 @@ describe("comment review interactions", () => {
     expect(dismissResolution).toHaveBeenCalledWith("one");
   });
 
-  const sendAiReply = async (start: CommentAiController["start"]) => {
+  const sendAiReply = async (
+    start: CommentAiController["start"],
+    { removeFails = false } = {},
+  ) => {
     actions.modelsReady = true;
     actions.create.mockResolvedValue({ id: "reply-1", threadId: "one" });
-    actions.remove.mockResolvedValue(undefined);
+    if (removeFails) actions.remove.mockRejectedValue(new Error("lost"));
+    else actions.remove.mockResolvedValue(undefined);
     const commentAi = {
       requests: [],
       startingThreadIds: new Set<string>(),
@@ -537,6 +541,15 @@ describe("comment review interactions", () => {
       id: "reply-1",
       documentId: "fixture",
     });
+    expect(replyDraft.draft.text).toBe(sent);
+  });
+
+  it("restores the draft of a busy AI reply even when taking the reply back fails", async () => {
+    const sent = await sendAiReply(vi.fn().mockResolvedValue("busy"), {
+      removeFails: true,
+    });
+
+    expect(actions.remove).toHaveBeenCalledOnce();
     expect(replyDraft.draft.text).toBe(sent);
   });
 
