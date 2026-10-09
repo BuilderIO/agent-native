@@ -42,7 +42,13 @@ export interface AgentNativeBrowserSessionBridgeOptions extends AgentNativeHostR
   pollMs?: number;
   ttlMs?: number;
   fetch?: typeof fetch;
+  onError?: (
+    error: unknown,
+    source: AgentNativeBrowserSessionBridgeErrorSource,
+  ) => void;
 }
+
+export type AgentNativeBrowserSessionBridgeErrorSource = "heartbeat" | "poll";
 
 export interface AgentNativeBrowserSessionBridge {
   readonly sessionId: string | null;
@@ -78,8 +84,78 @@ function requestAbortMs(
   return Math.max(REQUEST_ABORT_MIN_MS, cadence * 4);
 }
 
+class BrowserSessionRequestTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Browser-session request timed out after ${timeoutMs}ms`);
+    this.name = "TimeoutError";
+  }
+}
+
+class BrowserSessionRegistrationContextTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(
+      `Browser-session registration context timed out after ${timeoutMs}ms`,
+    );
+    this.name = "TimeoutError";
+  }
+}
+
+class BrowserSessionRequestSerializationError extends Error {
+  constructor(error: unknown) {
+    super(
+      `Browser-session request body could not be serialized: ${messageError(error).message}`,
+    );
+    this.name = "BrowserSessionRequestSerializationError";
+  }
+}
+
 function messageError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function abortError(): Error {
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
+function awaitWithAbort<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal,
+  timeoutMs?: number,
+): Promise<T> {
+  if (!signal && timeoutMs === undefined) return promise;
+  const abortReason = () => signal?.reason ?? abortError();
+  if (signal?.aborted) return Promise.reject(abortReason());
+  return new Promise<T>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = () => {
+      signal?.removeEventListener("abort", onAbort);
+      if (timer !== undefined) clearTimeout(timer);
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(abortReason());
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (timeoutMs !== undefined) {
+      timer = setTimeout(() => {
+        cleanup();
+        reject(new BrowserSessionRegistrationContextTimeoutError(timeoutMs));
+      }, timeoutMs);
+    }
+    promise.then(
+      (value) => {
+        cleanup();
+        if (signal?.aborted) reject(abortReason());
+        else resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
 }
 
 function endpointBase(options: AgentNativeBrowserSessionBridgeOptions): string {
@@ -108,7 +184,15 @@ function fetchImpl(
 }
 
 async function readJsonResponse(response: Response): Promise<any> {
-  const body = await response.json().catch(() => ({}));
+  let body: any;
+  try {
+    body = await response.json();
+  } catch (error) {
+    if (!response.ok && error instanceof SyntaxError) {
+      throw new Error(`Browser-session request failed (${response.status})`);
+    }
+    throw error;
+  }
   if (!response.ok || body?.ok === false) {
     throw new Error(
       typeof body?.error === "string"
@@ -123,11 +207,33 @@ async function postJson(
   options: AgentNativeBrowserSessionBridgeOptions,
   path: string,
   body: unknown,
+  signal?: AbortSignal,
 ): Promise<any> {
+  let serializedBody: string;
+  try {
+    const serialized = JSON.stringify(body ?? {});
+    if (serialized === undefined) {
+      throw new Error("JSON.stringify did not return a request body");
+    }
+    serializedBody = serialized;
+  } catch (error) {
+    throw new BrowserSessionRequestSerializationError(error);
+  }
   const controller =
     typeof AbortController === "undefined" ? null : new AbortController();
+  const abortFromSignal = () => controller?.abort();
+  if (signal?.aborted) {
+    abortFromSignal();
+  } else {
+    signal?.addEventListener("abort", abortFromSignal, { once: true });
+  }
+  const timeoutMs = requestAbortMs(options);
+  let timedOut = false;
   const timeoutId = controller
-    ? setTimeout(() => controller.abort(), requestAbortMs(options))
+    ? setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs)
     : null;
   try {
     const response = await fetchImpl(options)(endpointPath(options, path), {
@@ -137,12 +243,20 @@ async function postJson(
         "Content-Type": "application/json",
         "X-Agent-Native-CSRF": "1",
       },
-      body: JSON.stringify(body ?? {}),
-      ...(controller ? { signal: controller.signal } : {}),
+      body: serializedBody,
+      ...(controller
+        ? { signal: controller.signal }
+        : signal
+          ? { signal }
+          : {}),
     });
-    return readJsonResponse(response);
+    return await readJsonResponse(response);
+  } catch (error) {
+    if (timedOut) throw new BrowserSessionRequestTimeoutError(timeoutMs);
+    throw error;
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
+    signal?.removeEventListener("abort", abortFromSignal);
   }
 }
 
@@ -246,15 +360,22 @@ function serializeForBrowserSession<T>(value: T, label: string): T {
 
 async function resolveDirectContext(
   options: AgentNativeBrowserSessionBridgeOptions,
+  sessionId?: string,
 ): Promise<AgentNativeHostContext> {
   const raw = options.getContext ? await options.getContext() : {};
   const context = serializeForBrowserSession(
     raw ?? {},
     "Browser-session context",
   );
+  const configuredSessionId =
+    sessionId ??
+    options.sessionId ??
+    (typeof options.session === "string"
+      ? options.session
+      : options.session?.id);
   const session = createDirectHostSession(
     options.session,
-    options.sessionId,
+    configuredSessionId,
     context.url,
   );
   return {
@@ -262,6 +383,7 @@ async function resolveDirectContext(
     session: {
       ...session,
       ...(context.session ?? {}),
+      ...(configuredSessionId ? { id: configuredSessionId } : {}),
     },
   };
 }
@@ -378,9 +500,10 @@ async function runDirectCommand(
 async function executeDirectBrowserSessionRequest(
   request: AgentNativeBrowserSessionRequest,
   options: AgentNativeBrowserSessionBridgeOptions,
+  sessionId: string,
 ): Promise<unknown> {
   if (request.type === "get-context") {
-    return resolveDirectContext(options);
+    return resolveDirectContext(options, sessionId);
   }
   if (request.type === "list-actions") {
     return resolveDirectActionManifest(options);
@@ -397,10 +520,10 @@ async function executeDirectBrowserSessionRequest(
     if (!action) {
       throw new Error(`Client action "${request.name}" is not available`);
     }
-    const context = await resolveDirectContext(options);
+    const context = await resolveDirectContext(options, sessionId);
     const session =
       context.session ??
-      createDirectHostSession(options.session, options.sessionId, context.url);
+      createDirectHostSession(options.session, sessionId, context.url);
     return action.run(request.args, {
       requestId: request.id,
       origin: directOrigin(options),
@@ -462,6 +585,7 @@ function normalizeSession(
 async function executeBrowserSessionRequest(
   request: AgentNativeBrowserSessionRequest,
   options: AgentNativeBrowserSessionBridgeOptions,
+  sessionId: string,
 ): Promise<unknown> {
   const hostOptions = hostRequestOptions(options);
   if (options.webmcp === "host" && request.type === "list-webmcp-tools") {
@@ -478,7 +602,7 @@ async function executeBrowserSessionRequest(
     );
   }
   if (hasDirectHost(options)) {
-    return executeDirectBrowserSessionRequest(request, options);
+    return executeDirectBrowserSessionRequest(request, options, sessionId);
   }
 
   if (request.type === "get-context") {
@@ -521,99 +645,296 @@ export function createAgentNativeBrowserSessionBridge(
   options: AgentNativeBrowserSessionBridgeOptions = {},
 ): AgentNativeBrowserSessionBridge {
   let currentSessionId: string | null = options.sessionId ?? null;
-  let fallbackSessionId: string | null = null;
+  let fallbackSessionId: string | null = options.sessionId ?? null;
+  let stopGeneration = 0;
   let started = false;
   let onVisibility: (() => void) | undefined;
   let lastWebMcpTools: AgentNativeWebMcpTool[] | undefined;
+  let activeRequestCount = 0;
+  const requestExpiryTimers = new Set<ReturnType<typeof setTimeout>>();
+  const pendingRegistrationControllers = new Set<AbortController>();
+  // A delayed cleanup must finish before a restart reuses its session ID.
+  let sessionMutationQueue: Promise<void> = Promise.resolve();
+  let registrationBarrier: Promise<void> = Promise.resolve();
 
-  async function refreshRegistration(): Promise<AgentNativeBrowserSessionRecord> {
-    const direct = hasDirectHost(options);
-    const hostOptions = hostRequestOptions(options);
-    const [context, actions, webmcpTools] = direct
-      ? await Promise.all([
-          resolveDirectContext(options),
-          resolveDirectActionManifest(options).catch(() => []),
-          resolveWebMcpTools(options),
-        ])
-      : await Promise.all([
-          requestAgentNativeHostContext(hostOptions),
-          requestAgentNativeHostActions(hostOptions).catch(() => []),
-          resolveWebMcpTools(options),
-        ]);
-    lastWebMcpTools = webmcpTools;
-    const hostSession = context.session;
-    if (!currentSessionId) {
-      currentSessionId =
-        hostSession?.id || fallbackSessionId || browserSessionId();
-      fallbackSessionId = currentSessionId;
-    }
-    const session = normalizeSession(
-      currentSessionId,
-      options.label,
-      hostSession,
-      context.url,
+  function serializeSessionMutation<T>(
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const result = sessionMutationQueue.then(operation);
+    sessionMutationQueue = result.then(
+      () => undefined,
+      () => undefined,
     );
-    const body = await postJson(options, "", {
-      session,
-      sessionId: currentSessionId,
-      context,
-      actions,
-      ...(lastWebMcpTools !== undefined
-        ? { webmcpTools: lastWebMcpTools }
-        : {}),
-      ttlMs: options.ttlMs,
-    });
-    return body.session as AgentNativeBrowserSessionRecord;
+    return result;
   }
 
-  async function claimOnce(): Promise<AgentNativeBrowserSessionRequest | null> {
+  function refreshRegistration(
+    signal?: AbortSignal,
+  ): Promise<AgentNativeBrowserSessionRecord> {
+    const registrationStopGeneration = stopGeneration;
+    const registrationController = new AbortController();
+    const relayAbort = () =>
+      registrationController.abort(signal?.reason ?? abortError());
+    if (signal?.aborted) relayAbort();
+    else signal?.addEventListener("abort", relayAbort, { once: true });
+    pendingRegistrationControllers.add(registrationController);
+    const work = (async () => {
+      try {
+        const direct = hasDirectHost(options);
+        const hostOptions = hostRequestOptions(options);
+        const registrationContext = direct
+          ? Promise.all([
+              resolveDirectContext(
+                options,
+                currentSessionId ?? fallbackSessionId ?? undefined,
+              ),
+              resolveDirectActionManifest(options),
+              resolveWebMcpTools(options),
+            ])
+          : Promise.all([
+              requestAgentNativeHostContext(hostOptions),
+              requestAgentNativeHostActions(hostOptions),
+              resolveWebMcpTools(options),
+            ]);
+        const [context, actions, webmcpTools] = await awaitWithAbort(
+          registrationContext,
+          registrationController.signal,
+          requestAbortMs(options),
+        );
+        return await serializeSessionMutation(async () => {
+          if (
+            registrationStopGeneration !== stopGeneration ||
+            registrationController.signal.aborted
+          ) {
+            throw registrationController.signal.reason ?? abortError();
+          }
+          lastWebMcpTools = webmcpTools;
+          const hostSession = context.session;
+          if (!currentSessionId) {
+            currentSessionId =
+              fallbackSessionId || hostSession?.id || browserSessionId();
+            fallbackSessionId = currentSessionId;
+          }
+          const session = normalizeSession(
+            currentSessionId,
+            options.label,
+            hostSession,
+            context.url,
+          );
+          const body = await postJson(
+            options,
+            "",
+            {
+              session,
+              sessionId: currentSessionId,
+              context,
+              actions,
+              ...(lastWebMcpTools !== undefined
+                ? { webmcpTools: lastWebMcpTools }
+                : {}),
+              ttlMs: options.ttlMs,
+            },
+            registrationController.signal,
+          );
+          return body.session as AgentNativeBrowserSessionRecord;
+        });
+      } finally {
+        pendingRegistrationControllers.delete(registrationController);
+        signal?.removeEventListener("abort", relayAbort);
+      }
+    })();
+    registrationBarrier = Promise.all([
+      registrationBarrier,
+      work.then(
+        () => undefined,
+        () => undefined,
+      ),
+    ]).then(() => undefined);
+    return work;
+  }
+
+  async function claimOnce(
+    signal?: AbortSignal,
+  ): Promise<AgentNativeBrowserSessionRequest | null> {
+    const claimStopGeneration = stopGeneration;
+    await awaitWithAbort(registrationBarrier, signal);
+    await awaitWithAbort(sessionMutationQueue, signal);
     if (!currentSessionId) {
-      await refreshRegistration();
+      await refreshRegistration(signal);
     }
     if (!currentSessionId) return null;
+    const sessionId = currentSessionId;
 
-    const claim = await postJson(
-      options,
-      `/${encodePathSegment(currentSessionId)}/requests/claim`,
-      {},
-    );
+    let claim: any;
+    try {
+      claim = await postJson(
+        options,
+        `/${encodePathSegment(sessionId)}/requests/claim`,
+        {},
+        signal,
+      );
+    } catch (error) {
+      const timedOut = error instanceof BrowserSessionRequestTimeoutError;
+      const pollAborted = signal?.aborted === true;
+      if (claimStopGeneration === stopGeneration && (timedOut || pollAborted)) {
+        try {
+          // The poll deadline can abort after the server accepted the claim.
+          await serializeSessionMutation(() =>
+            deleteJson(options, `/${encodePathSegment(sessionId)}`),
+          );
+          if (
+            claimStopGeneration === stopGeneration &&
+            currentSessionId === sessionId
+          ) {
+            currentSessionId = null;
+          }
+        } catch (cleanupError) {
+          const combinedError = new AggregateError(
+            [error, cleanupError],
+            "Browser-session claim timed out and its possible claim could not be cleared",
+          );
+          requestPoll.onError(combinedError, { force: true });
+          throw combinedError;
+        }
+      }
+      throw error;
+    }
     const request = claim.request as AgentNativeBrowserSessionRequest | null;
     if (!request) return null;
 
+    activeRequestCount++;
+    const expiryTimer = setTimeout(
+      () => {
+        requestPoll.onError(
+          new Error(
+            `Browser-session request "${request.id}" is still running after expiry`,
+          ),
+          { force: true },
+        );
+      },
+      Math.max(0, request.expiresAt - Date.now()),
+    );
+    requestExpiryTimers.add(expiryTimer);
     try {
-      const result = await executeBrowserSessionRequest(request, options);
-      await postJson(
-        options,
-        `/${encodePathSegment(currentSessionId)}/requests/${encodePathSegment(
-          request.id,
-        )}/complete`,
-        { ok: true, result },
-      );
-    } catch (error) {
-      await postJson(
-        options,
-        `/${encodePathSegment(currentSessionId)}/requests/${encodePathSegment(
-          request.id,
-        )}/complete`,
-        { ok: false, error: messageError(error).message },
-      ).catch(() => {});
+      let result: unknown;
+      try {
+        result = await executeBrowserSessionRequest(
+          request,
+          options,
+          sessionId,
+        );
+      } catch (error) {
+        try {
+          await postJson(
+            options,
+            `/${encodePathSegment(sessionId)}/requests/${encodePathSegment(
+              request.id,
+            )}/complete`,
+            { ok: false, error: messageError(error).message },
+          );
+        } catch (completionError) {
+          const combinedError = new AggregateError(
+            [error, completionError],
+            `Browser-session request "${request.id}" failed and its failure could not be reported`,
+          );
+          requestPoll.onError(combinedError, { force: true });
+          throw combinedError;
+        }
+        return request;
+      }
+      try {
+        await postJson(
+          options,
+          `/${encodePathSegment(sessionId)}/requests/${encodePathSegment(
+            request.id,
+          )}/complete`,
+          { ok: true, result },
+        );
+      } catch (error) {
+        if (error instanceof BrowserSessionRequestSerializationError) {
+          try {
+            await postJson(
+              options,
+              `/${encodePathSegment(sessionId)}/requests/${encodePathSegment(
+                request.id,
+              )}/complete`,
+              { ok: false, error: error.message },
+            );
+          } catch (completionError) {
+            const combinedError = new AggregateError(
+              [error, completionError],
+              `Browser-session request "${request.id}" failed and its failure could not be reported`,
+            );
+            requestPoll.onError(combinedError, { force: true });
+            throw combinedError;
+          }
+          return request;
+        }
+        requestPoll.onError(error, { force: true });
+        throw error;
+      }
+    } finally {
+      clearTimeout(expiryTimer);
+      requestExpiryTimers.delete(expiryTimer);
+      activeRequestCount--;
     }
 
     return request;
   }
 
-  const heartbeatEngine = createPollEngine(
-    () => refreshRegistration().then(() => {}),
-    {
-      intervalMs: () => {
-        const base = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
-        return isDocumentHidden()
-          ? Math.max(base, HIDDEN_INTERVAL_FLOOR_MS)
-          : base;
+  function backgroundPoll(
+    source: AgentNativeBrowserSessionBridgeErrorSource,
+    attempt: (signal: AbortSignal) => Promise<unknown>,
+  ) {
+    let reportedFailure = false;
+    return {
+      attempt: async (signal: AbortSignal) => {
+        await attempt(signal);
+        reportedFailure = false;
       },
-    },
+      onError: (error: unknown, control: { force?: boolean } = {}) => {
+        const force = control.force ?? false;
+        if (reportedFailure && !force) return;
+        reportedFailure = true;
+        if (options.onError) {
+          try {
+            options.onError(error, source);
+          } catch (callbackError) {
+            console.error(
+              `[Agent-Native browser session] ${source} onError callback failed:`,
+              callbackError,
+            );
+          }
+        } else {
+          console.error(
+            `[Agent-Native browser session] ${source} failed:`,
+            error,
+          );
+        }
+      },
+    };
+  }
+
+  const heartbeatPoll = backgroundPoll("heartbeat", (signal) =>
+    refreshRegistration(signal).then(() => {}),
   );
-  const pollEngine = createPollEngine(() => claimOnce().then(() => {}), {
+  const heartbeatEngine = createPollEngine(heartbeatPoll.attempt, {
+    onError: heartbeatPoll.onError,
+    intervalMs: () => {
+      const base = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+      return isDocumentHidden()
+        ? Math.max(base, HIDDEN_INTERVAL_FLOOR_MS)
+        : base;
+    },
+  });
+  const requestPoll = backgroundPoll("poll", (signal) =>
+    claimOnce(signal).then(() => {}),
+  );
+  const pollEngine = createPollEngine(requestPoll.attempt, {
+    onError: requestPoll.onError,
+    onTimeout: (error) => {
+      if (activeRequestCount === 0) requestPoll.onError(error);
+    },
     intervalMs: () => {
       const base = options.pollMs ?? DEFAULT_POLL_MS;
       return isDocumentHidden()
@@ -649,18 +970,36 @@ export function createAgentNativeBrowserSessionBridge(
     stop() {
       if (!started) return;
       started = false;
+      stopGeneration++;
+      for (const controller of pendingRegistrationControllers) {
+        controller.abort();
+      }
       heartbeatEngine.stop();
       pollEngine.stop();
+      for (const timer of requestExpiryTimers) clearTimeout(timer);
+      requestExpiryTimers.clear();
       if (onVisibility) {
         document.removeEventListener("visibilitychange", onVisibility);
         onVisibility = undefined;
       }
-      if (currentSessionId) {
-        void deleteJson(
-          options,
-          `/${encodePathSegment(currentSessionId)}`,
-        ).catch(() => {});
-      }
+      let cleanupSessionId = currentSessionId ?? undefined;
+      currentSessionId = null;
+      void serializeSessionMutation(async () => {
+        cleanupSessionId ??= currentSessionId ?? fallbackSessionId ?? undefined;
+        if (!cleanupSessionId) return;
+        if (currentSessionId === cleanupSessionId) currentSessionId = null;
+        await deleteJson(options, `/${encodePathSegment(cleanupSessionId)}`);
+        if (currentSessionId === cleanupSessionId) currentSessionId = null;
+      }).catch((error) => {
+        if (cleanupSessionId) {
+          requestPoll.onError(
+            new Error(
+              `Failed to disconnect browser session "${cleanupSessionId}" after stop; outstanding requests may remain active until expiry: ${messageError(error).message}`,
+            ),
+            { force: true },
+          );
+        }
+      });
     },
     refreshRegistration,
     claimOnce,

@@ -890,6 +890,13 @@ it("creates reproducible authoring plans with full command coverage", () => {
   expect(first.map((step) => step.kind)).toContain("quote-exit");
   expect(first.map((step) => step.kind)).toContain("backspace-block-edge");
   expect(first.map((step) => step.kind)).toContain("delete-block-edge");
+  const slashPosition = first.findIndex(
+    (step) => step.kind === "slash-position",
+  );
+  expect(slashPosition).toBeGreaterThanOrEqual(0);
+  expect(
+    first.slice(slashPosition, slashPosition + 3).map((step) => step.kind),
+  ).toEqual(["slash-position", "slash-outside", "shortcut-undo"]);
   expect(first.map((step) => step.kind)).toContain("copy-inline");
   expect(() =>
     createAuthoringFuzzPlan(Number.MAX_SAFE_INTEGER + 1, 500),
@@ -943,6 +950,7 @@ it("captures failed browser-session registration and subroute requests", () => {
 it("ignores registration aborts only when reload navigation cancels an in-flight request", () => {
   for (const errorText of [
     "Load request cancelled",
+    "cancelled",
     "NS_BINDING_ABORTED",
     "net::ERR_ABORTED",
   ]) {
@@ -1061,6 +1069,16 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
   expect(
     isExpectedSaveReloadWatchedRequestAbort(
       "/_agent-native/browser-sessions/session-id/requests/claim",
+      "cancelled",
+      "save/reload",
+      "POST",
+      true,
+      100,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
       "net::ERR_ABORTED",
       "save/reload",
       "POST",
@@ -1147,7 +1165,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
   }
 });
 
-it("ignores only WebKit CORS console errors for pending claim requests canceled by reload", () => {
+it("ignores only WebKit CORS console errors for requests canceled by reload", () => {
   const url =
     "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim";
   const message = `Fetch API cannot load ${url} due to access control checks.`;
@@ -1163,6 +1181,30 @@ it("ignores only WebKit CORS console errors for pending claim requests canceled 
     isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
       candidate,
     ]),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `${message}\n    at fetch (native)`,
+      "save/reload",
+      [candidate],
+    ),
+  ).toBe(true);
+  const actionUrl =
+    "http://localhost:45715/_agent-native/actions/get-lab-states";
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `Fetch API cannot load ${actionUrl} due to access control checks.\n    at fetch (native)`,
+      "save/reload",
+      [
+        {
+          url: actionUrl,
+          pathname: "/_agent-native/actions/get-lab-states",
+          method: "POST",
+          ageMs: 100,
+          requestWasPendingAtReloadNavigation: true,
+        },
+      ],
+    ),
   ).toBe(true);
   expect(
     isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "step 12", [
