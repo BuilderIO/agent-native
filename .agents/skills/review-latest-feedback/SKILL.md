@@ -467,13 +467,15 @@ Use everyday words for nontechnical readers. Keep the reply to one short
 paragraph: say what changed, what remains unchecked when relevant, and what's
 next. For a merged fix, link the PR and say it merged. Leave commit hashes,
 branch names, CI results, workflow or publisher details, and run IDs in the
-internal recap. Every post-merge fix reply must also give the beta state in
-plain language: say it's live on beta only after verifying the behavior there;
+internal recap. For fixes released through beta, every post-merge reply must
+also give the beta state in plain language: say it's live on beta only after
+verifying the behavior there;
 if the matching beta update is underway, say it should arrive within about 24
 hours; if publication finished but the behavior or app is unavailable to check,
 say the update is out and name that simple limitation; if publication is
-missing or failed, give no ETA and state the next action and owner. Keep the
-technical evidence in the recap.
+missing or failed, give no ETA and state the next action and owner. For packages
+or other fixes without a beta release, state availability in their own terms.
+Keep the technical evidence in the recap.
 
 Share only new or useful information.
 

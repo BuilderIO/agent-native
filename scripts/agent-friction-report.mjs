@@ -2675,10 +2675,19 @@ const PATTERNS = [
   },
   {
     key: "feedback-reply-tone",
-    label: "Had to correct technical or repetitive feedback replies",
+    label:
+      "Reported duplicate feedback clarification or missing thank-first reply",
+    fixedBy:
+      ".agents/skills/address-feedback* + .agents/skills/review-prs (first-contact thanks, 2026-09-24)",
+    re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
+  },
+  {
+    key: "feedback-reply-detail",
+    label: "Had to correct overly technical feedback replies",
     fixedBy:
       ".agents/skills/review-latest-feedback + address-feedback-with-replies (concise, plain-language replies, 2026-10-09)",
-    re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\b(?:reply|response|status|update)\b[^.!?]{0,100}\b(?:too\s+technical|technical\s+details?|technical\s+language|implementation\s+details?)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
+    // Count "replies are too technical"; ignore "please reply with technical details."
+    re: /\b(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)\b[^.!?\n]{0,100}\b(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|too\s+much\s+detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|less\s+technical|less\s+detail)\b|\b(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|too\s+much\s+detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|less\s+technical|less\s+detail)\b[^.!?\n]{0,100}\b(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)\b|\b(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)\b[^.!?\n]{0,100}\b(?:don't|do not|avoid|skip|omit|leave out|remove|no)\b[^.!?\n]{0,60}\b(?:technical|implementation|commit|branch|ci|publisher)\s+details?\b/i,
   },
   {
     key: "pr-review-handoff",
