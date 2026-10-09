@@ -3911,7 +3911,7 @@ describe("session replay", () => {
     await second.stopSessionReplay();
   });
 
-  it("keeps pre-auth replay anonymous in its envelope when the same tab resumes after sign-in", async () => {
+  it("starts a separate signed-in replay when the same tab resumes after sign-in", async () => {
     const { fetchMock, location, storage } = installBrowser(
       "https://app.agent-native.com/signup",
     );
@@ -3928,6 +3928,33 @@ describe("session replay", () => {
       extraProperties: {
         capture_context: "pre_auth",
         pre_auth_base_path: "/app",
+        userId: "qa+auth@example.test",
+        userEmail: "qa+auth@example.test",
+        userName: "QA User",
+        orgId: "org-123",
+        safeProperty: "retained",
+        nested: {
+          email: "qa+auth@example.test",
+          accountEmail: "account@example.test",
+          recipientEmail: "recipient@example.test",
+          customerId: "customer-123",
+          password: "secret-password",
+          accessToken: "secret-token",
+          authResponse: { userId: "auth-user-1" },
+          verificationCode: "one-time-code",
+          callbackUrl: "https://app.example.test?code=one-time-code",
+          nonce: "opaque-nonce",
+          retained: "safe",
+          arrayOfArrays: [
+            [
+              {
+                userEmail: "qa+auth@example.test",
+                accessToken: "secret-token",
+                retained: "safe",
+              },
+            ],
+          ],
+        },
       },
       maxEventsPerBatch: 1,
       flushIntervalMs: 100_000,
@@ -3938,10 +3965,22 @@ describe("session replay", () => {
     const firstBody = await parseReplayUpload(
       fetchMock.mock.calls[0]?.[1] as RequestInit,
     );
-    expect(firstBody.properties).toEqual({
-      capture_context: "pre_auth",
-      pre_auth_base_path: "/app",
+    expect(firstBody).toMatchObject({
+      properties: {
+        capture_context: "pre_auth",
+        pre_auth_base_path: "/app",
+        safeProperty: "retained",
+        nested: {
+          retained: "safe",
+          arrayOfArrays: [[{ retained: "safe" }]],
+        },
+      },
     });
+    expect(firstBody).not.toHaveProperty("userId");
+    expect(firstBody).not.toHaveProperty("userEmail");
+    expect(JSON.stringify(firstBody)).not.toMatch(
+      /qa\+auth@example\.test|QA User|org-123|account@example\.test|recipient@example\.test|customer-123|secret-password|secret-token|auth-user-1|one-time-code|opaque-nonce/,
+    );
     await first.stopSessionReplay();
 
     const storedSession = JSON.parse(
@@ -3963,37 +4002,14 @@ describe("session replay", () => {
       extraProperties: {
         userId: "qa+auth@example.test",
         userEmail: "qa+auth@example.test",
-        userName: "QA User",
-        orgId: "org-123",
         safeProperty: "retained",
-        nested: {
-          email: "qa+auth@example.test",
-          accountEmail: "account@example.test",
-          recipientEmail: "recipient@example.test",
-          customerId: "customer-123",
-          password: "secret-password",
-          accessToken: "secret-token",
-          authResponse: { userId: "auth-user-1" },
-          verificationCode: "one-time-code",
-          callbackUrl: "https://app.example.test?code=one-time-code",
-          nonce: "opaque-nonce",
-          arrayOfArrays: [
-            [
-              {
-                userEmail: "qa+auth@example.test",
-                accessToken: "secret-token",
-                retained: "safe",
-              },
-            ],
-          ],
-        },
       },
       maxEventsPerBatch: 1,
       flushIntervalMs: 100_000,
     });
 
     expect(secondResult.started).toBe(true);
-    expect(secondResult.replayId).toBe(firstResult.replayId);
+    expect(secondResult.replayId).not.toBe(firstResult.replayId);
     recordOptions[1].emit({ type: 3, data: { href: "/inbox" } });
     await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     const secondBody = await parseReplayUpload(
@@ -4001,26 +4017,22 @@ describe("session replay", () => {
     );
 
     expect(secondBody).toMatchObject({
+      userId: "qa+auth@example.test",
+      userEmail: "qa+auth@example.test",
       properties: {
-        capture_context: "pre_auth",
         safeProperty: "retained",
       },
     });
-    expect(secondBody.userId).toBeUndefined();
-    expect(secondBody.userEmail).toBeUndefined();
-    expect(secondBody.properties).not.toHaveProperty("userId");
-    expect(secondBody.properties).not.toHaveProperty("userEmail");
-    expect(secondBody.properties).not.toHaveProperty("userName");
-    expect(secondBody.properties).not.toHaveProperty("orgId");
-    expect(secondBody.properties?.nested).not.toHaveProperty("accountEmail");
-    expect(secondBody.properties?.nested).not.toHaveProperty("recipientEmail");
-    expect(secondBody.properties?.nested).not.toHaveProperty("customerId");
-    expect(secondBody.properties).toMatchObject({
-      nested: { arrayOfArrays: [[{ retained: "safe" }]] },
-    });
-    expect(JSON.stringify(secondBody.properties)).not.toMatch(
-      /qa\+auth@example\.test|account@example\.test|recipient@example\.test|customer-123|secret-password|secret-token|auth-user-1|one-time-code|opaque-nonce/,
+    expect(secondBody.properties).not.toHaveProperty("capture_context");
+    expect(JSON.stringify(secondBody.properties)).toContain(
+      "qa+auth@example.test",
     );
+    expect(
+      JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}"),
+    ).not.toHaveProperty("captureContext");
+    expect(
+      JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}"),
+    ).not.toHaveProperty("suppressIdentityInProperties");
     await second.stopSessionReplay();
   });
 

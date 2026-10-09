@@ -88,7 +88,7 @@ function watchPage(page: Page, baseURL: string) {
 }
 
 // oracle: none — verifies payload privacy and auth continuity, not Design parity.
-test("pre-auth recording continues through signup and masks abandonment", async ({
+test("pre-auth recording stays anonymous through signup and masks abandonment", async ({
   browser,
 }, testInfo) => {
   // oracle: none — the isolated auth setup is a payload test precondition, not visual parity.
@@ -167,9 +167,10 @@ test("pre-auth recording continues through signup and masks abandonment", async 
     expect(JSON.stringify(anonymousChunk)).not.toContain(email);
     expect(JSON.stringify(anonymousChunk)).not.toContain(password);
 
+    const signupPayloadCount = payloads.length;
     await page.locator("#signup-form button[type='submit']").click();
     // Design's development config disables first-run onboarding; this smoke
-    // proves signup-to-authenticated continuity, not the production setup UI.
+    // proves the authenticated session starts separately, not the production setup UI.
     const signedInUserButton = page
       .getByRole("button")
       .filter({ hasText: email });
@@ -184,19 +185,17 @@ test("pre-auth recording continues through signup and masks abandonment", async 
       fullPage: true,
     });
 
-    const postSignupPayloadCount = payloads.length;
     await signedInUserButton.click();
     await expect
       .poll(() =>
         payloads
-          .slice(postSignupPayloadCount)
+          .slice(signupPayloadCount)
           .some(
             (payload) =>
-              payload.replayId === anonymousChunk?.replayId &&
               payload.sessionId === anonymousChunk?.sessionId &&
-              payload.properties?.capture_context === "pre_auth" &&
-              !payload.userEmail &&
-              !payload.userId,
+              payload.replayId !== anonymousChunk?.replayId &&
+              payload.userEmail === email &&
+              payload.properties?.capture_context !== "pre_auth",
           ),
       )
       .toBe(true);
@@ -204,27 +203,44 @@ test("pre-auth recording continues through signup and masks abandonment", async 
     expect(new Set(replayRequestOrigins)).toEqual(
       new Set([new URL(baseURL).origin]),
     );
-    const linkedChunk = payloads
-      .slice(postSignupPayloadCount)
+    const authenticatedChunk = payloads
+      .slice(signupPayloadCount)
       .find(
         (payload) =>
-          payload.replayId === anonymousChunk?.replayId &&
           payload.sessionId === anonymousChunk?.sessionId &&
-          payload.properties?.capture_context === "pre_auth" &&
-          !payload.userEmail &&
-          !payload.userId,
+          payload.replayId !== anonymousChunk?.replayId &&
+          payload.userEmail === email &&
+          payload.properties?.capture_context !== "pre_auth",
       );
-    expect(linkedChunk?.replayId).toBe(anonymousChunk?.replayId);
-    expect(linkedChunk?.sessionId).toBe(anonymousChunk?.sessionId);
-    expect(linkedChunk?.sessionId).toBeTruthy();
-    expect(linkedChunk).not.toHaveProperty("userEmail");
-    expect(linkedChunk).not.toHaveProperty("userId");
-    expect(linkedChunk?.properties).toMatchObject({
-      capture_context: "pre_auth",
-    });
-    expect(linkedChunk?.properties).not.toHaveProperty("userEmail");
-    expect(linkedChunk?.properties).not.toHaveProperty("userId");
-    expect(JSON.stringify(linkedChunk?.properties)).not.toContain(email);
+    expect(authenticatedChunk?.replayId).not.toBe(anonymousChunk?.replayId);
+    expect(authenticatedChunk?.sessionId).toBe(anonymousChunk?.sessionId);
+    expect(authenticatedChunk?.sessionId).toBeTruthy();
+    expect(authenticatedChunk).toHaveProperty("userEmail", email);
+    expect(authenticatedChunk?.properties).not.toHaveProperty(
+      "capture_context",
+    );
+    const anonymousPayloads = payloads.filter(
+      (payload) => payload.replayId === anonymousChunk?.replayId,
+    );
+    expect(anonymousPayloads.length).toBeGreaterThan(0);
+    expect(
+      anonymousPayloads.every(
+        (payload) =>
+          payload.sessionId === anonymousChunk?.sessionId &&
+          payload.properties?.capture_context === "pre_auth",
+      ),
+    ).toBe(true);
+    expect(
+      anonymousPayloads.every(
+        (payload) => !payload.userEmail && !payload.userId,
+      ),
+    ).toBe(true);
+    expect(
+      JSON.stringify(anonymousPayloads.map((payload) => payload.events)),
+    ).not.toContain(email);
+    expect(
+      JSON.stringify(anonymousPayloads.map((payload) => payload.events)),
+    ).not.toContain(password);
     expect(browserDiagnostics.consoleErrors).toEqual([]);
     expect(browserDiagnostics.failedResponses).toEqual([]);
     expect(browserDiagnostics.requestFailures).toEqual([]);

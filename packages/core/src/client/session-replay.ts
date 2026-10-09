@@ -596,7 +596,13 @@ function getOrCreateReplaySession(
   clearLegacyLocalStorageReplaySession();
   const parsed = readStoredReplaySession();
   const parsedSequence = storedCount(parsed?.sequence);
+  const resumesPreAuthReplay =
+    parsed?.captureContext === "pre_auth" ||
+    parsed?.suppressIdentityInProperties === true;
+  const crossesAuthBoundary =
+    resumesPreAuthReplay && captureContext !== "pre_auth";
   if (
+    !crossesAuthBoundary &&
     parsed?.sessionId === sessionId &&
     parsed.replayId &&
     parsedSequence < MAX_REPLAY_CHUNKS_PER_RECORDING - 1
