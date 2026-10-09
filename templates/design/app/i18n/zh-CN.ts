@@ -21,6 +21,8 @@ export default {
       "{label}，来源示例 {source}，画廊位置 {current}/{total}，截图日期 {date}",
     screenshotMissing: "未捕获截图",
     recordingUnavailable: "不可用",
+    recordingGap: "录制空档",
+    recordingGapDuration: "录制空档 · {duration}",
     eventTime: "事件时间（UTC）",
     generationCompletedEvent: "generation_completed 事件（UTC）",
     replayObservation: "回放观察",

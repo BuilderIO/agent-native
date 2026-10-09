@@ -22,6 +22,8 @@ export default {
       "{label}, स्रोत उदाहरण {source}, गैलरी में स्थान {current}/{total}, कैप्चर की तारीख {date}",
     screenshotMissing: "कोई स्क्रीनशॉट कैप्चर नहीं हुआ",
     recordingUnavailable: "उपलब्ध नहीं",
+    recordingGap: "रिकॉर्डिंग में अंतराल",
+    recordingGapDuration: "रिकॉर्डिंग में अंतराल · {duration}",
     eventTime: "इवेंट समय (UTC)",
     generationCompletedEvent: "generation_completed इवेंट (UTC)",
     replayObservation: "रीप्ले अवलोकन",

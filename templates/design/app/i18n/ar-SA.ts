@@ -23,6 +23,8 @@ export default {
       "{label}، مثال المصدر {source}، موضعه في المعرض {current} من {total}، تاريخ الالتقاط {date}",
     screenshotMissing: "لم تُلتقط لقطة شاشة",
     recordingUnavailable: "غير متاح",
+    recordingGap: "فجوة في التسجيل",
+    recordingGapDuration: "فجوة في التسجيل · {duration}",
     eventTime: "وقت الحدث (UTC)",
     generationCompletedEvent: "حدث generation_completed (UTC)",
     replayObservation: "ملاحظة إعادة التشغيل",
