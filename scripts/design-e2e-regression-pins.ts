@@ -2,8 +2,6 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import ts from "typescript";
-
 export const DESIGN_E2E_REGRESSION_SHARDS = [
   "inspector-1a",
   "inspector-1b",
@@ -287,44 +285,171 @@ export const DESIGN_E2E_REGRESSION_PINS = [
   },
 ] as const satisfies readonly DesignE2ERegressionPin[];
 
-export function findDesignE2ETestLine(source: string, title: string): number {
-  const sourceFile = ts.createSourceFile(
-    "design-e2e-regression.spec.ts",
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
-  const parseDiagnostics = (
-    sourceFile as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }
-  ).parseDiagnostics;
-  if (parseDiagnostics.length > 0) {
-    throw new Error(`Unable to parse Design E2E spec while resolving ${title}`);
-  }
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
-  const lines: number[] = [];
-  const testCallNames = new Set([
-    "test",
-    "test.fail",
-    "test.fixme",
-    "test.only",
-    "test.skip",
-  ]);
-  const visit = (node: ts.Node) => {
-    if (
-      ts.isCallExpression(node) &&
-      testCallNames.has(node.expression.getText(sourceFile)) &&
-      ts.isStringLiteralLike(node.arguments[0]!) &&
-      node.arguments[0]!.text === title
-    ) {
-      lines.push(
-        sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
-          .line + 1,
-      );
+function makeSourceString(value: string, quote: string): string {
+  let escaped = value
+    .replaceAll("\\", "\\\\")
+    .replaceAll(quote, `\\${quote}`)
+    .replaceAll("\r", "\\r")
+    .replaceAll("\n", "\\n");
+  if (quote === "`") escaped = escaped.replaceAll("${", "\\${");
+  return `${quote}${escaped}${quote}`;
+}
+
+function isLikelyRegexStart(source: string, index: number): boolean {
+  const prefix = source.slice(0, index).trimEnd();
+  if (prefix.endsWith("=>")) return true;
+  const previous = prefix.at(-1);
+  if (previous === "!") {
+    const beforeBang = prefix.slice(0, -1).trimEnd().at(-1);
+    return beforeBang === undefined || !/[A-Za-z0-9_$)\]}]/.test(beforeBang);
+  }
+  if (previous === undefined) return true;
+  if (
+    /\b(?:return|throw|case|delete|void|typeof|instanceof|in|of|yield|await)$/.test(
+      prefix,
+    )
+  ) {
+    return true;
+  }
+  return [
+    "(",
+    "[",
+    "{",
+    ",",
+    ":",
+    ";",
+    "=",
+    "?",
+    "&",
+    "|",
+    "+",
+    "-",
+    "*",
+    "%",
+    "^",
+    "~",
+    "<",
+    ">",
+  ].includes(previous);
+}
+
+function skipRegexLiteral(source: string, start: number): number {
+  let index = start + 1;
+  let inCharacterClass = false;
+  while (index < source.length) {
+    const character = source[index]!;
+    if (character === "\\") {
+      index += 2;
+      continue;
     }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
+    if (character === "\n" || character === "\r") return start + 1;
+    if (character === "[") inCharacterClass = true;
+    else if (character === "]") inCharacterClass = false;
+    else if (character === "/" && !inCharacterClass) {
+      index += 1;
+      while (/[a-z]/i.test(source[index] ?? "")) index += 1;
+      return index;
+    }
+    index += 1;
+  }
+  return start + 1;
+}
+
+function maskNonCode(source: string): string {
+  const masked = source.split("");
+  let state: "code" | "line" | "block" | "single" | "double" | "template" =
+    "code";
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    const next = source[index + 1];
+    if (state === "code") {
+      if (character === "/" && next === "/") {
+        masked[index] = " ";
+        masked[index + 1] = " ";
+        index += 1;
+        state = "line";
+      } else if (character === "/" && next === "*") {
+        masked[index] = " ";
+        masked[index + 1] = " ";
+        index += 1;
+        state = "block";
+      } else if (character === "'") {
+        masked[index] = " ";
+        state = "single";
+      } else if (character === '"') {
+        masked[index] = " ";
+        state = "double";
+      } else if (character === "`") {
+        masked[index] = " ";
+        state = "template";
+      } else if (character === "/" && isLikelyRegexStart(source, index)) {
+        const end = skipRegexLiteral(source, index);
+        if (end > index + 1) {
+          for (let cursor = index; cursor < end; cursor += 1) {
+            if (source[cursor] !== "\n" && source[cursor] !== "\r") {
+              masked[cursor] = " ";
+            }
+          }
+          index = end - 1;
+        }
+      }
+      continue;
+    }
+
+    if (state === "line") {
+      if (character === "\n") state = "code";
+      else masked[index] = " ";
+      continue;
+    }
+    if (state === "block") {
+      if (character === "*" && next === "/") {
+        masked[index] = " ";
+        masked[index + 1] = " ";
+        index += 1;
+        state = "code";
+      } else if (character !== "\n") {
+        masked[index] = " ";
+      }
+      continue;
+    }
+
+    const closingQuote =
+      state === "single" ? "'" : state === "double" ? '"' : "`";
+    if (character === "\\") {
+      masked[index] = " ";
+      if (next !== undefined && next !== "\n" && next !== "\r") {
+        masked[index + 1] = " ";
+        index += 1;
+      }
+    } else if (character === closingQuote) {
+      masked[index] = " ";
+      state = "code";
+    } else if (character !== "\n" && character !== "\r") {
+      masked[index] = " ";
+    }
+  }
+  return masked.join("");
+}
+
+export function findDesignE2ETestLine(source: string, title: string): number {
+  const code = maskNonCode(source);
+  const literals = ['"', "'", "`"]
+    .map((quote) => escapeRegExp(makeSourceString(title, quote)))
+    .join("|");
+  const testCall = new RegExp(
+    `^[\\t ]*test(?:[\\t ]*\\.[\\t ]*(?:fail|fixme|only|skip))?[\\t ]*\\([\\t\\r\\n ]*(?:${literals})(?=[\\t\\r\\n ]*[,\\)])`,
+    "gm",
+  );
+  const lines: number[] = [];
+  for (const match of source.matchAll(testCall)) {
+    const testOffset = match.index + match[0].search(/\S/);
+    if (code[testOffset] !== "t") continue;
+    lines.push(source.slice(0, testOffset).split("\n").length);
+  }
 
   if (lines.length !== 1) {
     throw new Error(

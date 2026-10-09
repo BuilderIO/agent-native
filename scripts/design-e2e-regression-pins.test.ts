@@ -1,5 +1,17 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   DESIGN_E2E_REGRESSION_PINS,
@@ -42,6 +54,77 @@ test("a moved test title resolves to its new line", () => {
     }),
     "e2e/fixture.spec.ts:3",
   );
+});
+
+test("title-shaped text in comments, strings, templates, and regexes is ignored", () => {
+  const source = [
+    '// test("the pinned behavior", () => {});',
+    'const text = "test(\\"the pinned behavior\\")";',
+    'const template = `test("the pinned behavior")`;',
+    "const multilineTemplate = `",
+    '  test("the pinned behavior", () => {});',
+    "`;",
+    "/*",
+    'test("the pinned behavior", () => {});',
+    "*/",
+    'const pattern = /test\\("the pinned behavior"\\)/;',
+    'const patternFromArrow = () => /test\\("the pinned behavior"\\)/;',
+    'const negatedPattern = !/test\\("the pinned behavior"\\)/;',
+    'test("the pinned behavior", () => {});',
+  ].join("\n");
+
+  assert.equal(findDesignE2ETestLine(source, "the pinned behavior"), 13);
+});
+
+test("a static template literal can be used as a test title", () => {
+  assert.equal(
+    findDesignE2ETestLine(
+      "test(`the pinned behavior`, () => {});",
+      "the pinned behavior",
+    ),
+    1,
+  );
+});
+
+test("the resolver CLI works without installed workspace dependencies", () => {
+  const temporaryRoot = mkdtempSync(join(tmpdir(), "design-pin-resolver-"));
+  try {
+    const scriptsDirectory = join(temporaryRoot, "scripts");
+    const specDirectory = join(temporaryRoot, "templates/design/e2e");
+    mkdirSync(scriptsDirectory, { recursive: true });
+    mkdirSync(specDirectory, { recursive: true });
+    copyFileSync(
+      fileURLToPath(
+        new URL("./design-e2e-regression-pins.ts", import.meta.url),
+      ),
+      join(scriptsDirectory, "design-e2e-regression-pins.ts"),
+    );
+    for (const { file } of DESIGN_E2E_REGRESSION_PINS.filter(
+      ({ shard }) => shard === "inspector-1a",
+    )) {
+      const source = new URL(
+        `../templates/design/e2e/${file}`,
+        import.meta.url,
+      );
+      assert.equal(existsSync(source), true);
+      copyFileSync(fileURLToPath(source), join(specDirectory, file));
+    }
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        realpathSync(join(scriptsDirectory, "design-e2e-regression-pins.ts")),
+        "inspector-1a",
+      ],
+      { cwd: temporaryRoot, encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr || result.error?.message);
+    assert.match(result.stdout, /e2e\/canvas-invariants\.spec\.ts:\d+\0/);
+    assert.match(result.stdout, /e2e\/inspector-styles\.spec\.ts:\d+\0/);
+  } finally {
+    rmSync(temporaryRoot, { force: true, recursive: true });
+  }
 });
 
 test("missing, duplicate, and unknown regression pins fail closed", () => {
