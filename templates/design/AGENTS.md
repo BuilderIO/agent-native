@@ -42,7 +42,9 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 | `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Read/set collaboration opt-in |
 | `add-localhost-screens` / `update-screen-source` | Add screens; change source mode |
 | `add-session-replay-screenshots-to-board` | Add private Analytics replay screenshots to a Design board |
-| `create-journey-canvas` | Draw a storyboard with replay provenance and last-observed-step stubs |
+| `stage-journey-canvas-frames` | Stage native PNGs in Design-owned private blob storage in resumable batches |
+| `discard-journey-canvas-frame-import` | Remove an abandoned staged frame import and queue its private blobs for cleanup |
+| `create-journey-canvas` | Draw a storyboard with replay provenance, last-observed-step stubs, and reference-only chains without cohort metrics |
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames |
 | `edit-design` | Adapt a design/screen |
 | `apply-visual-edit` | Apply deterministic layer edits |
