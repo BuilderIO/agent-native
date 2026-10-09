@@ -1572,6 +1572,7 @@ export default {
     fork: "분기",
     fullView: "전체 보기",
     preview: "미리보기",
+    focusScreen: "화면에 포커스",
     openAndDuplicate:
       "{{display}} 선택. 집중 스크롤에는 상호작용 모드를 사용하세요.",
     openAndPreview:

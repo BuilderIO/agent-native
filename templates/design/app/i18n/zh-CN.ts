@@ -1520,6 +1520,7 @@ export default {
     fork: "分支",
     fullView: "完整视图",
     preview: "预览",
+    focusScreen: "聚焦屏幕",
     openAndDuplicate: "选择 {{display}}。使用互动模式进行聚焦滚动。",
     openAndPreview: "选择 {{display}}。使用互动模式进行聚焦滚动。",
     doubleClickToEdit: "使用互动模式进行聚焦滚动",

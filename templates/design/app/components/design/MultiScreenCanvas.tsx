@@ -84,7 +84,7 @@ import {
 import {
   IconCopy,
   IconDots,
-  IconHandClick,
+  IconFocus2,
   IconLoader2,
   IconPlus,
 } from "@tabler/icons-react";
@@ -13488,7 +13488,7 @@ const Screen = memo(function Screen({
     : FRAME_LABEL_HEIGHT * chromeScale;
   const frameScreenWidth = geometry.width / Math.max(chromeScale, 0.001);
   const compactFullView = frameScreenWidth < FRAME_HEADER_BUTTON_COMPACT_WIDTH;
-  const frameActionLabel = t("designEditor.modes.interact");
+  const frameActionLabel = t("multiScreenCanvas.focusScreen");
   const labelInfoMaxWidth = Math.min(
     frameScreenWidth,
     Math.max(
@@ -13665,7 +13665,7 @@ const Screen = memo(function Screen({
           onMouseEnter={() => updateDirectHover(true)}
           onMouseLeave={() => updateDirectHover(false)}
         >
-          <IconHandClick className="size-3 shrink-0" />
+          <IconFocus2 className="size-3 shrink-0" />
           <span className={cn("truncate", compactFullView && "sr-only")}>
             {frameActionLabel}
           </span>
@@ -14133,7 +14133,7 @@ function BreakpointPreviewRow({
   const t = useT();
   const browserOrigin = useBrowserOrigin();
   const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
-  const frameActionLabel = t("designEditor.modes.interact");
+  const frameActionLabel = t("multiScreenCanvas.focusScreen");
   const primaryWidthPx = metadata.width ?? primaryGeometry.width;
   const breakpointWidths = visibleBreakpointWidths(
     screen.breakpointWidths,
@@ -14454,7 +14454,7 @@ function BreakpointPreviewRow({
                     e.stopPropagation();
                   }}
                 >
-                  <IconHandClick className="size-3" />
+                  <IconFocus2 className="size-3" />
                 </button>
               ) : null}
               <span

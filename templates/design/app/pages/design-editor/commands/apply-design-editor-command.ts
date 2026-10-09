@@ -190,7 +190,12 @@ export function runApplyDesignEditorCommand(
   ) {
     return false;
   }
-  if (commandZoom !== null) {
+  const targetScreen =
+    targetView === "overview" && targetFile
+      ? overviewScreens.find((screen) => screen.id === targetFile.id)
+      : undefined;
+  const shouldFitTargetScreen = Boolean(targetScreen && requestCameraFit);
+  if (commandZoom !== null && !shouldFitTargetScreen) {
     setZoomForView(targetView, commandZoom);
   }
 
@@ -202,10 +207,7 @@ export function runApplyDesignEditorCommand(
     setPinMode(false);
     applyCommandTool("move");
     setViewMode("overview");
-    const targetScreen = targetFile
-      ? overviewScreens.find((screen) => screen.id === targetFile.id)
-      : undefined;
-    if (targetScreen && requestCameraFit && commandZoom === null) {
+    if (targetScreen && requestCameraFit) {
       const geometry = resolveFrameGeometrySync({
         screens: overviewScreens.map((screen) => ({
           id: screen.id,

@@ -194,7 +194,7 @@ describe("runApplyDesignEditorCommand: overview camera fit", () => {
     expect(requestCameraFit).not.toHaveBeenCalled();
   });
 
-  it("keeps an explicit overview zoom instead of replacing it with a fit", () => {
+  it("centers and fits a focused screen when the command also has a zoom", () => {
     const requestCameraFit = vi.fn();
     const args = makeArgs({
       files: [screenFile],
@@ -211,8 +211,13 @@ describe("runApplyDesignEditorCommand: overview camera fit", () => {
     });
 
     expect(applied).toBe(true);
-    expect(args.setZoomForView).toHaveBeenCalledWith("overview", 50);
-    expect(requestCameraFit).not.toHaveBeenCalled();
+    expect(args.setZoomForView).not.toHaveBeenCalled();
+    expect(requestCameraFit).toHaveBeenCalledOnce();
+    expect(requestCameraFit.mock.calls[0]![0].fitBounds).toMatchObject({
+      left: 0,
+      top: 0,
+      right: 320,
+    });
   });
 
   it("defers overview zoom until the design payload has loaded", () => {

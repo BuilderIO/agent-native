@@ -2033,7 +2033,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(onReviewPendingScreen).toHaveBeenCalledWith("screen-review");
   });
 
-  it("keeps the Interact action inside narrow frames as a compact icon", async () => {
+  it("keeps the screen focus action inside narrow frames as a compact icon", async () => {
     const { frame } = await renderSelectedFrame(240);
     const fullView = frame.querySelector<HTMLElement>("[data-frame-full-view]");
     const fullViewLabel = fullView?.querySelector("span");
@@ -2046,7 +2046,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(fullView!.style.maxWidth).toBe("20px");
     expect(fullViewLabel?.classList.contains("sr-only")).toBe(true);
     expect(fullView!.getAttribute("aria-label")).toBe(
-      "designEditor.modes.interact",
+      "multiScreenCanvas.focusScreen",
     );
   });
 

@@ -68,6 +68,8 @@ describe("embedApp", () => {
     );
     expect(html).toContain("function embedStartUrlFrom(params, data)");
     expect(html).toContain("function toolResultMeta(params)");
+    expect(html).toContain("const mcpToolResult = direct.mcp_tool_result");
+    expect(html).toContain("toolResponseMetadata = toolResultMeta(params)");
     expect(html).toContain("return toolResultMeta(params.result)");
     expect(html).toContain("return toolResultMeta(params.toolResult)");
     expect(html).toContain('"agent-native/embedStart"');
@@ -457,6 +459,35 @@ describe("embedApp", () => {
           })
         : resource.html;
 
+    const metaFunctions = html.match(
+      /(function metadataRecord\(value\) \{[\s\S]*?\n    \})\n\n    (function toolResultMeta\(params\) \{[\s\S]*?\n    \})/,
+    );
+    expect(metaFunctions).toBeDefined();
+    const toolResultMeta = new Function(
+      "metadataRecord",
+      `${metaFunctions?.[1]}; ${metaFunctions?.[2]}; return toolResultMeta;`,
+    )((value: unknown) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null;
+      }
+      const meta = (value as { _meta?: unknown })._meta;
+      return meta && typeof meta === "object" && !Array.isArray(meta)
+        ? meta
+        : null;
+    }) as (params: unknown) => Record<string, unknown>;
+    const normalizedMetadata = toolResultMeta({
+      _meta: {
+        status: "complete",
+        call_tool_result: { structuredContent: { id: "document-1" } },
+        mcp_tool_result: {
+          content: [{ type: "text", text: "Document opened." }],
+          _meta: {
+            "agent-native/widgetSource": { sourceTicket: "saved-ticket" },
+          },
+        },
+      },
+    });
+
     const functions = html.match(
       /(function embedTicketFromStartUrl\(value\) \{[\s\S]*?\n    \})\n\n    (function embedSessionArgsFor\(value\) \{[\s\S]*?\n    \})/,
     );
@@ -473,7 +504,7 @@ describe("embedApp", () => {
       { location: { href: "https://content.agent-native.com/" } },
       { dataset: { catalogMode: "directory" } },
       { chrome: "full" },
-      { "agent-native/widgetSource": { sourceTicket: "saved-ticket" } },
+      normalizedMetadata,
       (value: unknown) =>
         value && typeof value === "object" && !Array.isArray(value)
           ? value

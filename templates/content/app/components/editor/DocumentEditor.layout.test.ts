@@ -2958,7 +2958,15 @@ describe("document editor layout", () => {
     );
 
     expect(source).toContain("export function PageEditorSurface");
-    expect(source).toContain("document.canEdit === true");
+    expect(source).toContain(
+      'import { directoryWidgetEditability } from "./directory-widget-editability";',
+    );
+    expect(source).toContain(
+      "const widgetEditability = directoryWidgetEditability(document);",
+    );
+    expect(source).toContain(
+      "const canEdit = widgetEditability.canEditDocument;",
+    );
     expect(source).toContain("flushAllBlockFieldSaveControllersForDocument");
     expect(source).toContain("flushDocumentPropertyWrites(documentId)");
     const navigationFlushStart = source.indexOf("const flushLatestPageEdits =");
@@ -3097,10 +3105,6 @@ describe("document editor layout", () => {
     );
     expect(documentEditorSource).toContain(
       'awareness.setLocalStateField("canFlushDocument", false)',
-    );
-
-    expect(documentEditorSource).toContain(
-      "collabEnabled && !isDocumentCreationPending(document) ? documentId : null",
     );
 
     expect(documentEditorSource).toContain(

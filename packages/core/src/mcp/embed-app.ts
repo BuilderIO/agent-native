@@ -364,7 +364,11 @@ export function embedApp(
     function toolResultMeta(params) {
       if (!params || typeof params !== "object") return {};
       const direct = metadataRecord(params);
-      if (direct) return direct;
+      if (direct) {
+        const mcpToolResult = direct.mcp_tool_result;
+        const mcpMeta = metadataRecord(mcpToolResult);
+        return mcpMeta || direct;
+      }
       if (params.result && typeof params.result === "object") {
         return toolResultMeta(params.result);
       }
@@ -2119,7 +2123,7 @@ export function embedApp(
       openAiBridge = bridge;
       toolInput = objectValue(bridge.toolInput);
       const params = openAiToolResultParams(bridge);
-      toolResponseMetadata = objectValue(params._meta);
+      toolResponseMetadata = toolResultMeta(params);
       const data = parseToolResult(params);
       toolResultData = objectValue(data);
       openUrl = openLinkFrom(params, data);
