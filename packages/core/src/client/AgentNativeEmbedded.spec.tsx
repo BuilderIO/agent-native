@@ -21,7 +21,7 @@ function Harness({
   onReady,
 }: {
   fetch: typeof fetch;
-  onError: (error: unknown, source: "heartbeat" | "poll") => void;
+  onError?: (error: unknown, source: "heartbeat" | "poll") => void;
   onReady: () => void;
 }) {
   useAgentNativeEmbeddedBrowserSession({
@@ -118,5 +118,62 @@ describe("useAgentNativeEmbeddedBrowserSession", () => {
     expect(nextErrorHandler).toHaveBeenCalled();
     expect(firstErrorHandler).not.toHaveBeenCalled();
     expect(deleteRequests).toBe(0);
+  });
+
+  it("logs failures when no embedded error callback is configured", async () => {
+    let failRequests = false;
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = vi.fn(
+      async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ): Promise<Response> => {
+        const url = String(input);
+        if (init?.method === "DELETE") return response({ ok: true });
+        if (failRequests) {
+          return {
+            ok: false,
+            status: 503,
+            json: async () => {
+              throw new SyntaxError("Unexpected token <");
+            },
+          } as Response;
+        }
+        if (url.endsWith("/requests/claim")) {
+          return response({ ok: true, request: null });
+        }
+        return response({
+          ok: true,
+          session: { sessionId: "embedded-session", active: true },
+        });
+      },
+    );
+
+    await act(async () => {
+      root.render(
+        <Harness
+          fetch={fetchMock as unknown as typeof fetch}
+          onReady={vi.fn()}
+        />,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    failRequests = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20);
+    });
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[Agent-Native browser session] heartbeat failed:",
+      expect.objectContaining({
+        message: "Browser-session request failed (503)",
+      }),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[Agent-Native browser session] poll failed:",
+      expect.objectContaining({
+        message: "Browser-session request failed (503)",
+      }),
+    );
   });
 });
