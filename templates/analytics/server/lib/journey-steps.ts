@@ -26,6 +26,8 @@ export interface JourneyEventRow {
   action: string | null;
   aliasId?: string | null;
   attemptId?: string | null;
+  sessionReplayId?: string | null;
+  sessionReplayStartedAt?: string | null;
 }
 
 export interface JourneyStep {

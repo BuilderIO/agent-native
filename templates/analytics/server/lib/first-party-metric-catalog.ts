@@ -1424,6 +1424,40 @@ const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
   FROM eligible_output_links
   GROUP BY template_name, output_id, attempt_id
   HAVING COUNT(DISTINCT session_id) = 1
+), design_output_links AS (
+  SELECT DISTINCT
+    NULLIF(e.properties::jsonb ->> 'output_id', '') AS output_id,
+    NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '') AS attempt_id,
+    e.session_id,
+    'onboarding' AS journey_kind
+  FROM scoped_onboarding_events e
+  JOIN cohort_sessions s ON s.session_id = e.session_id
+  WHERE lower(${TEMPLATE_EXPR}) = 'design'
+    AND e.event_name = 'pageview'
+    AND NULLIF(e.properties::jsonb ->> 'output_id', '') IS NOT NULL
+    AND NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '') IS NOT NULL
+  UNION ALL
+  SELECT DISTINCT
+    NULLIF(e.properties::jsonb ->> 'output_id', '') AS output_id,
+    NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '') AS attempt_id,
+    e.session_id,
+    'standalone_setup' AS journey_kind
+  FROM scoped_onboarding_events e
+  JOIN standalone_setup_sessions s ON s.session_id = e.session_id
+  WHERE lower(${TEMPLATE_EXPR}) = 'design'
+    AND e.event_name = 'pageview'
+    AND NULLIF(e.properties::jsonb ->> 'output_id', '') IS NOT NULL
+    AND NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '') IS NOT NULL
+), unique_design_output_links AS (
+  SELECT
+    output_id,
+    attempt_id,
+    MIN(session_id) AS session_id,
+    MIN(journey_kind) AS journey_kind
+  FROM design_output_links
+  GROUP BY output_id, attempt_id
+  HAVING COUNT(DISTINCT session_id) = 1
+    AND COUNT(DISTINCT journey_kind) = 1
 ), journey_events AS (
   SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
     e.properties, lower(${TEMPLATE_EXPR}) AS template_name, 'onboarding' AS journey_kind
@@ -1459,6 +1493,16 @@ const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
           "generation_completed",
         ])}))
     )
+  UNION ALL
+  SELECT e.id, links.session_id, e.timestamp, e.event_name, e.path,
+    e.properties, 'design' AS template_name, links.journey_kind
+  FROM scoped_onboarding_events e
+  JOIN unique_design_output_links links
+    ON links.output_id = NULLIF(e.properties::jsonb ->> 'output_id', '')
+    AND links.attempt_id = NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
+  WHERE lower(${TEMPLATE_EXPR}) = 'design'
+    AND e.event_name = 'generation_completed'
+    AND NULLIF(e.session_id, '') IS NULL
 )
 SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
   e.journey_kind,
@@ -1486,8 +1530,13 @@ SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
         "generation_completed",
       ])})
       THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
+    WHEN e.template_name = 'design'
+      AND e.event_name IN ('pageview', 'generation_started', 'generation_completed')
+      THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
   END AS attempt_id,
-  NULLIF(e.properties::jsonb ->> 'event_alias_id', '') AS alias_id
+  NULLIF(e.properties::jsonb ->> 'event_alias_id', '') AS alias_id,
+  NULLIF(e.properties::jsonb ->> 'sessionReplayId', '') AS session_replay_id,
+  NULLIF(e.properties::jsonb ->> 'sessionReplayStartedAt', '') AS session_replay_started_at
 FROM journey_events e
 ORDER BY e.journey_kind, e.session_id, e.timestamp, e.id
 LIMIT {{journeyLimit}} OFFSET {{journeyOffset}}`;
