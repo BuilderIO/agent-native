@@ -416,6 +416,14 @@ export default defineAction({
         .describe(
           "Server-issued one-use proof for restoring connection metadata after deleting a Screen.",
         ),
+      duplicateSourceFileId: z
+        .string()
+        .min(1)
+        .max(256)
+        .optional()
+        .describe(
+          "Existing Screen whose localhost connection metadata is being copied into its duplicate.",
+        ),
       operationSource: z
         .string()
         .trim()
@@ -506,6 +514,14 @@ export default defineAction({
           targetIds.add(claim.targetFileId);
         }
       }
+      if (value.duplicateSourceFileId && !value.dataOperations) {
+        context.addIssue({
+          code: "custom",
+          path: ["dataOperations"],
+          message:
+            "Screen duplication requires path-addressed data operations.",
+        });
+      }
     }),
   agentInputSchema: z.object({
     id: z.string().describe("Design ID"),
@@ -538,6 +554,7 @@ export default defineAction({
       data,
       dataOperations,
       restoreClaims,
+      duplicateSourceFileId,
       operationSource,
       operationRevision,
       projectType,
@@ -674,6 +691,50 @@ export default defineAction({
             assignment.connectionId,
         );
         const allowedRestoreAssignments = new Map<string, string>();
+        const allowedDuplicateAssignments = new Set<string>();
+        if (duplicateSourceFileId && access?.role !== "owner") {
+          const sourceAssignments = new Map(
+            connectionAssignments(existing.data)
+              .filter(
+                (assignment) => assignment.fileId === duplicateSourceFileId,
+              )
+              .map((assignment) => [assignment.map, assignment.connectionId]),
+          );
+          const duplicateCandidates = addedAssignments.filter(
+            (assignment) =>
+              assignment.fileId !== duplicateSourceFileId &&
+              sourceAssignments.get(assignment.map) === assignment.connectionId,
+          );
+          const duplicateFileIds = [
+            duplicateSourceFileId,
+            ...new Set(
+              duplicateCandidates.map((assignment) => assignment.fileId),
+            ),
+          ];
+          if (duplicateCandidates.length > 0) {
+            const duplicateFiles = await tx
+              .select({ id: schema.designFiles.id })
+              .from(schema.designFiles)
+              .where(
+                and(
+                  eq(schema.designFiles.designId, id),
+                  inArray(schema.designFiles.id, duplicateFileIds),
+                ),
+              );
+            const persistedFileIds = new Set(
+              duplicateFiles.map((file) => file.id),
+            );
+            if (persistedFileIds.has(duplicateSourceFileId)) {
+              for (const assignment of duplicateCandidates) {
+                if (persistedFileIds.has(assignment.fileId)) {
+                  allowedDuplicateAssignments.add(
+                    connectionAssignmentKey(assignment),
+                  );
+                }
+              }
+            }
+          }
+        }
         const restoreClaimsToConsume: Array<{
           id: string;
           targetFileId: string;
@@ -796,7 +857,10 @@ export default defineAction({
           if (
             allowedRestoreAssignments.get(
               connectionAssignmentKey(assignment),
-            ) !== assignment.connectionId
+            ) !== assignment.connectionId &&
+            !allowedDuplicateAssignments.has(
+              connectionAssignmentKey(assignment),
+            )
           ) {
             requiredScopeIds.add(assignment.connectionId);
           }
@@ -830,12 +894,33 @@ export default defineAction({
               (assignment) =>
                 allowedRestoreAssignments.get(
                   connectionAssignmentKey(assignment),
-                ) !== connectionId,
+                ) !== connectionId &&
+                !allowedDuplicateAssignments.has(
+                  connectionAssignmentKey(assignment),
+                ),
             )
           ) {
             requiredScopeIds.add(connectionId);
           }
         }
+        const restoreTargetFileIdsForConnections = (
+          connectionIds: ReadonlySet<string>,
+        ) => [
+          ...new Set(
+            addedAssignments
+              .filter(
+                (assignment) =>
+                  connectionIds.has(assignment.connectionId) &&
+                  allowedRestoreAssignments.get(
+                    connectionAssignmentKey(assignment),
+                  ) !== assignment.connectionId &&
+                  restoreClaims?.some(
+                    (claim) => claim.targetFileId === assignment.fileId,
+                  ),
+              )
+              .map((assignment) => assignment.fileId),
+          ),
+        ];
         const requiredConnectionIds = [...requiredScopeIds];
         if (requiredConnectionIds.length > 0 && access?.role !== "owner") {
           const connectionScope = await resolveLocalhostConnectionScope().catch(
@@ -849,6 +934,10 @@ export default defineAction({
                   {
                     errorCode: "localhost_connection_scope_required",
                     statusCode: 403,
+                    details: {
+                      restoreTargetFileIds:
+                        restoreTargetFileIdsForConnections(requiredScopeIds),
+                    },
                   },
                 );
               }
@@ -879,16 +968,21 @@ export default defineAction({
           const ownedConnectionIds = new Set(
             ownedConnections.map((connection) => connection.id),
           );
-          if (
-            requiredConnectionIds.some(
+          const unownedConnectionIds = new Set(
+            requiredConnectionIds.filter(
               (connectionId) => !ownedConnectionIds.has(connectionId),
-            )
-          ) {
+            ),
+          );
+          if (unownedConnectionIds.size > 0) {
             fail(
               "Only local app connections in your workspace can be added to this design.",
               {
                 errorCode: "localhost_connection_scope_mismatch",
                 statusCode: 403,
+                details: {
+                  restoreTargetFileIds:
+                    restoreTargetFileIdsForConnections(unownedConnectionIds),
+                },
               },
             );
           }

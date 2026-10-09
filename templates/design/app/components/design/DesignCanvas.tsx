@@ -2094,8 +2094,7 @@ export function DesignCanvas({
     if (snapshotOnly && sourceType === "localhost") return null;
     if (
       sourceType === "localhost" &&
-      connectionId &&
-      (!bridgeUrl || !effectivePreviewToken)
+      (!connectionId || !bridgeUrl || !effectivePreviewToken)
     ) {
       return null;
     }

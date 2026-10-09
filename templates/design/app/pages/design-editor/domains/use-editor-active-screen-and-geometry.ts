@@ -41,6 +41,7 @@ import { type DesignEditorCommand } from "@/hooks/use-navigation-state";
 import {
   createDesignSaveOutboxEntry,
   isRejectedRestoreClaimError,
+  rejectedRestoreClaimTargetFileIds,
   reconcileRejectedRestoreClaimOutboxEntry,
   stripRejectedRestoreClaimAssignments,
 } from "@/lib/design-save-outbox";
@@ -601,9 +602,17 @@ export function useEditorActiveScreenAndGeometry({
               ? (outboxEntry.payload
                   .restoreClaims as FileDeletionRestoreClaim[])
               : [];
+            const rejectedTargetFileIds = rejectedRestoreClaimTargetFileIds(
+              error,
+              restoreClaims,
+            );
+            const rejectedTargetFileIdSet = new Set(rejectedTargetFileIds);
+            const rejectedClaims = restoreClaims.filter((claim) =>
+              rejectedTargetFileIdSet.has(claim.targetFileId),
+            );
             if (
               outboxEntry &&
-              restoreClaims.length > 0 &&
+              rejectedClaims.length > 0 &&
               isRejectedRestoreClaimError(error)
             ) {
               const rejectedEntry = outboxEntry;
@@ -614,7 +623,7 @@ export function useEditorActiveScreenAndGeometry({
               );
               rejectedFrameGeometryRestoreClaimsRef.current = [
                 ...rejectedFrameGeometryRestoreClaimsRef.current,
-                ...restoreClaims
+                ...rejectedClaims
                   .filter((claim) => !rejectedIds.has(claim.claimId))
                   .map((claim) => ({
                     designId: rejectedEntry.designId,
@@ -625,10 +634,12 @@ export function useEditorActiveScreenAndGeometry({
                 acknowledgeFrameGeometryRestoreClaims(
                   pendingFrameGeometryRestoreClaimsRef.current,
                   rejectedEntry.designId,
-                  restoreClaims,
+                  rejectedClaims,
                 );
-              const reconciledEntry =
-                reconcileRejectedRestoreClaimOutboxEntry(rejectedEntry);
+              const reconciledEntry = reconcileRejectedRestoreClaimOutboxEntry(
+                rejectedEntry,
+                rejectedTargetFileIds,
+              );
               const reconciledOperations = reconciledEntry
                 ? (reconciledEntry.payload
                     .dataOperations as DesignDataOperation[])

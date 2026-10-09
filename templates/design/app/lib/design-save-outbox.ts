@@ -71,6 +71,39 @@ export function isRejectedRestoreClaimError(error: unknown): boolean {
   );
 }
 
+export function rejectedRestoreClaimTargetFileIds(
+  error: unknown,
+  claims: readonly unknown[],
+): string[] {
+  if (!error || typeof error !== "object") return [];
+  const candidate = error as Record<string, unknown>;
+  const data = isRecord(candidate.data) ? candidate.data : undefined;
+  const details = isRecord(candidate.details)
+    ? candidate.details
+    : data && isRecord(data.details)
+      ? data.details
+      : undefined;
+  const targetFileIds = details?.restoreTargetFileIds;
+  if (Array.isArray(targetFileIds)) {
+    return [
+      ...new Set(
+        targetFileIds.filter(
+          (value): value is string => typeof value === "string",
+        ),
+      ),
+    ];
+  }
+  return [
+    ...new Set(
+      claims.flatMap((claim) =>
+        isRecord(claim) && typeof claim.targetFileId === "string"
+          ? [claim.targetFileId]
+          : [],
+      ),
+    ),
+  ];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -133,20 +166,35 @@ export function stripRejectedRestoreClaimAssignments(
  */
 export function reconcileRejectedRestoreClaimOutboxEntry(
   entry: DesignSaveOutboxEntry,
+  rejectedTargetFileIds?: readonly string[],
 ): DesignSaveOutboxEntry | null {
   const claims = entry.payload.restoreClaims;
   const operations = entry.payload.dataOperations;
   if (!Array.isArray(claims) || !Array.isArray(operations)) return null;
+  const rejectedTargetFileIdSet =
+    rejectedTargetFileIds === undefined ? null : new Set(rejectedTargetFileIds);
+  const rejectedClaims = claims.filter(
+    (claim) =>
+      rejectedTargetFileIdSet === null ||
+      (isRecord(claim) &&
+        typeof claim.targetFileId === "string" &&
+        rejectedTargetFileIdSet.has(claim.targetFileId)),
+  );
+  if (rejectedClaims.length === 0) return null;
   const reconciliation = stripRejectedRestoreClaimAssignments(
     operations,
-    claims,
+    rejectedClaims,
   );
   if (!reconciliation.removed || reconciliation.operations.length === 0) {
     return null;
   }
 
   const payload = { ...entry.payload };
-  delete payload.restoreClaims;
+  const remainingClaims = claims.filter(
+    (claim) => !rejectedClaims.includes(claim),
+  );
+  if (remainingClaims.length === 0) delete payload.restoreClaims;
+  else payload.restoreClaims = remainingClaims;
   return {
     ...entry,
     payload: { ...payload, dataOperations: reconciliation.operations },
@@ -515,7 +563,14 @@ async function drainEntries(
         isRejectedRestoreClaimError(error) &&
         Array.isArray(entry.payload.restoreClaims)
       ) {
-        const reconciled = reconcileRejectedRestoreClaimOutboxEntry(entry);
+        const rejectedTargetFileIds = rejectedRestoreClaimTargetFileIds(
+          error,
+          entry.payload.restoreClaims,
+        );
+        const reconciled = reconcileRejectedRestoreClaimOutboxEntry(
+          entry,
+          rejectedTargetFileIds,
+        );
         if (reconciled) {
           await storage.putLatest(reconciled);
           result.rebased.push({ entry, error });
@@ -525,8 +580,7 @@ async function drainEntries(
             );
           }
         } else {
-          await storage.deleteIfRevision(entry);
-          result.dropped.push({ entry, error });
+          result.failed.push({ entry, error });
         }
       } else if (isTerminalSaveError(error)) {
         await storage.deleteIfRevision(entry);

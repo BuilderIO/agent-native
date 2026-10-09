@@ -127,17 +127,22 @@ test.describe.serial("public visual edit", () => {
   });
 
   test.afterAll(async ({ browser }) => {
-    if (designId) {
-      if (linkedScreenId) await deleteLinkedScreen(browser, linkedScreenId);
-      await setDesignVisibility(browser, designId, "private");
+    try {
+      if (designId) {
+        if (linkedScreenId) await deleteLinkedScreen(browser, linkedScreenId);
+        await setDesignVisibility(browser, designId, "private");
+      }
+      if (collaborationDesignId) {
+        await setLiveCollaboration(browser, collaborationDesignId, false);
+        await setDesignVisibility(browser, collaborationDesignId, "private");
+        await deleteDesign(browser, collaborationDesignId);
+      }
+    } finally {
+      await closeServer(visualEditBridge?.server ?? null);
+      visualEditBridge = null;
+      await closeServer(visualEditTargetServer);
+      visualEditTargetServer = null;
     }
-    if (collaborationDesignId) {
-      await deleteDesign(browser, collaborationDesignId);
-    }
-    await closeServer(visualEditBridge?.server ?? null);
-    visualEditBridge = null;
-    await closeServer(visualEditTargetServer);
-    visualEditTargetServer = null;
   });
 
   test("loads the public /visual-edit route without a session and stays crash-free", async ({
@@ -184,7 +189,9 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
+  // oracle: none — verifies bridge readiness and source-warning timing, not visual parity
   test("reveals the local frame as soon as its editor bridge is ready", async ({
+    browser,
     page,
   }) => {
     let createdDesignId: string | undefined;
@@ -285,34 +292,22 @@ test.describe.serial("public visual edit", () => {
       });
     });
 
-    const openedResponse = await page.request.post(
-      appPath("/_agent-native/actions/open-visual-edit"),
-      {
-        data: {
-          title: "Iframe load timing",
-          devServerUrl: visualEditTargetUrl,
-          bridgeUrl: visualEditBridge!.manifest.bridgeUrl,
-          bridgeToken: VISUAL_EDIT_BRIDGE_TOKEN,
-          rootPath: visualEditBridge!.manifest.rootPath,
-          paths: ["/slow"],
-          navigate: false,
-        },
-      },
-    );
-    expect(openedResponse.ok()).toBe(true);
-    const opened = (await openedResponse.json()) as {
-      designId?: string;
-      urlPath?: string;
-    };
+    const opened = await createOwnedVisualEditDesign(browser, {
+      title: "Iframe load timing",
+      paths: ["/slow"],
+    });
     createdDesignId = opened.designId;
-    if (!createdDesignId) throw new Error("open-visual-edit returned no ID");
-    if (!opened.urlPath) throw new Error("open-visual-edit returned no URL");
 
     try {
       await page.goto(
         `${BASE_URL}${opened.urlPath}&editorView=overview&zoom=50`,
         { waitUntil: "domcontentloaded" },
       );
+      const slowScreenRow = page
+        .locator("button[data-screen-row]")
+        .filter({ hasText: "Localhost slow" });
+      await expect(slowScreenRow).toBeVisible();
+      await slowScreenRow.click();
       const editorFrame = page.locator(
         'iframe[data-design-preview-iframe][src*="live-edit"][src*="slow"]',
       );
@@ -339,25 +334,18 @@ test.describe.serial("public visual edit", () => {
           .locator("#delayed-image")
           .evaluate((image) => !(image as HTMLImageElement).complete),
       ).toBe(true);
-      expect(
-        await page.evaluate(
-          () =>
-            (
-              window as Window & {
-                __visualEditSourceWarningState?: {
-                  visibleWhilePreparing: boolean;
-                };
-              }
-            ).__visualEditSourceWarningState?.visibleWhilePreparing,
-        ),
-      ).toBe(false);
-
-      const screenshotPath = path.resolve(
-        import.meta.dirname,
-        "../../../.tmp/visual-edit-iframe-ready.png",
+      const sourceWarningState = await page.evaluate(
+        () =>
+          (
+            window as Window & {
+              __visualEditSourceWarningState?: {
+                visibleWhilePreparing: boolean;
+              };
+            }
+          ).__visualEditSourceWarningState,
       );
-      await mkdir(path.dirname(screenshotPath), { recursive: true });
-      await page.screenshot({ path: screenshotPath });
+      expect(sourceWarningState?.visibleWhilePreparing).toBe(false);
+
       await page.waitForFunction(
         () => {
           const timing = (
@@ -397,9 +385,7 @@ test.describe.serial("public visual edit", () => {
         `[visual-edit-iframe-timing] bridge-ready=${timing.bridgeReadyMs}ms full-load-after-ready=${timing.fullLoadAfterReadyMs}ms`,
       );
     } finally {
-      await page.request.post(appPath("/_agent-native/actions/delete-design"), {
-        data: { id: createdDesignId },
-      });
+      if (createdDesignId) await deleteDesign(browser, createdDesignId);
     }
   });
 
@@ -467,6 +453,7 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
+  // oracle: none — verifies authorization responses, not native visual parity
   test("rejects forged bare-link editor access", async ({ browser }) => {
     const context = await browser.newContext({
       storageState: { cookies: [], origins: [] },
@@ -519,6 +506,7 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
+  // oracle: none — verifies credential denial and network isolation, not native visual parity
   test("public /visual-edit viewers cannot get local bridge credentials", async ({
     browser,
   }) => {
@@ -1016,6 +1004,7 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
+  // oracle: none — verifies collaboration permissions and persisted edits, not native visual parity
   test("shares an inert live snapshot and hands guest edits back to the owner", async ({
     browser,
     page,
@@ -1420,23 +1409,52 @@ async function createLinkedScreen(browser: Browser, designId: string) {
 
 async function createOwnedVisualEditDesign(
   browser: Browser,
-): Promise<{ designId: string; screenIds: string[] }> {
+  options: { title?: string; paths?: string[] } = {},
+): Promise<{ designId: string; screenIds: string[]; urlPath: string }> {
   if (!visualEditBridge) throw new Error("visual-edit bridge is not running");
   const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
   try {
+    const createResponse = await context.request.post(
+      appUrl("/_agent-native/actions/create-design"),
+      {
+        data: {
+          title: options.title ?? "E2E live canvas collaboration",
+          projectType: "prototype",
+        },
+      },
+    );
+    if (!createResponse.ok()) {
+      throw new Error(
+        `create-design failed: ${createResponse.status()} ${await createResponse.text()}`,
+      );
+    }
+    const created = (await createResponse.json()) as {
+      id?: string;
+      data?: { id?: string };
+      design?: { id?: string };
+    };
+    const createdDesignId =
+      created.id ?? created.data?.id ?? created.design?.id;
+    if (!createdDesignId)
+      throw new Error("create-design returned no design ID");
+
     const response = await context.request.post(
       appUrl("/_agent-native/actions/open-visual-edit"),
       {
         data: {
-          title: "E2E live canvas collaboration",
+          designId: createdDesignId,
           devServerUrl: visualEditTargetUrl,
           bridgeUrl: visualEditBridge.manifest.bridgeUrl,
           rootPath: visualEditBridge.manifest.rootPath,
           routeManifest: visualEditBridge.manifest,
           bridgeToken: VISUAL_EDIT_BRIDGE_TOKEN,
-          paths: ["/", "/settings"],
+          paths: options.paths ?? ["/", "/settings"],
           navigate: false,
           publicReadOnly: false,
+        },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Agent-Native-Frontend": "1",
         },
       },
     );
@@ -1447,16 +1465,22 @@ async function createOwnedVisualEditDesign(
     }
     const result = (await response.json()) as {
       designId?: string;
+      urlPath?: string;
       screens?: Array<{ id?: string }>;
     };
-    const designId = result.designId;
+    const openedDesignId = result.designId;
     const screenIds = result.screens?.flatMap((screen) =>
       screen.id ? [screen.id] : [],
     );
-    if (!designId || !screenIds || screenIds.length < 2) {
+    if (
+      openedDesignId !== createdDesignId ||
+      !screenIds ||
+      screenIds.length < (options.paths ?? ["/", "/settings"]).length ||
+      !result.urlPath
+    ) {
       throw new Error("open-visual-edit returned no design or screen");
     }
-    return { designId, screenIds };
+    return { designId: openedDesignId, screenIds, urlPath: result.urlPath };
   } finally {
     await context.close();
   }

@@ -471,6 +471,58 @@ describe("update-design data concurrency", () => {
     });
   });
 
+  it("allows a shared editor to copy an existing Screen connection to its duplicate", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "owner-connection",
+        ownerEmail: "design-owner@example.com",
+        orgId: null,
+      },
+    ];
+    mocks.state.row.data = JSON.stringify({
+      ...BASE_DATA,
+      screenMetadata: {
+        ...BASE_DATA.screenMetadata,
+        source: { title: "Source", connectionId: "owner-connection" },
+      },
+    });
+    mocks.state.designFiles = [
+      {
+        id: "source",
+        designId: "design-1",
+        filename: "source.html",
+        fileType: "html",
+        content: "<main>Source</main>",
+      },
+      {
+        id: "copy",
+        designId: "design-1",
+        filename: "source copy.html",
+        fileType: "html",
+        content: "<main>Source</main>",
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        duplicateSourceFileId: "source",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "copy"],
+            value: { title: "Copy", connectionId: "owner-connection" },
+          },
+        ],
+      } as never),
+    ).resolves.toMatchObject({ changed: true });
+
+    expect(
+      JSON.parse(mocks.state.row.data!).screenMetadata.copy.connectionId,
+    ).toBe("owner-connection");
+  });
+
   it("does not turn a connection-scope service failure into an authorization error", async () => {
     mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
     mocks.state.resolveScope.mockRejectedValueOnce(
@@ -623,6 +675,7 @@ describe("update-design data concurrency", () => {
     ).rejects.toMatchObject({
       errorCode: "localhost_connection_scope_mismatch",
       statusCode: 403,
+      details: { restoreTargetFileIds: [] },
     });
     expect(mocks.state.restoreClaims[0]?.consumedAt).toBeNull();
 
@@ -693,6 +746,7 @@ describe("update-design data concurrency", () => {
     ).rejects.toMatchObject({
       errorCode: "localhost_connection_scope_mismatch",
       statusCode: 403,
+      details: { restoreTargetFileIds: ["restored-file-2"] },
     });
   });
 

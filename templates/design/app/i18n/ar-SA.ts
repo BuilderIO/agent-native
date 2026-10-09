@@ -12,8 +12,7 @@ export default {
     examplePosition: "مثال {current} من {total}",
     showExample: "عرض المثال {current} من {total}",
     screenshotExamples: "أمثلة لقطات الشاشة",
-    screenshotAlt:
-      "{label}، المثال {current} من {total}، تاريخ الالتقاط {date}",
+    screenshotAlt: "{label}، المثال {current} من {total}، تاريخ الالتقاط {date}",
     screenshotMissing: "لم تُلتقط لقطة شاشة",
     recordingUnavailable: "غير متاح",
     eventTime: "وقت الحدث (UTC)",
@@ -54,8 +53,7 @@ export default {
   composer: { menu: { integrations: "التكاملات" } },
   creativeContext: {
     title: "المكتبة",
-    description:
-      "سياق إبداعي قابل لإعادة الاستخدام يحافظ على الاتساق بين الأعمال.",
+    description: "سياق إبداعي قابل لإعادة الاستخدام يحافظ على الاتساق بين الأعمال.",
     modeLabel: "استخدام السياق الإبداعي",
     automatic: "تلقائي",
     automaticDescription: "دع الوكيل يختار المصادر وحزمة السياق الأكثر صلة.",
@@ -2067,8 +2065,7 @@ export default {
       joining: "جارٍ الانضمام…",
       joined: "أُضيفت إلى قائمة الانتظار",
       error: "تعذّر الانضمام إلى قائمة الانتظار. يُرجى المحاولة مجددًا.",
-      unavailable:
-        "التسجيل في قائمة الانتظار غير متاح الآن. يُرجى المحاولة لاحقًا.",
+      unavailable: "التسجيل في قائمة الانتظار غير متاح الآن. يُرجى المحاولة لاحقًا.",
     },
     deleteError: "لا يمكن حذف نظام التصميم",
     updateSuccess: "تم تحديث نظام التصميم",

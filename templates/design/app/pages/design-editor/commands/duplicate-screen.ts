@@ -911,7 +911,11 @@ export function runDuplicateScreen(
         if (!old || typeof old !== "object") return old;
         return { ...old, data: JSON.stringify(nextData) };
       });
-      await updateDesignAsync({ id, dataOperations } as any);
+      await updateDesignAsync({
+        id,
+        dataOperations,
+        duplicateSourceFileId: screenId,
+      } as any);
       optimisticallyInsertCreatedFile({
         fileId: nextId,
         filename,

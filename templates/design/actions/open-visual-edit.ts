@@ -33,13 +33,13 @@ import {
   parseCanvasFrameGeometryById,
 } from "../shared/canvas-frames.js";
 import { getOverviewScreenFileIds } from "../shared/design-files.js";
+import { LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN } from "../shared/local-visual-edit-principal.js";
 import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import {
   DESIGN_BRIDGE_OPERATIONS,
   makeLocalhostRouteId,
   titleFromRoutePath,
 } from "../shared/source-mode.js";
-import { LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN } from "../shared/local-visual-edit-principal.js";
 import addLocalhostScreensAction, {
   pathFromUrl,
   routeUrl,

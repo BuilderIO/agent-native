@@ -228,6 +228,47 @@ describe("runDuplicateScreen", () => {
     );
   });
 
+  it("authorizes copying the source Screen's existing connection metadata", async () => {
+    const args = duplicateArgs({
+      designDataJsonRef: {
+        current: {
+          canvasFrames: {
+            source: { x: 0, y: 0, width: 640, height: 480 },
+          },
+          screenMetadata: {
+            source: {
+              sourceType: "localhost",
+              connectionId: "owner-connection",
+            },
+          },
+          localhostScreens: {
+            source: {
+              url: "http://localhost:5173/library",
+              connectionId: "owner-connection",
+            },
+          },
+        },
+      },
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    expect(args.updateDesignAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "design-1",
+        duplicateSourceFileId: "source",
+        dataOperations: expect.arrayContaining([
+          expect.objectContaining({
+            path: ["screenMetadata", "copy"],
+            value: expect.objectContaining({
+              connectionId: "owner-connection",
+            }),
+          }),
+        ]),
+      }),
+    );
+  });
+
   it("keeps Cmd+D duplicates on the board's 56px spacing", async () => {
     const sourceGeometry = { x: 200, y: 720, width: 320, height: 240, z: 4 };
     const args = duplicateArgs({

@@ -215,6 +215,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         screenId={screenId}
         sourceType="localhost"
         bridgeUrl="http://127.0.0.1:7331"
+        connectionId="localhost_connection"
         previewToken={`preview-${screenId}`}
         liveEditCapability="test-live-edit-capability"
         zoom={100}
@@ -286,6 +287,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
             screenId="inactive-screen"
             sourceType="localhost"
             bridgeUrl="http://127.0.0.1:7331"
+            connectionId="localhost_connection"
             previewToken="preview-inactive-screen"
             liveEditCapability="test-live-edit-capability"
             zoom={100}
@@ -350,6 +352,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         screenId="screen-account"
         sourceType="localhost"
         bridgeUrl="http://127.0.0.1:7331"
+        connectionId="localhost_connection"
         previewToken="preview-token"
         liveEditCapability="test-live-edit-capability"
         zoom={100}
@@ -705,6 +708,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
             screenId="screen-account"
             sourceType="localhost"
             bridgeUrl="http://127.0.0.1:7331"
+            connectionId="localhost_connection"
             previewToken="registration-preview-token"
             liveEditCapability="test-live-edit-capability"
             zoom={100}
@@ -782,6 +786,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           screenId="screen-account"
           sourceType="localhost"
           bridgeUrl={bridgeUrl}
+          connectionId="localhost_connection"
           previewToken="registration-preview-token"
           liveEditCapability="test-live-edit-capability"
           onBootReady={onBootReady}
@@ -857,6 +862,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           sourceType="localhost"
           previewUrlOverride="http://localhost:5173/settings"
           bridgeUrl={bridgeUrl}
+          connectionId="localhost_connection"
           previewToken="registration-preview-token"
           liveEditCapability="test-live-edit-capability"
           onBootReady={onBootReady}
@@ -950,6 +956,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           sourceType="localhost"
           previewUrlOverride="http://localhost:5173/profile"
           bridgeUrl={bridgeUrl}
+          connectionId="localhost_connection"
           previewToken="registration-preview-token"
           liveEditCapability="test-live-edit-capability"
           onBootReady={onBootReady}
@@ -1036,6 +1043,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           screenId="screen-account"
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
+          connectionId="localhost_connection"
           previewToken="stale-preview-token"
           liveEditCapability="test-live-edit-capability"
           onExternalContentSnapshot={() => {}}
@@ -1107,6 +1115,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           screenId="screen-library"
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
+          connectionId="localhost_connection"
           previewToken="preview-token"
           liveEditCapability="test-live-edit-capability"
           zoom={100}
@@ -1168,9 +1177,41 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       );
     expect(appOrBridgeRequests).toEqual([]);
     expect(
-      container.querySelector<HTMLIFrameElement>(
-        "iframe[data-design-preview-iframe]",
-      )?.getAttribute("src"),
+      container
+        .querySelector<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
+        ?.getAttribute("src"),
+    ).not.toBe("http://localhost:5173/library");
+  });
+
+  it("never loads a localhost URL without a registered connection and credentials", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) =>
+      Promise.reject(new Error(`Unexpected fetch: ${requestInfoUrl(input)}`)),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/library"
+          contentKey="screen-library"
+          screenId="screen-library"
+          sourceType="localhost"
+          zoom={100}
+          deviceFrame="none"
+          editMode={false}
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      container
+        .querySelector<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
+        ?.getAttribute("src"),
     ).not.toBe("http://localhost:5173/library");
   });
 
@@ -1336,6 +1377,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           screenId="screen-account"
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
+          connectionId="localhost_connection"
           previewToken="stale-preview-token"
           liveEditCapability="test-live-edit-capability"
           onExternalContentSnapshot={() => {}}
@@ -1377,6 +1419,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           screenId="screen-account"
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
+          connectionId="localhost_connection"
           previewToken="permission-preview-token"
           liveEditCapability="test-live-edit-capability"
           zoom={100}
@@ -1418,6 +1461,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           screenId="screen-account"
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
+          connectionId="localhost_connection"
           previewToken="permission-preview-token"
           liveEditCapability="test-live-edit-capability"
           zoom={100}
@@ -1502,6 +1546,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
             screenId="screen-account"
             sourceType="localhost"
             bridgeUrl={bridgeUrl}
+            connectionId="localhost_connection"
             previewToken="verification-preview-token"
             liveEditCapability="test-live-edit-capability"
             runtimeVerificationRequest={
@@ -1599,6 +1644,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
             screenId="screen-chat"
             sourceType="localhost"
             bridgeUrl={bridgeUrl}
+            connectionId="localhost_connection"
             previewToken="handoff-preview-token"
             liveEditCapability="test-live-edit-capability"
             externalSnapshotHtml="<!doctype html><html><body><main>Chat preview</main></body></html>"
@@ -1745,6 +1791,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           screenId="screen-settings"
           sourceType="localhost"
           bridgeUrl={bridgeUrl}
+          connectionId="localhost_connection"
           previewToken="example-preview-token"
           liveEditCapability="test-live-edit-capability"
           zoom={100}
@@ -1832,7 +1879,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
 });
 
 describe("DesignCanvas localhost screens never render a source snapshot", () => {
-  it("loads the dev-server URL live when the viewer has no bridge entitlement", async () => {
+  it("does not load a localhost URL or snapshot without bridge entitlement", async () => {
     await act(async () => {
       root.render(
         <DesignCanvas
@@ -1858,8 +1905,8 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
     const iframe = container.querySelector<HTMLIFrameElement>(
       "[data-design-preview-iframe]",
     );
-    expect(iframe?.getAttribute("src")).toBe("http://localhost:5173/settings");
-    expect(iframe?.hasAttribute("srcdoc")).toBe(false);
+    expect(iframe?.getAttribute("src") ?? "").not.toContain("localhost:5173");
+    expect(container.querySelector('iframe[src*="localhost:5173"]')).toBeNull();
     expect(container.innerHTML).not.toContain("Frozen snapshot");
   });
 
@@ -1887,9 +1934,8 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
     const iframe = container.querySelector<HTMLIFrameElement>(
       "[data-design-preview-iframe]",
     );
-    expect(iframe?.src).toBe("http://localhost:5173/settings");
-    expect(iframe?.style.pointerEvents).toBe("none");
-    expect(container.textContent).toContain("Preparing live editor");
+    expect(iframe?.getAttribute("src") ?? "").not.toContain("localhost:5173");
+    expect(container.querySelector('iframe[src*="localhost:5173"]')).toBeNull();
   });
 
   it("surfaces unavailable preview credentials with a recovery message", async () => {
@@ -1991,6 +2037,7 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
           screenId="screen-settings"
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
+          connectionId="localhost_connection"
           previewToken="example-preview-token"
           liveEditCapability="test-live-edit-capability"
           externalSnapshotHtml="<!doctype html><html><body>Frozen snapshot</body></html>"

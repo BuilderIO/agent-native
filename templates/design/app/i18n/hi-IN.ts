@@ -58,8 +58,7 @@ export default {
       "दोबारा इस्तेमाल होने वाला क्रिएटिव कॉन्टेक्स्ट जो काम में निरंतरता रखता है।",
     modeLabel: "क्रिएटिव कॉन्टेक्स्ट इस्तेमाल करें",
     automatic: "ऑटोमैटिक",
-    automaticDescription:
-      "एजेंट को सबसे प्रासंगिक स्रोत और कॉन्टेक्स्ट पैक चुनने दें।",
+    automaticDescription: "एजेंट को सबसे प्रासंगिक स्रोत और कॉन्टेक्स्ट पैक चुनने दें।",
     off: "बंद",
     offDescription: "सेव किया हुआ क्रिएटिव कॉन्टेक्स्ट लागू किए बिना बनाएँ।",
     activePack: "मौजूदा कॉन्टेक्स्ट पैक",
@@ -68,8 +67,7 @@ export default {
     pin: "पिन करें",
     unpin: "पिन हटाएँ",
     sourcesTitle: "स्रोत",
-    sourcesDescription:
-      "दोबारा इस्तेमाल के लिए उपलब्ध संदर्भ, दस्तावेज़ और पुराना काम।",
+    sourcesDescription: "दोबारा इस्तेमाल के लिए उपलब्ध संदर्भ, दस्तावेज़ और पुराना काम।",
     searchTitle: "कॉन्टेक्स्ट खोजें",
     searchDescription:
       "किसी दावे, शैली या फैसले को दोबारा इस्तेमाल करने से पहले सटीक जानकारी खोजें।",
@@ -446,16 +444,14 @@ export default {
       active: "प्रेस्ड",
       disabled: "डिसेबल्ड",
       selectorLabel: "इंटरैक्शन स्थिति",
-      selectorTooltip:
-        "होवर, फ़ोकस और प्रेस्ड स्थितियों को प्रीव्यू और एडिट करें",
+      selectorTooltip: "होवर, फ़ोकस और प्रेस्ड स्थितियों को प्रीव्यू और एडिट करें",
       editingState: "{{state}} स्थिति संपादित की जा रही है",
       editingStateTooltip:
         "{{state}} स्थिति संपादित की जा रही है — यहाँ की styles केवल तब लागू होती हैं जब element {{state}} हो",
       hasOverrideIndicator: "यह property इस स्थिति में override की गई है",
       reset: "रीसेट करें",
       resetOverride: "ओवरराइड रीसेट करें",
-      resetOverrideTooltip:
-        "इस स्थिति का override हटाएं और डिफ़ॉल्ट मान उपयोग करें",
+      resetOverrideTooltip: "इस स्थिति का override हटाएं और डिफ़ॉल्ट मान उपयोग करें",
     },
     motionKeyframe: {
       addTooltip: "कीफ़्रेम जोड़ें",
@@ -688,8 +684,7 @@ export default {
       selectContainer: "बच्चों वाला एक कंटेनर चुनें।",
       stale: "कंटेनर बदल गया है। नया सुझाव देखें।",
       warnings: {
-        overlap:
-          "कुछ बच्चे ओवरलैप हैं; सुझाव सुरक्षित रूप से लागू नहीं हो सकता।",
+        overlap: "कुछ बच्चे ओवरलैप हैं; सुझाव सुरक्षित रूप से लागू नहीं हो सकता।",
         irregular: "अंतर अनियमित है; मध्य अंतर दिखाया गया है।",
         transformed: "रूपांतरित बच्चों की मैन्युअल समीक्षा आवश्यक है।",
       },
@@ -710,8 +705,7 @@ export default {
       detached: "इंस्टेंस अलग कर दिया गया।",
       swapFailed: "इस इंस्टेंस को बदला नहीं जा सका।",
       swappedFor: '"{{name}}" से बदल दिया गया।',
-      openPanelNudge:
-        "कॉम्पोनेंट पैनल में इंस्टेंस बदलें चयनकर्ता का उपयोग करें।",
+      openPanelNudge: "कॉम्पोनेंट पैनल में इंस्टेंस बदलें चयनकर्ता का उपयोग करें।",
       openPanelFailed: "कॉम्पोनेंट पैनल नहीं खोला जा सका।",
       linkedStructureUnsupported:
         "लिंक किए गए कॉम्पोनेंट की लेयर संरचना बदलना अभी समर्थित नहीं है।",
@@ -789,8 +783,7 @@ export default {
       resetPlayhead: "प्लेहेड रीसेट करें",
       reset: "रीसेट करें",
       addKeyframeAtPlayhead: "प्लेहेड पर कीफ़्रेम जोड़ें",
-      addKeyframeAtPlayheadForProperty:
-        "प्लेहेड पर कीफ़्रेम जोड़ें ({{property}})",
+      addKeyframeAtPlayheadForProperty: "प्लेहेड पर कीफ़्रेम जोड़ें ({{property}})",
       selectPropertyRowFirst: "पहले एक प्रॉपर्टी रो चुनें",
       currentTimeMs: "वर्तमान समय (ms में)",
       duration: "अवधि",
@@ -804,8 +797,7 @@ export default {
       autoKeyframe: "ऑटो-कीफ़्रेम",
       savingMotion: "मोशन सेव हो रहा है",
       emptyStateAnimate: "",
-      emptyStatePickProperty:
-        "को एनिमेट करें। पहला ट्रैक जोड़ने के लिए एक प्रॉपर्टी चुनें।",
+      emptyStatePickProperty: "को एनिमेट करें। पहला ट्रैक जोड़ने के लिए एक प्रॉपर्टी चुनें।",
       emptyStateNoSelection:
         "कैनवस पर एक एलिमेंट चुनें, फिर उसे एनिमेट करने के लिए एक ट्रैक जोड़ें।",
       addMotion: "मोशन जोड़ें",
@@ -970,8 +962,7 @@ export default {
       githubDescription:
         "जल्द आ रहा है: repository से screens और components सीधे import करें।",
       localTitle: "स्थानीय app",
-      localDescription:
-        "/visual-edit से किसी भी चल रहे local app को connect करें।",
+      localDescription: "/visual-edit से किसी भी चल रहे local app को connect करें।",
       visualEditGuidance:
         "/visual-edit skill install करें, कोई भी local app शुरू करें, फिर उस app repo से bridge command चलाएँ ताकि आपका agent URL-backed screens जोड़ सके।",
       comingSoon: "जल्द आ रहा है",
@@ -997,8 +988,7 @@ export default {
     },
     generationMayHaveStopped:
       "फ़ाइलें बनाने से पहले जनरेशन रुक गया हो सकता है। एजेंट संदेश देखें या फिर कोशिश करें।",
-    generationMayHaveStoppedToast:
-      "फ़ाइलें बनाने से पहले जनरेशन रुक गया हो सकता है।",
+    generationMayHaveStoppedToast: "फ़ाइलें बनाने से पहले जनरेशन रुक गया हो सकता है।",
     generationStoppedRetry:
       "फ़ाइलें बनाने से पहले जनरेशन रुक गया। उसी प्रॉम्प्ट से जारी रखने के लिए फिर कोशिश करें।",
     generationStoppedCheckAgent:
@@ -1007,8 +997,7 @@ export default {
     backToDesigns: "डिज़ाइन पर वापस जाएँ",
     designNotFoundDescription: "यह डिज़ाइन मौजूद नहीं है या हटा दिया गया है।",
     requestAccessTitle: "इस डिज़ाइन का ऐक्सेस माँगें",
-    requestAccessDescription:
-      "यह डिज़ाइन निजी है। मालिक से ऐक्सेस का अनुरोध करें।",
+    requestAccessDescription: "यह डिज़ाइन निजी है। मालिक से ऐक्सेस का अनुरोध करें।",
     requestAccess: "ऐक्सेस का अनुरोध करें",
     accessRequested: "ऐक्सेस का अनुरोध किया गया",
     accessRequestSentDescription:
@@ -1031,8 +1020,7 @@ export default {
     templateSaved: "टेम्पलेट लाइब्रेरी में सहेजा गया",
     templateSaveFailed: "यह टेम्पलेट सहेजा नहीं जा सका",
     fileMenu: {
-      pendingEditsBlocked:
-        "डुप्लिकेट करने से पहले लंबित विज़ुअल संपादन लागू करें या छोड़ दें।",
+      pendingEditsBlocked: "डुप्लिकेट करने से पहले लंबित विज़ुअल संपादन लागू करें या छोड़ दें।",
       designs: "डिज़ाइन",
       rename: "नाम बदलें",
       duplicate: "डुप्लिकेट करें",
@@ -1286,8 +1274,7 @@ export default {
     designPreview: "Design पूर्वावलोकन",
     presentMode: "वर्तमान मोड",
     useThisDirection: "इस दिशा का प्रयोग करें",
-    variantHandoffHelp:
-      "जारी रखने के लिए इस सारांश को अपने कोडिंग एजेंट में चिपकाएँ।",
+    variantHandoffHelp: "जारी रखने के लिए इस सारांश को अपने कोडिंग एजेंट में चिपकाएँ।",
     summaryCopied: "सारांश कॉपी किया गया",
     selectSummaryToCopy: "कॉपी करने के लिए सारांश चुनें",
     dismiss: "खारिज करें",
@@ -1349,8 +1336,7 @@ export default {
       copiedToastDescription:
         "इसे अपने कोडिंग एजेंट में पेस्ट करें और उससे विज़ुअल बदलाव लागू करने को कहें।",
       abortedToast: "लंबित preview हटा दिया गया",
-      interactBlocked:
-        "Interact पर जाने से पहले लंबित live edits लागू करें या रोकें।",
+      interactBlocked: "Interact पर जाने से पहले लंबित live edits लागू करें या रोकें।",
       leaveTitle: "छोड़ने से पहले design updates लागू करें?",
       leaveDescriptionOne:
         "Live preview में {{count}} design update केवल इस session के लिए है। अभी छोड़ने या reload करने पर यह हट जाएगा।",
@@ -1361,8 +1347,7 @@ export default {
     },
     addLocalhostScreen: {
       title: "अपनी app से screen जोड़ें",
-      description:
-        "नए frame के रूप में जोड़ने के लिए एक route चुनें, या path टाइप करें।",
+      description: "नए frame के रूप में जोड़ने के लिए एक route चुनें, या path टाइप करें।",
       searchPlaceholder: "Routes खोजें…",
       noRoutes: "कोई मेल खाता route नहीं मिला",
       useCustomPath: '"{{path}}" जोड़ें',
@@ -1428,13 +1413,10 @@ export default {
       pngCopied: "PNG क्लिपबोर्ड पर कॉपी हुआ",
       pngClipboardUnsupported:
         "यह ब्राउज़र PNG छवियों को क्लिपबोर्ड पर कॉपी नहीं कर सकता",
-      pngClipboardBlocked:
-        "इस PNG को कॉपी करने के लिए क्लिपबोर्ड एक्सेस की अनुमति दें",
+      pngClipboardBlocked: "इस PNG को कॉपी करने के लिए क्लिपबोर्ड एक्सेस की अनुमति दें",
       pngClipboardWriteError: "PNG को क्लिपबोर्ड पर कॉपी नहीं किया जा सका",
-      pngLivePreviewUnavailable:
-        "PNG निर्यात अभी केवल डेस्कटॉप ऐप में उपलब्ध है।",
-      pngReadOnlyUnavailable:
-        "केवल-पढ़ने वाले पूर्वावलोकन में PNG कैप्चर उपलब्ध नहीं है",
+      pngLivePreviewUnavailable: "PNG निर्यात अभी केवल डेस्कटॉप ऐप में उपलब्ध है।",
+      pngReadOnlyUnavailable: "केवल-पढ़ने वाले पूर्वावलोकन में PNG कैप्चर उपलब्ध नहीं है",
       pngSaveError: "PNG सहेजा नहीं जा सका",
       pngExportError: "PNG निर्यात नहीं किया जा सका",
       exportTooLarge:
@@ -1457,8 +1439,7 @@ export default {
       figmaSvgDownloaded: "Figma SVG डाउनलोड हुआ",
       figmaSvgUnsupported:
         "यह ब्राउज़र SVG छवियों को क्लिपबोर्ड पर कॉपी नहीं कर सकता",
-      figmaSvgBlocked:
-        "इस SVG को कॉपी करने के लिए क्लिपबोर्ड एक्सेस की अनुमति दें",
+      figmaSvgBlocked: "इस SVG को कॉपी करने के लिए क्लिपबोर्ड एक्सेस की अनुमति दें",
       figmaSvgWriteError: "SVG को क्लिपबोर्ड पर कॉपी नहीं किया जा सका",
       figmaSvgRenderError: "Figma SVG नहीं बनाया जा सका",
       figmaSvgExportError: "Figma SVG निर्यात नहीं किया जा सका",
@@ -1473,8 +1454,7 @@ export default {
       designStateLiveScreen:
         "लाइव स्क्रीन पर डिज़ाइन स्टेट का पूर्वावलोकन नहीं हो सकता — इसकी सामग्री चल रहा ऐप है, दस्तावेज़ नहीं।",
       layerMoveFailed: "उस परत को स्थानांतरित नहीं किया जा सका",
-      groupFillApplyFailed:
-        "यह भराव समूह की सभी परतों पर लागू नहीं किया जा सका।",
+      groupFillApplyFailed: "यह भराव समूह की सभी परतों पर लागू नहीं किया जा सका।",
       layerMoveRedirected:
         "मूल स्थान के पास ले जाया गया — सटीक ड्रॉप लक्ष्य संपादन योग्य नहीं है",
       duplicateElementFailed: "उस तत्व की प्रतिलिपि नहीं बनाई जा सकी",
@@ -1494,12 +1474,10 @@ export default {
         "पूर्ववत करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
       redoSkippedConcurrentEdit:
         "फिर से करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
-      saveConflict:
-        "यह स्क्रीन कहीं और बदल गई। आपका पिछला संपादन सहेजा नहीं गया।",
+      saveConflict: "यह स्क्रीन कहीं और बदल गई। आपका पिछला संपादन सहेजा नहीं गया।",
       versionHistoryUnavailable:
         "इस डिज़ाइन के लिए वर्शन हिस्ट्री उपलब्ध नहीं है। आपका संपादन फिर भी सहेजा गया।",
-      autoLayoutScreensUnsupported:
-        "ऑटो लेआउट जोड़ें स्क्रीन पर लागू नहीं होता",
+      autoLayoutScreensUnsupported: "ऑटो लेआउट जोड़ें स्क्रीन पर लागू नहीं होता",
       booleanSubtractUnsupported:
         "घटाने के लिए पास-पास रखे ठोस रंग वाले आयत या दीर्घवृत्त चुनें।",
       booleanSubtractFailed: "चुनी गई परतों को घटाया नहीं जा सका।",
@@ -1507,12 +1485,10 @@ export default {
         "यह लेयर सोर्स में नहीं मिली। ऐप लोड होने के बाद फिर से कोशिश करें, या एजेंट से यह बदलाव करने को कहें।",
       reactSourceAnchorsUnavailable:
         "यह ऐप एडिटर को सोर्स लोकेशन नहीं देता, इसलिए इस लेयर को किसी लाइन से नहीं जोड़ा जा सकता। यह बदलाव एजेंट से कराएँ।",
-      sourceLocationSnapshotFailed:
-        "इस पूर्वावलोकन के स्रोत स्थान जाँचे नहीं जा सके।",
+      sourceLocationSnapshotFailed: "इस पूर्वावलोकन के स्रोत स्थान जाँचे नहीं जा सके।",
       screenSourceUpdated: "स्क्रीन स्रोत अपडेट किया गया",
       screenSourceUpdateFailed: "स्क्रीन स्रोत अपडेट नहीं किया जा सका",
-      vectorEditUnsupported:
-        "इस आकार या रूपांतरण के लिए वेक्टर संपादन उपलब्ध नहीं है।",
+      vectorEditUnsupported: "इस आकार या रूपांतरण के लिए वेक्टर संपादन उपलब्ध नहीं है।",
       imageUploading: "छवि अपलोड हो रही है…",
       pasteReplaceFailed: "उस परत को बदला नहीं जा सका",
       swapFillStrokeLayeredFill:
@@ -1573,8 +1549,7 @@ export default {
       permissionPromptSettingsInstructions:
         "ऐड्रेस बार के बाईं ओर साइट कंट्रोल आइकन पर क्लिक करें, साइट सेटिंग खोलें, फिर लोकल नेटवर्क को ‘अनुमति दें’ पर सेट करें।",
       permissionPromptRetry: "कनेक्शन फिर से आज़माएँ",
-      previewCredentialsUnavailableTitle:
-        "लोकल प्रीव्यू क्रेडेंशियल उपलब्ध नहीं हैं",
+      previewCredentialsUnavailableTitle: "लोकल प्रीव्यू क्रेडेंशियल उपलब्ध नहीं हैं",
       previewCredentialsUnavailableDescription:
         "इंस्पेक्टर में इस स्क्रीन का localhost कनेक्शन फिर से जोड़ें, फिर दोबारा कोशिश करें।",
       publicPreviewUnavailableDescription:
@@ -1905,13 +1880,11 @@ export default {
     savedTemplates: "सहेजे गए टेम्पलेट",
     savedTemplatesDescription:
       "एडिटर मेनू से किसी भी Design प्रोजेक्ट को दोबारा उपयोग होने वाले टेम्पलेट के रूप में सहेजें।",
-    savedEmpty:
-      "डिज़ाइन खोलें और यहाँ जोड़ने के लिए टेम्पलेट के रूप में सहेजें चुनें।",
+    savedEmpty: "डिज़ाइन खोलें और यहाँ जोड़ने के लिए टेम्पलेट के रूप में सहेजें चुनें।",
     yourTemplates: "आपके टेम्पलेट",
     yourTemplatesDescription:
       "एडिटर मेनू से किसी भी Design प्रोजेक्ट को दोबारा उपयोग होने वाले टेम्पलेट के रूप में सहेजें।",
-    yourTemplatesEmpty:
-      "डिज़ाइन खोलें और यहाँ जोड़ने के लिए टेम्पलेट के रूप में सहेजें चुनें।",
+    yourTemplatesEmpty: "डिज़ाइन खोलें और यहाँ जोड़ने के लिए टेम्पलेट के रूप में सहेजें चुनें।",
     builtInTemplates: "अंतर्निहित टेम्पलेट",
     builtIn: "अंतर्निहित",
     brand: "ब्रांड: {{title}}",
@@ -1979,8 +1952,7 @@ export default {
       "Builder टोकन, कंपोनेंट, एसेट और उपयोग मार्गदर्शन निकालेगा",
     figmaDecodeFailed: "डिकोडिंग विफल: {{error}}",
     uploadFig: "Figma .fig फ़ाइल कनेक्ट करें",
-    figmaSaveLocalCopy:
-      "Figma स्थानीय कॉपी अपलोड करें: File -> Save local copy",
+    figmaSaveLocalCopy: "Figma स्थानीय कॉपी अपलोड करें: File -> Save local copy",
     websiteUrl: "वेबसाइट URL",
     add: "जोड़ना",
     githubRepository: "GitHub रिपॉजिटरी",
@@ -1990,8 +1962,7 @@ export default {
       "निजी रेपो को एक बढ़िया टोकन के रूप में सहेजे जाने की आवश्यकता होती है",
     privateRepoSuffix: "सामग्री पढ़ने की पहुंच के साथ।",
     localCodeFiles: "कोड फ़ाइलें कनेक्ट करें",
-    dropCodeFiles:
-      "CSS, Tailwind कॉन्फ़िग, थीम फ़ाइलें या design.md यहां छोड़ें",
+    dropCodeFiles: "CSS, Tailwind कॉन्फ़िग, थीम फ़ाइलें या design.md यहां छोड़ें",
     codeFilePatterns:
       "फ़ाइल प्रकार: .css, .scss, tailwind.config.*, theme.*, tokens.*, design.md, package.json",
     documents: "दस्तावेज़ एवं प्रस्तुतियाँ",
@@ -2002,8 +1973,7 @@ export default {
     assetsHelp: "SVG लोगो,.woff2 फ़ॉन्ट, ब्रांड संपत्ति फ़ाइलें",
     designSystem: "डिज़ाइन प्रणाली",
     designProject: "डिज़ाइन परियोजना",
-    companyPlaceholder:
-      "जैसे एक्मे कॉर्प - हम आधुनिक टीमों के लिए डेवलपर टूल बनाते हैं...",
+    companyPlaceholder: "जैसे एक्मे कॉर्प - हम आधुनिक टीमों के लिए डेवलपर टूल बनाते हैं...",
     notesPlaceholder:
       "जैसे हम उच्च कंट्रास्ट वाली डार्क थीम पसंद करते हैं। हमारा ब्रांड शीर्षकों के लिए Poppins और मुख्य भाग के लिए DM Sans का उपयोग करता है। कोनों को 12px पर गोल रखें...",
     customInstructionsPlaceholder:
@@ -2025,8 +1995,7 @@ export default {
     chooseDifferentFile: "कोई भिन्न फ़ाइल चुनें",
     figmaThumbnailAlt: "Figma फ़ाइल थंबनेल",
     errors: {
-      chooseFig:
-        "कृपया एक.fig फ़ाइल चुनें (Figma में: फ़ाइल -> स्थानीय प्रतिलिपि सहेजें)।",
+      chooseFig: "कृपया एक.fig फ़ाइल चुनें (Figma में: फ़ाइल -> स्थानीय प्रतिलिपि सहेजें)।",
       parseFig: "उस Figma file के लिए Builder indexing शुरू नहीं हो सकी।",
       enterWebsite: "इसे जोड़ने से पहले एक वेबसाइट URL दर्ज करें।",
       websiteProtocol: "वेबसाइट URLs http:// या https:// से शुरू होनी चाहिए।",
@@ -2040,8 +2009,7 @@ export default {
       chooseDesignMd: "कृपया Markdown (.md या .mdx) फ़ाइल चुनें।",
       readDesignMd: "वह Markdown फ़ाइल पढ़ी नहीं जा सकी।",
       designMdTooLarge: "Markdown फ़ाइल 2 MB या उससे छोटी होनी चाहिए।",
-      designMdIndex:
-        "design.md इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन जाँचें।",
+      designMdIndex: "design.md इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन जाँचें।",
       noSources: "डिज़ाइन सिस्टम तैयार करने से पहले कम से कम एक स्रोत जोड़ें।",
     },
     sections: {
@@ -2061,8 +2029,7 @@ export default {
       },
       designMd: {
         title: "design.md आयात करें",
-        description:
-          "डिज़ाइन सिस्टम के स्रोत के रूप में design.md फ़ाइल का उपयोग करें",
+        description: "डिज़ाइन सिस्टम के स्रोत के रूप में design.md फ़ाइल का उपयोग करें",
       },
       designFiles: {
         title: "संदर्भ फ़ाइलें",
@@ -2175,8 +2142,7 @@ export default {
     },
     tokenPreview: {
       title: "टोकन पूर्वावलोकन",
-      description:
-        "वर्तमान में संग्रहीत रंग, प्रकार, रिक्ति और संपत्तियों का एक स्नैपशॉट।",
+      description: "वर्तमान में संग्रहीत रंग, प्रकार, रिक्ति और संपत्तियों का एक स्नैपशॉट।",
       colors: "रंग",
       noColors: "कोई रंग टोकन सहेजा नहीं गया.",
       typography: "टाइपोग्राफी",
