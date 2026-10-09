@@ -10,6 +10,11 @@ import {
   describeInlineBlockReason,
   type InlineAttachmentBlockReason,
 } from "./inline-attachment-limits.js";
+import {
+  describeOwnedImageReadFailure,
+  hydrateOwnedImageUrl,
+  type OwnedImageReadFailureCode,
+} from "./owned-attachment.js";
 import { getActiveFileUploadProvider, uploadFile } from "./registry.js";
 
 export interface PreUploadedImageAttachment {
@@ -33,6 +38,7 @@ export interface PreUploadAttachmentsResult {
   attachments: AgentChatAttachment[];
   uploaded: PreUploadedImageAttachment[];
   uploadedFiles: PreUploadedFileAttachment[];
+  readFailures: Array<{ name: string; code: OwnedImageReadFailureCode }>;
   providerMissing: boolean;
   uploadFailed: boolean;
   readableWithoutStorage: string[];
@@ -220,6 +226,7 @@ export async function preUploadAttachments(opts: {
   const includeFiles = opts.includeFiles !== false;
   const uploaded: PreUploadedImageAttachment[] = [];
   const uploadedFiles: PreUploadedFileAttachment[] = [];
+  const readFailures: PreUploadAttachmentsResult["readFailures"] = [];
   const spreadsheetContexts: string[] = [];
   let providerMissing = false;
   let uploadFailed = false;
@@ -232,6 +239,7 @@ export async function preUploadAttachments(opts: {
       attachments: list,
       uploaded,
       uploadedFiles,
+      readFailures,
       providerMissing: false,
       uploadFailed: false,
       readableWithoutStorage: [],
@@ -250,6 +258,18 @@ export async function preUploadAttachments(opts: {
   };
 
   for (const att of list) {
+    if (att.referenceOnly === true && typeof att.url === "string") {
+      const svg = isSvgAttachment(att);
+      uploadedFiles.push({
+        name: att.name,
+        url: att.url,
+        provider: att.uploadProvider || "unknown",
+        contentType: normalizeContentType(att.contentType),
+        referenceOnly: true,
+        ...(svg ? { securityNote: SVG_REFERENCE_SECURITY_NOTE } : {}),
+      });
+      continue;
+    }
     let isImage = att.type === "image";
     let isFile = att.type === "file" || att.type === "document";
     if (!isImage && !(includeFiles && isFile)) continue;
@@ -293,6 +313,29 @@ export async function preUploadAttachments(opts: {
         att.referenceOnly === true || isSvgAttachment(att);
       if (isReferenceOnlySvg) {
         markReferenceOnlySvgAttachment(att, att.contentType);
+      }
+      if (
+        isImage &&
+        !isReferenceOnlySvg &&
+        !parseBase64DataUrl(att.data ?? "")
+      ) {
+        const hydration = await hydrateOwnedImageUrl(att.url, att.contentType);
+        if (hydration.kind === "hydrated") {
+          att.data = hydration.dataUrl;
+          att.contentType = hydration.mediaType;
+          att.uploadProvider = hydration.provider;
+          uploaded.push({
+            name: att.name,
+            url: att.url,
+            provider: hydration.provider,
+            contentType: hydration.mediaType,
+          });
+          continue;
+        }
+        readFailures.push({
+          name: att.name || "image",
+          code: hydration.code,
+        });
       }
       const entry = {
         name: att.name,
@@ -438,6 +481,7 @@ export async function preUploadAttachments(opts: {
         }),
       );
     }
+    linesWithMetadata.push(...buildAttachmentReadFailureLines(readFailures));
     injectedBlocks.push(linesWithMetadata.join("\n"));
   } else if (providerMissing || uploadFailed) {
     injectedBlocks.push(
@@ -450,6 +494,13 @@ export async function preUploadAttachments(opts: {
       }).join("\n"),
     );
   }
+  if (
+    uploaded.length === 0 &&
+    uploadedFiles.length === 0 &&
+    readFailures.length > 0
+  ) {
+    injectedBlocks.push(...buildAttachmentReadFailureLines(readFailures));
+  }
 
   const injectedText =
     injectedBlocks.length > 0 ? injectedBlocks.join("\n\n") : null;
@@ -458,10 +509,32 @@ export async function preUploadAttachments(opts: {
     attachments: list,
     uploaded,
     uploadedFiles,
+    readFailures,
     providerMissing,
     uploadFailed,
     readableWithoutStorage,
     ...(uploadError ? { uploadError } : {}),
     injectedText,
   };
+}
+
+function buildAttachmentReadFailureLines(
+  failures: PreUploadAttachmentsResult["readFailures"],
+): string[] {
+  if (failures.length === 0) return [];
+  return [
+    "<chat-attachment-read-errors>",
+    ...failures.map(({ name, code }) => {
+      const nextStep =
+        code === "image-too-large"
+          ? "This is a fixed vision payload size limit. Tell the user to export a smaller or more compressed image; retrying the same upload will not help."
+          : "Do not describe its contents; tell the user this specific image could not be read and suggest correcting the image or storage issue before attaching it again.";
+      return (
+        `<chat-attachment-read-error name="${escapeXmlAttr(name)}" code="${escapeXmlAttr(code)}">` +
+        `The image was not supplied as vision input because ${escapeXmlAttr(describeOwnedImageReadFailure(code))}. ` +
+        `${nextStep}</chat-attachment-read-error>`
+      );
+    }),
+    "</chat-attachment-read-errors>",
+  ];
 }

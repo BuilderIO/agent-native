@@ -149,6 +149,20 @@ describe("designIntakeQuestionDirectives", () => {
     expect(text).toContain('not treat it as "nothing saved"');
   });
 
+  it("treats a fixed artwork request as having answered form factor", () => {
+    const text = designIntakeQuestionDirectives(
+      "design-1",
+      null,
+      0,
+      undefined,
+      "Create a LinkedIn ad",
+    ).join("\n");
+    expect(text).toContain("form factor is answered");
+    expect(text).not.toContain(
+      "covering what's genuinely still open: form factor",
+    );
+  });
+
   it("uses an attached screenshot as the complete generation brief", () => {
     const intake = designIntakeQuestionDirectives("design-1", null, 1).join(
       "\n",
@@ -176,6 +190,40 @@ describe("DESIGN_MUTATION_REQUIRED_DIRECTIVE", () => {
     expect(designIntakeQuestionDirectives("design-1")).not.toContain(
       DESIGN_MUTATION_REQUIRED_DIRECTIVE,
     );
+  });
+});
+
+describe("designCanvasIntentDirectives", () => {
+  it("uses one exact-size screenshot and no device frames for fixed artwork", () => {
+    const text = designGenerationDirectives(
+      "design-1",
+      null,
+      0,
+      "Create a LinkedIn ad",
+    ).join("\n");
+    expect(text).toContain("LinkedIn Single Image Ad, 1200×627px");
+    expect(text).toContain("devices: []");
+    expect(text).toContain("widths: [1200] and heights: [627]");
+    expect(text).toContain(
+      "Do not capture separate desktop and mobile screenshots.",
+    );
+    expect(text).not.toContain("After responsive app generation");
+  });
+
+  it("keeps responsive screenshots for app UI even when it mentions advertising", () => {
+    const text = designGenerationDirectives(
+      "design-1",
+      null,
+      0,
+      "Build a Google Ads dashboard",
+    ).join("\n");
+    expect(text).toContain(
+      "Responsive behavior is required for app and website UI",
+    );
+    expect(text).toContain(
+      "take-design-screenshot` at desktop and mobile viewports",
+    );
+    expect(text).not.toContain("Fixed canvas:");
   });
 });
 

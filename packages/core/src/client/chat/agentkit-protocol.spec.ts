@@ -4,6 +4,7 @@ import type {
   AgentMessage,
 } from "@agent-native/agentkit/protocol";
 import {
+  AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
   createAgentKitProtocolVersionOffer,
   parseAgentEvent,
   resumeEntryFromApproval,
@@ -14,10 +15,17 @@ import {
   AUTO_CONTINUE_PROMPT,
   CONTINUE_OF_RUN_METADATA_KEY,
 } from "../../agent/auto-continue.js";
+import { buildUserContentWithAttachments } from "../../agent/production-agent.js";
 import {
   BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
   BACKGROUND_FUNCTION_WALL_MS,
 } from "../../app-config/run-lifecycle-invariants.js";
+import { preUploadAttachments } from "../../file-upload/pre-upload-attachments.js";
+import {
+  registerFileUploadProvider,
+  unregisterFileUploadProvider,
+} from "../../file-upload/registry.js";
+import { PNG_BASE64 } from "../../file-upload/test-image-fixtures.js";
 import {
   subscribeChatFirstOpenApp,
   subscribeChatFirstOpenBrowser,
@@ -718,6 +726,241 @@ describe("createAgentKitProtocolAdapter", () => {
           url: "/uploads/brief.pdf",
         },
       ],
+    });
+  });
+
+  it("preserves uploaded image bytes from protocol parts through model content", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events);
+    let startedTurn: AgentChatRuntimeTurnInput | undefined;
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: "runtime-test",
+      startTurn: async (turn) => {
+        startedTurn = turn;
+        return {
+          id: "turn-1",
+          runId: "core-run-1",
+          sessionId: "thread-1",
+          events: events(),
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const imageUrl = `data:image/png;base64,${PNG_BASE64}`;
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        {
+          id: "user-image",
+          role: "user",
+          parts: [
+            { type: "text", text: "Match this visual reference" },
+            {
+              type: "file",
+              name: "reference.png",
+              // AgentKitAssistantChat used this sentinel before it learned to
+              // retain the data URL's real MIME type.
+              mediaType: "image",
+              url: imageUrl,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(startedTurn?.attachments).toMatchObject([
+      {
+        type: "image",
+        name: "reference.png",
+        mediaType: "image/png",
+        contentType: "image/png",
+        url: imageUrl,
+      },
+    ]);
+    const preUploaded = await preUploadAttachments({
+      attachments:
+        startedTurn?.attachments?.map((attachment) => ({
+          ...attachment,
+          type: attachment.type ?? "file",
+        })) ?? [],
+      ownerEmail: null,
+    });
+    expect(
+      buildUserContentWithAttachments({
+        text: "Match this visual reference",
+        attachments: preUploaded.attachments,
+      }),
+    ).toContainEqual({
+      type: "image",
+      data: PNG_BASE64,
+      mediaType: "image/png",
+    });
+  });
+
+  it("hydrates a provider-owned upload URL through protocol, runtime, and model input", async () => {
+    const providerId = "agentkit-protocol-owned-attachment-test";
+    registerFileUploadProvider({
+      id: providerId,
+      name: "Protocol attachment test storage",
+      isConfigured: () => true,
+      isOwnedUrl: (url) =>
+        new URL(url).origin === "https://storage.example.test",
+      upload: async () => ({
+        url: "https://storage.example.test/uploads/test.png",
+        provider: providerId,
+      }),
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(Buffer.from(PNG_BASE64, "base64"), {
+          status: 200,
+          headers: {
+            "content-type": "image/png",
+            "content-length": String(
+              Buffer.from(PNG_BASE64, "base64").byteLength,
+            ),
+          },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+        yield { type: "done", reason: "complete" };
+      }
+      const runtime = createRuntime(events);
+      let startedTurn: AgentChatRuntimeTurnInput | undefined;
+      runtime.createSession = async () => ({
+        id: "thread-1",
+        runtimeId: "runtime-test",
+        startTurn: async (turn) => {
+          startedTurn = turn;
+          return {
+            id: "turn-1",
+            runId: "core-run-1",
+            sessionId: "thread-1",
+            events: events(),
+          };
+        },
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
+      await transport.startRun({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "user-owned-image",
+            role: "user",
+            parts: [
+              { type: "text", text: "Use the attached reference" },
+              {
+                type: "file",
+                name: "reference.png",
+                mediaType: "image/png",
+                url: "https://storage.example.test/uploads/test.png",
+              },
+            ],
+          },
+        ],
+      });
+
+      const preUploaded = await preUploadAttachments({
+        attachments:
+          startedTurn?.attachments?.map((attachment) => ({
+            ...attachment,
+            type: attachment.type ?? "file",
+          })) ?? [],
+        ownerEmail: null,
+      });
+      expect(preUploaded.readFailures).toEqual([]);
+      expect(
+        buildUserContentWithAttachments({
+          text: "Use the attached reference",
+          attachments: preUploaded.attachments,
+        }),
+      ).toContainEqual({
+        type: "image",
+        data: PNG_BASE64,
+        mediaType: "image/png",
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      unregisterFileUploadProvider(providerId);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps an unknown file MIME as a model file part instead of dropping it", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events);
+    let startedTurn: AgentChatRuntimeTurnInput | undefined;
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: "runtime-test",
+      startTurn: async (turn) => {
+        startedTurn = turn;
+        return {
+          id: "turn-1",
+          runId: "core-run-1",
+          sessionId: "thread-1",
+          events: events(),
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const fileUrl = `data:application/x-unrecognized;base64,${PNG_BASE64}`;
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        {
+          id: "user-file",
+          role: "user",
+          parts: [
+            { type: "text", text: "Inspect this file" },
+            {
+              type: "file",
+              name: "unknown.bin",
+              // The data URL's explicit MIME must beat a stale image sentinel.
+              mediaType: "image",
+              url: fileUrl,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(startedTurn?.attachments).toMatchObject([
+      {
+        type: "file",
+        name: "unknown.bin",
+        mediaType: "application/x-unrecognized",
+        contentType: "application/x-unrecognized",
+      },
+    ]);
+    const preUploaded = await preUploadAttachments({
+      attachments:
+        startedTurn?.attachments?.map((attachment) => ({
+          ...attachment,
+          type: attachment.type ?? "file",
+        })) ?? [],
+      ownerEmail: null,
+    });
+    expect(
+      buildUserContentWithAttachments({
+        text: "Inspect this file",
+        attachments: preUploaded.attachments,
+      }),
+    ).toContainEqual({
+      type: "file",
+      data: PNG_BASE64,
+      mediaType: "application/x-unrecognized",
+      filename: "unknown.bin",
     });
   });
 
@@ -3327,6 +3570,39 @@ describe("createAgentKitProtocolAdapter", () => {
       );
     let turnId: string | undefined;
     let continuationRequest: Record<string, unknown> | undefined;
+    const originalPrompt = "Create a 1080x1350 Instagram post";
+    const referenceUrl = "https://files.example.test/instagram-reference.png";
+    const olderMessages: AgentMessage[] = [
+      { ...userMessage("Earlier project context"), id: "user-earlier" },
+      {
+        id: "user-current",
+        role: "user",
+        parts: [
+          { type: "text", text: originalPrompt },
+          {
+            type: "file",
+            name: "instagram-reference.png",
+            mediaType: "image/png",
+            url: referenceUrl,
+          },
+        ],
+      },
+      {
+        id: "assistant-long-run",
+        role: "assistant",
+        parts: [
+          ...Array.from({ length: 130 }, (_, index) => ({
+            type: "text" as const,
+            text: `Recent working note ${index}`,
+          })),
+          {
+            type: "data",
+            mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+            data: { id: "call-design", name: "edit-design", input: {} },
+          },
+        ],
+      },
+    ];
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(String(input), "http://localhost");
@@ -3378,13 +3654,7 @@ describe("createAgentKitProtocolAdapter", () => {
     );
     const { runId } = await transport.startRun({
       threadId: "thread-1",
-      messages: [
-        { ...userMessage("Earlier project context"), id: "user-earlier" },
-        {
-          ...userMessage("Continue the long answer"),
-          id: "user-current",
-        },
-      ],
+      messages: olderMessages,
       options: {
         model: "continuation-context-model",
         reasoningEffort: "high",
@@ -3401,12 +3671,27 @@ describe("createAgentKitProtocolAdapter", () => {
       model: "continuation-context-model",
       effort: "high",
       autoContinueOfRunId: "run-1",
-      history: [
+      history: expect.arrayContaining([
         { role: "user", content: "Earlier project context" },
-        { role: "user", content: "Continue the long answer" },
+        { role: "user", content: originalPrompt },
+      ]),
+      attachments: [
+        expect.objectContaining({
+          type: "image",
+          name: "instagram-reference.png",
+          contentType: "image/png",
+          url: referenceUrl,
+        }),
       ],
+      structuredHistory: expect.arrayContaining([
+        {
+          role: "user",
+          content: [{ type: "text", text: originalPrompt }],
+        },
+      ]),
       metadata: { turnContextMarker: "preserved" },
     });
+    expect(continuationRequest?.attachments).toHaveLength(1);
     await transport.dispose();
   });
 

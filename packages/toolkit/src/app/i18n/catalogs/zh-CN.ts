@@ -478,6 +478,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "上传技能文件",
   "composer.upload": "上传",
   "composer.uploadFailed": "无法上传所选文件。",
+  "composer.fileTooLarge": "此文件超出上传大小限制。",
+  "composer.sessionExpired": "会话已过期。请刷新页面后重试。",
   "composer.unsupportedFileType": "不支持此文件类型。",
   "composer.useAttachedContext": "使用附加的上下文。",
   "mentions.commands": "命令",

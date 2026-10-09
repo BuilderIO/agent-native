@@ -184,13 +184,14 @@ export function runResumePendingGeneration({
             images.length,
           )
         : shouldExploreVariants
-          ? designVariantGenerationDirectives(id, pendingDesignSystemId)
+          ? designVariantGenerationDirectives(id, pendingDesignSystemId, prompt)
           : shouldSkipQuestions
             ? [
                 ...designGenerationDirectives(
                   id,
                   pendingDesignSystemId,
                   images.length,
+                  prompt,
                 ),
                 ...(intake?.explicitContext &&
                 intake.precedent.status === "strong"
@@ -212,6 +213,7 @@ export function runResumePendingGeneration({
                       unavailableReason: intake.unavailableReason,
                     }
                   : undefined,
+                prompt,
               )),
     ].join("\n");
 

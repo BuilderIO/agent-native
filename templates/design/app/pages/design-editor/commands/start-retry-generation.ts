@@ -130,6 +130,7 @@ export async function runStartRetryGeneration(
           id,
           promptState.designSystemId,
           images.length,
+          promptState.prompt,
         )),
   ].join("\n");
   clearGenerationCompleteTimer();

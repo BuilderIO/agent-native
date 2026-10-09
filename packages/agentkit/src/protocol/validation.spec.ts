@@ -396,6 +396,51 @@ describe("AgentKit protocol validation", () => {
     ).toThrow(AgentProtocolValidationError);
   });
 
+  it("keeps inline image bytes request-only and allows URL references in queues", () => {
+    const inlineAttachment = {
+      type: "image",
+      name: "reference.png",
+      contentType: "image/png",
+      data: "data:image/png;base64,iVBORw==",
+      referenceUrl: "https://files.example.test/original.png",
+    } as const;
+    expect(
+      parseStartRunInput({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [{ type: "text", text: "Describe this" }],
+          },
+        ],
+        requestAttachments: [inlineAttachment],
+      }).requestAttachments,
+    ).toEqual([inlineAttachment]);
+    expect(() =>
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Describe this",
+        requestAttachments: [inlineAttachment],
+      }),
+    ).toThrow("inline image data cannot be persisted in a queue");
+    expect(
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Describe this",
+        requestAttachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            contentType: "image/png",
+            url: "https://files.example.test/optimized.png",
+            referenceUrl: "https://files.example.test/original.png",
+          },
+        ],
+      }).requestAttachments,
+    ).toHaveLength(1);
+  });
+
   it("validates optional feedback trace identifiers and sequence numbers", () => {
     expect(
       parseSubmitFeedbackInput({

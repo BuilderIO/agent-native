@@ -494,6 +494,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "स्किल फ़ाइल अपलोड करें",
   "composer.upload": "अपलोड करें",
   "composer.uploadFailed": "चुनी गई फ़ाइल अपलोड नहीं हो सकी।",
+  "composer.fileTooLarge": "यह फ़ाइल अपलोड की अधिकतम सीमा से बड़ी है।",
+  "composer.sessionExpired":
+    "आपका सत्र समाप्त हो गया है। पेज रीफ़्रेश करें और फिर कोशिश करें।",
   "composer.unsupportedFileType": "यह फ़ाइल प्रकार समर्थित नहीं है।",
   "composer.useAttachedContext": "अटैच किए गए संदर्भ का उपयोग करें।",
   "mentions.commands": "कमांड",

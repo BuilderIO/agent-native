@@ -172,13 +172,14 @@ export function renderPromptPopovers({
             fileContext,
             "",
             ...(shouldExploreVariants
-              ? designVariantGenerationDirectives(id, designSystemId)
+              ? designVariantGenerationDirectives(id, designSystemId, prompt)
               : shouldSkipQuestions
                 ? [
                     ...designGenerationDirectives(
                       id,
                       designSystemId,
                       images.length,
+                      prompt,
                     ),
                     ...(intake?.explicitContext &&
                     intake.precedent.status === "strong"
@@ -200,6 +201,7 @@ export function renderPromptPopovers({
                           unavailableReason: intake.unavailableReason,
                         }
                       : undefined,
+                    prompt,
                   )),
           ].join("\n");
           clearGenerationCompleteTimer();

@@ -501,6 +501,9 @@ const messages = {
   "composer.skill.uploadFile": "Upload skill file",
   "composer.upload": "Upload",
   "composer.uploadFailed": "Could not upload the selected file.",
+  "composer.fileTooLarge": "This file exceeds the upload size limit.",
+  "composer.sessionExpired":
+    "Your session expired. Refresh the page and try again.",
   "composer.unsupportedFileType": "This file type isn't supported.",
   "composer.useAttachedContext": "Use the attached context.",
   "mentions.commands": "Commands",

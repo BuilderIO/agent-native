@@ -1595,6 +1595,7 @@ export interface QueuedMessage {
   threadId?: string;
   createdAt?: string;
   attachments?: unknown[];
+  requestAttachments?: unknown[];
   metadata?: Record<string, unknown>;
   options?: AgentRunOptions;
   promotionClaim?: { id: string; expiresAt: number };

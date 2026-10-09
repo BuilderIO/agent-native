@@ -688,6 +688,8 @@ export function parseQueuedMessageForThread(
     (queued.threadId !== undefined && queued.threadId !== threadId) ||
     (queued.createdAt !== undefined && typeof queued.createdAt !== "string") ||
     (queued.attachments !== undefined && !Array.isArray(queued.attachments)) ||
+    (queued.requestAttachments !== undefined &&
+      !Array.isArray(queued.requestAttachments)) ||
     (queued.metadata !== undefined &&
       (!queued.metadata ||
         typeof queued.metadata !== "object" ||

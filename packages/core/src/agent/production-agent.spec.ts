@@ -18,6 +18,7 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
 } from "../app-config/run-lifecycle-invariants.js";
+import * as preUploadAttachmentsModule from "../file-upload/pre-upload-attachments.js";
 import {
   JPEG_BASE64,
   PDF_BASE64,
@@ -57,6 +58,7 @@ import {
   createConnectedAgentReferenceEventRelay,
   createPlanModeActionRegistry,
   createProductionAgentHandler,
+  appendRequestAttachmentContextToResumedHistory,
   preloadPlanModeEngineTools,
   normalizeAgentActionSurfaceResolution,
   readPersistedActionSurface,
@@ -81,6 +83,7 @@ import {
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
   resolveAgentModelSelection,
+  resolveAgentExperimentModelOverride,
   resolveAgentOwnerEmail,
   resolveOwnerEngineApiKey,
   resolveBackgroundDispatchOutcome,
@@ -94,6 +97,7 @@ import {
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
   runCompletionCallbackWithDatabaseRetry,
+  resolveChatEngine,
   shouldChainBackgroundContinuation,
   toolCallCacheKey,
   MAX_IDENTICAL_TOOL_CALLS,
@@ -202,6 +206,20 @@ describe("resolveOwnerEngineApiKey", () => {
     } finally {
       getSetting.mockRestore();
     }
+  });
+});
+
+describe("resolveChatEngine", () => {
+  it("preserves an explicit engine selection error instead of falling back", async () => {
+    await expect(
+      resolveChatEngine({
+        engineOption: "unregistered-requested-engine",
+        ownerKey: { apiKey: undefined, apiKeyEnvVar: undefined },
+        credentialIdentity: undefined,
+      }),
+    ).rejects.toThrow(
+      '[agent-engine] Unknown engine: "unregistered-requested-engine"',
+    );
   });
 });
 
@@ -405,6 +423,26 @@ describe("resolveAgentModelSelection", () => {
         defaultModel,
       }),
     ).toEqual({ model: defaultModel, source: "default" });
+  });
+});
+
+describe("resolveAgentExperimentModelOverride", () => {
+  it("keeps an explicitly selected model ahead of an experiment", () => {
+    expect(
+      resolveAgentExperimentModelOverride({
+        requestModel: "gpt-5-6-terra",
+        experimentModel: "gpt-5-6-luna",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("applies an experiment when the request leaves model selection automatic", () => {
+    expect(
+      resolveAgentExperimentModelOverride({
+        requestModel: "auto",
+        experimentModel: "gpt-5-6-luna",
+      }),
+    ).toBe("gpt-5-6-luna");
   });
 });
 
@@ -802,6 +840,51 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
+  it("does not add an attachment-processing error for a readable image", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Describe this",
+      attachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    });
+
+    expect(content.filter((part) => part.type === "image")).toHaveLength(1);
+    expect(
+      content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n"),
+    ).not.toContain("<chat-attachment-processing-error");
+  });
+
+  it("surfaces attachments that arrive without a payload or reference", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Inspect these references",
+      attachments: [
+        {
+          type: "image",
+          name: "missing-image.png",
+          contentType: "image/png",
+        },
+        { name: "missing-file.bin" } as any,
+      ],
+    });
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+
+    expect(text.match(/code="missing-payload"/g)).toHaveLength(2);
+    expect(text).toContain('name="missing-image.png"');
+    expect(text).toContain('name="missing-file.bin"');
+    expect(text).toContain("Inspect these references");
+  });
+
   it("normalizes image/jpg before sending the image to vision", () => {
     expect(
       buildUserContentWithAttachments({
@@ -906,6 +989,30 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain("huge.pdf");
     expect(text).toContain("per-file limit");
     expect(text).toContain("not a storage-configuration problem");
+  });
+
+  it("explains when malformed or untyped payloads cannot become model attachments", () => {
+    const parts = buildUserContentWithAttachments({
+      text: "Inspect this attachment",
+      attachments: [
+        {
+          type: "custom-file",
+          name: "reference.bin",
+          contentType: "application/x-custom",
+          data: "not a data URL",
+          url: "https://files.example.test/reference.bin",
+        },
+      ] as any,
+    });
+    const text = parts.map((part: any) => part.text ?? "").join("\n");
+
+    expect(parts.some((part: any) => part.type === "file")).toBe(false);
+    expect(parts.some((part: any) => part.type === "image")).toBe(false);
+    expect(text).toContain(
+      'code="unsupported-or-malformed-payload" name="reference.bin"',
+    );
+    expect(text).toContain("could not be converted to a supported attachment");
+    expect(text).toContain("Inspect this attachment");
   });
 
   it("keeps hosted image URLs in text context instead of sending malformed URL image parts", () => {
@@ -1997,6 +2104,73 @@ describe("buildUserContentWithAttachments", () => {
   });
 });
 
+describe("appendRequestAttachmentContextToResumedHistory", () => {
+  it("restores image pixels and visible attachment failures on durable continuation", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Create a 1200x627 ad" }],
+      },
+    ];
+
+    appendRequestAttachmentContextToResumedHistory(messages, [
+      {
+        type: "image",
+        name: "reference.png",
+        contentType: "image/png",
+        data: `data:image/png;base64,${PNG_BASE64}`,
+      },
+      {
+        type: "image",
+        name: "unreadable.png",
+        contentType: "image/png",
+        url: "https://files.example.test/unreadable.png",
+      } as any,
+    ]);
+
+    expect(messages[0]?.content).toContainEqual({
+      type: "image",
+      data: PNG_BASE64,
+      mediaType: "image/png",
+    });
+    expect(messages[0]?.content).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("was not sent as a vision image"),
+      }),
+    );
+    appendAgentLoopContinuation(messages, "run_timeout");
+    expect(messages.at(-1)?.content).not.toContainEqual(
+      expect.objectContaining({ type: "image" }),
+    );
+  });
+
+  it("does not duplicate image blocks already present in resumed history", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Describe this" },
+          { type: "image", data: PNG_BASE64, mediaType: "image/png" },
+        ],
+      },
+    ];
+
+    appendRequestAttachmentContextToResumedHistory(messages, [
+      {
+        type: "image",
+        name: "reference.png",
+        contentType: "image/png",
+        data: `data:image/png;base64,${PNG_BASE64}`,
+      },
+    ]);
+
+    expect(
+      messages[0]?.content.filter((part) => part.type === "image"),
+    ).toHaveLength(1);
+  });
+});
+
 describe("resolveAgentOwnerEmail", () => {
   it("uses the explicit owner resolver when provided", async () => {
     const owner = await runWithRequestContext(
@@ -2488,6 +2662,83 @@ describe("createProductionAgentHandler", () => {
     expect(mockGetSlotHoldingRunId).toHaveBeenCalledWith("thread-busy");
     expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
     expect(stream).not.toHaveBeenCalled();
+  });
+
+  it("passes a typed attachment-processing failure into the model request", async () => {
+    const preUploadFailure = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockRejectedValueOnce(
+        new Error("private storage implementation detail"),
+      );
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "I could not read the attachment." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe this file",
+          attachments: [
+            {
+              type: "file",
+              name: "reference.pdf",
+              contentType: "application/pdf",
+              data: "data:application/pdf;base64,UEsDBA==",
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+      expect(preUploadFailure).toHaveBeenCalledOnce();
+    } finally {
+      preUploadFailure.mockRestore();
+    }
+
+    const userText = streamedMessages
+      .flatMap((messages) => messages)
+      .filter((message) => message.role === "user")
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(userText).toContain('code="pre-upload-failed"');
+    expect(userText).toContain("attachment processing failed");
+    expect(userText).not.toContain("private storage implementation detail");
   });
 
   it("does not treat an undefined system prompt rejection as a valid empty prompt", async () => {

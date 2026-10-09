@@ -39,6 +39,7 @@ export const AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
 export interface ReadAgentPromptAttachmentOptions {
   maxInlineTextChars?: number;
   maxInlineImageBytes?: number;
+  maxImageDimensionPx?: number;
 }
 
 export async function readAgentPromptAttachment(
@@ -49,6 +50,7 @@ export async function readAgentPromptAttachment(
     options.maxInlineTextChars ?? AGENT_PROMPT_MAX_INLINE_TEXT_CHARS;
   const maxInlineImageBytes =
     options.maxInlineImageBytes ?? AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES;
+  const maxImageDimensionPx = options.maxImageDimensionPx ?? 2048;
   const attachment: AgentPromptAttachment = {
     name: file.name,
     type: file.type || undefined,
@@ -61,12 +63,20 @@ export async function readAgentPromptAttachment(
     } catch {
       // Keep the filename-only attachment if the browser cannot read it.
     }
-  } else if (
-    file.type.startsWith("image/") &&
-    file.size <= maxInlineImageBytes
-  ) {
+  } else if (file.type.startsWith("image/")) {
     try {
-      attachment.dataUrl = await readFileAsDataUrl(file);
+      if (file.size <= maxInlineImageBytes) {
+        attachment.dataUrl = await readFileAsDataUrl(file);
+      } else if (isRasterImageMediaType(file.type)) {
+        const optimized = await optimizeAgentPromptImage(file, {
+          maxBytes: maxInlineImageBytes,
+          maxDimensionPx: maxImageDimensionPx,
+        });
+        if (optimized) {
+          attachment.type = optimized.type;
+          attachment.dataUrl = await readBlobAsDataUrl(optimized);
+        }
+      }
     } catch {
       // Keep the filename-only attachment if the browser cannot read it.
     }
@@ -90,5 +100,97 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onerror = () =>
       reject(reader.error ?? new Error("Could not read file"));
     reader.readAsDataURL(file);
+  });
+}
+
+const RASTER_IMAGE_TYPES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+function isRasterImageMediaType(mediaType: string): boolean {
+  return RASTER_IMAGE_TYPES.has(
+    mediaType.split(";", 1)[0]!.trim().toLowerCase(),
+  );
+}
+
+async function optimizeAgentPromptImage(
+  file: File,
+  options: { maxBytes: number; maxDimensionPx: number },
+): Promise<Blob | null> {
+  if (typeof createImageBitmap !== "function") return null;
+
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    // coercion-ok: failed resizing keeps the original upload for server hydration or a typed size-limit explanation.
+    return null;
+  }
+
+  try {
+    if (!bitmap.width || !bitmap.height) return null;
+    let scale = Math.min(
+      1,
+      options.maxDimensionPx / Math.max(bitmap.width, bitmap.height),
+    );
+    const minScale = Math.min(
+      scale,
+      256 / Math.max(bitmap.width, bitmap.height),
+    );
+
+    while (scale >= minScale) {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const context = canvas.getContext("2d");
+      if (!context) return null;
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+      const png = await canvasToBlob(canvas, "image/png");
+      if (png && png.size <= options.maxBytes) return png;
+
+      context.save();
+      context.globalCompositeOperation = "destination-over";
+      context.fillStyle = "white";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.restore();
+      const jpeg = await canvasToBlob(canvas, "image/jpeg", 0.9);
+      if (jpeg && jpeg.size <= options.maxBytes) return jpeg;
+
+      if (scale === minScale) break;
+      scale = Math.max(minScale, scale * 0.8);
+    }
+    return null;
+  } finally {
+    bitmap.close();
+  }
+}
+
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality?: number,
+): Promise<Blob | null> {
+  return new Promise((resolve, reject) => {
+    try {
+      canvas.toBlob(resolve, type, quality);
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+function readBlobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () =>
+      resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("Could not read optimized image"));
+    reader.readAsDataURL(blob);
   });
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import type { AgentChatAttachment } from "../agent/types.js";
+import { MAX_OWNED_INLINE_IMAGE_BYTES } from "./owned-attachment.js";
 import {
   preUploadAttachments,
   preUploadImageAttachments,
@@ -10,11 +11,13 @@ import { JPEG_BASE64 } from "./test-image-fixtures.js";
 
 const uploadFileMock = vi.hoisted(() => vi.fn());
 const getActiveProviderMock = vi.hoisted(() => vi.fn());
+const findOwnedProviderMock = vi.hoisted(() => vi.fn());
 const parseSpreadsheetDocumentMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./registry.js", () => ({
   uploadFile: uploadFileMock,
   getActiveFileUploadProvider: getActiveProviderMock,
+  findFileUploadProviderOwningUrl: findOwnedProviderMock,
 }));
 
 vi.mock("../ingestion/spreadsheet.js", () => ({
@@ -64,10 +67,12 @@ describe("preUploadAttachments", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getActiveProviderMock.mockReturnValue({ id: "builder" });
+    findOwnedProviderMock.mockResolvedValue(null);
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("uploads image attachments and injects the URL onto the attachment", async () => {
@@ -87,6 +92,127 @@ describe("preUploadAttachments", () => {
     expect((att as any).url).toBe("https://cdn.example.com/photo.png");
     expect(result.injectedText).toContain("chat-image-attachment");
     expect(result.injectedText).toContain("https://cdn.example.com/photo.png");
+  });
+
+  it("hydrates a provider-owned HTTPS image URL into model vision input", async () => {
+    findOwnedProviderMock.mockResolvedValue({ id: "test-storage" });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(Buffer.from(JPEG_BASE64, "base64"), {
+          status: 200,
+          headers: {
+            "content-type": "image/jpeg",
+            "content-length": String(
+              Buffer.from(JPEG_BASE64, "base64").byteLength,
+            ),
+          },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const att = makeImageAtt({
+      name: "uploaded.jpg",
+      contentType: "image/jpeg",
+      data: undefined,
+      url: "https://storage.example.test/uploads/photo.jpg",
+    });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("https://storage.example.test/uploads/photo.jpg"),
+      expect.objectContaining({ method: "GET", redirect: "manual" }),
+    );
+    expect(result.readFailures).toEqual([]);
+    expect(att.data).toBe(`data:image/jpeg;base64,${JPEG_BASE64}`);
+    expect(att.contentType).toBe("image/jpeg");
+    expect(att.uploadProvider).toBe("test-storage");
+  });
+
+  it("keeps resized image pixels and the original reference without reporting a read failure", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const originalUrl = "https://storage.example.test/uploads/original.png";
+    const att = makeImageAtt({
+      name: "original.png",
+      contentType: "image/jpeg",
+      data: `data:image/jpeg;base64,${JPEG_BASE64}`,
+      url: originalUrl,
+    });
+
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.readFailures).toEqual([]);
+    expect(result.injectedText).toContain(originalUrl);
+    expect(result.injectedText).not.toContain("<chat-attachment-read-error");
+    expect(result.injectedText).not.toContain(
+      "<chat-attachment-processing-error",
+    );
+  });
+
+  it("tells the model to request a smaller export when an owned image exceeds the vision limit", async () => {
+    findOwnedProviderMock.mockResolvedValue({ id: "test-storage" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(null, {
+            status: 200,
+            headers: {
+              "content-type": "image/png",
+              "content-length": String(MAX_OWNED_INLINE_IMAGE_BYTES + 1),
+            },
+          }),
+      ),
+    );
+
+    const result = await preUploadAttachments({
+      attachments: [
+        makeImageAtt({
+          data: undefined,
+          url: "https://storage.example.test/uploads/large.png",
+        }),
+      ],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(result.readFailures).toEqual([
+      { name: "photo.png", code: "image-too-large" },
+    ]);
+    expect(result.injectedText).toContain(
+      "Tell the user to export a smaller or more compressed image",
+    );
+    expect(result.injectedText).toContain(
+      "retrying the same upload will not help",
+    );
+    expect(result.injectedText).not.toContain("retry the upload");
+  });
+
+  it("returns a typed failure for an image URL outside configured storage", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await preUploadAttachments({
+      attachments: [
+        makeImageAtt({
+          data: undefined,
+          url: "https://untrusted.example.test/photo.png",
+        }),
+      ],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.readFailures).toEqual([
+      { name: "photo.png", code: "unowned-url" },
+    ]);
+    expect(result.injectedText).toContain('code="unowned-url"');
+    expect(result.injectedText).toContain("Do not describe its contents");
   });
 
   it("keeps inline image data when the client serialized it in url", async () => {

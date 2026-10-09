@@ -38,7 +38,7 @@ import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
-import { explicitCanvasDimensionsFromPrompt } from "../shared/canvas-dimensions.js";
+import { resolveCanvasIntent } from "../shared/canvas-dimensions.js";
 import {
   mergeCanvasFramePlacements,
   parseCanvasFrameGeometryById,
@@ -511,7 +511,10 @@ const generateDesignAction = defineAction({
     "get-design-system, or call get-design-snapshot for an existing design; " +
     "apply its tokens/docs before writing file content. Do not treat an id " +
     "alone as enough design-system context. " +
-    "Every web design without a fixed exact-size request must be responsive. " +
+    "Every app or website UI must be responsive unless the user requests a " +
+    "fixed canvas. Static artwork such as ads, banners, social posts, flyers, " +
+    "and posters has no mobile breakpoint unless the user explicitly asks for " +
+    "separate versions. " +
     "For exact pixel dimensions, use those values for the screen's canvas frame " +
     "and do not add mobile or tablet frames. Use one exact canvas size per call; " +
     "make separate calls for screens with different exact sizes. This action adds responsive editor " +
@@ -526,7 +529,11 @@ const generateDesignAction = defineAction({
     "overview canvas.",
   schema: z.object({
     designId: z.string().describe("Design project ID to save content to"),
-    prompt: z.string().describe("The generation prompt (stored for reference)"),
+    prompt: z
+      .string()
+      .describe(
+        "Original user request for this screen. Preserve requested output type and exact pixel dimensions; do not replace it with a short chat caption.",
+      ),
     files: z
       .preprocess(
         (v) => (typeof v === "string" ? JSON.parse(v) : v),
@@ -661,7 +668,8 @@ const generateDesignAction = defineAction({
       .describe(
         "Explicit device set for responsive frames. Honor the devices the " +
           'prompt names; omit to default to ["desktop","mobile"]. Pass [] for ' +
-          "an exact-size static screen with no extra device frames. Exact pixel " +
+          "a static canvas or non-app asset with no extra device frames; static " +
+          "asset requests also suppress auto-generated device frames. Exact pixel " +
           "dimensions in the prompt always take precedence. Widest " +
           "device = primary/base frame; narrower devices = breakpoint frames " +
           "(never the base width, never an auto tablet). One device = a single " +
@@ -701,7 +709,9 @@ const generateDesignAction = defineAction({
     },
     context,
   ) => {
-    const promptCanvasDimensions = explicitCanvasDimensionsFromPrompt(prompt);
+    const canvasIntent = resolveCanvasIntent(prompt);
+    const promptCanvasDimensions =
+      canvasIntent.kind === "fixed" ? canvasIntent.dimensions : undefined;
     await assertAccess("design", designId, "editor");
     track(
       "generation_started",
@@ -944,11 +954,13 @@ const generateDesignAction = defineAction({
       ...tweak,
       type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
     }));
-    const resolvedDevices = promptCanvasDimensions
-      ? []
-      : (devices ?? devicesForPrimaryViewport(primaryViewport));
-    const explicitDeviceSelection =
-      !promptCanvasDimensions && devices !== undefined && devices.length > 0;
+    const fixedCanvasOutput = canvasIntent.kind === "fixed";
+    const resolvedDevices =
+      devices ??
+      (fixedCanvasOutput ? [] : devicesForPrimaryViewport(primaryViewport));
+    const explicitDeviceSelection = devices !== undefined && devices.length > 0;
+    const explicitlyEmptyDeviceSelection =
+      devices !== undefined && devices.length === 0;
     const resolvedPrimaryViewport = widestGenerationDevice(resolvedDevices);
     const generatedBreakpointSet = breakpointSetForDevices(resolvedDevices);
     await mutateDesignData({
@@ -1085,17 +1097,18 @@ const generateDesignAction = defineAction({
                 : typeof frame?.height === "number" && frame.height > 0
                   ? frame.height
                   : viewport.height);
-          const breakpointWidths =
-            generatedBreakpointSet.length === 0
+          const breakpointWidths = explicitDeviceSelection
+            ? undefined
+            : fixedCanvasOutput || explicitlyEmptyDeviceSelection
               ? []
-              : explicitDeviceSelection
-                ? undefined
-                : Array.isArray(metadata.breakpointWidths) &&
-                    metadata.breakpointWidths.every(
-                      (value): value is number =>
-                        typeof value === "number" && Number.isFinite(value),
-                    )
-                  ? metadata.breakpointWidths
+              : Array.isArray(metadata.breakpointWidths) &&
+                  metadata.breakpointWidths.every(
+                    (value): value is number =>
+                      typeof value === "number" && Number.isFinite(value),
+                  )
+                ? metadata.breakpointWidths
+                : generatedBreakpointSet.length === 0
+                  ? []
                   : undefined;
           const nextMetadata: Record<string, unknown> = {
             ...metadata,
@@ -1107,7 +1120,7 @@ const generateDesignAction = defineAction({
           } else {
             delete nextMetadata.breakpointWidths;
           }
-          if (promptCanvasDimensions) {
+          if (fixedCanvasOutput) {
             nextMetadata.heightPinned = true;
             nextMetadata.heightMode = "fixed";
           }
@@ -1118,7 +1131,7 @@ const generateDesignAction = defineAction({
               width,
               height,
               breakpointWidths,
-              fixedSize: promptCanvasDimensions !== undefined,
+              fixedSize: fixedCanvasOutput,
             });
           }
         }

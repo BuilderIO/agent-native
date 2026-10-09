@@ -256,7 +256,6 @@ test("exact-size generation preserves its canvas dimensions without mobile frame
     await action(request, "generate-design", {
       designId,
       prompt: "Create an email ad at exactly 300x250 pixels",
-      devices: ["desktop", "mobile"],
       files: [
         {
           filename: "index.html",
@@ -295,6 +294,77 @@ test("exact-size generation preserves its canvas dimensions without mobile frame
     const bounds = await card.boundingBox();
     expect(bounds).not.toBeNull();
     expect(bounds!.width / bounds!.height).toBeCloseTo(300 / 250, 2);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+// oracle: none — verifies persisted canvas dimensions and breakpoint metadata, not visual parity.
+test("fixed-artwork variants preserve the original brief size without mobile frames", async ({
+  page,
+  request,
+}) => {
+  const { designId } = await createDesign(request, 0);
+  try {
+    await action(request, "present-design-variants", {
+      designId,
+      prompt: "Pick a direction",
+      brief: "Create a LinkedIn ad for our product launch",
+      responsive: true,
+      variants: [
+        {
+          id: "editorial",
+          label: "Editorial",
+          width: 1440,
+          height: 900,
+          content:
+            '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><main>Editorial ad</main></body></html>',
+        },
+        {
+          id: "bold",
+          label: "Bold",
+          width: 1440,
+          height: 900,
+          content:
+            '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><main>Bold ad</main></body></html>',
+        },
+      ],
+    });
+
+    const data = await designData(request, designId);
+    const variantSet = Object.values(
+      data.designVariantSets as Record<
+        string,
+        { screens: Array<{ id: string; width: number; height: number }> }
+      >,
+    )[0];
+    expect(variantSet?.screens).toHaveLength(2);
+    for (const screen of variantSet?.screens ?? []) {
+      expect(screen).toMatchObject({ width: 1200, height: 627 });
+      expect(data.canvasFrames[screen.id]).toMatchObject({
+        width: 1200,
+        height: 627,
+      });
+      expect(data.screenMetadata[screen.id]).toMatchObject({
+        width: 1200,
+        height: 627,
+        breakpointWidths: [],
+      });
+    }
+    expect(data.breakpointSet).toBeUndefined();
+
+    await gotoEditor(page, designId);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
+    for (const screen of variantSet!.screens) {
+      const card = page.locator(
+        `[data-frame-id="${screen.id}"] [data-screen-card]`,
+      );
+      await expect(card).toBeVisible();
+      const bounds = await card.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.width / bounds!.height).toBeCloseTo(1200 / 627, 2);
+    }
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

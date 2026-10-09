@@ -1152,6 +1152,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "Télécharger le fichier de compétences",
   "composer.upload": "Télécharger",
   "composer.uploadFailed": "Impossible de télécharger le fichier sélectionné.",
+  "composer.fileTooLarge":
+    "Ce fichier dépasse la taille maximale autorisée pour l’envoi.",
+  "composer.sessionExpired":
+    "Votre session a expiré. Actualisez la page et réessayez.",
   "composer.unsupportedFileType":
     "Ce type de fichier n'est pas pris en charge.",
   "composer.useAttachedContext": "Utilisez le contexte ci-joint.",

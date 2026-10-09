@@ -492,6 +492,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "رفع ملف مهارة",
   "composer.upload": "رفع",
   "composer.uploadFailed": "تعذّر رفع الملف المحدد.",
+  "composer.fileTooLarge": "يتجاوز حجم هذا الملف الحد المسموح للرفع.",
+  "composer.sessionExpired": "انتهت صلاحية جلستك. حدّث الصفحة وحاول مرة أخرى.",
   "composer.unsupportedFileType": "نوع الملف هذا غير مدعوم.",
   "composer.useAttachedContext": "استخدم السياق المرفق.",
   "mentions.commands": "الأوامر",

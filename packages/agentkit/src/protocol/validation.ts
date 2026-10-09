@@ -43,6 +43,7 @@ import {
   type AgentProtocolMetadata,
   type AgentRequestContext,
   type AgentProtocolVersionOffer,
+  type AgentRequestAttachment,
   type AgentQueuedMessage,
   type AgentReplayCheckpoint,
   type RunId,
@@ -504,6 +505,52 @@ export function parseFilePart(value: unknown, path = "file"): FilePart {
   return value as FilePart;
 }
 
+function parseAgentRequestAttachments(
+  value: unknown,
+  path: string,
+  options: { allowInlineData: boolean },
+): AgentRequestAttachment[] {
+  return array(value, path).map((attachment, index) => {
+    const itemPath = `${path}[${index}]`;
+    const item = record(attachment, itemPath);
+    if (item.type !== "image") {
+      throw new AgentProtocolValidationError(
+        `${itemPath}.type`,
+        "expected image",
+      );
+    }
+    string(item.name, `${itemPath}.name`);
+    optionalString(item.contentType, `${itemPath}.contentType`);
+    optionalString(item.data, `${itemPath}.data`);
+    optionalString(item.url, `${itemPath}.url`);
+    optionalString(item.referenceUrl, `${itemPath}.referenceUrl`);
+    if (typeof item.data === "string") {
+      if (!options.allowInlineData) {
+        throw new AgentProtocolValidationError(
+          `${itemPath}.data`,
+          "inline image data cannot be persisted in a queue",
+        );
+      }
+      if (
+        item.data.length > 3_000_000 ||
+        !/^data:image\/(?:gif|jpeg|png|webp);base64,/i.test(item.data)
+      ) {
+        throw new AgentProtocolValidationError(
+          `${itemPath}.data`,
+          "expected a bounded base64 raster image data URL",
+        );
+      }
+    }
+    if (typeof item.data !== "string" && typeof item.url !== "string") {
+      throw new AgentProtocolValidationError(
+        itemPath,
+        "expected inline image data or an image URL",
+      );
+    }
+    return attachment as AgentRequestAttachment;
+  });
+}
+
 export function parseAgentThread(value: unknown, path = "thread"): AgentThread {
   const thread = record(value, path);
   string(thread.id, `${path}.id`);
@@ -545,6 +592,13 @@ export function parseAgentQueuedMessage(
     array(message.attachments, `${path}.attachments`).forEach(
       (attachment, index) =>
         parseFilePart(attachment, `${path}.attachments[${index}]`),
+    );
+  }
+  if (message.requestAttachments !== undefined) {
+    parseAgentRequestAttachments(
+      message.requestAttachments,
+      `${path}.requestAttachments`,
+      { allowInlineData: false },
     );
   }
   optionalMetadata(message.metadata, `${path}.metadata`);
@@ -2504,6 +2558,13 @@ export function parseStartRunInput(
   array(input.messages, `${path}.messages`).forEach((message, index) =>
     parseAgentMessage(message, `${path}.messages[${index}]`),
   );
+  if (input.requestAttachments !== undefined) {
+    parseAgentRequestAttachments(
+      input.requestAttachments,
+      `${path}.requestAttachments`,
+      { allowInlineData: true },
+    );
+  }
   if (input.options !== undefined) {
     parseAgentRunOptions(input.options, `${path}.options`);
   }
@@ -2705,6 +2766,13 @@ export function parseQueueMessageInput(
           );
         }
       },
+    );
+  }
+  if (input.requestAttachments !== undefined) {
+    parseAgentRequestAttachments(
+      input.requestAttachments,
+      `${path}.requestAttachments`,
+      { allowInlineData: false },
     );
   }
   optionalMetadata(input.metadata, `${path}.metadata`);

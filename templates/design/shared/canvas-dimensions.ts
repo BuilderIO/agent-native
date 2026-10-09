@@ -1,3 +1,4 @@
+import { allFrameSizePresets } from "./frame-size-presets.js";
 import {
   MAX_SANE_FRAME_ASPECT_RATIO,
   MAX_SANE_FRAME_DIMENSION_PX,
@@ -17,7 +18,9 @@ const DIMENSION_CONTEXT_AFTER =
 const FORMAT_CONTEXT_BEFORE =
   /\b(?:ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard|cover|favicon|logo|avatar|social\s+post|post|story|email\s+header|email|newsletter|print|flyer|poster|screenshot)(?:\s+(?:at|for|of|in|with|size|dimensions?))?\s*[:,;]?\s*$/i;
 const FORMAT_CONTEXT_AFTER =
-  /^\s*(?:(?:for|as|in)\s+(?:an?\s+)?)?(?:ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard|cover|favicon|logo|avatar|social\s+post|post|story|email\s+header|email|newsletter|print|flyer|poster|screenshot)\b/i;
+  /^\s*(?:(?:for|as|in)\s+(?:an?\s+)?)?(?:(?:linkedin|meta|facebook|instagram|twitter|x|youtube|google)\s+)?(?:(?:single[\s-]?image|feed|social(?:\s+media)?)\s+)?(?:ads?|advertisements?|banner|leaderboard|rectangle|skyscraper|billboard|cover|favicon|logo|avatar|post|story|thumbnail|email\s+header|email|newsletter|print|flyer|poster|screenshot)\b/i;
+const OUTPUT_FORMAT_CONTEXT_BEFORE_AT =
+  /\b(?:ads?|advertisements?|banners?|leaderboards?|rectangles?|skyscrapers?|billboards?|covers?|social\s+posts?|posts?|stories|thumbnails?|email\s+headers?|flyers?|posters?|screenshots?)\b[\s\S]{0,32}\bat\s*$/i;
 const LAYOUT_COUNT_CONTEXT_AFTER =
   /^\s*(?:(?:card\s+)?(?:grid|matrix|layout)|columns?|rows?)\b/i;
 const ASPECT_RATIO_CONTEXT_AFTER = /^\s*(?:aspect\s+ratio|ratio)\b/i;
@@ -64,12 +67,157 @@ const NESTED_OUTPUT_ASSET_CONTEXT_BEFORE = new RegExp(
 );
 const NON_PIXEL_UNIT_CONTEXT_AFTER =
   /^\s*(?:(?:mm|millimeters?|cm|centimeters?|inch(?:es)?|ft|feet|pt|points?|pc|picas?|em|rem)\b|in\b(?=\s*(?:[.;,!?)]|$))|["″'′])/i;
-
 interface CanvasDimensionCandidate {
   rawWidth: string;
   rawHeight: string;
   width: number;
   height: number;
+}
+
+export type CanvasIntent =
+  | { kind: "responsive" }
+  | {
+      kind: "fixed";
+      source: "explicit-dimensions" | "preset" | "fixed-output";
+      preset?: string;
+      dimensions?: CanvasDimensions;
+    };
+
+interface CanvasPresetAlias {
+  preset: string;
+  pattern: RegExp;
+}
+
+const CANVAS_PRESET_ALIASES: CanvasPresetAlias[] = [
+  {
+    preset: "LinkedIn Cover",
+    pattern: /\blinkedin\s+cover\b/i,
+  },
+  {
+    preset: "LinkedIn Single Image Ad",
+    pattern:
+      /\blinkedin\b[\s\S]{0,48}\b(?:single[\s-]?image\s+)?(?:ads?|advert(?:isement)?s?|anzeige|annonce|publicit[ée]|an[uú]ncio|publicidade)\b|\b(?:ads?|advert(?:isement)?s?|anzeige|annonce|publicit[ée]|an[uú]ncio|publicidade)\b[\s\S]{0,48}\blinkedin\b/i,
+  },
+  {
+    preset: "Meta Feed Landscape Ad",
+    pattern:
+      /^(?=[\s\S]*\b(?:meta|facebook)\b)(?=[\s\S]*\b(?:feed|ads?)\b)(?=[\s\S]*\b(?:landscape|horizontal|wide)\b)[\s\S]*$/i,
+  },
+  {
+    preset: "Meta Feed Square Ad",
+    pattern: /\b(?:meta|facebook)\b[\s\S]{0,32}\b(?:feed|ads?)\b/i,
+  },
+  {
+    preset: "Instagram Story",
+    pattern:
+      /\binstagram\b[\s\S]{0,24}\bstor(?:y|ies)\b|\bstor(?:y|ies)\b[\s\S]{0,24}\binstagram\b/i,
+  },
+  {
+    preset: "Instagram Post",
+    pattern:
+      /\bsquare\s+instagram\s+posts?\b|\binstagram\b[\s\S]{0,24}\bsquare\b[\s\S]{0,12}\bposts?\b/i,
+  },
+  {
+    preset: "Instagram Portrait Post",
+    pattern:
+      /\binstagram\b[\s\S]{0,24}\b(?:feed\s+)?posts?\b|\b(?:feed\s+)?posts?\b[\s\S]{0,24}\binstagram\b/i,
+  },
+  {
+    preset: "Open Graph Image",
+    pattern: /\b(?:open\s+graph|og)\s+(?:preview\s+)?image\b|\bog\s+image\b/i,
+  },
+  {
+    preset: "YouTube Thumbnail",
+    pattern:
+      /\byou\s*tube\b[\s\S]{0,24}\bthumbnail\b|\bthumbnail\b[\s\S]{0,24}\byou\s*tube\b/i,
+  },
+  {
+    preset: "X Promo Graphic",
+    pattern:
+      /\b(?:twitter|x)\s*[/|]\s*x?\b[\s\S]{0,32}\bpromo(?:tional)?\s+(?:graphic|image|post)\b|\b(?:twitter|x)\b[\s\S]{0,32}\bpromo(?:tional)?\s+(?:graphic|image|post)\b/i,
+  },
+  {
+    preset: "Mobile Leaderboard",
+    pattern: /\bmobile\s+leaderboard\b/i,
+  },
+  {
+    preset: "Leaderboard",
+    pattern: /\b(?:display\s+)?leaderboard\b/i,
+  },
+  {
+    preset: "Medium Rectangle",
+    pattern: /\bmedium\s+rectangle\b|\bdisplay\s+ads?\b/i,
+  },
+  {
+    preset: "Email Header",
+    pattern: /\b(?:email|newsletter)\s+headers?\b/i,
+  },
+];
+
+const OUTPUT_VERB =
+  /\b(?:create|make|design|generate|build|produce|draft|render|draw|prepare|compose|crea(?:r)?|diseñ(?:a|ar)|disegna(?:re)?|erstelle|erstellen|gestalte(?:n)?|crée(?:z|r)?|concevoir|produire|dessiner|faire)\b/i;
+const OUTPUT_RELATION_BOUNDARY =
+  /\b(?:for|with|including|featuring|showing|based\s+on|announcing|promoting|about|on|that|which)\b/i;
+const PRODUCT_SURFACE_OUTPUT =
+  /\b(?:dashboard|dashboards|manager|management\s+(?:tool|app|platform)|(?:web|mobile|desktop)\s+apps?|applications?|website|web\s+site|landing\s+page|pricing\s+page|settings\s+page|login\s+screen|web\s+page|product\s+interface|portal|platform|crm|workspace|admin\s+(?:panel|dashboard)|prototype|site|form)\b/i;
+const FIXED_ARTWORK_OUTPUT =
+  /\b(?:ads?|advertisements?|banners?|leaderboards?|skyscrapers?|billboards?|anzeige(?:n)?|annonce(?:s)?|publicit[ée]|an[uú]ncio(?:s)?|publicidade|social(?:\s+media)?\s+(?:posts?|stor(?:y|ies))|instagram\s+(?:posts?|stor(?:y|ies))|email\s+headers?|newsletter\s+(?:headers?|graphics?)|flyers?|posters?|brochures?|infographics?|cover\s+art|favicons?|logos?|avatars?|thumbnails?|promo(?:tional)?\s+(?:graphics?|images?|posts?)|open\s+graph\s+(?:preview\s+)?images?|og\s+images?)\b/i;
+
+function requestedOutputPhrase(prompt: string): string {
+  const verb = OUTPUT_VERB.exec(prompt);
+  const remainder = verb ? prompt.slice(verb.index + verb[0].length) : prompt;
+  const sentence = remainder.split(/[.!?;\n]/, 1)[0] ?? remainder;
+  const relation = OUTPUT_RELATION_BOUNDARY.exec(sentence);
+  return sentence.slice(0, relation?.index ?? sentence.length).trim();
+}
+
+function presetDimensions(name: string): CanvasDimensions | undefined {
+  const preset = allFrameSizePresets().find(
+    (candidate) => candidate.name === name,
+  );
+  return preset ? { width: preset.width, height: preset.height } : undefined;
+}
+
+export function resolveCanvasIntent(prompt?: string): CanvasIntent {
+  const value = prompt?.trim();
+  if (!value) return { kind: "responsive" };
+
+  const exactDimensions = explicitCanvasDimensionsFromPrompt(value);
+  if (exactDimensions) {
+    return {
+      kind: "fixed",
+      source: "explicit-dimensions",
+      dimensions: exactDimensions,
+    };
+  }
+
+  const output = requestedOutputPhrase(value);
+  if (PRODUCT_SURFACE_OUTPUT.test(output)) return { kind: "responsive" };
+
+  const outputAlias = CANVAS_PRESET_ALIASES.find((alias) =>
+    alias.pattern.test(output),
+  );
+  const contextualAlias =
+    outputAlias ??
+    CANVAS_PRESET_ALIASES.find((alias) => alias.pattern.test(value));
+  if (contextualAlias) {
+    const alias = contextualAlias;
+    const dimensions = presetDimensions(alias.preset);
+    if (dimensions) {
+      return {
+        kind: "fixed",
+        source: "preset",
+        preset: alias.preset,
+        dimensions,
+      };
+    }
+  }
+
+  if (FIXED_ARTWORK_OUTPUT.test(output)) {
+    return { kind: "fixed", source: "fixed-output" };
+  }
+
+  return { kind: "responsive" };
 }
 
 export function explicitCanvasDimensionsFromPrompt(
@@ -124,7 +272,8 @@ export function explicitCanvasDimensionsFromPrompt(
     const hasFormatContext =
       FORMAT_CONTEXT_BEFORE.test(prefix ?? "") ||
       FORMAT_CONTEXT_BEFORE.test(nearbyPrefix) ||
-      FORMAT_CONTEXT_AFTER.test(suffix ?? "");
+      FORMAT_CONTEXT_AFTER.test(suffix ?? "") ||
+      OUTPUT_FORMAT_CONTEXT_BEFORE_AT.test(nearbyPrefix);
     const hasNestedAssetContext =
       NESTED_OUTPUT_ASSET_CONTEXT_BEFORE.test(nearbyPrefix) ||
       NESTED_ASSET_FOR_OUTPUT_AFTER.test(suffix ?? "") ||
@@ -143,6 +292,20 @@ export function explicitCanvasDimensionsFromPrompt(
       !hasImageOutputContext &&
       !hasPixelImageContext &&
       !hasFormatContext
+    ) {
+      continue;
+    }
+
+    const hasPixelUnit = Boolean(match[2] || match[4]);
+    const hasDirectDimensionContext =
+      DIMENSION_CONTEXT_BEFORE.test(prefix ?? "") ||
+      DIMENSION_CONTEXT_AFTER.test(suffix ?? "") ||
+      EXPLICIT_CANVAS_DIMENSION_CONTEXT_BEFORE.test(prefix ?? "");
+    if (
+      !hasPixelUnit &&
+      !hasDirectDimensionContext &&
+      width < 100 &&
+      height < 100
     ) {
       continue;
     }

@@ -1135,6 +1135,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Carregar",
   "composer.uploadFailed":
     "Não foi possível fazer upload do arquivo selecionado.",
+  "composer.fileTooLarge":
+    "Este arquivo excede o limite de tamanho para upload.",
+  "composer.sessionExpired":
+    "Sua sessão expirou. Atualize a página e tente novamente.",
   "composer.unsupportedFileType": "Este tipo de arquivo não é compatível.",
   "composer.useAttachedContext": "Use o contexto anexado.",
   "mentions.commands": "Comandos",

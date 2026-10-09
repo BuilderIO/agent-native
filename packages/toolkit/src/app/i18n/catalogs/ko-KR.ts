@@ -498,6 +498,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "스킬 파일 업로드",
   "composer.upload": "업로드",
   "composer.uploadFailed": "선택한 파일을 업로드할 수 없습니다.",
+  "composer.fileTooLarge": "이 파일은 업로드 크기 제한을 초과했습니다.",
+  "composer.sessionExpired":
+    "세션이 만료되었습니다. 페이지를 새로고침한 후 다시 시도하세요.",
   "composer.unsupportedFileType": "지원되지 않는 파일 형식입니다.",
   "composer.useAttachedContext": "첨부된 컨텍스트를 사용하세요.",
   "mentions.commands": "명령",

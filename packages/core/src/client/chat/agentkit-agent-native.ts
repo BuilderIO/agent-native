@@ -3332,6 +3332,7 @@ export function createAgentNativeAgentKitTransport(
         id,
         text,
         attachments,
+        requestAttachments,
         metadata,
         options: runOptions,
       }) => {
@@ -3348,6 +3349,7 @@ export function createAgentNativeAgentKitTransport(
           text,
           createdAt: now(),
           attachments,
+          requestAttachments,
           metadata,
           options: runOptions,
         };
@@ -3458,6 +3460,7 @@ export function createAgentNativeAgentKitTransport(
                   metadata: queued.metadata,
                 },
               ],
+              requestAttachments: queued.requestAttachments,
               options: queued.options,
               metadata: queued.metadata,
               queuePromotion: {

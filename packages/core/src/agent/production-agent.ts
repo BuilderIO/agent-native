@@ -996,7 +996,12 @@ export async function resolveChatEngine(input: {
       model: input.model,
     });
   } catch (error) {
-    if (error instanceof CredentialEndpointMismatchError) throw error;
+    if (
+      input.engineOption !== undefined ||
+      error instanceof CredentialEndpointMismatchError
+    ) {
+      throw error;
+    }
     return resolveEngine(key);
   }
 }
@@ -2183,6 +2188,26 @@ function dataUrlToFilePart(
   };
 }
 
+function describeUnprocessedAttachment(att: AgentChatAttachment): string {
+  const name = escapeAttachmentAttribute(att.name || "attachment");
+  const contentType = att.contentType
+    ? ` contentType="${escapeAttachmentAttribute(att.contentType)}"`
+    : "";
+  return `<chat-attachment-processing-error code="unsupported-or-malformed-payload" name="${name}"${contentType}>The attachment included file data or a URL reference, but its contents were not sent to the model because the payload could not be converted to a supported attachment. Do not infer or describe its contents. Tell the user it could not be read and ask them to reattach it in a supported format.</chat-attachment-processing-error>`;
+}
+
+function describeAttachmentPreUploadFailure(): string {
+  return '<chat-attachment-processing-error code="pre-upload-failed">One or more attachments could not be prepared for this request. Their contents may be missing from the model context. Do not claim to have read or seen them; tell the user attachment processing failed and ask them to retry or provide the relevant content in text.</chat-attachment-processing-error>';
+}
+
+function describeMissingAttachmentPayload(att: AgentChatAttachment): string {
+  const name = escapeAttachmentAttribute(att.name || "attachment");
+  const contentType = att.contentType
+    ? ` contentType="${escapeAttachmentAttribute(att.contentType)}"`
+    : "";
+  return `<chat-attachment-processing-error code="missing-payload" name="${name}"${contentType}>The attachment arrived without readable file contents or a reference. Do not infer or describe its contents. Tell the user it could not be read and ask them to attach it again.</chat-attachment-processing-error>`;
+}
+
 export function buildUserContentWithAttachments(opts: {
   text: string;
   attachments?: AgentChatAttachment[];
@@ -2210,6 +2235,8 @@ export function buildUserContentWithAttachments(opts: {
           textAttachments.push(
             `[${label} was uploaded to ${uploadedUrl}, but was not sent as a vision image because no supported base64 image data was present. Use the URL for embedding/reference if needed.]`,
           );
+        } else {
+          textAttachments.push(describeMissingAttachmentPayload(att));
         }
         continue;
       }
@@ -2335,6 +2362,23 @@ export function buildUserContentWithAttachments(opts: {
         attachmentCharBudget,
       );
     }
+    if (typeof att.data === "string" || typeof uploadedUrl === "string") {
+      textAttachments.push(describeUnprocessedAttachment(att));
+    } else if (
+      !textAttachment &&
+      !(
+        att.type === "file" &&
+        typeof att.text === "string" &&
+        att.text.length === 0 &&
+        att.contentType
+          ?.split(";", 1)[0]
+          ?.trim()
+          .toLowerCase()
+          .startsWith("text/")
+      )
+    ) {
+      textAttachments.push(describeMissingAttachmentPayload(att));
+    }
   }
 
   userContent.push({
@@ -2346,6 +2390,36 @@ export function buildUserContentWithAttachments(opts: {
   });
 
   return userContent;
+}
+
+export function appendRequestAttachmentContextToResumedHistory(
+  messages: EngineMessage[],
+  attachments: AgentChatAttachment[] | undefined,
+): void {
+  if (!attachments?.length) return;
+  const attachmentContent = buildUserContentWithAttachments({
+    text: "",
+    attachments,
+  }).filter((part) => part.type !== "text" || part.text.trim());
+  if (!attachmentContent.length) return;
+
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (message.role !== "user") continue;
+    const missingContent = attachmentContent.filter(
+      (candidate) =>
+        !message.content.some((existing) =>
+          existing.type === "image" && candidate.type === "image"
+            ? existing.data === candidate.data &&
+              existing.mediaType === candidate.mediaType
+            : existing.type === "text" && candidate.type === "text"
+              ? existing.text === candidate.text
+              : false,
+        ),
+    );
+    message.content.push(...missingContent);
+    return;
+  }
 }
 
 function coerceStructuredToolResultWire(part: {
@@ -9077,6 +9151,16 @@ function isConcreteModelSelection(
   return normalized.length > 0 && normalized !== "auto";
 }
 
+export function resolveAgentExperimentModelOverride(options: {
+  requestModel?: string | null;
+  experimentModel?: string | null;
+}): string | undefined {
+  if (isConcreteModelSelection(options.requestModel)) return undefined;
+  return isConcreteModelSelection(options.experimentModel)
+    ? options.experimentModel
+    : undefined;
+}
+
 export function resolveAgentModelSelection(options: {
   requestModel?: string | null;
   configuredModel?: string | null;
@@ -9577,6 +9661,9 @@ export function createProductionAgentHandler(
           "[agent-native] preUploadAttachments failed:",
           err instanceof Error ? err.message : String(err),
         );
+        requestMessage = requestMessage
+          ? `${requestMessage}\n\n${describeAttachmentPreUploadFailure()}`
+          : describeAttachmentPreUploadFailure();
       }
     }
 
@@ -9664,11 +9751,15 @@ export function createProductionAgentHandler(
         const expConfig = await resolveActiveExperimentConfig(ownerEmail);
         if (expConfig) {
           experimentAssignments = [...expConfig.assignments];
-          if (typeof expConfig.configs.model === "string") {
-            effectiveModel = normalizeModelForEngine(
-              engine,
-              expConfig.configs.model,
-            );
+          const experimentModel = resolveAgentExperimentModelOverride({
+            requestModel,
+            experimentModel:
+              typeof expConfig.configs.model === "string"
+                ? expConfig.configs.model
+                : undefined,
+          });
+          if (experimentModel) {
+            effectiveModel = normalizeModelForEngine(engine, experimentModel);
             modelSelectionSource = "experiment";
           }
         }
@@ -10605,6 +10696,10 @@ export function createProductionAgentHandler(
             journalRead.status === "read" && journalRead.toolCallJournal
               ? buildResumeJournalNote(journalRead.toolCallJournal)
               : null;
+          appendRequestAttachmentContextToResumedHistory(
+            resumed,
+            requestAttachments,
+          );
           appendAgentLoopContinuation(resumed, continuationReason, {
             ...(actionPreparationTool ? { actionPreparationTool } : {}),
             ...(journalNote ? { journalNote } : {}),
