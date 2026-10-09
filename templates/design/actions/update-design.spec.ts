@@ -64,6 +64,7 @@ const mocks = vi.hoisted(() => {
     resultShape: "changes" as ResultShape,
     connections: [] as ConnectionRow[],
     restoreClaims: [] as RestoreClaimRow[],
+    failRestoreClaimConsumptionForId: null as string | null,
     designFiles: [] as DesignFileRow[],
     selectForUpdateTables: [] as string[],
     resolveScope: vi.fn(),
@@ -290,6 +291,9 @@ vi.mock("../server/db/index.js", () => {
           let affected = 0;
           for (const claim of mocks.state.restoreClaims) {
             if (matches(predicate, claim)) {
+              if (claim.id === mocks.state.failRestoreClaimConsumptionForId) {
+                continue;
+              }
               Object.assign(claim, updates);
               affected += 1;
             }
@@ -366,6 +370,7 @@ describe("update-design data concurrency", () => {
     mocks.assertAccess.mockResolvedValue(undefined);
     mocks.state.connections = [];
     mocks.state.restoreClaims = [];
+    mocks.state.failRestoreClaimConsumptionForId = null;
     mocks.state.designFiles = [];
     mocks.state.selectForUpdateTables = [];
     mocks.state.resolveScope.mockReset();
@@ -409,6 +414,74 @@ describe("update-design data concurrency", () => {
         ],
       }).success,
     ).toBe(false);
+  });
+
+  it("identifies only the restore target whose one-use claim was rejected", async () => {
+    const content = "<html><body><main>Restored</main></body></html>";
+    const contentHashes = screenRestoreContentHashes(content, "html");
+    const restoreClaims = [
+      {
+        claimId: "restore-claim-1",
+        sourceFileId: "deleted-file-1",
+        targetFileId: "restored-file-1",
+      },
+      {
+        claimId: "restore-claim-2",
+        sourceFileId: "deleted-file-2",
+        targetFileId: "restored-file-2",
+      },
+    ];
+    const screenMetadata = (title: string) => ({
+      title,
+      connectionId: "editor-connection",
+    });
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "editor-connection",
+        ownerEmail: "editor@example.com",
+        orgId: null,
+      },
+    ];
+    mocks.state.restoreClaims = restoreClaims.map((reference) => ({
+      id: reference.claimId,
+      designId: "design-1",
+      sourceFileId: reference.sourceFileId,
+      snapshot: JSON.stringify({
+        filename: "restored.html",
+        fileType: "html",
+        contentHashes,
+        screenMetadata: screenMetadata(reference.targetFileId),
+      }),
+      consumedAt: null,
+      restoredFileId: reference.targetFileId,
+    }));
+    mocks.state.designFiles = restoreClaims.map((reference) => ({
+      id: reference.targetFileId,
+      designId: "design-1",
+      filename: "restored.html",
+      fileType: "html",
+      content: annotateScreenHtmlForPersist(content, "html"),
+    }));
+    mocks.state.failRestoreClaimConsumptionForId = "restore-claim-1";
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: restoreClaims.map((reference) => ({
+          op: "set" as const,
+          path: ["screenMetadata", reference.targetFileId],
+          value: screenMetadata(reference.targetFileId),
+        })),
+        restoreClaims,
+        operationSource: "undo-session",
+        operationRevision: 1,
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "screen_restore_claim_used",
+      statusCode: 403,
+      details: { restoreTargetFileIds: ["restored-file-1"] },
+    });
   });
 
   it("rejects an ID-only update instead of reporting a content change", async () => {

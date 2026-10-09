@@ -1161,6 +1161,7 @@ export default defineAction({
                 {
                   errorCode: "screen_restore_claim_used",
                   statusCode: 403,
+                  details: { restoreTargetFileIds: [claim.targetFileId] },
                 },
               );
             }
