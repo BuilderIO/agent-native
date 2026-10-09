@@ -6,6 +6,7 @@ import {
   JOURNEY_COHORT_EVENT_NAMES,
   JOURNEY_STEP_EVENT_NAMES,
   normalizeJourneyPath,
+  SLIDES_GENERATION_ATTEMPT_EVENT_NAMES,
   type JourneyEventRow,
 } from "./journey-steps";
 
@@ -21,6 +22,7 @@ function row(
     journeyKind: "onboarding",
     tsMs,
     eventName,
+    templateName: "clips",
     path: null,
     flow: null,
     source: null,
@@ -239,20 +241,123 @@ describe("deriveJourneyStep", () => {
         "First action: chat_submit",
       ],
       [
-        row("generation_completed", 1),
+        row("generation_completed", 1, {
+          templateName: "slides",
+        }),
         "output:generation_completed",
         "Generation completed",
       ],
       [
-        row("design_output_created", 1),
+        row("design_output_created", 1, {
+          templateName: "design",
+        }),
         "output:design_output_created",
         "Design output created",
       ],
-      [row("recording_ready", 1), "output:recording_ready", "Recording ready"],
+      [row("recording_ready", 1), "output:recording_ready", "Clip saved"],
     ];
     for (const [input, key, label] of cases) {
       expect(deriveJourneyStep(input)).toEqual({ key, label });
     }
+  });
+
+  it("keeps generation and recording attempts separate from saved outputs", () => {
+    expect(deriveJourneyStep(row("generation_started", 1))).toEqual({
+      key: "attempt:generation_started",
+      label: "Generation attempt started",
+    });
+    expect(deriveJourneyStep(row("recording_started", 1))).toEqual({
+      key: "attempt:recording_started",
+      label: "Recording attempt started",
+    });
+
+    for (const eventName of [
+      "recording_completed",
+      "clip_viewed",
+      "deck_edited",
+      "output_viewed",
+    ]) {
+      expect(deriveJourneyStep(row(eventName, 2))).toBeNull();
+      expect(JOURNEY_STEP_EVENT_NAMES).not.toContain(eventName);
+    }
+    expect(JOURNEY_STEP_EVENT_NAMES).toContain("recording_started");
+    expect(JOURNEY_STEP_EVENT_NAMES).toContain("generation_started");
+  });
+
+  it("keeps Slides request and outcome events as distinct attempt steps", () => {
+    const cases: Array<[string, string, string]> = [
+      [
+        "generation_request_accepted",
+        "attempt:generation_request_accepted",
+        "Generation request accepted",
+      ],
+      [
+        "generation_outcome_unresolved",
+        "attempt:generation_outcome_unresolved",
+        "Generation outcome unresolved",
+      ],
+      [
+        "generation_failed",
+        "attempt:generation_failed",
+        "Generation attempt failed",
+      ],
+      [
+        "generation_stuck",
+        "attempt:generation_stuck",
+        "Generation attempt stalled",
+      ],
+      [
+        "generation_cancelled",
+        "attempt:generation_cancelled",
+        "Generation attempt cancelled",
+      ],
+      [
+        "generation_abandoned",
+        "attempt:generation_abandoned",
+        "Generation attempt abandoned",
+      ],
+    ];
+
+    for (const [eventName, key, label] of cases) {
+      expect(
+        deriveJourneyStep(row(eventName, 2, { templateName: "slides" })),
+      ).toEqual({ key, label });
+      expect(
+        deriveJourneyStep(row(eventName, 2, { templateName: "clips" })),
+      ).toBeNull();
+      expect(JOURNEY_STEP_EVENT_NAMES).toContain(eventName);
+    }
+  });
+
+  it("requires the app's source-confirmed saved-output event shape", () => {
+    expect(
+      deriveJourneyStep(
+        row("generation_completed", 1, {
+          templateName: "slides",
+        }),
+      )?.key,
+    ).toBe("output:generation_completed");
+    expect(
+      deriveJourneyStep(
+        row("generation_completed", 1, {
+          templateName: "clips",
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      deriveJourneyStep(
+        row("recording_ready", 1, {
+          templateName: "clips",
+        }),
+      )?.key,
+    ).toBe("output:recording_ready");
+    expect(
+      deriveJourneyStep(
+        row("recording_ready", 1, {
+          templateName: "slides",
+        }),
+      ),
+    ).toBeNull();
   });
 
   it("maps Builder connection aliases to bounded shared steps", () => {
@@ -393,7 +498,14 @@ describe("deriveJourneyStep", () => {
 
   it("covers every event name the SQL selects", () => {
     for (const name of JOURNEY_STEP_EVENT_NAMES) {
-      const input = row(name, 1, { path: "/x" });
+      const input = row(name, 1, {
+        path: "/x",
+        ...(SLIDES_GENERATION_ATTEMPT_EVENT_NAMES.includes(name) ||
+        name === "generation_completed"
+          ? { templateName: "slides" }
+          : {}),
+        ...(name === "design_output_created" ? { templateName: "design" } : {}),
+      });
       expect(deriveJourneyStep(input), name).not.toBeNull();
     }
     for (const name of JOURNEY_COHORT_EVENT_NAMES) {
@@ -423,6 +535,30 @@ describe("deriveJourneyStep", () => {
 });
 
 describe("buildSessionSteps", () => {
+  it("keeps failure, unresolved, retry, and completion states distinct", () => {
+    const slides = (eventName: string, tsMs: number) =>
+      row(eventName, tsMs, { templateName: "slides" });
+    const steps = buildSessionSteps([
+      slides("generation_started", 1),
+      slides("generation_failed", 2),
+      slides("generation_started", 3),
+      slides("generation_outcome_unresolved", 4),
+      slides("generation_started", 5),
+      slides("generation_completed", 6),
+      slides("generation_started", 7),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "attempt:generation_started",
+      "attempt:generation_failed",
+      "attempt:generation_started",
+      "attempt:generation_outcome_unresolved",
+      "attempt:generation_started",
+      "output:generation_completed",
+      "attempt:generation_started",
+    ]);
+  });
+
   it("deduplicates legacy and canonical aliases and orders first-run Builder events", () => {
     const steps = buildSessionSteps([
       row("onboarding_method_outcome", 100, {
@@ -674,13 +810,17 @@ describe("buildSessionSteps", () => {
 
   it("orders a renderable design output after generation activity", () => {
     const steps = buildSessionSteps([
-      row("design_output_created", 110),
+      row("design_output_created", 110, {
+        templateName: "design",
+      }),
       row("generation_started", 100),
-      row("design_output_created", 120),
+      row("design_output_created", 120, {
+        templateName: "design",
+      }),
     ]);
 
     expect(steps.map((step) => [step.key, step.tsMs])).toEqual([
-      ["output:generation_started", 100],
+      ["attempt:generation_started", 100],
       ["output:design_output_created", 110],
     ]);
   });

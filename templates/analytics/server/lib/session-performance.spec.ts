@@ -53,6 +53,25 @@ function performanceMigrationSql(): string[] {
     .filter(Boolean);
 }
 
+function sessionRecordingSessionAssociationsMigrationSql(): string[] {
+  const source = readFileSync(
+    new URL("../plugins/db.ts", import.meta.url),
+    "utf8",
+  );
+  const match = source.match(
+    /name: "session-recording-session-associations",\s*sql: `([\s\S]*?)`/,
+  );
+  if (!match) {
+    throw new Error(
+      "session recording session associations migration not found",
+    );
+  }
+  return match[1]
+    .split(";")
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+}
+
 const OWNER = "owner@example.com";
 const ORG = "org_1";
 const DAY = "2026-09-20";
@@ -220,6 +239,9 @@ describe("performance aggregates on Postgres", () => {
         started_at text NOT NULL
       )
     `);
+    for (const statement of sessionRecordingSessionAssociationsMigrationSql()) {
+      await client.query(statement);
+    }
     db = drizzle(client, { schema });
     getDbMock.mockReturnValue(db);
   });
@@ -247,6 +269,7 @@ describe("performance aggregates on Postgres", () => {
     id: string,
     sessionId: string,
     owner: { ownerEmail?: string; orgId?: string | null } = {},
+    observedSessionIds: readonly string[] = [sessionId],
   ) {
     await client.query(
       `INSERT INTO session_recordings (id, session_id, owner_email, org_id, started_at)
@@ -258,6 +281,17 @@ describe("performance aggregates on Postgres", () => {
         owner.orgId === undefined ? ORG : owner.orgId,
         `${DAY}T09:00:00.000Z`,
       ],
+    );
+    for (const observedSessionId of observedSessionIds) {
+      await addAssociation(id, observedSessionId);
+    }
+  }
+
+  async function addAssociation(recordingId: string, sessionId: string) {
+    await client.query(
+      `INSERT INTO session_recording_session_associations (id, recording_id, session_id)
+       VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+      [`association-${recordingId}-${sessionId}`, recordingId, sessionId],
     );
   }
 
@@ -284,6 +318,22 @@ describe("performance aggregates on Postgres", () => {
       `CREATE TRIGGER fail_insert BEFORE INSERT ON ${table} FOR EACH ROW EXECUTE FUNCTION fail_insert()`,
     );
   }
+
+  it("uses legacy session performance while the association migration is pending", async () => {
+    await ingest([vitals("legacy-session", { lcp_ms: 4_200 })]);
+    await client.query(
+      `INSERT INTO session_recordings (id, session_id, owner_email, org_id, started_at)
+       VALUES ('r-legacy', 'legacy-session', $1, $2, '${DAY}T09:30:00.000Z')`,
+      [OWNER, ORG],
+    );
+    await client.query("DROP TABLE session_recording_session_associations");
+
+    expect(await slowRecordings("vitals")).toEqual(["r-legacy"]);
+    const summaries = await getSessionPerformanceSummaries(scope, [
+      { id: "r-legacy", ownerEmail: OWNER, orgId: ORG },
+    ]);
+    expect(summaries.get("r-legacy")?.lcpMs).toBe(4_200);
+  });
 
   it("reports route percentiles across batches, and no data as null", async () => {
     await ingest([
@@ -449,16 +499,14 @@ describe("performance aggregates on Postgres", () => {
     ).toMatchObject({ lcpMs: 5_000 });
 
     const summaries = await getSessionPerformanceSummaries(scope, [
-      { id: "r-fast", sessionId: "s-fast", ownerEmail: OWNER, orgId: ORG },
+      { id: "r-fast", ownerEmail: OWNER, orgId: ORG },
       {
         id: "r-poor-lcp",
-        sessionId: "s-poor-lcp",
         ownerEmail: OWNER,
         orgId: ORG,
       },
       {
         id: "r-unmeasured",
-        sessionId: "s-unmeasured",
         ownerEmail: OWNER,
         orgId: ORG,
       },
@@ -481,13 +529,50 @@ describe("performance aggregates on Postgres", () => {
     expect(summaries.has("r-unmeasured")).toBe(false);
   });
 
+  it("uses exact observed sessions instead of the mutable recording session", async () => {
+    await ingest([
+      vitals("s-observed", { lcp_ms: 4_200 }),
+      vitals("s-current", { lcp_ms: 9_800 }),
+      vitals("s-fast", { lcp_ms: 900 }),
+    ]);
+    await addRecording("r-exact", "s-current", {}, ["s-observed"]);
+    await addRecording("r-no-association", "s-observed", {}, []);
+    await addRecording("r-stale-only", "s-current", {}, ["s-fast"]);
+
+    expect(await slowRecordings("vitals")).toEqual([
+      "r-exact",
+      "r-no-association",
+    ]);
+    const summaries = await getSessionPerformanceSummaries(scope, [
+      {
+        id: "r-exact",
+        ownerEmail: OWNER,
+        orgId: ORG,
+      },
+      {
+        id: "r-no-association",
+        ownerEmail: OWNER,
+        orgId: ORG,
+      },
+      {
+        id: "r-stale-only",
+        ownerEmail: OWNER,
+        orgId: ORG,
+      },
+    ]);
+    expect(summaries.get("r-exact")?.lcpMs).toBe(4_200);
+    expect(summaries.get("r-no-association")?.lcpMs).toBe(4_200);
+    expect(summaries.get("r-stale-only")?.lcpMs).toBe(900);
+  });
+
   it("marks a session value that hit the ceiling as a floor", async () => {
     await ingest([
       vitals("s1", { lcp_ms: 3_600_000, cls: 0.3 }),
       response("s1", { duration_ms: 900_000 }),
     ]);
+    await addRecording("r1", "s1");
     const summaries = await getSessionPerformanceSummaries(scope, [
-      { id: "r1", sessionId: "s1", ownerEmail: OWNER, orgId: ORG },
+      { id: "r1", ownerEmail: OWNER, orgId: ORG },
     ]);
     expect(summaries.get("r1")).toMatchObject({
       lcpMs: performanceCeiling("lcp"),
@@ -534,11 +619,10 @@ describe("performance aggregates on Postgres", () => {
     await addRecording("r-partial", "s-partial");
 
     const summaries = await getSessionPerformanceSummaries(scope, [
-      { id: "r-ok", sessionId: "s-ok", ownerEmail: OWNER, orgId: ORG },
-      { id: "r-lost", sessionId: "s-lost", ownerEmail: OWNER, orgId: ORG },
+      { id: "r-ok", ownerEmail: OWNER, orgId: ORG },
+      { id: "r-lost", ownerEmail: OWNER, orgId: ORG },
       {
         id: "r-partial",
-        sessionId: "s-partial",
         ownerEmail: OWNER,
         orgId: ORG,
       },
@@ -582,7 +666,7 @@ describe("performance aggregates on Postgres", () => {
     expect(
       (
         await getSessionPerformanceSummaries(scope, [
-          { id: "r-lost", sessionId: "s-lost", ownerEmail: OWNER, orgId: ORG },
+          { id: "r-lost", ownerEmail: OWNER, orgId: ORG },
         ])
       ).get("r-lost")?.incomplete,
     ).toBe(true);
@@ -606,7 +690,7 @@ describe("performance aggregates on Postgres", () => {
     expect(
       (
         await getSessionPerformanceSummaries(scope, [
-          { id: "r-ok", sessionId: "s-ok", ownerEmail: OWNER, orgId: ORG },
+          { id: "r-ok", ownerEmail: OWNER, orgId: ORG },
         ])
       ).get("r-ok")?.incomplete,
     ).toBe(false);
@@ -677,7 +761,7 @@ describe("performance aggregates on Postgres", () => {
     expect(
       (
         await getSessionPerformanceSummaries(scope, [
-          { id: "r1", sessionId: "s1", ownerEmail: OWNER, orgId: ORG },
+          { id: "r1", ownerEmail: OWNER, orgId: ORG },
         ])
       ).size,
     ).toBe(0);

@@ -15,6 +15,7 @@ import {
 } from "@agent-native/core/shared/error-noise";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
+  asc,
   and,
   desc,
   eq,
@@ -29,6 +30,7 @@ import { unionAll } from "drizzle-orm/pg-core";
 
 import { ANALYTICS_USER_PREFS_KEY } from "../../shared/analytics-user-prefs";
 import { getDb, schema } from "../db/index.js";
+import { sessionRecordingAssociationsReady } from "./session-recording-associations.js";
 
 export type ExceptionLevel = "fatal" | "error" | "warning" | "info" | "debug";
 export type IssueStatus = "unresolved" | "resolved" | "ignored";
@@ -1501,7 +1503,6 @@ async function sparklinesForIssues(
 export interface RecordingErrorIssueInput {
   id: string;
   clientRecordingId: string;
-  sessionId: string;
   ownerEmail: string;
   orgId: string | null;
   errorCount: number;
@@ -1520,12 +1521,90 @@ export interface RecordingErrorIssue {
 }
 
 const MAX_RECORDING_ISSUE_ROWS = 500;
+const RECORDING_ASSOCIATION_PAGE_SIZE = 500;
+
+async function recordingSessionAssociations(
+  db: any,
+  recordingIds: readonly string[],
+): Promise<Array<{ recordingId: string; sessionId: string }>> {
+  if (
+    recordingIds.length === 0 ||
+    !(await sessionRecordingAssociationsReady(db))
+  ) {
+    return [];
+  }
+  const association = schema.sessionRecordingSessionAssociations;
+  const result: Array<{ recordingId: string; sessionId: string }> = [];
+  let offset = 0;
+  while (true) {
+    const page = await db
+      .select({
+        recordingId: association.recordingId,
+        sessionId: association.sessionId,
+      })
+      .from(association)
+      .where(inArray(association.recordingId, [...recordingIds]))
+      .orderBy(asc(association.recordingId), asc(association.sessionId))
+      .limit(RECORDING_ASSOCIATION_PAGE_SIZE)
+      .offset(offset);
+    result.push(...page);
+    if (page.length < RECORDING_ASSOCIATION_PAGE_SIZE) return result;
+    offset += page.length;
+  }
+}
+
+async function accessibleRecordingSessions(
+  db: any,
+  scope: ErrorReadScope,
+  recordings: readonly RecordingErrorIssueInput[],
+): Promise<Array<{ recordingId: string; sessionId: string }>> {
+  const recording = schema.sessionRecordings;
+  const inputById = new Map(recordings.map((entry) => [entry.id, entry]));
+  const rows: Array<{
+    recordingId: string;
+    sessionId: string;
+    ownerEmail: string;
+    orgId: string | null;
+  }> = await db
+    .select({
+      recordingId: recording.id,
+      sessionId: recording.sessionId,
+      ownerEmail: recording.ownerEmail,
+      orgId: recording.orgId,
+    })
+    .from(recording)
+    .where(
+      and(
+        accessFilter(
+          recording,
+          schema.sessionRecordingShares,
+          accessCtx(scope),
+        ),
+        inArray(
+          recording.id,
+          recordings.map((entry) => entry.id),
+        ),
+      ),
+    );
+
+  return rows
+    .filter((row) => {
+      const input = inputById.get(row.recordingId);
+      return (
+        input !== undefined &&
+        row.ownerEmail === input.ownerEmail &&
+        (row.orgId ?? null) === (input.orgId ?? null)
+      );
+    })
+    .map(({ recordingId, sessionId }) => ({ recordingId, sessionId }));
+}
 
 /**
  * The Monitoring issues each recording's captured errors belong to, most
  * frequent first. An occurrence matches by recording id, within the
  * recording's own owner scope. One captured before its recording existed has
- * only the client recording id, which matches only within the same session. `error_events` keeps only each
+ * only the client recording id, which matches only within an observed session.
+ * `error_events` keeps only each
  * issue's newest occurrences, so a recording with none left falls back to the
  * issues whose last recording it is, with no count. A recording still without
  * an issue maps to null when it has errors Monitoring could have made an
@@ -1545,6 +1624,25 @@ export async function listRecordingErrorIssues(
   const db = getDb() as any;
   const e = schema.errorEvents;
   const i = schema.errorIssues;
+  const accessibleSessions = await accessibleRecordingSessions(
+    db,
+    scope,
+    recordings,
+  );
+  const associationRows = await recordingSessionAssociations(
+    db,
+    accessibleSessions.map((recording) => recording.recordingId),
+  );
+  const sessionsByRecording = new Map<string, Set<string>>();
+  for (const row of associationRows) {
+    const sessions = sessionsByRecording.get(row.recordingId) ?? new Set();
+    sessions.add(row.sessionId);
+    sessionsByRecording.set(row.recordingId, sessions);
+  }
+  for (const row of accessibleSessions) {
+    if (sessionsByRecording.has(row.recordingId) || !row.sessionId) continue;
+    sessionsByRecording.set(row.recordingId, new Set([row.sessionId]));
+  }
   const rows: Array<{
     sessionRecordingId: string | null;
     clientRecordingId: string | null;
@@ -1611,7 +1709,7 @@ export async function listRecordingErrorIssues(
     row.ownerEmail === recording.ownerEmail &&
     (row.orgId ?? null) === (recording.orgId ?? null);
   // A client recording id is unique only per public key, and occurrences keep
-  // no key, so an unlinked occurrence must also share the recording's session.
+  // no key, so an unlinked occurrence needs a non-null observed session too.
   const belongsTo = (
     row: (typeof rows)[number],
     recording: RecordingErrorIssueInput,
@@ -1620,7 +1718,8 @@ export async function listRecordingErrorIssues(
     (row.sessionRecordingId === recording.id ||
       (row.sessionRecordingId === null &&
         row.clientRecordingId === recording.clientRecordingId &&
-        (row.sessionId === null || row.sessionId === recording.sessionId)));
+        row.sessionId !== null &&
+        sessionsByRecording.get(recording.id)?.has(row.sessionId) === true));
   const unlinked = truncated
     ? []
     : recordings.filter(

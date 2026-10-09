@@ -39,6 +39,7 @@ import {
   not,
   or,
   sql,
+  type AnyColumn,
 } from "drizzle-orm";
 
 import { isScreenshotSize } from "../../shared/png.js";
@@ -85,6 +86,7 @@ import {
   prunePerformanceAggregates,
   slowSessionConditions,
 } from "./session-performance.js";
+import { sessionRecordingAssociationsReady } from "./session-recording-associations.js";
 
 export type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -1578,6 +1580,54 @@ function replayTextContains(column: unknown, query: string) {
   return sql`lower(coalesce(${column}, '')) like ${`%${escapeSqlLike(query.toLowerCase())}%`} escape '\\'`;
 }
 
+function recordingHasObservedSession(
+  recordingId: AnyColumn,
+  legacySessionId: AnyColumn,
+  sessionId: string,
+  associationsReady: boolean,
+) {
+  if (!associationsReady) return eq(legacySessionId, sessionId);
+  const association = schema.sessionRecordingSessionAssociations;
+  return sql`(
+    exists (
+      select 1 from ${association}
+      where ${association.recordingId} = ${recordingId}
+        and ${association.sessionId} = ${sessionId}
+    )
+    or (
+      ${legacySessionId} = ${sessionId}
+      and not exists (
+        select 1 from ${association}
+        where ${association.recordingId} = ${recordingId}
+      )
+    )
+  )`;
+}
+
+function recordingHasObservedSessionMatch(
+  recordingId: AnyColumn,
+  legacySessionId: AnyColumn,
+  query: string,
+  associationsReady: boolean,
+) {
+  if (!associationsReady) return replayTextContains(legacySessionId, query);
+  const association = schema.sessionRecordingSessionAssociations;
+  return sql`(
+    exists (
+      select 1 from ${association}
+      where ${association.recordingId} = ${recordingId}
+        and ${replayTextContains(association.sessionId, query)}
+    )
+    or (
+      ${replayTextContains(legacySessionId, query)}
+      and not exists (
+        select 1 from ${association}
+        where ${association.recordingId} = ${recordingId}
+      )
+    )
+  )`;
+}
+
 function replayVisibleIdentityCondition() {
   return or(
     replayTextContains(schema.sessionRecordings.userId, "@"),
@@ -1601,12 +1651,20 @@ function replayPlayableEventsCondition() {
   );
 }
 
-function replayListSearchCondition(query: string | undefined) {
+function replayListSearchCondition(
+  query: string | undefined,
+  associationsReady: boolean,
+) {
   const q = query?.trim();
   if (!q) return null;
   return or(
     replayTextContains(schema.sessionRecordings.id, q),
-    replayTextContains(schema.sessionRecordings.sessionId, q),
+    recordingHasObservedSessionMatch(
+      schema.sessionRecordings.id,
+      schema.sessionRecordings.sessionId,
+      q,
+      associationsReady,
+    ),
     replayTextContains(schema.sessionRecordings.clientRecordingId, q),
     replayTextContains(schema.sessionRecordings.userId, q),
     replayTextContains(schema.sessionRecordings.userKey, q),
@@ -1880,6 +1938,42 @@ export async function recordSessionReplayChunks(
   const recordingEnded =
     clampedInput.status === "completed" || recording.status === "completed";
 
+  if (
+    clampedInput.chunks.length &&
+    (await sessionRecordingAssociationsReady(db))
+  ) {
+    const previousAssociations = await db
+      .select({
+        sessionId: schema.sessionRecordingSessionAssociations.sessionId,
+      })
+      .from(schema.sessionRecordingSessionAssociations)
+      .where(
+        eq(
+          schema.sessionRecordingSessionAssociations.recordingId,
+          recording.id,
+        ),
+      )
+      .limit(1);
+    const sessionIds = new Set<string>([clampedInput.sessionId]);
+    if (
+      previousAssociations.length === 0 &&
+      existingChunks.length > 0 &&
+      recording.sessionId
+    ) {
+      sessionIds.add(recording.sessionId);
+    }
+    await db
+      .insert(schema.sessionRecordingSessionAssociations)
+      .values(
+        [...sessionIds].map((sessionId) => ({
+          id: replayId("srsa"),
+          recordingId: recording.id,
+          sessionId,
+        })),
+      )
+      .onConflictDoNothing();
+  }
+
   await db
     .update(schema.sessionRecordings)
     .set({
@@ -1979,6 +2073,9 @@ export async function listSessionRecordings(
     return (await listSessionRecordingsPage(scope, filters)).recordings;
   }
   const db = getDb() as any;
+  const associationsReady = Boolean(filters.sessionId || filters.query?.trim())
+    ? await sessionRecordingAssociationsReady(db)
+    : false;
   const limit = Math.min(
     MAX_SESSION_RECORDINGS_LIMIT,
     Math.max(1, filters.limit ?? DEFAULT_SESSION_RECORDINGS_LIMIT),
@@ -1999,7 +2096,14 @@ export async function listSessionRecordings(
     conditions.push(eq(schema.sessionRecordings.template, filters.template));
   }
   if (filters.sessionId) {
-    conditions.push(eq(schema.sessionRecordings.sessionId, filters.sessionId));
+    conditions.push(
+      recordingHasObservedSession(
+        schema.sessionRecordings.id,
+        schema.sessionRecordings.sessionId,
+        filters.sessionId,
+        associationsReady,
+      ),
+    );
   }
   if (filters.userId) {
     conditions.push(
@@ -2037,7 +2141,7 @@ export async function listSessionRecordings(
   if (filters.status) {
     conditions.push(eq(schema.sessionRecordings.status, filters.status));
   }
-  const search = replayListSearchCondition(filters.query);
+  const search = replayListSearchCondition(filters.query, associationsReady);
   if (search) conditions.push(search);
 
   const rows = await db
@@ -2069,22 +2173,40 @@ export async function listJourneyRecordings(
   range: { fromIso: string; toIso: string },
 ): Promise<JourneyRecordingsRead> {
   const db = getDb() as any;
+  const associationsReady = await sessionRecordingAssociationsReady(db);
   const r = schema.sessionRecordings;
   const recordings: JourneyRecording[] = [];
   let complete = true;
   for (let i = 0; i < sessionIds.length; i += JOURNEY_RECORDING_BATCH) {
     const batch = sessionIds.slice(i, i + JOURNEY_RECORDING_BATCH);
     const limit = batch.length * JOURNEY_RECORDINGS_PER_SESSION;
-    const read = await db
-      .select({
-        id: r.id,
-        sessionId: r.sessionId,
-        startedAt: r.startedAt,
-        endedAt: r.endedAt,
-        durationMs: r.durationMs,
-        metadata: r.metadata,
-      })
-      .from(r)
+    const selection = {
+      id: r.id,
+      sessionId: associationsReady
+        ? sql<string>`coalesce(${schema.sessionRecordingSessionAssociations.sessionId}, ${r.sessionId})`
+        : r.sessionId,
+      startedAt: r.startedAt,
+      endedAt: r.endedAt,
+      durationMs: r.durationMs,
+      metadata: r.metadata,
+    };
+    let query = db.select(selection).from(r);
+    if (associationsReady) {
+      query = query.leftJoin(
+        schema.sessionRecordingSessionAssociations,
+        eq(schema.sessionRecordingSessionAssociations.recordingId, r.id),
+      );
+    }
+    const sessionMatch = associationsReady
+      ? or(
+          inArray(schema.sessionRecordingSessionAssociations.sessionId, batch),
+          and(
+            isNull(schema.sessionRecordingSessionAssociations.recordingId),
+            inArray(r.sessionId, batch),
+          ),
+        )
+      : inArray(r.sessionId, batch);
+    const read = await query
       .where(
         and(
           accessFilter(r, schema.sessionRecordingShares, {
@@ -2093,7 +2215,7 @@ export async function listJourneyRecordings(
           }),
           replayVisibleIdentityCondition(),
           replayPlayableEventsCondition(),
-          inArray(r.sessionId, batch),
+          sessionMatch,
           gte(r.startedAt, range.fromIso),
           lte(r.startedAt, range.toIso),
         ),
@@ -2248,6 +2370,9 @@ export async function listSessionRecordingsPage(
     );
   }
   const db = getDb() as any;
+  const associationsReady = Boolean(filters.sessionId || filters.query?.trim())
+    ? await sessionRecordingAssociationsReady(db)
+    : false;
   const internalDomains = await sessionInternalDomains(scope);
   const visitorDomain = sessionVisitorDomain();
   const conditions: any[] = [
@@ -2263,7 +2388,14 @@ export async function listSessionRecordingsPage(
   if (filters.template)
     conditions.push(eq(schema.sessionRecordings.template, filters.template));
   if (filters.sessionId)
-    conditions.push(eq(schema.sessionRecordings.sessionId, filters.sessionId));
+    conditions.push(
+      recordingHasObservedSession(
+        schema.sessionRecordings.id,
+        schema.sessionRecordings.sessionId,
+        filters.sessionId,
+        associationsReady,
+      ),
+    );
   if (filters.userId)
     conditions.push(
       or(
@@ -2333,7 +2465,7 @@ export async function listSessionRecordingsPage(
       ),
     );
   }
-  const search = replayListSearchCondition(filters.query);
+  const search = replayListSearchCondition(filters.query, associationsReady);
   if (search) conditions.push(search);
   conditions.push(
     ...(await sessionEventFilterConditions(scope, {
@@ -2465,6 +2597,7 @@ export async function resolveSessionReplayLink(
   scope: SessionReplayScope,
 ): Promise<SessionReplayLinkResolution | null> {
   const db = getDb() as any;
+  const associationsReady = await sessionRecordingAssociationsReady(db);
   const [row] = await db
     .select({
       id: schema.sessionRecordings.id,
@@ -2484,7 +2617,12 @@ export async function resolveSessionReplayLink(
     .from(schema.sessionRecordings)
     .where(
       and(
-        eq(schema.sessionRecordings.sessionId, input.sessionId),
+        recordingHasObservedSession(
+          schema.sessionRecordings.id,
+          schema.sessionRecordings.sessionId,
+          input.sessionId,
+          associationsReady,
+        ),
         eq(schema.sessionRecordings.clientRecordingId, input.clientRecordingId),
         eq(schema.sessionRecordings.ownerEmail, scope.userEmail),
         scope.orgId

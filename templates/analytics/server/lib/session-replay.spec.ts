@@ -12,12 +12,19 @@ const performanceMocks = vi.hoisted(() => ({
   getSessionPerformanceSummaries: vi.fn(),
   getPerformanceCoverageStart: vi.fn(),
 }));
+const sessionRecordingAssociationsReadyMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(true),
+);
 
 vi.mock("./session-performance.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./session-performance.js")>()),
   getSessionPerformanceSummaries:
     performanceMocks.getSessionPerformanceSummaries,
   getPerformanceCoverageStart: performanceMocks.getPerformanceCoverageStart,
+}));
+
+vi.mock("./session-recording-associations.js", () => ({
+  sessionRecordingAssociationsReady: sessionRecordingAssociationsReadyMock,
 }));
 
 vi.mock("../db/index.js", async () => {
@@ -78,6 +85,11 @@ import {
   resolveSessionReplayLink,
 } from "./session-replay";
 
+afterEach(() => {
+  sessionRecordingAssociationsReadyMock.mockReset();
+  sessionRecordingAssociationsReadyMock.mockResolvedValue(true);
+});
+
 function createBudgetDbMock(results: unknown[][]) {
   return {
     select: vi.fn(() => ({
@@ -88,14 +100,22 @@ function createBudgetDbMock(results: unknown[][]) {
   };
 }
 
-function createReplayDbMock(results: unknown[][]) {
+function createReplayDbMock(
+  results: unknown[][],
+  associationResults: unknown[][] = [],
+) {
   const inserts: Array<{ table: unknown; values: unknown }> = [];
   const deletes: Array<{ table: unknown; where: unknown }> = [];
+  const selectedTables: unknown[] = [];
   const db = {
     select: vi.fn(() => ({
-      from: vi.fn(() => ({
+      from: vi.fn((table: unknown) => ({
         where: vi.fn(() => {
-          const rows = results.shift() ?? [];
+          selectedTables.push(table);
+          const rows =
+            table === schema.sessionRecordingSessionAssociations
+              ? (associationResults.shift() ?? [])
+              : (results.shift() ?? []);
           return {
             limit: vi.fn(async () => rows),
             orderBy: vi.fn(async () => rows),
@@ -121,7 +141,7 @@ function createReplayDbMock(results: unknown[][]) {
       }),
     })),
   };
-  return { db, inserts, deletes };
+  return { db, inserts, deletes, selectedTables };
 }
 
 function createSessionReplayListDbMock(rows: unknown[]) {
@@ -288,6 +308,151 @@ describe("session replay list page", () => {
     expect(conditionText(orders[1])).toContain("nulls last");
   });
 
+  it("filters by exact observed sessions while retaining replay and access scope", async () => {
+    const conditions: unknown[] = [];
+    const db = {
+      select: vi.fn((selection?: Record<string, unknown>) => ({
+        from: vi.fn((table: unknown) => ({
+          where: vi.fn((condition: unknown) => {
+            if (table === organizations) return { limit: async () => [] };
+            conditions.push(condition);
+            const rows = selection?.app
+              ? [{ app: "clips", count: "1" }]
+              : selection?.count
+                ? [{ count: "1" }]
+                : [];
+            const query = {
+              orderBy: () => query,
+              groupBy: () => query,
+              limit: () => query,
+              offset: async () => rows,
+              then: (resolve: (value: unknown[]) => void) =>
+                Promise.resolve(rows).then(resolve),
+            };
+            return query;
+          }),
+        })),
+      })),
+    };
+    getDbMock.mockReturnValue(db);
+
+    await listSessionRecordingsPage(
+      { userEmail: "viewer@example.test", orgId: "org_1" },
+      { sessionId: "s-observed", query: "s-observed" },
+    );
+
+    expect(conditions).toHaveLength(3);
+    const where = conditions.map(conditionText).join(" ");
+    expect(where).toContain("session_recording_session_associations");
+    expect(where).toContain("not exists");
+    expect(where).toContain("s-observed");
+    expect(where).toContain("owner_email");
+    expect(where).toContain("org_id");
+    expect(where).toContain("chunk_count");
+    expect(where).toContain("event_count");
+  });
+
+  it("uses the legacy pointer for replay filters and search before associations migrate", async () => {
+    sessionRecordingAssociationsReadyMock.mockResolvedValue(false);
+    const conditions: unknown[] = [];
+    const db = {
+      select: vi.fn((selection?: Record<string, unknown>) => ({
+        from: vi.fn((table: unknown) => ({
+          where: vi.fn((where: unknown) => {
+            if (table === organizations) return { limit: async () => [] };
+            conditions.push(where);
+            const rows = selection?.count ? [{ count: "1" }] : [];
+            const query = {
+              orderBy: () => query,
+              groupBy: () => query,
+              limit: () => query,
+              offset: async () => rows,
+              then: (resolve: (value: unknown[]) => void) =>
+                Promise.resolve(rows).then(resolve),
+            };
+            return query;
+          }),
+        })),
+      })),
+    };
+    getDbMock.mockReturnValue(db);
+
+    await listSessionRecordingsPage(
+      { userEmail: "viewer@example.test", orgId: "org_1" },
+      { sessionId: "legacy-session", query: "legacy-session" },
+    );
+
+    const where = conditions.map(conditionText).join(" ");
+    expect(where).not.toContain("session_recording_session_associations");
+    expect(where).toContain("legacy-session");
+    expect(where).toContain("owner_email");
+    expect(where).toContain("org_id");
+    expect(where).toContain("chunk_count");
+    expect(where).toContain("event_count");
+  });
+
+  it("uses observed sessions in the simple recording list", async () => {
+    let condition: unknown;
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn((where: unknown) => {
+            condition = where;
+            return {
+              orderBy: vi.fn(() => ({ limit: vi.fn(async () => []) })),
+            };
+          }),
+        })),
+      })),
+    };
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      listSessionRecordings(
+        { userEmail: "viewer@example.test", orgId: "org_1" },
+        { sessionId: "s-observed" },
+      ),
+    ).resolves.toEqual([]);
+
+    const where = conditionText(condition);
+    expect(where).toContain("session_recording_session_associations");
+    expect(where).toContain("not exists");
+    expect(where).toContain("s-observed");
+    expect(where).toContain("owner_email");
+    expect(where).toContain("org_id");
+    expect(where).toContain("chunk_count");
+    expect(where).toContain("event_count");
+  });
+
+  it("filters the simple list by the legacy pointer before associations migrate", async () => {
+    sessionRecordingAssociationsReadyMock.mockResolvedValue(false);
+    let condition: unknown;
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn((where: unknown) => {
+            condition = where;
+            return {
+              orderBy: vi.fn(() => ({ limit: vi.fn(async () => []) })),
+            };
+          }),
+        })),
+      })),
+    };
+    getDbMock.mockReturnValue(db);
+
+    await listSessionRecordings(
+      { userEmail: "viewer@example.test", orgId: "org_1" },
+      { sessionId: "legacy-session" },
+    );
+
+    const where = conditionText(condition);
+    expect(where).not.toContain("session_recording_session_associations");
+    expect(where).toContain("legacy-session");
+    expect(where).toContain("owner_email");
+    expect(where).toContain("org_id");
+  });
+
   it("filters explicit anonymous sessions without trusting capture claims", async () => {
     const conditions: unknown[] = [];
     const anonymousRecording = {
@@ -355,6 +520,63 @@ describe("session replay list page", () => {
     expect(conditionText(conditions[0])).toContain("org_id");
     expect(conditionText(conditions[0])).toContain("user_id");
     expect(conditionText(conditions[0])).toContain("user_key");
+  });
+});
+
+describe("journey replay lookup during association migration", () => {
+  it("lists readable legacy recordings without joining the missing table", async () => {
+    sessionRecordingAssociationsReadyMock.mockResolvedValue(false);
+    const recording = {
+      id: "sr_legacy",
+      sessionId: "legacy-session",
+      startedAt: "2026-10-08T00:00:00.000Z",
+      endedAt: null,
+      durationMs: null,
+      metadata: "{}",
+    };
+    let selection: Record<string, unknown> | undefined;
+    let condition: unknown;
+    const db = {
+      select: vi.fn((selected: Record<string, unknown>) => {
+        selection = selected;
+        return {
+          from: vi.fn((table: unknown) => {
+            expect(table).toBe(schema.sessionRecordings);
+            return {
+              where: vi.fn((where: unknown) => {
+                condition = where;
+                return {
+                  orderBy: vi.fn(() => ({
+                    limit: vi.fn(async () => [recording]),
+                  })),
+                };
+              }),
+            };
+          }),
+        };
+      }),
+    };
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      listJourneyRecordings(
+        { userEmail: "viewer@example.test", orgId: "org_1" },
+        ["legacy-session"],
+        {
+          fromIso: "2026-10-07T00:00:00.000Z",
+          toIso: "2026-10-09T00:00:00.000Z",
+        },
+      ),
+    ).resolves.toMatchObject({
+      recordings: [{ id: "sr_legacy", sessionId: "legacy-session" }],
+      complete: true,
+    });
+    expect(selection?.sessionId).toBe(schema.sessionRecordings.sessionId);
+    expect(conditionText(condition)).not.toContain(
+      "session_recording_session_associations",
+    );
+    expect(conditionText(condition)).toContain("owner_email");
+    expect(conditionText(condition)).toContain("org_id");
   });
 });
 
@@ -1098,6 +1320,57 @@ describe("session replay ingest parsing", () => {
       anonymousId: schema.sessionRecordings.anonymousId,
       metadata: schema.sessionRecordings.metadata,
     });
+    expect(conditionText(condition)).toContain("owner_email");
+    expect(conditionText(condition)).toContain("org_id");
+    expect(conditionText(condition)).toContain(
+      "session_recording_session_associations",
+    );
+  });
+
+  it("resolves replay links through the legacy pointer before associations migrate", async () => {
+    sessionRecordingAssociationsReadyMock.mockResolvedValue(false);
+    const recording = {
+      id: "sr_legacy",
+      startedAt: "2026-10-08T00:00:00.000Z",
+      endedAt: "2026-10-08T00:01:00.000Z",
+      durationMs: 60_000,
+      ownerEmail: "owner@example.test",
+      orgId: "org_1",
+      visibility: "org",
+      chunkCount: 1,
+      eventCount: 2,
+      userId: null,
+      userKey: "anon_1",
+      anonymousId: "anon_1",
+      metadata: "{}",
+    };
+    let condition: unknown;
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn((where: unknown) => {
+            condition = where;
+            return { limit: async () => [recording] };
+          }),
+        })),
+      })),
+    };
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      resolveSessionReplayLink(
+        {
+          sessionId: "legacy-session",
+          clientRecordingId: "recording_1",
+          at: "2026-10-08T00:00:00.000Z",
+        },
+        { userEmail: "owner@example.test", orgId: "org_1" },
+      ),
+    ).resolves.toMatchObject({ recordingId: "sr_legacy" });
+    expect(conditionText(condition)).not.toContain(
+      "session_recording_session_associations",
+    );
+    expect(conditionText(condition)).toContain("legacy-session");
     expect(conditionText(condition)).toContain("owner_email");
     expect(conditionText(condition)).toContain("org_id");
   });
@@ -2289,6 +2562,111 @@ describe("session replay ingest parsing", () => {
     });
   }
 
+  it("preserves the last known legacy session when a recording gains associations", async () => {
+    const recording = {
+      id: "sr_legacy",
+      publicKeyId: "key_1",
+      clientRecordingId: "recording_1",
+      sessionId: "legacy-session",
+      userId: "dev@example.com",
+      anonymousId: "anon_1",
+      userKey: "dev@example.com",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: null,
+      durationMs: null,
+      chunkCount: 1,
+      eventCount: 1,
+      totalBytes: 100,
+      pageCount: 1,
+      errorCount: 0,
+      networkErrorCount: 0,
+      rageClickCount: 0,
+      privacyMode: "unknown",
+      metadata: "{}",
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      visibility: "private",
+      status: "active",
+    };
+    const oldChunk = {
+      id: "src_old",
+      recordingId: "sr_legacy",
+      seq: 0,
+      checksum: "old-checksum",
+      byteLength: 100,
+      eventCount: 1,
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: null,
+      storageKind: "inline",
+      storageRef: null,
+      inlineData: "[]",
+      ownerEmail: "owner@example.com",
+      orgId: null,
+    };
+    const keyResults = replayIngestKeyDbResults(null);
+    const { db, inserts } = createReplayDbMock(
+      [...keyResults.slice(0, 3), [recording], [oldChunk]],
+      [[]],
+    );
+    const update = vi.fn(() => ({
+      set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+    }));
+    getDbMock.mockReturnValue({ ...db, update });
+    putPrivateBlobMock.mockResolvedValue(null);
+
+    await recordSessionReplayChunks(
+      parseSessionReplayIngestPayload({
+        publicKey: "anpk_test",
+        replayId: "recording_1",
+        sessionId: "new-session",
+        userId: "dev@example.com",
+        anonymousId: "anon_1",
+        sequence: 1,
+        events: [{ type: 4, timestamp: 2 }],
+      }),
+      { origin: "https://app.example.com", requestBytes: 100 },
+    );
+
+    const associationInsert = inserts.find(
+      (entry) => entry.table === schema.sessionRecordingSessionAssociations,
+    );
+    expect(
+      (associationInsert?.values as Array<{ sessionId: string }>)
+        .map((row) => row.sessionId)
+        .sort(),
+    ).toEqual(["legacy-session", "new-session"]);
+  });
+
+  it("stores replay chunks without association queries during migration", async () => {
+    sessionRecordingAssociationsReadyMock.mockResolvedValue(false);
+    const { db, inserts, selectedTables } = createReplayDbMock(
+      replayIngestKeyDbResults(null),
+    );
+    const update = vi.fn(() => ({
+      set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+    }));
+    getDbMock.mockReturnValue({ ...db, update });
+    putPrivateBlobMock.mockResolvedValue(null);
+
+    await expect(
+      recordSessionReplayChunks(replayIngestPayload(), {
+        origin: "https://app.example.com",
+      }),
+    ).resolves.toMatchObject({ acceptedChunks: 1 });
+
+    expect(selectedTables).not.toContain(
+      schema.sessionRecordingSessionAssociations,
+    );
+    expect(
+      inserts.some(
+        (entry) => entry.table === schema.sessionRecordingSessionAssociations,
+      ),
+    ).toBe(false);
+    expect(
+      inserts.some((entry) => entry.table === schema.sessionReplayChunks),
+    ).toBe(true);
+  });
+
   it("does not persist caller auth-page context claims to replay metadata", async () => {
     const { db, inserts } = createReplayDbMock(replayIngestKeyDbResults(null));
     const updateValues: Array<Record<string, unknown>> = [];
@@ -2579,6 +2957,16 @@ describe("session replay ingest parsing", () => {
         recordingEnded: false,
       }),
     );
+    expect(
+      inserts.find(
+        (entry) => entry.table === schema.sessionRecordingSessionAssociations,
+      )?.values,
+    ).toEqual([
+      expect.objectContaining({
+        recordingId: "sr_new",
+        sessionId: "session_1",
+      }),
+    ]);
   });
 
   it("creates no session_recordings row when admission control rejects a new recording", async () => {
@@ -2962,17 +3350,23 @@ describe("listJourneyRecordings", () => {
   });
   const readWith = async (rows: unknown[]) => {
     const limits: number[] = [];
+    let condition: unknown;
+    const query = {
+      where: vi.fn((where: unknown) => {
+        condition = where;
+        return query;
+      }),
+      orderBy: vi.fn(() => ({
+        limit: vi.fn(async (n: number) => {
+          limits.push(n);
+          return rows.slice(0, n);
+        }),
+      })),
+    };
     getDbMock.mockReturnValue({
       select: vi.fn(() => ({
         from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            orderBy: vi.fn(() => ({
-              limit: vi.fn(async (n: number) => {
-                limits.push(n);
-                return rows.slice(0, n);
-              }),
-            })),
-          })),
+          leftJoin: vi.fn(() => query),
         })),
       })),
     });
@@ -2984,8 +3378,21 @@ describe("listJourneyRecordings", () => {
         toIso: "2026-10-03T00:00:00.000Z",
       },
     );
-    return { read, limits };
+    return { read, limits, condition };
   };
+
+  it("uses the legacy session only when a recording has no associations", async () => {
+    const { read, condition } = await readWith([row("legacy")]);
+
+    expect(read.recordings[0]).toMatchObject({
+      id: "legacy",
+      sessionId: "s1",
+    });
+    const where = conditionText(condition);
+    expect(where).toContain("session_recording_session_associations");
+    expect(where).toContain("session_recordings_session_id_unique");
+    expect(where).toContain("is null");
+  });
 
   it("reads one row past the ceiling, so a batch that ends exactly there is complete", async () => {
     const five = ["r1", "r2", "r3", "r4", "r5"].map(row);

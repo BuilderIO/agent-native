@@ -178,6 +178,7 @@ import {
   readContextXraySystemSections,
 } from "./context-xray/manifest.js";
 import {
+  AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   backgroundRuntimeDiagnosticDetail,
@@ -9636,6 +9637,9 @@ export function createProductionAgentHandler(
       });
     const mutableBody = body as unknown as Record<string, unknown>;
     if (!isBackgroundWorker) {
+      // A client can submit this private field, so overwrite it at the boundary.
+      mutableBody[AGENT_CHAT_BROWSER_SESSION_ID_FIELD] =
+        getRequestContext()?.browserSessionId ?? null;
       delete mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD];
     }
     if (dispatchToBackground) {

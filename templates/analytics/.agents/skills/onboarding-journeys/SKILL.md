@@ -45,6 +45,25 @@ only to the Design input, set `referenceOnly: true`, and omit the cohort metric
 fields. This annotation is for visual references and is not emitted by
 `get-onboarding-journey`.
 
+Saved outputs require source-confirmed completion events. Clips uses
+`recording_ready`; `recording_started`, transcript-only `recording_completed`,
+and `clip_viewed` are not saved outputs. Slides uses explicit
+`generation_completed`; `generation_request_accepted`,
+`generation_outcome_unresolved`, `generation_failed`, `generation_stuck`,
+`generation_cancelled`, and `generation_abandoned` remain distinct attempt
+steps. An unresolved event can carry `persisted_output: true`, but it still does
+not substitute for `generation_completed`. `deck_edited`, `output_viewed`, and
+current deck state also cannot substitute for that event. A missing terminal
+event stays absent. Generation and recording starts remain attempt steps, and
+retry attempts that reuse a deck's output ID remain separate by their exact
+attempt ID. A sessionless Clips completion or Slides lifecycle event is
+attached only when its exact output and attempt pair maps to one distinct
+eligible onboarding session (`recording_started` for Clips;
+`generation_started`, `generation_request_accepted`, or `output_viewed` for
+Slides); missing or ambiguous
+matches stay unattributed. Output and attempt IDs are never included in the
+returned tree.
+
 The journey projection also retains `integration_setup_exposed`,
 `integration_method_clicked`, and `integration_method_outcome` as separate
 `integration:<flow>:...` steps. These record setup exposure, the selected

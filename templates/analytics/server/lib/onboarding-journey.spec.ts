@@ -59,6 +59,7 @@ function eventRow(
     timestamp: new Date(T0 + offsetSeconds * 1000).toISOString(),
     event_name: eventName,
     journey_kind: "onboarding",
+    template_name: "clips",
     path: null,
     flow: null,
     source: null,
@@ -126,14 +127,27 @@ describe("parseJourneyEventRow", () => {
   it("requires an id, a session, a name, and a readable timestamp", () => {
     expect(
       parseJourneyEventRow(
-        eventRow("s1", "signup", 0, { alias_id: "alias-pair-1" }),
+        eventRow("s1", "signup", 0, {
+          alias_id: "alias-pair-1",
+          output_id: "private-output-id",
+          generation_attempt_id: "private-attempt-id",
+        }),
       ),
     ).toMatchObject({
       sessionId: "s1",
       eventName: "signup",
+      templateName: "clips",
       tsMs: T0,
       aliasId: "alias-pair-1",
     });
+    const parsed = parseJourneyEventRow(
+      eventRow("s1", "signup", 0, {
+        output_id: "private-output-id",
+        generation_attempt_id: "private-attempt-id",
+      }),
+    );
+    expect(parsed).not.toHaveProperty("outputId");
+    expect(parsed).not.toHaveProperty("attemptId");
     for (const broken of [
       { ...eventRow("s1", "signup", 0), id: "" },
       { ...eventRow("s1", "signup", 0), session_id: null },
@@ -219,6 +233,30 @@ describe("getOnboardingJourney", () => {
       replayUrl: "https://analytics.example.test/sessions/rec-s1?atMs=1300",
     });
     expect(tree.nodes[0]!.examples[2]).toBeUndefined();
+  });
+
+  it("counts explicit saved outputs without exposing output or attempt ids", async () => {
+    const rows = journeyRows();
+    rows.push(
+      eventRow("s1", "generation_completed", 15, {
+        template_name: "slides",
+        output_type: "deck",
+        output_id: "private-output-id",
+        generation_attempt_id: "private-attempt-id",
+      }),
+    );
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({ rows, schema: [] });
+
+    const tree = (await getOnboardingJourney(scope, ARGS)) as JourneyTree;
+    const serialized = JSON.stringify(tree);
+
+    expect(tree.nodes.map((node) => node.key)).toContain(
+      "signup > step:role > onboarding:completed > output:generation_completed",
+    );
+    expect(serialized).not.toContain("private-output-id");
+    expect(serialized).not.toContain("private-attempt-id");
+    expect(serialized).not.toContain("output_id");
+    expect(serialized).not.toContain("generation_attempt_id");
   });
 
   it("omits replayUrl when the request has no origin", async () => {

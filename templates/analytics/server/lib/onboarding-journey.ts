@@ -150,6 +150,7 @@ export function parseJourneyEventRow(
     journeyKind,
     tsMs,
     eventName,
+    templateName: text(raw.template_name),
     path: text(raw.path),
     flow: text(raw.flow),
     source: text(raw.source),

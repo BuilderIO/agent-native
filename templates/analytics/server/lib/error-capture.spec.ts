@@ -72,6 +72,7 @@ import {
   ingestException,
   isBenignBrowserAbortException,
   listErrorIssues,
+  listRecordingErrorIssues,
   matchErrorIssuesBySignatures,
   normalizeFrameFile,
   parseStack,
@@ -579,9 +580,21 @@ async function createTables(client: PGliteClient): Promise<void> {
     CREATE TABLE session_recordings (
       id text PRIMARY KEY,
       client_recording_id text NOT NULL,
+      session_id text NOT NULL DEFAULT 'legacy-session',
       owner_email text NOT NULL,
       org_id text,
       visibility text NOT NULL DEFAULT 'private'
+    )
+  `,
+  );
+  await execute(
+    client,
+    `
+    CREATE TABLE session_recording_session_associations (
+      id text PRIMARY KEY,
+      recording_id text NOT NULL REFERENCES session_recordings(id) ON DELETE CASCADE,
+      session_id text NOT NULL,
+      UNIQUE (recording_id, session_id)
     )
   `,
   );
@@ -1046,6 +1059,220 @@ describe("ingestException", () => {
     expect(detail.events[0].sessionRecordingId).toBeNull();
     expect(detail.events[0].sessionRecordingPath).toBeNull();
     expect(detail.sessions).toEqual([]);
+  });
+});
+
+describe("listRecordingErrorIssues", () => {
+  let client: PGliteClient;
+
+  beforeEach(async () => {
+    client = await PGlite.create("memory://");
+    await createTables(client);
+    getDbMock.mockReturnValue(drizzle(client, { schema }));
+  });
+
+  afterEach(async () => {
+    await client.close();
+  });
+
+  it("uses the legacy recording session while associations are not migrated", async () => {
+    await client.query("DROP TABLE session_recording_session_associations");
+    const db = drizzle(client, { schema }) as any;
+    const ownerEmail = "alice@example.com";
+    await client.query(
+      `INSERT INTO session_recordings (id, client_recording_id, session_id, owner_email, org_id)
+       VALUES ('recording-legacy', 'client-legacy', 'legacy-session', $1, NULL)`,
+      [ownerEmail],
+    );
+    await db.insert(schema.errorIssues).values({
+      id: "issue-legacy-session",
+      fingerprint: "fingerprint-legacy-session",
+      title: "Legacy session issue",
+      firstSeenAt: "2026-10-01T00:00:00.000Z",
+      lastSeenAt: "2026-10-01T00:00:00.000Z",
+      ownerEmail,
+      orgId: null,
+    });
+    await db.insert(schema.errorEvents).values({
+      id: "event-legacy-session",
+      issueId: "issue-legacy-session",
+      fingerprint: "fingerprint-legacy-session",
+      occurredAt: "2026-10-01T00:00:00.000Z",
+      clientRecordingId: "client-legacy",
+      sessionId: "legacy-session",
+      ownerEmail,
+      orgId: null,
+    });
+
+    const issues = await listRecordingErrorIssues(
+      { userEmail: ownerEmail, orgId: null },
+      [
+        {
+          id: "recording-legacy",
+          clientRecordingId: "client-legacy",
+          ownerEmail,
+          orgId: null,
+          errorCount: 1,
+        },
+      ],
+    );
+
+    expect(issues.get("recording-legacy")).toEqual([
+      expect.objectContaining({ id: "issue-legacy-session", count: 1 }),
+    ]);
+  });
+
+  it("matches unlinked errors by exact association and keeps direct recording links", async () => {
+    const db = drizzle(client, { schema }) as any;
+    const ownerEmail = "alice@example.com";
+    const orgId = "org_1";
+    await client.query(
+      `INSERT INTO session_recordings (id, client_recording_id, session_id, owner_email, org_id)
+       VALUES ('recording-1', 'client-1', 'mutable-current-session', $1, $2),
+              ('recording-2', 'client-1', 'legacy-session', $1, $2),
+              ('recording-3', 'client-1', 'legacy-session', $1, $2)`,
+      [ownerEmail, orgId],
+    );
+    await client.query(
+      `INSERT INTO session_recording_session_associations (id, recording_id, session_id)
+       VALUES ('association-1', 'recording-1', 'observed-session'),
+              ('association-2', 'recording-2', 'other-session')`,
+    );
+    await db.insert(schema.errorIssues).values([
+      {
+        id: "issue-direct",
+        fingerprint: "fingerprint-direct",
+        title: "Direct recording issue",
+        firstSeenAt: "2026-10-01T00:00:00.000Z",
+        lastSeenAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+      },
+      {
+        id: "issue-exact",
+        fingerprint: "fingerprint-exact",
+        title: "Observed session issue",
+        firstSeenAt: "2026-10-01T00:00:00.000Z",
+        lastSeenAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+      },
+      {
+        id: "issue-mutable",
+        fingerprint: "fingerprint-mutable",
+        title: "Unobserved current session issue",
+        firstSeenAt: "2026-10-01T00:00:00.000Z",
+        lastSeenAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+      },
+      {
+        id: "issue-sessionless",
+        fingerprint: "fingerprint-sessionless",
+        title: "Ambiguous sessionless issue",
+        firstSeenAt: "2026-10-01T00:00:00.000Z",
+        lastSeenAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+      },
+      {
+        id: "issue-legacy",
+        fingerprint: "fingerprint-legacy",
+        title: "Legacy recording session issue",
+        firstSeenAt: "2026-10-01T00:00:00.000Z",
+        lastSeenAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+      },
+    ]);
+    await db.insert(schema.errorEvents).values([
+      {
+        id: "event-direct",
+        issueId: "issue-direct",
+        fingerprint: "fingerprint-direct",
+        occurredAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+        sessionRecordingId: "recording-1",
+      },
+      {
+        id: "event-exact",
+        issueId: "issue-exact",
+        fingerprint: "fingerprint-exact",
+        occurredAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+        clientRecordingId: "client-1",
+        sessionId: "observed-session",
+      },
+      {
+        id: "event-mutable",
+        issueId: "issue-mutable",
+        fingerprint: "fingerprint-mutable",
+        occurredAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+        clientRecordingId: "client-1",
+        sessionId: "mutable-current-session",
+      },
+      {
+        id: "event-sessionless",
+        issueId: "issue-sessionless",
+        fingerprint: "fingerprint-sessionless",
+        occurredAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+        clientRecordingId: "client-1",
+        sessionId: null,
+      },
+      {
+        id: "event-legacy",
+        issueId: "issue-legacy",
+        fingerprint: "fingerprint-legacy",
+        occurredAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+        clientRecordingId: "client-1",
+        sessionId: "legacy-session",
+      },
+    ]);
+
+    const issues = await listRecordingErrorIssues(
+      { userEmail: ownerEmail, orgId },
+      [
+        {
+          id: "recording-1",
+          clientRecordingId: "client-1",
+          ownerEmail,
+          orgId,
+          errorCount: 2,
+        },
+        {
+          id: "recording-2",
+          clientRecordingId: "client-1",
+          ownerEmail,
+          orgId,
+          errorCount: 1,
+        },
+        {
+          id: "recording-3",
+          clientRecordingId: "client-1",
+          ownerEmail,
+          orgId,
+          errorCount: 1,
+        },
+      ],
+      10,
+    );
+
+    expect(issues.get("recording-1")?.map((issue) => issue.id)).toEqual([
+      "issue-direct",
+      "issue-exact",
+    ]);
+    expect(issues.get("recording-2")).toBeNull();
+    expect(issues.get("recording-3")?.map((issue) => issue.id)).toEqual([
+      "issue-legacy",
+    ]);
   });
 });
 

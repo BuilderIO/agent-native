@@ -76,6 +76,25 @@ function migrationSql(name: string): string[] {
     .filter(Boolean);
 }
 
+function sessionRecordingSessionAssociationsMigrationSql(): string[] {
+  const source = readFileSync(
+    new URL("../plugins/db.ts", import.meta.url),
+    "utf8",
+  );
+  const match = source.match(
+    /name: "session-recording-session-associations",\s*sql: `([\s\S]*?)`/,
+  );
+  if (!match) {
+    throw new Error(
+      "session recording session associations migration not found",
+    );
+  }
+  return match[1]
+    .split(";")
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+}
+
 const OWNER = "owner@example.com";
 const ORG = "org_1";
 const SCOPE = { userEmail: OWNER, orgId: ORG };
@@ -139,6 +158,9 @@ async function createBaseTables(client: PGliteClient) {
       org_id text
     )
   `);
+  for (const statement of sessionRecordingSessionAssociationsMigrationSql()) {
+    await client.query(statement);
+  }
 }
 
 async function migrateFriction(client: PGliteClient) {
@@ -607,11 +629,23 @@ describe("session friction on Postgres", () => {
     startedAt: string,
     chunkCount = 0,
     orgId: string | null = ORG,
+    observedSessionIds = [sessionId],
   ) {
     await client.query(
       `INSERT INTO session_recordings (id, client_recording_id, session_id, owner_email, org_id, started_at, chunk_count)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [id, `client-${id}`, sessionId, OWNER, orgId, startedAt, chunkCount],
+    );
+    for (const observedSessionId of observedSessionIds) {
+      await addAssociation(id, observedSessionId);
+    }
+  }
+
+  async function addAssociation(recordingId: string, sessionId: string) {
+    await client.query(
+      `INSERT INTO session_recording_session_associations (id, recording_id, session_id)
+       VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+      [`association-${recordingId}-${sessionId}`, recordingId, sessionId],
     );
   }
 
@@ -740,6 +774,28 @@ describe("session friction on Postgres", () => {
     );
   }
 
+  it("keeps legacy event friction queries working before association migration", async () => {
+    await migrateFriction(client);
+    await index(
+      [actionResponse("s-legacy", 11, { action: "save", success: false })],
+      at(10),
+    );
+    await client.query("DROP TABLE session_recording_session_associations");
+    await client.query(
+      `INSERT INTO session_recordings (id, client_recording_id, session_id, owner_email, org_id, started_at)
+       VALUES ('r-legacy-no-table', 'client-r-legacy-no-table', 's-legacy', $1, $2, $3)`,
+      [OWNER, ORG, at(20)],
+    );
+
+    expect(await matching(["failed_actions"])).toEqual(["r-legacy-no-table"]);
+    const details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r-legacy-no-table", "s-legacy"),
+    ]);
+    expect(details.get("r-legacy-no-table")?.events).toMatchObject({
+      failed_actions: 1,
+    });
+  });
+
   it("stores batches and reports nothing measured before the migration", async () => {
     await index(
       [
@@ -817,6 +873,54 @@ describe("session friction on Postgres", () => {
         events: null,
       });
     }
+  });
+
+  it("uses exact observed sessions for recording event friction", async () => {
+    await migrateFriction(client);
+    await index(
+      [
+        actionResponse("s-observed-a", 11, { action: "save", success: false }),
+        actionResponse("s-observed-b", 12, { action: "save", success: false }),
+      ],
+      at(10),
+    );
+    await addRecording("r-exact", "s-current", at(20), 0, ORG, [
+      "s-observed-a",
+      "s-observed-b",
+    ]);
+    await client.query(
+      `INSERT INTO session_recordings (id, client_recording_id, session_id, owner_email, org_id, started_at)
+       VALUES ('r-current-only', 'client-r-current-only', 's-observed-a', $1, $2, $3)`,
+      [OWNER, ORG, at(20)],
+    );
+    await addAssociation("r-current-only", "s-unrelated");
+
+    expect(await matching(["failed_actions"])).toEqual(["r-exact"]);
+    const details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r-exact", "s-current"),
+      recordingInput("r-current-only", "s-observed-a"),
+    ]);
+    expect(details.get("r-exact")?.events).toMatchObject({
+      failed_actions: 2,
+    });
+    expect(details.get("r-current-only")?.events).toBeNull();
+  });
+
+  it("uses the stored session as a legacy fallback when no associations exist", async () => {
+    await migrateFriction(client);
+    await index(
+      [actionResponse("s-legacy", 11, { action: "save", success: false })],
+      at(10),
+    );
+    await addRecording("r-legacy", "s-legacy", at(20), 0, ORG, []);
+
+    expect(await matching(["failed_actions"])).toEqual(["r-legacy"]);
+    const details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r-legacy", "s-legacy"),
+    ]);
+    expect(details.get("r-legacy")?.events).toMatchObject({
+      failed_actions: 1,
+    });
   });
 
   it("leaves a session unmeasured when it was indexed before coverage began", async () => {
@@ -1409,6 +1513,79 @@ describe("session friction on Postgres", () => {
     ]);
   });
 
+  it("selects the recording's top trouble groups after merging associated sessions", async () => {
+    await migrateFriction(client);
+    await client.query(
+      `INSERT INTO analytics_session_friction_coverage
+        (tenant_key, owner_email, org_id, started_at)
+       VALUES ($1, $2, $3, $4)`,
+      [TENANT, OWNER, ORG, at(10)],
+    );
+    await addRecording("r-multi-trouble", "s-stale", at(20), 0, ORG, [
+      "s-a",
+      "s-b",
+    ]);
+    for (const sessionId of ["s-a", "s-b"]) {
+      await client.query(
+        `INSERT INTO analytics_session_friction
+          (id, tenant_key, owner_email, org_id, session_id, first_at, last_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+        [`friction-${sessionId}`, TENANT, OWNER, ORG, sessionId, at(11)],
+      );
+      const groups = [
+        [`${sessionId}-first`, 10],
+        [`${sessionId}-second`, 9],
+        [`${sessionId}-third`, 8],
+        ["shared-trouble", 7],
+      ] as const;
+      for (const [label, count] of groups) {
+        await client.query(
+          `INSERT INTO analytics_session_trouble
+            (id, tenant_key, owner_email, org_id, session_id, kind, label, event_count, first_at, last_at)
+           VALUES ($1, $2, $3, $4, $5, 'action', $6, $7, $8, $8)`,
+          [
+            `trouble-${sessionId}-${label}`,
+            TENANT,
+            OWNER,
+            ORG,
+            sessionId,
+            label,
+            count,
+            at(11),
+          ],
+        );
+      }
+    }
+
+    const details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r-multi-trouble", "s-stale"),
+    ]);
+
+    expect(details.get("r-multi-trouble")?.troubles).toEqual([
+      {
+        kind: "action",
+        label: "shared-trouble",
+        status: null,
+        cause: null,
+        count: 14,
+      },
+      {
+        kind: "action",
+        label: "s-a-first",
+        status: null,
+        cause: null,
+        count: 10,
+      },
+      {
+        kind: "action",
+        label: "s-b-first",
+        status: null,
+        cause: null,
+        count: 10,
+      },
+    ]);
+  });
+
   it("links the Monitoring issues a recording's errors belong to", async () => {
     await migrateFriction(client);
     await addRecording("r1", "s1", at(0));
@@ -1655,6 +1832,7 @@ describe("session friction on Postgres", () => {
        VALUES ('r-shared', 'client-r-shared', 's1', $1, $2, $3, 1)`,
       [other.ownerEmail, other.orgId, at(0)],
     );
+    await addAssociation("r-shared", "s1");
     await replayBatch("r-shared", "s1", 0, [serverError(1_000)]);
     const recording = { ...recordingInput("r-shared", "s1", 1), ...other };
 
