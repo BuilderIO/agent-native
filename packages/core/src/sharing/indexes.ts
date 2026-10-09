@@ -23,6 +23,9 @@ const POSTGRES_IDENTIFIER_MAX_BYTES = 63;
 // its duration. The default 3s lock_timeout would abort it on a busy table, so
 // only this step waits longer for that lock.
 const INDEX_LOCK_TIMEOUT = "60s";
+// The build is one statement. Serverless' default per-statement budget is
+// shorter than a build the lock budget allows, so the statement gets this one.
+const INDEX_BUILD_TIMEOUT_MS = 60_000;
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 interface IndexSpec {
@@ -115,6 +118,7 @@ export async function ensureSharingAccessIndexes(
       if (
         await ensureIndexExists(spec.name, spec.sql, {
           lockTimeout: INDEX_LOCK_TIMEOUT,
+          timeoutMs: INDEX_BUILD_TIMEOUT_MS,
           injectedClient: client,
         })
       ) {

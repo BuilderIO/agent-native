@@ -330,4 +330,29 @@ describe("ensureSharingAccessIndexes", () => {
     }
     await pg.close();
   });
+
+  it("issues each build with an explicit statement budget, not the serverless default", async () => {
+    const { pg, exec } = await createSeededDb();
+    const builds: Array<{ sql: string; timeoutMs?: number }> = [];
+    const recording: DbExec = {
+      execute: async (statement) => {
+        if (
+          typeof statement !== "string" &&
+          statement.sql.startsWith("CREATE INDEX")
+        ) {
+          builds.push({ sql: statement.sql, timeoutMs: statement.timeoutMs });
+        }
+        return exec.execute(statement);
+      },
+      transaction: (fn) => fn(recording),
+    };
+
+    await ensureSharingAccessIndexes({ injectedClient: recording });
+
+    expect(builds).toHaveLength(4);
+    for (const build of builds) {
+      expect(build.timeoutMs).toBe(60_000);
+    }
+    await pg.close();
+  });
 });
