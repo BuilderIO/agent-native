@@ -9910,6 +9910,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var overlayResizeObserver = null;
     var overlayMutationObserver = null;
+    var measurementAncestorMutationObserver = null;
     var observedResizeEls = [];
     var observedMutationRoot = null;
     var observedMutationTarget = null;
@@ -9917,6 +9918,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var observedMutationMeasurementParent = null;
     var observedMutationPaintServers = [];
     var observedMutationPaintParents = [];
+    var observedMeasurementAncestors = [];
     function ensureOverlayObservers() {
       if (!overlayResizeObserver && typeof ResizeObserver !== "undefined") {
         overlayResizeObserver = new ResizeObserver(function() {
@@ -9929,6 +9931,15 @@ export const editorChromeBridgeScript: string = `"use strict";
             scheduleRefreshOverlays();
           }
         });
+      }
+      if (!measurementAncestorMutationObserver && typeof MutationObserver !== "undefined") {
+        measurementAncestorMutationObserver = new MutationObserver(
+          function(records) {
+            if (records.some(overlayMutationRequiresRefresh)) {
+              scheduleRefreshOverlays();
+            }
+          }
+        );
       }
     }
     function overlayMutationRequiresRefresh(record) {
@@ -9943,6 +9954,28 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
       }
       return true;
+    }
+    function measurementAncestorMutationTargets(measurementParent, documentElement) {
+      var ancestors = [];
+      if (!measurementParent) return ancestors;
+      var ancestor = measurementParent.parentElement;
+      while (ancestor) {
+        ancestors.push(ancestor);
+        if (ancestor === documentElement) break;
+        ancestor = ancestor.parentElement;
+      }
+      return ancestors;
+    }
+    function observeMeasurementAncestorChain(observer, ancestors) {
+      ancestors.forEach(function(ancestor) {
+        observer.observe(ancestor, {
+          attributes: true,
+          attributeFilter: ["class", "style"],
+          childList: true,
+          subtree: false
+        });
+      });
+      return ancestors;
     }
     function syncOverlayObservers() {
       ensureOverlayObservers();
@@ -9967,11 +10000,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           observedResizeEls = nextTargets;
         }
       }
+      var nextMeasurementTarget = measurementModifierActive && measurementTargetEl && document.documentElement.contains(measurementTargetEl) ? measurementTargetEl : null;
+      var nextMeasurementParent = nextMeasurementTarget ? nextMeasurementTarget.parentElement : null;
       if (overlayMutationObserver) {
         var nextRoot = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl.parentElement || selectedEl : null;
         var nextTarget = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl : null;
-        var nextMeasurementTarget = measurementModifierActive && measurementTargetEl && document.documentElement.contains(measurementTargetEl) ? measurementTargetEl : null;
-        var nextMeasurementParent = nextMeasurementTarget ? nextMeasurementTarget.parentElement : null;
         var nextPaintServers = nextTarget ? cornerRadiusReferencedPaintElements(nextTarget) : [];
         var nextPaintParents = [];
         nextPaintServers.forEach(function(server) {
@@ -10036,6 +10069,22 @@ export const editorChromeBridgeScript: string = `"use strict";
           observedMutationMeasurementParent = nextMeasurementParent;
           observedMutationPaintServers = nextPaintServers;
           observedMutationPaintParents = nextPaintParents;
+        }
+      }
+      if (measurementAncestorMutationObserver) {
+        var nextMeasurementAncestors = measurementAncestorMutationTargets(
+          nextMeasurementParent,
+          document.documentElement
+        );
+        var measurementAncestorsChanged = nextMeasurementAncestors.length !== observedMeasurementAncestors.length || nextMeasurementAncestors.some(function(ancestor, index) {
+          return observedMeasurementAncestors[index] !== ancestor;
+        });
+        if (measurementAncestorsChanged) {
+          measurementAncestorMutationObserver.disconnect();
+          observedMeasurementAncestors = observeMeasurementAncestorChain(
+            measurementAncestorMutationObserver,
+            nextMeasurementAncestors
+          );
         }
       }
     }

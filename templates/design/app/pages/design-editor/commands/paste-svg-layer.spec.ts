@@ -128,7 +128,7 @@ function pastedSvgArgs() {
       overviewScreens: [],
       overviewSelectedScreenIds: [],
       replacePreviewContent: vi.fn(),
-      selectedElement: null,
+      selectedElement: null as ElementInfo | null,
       selectedLayerTargets: [selectedLayerTarget("screen-1", "paste-target")],
       selectionBefore,
       selectInsertedLayers: vi.fn(),
@@ -177,7 +177,23 @@ describe("resolvePastedSvgInsertionOptions", () => {
     expect(options.positions).toBeUndefined();
   });
 
-  it("uses the paste point when the active selection is not a container", () => {
+  it("uses the paste point when there is no selection", () => {
+    const options = resolvePastedSvgInsertionOptions({
+      activeFileId: "screen-1",
+      baseContent: FRAME_CONTENT,
+      point: { x: 320, y: 240 },
+      selectedElement: null,
+      selectedLayerTargets: [],
+      targetFileId: "screen-1",
+    });
+
+    expect(options).toEqual({
+      positions: [{ x: 320, y: 240, space: "visual" }],
+    });
+  });
+
+  it("places an SVG after a selected leaf", () => {
+    const selector = '[data-agent-native-node-id="caption"]';
     const options = resolvePastedSvgInsertionOptions({
       activeFileId: "screen-1",
       baseContent: FRAME_CONTENT,
@@ -187,9 +203,12 @@ describe("resolvePastedSvgInsertionOptions", () => {
       targetFileId: "screen-1",
     });
 
-    expect(options).toEqual({
-      positions: [{ x: 320, y: 240, space: "visual" }],
+    expect(options).toMatchObject({
+      targetSelectors: [selector],
+      placement: "after",
+      stripRootPosition: true,
     });
+    expect(options.positions).toBeUndefined();
   });
 
   it("uses the paste point instead of the scalar selection for multiple targets", () => {
@@ -267,6 +286,79 @@ describe("runPastedSvgLayer", () => {
       fixture.selectionBefore,
     );
     expect(insertClonedHtmlLayersMock).not.toHaveBeenCalled();
+  });
+
+  it("routes insertion after a selected leaf through linked structure editing", () => {
+    stubDomParser();
+    const fixture = pastedSvgArgs();
+    fixture.args.selectedElement = elementInfoFor("caption", "p");
+    fixture.args.selectedLayerTargets = [];
+    const plan = {
+      mainBefore: "before",
+      mainAfter: "after",
+      targetNodeId: "component-main",
+      selectionNodeIds: ["pasted-svg"],
+      rootNodeIds: ["pasted-svg"],
+      nodeIdMap: new Map(),
+    };
+    planLinkedComponentStructureCloneMock.mockReturnValue(plan);
+
+    expect(
+      runPastedSvgLayer(fixture.args, '<svg width="10" height="12"></svg>'),
+    ).toBe(true);
+
+    expect(planLinkedComponentStructureCloneMock).toHaveBeenCalledWith(
+      FRAME_CONTENT,
+      [expect.stringContaining('data-an-primitive="pasted-svg"')],
+      expect.objectContaining({
+        targetSelectors: ['[data-agent-native-node-id="caption"]'],
+        placement: "after",
+        componentLinks: expect.objectContaining({
+          targetSource: expect.objectContaining({
+            designId: "design-1",
+            fileId: "screen-1",
+          }),
+        }),
+      }),
+    );
+    expect(fixture.applyLinkedComponentEdit).toHaveBeenCalledWith(
+      "screen-1",
+      "component-main",
+      {
+        kind: "structure",
+        before: "before",
+        after: "after",
+        selectionNodeIds: ["pasted-svg"],
+      },
+      fixture.selectionBefore,
+    );
+    expect(insertClonedHtmlLayersMock).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the paste point when a selected leaf anchor is stale", () => {
+    stubDomParser();
+    const fixture = pastedSvgArgs();
+    fixture.args.selectedElement = elementInfoFor("caption", "p");
+    fixture.args.selectedLayerTargets = [];
+    queryFirstSelectorMock.mockReturnValue(null);
+    insertClonedHtmlLayersMock.mockReturnValue({
+      content: "updated",
+      rootNodeIds: ["pasted-svg"],
+      nodeIdMap: new Map(),
+    });
+
+    expect(
+      runPastedSvgLayer(fixture.args, '<svg width="10" height="12"></svg>'),
+    ).toBe(true);
+
+    expect(planLinkedComponentStructureCloneMock).not.toHaveBeenCalled();
+    expect(insertClonedHtmlLayersMock).toHaveBeenCalledWith(
+      FRAME_CONTENT,
+      [expect.stringContaining('data-an-primitive="pasted-svg"')],
+      expect.objectContaining({
+        positions: [{ x: 120, y: 120, space: "visual" }],
+      }),
+    );
   });
 
   it("reports unsupported component structure with a neutral insertion message", () => {

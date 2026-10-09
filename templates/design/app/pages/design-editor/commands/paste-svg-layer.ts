@@ -91,18 +91,18 @@ export function resolvePastedSvgInsertionOptions(args: {
         selectedLayerTarget?.node.selector,
       ].filter((selector): selector is string => Boolean(selector))
     : [];
-  const pasteIntoSelectedContainer =
-    selectedElementForTarget &&
-    selectedTargetSelectors.length > 0 &&
-    resolvePastePlacementForSelection({
-      content: args.baseContent,
-      selectedElement: selectedElementForTarget,
-    })?.placement === "inside";
+  const placement =
+    selectedElementForTarget && selectedTargetSelectors.length > 0
+      ? resolvePastePlacementForSelection({
+          content: args.baseContent,
+          selectedElement: selectedElementForTarget,
+        })?.placement
+      : undefined;
 
-  return pasteIntoSelectedContainer
+  return placement
     ? {
         targetSelectors: selectedTargetSelectors,
-        placement: "inside",
+        placement,
         stripRootPosition: true,
       }
     : { positions: [{ ...args.point, space: "visual" }] };
@@ -206,11 +206,11 @@ export function runPastedSvgLayer(
     targetFileId,
   });
   const targetExists =
-    resolvedInsertionOptions.placement !== "inside" ||
+    !resolvedInsertionOptions.targetSelectors?.length ||
     Boolean(
       queryFirstSelector(
         new DOMParser().parseFromString(baseContent, "text/html"),
-        resolvedInsertionOptions.targetSelectors ?? [],
+        resolvedInsertionOptions.targetSelectors,
       ),
     );
   const insertionOptions = targetExists
@@ -250,7 +250,8 @@ export function runPastedSvgLayer(
   };
   if (
     args.applyLinkedComponentEdit &&
-    insertionOptions.placement === "inside"
+    (insertionOptions.placement === "inside" ||
+      insertionOptions.placement === "after")
   ) {
     const plan = planLinkedComponentStructureClone(
       baseContent,
