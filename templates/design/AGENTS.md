@@ -29,7 +29,7 @@ Also read `.agents/skills/<name>/SKILL.md` for shared guides: `actions`,
 
 ## Framework Docs
 
-Search local docs with `pnpm action docs-search --query "<topic>"` or `--slug "<slug>"`.
+Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug with `pnpm action docs-search --slug "<slug>"`.
 
 ## Actions
 
