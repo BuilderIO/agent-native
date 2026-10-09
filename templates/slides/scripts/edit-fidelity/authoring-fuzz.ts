@@ -252,7 +252,7 @@ export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
 ) {
   if (activePhase !== "save/reload") return false;
   const match =
-    /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.$/.exec(
+    /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.(?:\s+at\b[\s\S]*)?$/.exec(
       message,
     );
   if (!match) return false;

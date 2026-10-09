@@ -222,6 +222,31 @@ describe("createPollEngine", () => {
     expect(onError).not.toHaveBeenCalled();
   });
 
+  it("does not report a fetch rejection caused by stop() in WebKit", async () => {
+    const onError = vi.fn();
+    const attempt = vi.fn(
+      (signal: AbortSignal) =>
+        new Promise<void>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new TypeError("Load failed")),
+            { once: true },
+          );
+        }),
+    );
+    const engine = createPollEngine(attempt, {
+      intervalMs: 1000,
+      onError,
+    });
+
+    engine.start();
+    await vi.advanceTimersByTimeAsync(0);
+    engine.stop();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("stays alive when start() lands while a stopped attempt is still settling", async () => {
     let resolveFirst: (() => void) | undefined;
     const attempt = vi

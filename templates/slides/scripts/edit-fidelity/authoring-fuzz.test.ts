@@ -1176,6 +1176,13 @@ it("ignores only WebKit CORS console errors for pending claim requests canceled 
     ]),
   ).toBe(true);
   expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `${message}\n    at fetch (native)`,
+      "save/reload",
+      [candidate],
+    ),
+  ).toBe(true);
+  expect(
     isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "step 12", [
       candidate,
     ]),

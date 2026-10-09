@@ -110,15 +110,7 @@ export function createPollEngine(
       .then(
         () => {},
         (err: unknown) => {
-          if (
-            activeStopRequested &&
-            typeof err === "object" &&
-            err !== null &&
-            "name" in err &&
-            err.name === "AbortError"
-          ) {
-            return;
-          }
+          if (activeStopRequested) return;
           report(err);
         },
       );
