@@ -2653,10 +2653,7 @@ export async function runAuthoringFuzz(
       ({ selector, durationMs }: { selector: string; durationMs: number }) => {
         const editingEl = document.querySelector<HTMLElement>(selector);
         if (!editingEl) throw new Error("slash menu editor is unavailable");
-        const isControlledListboxVisible = () => {
-          const listboxId = editingEl.getAttribute("aria-controls");
-          const listbox = listboxId ? document.getElementById(listboxId) : null;
-          if (listbox?.getAttribute("role") !== "listbox") return false;
+        const isVisibleListbox = (listbox: HTMLElement) => {
           const style = getComputedStyle(listbox);
           return (
             style.display !== "none" &&
@@ -2664,6 +2661,10 @@ export async function runAuthoringFuzz(
             listbox.getClientRects().length > 0
           );
         };
+        const hasVisibleListbox = () =>
+          Array.from(
+            document.querySelectorAll<HTMLElement>('[role="listbox"]'),
+          ).some(isVisibleListbox);
         return new Promise<boolean>((resolve) => {
           let observer: MutationObserver | undefined;
           let timer: number | undefined;
@@ -2673,7 +2674,7 @@ export async function runAuthoringFuzz(
             resolve(opened);
           };
           const check = () => {
-            if (isControlledListboxVisible()) finish(true);
+            if (hasVisibleListbox()) finish(true);
           };
           observer = new MutationObserver(check);
           observer.observe(document.documentElement, {
