@@ -9994,7 +9994,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           if (nextMeasurementParent && nextMeasurementParent !== nextRoot && nextMeasurementParent !== nextTarget && nextMeasurementParent !== nextMeasurementTarget) {
             overlayMutationObserver.observe(nextMeasurementParent, {
-              attributes: true
+              attributes: true,
+              childList: true
             });
           }
           nextPaintServers.forEach(function(server) {

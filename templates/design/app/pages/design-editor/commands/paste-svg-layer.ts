@@ -4,11 +4,17 @@ import { toast } from "sonner";
 
 import type { ElementInfo } from "@/components/design/types";
 import { uniqueLayerId } from "@/pages/design-editor/canvas-primitive-insert";
-import { insertClonedHtmlLayers } from "@/pages/design-editor/clone-and-pen-edit";
+import {
+  insertClonedHtmlLayers,
+  planLinkedComponentStructureClone,
+  queryFirstSelector,
+  type ComponentCloneBatchContext,
+} from "@/pages/design-editor/clone-and-pen-edit";
 import type { SelectedLayerTarget } from "@/pages/design-editor/code-layer-state";
 import { getOverviewCanvasCenter } from "@/pages/design-editor/commands/pasted-image-files";
 import { parsePastedSvg } from "@/pages/design-editor/commands/pasted-svg";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
+import type { GeometryHistorySelection } from "@/pages/design-editor/history";
 import {
   findScreenFrameAtCanvasPoint,
   getAllScreenFrameEntries,
@@ -16,8 +22,11 @@ import {
 import { resolvePastePlacementForSelection } from "@/pages/design-editor/paste-placement";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
+
 export interface PastedSvgLayerArgs {
   activeFileId: string | undefined;
+  applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -31,7 +40,8 @@ export interface PastedSvgLayerArgs {
   canEditDesign: boolean;
   canvasContainerRef: RefObject<HTMLDivElement | null>;
   canvasFrameGeometryById: CanvasFrameGeometryById;
-  files: readonly Pick<DesignFile, "id">[];
+  designId: string | undefined;
+  files: readonly DesignFile[];
   getFreshActiveContent: () => string;
   getFreshActivePreviewContent: () => string | null;
   getScreenContent: (screenId: string) => string;
@@ -44,6 +54,7 @@ export interface PastedSvgLayerArgs {
   ) => unknown;
   selectedElement: ElementInfo | null | undefined;
   selectedLayerTargets: readonly SelectedLayerTarget[];
+  selectionBefore?: GeometryHistorySelection;
   selectInsertedLayers: (
     screenId: string,
     content: string,
@@ -69,7 +80,8 @@ export function resolvePastedSvgInsertionOptions(args: {
   const selectedElementForTarget =
     selectedLayerTarget?.fileId === args.targetFileId
       ? selectedLayerTarget.elementInfo
-      : args.targetFileId === args.activeFileId
+      : args.selectedLayerTargets.length === 0 &&
+          args.targetFileId === args.activeFileId
         ? args.selectedElement
         : null;
   const selectedTargetSelectors = selectedElementForTarget
@@ -185,20 +197,94 @@ export function runPastedSvgLayer(
     "style",
     `${root.getAttribute("style") ?? ""};position:absolute;width:${parsed.width}px;height:${parsed.height}px;`,
   );
+  const resolvedInsertionOptions = resolvePastedSvgInsertionOptions({
+    activeFileId: args.activeFileId,
+    baseContent,
+    point,
+    selectedElement: args.selectedElement,
+    selectedLayerTargets: args.selectedLayerTargets,
+    targetFileId,
+  });
+  const targetExists =
+    resolvedInsertionOptions.placement !== "inside" ||
+    Boolean(
+      queryFirstSelector(
+        new DOMParser().parseFromString(baseContent, "text/html"),
+        resolvedInsertionOptions.targetSelectors ?? [],
+      ),
+    );
+  const insertionOptions = targetExists
+    ? resolvedInsertionOptions
+    : { positions: [{ ...point, space: "visual" as const }] };
+  const targetFile = args.files.find((file) => file.id === targetFileId);
+  const componentLinks: ComponentCloneBatchContext | undefined = targetFile
+    ? {
+        sourceFileIds: [undefined],
+        targetSource: {
+          kind: "design-file",
+          ...(args.designId ? { designId: args.designId } : {}),
+          fileId: targetFile.id,
+          filename: targetFile.filename,
+        },
+        documents: args.files.map((file) => ({
+          source: {
+            kind: "design-file" as const,
+            ...(args.designId ? { designId: args.designId } : {}),
+            fileId: file.id,
+            filename: file.filename,
+          },
+          content:
+            file.id === targetFileId
+              ? baseContent
+              : args.getScreenContent(file.id),
+        })),
+      }
+    : undefined;
+  let unsupportedStructure = false;
+  const cloneOptions = {
+    ...insertionOptions,
+    ...(componentLinks ? { componentLinks } : {}),
+    onUnsupportedStructure: () => {
+      unsupportedStructure = true;
+    },
+  };
+  if (
+    args.applyLinkedComponentEdit &&
+    insertionOptions.placement === "inside"
+  ) {
+    const plan = planLinkedComponentStructureClone(
+      baseContent,
+      [root.outerHTML],
+      cloneOptions,
+    );
+    if (plan) {
+      args.applyLinkedComponentEdit(
+        targetFileId,
+        plan.targetNodeId,
+        {
+          kind: "structure",
+          before: plan.mainBefore,
+          after: plan.mainAfter,
+          selectionNodeIds: plan.selectionNodeIds,
+        },
+        args.selectionBefore,
+      );
+      return true;
+    }
+  }
   const insertion = insertClonedHtmlLayers(
     baseContent,
     [root.outerHTML],
-    resolvePastedSvgInsertionOptions({
-      activeFileId: args.activeFileId,
-      baseContent,
-      point,
-      selectedElement: args.selectedElement,
-      selectedLayerTargets: args.selectedLayerTargets,
-      targetFileId,
-    }),
+    cloneOptions,
   );
   if (!insertion) {
-    toast.error(args.t("designEditor.toasts.duplicateElementFailed"));
+    toast.error(
+      args.t(
+        unsupportedStructure
+          ? "designEditor.componentInstances.linkedStructureUnsupported"
+          : "designEditor.toasts.primitiveInsertFailed",
+      ),
+    );
     return true;
   }
   const nextContent = insertion.content;

@@ -272,4 +272,74 @@ describe("editor chrome selection overlays", () => {
       await browser.close();
     }
   });
+
+  it("refreshes Alt measurements when a sibling moves the hovered element", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 800 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="selected-parent" style="position:relative;width:1000px;height:800px">
+          <div id="selected" data-agent-native-node-id="selected" style="position:absolute;left:200px;top:200px;width:200px;height:120px;background:#d4d4d8"></div>
+        </div>
+        <div id="hover-parent" style="position:absolute;left:519px;top:400px;width:200px;display:flex;flex-direction:column">
+          <div id="hovered" data-agent-native-node-id="hovered" style="width:200px;height:120px;background:#ccc"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await select(page, "#selected");
+      await page.keyboard.down("Alt");
+      await page.mouse.move(520, 410, { steps: 3 });
+
+      const readLabels = () =>
+        page
+          .locator("[data-agent-native-measurement-overlay]")
+          .evaluate((overlay) =>
+            [...overlay.children]
+              .map((node) => node.textContent)
+              .filter(Boolean)
+              .sort(),
+          );
+      await page.waitForFunction(
+        () => {
+          const overlay = document.querySelector(
+            "[data-agent-native-measurement-overlay]",
+          );
+          const labels = [...(overlay?.children ?? [])]
+            .map((node) => node.textContent)
+            .filter(Boolean)
+            .sort();
+          return labels.join(",") === "119,80";
+        },
+        undefined,
+        { timeout: 5_000 },
+      );
+      await page.waitForTimeout(1_200);
+
+      await page.evaluate(() => {
+        const parent = document.querySelector("#hover-parent")!;
+        const sibling = document.createElement("div");
+        sibling.style.height = "20px";
+        parent.insertBefore(sibling, parent.firstElementChild);
+      });
+      await page.waitForFunction(
+        () => {
+          const overlay = document.querySelector(
+            "[data-agent-native-measurement-overlay]",
+          );
+          const labels = [...(overlay?.children ?? [])]
+            .map((node) => node.textContent)
+            .filter(Boolean)
+            .sort();
+          return labels.join(",") === "100,119";
+        },
+        undefined,
+        { timeout: 5_000 },
+      );
+      expect(await readLabels()).toEqual(["100", "119"]);
+    } finally {
+      await browser.close();
+    }
+  });
 });

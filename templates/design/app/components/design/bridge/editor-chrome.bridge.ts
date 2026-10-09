@@ -12524,6 +12524,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ) {
           overlayMutationObserver.observe(nextMeasurementParent, {
             attributes: true,
+            childList: true,
           });
         }
         nextPaintServers.forEach(function (server) {
