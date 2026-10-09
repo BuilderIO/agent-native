@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import { H3Event } from "h3";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const configuredAuthOptions = vi.hoisted(() => ({ options: undefined as any }));
 
@@ -23,6 +23,10 @@ const authTsSource = readFileSync(
   "utf8",
 );
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("analytics auth plugin background startup", () => {
   it("keeps Better Auth out of durable background cold starts", () => {
     expect(authTsSource).toContain(
@@ -36,14 +40,17 @@ describe("analytics auth plugin background startup", () => {
 
 describe("Analytics session replay auth paths", () => {
   it("allows the batch route while keeping adjacent recording routes protected", async () => {
+    vi.stubEnv("AUTH_DISABLED", "0");
     await import("./auth");
     const { autoMountAuth } = await import("@agent-native/core/server");
 
     const app: any = { use: vi.fn() };
-    await autoMountAuth(app, {
-      ...(configuredAuthOptions.options as any),
-      getSession: vi.fn().mockResolvedValue(null),
-    });
+    await autoMountAuth(app, configuredAuthOptions.options as any);
+    expect(
+      app.use.mock.calls.some(
+        ([path]: [unknown]) => path === "/_agent-native/auth/ba",
+      ),
+    ).toBe(true);
     const guard = app.use.mock.calls
       .map((call: any[]) => call[0])
       .find((handler: unknown) => typeof handler === "function");
