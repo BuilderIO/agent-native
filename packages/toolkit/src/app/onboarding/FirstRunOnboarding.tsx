@@ -1,4 +1,3 @@
-import { appMountedPath } from "@agent-native/core/client/api-path";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags/use-feature-flag";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -39,7 +38,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import {
@@ -167,7 +166,6 @@ export function FirstRunOnboarding({
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
-  const { pathname } = useLocation();
   const navigate = useNavigate();
   const previewMode = useOnboardingPreviewMode();
   const previewStep = useOnboardingPreviewStep();
@@ -367,13 +365,7 @@ export function FirstRunOnboarding({
         completionInFlightRef.current = false;
       }
     },
-    [
-      completeFirstRun,
-      extensionIndex,
-      navigate,
-      pathname,
-      trackFirstRunStepCompleted,
-    ],
+    [completeFirstRun, extensionIndex, navigate, trackFirstRunStepCompleted],
   );
   useEffect(() => {
     if (!previewMode && firstRun && !loading && profile) {
@@ -632,10 +624,7 @@ export function FirstRunOnboarding({
     search.delete(ONBOARDING_PREVIEW_QUERY_PARAM);
     search.delete(ONBOARDING_PREVIEW_STEP_QUERY_PARAM);
     const query = search.toString();
-    const path = appMountedPath(
-      manualSetupSettingsRoute({ redesign: redesign.enabled }),
-      pathname || STANDARD_APP_ROUTES.home,
-    );
+    const path = manualSetupSettingsRoute({ redesign: redesign.enabled });
     await navigate(`${path}${query ? `?${query}` : ""}`);
     trackFirstRunSetupOutcome(attempt, "settings_opened");
   };

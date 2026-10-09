@@ -1588,7 +1588,7 @@ describe("FirstRunOnboarding", () => {
           element: <div data-testid="model-settings-route">Model settings</div>,
         },
       ],
-      { initialEntries: ["/home"] },
+      { basename: "/clips", initialEntries: ["/clips/home"] },
     );
 
     await act(async () => {
@@ -1611,7 +1611,7 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector('[data-testid="model-settings-route"]'),
     ).not.toBeNull();
-    expect(router.state.location.pathname).toBe("/settings/model");
+    expect(router.state.location.pathname).toBe("/clips/settings/model");
     expect(settingsRenderedAtOutcome).toBe(true);
     expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
       "onboarding_method_outcome",
@@ -2130,7 +2130,7 @@ describe("FirstRunOnboarding", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("keeps the API key destination inside the live mount omitted by the workspace manifest", async () => {
+  it("uses an app-local API key destination when the live mount is missing from the workspace manifest", async () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
@@ -2157,7 +2157,7 @@ describe("FirstRunOnboarding", () => {
       await Promise.resolve();
     });
 
-    expect(mocks.navigate).toHaveBeenCalledWith("/dispatch/settings/model");
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings/model");
   });
 
   it("sends manual setup to Agent › Model", () => {
