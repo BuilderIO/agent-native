@@ -502,6 +502,9 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
         "templates/design/server/routes/api/qa-import-assets/",
       ) ||
       normalized.startsWith(
+        "templates/design/server/routes/api/qa-figma-import-assets/",
+      ) ||
+      normalized.startsWith(
         "packages/core/src/client/chat/markdown-renderer.",
       ) ||
       normalized.startsWith("packages/docs/app/components/markdownrenderer.") ||
