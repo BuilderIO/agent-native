@@ -13,6 +13,7 @@ import {
   type MigrationDependencyCondition,
 } from "../package-lifecycle/migration-manifest.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { writeTextFileAtomically } from "./atomic-json-file.js";
 import type { MigrationCodemodResult } from "./migration-codemod.js";
 import { addMinimumReleaseAgeExclude } from "./workspace-yaml.js";
 
@@ -662,12 +663,20 @@ function applyBumps(pkg: PackageJsonLike, bumps: AgentNativeDepBump[]): void {
 
 // pnpm reads the nearest pnpm-workspace.yaml at or above the directory it runs
 // in, so an upgrade started from a member app still installs under the
-// workspace root's release-age settings.
-function findPnpmWorkspaceFile(start: string): string | null {
-  let dir = start;
+// workspace root's release-age settings. An ancestor's file only counts when
+// that workspace lists the project; an unrelated parent is left alone.
+function findGoverningPnpmWorkspaceFile(
+  project: UpgradeProject,
+): string | null {
+  if (detectPackageManager(project.root) !== "pnpm") return null;
+  let dir = project.root;
   while (true) {
     const file = path.join(dir, "pnpm-workspace.yaml");
-    if (fs.existsSync(file)) return file;
+    if (fs.existsSync(file)) {
+      if (dir === project.root) return file;
+      const manifest = path.join(project.root, "package.json");
+      return workspacePackageFiles(dir, file).includes(manifest) ? file : null;
+    }
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -678,7 +687,7 @@ function alignReleaseAgeExclude(
   project: UpgradeProject,
   dryRun: boolean,
 ): UpgradeRunResult["steps"][number] | null {
-  const file = findPnpmWorkspaceFile(project.root);
+  const file = findGoverningPnpmWorkspaceFile(project);
   if (!file) return null;
   const displayFile = relativeTo(project.root, file);
   const failed = (error: unknown): UpgradeRunResult["steps"][number] => ({
@@ -706,7 +715,7 @@ function alignReleaseAgeExclude(
     };
   }
   try {
-    fs.writeFileSync(file, updated);
+    writeTextFileAtomically(file, updated);
   } catch (error) {
     return failed(error);
   }

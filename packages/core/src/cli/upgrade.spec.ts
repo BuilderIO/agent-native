@@ -1343,7 +1343,7 @@ describe("runUpgrade", () => {
       ).toBe(workspaceYaml);
     });
 
-    it("stops before editing manifests when the workspace file cannot be written", async () => {
+    it("stops with the workspace untouched when the workspace file write fails midway", async () => {
       const root = makeOlderWorkspace(olderWorkspaceYaml, "^0.190.0");
       const packageJson = fs.readFileSync(
         path.join(root, "package.json"),
@@ -1352,8 +1352,9 @@ describe("runUpgrade", () => {
       const writeFileSync = fs.writeFileSync;
       vi.spyOn(fs, "writeFileSync").mockImplementation(
         (file, data, options) => {
-          if (path.basename(String(file)) === "pnpm-workspace.yaml") {
-            throw new Error("EACCES: permission denied");
+          if (path.basename(String(file)).includes("pnpm-workspace.yaml")) {
+            writeFileSync(file, String(data).slice(0, 10), options);
+            throw new Error("ENOSPC: no space left on device");
           }
           writeFileSync(file, data, options);
         },
@@ -1363,10 +1364,84 @@ describe("runUpgrade", () => {
       expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(1);
 
       expect(out.join("\n")).toContain("[failed] release-age");
-      expect(err.join("\n")).toContain("EACCES: permission denied");
+      expect(err.join("\n")).toContain("ENOSPC: no space left on device");
       expect(fs.readFileSync(path.join(root, "package.json"), "utf-8")).toBe(
         packageJson,
       );
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(olderWorkspaceYaml);
+      expect(fs.readdirSync(root).sort()).toEqual([
+        "package.json",
+        "pnpm-workspace.yaml",
+      ]);
+    });
+
+    it("extends an exclude list whose items sit at the key's column", async () => {
+      const indentlessYaml = olderWorkspaceYaml.replace(/^ {2}- /gm, "- ");
+      const root = makeOlderWorkspace(indentlessYaml);
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).toContain("[ok] release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(
+        indentlessYaml.replace(
+          "minimumReleaseAgeExclude:\n",
+          'minimumReleaseAgeExclude:\n- "@agent-native/*"\n',
+        ),
+      );
+    });
+
+    it("leaves a parent workspace alone when it does not list the project", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: { name: "unrelated-workspace", private: true },
+        workspaceYaml: olderWorkspaceYaml,
+      });
+      const appDir = path.join(root, "tools", "app");
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(appDir, "package.json"),
+        JSON.stringify({
+          name: "app",
+          dependencies: { "@agent-native/core": "latest" },
+        }),
+      );
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", appDir, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).not.toContain("release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(olderWorkspaceYaml);
+    });
+
+    it("leaves a parent workspace alone when the project installs with npm", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: { name: "old-workspace", private: true },
+        workspaceYaml: olderWorkspaceYaml,
+        apps: {
+          web: {
+            name: "web",
+            dependencies: { "@agent-native/core": "latest" },
+          },
+        },
+      });
+      const memberDir = path.join(root, "apps", "web");
+      fs.writeFileSync(path.join(memberDir, "package-lock.json"), "{}\n");
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", memberDir, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).not.toContain("release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(olderWorkspaceYaml);
     });
   });
 });

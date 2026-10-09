@@ -135,10 +135,13 @@ function findWorkspaceYamlSection(
   const remaining = yaml.slice(insertAt);
   const nextSection = /^(?!#)\S[^:\n]*:[^\n]*$/m.exec(remaining);
   const body = remaining.slice(0, nextSection?.index ?? remaining.length);
+  // A block sequence may sit at the key's column (`key:` then `- item`).
   const indent = body
     .split(/\r?\n/)
     .filter((line) => line.trim() && !line.trimStart().startsWith("#"))
-    .map((line) => line.match(/^[ \t]+/)?.[0])
+    .map((line) =>
+      /^-(?:[ \t]|$)/.test(line) ? "" : line.match(/^[ \t]+/)?.[0],
+    )
     .filter((value): value is string => value !== undefined)
     .sort((a, b) => a.length - b.length)[0];
   return {
