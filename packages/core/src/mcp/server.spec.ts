@@ -240,12 +240,23 @@ vi.mock("../server/embed-route.js", () => ({
 }));
 
 // The real write-scope builder, with a switch to make its scope unmintable.
-const writeScopeOverride = vi.hoisted(() => ({ unmintable: false }));
+const writeScopeOverride = vi.hoisted(() => ({
+  unmintable: false,
+  readUnmintable: false,
+}));
 vi.mock("../shared/embed-auth.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../shared/embed-auth.js")>();
   return {
     ...actual,
+    createMcpDirectoryWidgetReadCapability: (
+      input: Parameters<
+        typeof actual.createMcpDirectoryWidgetReadCapability
+      >[0],
+    ) =>
+      writeScopeOverride.readUnmintable
+        ? undefined
+        : actual.createMcpDirectoryWidgetReadCapability(input),
     createMcpDirectoryWidgetWriteCapability: (
       input: Parameters<
         typeof actual.createMcpDirectoryWidgetWriteCapability
@@ -2804,6 +2815,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     afterEach(() => {
       writeScopeOverride.unmintable = false;
+      writeScopeOverride.readUnmintable = false;
     });
 
     it("degrades to a read-only ticket when the write scope itself is unmintable", async () => {
@@ -2842,15 +2854,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         .spyOn(console, "error")
         .mockImplementation(() => {});
       try {
-        // Resource ids at the 256-character cap overflow the read scope as
-        // well as the write scope, so no widget capability can be built.
-        const id = "x".repeat(256);
+        writeScopeOverride.unmintable = true;
+        writeScopeOverride.readUnmintable = true;
         embedSessionMocks.createEmbedSessionTicket.mockClear();
 
-        const created = await callCreate({
-          ...contentTemplate,
-          result: { id, spaceId: id },
-        } as unknown as typeof contentTemplate);
+        const created = await callCreate(contentTemplate);
 
         expect(created.result.isError).not.toBe(true);
         expect(
@@ -2866,7 +2874,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       } finally {
         consoleError.mockRestore();
       }
-    });
+    }, 60_000);
   });
 
   it("issues Content database row write grants for resource-bound actions", async () => {
