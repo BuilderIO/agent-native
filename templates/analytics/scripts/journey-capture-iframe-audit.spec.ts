@@ -426,6 +426,7 @@ describe("replay iframe audit", () => {
     const replayDocument = replayFrame.contentDocument!;
     const container = replayDocument.createElement("div");
     container.style.setProperty("container-type", "inline-size");
+    container.style.willChange = "container-type";
     container.style.overflow = "hidden";
     replayDocument.body.append(container);
     setBox(container, { left: 0, top: 0, width: 20, height: 20 }, 20, 20);
@@ -839,6 +840,68 @@ describe("replay iframe audit", () => {
     });
   });
 
+  it("does not reject an iframe inside the center of a rounded inset clip", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const clipped = replayDocument.createElement("div");
+    clipped.style.clipPath = "inset(0 round 20px)";
+    replayDocument.body.append(clipped);
+    setBox(clipped, { left: 10, top: 10, width: 80, height: 80 }, 80, 80);
+    const frame = appendFrame(
+      replayDocument,
+      { left: 45, top: 45, width: 10, height: 10 },
+      10,
+      10,
+      clipped,
+    );
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [1],
+      }),
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 0 });
+  });
+
+  it("fails closed when an iframe may overlap a rounded inset corner", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const clipped = replayDocument.createElement("div");
+    clipped.style.clipPath = "inset(0 round 20px)";
+    replayDocument.body.append(clipped);
+    setBox(clipped, { left: 10, top: 10, width: 80, height: 80 }, 80, 80);
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 10, height: 10 },
+      10,
+      10,
+      clipped,
+    );
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [1],
+      }),
+    ).toEqual({
+      visibleIframeCount: 0,
+      unavailableIframeCount: 0,
+      unverifiableIframeCount: 1,
+    });
+  });
+
   it("fails closed when a rounded paint clip may intersect the iframe", () => {
     const replayFrame = appendFrame(
       document,
@@ -976,5 +1039,65 @@ describe("replay iframe audit", () => {
         recordedIframeParentIds: [],
       }),
     ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
+  });
+
+  it("ignores frames hidden by an ancestor with a zero-opacity filter", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const hidden = replayDocument.createElement("div");
+    hidden.style.filter = "opacity(0)";
+    replayDocument.body.append(hidden);
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 20, height: 20 },
+      20,
+      20,
+    );
+    hidden.append(frame);
+    installReplayState(replayFrame, new WeakMap());
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
+  });
+
+  it("fails closed for filters whose iframe visibility is not fully known", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const filtered = replayDocument.createElement("div");
+    filtered.style.filter = "blur(1px)";
+    replayDocument.body.append(filtered);
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 20, height: 20 },
+      20,
+      20,
+    );
+    filtered.append(frame);
+    installReplayState(replayFrame, new WeakMap());
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({
+      visibleIframeCount: 0,
+      unavailableIframeCount: 0,
+      unverifiableIframeCount: 1,
+    });
   });
 });

@@ -26,6 +26,7 @@ export function auditReplayIframeContent({
     uncertain: boolean;
     width: number;
   };
+  type LocalRect = { left: number; top: number; right: number; bottom: number };
 
   const MAX_REPLAY_IFRAME_DEPTH = 8;
   const state = (window as typeof window & { __anJourneyCapture?: any })
@@ -277,7 +278,7 @@ export function auditReplayIframeContent({
     (
       value: string,
       geometry: BoxGeometry,
-    ) => { polygon: Point[]; rounded: boolean } | null,
+    ) => { polygon: Point[]; roundedCornerRects: LocalRect[] | null } | null,
   ] = [
     (value, geometry) => {
       const match = value.match(/^inset\((.*)\)$/i);
@@ -330,9 +331,97 @@ export function auditReplayIframeContent({
               { x: x2, y: y2 },
               { x: x1, y: y2 },
             ];
-      return { polygon, rounded: Boolean(roundValue) };
+      if (!roundValue) return { polygon, roundedCornerRects: [] };
+
+      const radiusGroups = roundValue.split(/\s*\/\s*/);
+      const parseRadii = (value: string, extent: number): number[] | null => {
+        const tokens = value.trim().split(/\s+/);
+        if (tokens.length < 1 || tokens.length > 4) return null;
+        const radii: number[] = [];
+        for (const token of tokens) {
+          const number = token.match(/^(\d+(?:\.\d*)?|\.\d+)(px|%)?$/i);
+          if (!number) return null;
+          const amount = Number(number[1]);
+          if ((!number[2] && amount !== 0) || amount < 0) return null;
+          radii.push(number[2] === "%" ? (amount / 100) * extent : amount);
+        }
+        return radii;
+      };
+      const expandRadii = (radii: number[]): number[] => {
+        if (radii.length === 1)
+          return [radii[0]!, radii[0]!, radii[0]!, radii[0]!];
+        if (radii.length === 2)
+          return [radii[0]!, radii[1]!, radii[0]!, radii[1]!];
+        if (radii.length === 3)
+          return [radii[0]!, radii[1]!, radii[2]!, radii[1]!];
+        return radii;
+      };
+      if (radiusGroups.length > 2) {
+        return { polygon, roundedCornerRects: null };
+      }
+      const horizontal = parseRadii(radiusGroups[0]!, geometry.width);
+      const vertical = parseRadii(
+        radiusGroups[1] ?? radiusGroups[0]!,
+        geometry.height,
+      );
+      if (!horizontal || !vertical) {
+        return { polygon, roundedCornerRects: null };
+      }
+
+      const radiusX = expandRadii(horizontal);
+      const radiusY = expandRadii(vertical);
+      const clipWidth = Math.max(0, x2 - x1);
+      const clipHeight = Math.max(0, y2 - y1);
+      const fit = (extent: number, sum: number): number =>
+        sum > 0 ? extent / sum : 1;
+      const scale = Math.min(
+        1,
+        fit(clipWidth, radiusX[0]! + radiusX[1]!),
+        fit(clipWidth, radiusX[3]! + radiusX[2]!),
+        fit(clipHeight, radiusY[0]! + radiusY[3]!),
+        fit(clipHeight, radiusY[1]! + radiusY[2]!),
+      );
+      const rx = radiusX.map((radius) => radius * scale);
+      const ry = radiusY.map((radius) => radius * scale);
+      const corners: LocalRect[] = [];
+      const addCorner = (
+        index: number,
+        left: number,
+        top: number,
+        right: number,
+        bottom: number,
+      ): void => {
+        if (rx[index]! > 0 && ry[index]! > 0) {
+          corners.push({ left, top, right, bottom });
+        }
+      };
+      addCorner(0, x1, y1, x1 + rx[0]!, y1 + ry[0]!);
+      addCorner(1, x2 - rx[1]!, y1, x2, y1 + ry[1]!);
+      addCorner(2, x2 - rx[2]!, y2 - ry[2]!, x2, y2);
+      addCorner(3, x1, y2 - ry[3]!, x1 + rx[3]!, y2);
+      return { polygon, roundedCornerRects: corners };
     },
   ];
+
+  const polygonMayOverlapLocalRects = (
+    polygon: Point[],
+    geometry: BoxGeometry,
+    rectangles: LocalRect[],
+  ): boolean => {
+    if (polygon.length < 3 || rectangles.length === 0) return false;
+    const local = polygon.map((point) => pointToLocal(geometry, point));
+    const minX = Math.min(...local.map((point) => point.x));
+    const maxX = Math.max(...local.map((point) => point.x));
+    const minY = Math.min(...local.map((point) => point.y));
+    const maxY = Math.max(...local.map((point) => point.y));
+    return rectangles.some(
+      (rect) =>
+        maxX > rect.left &&
+        minX < rect.right &&
+        maxY > rect.top &&
+        minY < rect.bottom,
+    );
+  };
 
   const [polygonArea]: [(polygon: Point[]) => number] = [
     (polygon) => {
@@ -676,6 +765,18 @@ export function auditReplayIframeContent({
           rendered = false;
           break;
         }
+        const filter = styles.getPropertyValue("filter") || styles.filter;
+        if (filter && filter !== "none") {
+          if (
+            /(?:^|\s)opacity\(\s*(?:0+(?:\.0*)?|\.0+)%?\s*\)(?:\s|$)/i.test(
+              filter,
+            )
+          ) {
+            rendered = false;
+            break;
+          }
+          visibilityUncertain = true;
+        }
         const hasUnsupportedMask = [
           "mask-image",
           "-webkit-mask-image",
@@ -701,8 +802,17 @@ export function auditReplayIframeContent({
               pointToScreen(geometry, point),
             );
             visiblePolygon = intersectPolygons(visiblePolygon, clipPolygon);
-            if (clippedByShape.rounded && hasVisibleArea(visiblePolygon)) {
-              visibilityUncertain = true;
+            if (hasVisibleArea(visiblePolygon)) {
+              if (
+                clippedByShape.roundedCornerRects === null ||
+                polygonMayOverlapLocalRects(
+                  visiblePolygon,
+                  geometry,
+                  clippedByShape.roundedCornerRects,
+                )
+              ) {
+                visibilityUncertain = true;
+              }
             }
           } else {
             visibilityUncertain = true;
