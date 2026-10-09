@@ -45,7 +45,28 @@ async function startHostServer(): Promise<ViteDevServer> {
               res.setHeader("Content-Type", "text/html");
               res.end(`<!doctype html>
 <html>
-  <head><title>Session replay iframe E2E</title></head>
+  <head>
+    <title>Session replay iframe E2E</title>
+    <style>
+      body { margin: 0; min-height: 1600px; }
+      #root { width: 600px; height: 680px; }
+      .session-replay-template-preview {
+        position: relative;
+        width: 600px;
+        height: 680px;
+        overflow: hidden;
+      }
+      .design-template-preview-frame {
+        position: absolute;
+        width: var(--design-template-width);
+        height: var(--design-template-height);
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%) scale(var(--design-template-scale));
+        border: 0;
+      }
+    </style>
+  </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/client/session-replay-iframe.e2e-host.tsx"></script>
@@ -200,6 +221,23 @@ describe("session replay iframe recording", () => {
     expect(await iframe.getAttribute("sandbox")).toBe("allow-scripts");
     expect(await iframe.getAttribute("credentialless")).toBe("");
     expect((await recorderResponse)?.status()).toBe(200);
+    expect(
+      await page
+        .locator(".session-replay-template-preview")
+        .evaluate((element) => element.getBoundingClientRect().width),
+    ).toBe(600);
+    await page.evaluate(() => window.scrollTo(0, 1200));
+    await page.waitForFunction(
+      (attribute) => !document.querySelector(`iframe[${attribute}]`),
+      SESSION_REPLAY_IFRAME_ATTRIBUTE,
+      { timeout: 5_000 },
+    );
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForFunction(
+      (attribute) => document.querySelector(`iframe[${attribute}]`),
+      SESSION_REPLAY_IFRAME_ATTRIBUTE,
+      { timeout: 5_000 },
+    );
     await iframe.evaluate((frame, attribute) => {
       frame.removeAttribute(attribute);
     }, SESSION_REPLAY_IFRAME_ATTRIBUTE);

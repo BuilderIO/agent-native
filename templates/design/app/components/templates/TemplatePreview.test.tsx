@@ -14,6 +14,7 @@ let intersectionObservers: Array<{
   callback: IntersectionObserverCallback;
   observe: ReturnType<typeof vi.fn>;
   disconnect: ReturnType<typeof vi.fn>;
+  options?: IntersectionObserverInit;
 }>;
 beforeEach(() => {
   intersectionObservers = [];
@@ -37,7 +38,10 @@ beforeEach(() => {
     class {
       observe = vi.fn();
       disconnect = vi.fn();
-      constructor(public callback: IntersectionObserverCallback) {
+      constructor(
+        public callback: IntersectionObserverCallback,
+        public options?: IntersectionObserverInit,
+      ) {
         intersectionObservers.push(this);
       }
     },
@@ -48,6 +52,7 @@ afterEach(async () => {
   container.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 describe("template artboard preview", () => {
   it.each([
@@ -86,6 +91,7 @@ describe("template artboard preview", () => {
   );
 
   it("allows isolated prototype interactions without account origin or editor bridge", async () => {
+    vi.useFakeTimers();
     const onNavigate = vi.fn();
     const onEscape = vi.fn();
     await act(async () =>
@@ -103,24 +109,30 @@ describe("template artboard preview", () => {
     const frame = container.querySelector("iframe")!;
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
     expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
+    expect(intersectionObservers[0]?.options?.threshold).toEqual([
+      0,
+      Number.EPSILON,
+    ]);
     act(() =>
       intersectionObservers[0]!.callback(
         [
           {
             isIntersecting: true,
             intersectionRatio: 0,
+            intersectionRect: { width: 0, height: 0 },
           } as IntersectionObserverEntry,
         ],
         {} as IntersectionObserver,
       ),
     );
-    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
     act(() =>
       intersectionObservers[0]!.callback(
         [
           {
             isIntersecting: true,
             intersectionRatio: 1,
+            intersectionRect: { width: 320, height: 180 },
           } as IntersectionObserverEntry,
         ],
         {} as IntersectionObserver,
@@ -133,12 +145,28 @@ describe("template artboard preview", () => {
           {
             isIntersecting: false,
             intersectionRatio: 0,
+            intersectionRect: { width: 0, height: 0 },
           } as IntersectionObserverEntry,
         ],
         {} as IntersectionObserver,
       ),
     );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
+    act(() => vi.advanceTimersByTime(750));
     expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 1,
+            intersectionRect: { width: 320, height: 180 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
     expect(frame.hasAttribute("credentialless")).toBe(true);
     expect(frame.tabIndex).toBe(0);
     expect(frame.getAttribute("aria-hidden")).toBeNull();

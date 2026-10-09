@@ -37,6 +37,86 @@ export function auditReplayIframeContent({
   let visibleIframeCount = 0;
   let unavailableIframeCount = 0;
 
+  const establishesContainingBlock = (
+    element: Element,
+    position: string,
+    view: Window,
+  ): boolean => {
+    const styles = view.getComputedStyle(element);
+    if (
+      position === "absolute" &&
+      styles.position !== "" &&
+      styles.position !== "static"
+    ) {
+      return true;
+    }
+
+    const containment = styles.contain.split(/\s+/);
+    if (
+      containment.some((value) =>
+        ["layout", "paint", "strict", "content"].includes(value),
+      ) ||
+      styles.contentVisibility === "auto"
+    ) {
+      return true;
+    }
+
+    const containingBlockProperties = [
+      "transform",
+      "perspective",
+      "filter",
+      "backdrop-filter",
+      "translate",
+      "rotate",
+      "scale",
+    ];
+    const hasContainingBlockProperty = containingBlockProperties.some(
+      (property) => {
+        const value = styles.getPropertyValue(property);
+        return value !== "" && value !== "none";
+      },
+    );
+    if (hasContainingBlockProperty) return true;
+
+    const willChange = styles.willChange.split(/\s*,\s*/);
+    return (
+      (position === "absolute" && willChange.includes("position")) ||
+      willChange.some((property) =>
+        [
+          ...containingBlockProperties,
+          "contain",
+          "content-visibility",
+        ].includes(property),
+      )
+    );
+  };
+
+  const containingBlockFor = (
+    frame: HTMLIFrameElement,
+    position: string,
+    view: Window,
+  ): Element | null => {
+    if (position !== "absolute" && position !== "fixed") return null;
+    for (
+      let current: Element | null = frame.assignedSlot ?? frame.parentElement;
+      current;
+    ) {
+      if (establishesContainingBlock(current, position, view)) return current;
+      if (current.assignedSlot) {
+        current = current.assignedSlot;
+      } else if (current.parentElement) {
+        current = current.parentElement;
+      } else {
+        const root = current.getRootNode();
+        current =
+          root.nodeType === 11 && "host" in root
+            ? (root as ShadowRoot).host
+            : null;
+      }
+    }
+    return null;
+  };
+
   while (documents.length > 0) {
     const { owner, clip, depth } = documents.pop()!;
     const view = owner.defaultView;
@@ -72,52 +152,7 @@ export function auditReplayIframeContent({
       if (visibility === "hidden" || visibility === "collapse") continue;
       const position = frameStyle.position;
       const positioned = position === "absolute" || position === "fixed";
-      let containingBlock = positioned ? frame.offsetParent : null;
-      if (position === "absolute" && containingBlock === owner.body) {
-        const bodyStyle = view.getComputedStyle(owner.body);
-        let bodyEstablishesContainingBlock =
-          (bodyStyle.position !== "" && bodyStyle.position !== "static") ||
-          (bodyStyle.transform !== "" && bodyStyle.transform !== "none") ||
-          (bodyStyle.perspective !== "" && bodyStyle.perspective !== "none") ||
-          (bodyStyle.getPropertyValue("filter") !== "" &&
-            bodyStyle.getPropertyValue("filter") !== "none") ||
-          (bodyStyle.getPropertyValue("backdrop-filter") !== "" &&
-            bodyStyle.getPropertyValue("backdrop-filter") !== "none") ||
-          (bodyStyle.getPropertyValue("translate") !== "" &&
-            bodyStyle.getPropertyValue("translate") !== "none") ||
-          (bodyStyle.getPropertyValue("rotate") !== "" &&
-            bodyStyle.getPropertyValue("rotate") !== "none") ||
-          (bodyStyle.getPropertyValue("scale") !== "" &&
-            bodyStyle.getPropertyValue("scale") !== "none") ||
-          bodyStyle.contentVisibility === "auto";
-        const bodyContainment = bodyStyle.contain.split(/\s+/);
-        for (const value of bodyContainment) {
-          if (
-            value === "layout" ||
-            value === "paint" ||
-            value === "strict" ||
-            value === "content"
-          ) {
-            bodyEstablishesContainingBlock = true;
-          }
-        }
-        const bodyWillChange = bodyStyle.willChange;
-        if (
-          bodyWillChange.includes("transform") ||
-          bodyWillChange.includes("perspective") ||
-          bodyWillChange.includes("filter") ||
-          bodyWillChange.includes("backdrop-filter") ||
-          bodyWillChange.includes("translate") ||
-          bodyWillChange.includes("rotate") ||
-          bodyWillChange.includes("scale") ||
-          bodyWillChange.includes("position") ||
-          bodyWillChange.includes("contain") ||
-          bodyWillChange.includes("content-visibility")
-        ) {
-          bodyEstablishesContainingBlock = true;
-        }
-        if (!bodyEstablishesContainingBlock) containingBlock = null;
-      }
+      const containingBlock = containingBlockFor(frame, position, view);
       let reachedContainingBlock = !positioned;
       const rootElement = owner.documentElement;
       const rootStyle = view.getComputedStyle(rootElement);
@@ -192,7 +227,8 @@ export function auditReplayIframeContent({
               paintContainment = true;
             }
           }
-          const hasBox = styles.display !== "contents";
+          const hasBox =
+            styles.display !== "contents" && styles.display !== "inline";
           if (
             hasBox &&
             (paintContainment ||

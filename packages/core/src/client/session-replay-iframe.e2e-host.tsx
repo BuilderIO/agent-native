@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-import { templatePreviewDocument } from "../../../../templates/design/app/components/templates/template-preview-document.js";
+import { TemplatePreview } from "@/components/templates/TemplatePreview";
+
 import { socialStory } from "../../../../templates/design/shared/design-template-presets/social-story.js";
 import { AgentNativeExtensionSlot } from "../../../toolkit/src/app/extensions/AgentNativeExtensionFrame.js";
-import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../session-replay-iframe-protocol.js";
 import { startSessionReplay, stopSessionReplay } from "./session-replay.js";
 
 const extension = {
@@ -95,14 +95,13 @@ function Host() {
     "design-template"
   ) {
     return (
-      <iframe
-        {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
+      <TemplatePreview
         title={socialStory.title}
-        srcDoc={templatePreviewDocument(socialStory.content)}
-        sandbox="allow-scripts"
-        {...{ credentialless: "" }}
-        loading="eager"
-        style={{ border: 0, height: 680, width: 600 }}
+        html={socialStory.content}
+        width={socialStory.width}
+        height={socialStory.height}
+        recordSessionReplay
+        className="session-replay-template-preview"
       />
     );
   }

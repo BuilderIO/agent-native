@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils";
 
 import { templatePreviewDocument } from "./template-preview-document";
 
+const SESSION_REPLAY_OFFSCREEN_STOP_DELAY_MS = 750;
+
 export function TemplatePreview({
   html,
   title,
@@ -88,11 +90,35 @@ export function TemplatePreview({
   useEffect(() => {
     const frame = frameRef.current;
     if (!recordSessionReplay || !frame) return;
-    const observer = new IntersectionObserver(([entry]) => {
-      setSessionReplayVisible(entry.isIntersecting);
-    });
+    let stopTimer: number | null = null;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const hasVisibleArea =
+          entry.isIntersecting &&
+          entry.intersectionRatio > 0 &&
+          entry.intersectionRect.width > 0 &&
+          entry.intersectionRect.height > 0;
+        if (hasVisibleArea) {
+          if (stopTimer !== null) window.clearTimeout(stopTimer);
+          stopTimer = null;
+          setSessionReplayVisible(true);
+        } else if (
+          stopTimer === null &&
+          frame.hasAttribute(SESSION_REPLAY_IFRAME_ATTRIBUTE)
+        ) {
+          stopTimer = window.setTimeout(() => {
+            stopTimer = null;
+            setSessionReplayVisible(false);
+          }, SESSION_REPLAY_OFFSCREEN_STOP_DELAY_MS);
+        }
+      },
+      { threshold: [0, Number.EPSILON] },
+    );
     observer.observe(frame);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (stopTimer !== null) window.clearTimeout(stopTimer);
+    };
   }, [html, recordSessionReplay]);
 
   if (!html) {

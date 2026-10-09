@@ -350,7 +350,38 @@ describe("replay iframe audit", () => {
     ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
   });
 
-  it("does not clip an absolute frame by ancestors between it and its containing block", () => {
+  it("does not clip frames against non-atomic inline ancestors", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const inline = replayDocument.createElement("span");
+    inline.style.display = "inline";
+    inline.style.overflow = "hidden";
+    inline.style.contain = "paint";
+    replayDocument.body.append(inline);
+    setBox(inline, { left: 0, top: 0, width: 0, height: 0 }, 0, 0);
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 20, height: 20 },
+      20,
+      20,
+      inline,
+    );
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
+  });
+
+  it("uses the CSS containing block when an absolute frame has a different offset parent", () => {
     const replayFrame = appendFrame(
       document,
       { left: 0, top: 0, width: 100, height: 100 },
@@ -376,10 +407,7 @@ describe("replay iframe audit", () => {
       clipper,
     );
     frame.style.position = "absolute";
-    Object.defineProperty(frame, "offsetParent", {
-      configurable: true,
-      value: containingBlock,
-    });
+    frame.style.zoom = "2";
     installReplayState(replayFrame, new WeakMap([[frame, 1]]));
 
     expect(
@@ -412,10 +440,6 @@ describe("replay iframe audit", () => {
       viewportWrapper,
     );
     escaped.style.position = "fixed";
-    Object.defineProperty(escaped, "offsetParent", {
-      configurable: true,
-      value: null,
-    });
     const fixedContainingBlock = appendClipper(
       replayDocument,
       { left: 50, top: 50, width: 20, height: 20 },
@@ -431,10 +455,6 @@ describe("replay iframe audit", () => {
       fixedContainingBlock,
     );
     clipped.style.position = "fixed";
-    Object.defineProperty(clipped, "offsetParent", {
-      configurable: true,
-      value: fixedContainingBlock,
-    });
     installReplayState(
       replayFrame,
       new WeakMap([
@@ -478,10 +498,6 @@ describe("replay iframe audit", () => {
       20,
     );
     frame.style.position = "absolute";
-    Object.defineProperty(frame, "offsetParent", {
-      configurable: true,
-      value: replayDocument.body,
-    });
     installReplayState(replayFrame, new WeakMap([[frame, 1]]));
 
     expect(
@@ -579,10 +595,6 @@ describe("replay iframe audit", () => {
       contained,
     );
     frame.style.position = "absolute";
-    Object.defineProperty(frame, "offsetParent", {
-      configurable: true,
-      value: contained,
-    });
     installReplayState(replayFrame, new WeakMap([[frame, 1]]));
 
     expect(
