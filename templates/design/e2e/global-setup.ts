@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -29,6 +30,7 @@ const E2E_DATABASE_URL =
 const LOOPBACK_READINESS_TIMEOUT_MS = 10_000;
 const LOOPBACK_READINESS_RETRY_MS = 50;
 const LOOPBACK_STARTUP_OUTPUT_LIMIT = 2_000;
+const LOOPBACK_INSTANCE_HEADER = "x-agent-native-loopback-instance";
 
 function formatLoopbackStartupError(stderr: string): string {
   const output = stderr.trim();
@@ -41,6 +43,7 @@ async function startLoopbackProvider(port: number): Promise<void> {
   const runRoot = designE2eRunRoot(path.resolve(import.meta.dirname, ".."));
   if (!runRoot) throw new Error("loopback provider requires an E2E run root");
   const loopbackPidPath = path.join(runRoot, "loopback-provider.pid");
+  const instanceId = randomUUID();
   const child = spawn(
     process.execPath,
     [
@@ -54,6 +57,7 @@ async function startLoopbackProvider(port: number): Promise<void> {
       env: {
         ...process.env,
         E2E_LOOPBACK_PORT: String(port),
+        E2E_LOOPBACK_INSTANCE_ID: instanceId,
       },
     },
   );
@@ -61,6 +65,7 @@ async function startLoopbackProvider(port: number): Promise<void> {
   let childExit:
     | { code: number | null; signal: NodeJS.Signals | null }
     | undefined;
+  let childClosed = false;
   let stderrTail = "";
   let captureStartupStderr = true;
   child.stderr?.on("data", (chunk: Buffer | string) => {
@@ -76,6 +81,9 @@ async function startLoopbackProvider(port: number): Promise<void> {
   child.once("exit", (code, signal) => {
     childExit = { code, signal };
   });
+  child.once("close", () => {
+    childClosed = true;
+  });
   if (!child.pid) {
     throw new Error(
       `loopback provider did not start${spawnError ? `: ${spawnError.message}` : ""}${formatLoopbackStartupError(stderrTail)}`,
@@ -86,14 +94,30 @@ async function startLoopbackProvider(port: number): Promise<void> {
     (child.exitCode !== null || child.signalCode !== null
       ? { code: child.exitCode, signal: child.signalCode }
       : undefined);
-  const assertChildRunning = () => {
+  const waitForChildClose = () =>
+    new Promise<void>((resolve) => {
+      if (childClosed) {
+        resolve();
+        return;
+      }
+      const finish = () => {
+        clearTimeout(timeout);
+        child.off("close", finish);
+        resolve();
+      };
+      const timeout = setTimeout(finish, 250);
+      child.once("close", finish);
+    });
+  const assertChildRunning = async () => {
     if (spawnError) {
+      await waitForChildClose();
       throw new Error(
         `loopback provider spawn failed: ${spawnError.message}${formatLoopbackStartupError(stderrTail)}`,
       );
     }
     const exit = processExit();
     if (exit) {
+      await waitForChildClose();
       throw new Error(
         `loopback provider exited before readiness (code ${exit.code ?? "none"}, signal ${exit.signal ?? "none"}).${formatLoopbackStartupError(stderrTail)}`,
       );
@@ -106,15 +130,18 @@ async function startLoopbackProvider(port: number): Promise<void> {
     let readinessAttempts = 0;
     let lastError = "no readiness response completed";
     while (Date.now() < deadline) {
-      assertChildRunning();
+      await assertChildRunning();
       readinessAttempts += 1;
       try {
         const response = await fetch(
           `http://127.0.0.1:${port}/v1/models` /* e2e-harness-ignore: allocated provider port, not Design base URL */,
           { signal: AbortSignal.timeout(250) },
         );
-        assertChildRunning();
-        if (response.ok) {
+        await assertChildRunning();
+        if (
+          response.ok &&
+          response.headers.get(LOOPBACK_INSTANCE_HEADER) === instanceId
+        ) {
           captureStartupStderr = false;
           const stderr = child.stderr as
             | (NodeJS.ReadableStream & { unref?: () => void })
@@ -128,16 +155,18 @@ async function startLoopbackProvider(port: number): Promise<void> {
           child.unref();
           return;
         }
-        lastError = `HTTP ${response.status}`;
+        lastError = response.ok
+          ? "readiness response came from a different provider instance"
+          : `HTTP ${response.status}`;
       } catch (error) {
-        assertChildRunning();
+        await assertChildRunning();
         lastError = error instanceof Error ? error.message : String(error);
       }
       await new Promise((resolve) =>
         setTimeout(resolve, LOOPBACK_READINESS_RETRY_MS),
       );
     }
-    assertChildRunning();
+    await assertChildRunning();
     throw new Error(
       `loopback provider did not become ready on port ${port} after ${LOOPBACK_READINESS_TIMEOUT_MS} ms (${readinessAttempts} attempts): ${lastError}${formatLoopbackStartupError(stderrTail)}`,
     );
@@ -145,6 +174,7 @@ async function startLoopbackProvider(port: number): Promise<void> {
     if (child.exitCode === null && child.signalCode === null) {
       child.kill();
     }
+    await waitForChildClose();
     await rm(loopbackPidPath, { force: true });
     throw error;
   }
