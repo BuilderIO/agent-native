@@ -26,6 +26,7 @@ import {
 } from "./authoring-fuzz.ts";
 import type { Snapshot } from "./lib/in-page.ts";
 import {
+  canReuseAuthoringFuzzCleanupPage,
   ActionTransportError,
   CouldNotRun,
   getHarnessUnavailableError,
@@ -267,6 +268,12 @@ it("uses a fresh browser page only after the cleanup target is unavailable", () 
       false,
     ),
   ).toBe(false);
+});
+
+it("does not reuse closed or crashed authoring cleanup pages", () => {
+  expect(canReuseAuthoringFuzzCleanupPage(false, false)).toBe(true);
+  expect(canReuseAuthoringFuzzCleanupPage(true, false)).toBe(false);
+  expect(canReuseAuthoringFuzzCleanupPage(false, true)).toBe(false);
 });
 
 it("requires a markdown shortcut to add its result markup", () => {

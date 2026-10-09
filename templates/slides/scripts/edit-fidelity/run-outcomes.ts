@@ -66,6 +66,13 @@ export function shouldUseFreshBrowserPageForCleanup(
   return pageClosed || isPlaywrightTargetTransportFailure(error);
 }
 
+export function canReuseAuthoringFuzzCleanupPage(
+  pageClosed: boolean,
+  pageUnavailable: boolean,
+) {
+  return !pageClosed && !pageUnavailable;
+}
+
 export function rethrowIfHarnessUnavailable(error: unknown): void {
   const unavailable = getHarnessUnavailableError(error);
   if (unavailable) throw unavailable;

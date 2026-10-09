@@ -71,6 +71,7 @@ import { isRetryableInfraError } from "./retry-infra.ts";
 import { readValueOption } from "./run-options.ts";
 import {
   ActionTransportError,
+  canReuseAuthoringFuzzCleanupPage,
   CouldNotRun,
   getHarnessUnavailableError,
   isPlaywrightTimeoutFailure,
@@ -5032,7 +5033,7 @@ async function runAuthoringFuzzQa(
     let authoringSucceeded = false;
     let createAttempted = false;
     let seedHarnessUnavailable: CouldNotRun | null = null;
-    let cleanupNeedsFreshPage = false;
+    const unavailableCleanupPages = new Set<Page>();
     const scratchTitle = `[edit-fidelity] authoring fuzz ${seed} ${randomUUID()}`;
     try {
       const activePage = await runSetupAsCouldNotRun(
@@ -5041,10 +5042,10 @@ async function runAuthoringFuzzQa(
       );
       page = activePage;
       activePage.on("crash", () => {
-        cleanupNeedsFreshPage = true;
+        unavailableCleanupPages.add(activePage);
       });
       activePage.on("close", () => {
-        cleanupNeedsFreshPage = true;
+        unavailableCleanupPages.add(activePage);
       });
       await runSetupAsCouldNotRun(
         "could not navigate to authoring fuzz setup page",
@@ -5176,10 +5177,12 @@ async function runAuthoringFuzzQa(
       );
     } catch (error) {
       seedHarnessUnavailable = getHarnessUnavailableError(error);
-      cleanupNeedsFreshPage = shouldUseFreshBrowserPageForCleanup(
-        error,
-        Boolean(page?.isClosed()),
-      );
+      if (
+        page &&
+        shouldUseFreshBrowserPageForCleanup(error, Boolean(page.isClosed()))
+      ) {
+        unavailableCleanupPages.add(page);
+      }
       if (!seedHarnessUnavailable) {
         const problem = `seed ${seed} ${profile ? `committed-${profile.kind}` : "synthetic"}: ${String(error)}`;
         problems.push(problem);
@@ -5188,15 +5191,23 @@ async function runAuthoringFuzzQa(
     } finally {
       const cleanupErrors: string[] = [];
       const monitoredPages = new Set<Page>();
+      const recoveryPages = new Set<Page>();
       let recoveryPage: Page | null = null;
-      const recordCleanupFailure = (label: string, error: unknown) => {
+      let lastCleanupPage: Page | null = null;
+      const recordCleanupFailure = (
+        label: string,
+        error: unknown,
+        target: Page | null = lastCleanupPage,
+      ) => {
         cleanupErrors.push(
           formatAuthoringFuzzCleanupIssue(label, deckId, error),
         );
-        cleanupNeedsFreshPage ||= shouldUseFreshBrowserPageForCleanup(
-          error,
-          Boolean(page?.isClosed()),
-        );
+        if (
+          target &&
+          shouldUseFreshBrowserPageForCleanup(error, Boolean(target.isClosed()))
+        ) {
+          unavailableCleanupPages.add(target);
+        }
         const unavailable = getHarnessUnavailableError(error);
         if (unavailable) {
           seedHarnessUnavailable ??= unavailable;
@@ -5223,12 +5234,25 @@ async function runAuthoringFuzzQa(
         monitoredPages.add(target);
       };
       const getCleanupPage = async (): Promise<Page> => {
-        if (page && !cleanupNeedsFreshPage && !page.isClosed()) {
+        if (
+          page &&
+          canReuseAuthoringFuzzCleanupPage(
+            page.isClosed(),
+            unavailableCleanupPages.has(page),
+          )
+        ) {
+          lastCleanupPage = page;
           monitorCleanupPage(page);
           return page;
         }
-        cleanupNeedsFreshPage = true;
-        if (recoveryPage && !recoveryPage.isClosed()) {
+        if (
+          recoveryPage &&
+          canReuseAuthoringFuzzCleanupPage(
+            recoveryPage.isClosed(),
+            unavailableCleanupPages.has(recoveryPage),
+          )
+        ) {
+          lastCleanupPage = recoveryPage;
           monitorCleanupPage(recoveryPage);
           return recoveryPage;
         }
@@ -5237,11 +5261,13 @@ async function runAuthoringFuzzQa(
           createPage,
         );
         recoveryPage = createdRecoveryPage;
+        recoveryPages.add(createdRecoveryPage);
+        lastCleanupPage = createdRecoveryPage;
         createdRecoveryPage.on("crash", () => {
-          cleanupNeedsFreshPage = true;
+          unavailableCleanupPages.add(createdRecoveryPage);
         });
         createdRecoveryPage.on("close", () => {
-          cleanupNeedsFreshPage = true;
+          unavailableCleanupPages.add(createdRecoveryPage);
         });
         try {
           await runSetupAsCouldNotRun(
@@ -5256,6 +5282,7 @@ async function runAuthoringFuzzQa(
             () => ensureSignedIn(createdRecoveryPage),
           );
         } catch (error) {
+          unavailableCleanupPages.add(createdRecoveryPage);
           recoveryPage = null;
           if (!createdRecoveryPage.isClosed()) {
             try {
@@ -5264,13 +5291,14 @@ async function runAuthoringFuzzQa(
               recordCleanupFailure(
                 "could not close a failed recovery page",
                 closeError,
+                createdRecoveryPage,
               );
             }
           }
           throw error;
         }
-        monitorCleanupPage(recoveryPage);
-        return recoveryPage;
+        monitorCleanupPage(createdRecoveryPage);
+        return createdRecoveryPage;
       };
       try {
         if (createAttempted && !deckId) {
@@ -5353,17 +5381,17 @@ async function runAuthoringFuzzQa(
           monitoredPage.off("response", onResponse);
         }
       }
-      const closePage = async (target: Page | null, label: string) => {
-        if (!target || target.isClosed()) return;
+      const closePage = async (target: Page, label: string) => {
+        if (target.isClosed()) return;
         try {
           await target.close();
         } catch (error) {
-          recordCleanupFailure(label, error);
+          recordCleanupFailure(label, error, target);
         }
       };
-      await closePage(page, "could not close authoring page");
-      if (recoveryPage !== page) {
-        await closePage(recoveryPage, "could not close recovery page");
+      if (page) await closePage(page, "could not close authoring page");
+      for (const cleanupPage of recoveryPages) {
+        await closePage(cleanupPage, "could not close recovery page");
       }
       if (cleanupErrors.length) {
         const problem = `seed ${seed}: scratch deck cleanup failed (${cleanupErrors.join("; ")})`;
