@@ -108,7 +108,7 @@ const ADVANCED_PANEL_SPEC_FILES = [
   /code-workbench-local-files\.spec\.ts$/,
 ];
 
-export default defineConfig({
+const config = defineConfig({
   metadata: {
     sidebarLoopbackPort: LOOPBACK_PORT,
     attachmentStorageHttpsPort: ATTACHMENT_STORAGE_HTTPS_PORT,
@@ -152,3 +152,20 @@ export default defineConfig({
         stderr: "pipe",
       },
 });
+
+if (
+  config.webServer &&
+  !Array.isArray(config.webServer) &&
+  process.env.E2E_DISABLE_AUTO_DEV_ACCOUNT === "1"
+) {
+  config.webServer.env = {
+    ...config.webServer.env,
+    AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT: "1",
+    AUTH_DISABLED: "0",
+    VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED: "1",
+    VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY: "anpk_test",
+    VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT: `http://127.0.0.1:${PORT}/api/analytics/track`,
+  };
+}
+
+export default config;
