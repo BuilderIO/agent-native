@@ -8,6 +8,8 @@ const ASSIGNMENT =
   /(["']?)([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)*)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\r\n]*))/gi;
 const MARKUP_ASSIGNMENT =
   /(`{1,3}|\*{1,2}|_{1,2})([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)*)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\r\n]*))/gi;
+const ASSIGNMENT_KEY =
+  /(["']?)([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)*)\1(\s*[:=]\s*)/gi;
 const SPACE_SEPARATED_CREDENTIAL_FORMS = [
   /(?:^|\s)--?([a-z][a-z0-9_.-]*)[ \t]+\S/gim,
   /\bexport[ \t]+([a-z][a-z0-9_.-]*)[ \t]+\S/gi,
@@ -129,10 +131,67 @@ function hasSpaceSeparatedCredential(text: string): boolean {
   return false;
 }
 
+function redactCredentialAssignments(text: string): string {
+  const assignments: Array<{
+    redactStart: number;
+    redactEnd: number;
+    valueEnd: number;
+  }> = [];
+  let coveredValueEnd = -1;
+  for (const match of text.matchAll(ASSIGNMENT_KEY)) {
+    if (!isCredentialKey(match[2] ?? "")) continue;
+    const valueStart = (match.index ?? 0) + match[0].length;
+    if (valueStart < coveredValueEnd) continue;
+
+    const quote = text[valueStart];
+    if (quote === '"' || quote === "'") {
+      let cursor = valueStart + 1;
+      while (
+        cursor < text.length &&
+        text[cursor] !== "\r" &&
+        text[cursor] !== "\n"
+      ) {
+        if (text[cursor] === "\\") {
+          cursor += 2;
+          continue;
+        }
+        if (text[cursor] === quote) break;
+        cursor += 1;
+      }
+      const hasClosingQuote = text[cursor] === quote;
+      const valueEnd = hasClosingQuote ? cursor + 1 : cursor;
+      assignments.push({
+        redactStart: valueStart + 1,
+        redactEnd: hasClosingQuote ? cursor : valueEnd,
+        valueEnd,
+      });
+      coveredValueEnd = valueEnd;
+      continue;
+    }
+
+    let valueEnd = text.indexOf("\n", valueStart);
+    if (valueEnd === -1) valueEnd = text.length;
+    if (text[valueEnd - 1] === "\r") valueEnd -= 1;
+    assignments.push({
+      redactStart: valueStart,
+      redactEnd: valueEnd,
+      valueEnd,
+    });
+    coveredValueEnd = valueEnd;
+  }
+
+  let redacted = text;
+  for (const { redactStart, redactEnd } of assignments.reverse()) {
+    redacted =
+      redacted.slice(0, redactStart) + "[REDACTED]" + redacted.slice(redactEnd);
+  }
+  return redacted;
+}
+
 function redactCredentials(text: string): string {
   if (hasSpaceSeparatedCredential(text)) return "[REDACTED]";
 
-  return text
+  return redactCredentialAssignments(text)
     .replace(
       MARKUP_ASSIGNMENT,
       (match, markup, key, delimiter, doubleQuoted, singleQuoted) => {

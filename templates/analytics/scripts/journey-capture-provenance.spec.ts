@@ -204,6 +204,26 @@ describe("sanitizePromptProvenanceCandidates", () => {
     expect(JSON.stringify(result)).not.toContain("fake-markup-api-key-value");
   });
 
+  it("redacts credential assignments after ordinary same-line labels", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      {
+        role: "user",
+        text: "Use this: api_key=fake-labeled-api-key-value",
+      },
+      {
+        role: "user",
+        text: 'Setup detail: password="fake-labeled-password-value" and keep this label',
+      },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "Use this: api_key=[REDACTED]",
+      'Setup detail: password="[REDACTED]" and keep this label',
+    ]);
+    expect(JSON.stringify(result)).not.toContain("fake-labeled-api-key-value");
+    expect(JSON.stringify(result)).not.toContain("fake-labeled-password-value");
+  });
+
   it("redacts provider-shaped API tokens without a key label", () => {
     const githubTokenPlaceholder = [
       "ghp",
