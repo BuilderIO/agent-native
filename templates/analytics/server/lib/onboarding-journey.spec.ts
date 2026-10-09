@@ -260,25 +260,28 @@ describe("getOnboardingJourney", () => {
       complete: true,
     });
 
-    const tree = (await getOnboardingJourney(scope, ARGS)) as JourneyTree;
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      maxNodes: 3,
+    })) as JourneyTree;
 
     expect(tree.rootN).toBe(3);
     expect(tree.coverage.sessionsWithEvents).toBe(3);
     expect(tree.coverage.sessionsWithReplay).toBe(2);
     expect(tree.nodes[0]?.key).toBe("signup");
+    expect(tree.coverage.truncated).toBe(false);
     expect(tree.standaloneSetup).toMatchObject({
       rootN: 1,
       coverage: {
         sessionsWithEvents: 1,
         sessionsWithReplay: 1,
-        truncated: false,
+        truncated: true,
       },
     });
     expect(tree.standaloneSetup?.nodes.map((node) => node.key)).toEqual([
       "page:/home",
       "page:/home > integration:chat_setup:exposed:setup_card",
       "page:/home > integration:chat_setup:exposed:setup_card > integration:chat_setup:method:custom_keys",
-      "page:/home > integration:chat_setup:exposed:setup_card > integration:chat_setup:method:custom_keys > integration:chat_setup:outcome:custom_keys:credential_saved",
     ]);
   });
 

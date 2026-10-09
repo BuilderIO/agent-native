@@ -898,7 +898,7 @@ export default defineAction({
         (await writeMayHaveLanded({
           designId,
           isNewDesign: Boolean(createdDesignId),
-          blobHandles: [...stored.values()].map((blob) =>
+          blobHandles: [...newlyStored.values()].map((blob) =>
             JSON.stringify(blob.blobHandle),
           ),
         }));

@@ -456,6 +456,10 @@ export default defineAction({
     );
     const preflightNow = Date.now();
     const requestedIdSet = new Set(requestedIds);
+    const preflightHasExpiredRows = [
+      ...preflightRequestedRows,
+      ...preflightStagedRows,
+    ].some((row) => expiredStageRow(row.createdAt, preflightNow));
     const preflightExpiredInput = [
       ...preflightRequestedRows,
       ...preflightStagedRows,
@@ -499,7 +503,7 @@ export default defineAction({
       ({ id }) => !preflightById.has(id),
     );
     if (
-      !preflightExpiredInput &&
+      !preflightHasExpiredRows &&
       exceedsStageQuota({
         activeRows: preflightRows,
         newFrames: preflightNewFrames,
@@ -514,7 +518,7 @@ export default defineAction({
     }
 
     const storage =
-      preflightNewFrames.length && !preflightExpiredInput
+      preflightNewFrames.length && !preflightHasExpiredRows
         ? await resolveStorage()
         : null;
     type StoredStageBlob = Awaited<
@@ -525,7 +529,7 @@ export default defineAction({
       { serializedHandle: string; stored: StoredStageBlob }
     >();
     const uploadResults = await Promise.allSettled(
-      preflightExpiredInput
+      preflightHasExpiredRows
         ? []
         : preflightNewFrames.map(async (prepared) => {
             const stored = await storeReplayScreenshotBytesAsPrivateBlob({

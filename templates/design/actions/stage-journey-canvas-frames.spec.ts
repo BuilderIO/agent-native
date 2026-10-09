@@ -237,6 +237,7 @@ describe("stage-journey-canvas-frames", () => {
       delete: vi.fn(() => ({
         where: vi.fn(async () => {
           mocks.row = null;
+          mocks.extraRows = [];
         }),
       })),
     };
@@ -327,6 +328,24 @@ describe("stage-journey-canvas-frames", () => {
       errorCode: "journey_staging_quota_exceeded",
       statusCode: 413,
     });
+    expect(mocks.storeBytes).not.toHaveBeenCalled();
+  });
+
+  it("runs expiry cleanup before failing closed at the staged-row inspection cap", async () => {
+    mocks.extraRows = Array.from({ length: 2_009 }, (_, index) => ({
+      ...stagedRow(1, `journey-canvas-stage:expired-${index}`),
+      id: `jcu_expired-${index}`,
+      createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1_000).toISOString(),
+    }));
+
+    await expect(run(input())).rejects.toMatchObject({
+      errorCode: "journey_staging_quota_exceeded",
+      statusCode: 413,
+    });
+
+    expect(mocks.queueStagedCleanup).toHaveBeenCalledWith(expect.anything(), [
+      expect.any(String),
+    ]);
     expect(mocks.storeBytes).not.toHaveBeenCalled();
   });
 

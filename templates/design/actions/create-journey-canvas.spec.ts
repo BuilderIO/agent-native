@@ -1129,6 +1129,60 @@ describe("create-journey-canvas failures", () => {
     expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
   });
 
+  it("does not treat a reused staged handle as a newly uploaded blob after rollback", async () => {
+    const stagedHandle = {
+      id: "already-promoted-private-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: false,
+    };
+    mocks.state.stagedRows = [
+      [
+        {
+          id: stageFrameId,
+          app: stageAppMarker,
+          route: "/home",
+          replayId: "a-r1",
+          capturedAt: "2026-10-08T09:30:00.000Z",
+          offsetMs: 2_600,
+          viewportWidth: 1440,
+          viewportHeight: 900,
+          mimeType: "image/png",
+          sizeBytes: 24,
+          blobHandle: JSON.stringify(stagedHandle),
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      [],
+    ];
+    mocks.state.preflightStagedRows = [{ id: stageFrameId, sizeBytes: 24 }];
+    mocks.state.landedSelects = [
+      [{ blobHandle: JSON.stringify(stagedHandle) }],
+    ];
+    mocks.mutateDesignData.mockRejectedValueOnce(new Error("conflict"));
+
+    await expect(
+      action.run(
+        parsed({
+          ...rawInput([
+            frame("a", {
+              stagedFrameId: stageFrameId,
+              screenshotOffsetMs: 2_600,
+            }),
+            frame("b", { attachmentRef: "ref-b" }),
+          ]),
+          designId: "design-1",
+        }),
+        {} as any,
+      ),
+    ).rejects.toThrow("conflict");
+
+    expect(mocks.deletePrivateBlob).toHaveBeenCalledOnce();
+    expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "blob-1" }),
+    );
+  });
+
   it("refuses to overwrite a board whose stored content changed after it was read, and cleans up", async () => {
     mocks.state.lockedBoardContent = `${mocks.state.boardContent}<!-- edited -->`;
     await expect(

@@ -503,12 +503,16 @@ function utcTimestamp(value: string): string {
 function localizedDateLabel(
   value: JourneyFrameCaption["dateLabel"] | undefined,
   referenceOnly: boolean,
+  hasReplayObservation: boolean,
   messages: JourneyCanvasMessages,
 ): string {
   if (value === "generation_completed event (UTC)") {
     return messages.generationCompletedEvent;
   }
-  if (value === "Replay observation (UTC)" || referenceOnly) {
+  if (
+    (value === "Replay observation (UTC)" || referenceOnly) &&
+    hasReplayObservation
+  ) {
     return `${messages.replayObservation} (UTC)`;
   }
   return messages.eventTime;
@@ -602,6 +606,12 @@ function cardProvenanceMarkup(
       : `${formatInt(provenance.offsetMs, messages.htmlLanguage)} ms`;
   const caption = provenance.caption;
   const evidenceText = caption ? captionEvidenceText(caption, messages) : null;
+  const showsReplayObservation =
+    provenance.dateLabel === `${messages.replayObservation} (UTC)` &&
+    provenance.replayObservedAt !== null;
+  const displayedTimestamp = showsReplayObservation
+    ? provenance.replayObservedAt!
+    : provenance.eventAt;
   const captionMarkup = caption
     ? [
         caption.observedState
@@ -624,7 +634,7 @@ function cardProvenanceMarkup(
       ].join("")
     : "";
   return `<section class="example-provenance" data-index="${index}">${[
-    `<p class="provenance" title="${escapeHtml(messages.utcTimestamp)}: ${escapeHtml(utcTimestamp(provenance.eventAt))}">${escapeHtml(provenance.dateLabel)} ${escapeHtml(utcTimestamp(provenance.eventAt))}</p>`,
+    `<p class="provenance" title="${escapeHtml(messages.utcTimestamp)}: ${escapeHtml(utcTimestamp(displayedTimestamp))}">${escapeHtml(provenance.dateLabel)} ${escapeHtml(utcTimestamp(displayedTimestamp))}</p>`,
     `<p class="provenance recording-id" title="${escapeHtml(messages.recordingId)}: ${escapeHtml(recordingId)}">${escapeHtml(messages.recordingId)} ${escapeHtml(recordingId)}</p>`,
     `<p class="provenance" title="${escapeHtml(messages.replayOffset)}: ${escapeHtml(replayOffset)}">${escapeHtml(messages.replayOffset)} ${escapeHtml(replayOffset)}</p>`,
     provenance.offsetIsObserved
@@ -638,7 +648,9 @@ function cardProvenanceMarkup(
       : "",
     provenance.replayObservedAt &&
     provenance.replayObservedAt !== provenance.eventAt
-      ? `<p class="provenance" title="${escapeHtml(messages.replayObservation)} ${escapeHtml(messages.utcTimestamp)}: ${escapeHtml(provenance.replayObservedAt)}">${escapeHtml(messages.replayObserved)} ${escapeHtml(provenance.replayObservedAt)} UTC</p>`
+      ? showsReplayObservation
+        ? `<p class="provenance" title="${escapeHtml(messages.utcTimestamp)}: ${escapeHtml(utcTimestamp(provenance.eventAt))}">${escapeHtml(messages.eventTime)} ${escapeHtml(utcTimestamp(provenance.eventAt))}</p>`
+        : `<p class="provenance" title="${escapeHtml(messages.replayObservation)} ${escapeHtml(messages.utcTimestamp)}: ${escapeHtml(provenance.replayObservedAt)}">${escapeHtml(messages.replayObserved)} ${escapeHtml(provenance.replayObservedAt)} UTC</p>`
       : "",
     `<p class="provenance" title="${escapeHtml(messages.screenshotExportTimestamp)}: ${escapeHtml(utcTimestamp(provenance.screenshotCapturedAt))}">${escapeHtml(messages.screenshotCaptured)} ${escapeHtml(utcTimestamp(provenance.screenshotCapturedAt).slice(0, 10))} UTC</p>`,
     captionMarkup,
@@ -1094,22 +1106,26 @@ export function planJourneyCanvas(
       : -1;
     const galleryItems = entry.frames.map((candidate, index) => {
       const candidateExample = entry.node.examples[candidate.exampleIndex];
+      const candidateReplayObservedAt = candidateExample
+        ? replayObservedAt(
+            candidate.recordingStartedAt,
+            candidate.screenshotOffsetMs,
+          )
+        : null;
       const candidateProvenance = candidateExample
         ? {
             eventAt: utcTimestamp(candidateExample.ts),
             dateLabel: localizedDateLabel(
               candidate.caption?.dateLabel,
               entry.node.referenceOnly === true,
+              candidateReplayObservedAt !== null,
               messages,
             ),
             recordingId: candidateExample.recordingId,
             offsetMs: candidate.screenshotOffsetMs ?? candidateExample.offsetMs,
             offsetIsObserved: candidate.screenshotOffsetMs !== undefined,
             checkpointOffsetMs: candidateExample.offsetMs,
-            replayObservedAt: replayObservedAt(
-              candidate.recordingStartedAt,
-              candidate.screenshotOffsetMs,
-            ),
+            replayObservedAt: candidateReplayObservedAt,
             screenshotCapturedAt: utcTimestamp(candidate.capturedAt),
             ...(candidate.caption ? { caption: candidate.caption } : {}),
           }

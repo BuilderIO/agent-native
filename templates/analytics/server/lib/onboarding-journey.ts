@@ -430,10 +430,7 @@ export async function getOnboardingJourney(
     rootN: built.rootN,
     ...(notes.length ? { notes } : {}),
   };
-  const truncated =
-    read.truncated ||
-    capped.dropped > 0 ||
-    (standaloneCapped?.dropped ?? 0) > 0;
+  const truncated = read.truncated || capped.dropped > 0;
   if (args.format === "summary") {
     return {
       format: "summary",

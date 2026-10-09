@@ -68,9 +68,24 @@ export default defineAction({
             ),
           ),
         );
+        const handles = [...new Set(staged.map((row) => row.blobHandle))];
+        const remainingReferences = await tx
+          .select({
+            blobHandle: schema.designBoardReplayScreenshots.blobHandle,
+          })
+          .from(schema.designBoardReplayScreenshots)
+          .where(
+            and(
+              eq(schema.designBoardReplayScreenshots.designId, input.designId),
+              inArray(schema.designBoardReplayScreenshots.blobHandle, handles),
+            ),
+          );
+        const referencedHandles = new Set(
+          remainingReferences.map((row) => row.blobHandle),
+        );
         await queueVisualEditSnapshotBlobCleanupInTransaction(
           tx,
-          staged.map((row) => row.blobHandle),
+          handles.filter((handle) => !referencedHandles.has(handle)),
         );
         return staged;
       },

@@ -1,3 +1,7 @@
+import {
+  ensureIndexExistsConcurrently,
+  isLocalDatabase,
+} from "@agent-native/core/db";
 import type { RecurringSweepContext } from "@agent-native/core/server";
 import { and, inArray, lt, sql } from "drizzle-orm";
 
@@ -12,6 +16,10 @@ import {
 } from "./visual-edit-snapshot-blobs.js";
 
 const CLEANUP_BATCH_SIZE = 100;
+const STAGE_EXPIRY_INDEX = "design_board_replay_screenshots_stage_expiry_idx";
+const STAGE_EXPIRY_INDEX_SQL = `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${STAGE_EXPIRY_INDEX}
+  ON design_board_replay_screenshots (created_at, id)
+  WHERE starts_with(id, 'jcu_')`;
 const STAGED_ID_PREDICATE = sql.raw(
   `starts_with(id, '${JOURNEY_STAGED_REPLAY_ROW_PREFIX}')`,
 );
@@ -24,6 +32,12 @@ export async function sweepExpiredJourneyCanvasStages(
   cleanupPending: boolean;
 }> {
   signal?.throwIfAborted();
+  if (!isLocalDatabase()) {
+    await ensureIndexExistsConcurrently(
+      STAGE_EXPIRY_INDEX,
+      STAGE_EXPIRY_INDEX_SQL,
+    );
+  }
   const table = schema.designBoardReplayScreenshots;
   const cutoff = new Date(
     Date.now() - JOURNEY_STAGED_REPLAY_MAX_AGE_MS,

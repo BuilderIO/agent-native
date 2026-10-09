@@ -830,11 +830,9 @@ describe("planJourneyCanvas", () => {
 
     expect(screens).toHaveLength(2);
     expect(exampleHeader(0)).toContain(
-      "Replay observation (UTC) 2026-10-01T17:49:59.308Z",
+      "Event time (UTC) 2026-10-01T17:49:59.308Z",
     );
-    expect(exampleHeader(0)).toContain(
-      'title="UTC timestamp: 2026-10-01T17:49:59.308Z"',
-    );
+    expect(exampleHeader(0)).not.toContain("Replay observation (UTC)");
     expect(exampleHeader(0)).toContain(
       "Actor (recording): first-actor@example.test",
     );
@@ -842,7 +840,7 @@ describe("planJourneyCanvas", () => {
     expect(exampleHeader(0)).toContain("Prompt: Build a prototype.");
     expect(exampleHeader(0)).toContain("Build a &lt;test&gt; prototype.");
     expect(exampleHeader(1)).toContain(
-      "Replay observation (UTC) 2026-10-01T17:51:39.308Z",
+      "Event time (UTC) 2026-10-01T17:51:39.308Z",
     );
     expect(exampleHeader(1)).toContain(
       'title="UTC timestamp: 2026-10-01T17:51:39.308Z"',
@@ -873,6 +871,46 @@ describe("planJourneyCanvas", () => {
     expect(screens[0]?.html).not.toContain("storageOwnerEmail");
     expect(screens[0]?.provenance?.screenshotCapturedAt).toBe(
       "2026-10-08T22:03:00.000Z",
+    );
+  });
+
+  it("labels the actual replay seek time and keeps its source event time distinct", () => {
+    const base = rawInput();
+    const outputKey = "signup > output reference";
+    const observed = referenceNode(outputKey, "signup", 2, [
+      {
+        ...example("output-1"),
+        ts: "2026-10-01T17:49:59.308Z",
+        offsetMs: 400_000,
+      },
+    ]);
+    const result = plan(
+      rawInput({
+        tree: { ...base.tree, nodes: [base.tree.nodes[0]!, observed] },
+        frames: [
+          frame("signup", 0),
+          {
+            nodeKey: outputKey,
+            exampleIndex: 0,
+            attachmentRef: "attachment:v1:observed-output",
+            width: 1470,
+            height: 753,
+            capturedAt: "2026-10-08T22:03:00.000Z",
+            screenshotOffsetMs: 400_000,
+            recordingStartedAt: "2026-10-01T17:43:20.308Z",
+            caption: { dateLabel: "Replay observation (UTC)" },
+          },
+        ],
+      }),
+    );
+    const screen = result.screens.find((item) => item.nodeKey === outputKey)!;
+
+    expect(screen.html).toContain(
+      "Replay observation (UTC) 2026-10-01T17:50:00.308Z",
+    );
+    expect(screen.html).toContain("Event time (UTC) 2026-10-01T17:49:59.308Z");
+    expect(screen.html).not.toContain(
+      "Replay observed 2026-10-01T17:50:00.308Z UTC",
     );
   });
 
@@ -923,6 +961,8 @@ describe("planJourneyCanvas", () => {
             width: 1536,
             height: 826,
             capturedAt: "2026-10-08T15:17:00.000-07:00",
+            screenshotOffsetMs: 545_313,
+            recordingStartedAt: "2026-09-28T21:58:01.527Z",
             caption: {
               outputTitle: "A comfort routine with measurable potential",
               actor: "actor@example.test",
