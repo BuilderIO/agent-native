@@ -657,7 +657,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Gate on lane results
+      - name: Summarize upstream test results
         env:
           CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
           DOCS_ONLY: ${{ needs.change-scope.outputs.docs_only }}
@@ -672,77 +672,86 @@ jobs:
           PRE_AUTH_REPLAY_E2E: ${{ needs.change-scope.outputs.pre_auth_session_replay_e2e }}
           PRE_AUTH_REPLAY_RESULT: ${{ needs.pre-auth-session-replay-smoke.result }}
         run: |
-          if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
-            echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
-            exit 1
-          fi
-          if [ "$PRE_AUTH_REPLAY_E2E" = "true" ]; then
-            if [ "$PRE_AUTH_REPLAY_RESULT" != "success" ]; then
-              echo "::error::pre-auth session replay smoke did not succeed ($PRE_AUTH_REPLAY_RESULT)"
-              exit 1
+          set -euo pipefail
+
+          actions_run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          failures=()
+          record_failure() {
+            failures+=("$1: $2")
+          }
+          require_success() {
+            local job="$1"
+            local result="$2"
+            if [[ "$result" == "skipped" ]]; then
+              record_failure "$job" "was unexpectedly skipped (expected success)"
+            elif [[ "$result" != "success" ]]; then
+              record_failure "$job" "did not succeed (expected success, received $result)"
             fi
-          elif [ "$PRE_AUTH_REPLAY_E2E" = "false" ]; then
-            if [ "$PRE_AUTH_REPLAY_RESULT" != "skipped" ]; then
-              echo "::error::pre-auth session replay smoke ran outside its selected paths ($PRE_AUTH_REPLAY_RESULT)"
-              exit 1
-            fi
+          }
+
+          if [[ "$CHANGE_SCOPE_RESULT" != "success" ]]; then
+            require_success "change-scope" "$CHANGE_SCOPE_RESULT"
           else
-            echo "::error::pre-auth replay selection was missing or invalid ($PRE_AUTH_REPLAY_E2E)"
+            if [[ "$PRE_AUTH_REPLAY_E2E" == "true" ]]; then
+              require_success "pre-auth-session-replay-smoke" "$PRE_AUTH_REPLAY_RESULT"
+            elif [[ "$PRE_AUTH_REPLAY_E2E" == "false" ]]; then
+              if [[ "$PRE_AUTH_REPLAY_RESULT" != "skipped" ]]; then
+                record_failure "pre-auth-session-replay-smoke" "ran outside its selected paths (expected skipped, received $PRE_AUTH_REPLAY_RESULT)"
+              fi
+            else
+              record_failure "change-scope" "pre-auth replay selection was missing or invalid ($PRE_AUTH_REPLAY_E2E)"
+            fi
+
+            if [[ "$DOCS_ONLY" == "true" ]]; then
+              require_success "docs" "$DOCS_RESULT"
+              success_message="Docs-only change: docs checks passed; fast-test lanes are not required."
+            else
+              if [[ "$DESIGN_CANVAS_E2E" == "true" ]]; then
+                require_success "design-canvas-interaction-acceptance" "$DESIGN_CANVAS_RESULT"
+              elif [[ "$DESIGN_CANVAS_RESULT" != "skipped" && "$DESIGN_CANVAS_RESULT" != "success" ]]; then
+                record_failure "design-canvas-interaction-acceptance" "did not skip cleanly outside its selected path (received $DESIGN_CANVAS_RESULT)"
+              fi
+
+              if [[ "$CI_FULL" == "true" ]]; then
+                if [[ "$HAS_TESTS" != "true" ]]; then
+                  record_failure "change-scope" "full fast-test lanes were selected without test lanes (has_tests=$HAS_TESTS)"
+                fi
+                require_success "test-rest (Fast tests lanes)" "$TEST_REST_RESULT"
+                success_message="Full fast-test suite passed across all sharded lanes."
+              elif [[ "$FAST_TESTS" != "true" ]]; then
+                if [[ "$TEST_TARGETED_RESULT" != "skipped" ]]; then
+                  record_failure "test-targeted (Fast tests targeted lanes)" "ran without a fast-test selection (received $TEST_TARGETED_RESULT)"
+                fi
+                success_message="No workspace fast tests are selected for this change set."
+              else
+                case "$HAS_TESTS" in
+                  true)
+                    require_success "test-targeted (Fast tests targeted lanes)" "$TEST_TARGETED_RESULT"
+                    success_message="Targeted workspace fast tests passed."
+                    ;;
+                  false)
+                    if [[ "$TEST_TARGETED_RESULT" != "skipped" && "$TEST_TARGETED_RESULT" != "success" ]]; then
+                      record_failure "test-targeted (Fast tests targeted lanes)" "did not skip cleanly when no affected workspace has a test script (received $TEST_TARGETED_RESULT)"
+                    fi
+                    success_message="No affected workspace has a test script; targeted fast tests were skipped."
+                    ;;
+                  *)
+                    record_failure "change-scope" "targeted lanes were not planned (has_tests='$HAS_TESTS')"
+                    ;;
+                esac
+              fi
+            fi
+          fi
+
+          if ((${#failures[@]} > 0)); then
+            echo "::error title=Fast tests summary::This job summarizes upstream tests and found ${#failures[@]} failing or unexpectedly skipped prerequisite(s). See the linked Actions run and named jobs below: $actions_run_url"
+            for failure in "${failures[@]}"; do
+              echo "::error::$failure. Actions run: $actions_run_url"
+            done
             exit 1
           fi
-          if [ "$DOCS_ONLY" = "true" ]; then
-            if [ "$DOCS_RESULT" != "success" ]; then
-              echo "::error::docs checks did not succeed ($DOCS_RESULT)"
-              exit 1
-            fi
-            echo "Docs-only change: full fast-test lanes are not required."
-            exit 0
-          fi
-          if [ "$DESIGN_CANVAS_E2E" = "true" ]; then
-            if [ "$DESIGN_CANVAS_RESULT" != "success" ]; then
-              echo "::error::Design canvas interaction acceptance did not succeed ($DESIGN_CANVAS_RESULT)"
-              exit 1
-            fi
-          elif [ "$DESIGN_CANVAS_RESULT" != "skipped" ] && [ "$DESIGN_CANVAS_RESULT" != "success" ]; then
-            echo "::error::Design canvas interaction acceptance ran outside its selected path ($DESIGN_CANVAS_RESULT)"
-            exit 1
-          fi
-          if [ "$CI_FULL" = "true" ]; then
-            if [ "$HAS_TESTS" != "true" ] || [ "$TEST_REST_RESULT" != "success" ]; then
-              echo "::error::full fast-test lanes did not succeed (has_tests=$HAS_TESTS, test-rest=$TEST_REST_RESULT)"
-              exit 1
-            fi
-            echo "Full fast-test suite passed across all sharded lanes."
-            exit 0
-          fi
-          if [ "$FAST_TESTS" != "true" ]; then
-            if [ "$TEST_TARGETED_RESULT" != "skipped" ]; then
-              echo "::error::targeted test job ran without a fast-test selection ($TEST_TARGETED_RESULT)"
-              exit 1
-            fi
-            echo "No workspace fast tests are selected for this change set."
-            exit 0
-          fi
-          case "$HAS_TESTS" in
-            true)
-              if [ "$TEST_TARGETED_RESULT" != "success" ]; then
-                echo "::error::test-targeted did not succeed ($TEST_TARGETED_RESULT)"
-                exit 1
-              fi
-              echo "Targeted workspace fast tests passed."
-              ;;
-            false)
-              if [ "$TEST_TARGETED_RESULT" != "skipped" ] && [ "$TEST_TARGETED_RESULT" != "success" ]; then
-                echo "::error::targeted test job did not skip cleanly ($TEST_TARGETED_RESULT)"
-                exit 1
-              fi
-              echo "No affected workspace has a test script; targeted fast tests were skipped."
-              ;;
-            *)
-              echo "::error::targeted lanes were not planned (has_tests='$HAS_TESTS')"
-              exit 1
-              ;;
-          esac
+
+          echo "$success_message"
 
   docs:
     name: Docs checks
