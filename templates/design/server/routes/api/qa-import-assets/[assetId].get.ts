@@ -20,6 +20,7 @@ export default defineEventHandler(async (event) => {
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }
+  // coercion-ok: auth lookup failures stay anonymous so this endpoint denies by default.
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
     setResponseStatus(event, 401);
@@ -40,8 +41,17 @@ export default defineEventHandler(async (event) => {
       if (!info.isFile()) continue;
       filepath = candidate;
       break;
-    } catch {
-      // Try the previous local cache path before treating saved assets as missing.
+    } catch (error) {
+      const code =
+        error instanceof Error && "code" in error ? error.code : undefined;
+      if (
+        code !== "ENOENT" &&
+        code !== "ENOTDIR" &&
+        code !== "EACCES" &&
+        code !== "EPERM"
+      ) {
+        throw error;
+      }
     }
   }
   if (!filepath) {

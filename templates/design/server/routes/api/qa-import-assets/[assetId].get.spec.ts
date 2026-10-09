@@ -179,7 +179,7 @@ describe("GET /api/qa-import-assets/:assetId", () => {
     expect(mockStreamFile).toHaveBeenCalledWith({ kind: "read-stream" });
   });
 
-  it("returns not found when no saved asset path can be read", async () => {
+  it("hides unavailable paths but propagates unexpected filesystem failures", async () => {
     const error = Object.assign(new Error("permission denied"), {
       code: "EACCES",
     });
@@ -192,6 +192,13 @@ describe("GET /api/qa-import-assets/:assetId", () => {
 
     expect(event.status).toBe(404);
     expect(mockCreateReadStream).not.toHaveBeenCalled();
+
+    const unexpectedError = Object.assign(new Error("I/O failure"), {
+      code: "EIO",
+    });
+    mockStat.mockRejectedValue(unexpectedError);
+
+    await expect(handler(makeEvent() as never)).rejects.toBe(unexpectedError);
   });
 
   it("streams a valid owner-scoped SVG with its image MIME type", async () => {

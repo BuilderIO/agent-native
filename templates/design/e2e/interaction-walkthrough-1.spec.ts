@@ -503,7 +503,9 @@ test.describe("interaction: guided walkthrough - create a simple button componen
     await searchInput.fill("");
 
     const fillSection = inspectorSection(page, /^Fill$/i);
-    const addFill = fillSection.getByRole("button", { name: "Add fill" });
+    const addFill = fillSection
+      .locator("[data-inspector-action-rail]")
+      .getByRole("button", { name: "Add fill" });
     if ((await addFill.count()) > 0) {
       await addFill.click();
       const hexInput = fillSection
