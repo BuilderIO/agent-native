@@ -768,7 +768,7 @@ describe("session replay iframe recording", () => {
     await page.close();
   }, 30_000);
 
-  it("accounts for inset clip paths and fails closed for unsupported clips and masks", async () => {
+  it("handles inset clips and rounded corners while failing closed for unsupported clipping", async () => {
     const page = await browser.newPage();
     await page.setContent(
       '<!doctype html><iframe id="replay" style="width:300px;height:200px;border:0"></iframe>',
@@ -799,7 +799,36 @@ describe("session replay iframe recording", () => {
       inset.style.cssText =
         "position:absolute;left:130px;top:30px;width:20px;height:20px;border:0;clip-path:inset(2px)";
       inset.srcdoc = "<!doctype html><html><body>inset</body></html>";
-      replayDocument.body.append(clipped, masked, inset);
+
+      const roundedContainer = replayDocument.createElement("div");
+      roundedContainer.id = "rounded-container";
+      roundedContainer.style.cssText =
+        "position:absolute;left:170px;top:30px;width:80px;height:80px;clip-path:inset(0 round 20px)";
+      const roundedCenter = replayDocument.createElement("iframe");
+      roundedCenter.id = "rounded-center-frame";
+      roundedCenter.style.cssText =
+        "position:absolute;left:35px;top:35px;width:10px;height:10px;border:0";
+      roundedCenter.srcdoc = "<!doctype html><html><body>center</body></html>";
+      roundedContainer.append(roundedCenter);
+
+      const roundedCornerContainer = replayDocument.createElement("div");
+      roundedCornerContainer.id = "rounded-corner-container";
+      roundedCornerContainer.style.cssText =
+        "position:absolute;left:260px;top:30px;width:30px;height:30px;clip-path:inset(0 round 15px)";
+      const roundedCorner = replayDocument.createElement("iframe");
+      roundedCorner.id = "rounded-corner-frame";
+      roundedCorner.style.cssText =
+        "position:absolute;left:0;top:0;width:10px;height:10px;border:0";
+      roundedCorner.srcdoc = "<!doctype html><html><body>corner</body></html>";
+      roundedCornerContainer.append(roundedCorner);
+
+      replayDocument.body.append(
+        clipped,
+        masked,
+        inset,
+        roundedContainer,
+        roundedCornerContainer,
+      );
     });
     await page.waitForFunction(() => {
       const replayDocument = (
@@ -816,7 +845,7 @@ describe("session replay iframe recording", () => {
         ),
       );
       return (
-        frames.length === 3 &&
+        frames.length === 5 &&
         nestedFrames.length === 2 &&
         [...frames, ...nestedFrames].every(
           (frame) =>
@@ -846,12 +875,20 @@ describe("session replay iframe recording", () => {
       const inset = replayDocument.querySelector(
         "#inset-frame",
       ) as HTMLIFrameElement;
+      const roundedCenter = replayDocument.querySelector(
+        "#rounded-center-frame",
+      ) as HTMLIFrameElement;
+      const roundedCorner = replayDocument.querySelector(
+        "#rounded-corner-frame",
+      ) as HTMLIFrameElement;
       const ids = new Map<Element, number>([
         [clipped, 1],
         [nestedClip, 2],
         [masked, 3],
         [nestedMask, 4],
         [inset, 5],
+        [roundedCenter, 6],
+        [roundedCorner, 7],
       ]);
       (
         window as typeof window & { __anJourneyCapture?: unknown }
@@ -874,9 +911,15 @@ describe("session replay iframe recording", () => {
           .getPropertyValue("mask-image"),
         insetClipPath:
           replayDocument.defaultView!.getComputedStyle(inset).clipPath,
+        roundedClipPath: replayDocument.defaultView!.getComputedStyle(
+          replayDocument.querySelector("#rounded-container")!,
+        ).clipPath,
+        roundedCornerClipPath: replayDocument.defaultView!.getComputedStyle(
+          replayDocument.querySelector("#rounded-corner-container")!,
+        ).clipPath,
         audit: audit({
           dimensions: { width: 300, height: 200 },
-          recordedIframeParentIds: [1, 2, 3, 4, 5],
+          recordedIframeParentIds: [1, 2, 3, 4, 5, 6, 7],
         }),
       };
     }, serializedAuditSource());
@@ -884,10 +927,12 @@ describe("session replay iframe recording", () => {
     expect(result.clipPath).not.toBe("none");
     expect(result.maskImage).not.toBe("none");
     expect(result.insetClipPath).not.toBe("none");
+    expect(result.roundedClipPath).not.toBe("none");
+    expect(result.roundedCornerClipPath).not.toBe("none");
     expect(result.audit).toEqual({
-      visibleIframeCount: 1,
+      visibleIframeCount: 2,
       unavailableIframeCount: 0,
-      unverifiableIframeCount: 2,
+      unverifiableIframeCount: 3,
     });
     await page.close();
   }, 30_000);
