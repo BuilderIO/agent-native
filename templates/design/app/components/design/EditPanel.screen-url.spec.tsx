@@ -388,25 +388,36 @@ it("disables source tabs while the source mutation is pending", async () => {
         "editPanel.screenSource.url",
       ].includes(tab.textContent ?? ""),
     );
+  const waitForSourceTabsDisabled = async (disabled: boolean) => {
+    await vi.waitFor(
+      async () => {
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+        expect(sourceTabs()).toHaveLength(2);
+        expect(sourceTabs().every((tab) => tab.disabled === disabled)).toBe(
+          true,
+        );
+      },
+      { timeout: 2_000, interval: 20 },
+    );
+  };
 
   await selectStaticTab();
   expect(attempts).toBe(1);
   expect(rejectAttempts).toHaveLength(1);
-  expect(sourceTabs()).toHaveLength(2);
-  expect(sourceTabs().every((tab) => tab.disabled)).toBe(true);
+  await waitForSourceTabsDisabled(true);
 
   await act(async () => {
     rejectAttempts[0]!();
-    await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  expect(sourceTabs().every((tab) => !tab.disabled)).toBe(true);
+  await waitForSourceTabsDisabled(false);
 
   await selectStaticTab();
   expect(attempts).toBe(2);
+  await waitForSourceTabsDisabled(true);
   await act(async () => {
     rejectAttempts[1]!();
-    await new Promise((resolve) => setTimeout(resolve, 0));
   });
+  await waitForSourceTabsDisabled(false);
 
   queryClient.clear();
 });
