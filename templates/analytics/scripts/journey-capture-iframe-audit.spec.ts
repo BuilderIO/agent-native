@@ -425,6 +425,48 @@ describe("replay iframe audit", () => {
     ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
   });
 
+  it("does not apply legacy clipping to a static ancestor", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const clipper = replayDocument.createElement("div");
+    clipper.style.position = "static";
+    clipper.style.setProperty("clip", "rect(0px, 10px, 10px, 0px)");
+    replayDocument.body.append(clipper);
+    setBox(clipper, { left: 0, top: 0, width: 20, height: 20 }, 20, 20);
+    const outer = appendFrame(
+      replayDocument,
+      { left: 30, top: 30, width: 20, height: 20 },
+      20,
+      20,
+      clipper,
+    );
+    const inner = appendFrame(
+      outer.contentDocument!,
+      { left: 5, top: 5, width: 10, height: 10 },
+      10,
+      10,
+    );
+    installReplayState(
+      replayFrame,
+      new WeakMap([
+        [outer, 1],
+        [inner, 2],
+      ]),
+    );
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [1, 2],
+      }),
+    ).toEqual({ visibleIframeCount: 2, unavailableIframeCount: 0 });
+  });
+
   it("does not clip frames against boxless display-contents ancestors", () => {
     const replayFrame = appendFrame(
       document,

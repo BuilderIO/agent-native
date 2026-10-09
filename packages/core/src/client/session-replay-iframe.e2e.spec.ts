@@ -987,7 +987,7 @@ describe("session replay iframe recording", () => {
     expect(result.insetClipPath).not.toBe("none");
     expect(result.roundedClipPath).not.toBe("none");
     expect(result.roundedCornerClipPath).not.toBe("none");
-    expect(result.legacyClip).not.toBe("auto");
+    expect(result.legacyClip).toBe("rect(0px, 10px, 20px, 0px)");
     expect(result.audit).toEqual({
       visibleIframeCount: 4,
       unavailableIframeCount: 0,
