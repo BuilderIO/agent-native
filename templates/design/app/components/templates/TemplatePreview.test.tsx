@@ -60,6 +60,7 @@ describe("template artboard preview", () => {
         "translate(-50%, -50%) scale(var(--design-template-scale))",
       );
       expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+      expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
       expect(frame.style.getPropertyValue("--design-template-width")).toBe(
         `${width}px`,
       );
@@ -87,7 +88,7 @@ describe("template artboard preview", () => {
     expect(frame.getAttribute("aria-hidden")).toBeNull();
     expect(frame.srcdoc).toContain('x-data="{count:0}"');
     expect(frame.srcdoc).not.toContain("editor-chrome");
-    expect(frame.srcdoc).not.toContain("session-replay");
+    expect(frame.srcdoc).toContain("agent-native-session-replay:probe");
     window.dispatchEvent(
       new MessageEvent("message", {
         origin: "null",

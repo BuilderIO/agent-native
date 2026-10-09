@@ -1,3 +1,4 @@
+import { RRWEB_RECORD_IFRAME_CDN_URL } from "@agent-native/core/client/host";
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 
@@ -20,6 +21,8 @@ describe("read-only template preview document", () => {
     ])
       expect(result).toContain(restriction);
     expect(result).toContain("script-src 'unsafe-inline' 'unsafe-eval'");
+    expect(result).toContain(RRWEB_RECORD_IFRAME_CDN_URL);
+    expect(result).toContain("agent-native-session-replay:probe");
     expect(result).toContain("onclick=\"this.textContent='Changed'\"");
     expect(result).toContain("event.preventDefault()");
     expect(result.indexOf("design-template-preview:escape")).toBeLessThan(
@@ -34,6 +37,12 @@ describe("read-only template preview document", () => {
     const policy = result.match(
       /http-equiv="Content-Security-Policy" content="([^"]+)"/,
     )![1];
+    const scriptPolicy = policy
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith("script-src"));
+    expect(scriptPolicy).toContain(RRWEB_RECORD_IFRAME_CDN_URL);
+    expect(scriptPolicy).not.toMatch(/https:\/\/cdn\.jsdelivr\.net(?:\s|$)/);
     expect(
       policy
         .split(";")

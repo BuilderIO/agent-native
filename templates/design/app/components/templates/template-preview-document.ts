@@ -1,4 +1,8 @@
 import {
+  injectSessionReplayIframeBootstrap,
+  RRWEB_RECORD_IFRAME_CDN_URL,
+} from "@agent-native/core/client/host";
+import {
   parse,
   parseFragment,
   serialize,
@@ -78,7 +82,7 @@ export function templatePreviewDocument(html: string): string {
   const origins = [...renderOrigins].join(" ");
   const policy = [
     "default-src 'none'",
-    `script-src 'unsafe-inline' 'unsafe-eval' ${runtimes.tailwind} ${runtimes.alpine} ${origins}`,
+    `script-src 'unsafe-inline' 'unsafe-eval' ${runtimes.tailwind} ${runtimes.alpine} ${RRWEB_RECORD_IFRAME_CDN_URL} ${origins}`,
     `style-src 'unsafe-inline' ${origins}`,
     `img-src data: blob: ${origins}`,
     `font-src data: ${origins} https://fonts.gstatic.com`,
@@ -94,5 +98,5 @@ export function templatePreviewDocument(html: string): string {
   );
   for (const node of security.childNodes) node.parentNode = head;
   head.childNodes.unshift(...security.childNodes);
-  return serialize(document);
+  return injectSessionReplayIframeBootstrap(serialize(document));
 }

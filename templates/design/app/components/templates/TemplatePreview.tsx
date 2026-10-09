@@ -1,3 +1,4 @@
+import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "@agent-native/core/client/host";
 import { IconTemplate } from "@tabler/icons-react";
 import {
   useEffect,
@@ -105,6 +106,7 @@ export function TemplatePreview({
     >
       <iframe
         ref={frameRef}
+        {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         title={title}
         srcDoc={document}
         sandbox="allow-scripts"
