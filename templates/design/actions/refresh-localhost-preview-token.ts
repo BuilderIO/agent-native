@@ -48,18 +48,16 @@ export default defineAction({
       publicVisualEdit === true &&
       (access.resource as { visibility?: unknown }).visibility !== "public"
     ) {
-      const error = new Error(
-        `Design "${designId}" is not public for visual editing.`,
-      ) as Error & { statusCode: number };
-      error.statusCode = 403;
-      throw error;
+      fail("This Design is not available for public preview.", {
+        errorCode: "design_public_preview_unavailable",
+        statusCode: 403,
+      });
     }
     if (publicVisualEdit === true && designConnectionIds.length === 0) {
-      const error = new Error(
-        `Design "${designId}" does not reference a localhost connection.`,
-      ) as Error & { statusCode: number };
-      error.statusCode = 403;
-      throw error;
+      fail("This Design does not reference a localhost connection.", {
+        errorCode: "design_localhost_connection_missing",
+        statusCode: 403,
+      });
     }
     if (connectionId && connectionIds) {
       fail("Provide connectionId or connectionIds, not both.", {
@@ -73,21 +71,19 @@ export default defineAction({
         ? designConnectionIds
         : [...new Set(connectionIds)];
     if (requestedConnectionIds.length === 0) {
-      const error = new Error(
-        `Design "${designId}" has no localhost connections.`,
-      ) as Error & { statusCode: number };
-      error.statusCode = 403;
-      throw error;
+      fail("This Design has no localhost connections.", {
+        errorCode: "design_localhost_connection_missing",
+        statusCode: 403,
+      });
     }
     const unreferencedConnectionId = requestedConnectionIds.find(
       (requestedId) => !designConnectionIds.includes(requestedId),
     );
     if (unreferencedConnectionId) {
-      const error = new Error(
-        `Localhost connection "${unreferencedConnectionId}" is not part of design "${designId}".`,
-      ) as Error & { statusCode: number };
-      error.statusCode = 403;
-      throw error;
+      fail("The requested localhost connection is not part of this Design.", {
+        errorCode: "localhost_connection_not_in_design",
+        statusCode: 403,
+      });
     }
     const canIssueLiveEditCapability =
       access.role === "owner" ||
@@ -166,8 +162,12 @@ export default defineAction({
         !connection ||
         (!connection.previewToken && !connection.bridgeToken)
       ) {
-        throw new Error(
-          `The localhost connection "${connectionId}" has no preview token. Run design connect again, then retry.`,
+        fail(
+          "Preview credentials are unavailable for this connection. Reconnect this Screen, then retry.",
+          {
+            errorCode: "localhost_preview_credentials_unavailable",
+            statusCode: 424,
+          },
         );
       }
       return credentialsFor(connection);
@@ -175,15 +175,24 @@ export default defineAction({
 
     return {
       connections: Object.fromEntries(
-        requestedConnectionIds.flatMap((requestedId) => {
+        requestedConnectionIds.map((requestedId) => {
           const connection = connectionById.get(requestedId);
           if (
             !connection ||
             (!connection.previewToken && !connection.bridgeToken)
           ) {
-            return [];
+            return [
+              requestedId,
+              {
+                status: "unavailable" as const,
+                errorCode: "localhost_preview_credentials_unavailable" as const,
+              },
+            ];
           }
-          return [[requestedId, credentialsFor(connection)] as const];
+          return [
+            requestedId,
+            { status: "available" as const, ...credentialsFor(connection) },
+          ];
         }),
       ),
     };

@@ -182,6 +182,39 @@ export function frameGeometryRestoreClaimsThroughRevision(
     .map(({ claim }) => claim);
 }
 
+export function frameGeometryRestoreClaimsForOperations(
+  claims: readonly FileDeletionRestoreClaim[],
+  operations: readonly DesignDataOperation[],
+): FileDeletionRestoreClaim[] {
+  return claims.filter((claim) =>
+    operations.some((operation) => {
+      if (
+        operation.op !== "set" ||
+        (operation.path[0] !== "screenMetadata" &&
+          operation.path[0] !== "localhostScreens") ||
+        operation.path[1] !== claim.targetFileId
+      ) {
+        return false;
+      }
+      if (operation.path.length === 3 && operation.path[2] === "connectionId") {
+        return (
+          typeof operation.value === "string" && operation.value.length > 0
+        );
+      }
+      if (operation.path.length !== 2) return false;
+      const metadata = operation.value;
+      return (
+        metadata !== null &&
+        typeof metadata === "object" &&
+        !Array.isArray(metadata) &&
+        typeof (metadata as { connectionId?: unknown }).connectionId ===
+          "string" &&
+        (metadata as { connectionId: string }).connectionId.length > 0
+      );
+    }),
+  );
+}
+
 export function acknowledgeFrameGeometryRestoreClaims(
   pending: readonly PendingFrameGeometryRestoreClaim[],
   designId: string,
@@ -444,7 +477,11 @@ export function useEditorActiveScreenAndGeometry({
   );
 
   const createFrameGeometryOutboxEntry = useCallback(
-    (dataOperations: readonly DesignDataOperation[], revision: number) => {
+    (
+      dataOperations: readonly DesignDataOperation[],
+      revision: number,
+      operationSource = designSaveOperationSourceRef.current,
+    ) => {
       if (!id || shellMode) return null;
       const compacted = compactDesignDataOperations(dataOperations);
       if (compacted.length === 0) return null;
@@ -453,19 +490,23 @@ export function useEditorActiveScreenAndGeometry({
         id,
         revision,
       );
+      const claimsForOperations = frameGeometryRestoreClaimsForOperations(
+        restoreClaims,
+        compacted,
+      );
       return createDesignSaveOutboxEntry({
         designId: id,
         actorScope: designSaveActorScope,
         actionName: "update-design",
         resourceId: id,
-        operationSource: designSaveOperationSourceRef.current,
+        operationSource,
         operationRevision: revision,
         payload: createFrameGeometryDataSavePayload({
           id,
           dataOperations: compacted,
-          operationSource: designSaveOperationSourceRef.current,
+          operationSource,
           operationRevision: revision,
-          restoreClaims,
+          restoreClaims: claimsForOperations,
         }),
       });
     },
@@ -477,7 +518,12 @@ export function useEditorActiveScreenAndGeometry({
       dataOperations: DesignDataOperation[],
       options?: { restoreClaims?: readonly FileDeletionRestoreClaim[] },
     ) => {
-      if (!id || !canEditDesignRef.current || dataOperations.length === 0) {
+      if (
+        !id ||
+        shellMode ||
+        !canEditDesignRef.current ||
+        dataOperations.length === 0
+      ) {
         return false;
       }
       const revision = frameGeometryOperationRevisionRef.current + 1;
@@ -495,18 +541,22 @@ export function useEditorActiveScreenAndGeometry({
           dataOperations,
           revision,
         );
-      const outboxEntry = createFrameGeometryOutboxEntry(
-        pendingDesignDataOperations(
-          pendingFrameGeometryOperationsForUnloadRef.current,
-        ),
-        revision,
+      const operationsForRevision = pendingDesignDataOperations(
+        pendingFrameGeometryOperationsForUnloadRef.current,
       );
-      if (!outboxEntry) return false;
+      if (operationsForRevision.length === 0) return false;
+      const operationSource = designSaveOperationSourceRef.current;
       const previous = frameGeometryMutationChainRef.current;
       const current = previous
         .catch(() => {})
         .then(async () => {
           try {
+            const outboxEntry = createFrameGeometryOutboxEntry(
+              operationsForRevision,
+              revision,
+              operationSource,
+            );
+            if (!outboxEntry) return;
             await journalOutboxEntry(outboxEntry);
             await saveDesignDataAsync(outboxEntry.payload as any);
             pendingFrameGeometryOperationsForUnloadRef.current =
@@ -537,6 +587,7 @@ export function useEditorActiveScreenAndGeometry({
       journalOutboxEntry,
       queryClient,
       saveDesignDataAsync,
+      shellMode,
       warnChangesWillRetry,
     ],
   );

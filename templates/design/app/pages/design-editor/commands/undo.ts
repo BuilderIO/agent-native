@@ -1687,6 +1687,9 @@ export function runUndo({
             filename: file.filename,
             content: preparedFiles[index]!.content,
             fileType: file.fileType,
+            ...(file.restoreClaimId
+              ? { restoreClaimId: file.restoreClaimId }
+              : {}),
           } as any)) as { id?: string };
           if (!result.id) {
             throw new Error(`Failed to restore "${file.filename}"`);

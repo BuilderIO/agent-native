@@ -511,6 +511,11 @@ describe("update-design data concurrency", () => {
       ),
       screenMetadata: snapshot.screenMetadata,
     };
+    const editedMetadata = {
+      ...snapshot.screenMetadata,
+      title: "Renamed after restore",
+      description: "Preserved while the restore is pending",
+    };
     mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
     mocks.state.connections = [
       {
@@ -526,7 +531,7 @@ describe("update-design data concurrency", () => {
         sourceFileId: "deleted-file-1",
         snapshot: JSON.stringify(claimSnapshot),
         consumedAt: null,
-        restoredFileId: null,
+        restoredFileId: "restored-file-1",
       },
     ];
     mocks.state.designFiles = [
@@ -549,7 +554,7 @@ describe("update-design data concurrency", () => {
           {
             op: "set",
             path: ["screenMetadata", "restored-file-1"],
-            value: snapshot.screenMetadata,
+            value: editedMetadata,
           },
           {
             op: "set",
@@ -581,7 +586,7 @@ describe("update-design data concurrency", () => {
           {
             op: "set",
             path: ["screenMetadata", "restored-file-1"],
-            value: snapshot.screenMetadata,
+            value: editedMetadata,
           },
         ],
         restoreClaims: [
@@ -595,6 +600,9 @@ describe("update-design data concurrency", () => {
         operationRevision: 1,
       } as never),
     ).resolves.toMatchObject({ changed: true });
+    expect(
+      JSON.parse(mocks.state.row.data!).screenMetadata["restored-file-1"],
+    ).toEqual(editedMetadata);
     expect(mocks.state.restoreClaims[0]).toMatchObject({
       restoredFileId: "restored-file-1",
     });
@@ -634,12 +642,12 @@ describe("update-design data concurrency", () => {
         operationRevision: 2,
       } as never),
     ).rejects.toMatchObject({
-      errorCode: "screen_restore_claim_invalid",
+      errorCode: "localhost_connection_scope_mismatch",
       statusCode: 403,
     });
   });
 
-  it("rejects a restored Screen whose content does not match its fingerprint", async () => {
+  it("rejects a restore claim that is not bound to the target Screen", async () => {
     const snapshot = {
       filename: "restored.html",
       fileType: "html",
@@ -709,10 +717,221 @@ describe("update-design data concurrency", () => {
         operationRevision: 1,
       } as never),
     ).rejects.toMatchObject({
-      errorCode: "screen_restore_claim_invalid",
+      errorCode: "localhost_connection_scope_mismatch",
       statusCode: 403,
     });
     expect(mocks.state.restoreClaims[0]?.consumedAt).toBeNull();
+  });
+
+  it("does not let a pending restore claim block unrelated design data", async () => {
+    const snapshot = {
+      filename: "restored.html",
+      fileType: "html",
+      content: "<html><body><main>Restored</main></body></html>",
+      screenMetadata: {
+        title: "Restored",
+        connectionId: "owner-connection",
+      },
+    };
+    mocks.assertAccess.mockResolvedValue({ role: "editor" });
+    mocks.state.restoreClaims = [
+      {
+        id: "restore-claim-1",
+        designId: "design-1",
+        sourceFileId: "deleted-file-1",
+        snapshot: JSON.stringify({
+          filename: snapshot.filename,
+          fileType: snapshot.fileType,
+          contentHashes: screenRestoreContentHashes(
+            snapshot.content,
+            snapshot.fileType,
+          ),
+          screenMetadata: snapshot.screenMetadata,
+        }),
+        consumedAt: null,
+        restoredFileId: null,
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["canvasFrames", "frame-a"],
+            value: { x: 40, y: 0, width: 400, height: 300 },
+          },
+        ],
+        restoreClaims: [
+          {
+            claimId: "restore-claim-1",
+            sourceFileId: "deleted-file-1",
+            targetFileId: "deleted-file-1",
+          },
+        ],
+        operationSource: "undo-session",
+        operationRevision: 2,
+      } as never),
+    ).resolves.toMatchObject({ changed: true });
+
+    expect(JSON.parse(mocks.state.row.data!).canvasFrames["frame-a"].x).toBe(
+      40,
+    );
+    expect(mocks.state.restoreClaims[0]?.consumedAt).toBeNull();
+  });
+
+  it("keeps a restored connection when the restored Screen changes before save", async () => {
+    const snapshot = {
+      filename: "restored.html",
+      fileType: "html",
+      content: "<html><body><main>Restored</main></body></html>",
+      screenMetadata: {
+        title: "Restored",
+        connectionId: "owner-connection",
+      },
+    };
+    mocks.assertAccess.mockResolvedValue({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "owner-connection",
+        ownerEmail: "design-owner@example.com",
+        orgId: null,
+      },
+    ];
+    mocks.state.restoreClaims = [
+      {
+        id: "restore-claim-1",
+        designId: "design-1",
+        sourceFileId: "deleted-file-1",
+        snapshot: JSON.stringify({
+          filename: snapshot.filename,
+          fileType: snapshot.fileType,
+          contentHashes: screenRestoreContentHashes(
+            snapshot.content,
+            snapshot.fileType,
+          ),
+          screenMetadata: snapshot.screenMetadata,
+        }),
+        consumedAt: null,
+        restoredFileId: "restored-file-1",
+      },
+    ];
+    mocks.state.designFiles = [
+      {
+        id: "restored-file-1",
+        designId: "design-1",
+        filename: snapshot.filename,
+        fileType: snapshot.fileType,
+        content: annotateScreenHtmlForPersist(
+          "<html><body><main>Edited</main></body></html>",
+          snapshot.fileType,
+        ),
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "restored-file-1"],
+            value: {
+              title: "Edited after Undo",
+              connectionId: "owner-connection",
+            },
+          },
+        ],
+        restoreClaims: [
+          {
+            claimId: "restore-claim-1",
+            sourceFileId: "deleted-file-1",
+            targetFileId: "restored-file-1",
+          },
+        ],
+        operationSource: "undo-session",
+        operationRevision: 2,
+      } as never),
+    ).resolves.toMatchObject({ changed: true });
+    expect(mocks.state.restoreClaims[0]?.consumedAt).toEqual(
+      expect.any(String),
+    );
+  });
+
+  it("does not let a consumed restore claim reapply a removed connection", async () => {
+    const snapshot = {
+      filename: "restored.html",
+      fileType: "html",
+      content: "<html><body><main>Restored</main></body></html>",
+      screenMetadata: {
+        title: "Restored",
+        connectionId: "owner-connection",
+      },
+    };
+    mocks.assertAccess.mockResolvedValue({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "owner-connection",
+        ownerEmail: "design-owner@example.com",
+        orgId: null,
+      },
+    ];
+    mocks.state.restoreClaims = [
+      {
+        id: "restore-claim-1",
+        designId: "design-1",
+        sourceFileId: "deleted-file-1",
+        snapshot: JSON.stringify({
+          filename: snapshot.filename,
+          fileType: snapshot.fileType,
+          contentHashes: screenRestoreContentHashes(
+            snapshot.content,
+            snapshot.fileType,
+          ),
+          screenMetadata: snapshot.screenMetadata,
+        }),
+        consumedAt: "2026-10-08T00:00:00.000Z",
+        restoredFileId: "deleted-file-1",
+      },
+    ];
+    mocks.state.designFiles = [
+      {
+        id: "deleted-file-1",
+        designId: "design-1",
+        filename: snapshot.filename,
+        fileType: snapshot.fileType,
+        content: annotateScreenHtmlForPersist(
+          snapshot.content,
+          snapshot.fileType,
+        ),
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "deleted-file-1"],
+            value: snapshot.screenMetadata,
+          },
+        ],
+        restoreClaims: [
+          {
+            claimId: "restore-claim-1",
+            sourceFileId: "deleted-file-1",
+            targetFileId: "deleted-file-1",
+          },
+        ],
+        operationSource: "undo-session",
+        operationRevision: 3,
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "localhost_connection_scope_mismatch",
+      statusCode: 403,
+    });
   });
 
   it("rejects one ambiguous legacy snapshot instead of silently losing a concurrent frame edit", async () => {

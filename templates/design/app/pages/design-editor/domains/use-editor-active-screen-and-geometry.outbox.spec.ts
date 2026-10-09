@@ -4,6 +4,7 @@ import type { DesignDataOperation } from "@/pages/design-editor/data-operations"
 import {
   acknowledgeFrameGeometryRestoreClaims,
   createFrameGeometryDataSavePayload,
+  frameGeometryRestoreClaimsForOperations,
   frameGeometryRestoreClaimsThroughRevision,
   stageFrameGeometryRestoreClaims,
 } from "@/pages/design-editor/domains/use-editor-active-screen-and-geometry";
@@ -62,6 +63,45 @@ describe("frame geometry save payload", () => {
       operationSource: "editor-session",
       operationRevision: 8,
     });
+  });
+
+  it("attaches a restore claim only when its pending operations restore a connection", () => {
+    const claim = {
+      claimId: "claim-restore",
+      sourceFileId: "deleted-screen",
+      targetFileId: "restored-screen",
+    };
+
+    expect(
+      frameGeometryRestoreClaimsForOperations(
+        [claim],
+        [
+          {
+            op: "set",
+            path: ["canvasFrames", "frame-a"],
+            value: { x: 20, y: 0, width: 300, height: 200 },
+          },
+        ],
+      ),
+    ).toEqual([]);
+    expect(
+      frameGeometryRestoreClaimsForOperations(
+        [claim],
+        [
+          {
+            op: "set",
+            path: ["screenMetadata", "restored-screen"],
+            value: { connectionId: "connection-1" },
+          },
+        ],
+      ),
+    ).toEqual([claim]);
+    expect(
+      frameGeometryRestoreClaimsForOperations(
+        [claim],
+        [{ op: "delete", path: ["screenMetadata", "restored-screen"] }],
+      ),
+    ).toEqual([]);
   });
 
   it("keeps the same claim through a rejected save and drops it after success", async () => {

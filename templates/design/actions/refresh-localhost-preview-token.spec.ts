@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   eq: vi.fn(),
   connections: [] as Array<{
     id: string;
-    previewToken: string;
+    previewToken?: string | null;
     bridgeToken?: string | null;
     bridgeUrl: string;
   }>,
@@ -109,6 +109,7 @@ describe("refresh-localhost-preview-token", () => {
 
     expect(result.connections).toEqual({
       conn_2: {
+        status: "available",
         previewToken: "preview",
         bridgeUrl: "http://127.0.0.1:7331",
       },
@@ -244,7 +245,10 @@ describe("refresh-localhost-preview-token", () => {
         connectionId: "conn_2",
         publicVisualEdit: true,
       }),
-    ).rejects.toThrow("has no preview token");
+    ).rejects.toMatchObject({
+      errorCode: "localhost_preview_credentials_unavailable",
+      statusCode: 424,
+    });
 
     expect(mocks.eq).toHaveBeenCalledWith("ownerEmail", "editor@example.com");
     expect(mocks.eq).toHaveBeenCalledWith("orgId", "editor-org");
@@ -365,7 +369,12 @@ describe("refresh-localhost-preview-token", () => {
       }),
     ).resolves.toEqual({
       connections: {
+        "owner-connection": {
+          status: "unavailable",
+          errorCode: "localhost_preview_credentials_unavailable",
+        },
         "editor-connection": {
+          status: "available",
           previewToken: "editor-preview",
           bridgeUrl: "http://127.0.0.1:7332",
         },
@@ -378,6 +387,30 @@ describe("refresh-localhost-preview-token", () => {
       "ownerEmail",
       "design-owner@example.com",
     );
+  });
+
+  it("marks a scoped connection without credentials as unavailable", async () => {
+    mocks.connections = [
+      {
+        id: "conn_2",
+        previewToken: null,
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+    ];
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionIds: ["conn_2"],
+      }),
+    ).resolves.toEqual({
+      connections: {
+        conn_2: {
+          status: "unavailable",
+          errorCode: "localhost_preview_credentials_unavailable",
+        },
+      },
+    });
   });
 
   it("rejects a connection that is not part of the design", async () => {

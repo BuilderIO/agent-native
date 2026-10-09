@@ -7,7 +7,6 @@ import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
-import { screenRestoreContentHash } from "../server/lib/screen-restore-claims.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 import { designConnectionIdsFromData } from "../shared/source-mode.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
@@ -140,31 +139,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function sameJsonValue(left: unknown, right: unknown): boolean {
-  if (left === right) return true;
-  if (Array.isArray(left) || Array.isArray(right)) {
-    return (
-      Array.isArray(left) &&
-      Array.isArray(right) &&
-      left.length === right.length &&
-      left.every((value, index) => sameJsonValue(value, right[index]))
-    );
-  }
-  if (isRecord(left) || isRecord(right)) {
-    if (!isRecord(left) || !isRecord(right)) return false;
-    const leftKeys = Object.keys(left).sort();
-    const rightKeys = Object.keys(right).sort();
-    return (
-      leftKeys.length === rightKeys.length &&
-      leftKeys.every(
-        (key, index) =>
-          key === rightKeys[index] && sameJsonValue(left[key], right[key]),
-      )
-    );
-  }
-  return false;
-}
-
 type ConnectionAssignment = {
   map: "screenMetadata" | "localhostScreens";
   fileId: string;
@@ -176,8 +150,14 @@ function connectionAssignments(data: unknown): ConnectionAssignment[] {
   if (typeof parsed === "string") {
     try {
       parsed = JSON.parse(parsed) as unknown;
-    } catch {
-      return [];
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        fail("Design data must be valid JSON.", {
+          errorCode: "invalid_design_data",
+          statusCode: 400,
+        });
+      }
+      throw error;
     }
   }
   if (!isRecord(parsed)) return [];
@@ -241,18 +221,10 @@ function parseScreenRestoreClaimSnapshot(
     );
     if (!hasConnection) return null;
     return value as unknown as ScreenRestoreClaimSnapshot;
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
   }
-}
-
-function restoredContentMatchesClaim(
-  storedContent: string,
-  snapshot: ScreenRestoreClaimSnapshot,
-): boolean {
-  return snapshot.contentHashes.includes(
-    screenRestoreContentHash(storedContent),
-  );
 }
 
 function parsePersistedDataRecord(
@@ -646,7 +618,10 @@ export default defineAction({
           .from(schema.designs)
           .where(eq(schema.designs.id, id));
         if (!existing) {
-          throw new Error(`Design not found: ${id}`);
+          fail("Design was not found.", {
+            errorCode: "design_not_found",
+            statusCode: 404,
+          });
         }
 
         let nextData: string;
@@ -685,12 +660,22 @@ export default defineAction({
             : data!;
         }
 
+        const existingAssignments = new Map(
+          connectionAssignments(existing.data).map((assignment) => [
+            connectionAssignmentKey(assignment),
+            assignment.connectionId,
+          ]),
+        );
+        const nextAssignments = connectionAssignments(nextData);
+        const addedAssignments = nextAssignments.filter(
+          (assignment) =>
+            existingAssignments.get(connectionAssignmentKey(assignment)) !==
+            assignment.connectionId,
+        );
         const allowedRestoreAssignments = new Map<string, string>();
         const restoreClaimsToConsume: Array<{
           id: string;
           targetFileId: string;
-          consumedAt: string | null;
-          restoredFileId: string | null;
         }> = [];
         if (restoreClaims?.length) {
           const claimIds = restoreClaims.map((claim) => claim.claimId);
@@ -717,9 +702,6 @@ export default defineAction({
             .select({
               id: schema.designFiles.id,
               designId: schema.designFiles.designId,
-              filename: schema.designFiles.filename,
-              fileType: schema.designFiles.fileType,
-              content: schema.designFiles.content,
             })
             .from(schema.designFiles)
             .where(
@@ -732,15 +714,13 @@ export default defineAction({
             claimRows.map((claim) => [claim.id, claim]),
           );
           const fileById = new Map(files.map((file) => [file.id, file]));
-          const nextRecord = parsePersistedDataRecord(id, nextData);
-          const nextScreenMetadata = isRecord(nextRecord.screenMetadata)
-            ? nextRecord.screenMetadata
-            : {};
-          const nextLocalhostScreens = isRecord(nextRecord.localhostScreens)
-            ? nextRecord.localhostScreens
-            : {};
 
           for (const reference of restoreClaims) {
+            const targetAddedAssignments = addedAssignments.filter(
+              (assignment) => assignment.fileId === reference.targetFileId,
+            );
+            if (targetAddedAssignments.length === 0) continue;
+
             const claim = claimById.get(reference.claimId);
             const file = fileById.get(reference.targetFileId);
             const snapshot = claim
@@ -750,86 +730,52 @@ export default defineAction({
               !claim ||
               claim.designId !== id ||
               claim.sourceFileId !== reference.sourceFileId ||
+              claim.consumedAt !== null ||
+              claim.restoredFileId !== reference.targetFileId ||
               !file ||
               file.designId !== id ||
-              !snapshot ||
-              file.filename !== snapshot.filename ||
-              file.fileType !== snapshot.fileType ||
-              !restoredContentMatchesClaim(file.content, snapshot) ||
-              (claim.consumedAt !== null &&
-                claim.restoredFileId !== reference.targetFileId)
+              !snapshot
             ) {
-              fail(
-                "This Screen restore is no longer valid. Recreate the Screen and try again.",
-                {
-                  errorCode: "screen_restore_claim_invalid",
-                  statusCode: 403,
-                },
-              );
+              continue;
             }
 
-            const snapshotMaps = [
-              ["screenMetadata", snapshot.screenMetadata, nextScreenMetadata],
-              [
-                "localhostScreens",
-                snapshot.localhostScreen,
-                nextLocalhostScreens,
-              ],
-            ] as const;
-            for (const [mapName, expected, nextMap] of snapshotMaps) {
-              const hasValue = Object.prototype.hasOwnProperty.call(
-                nextMap,
-                reference.targetFileId,
-              );
+            const snapshotConnectionIds = new Map<
+              ConnectionAssignment["map"],
+              string
+            >();
+            for (const [mapName, metadata] of [
+              ["screenMetadata", snapshot.screenMetadata],
+              ["localhostScreens", snapshot.localhostScreen],
+            ] as const) {
               if (
-                expected === undefined
-                  ? hasValue
-                  : !hasValue ||
-                    !sameJsonValue(nextMap[reference.targetFileId], expected)
+                isRecord(metadata) &&
+                typeof metadata.connectionId === "string" &&
+                metadata.connectionId.length > 0
               ) {
-                fail(
-                  "This Screen restore does not match its deleted metadata.",
-                  {
-                    errorCode: "screen_restore_metadata_mismatch",
-                    statusCode: 403,
-                  },
-                );
-              }
-              if (
-                isRecord(expected) &&
-                typeof expected.connectionId === "string" &&
-                expected.connectionId.length > 0
-              ) {
-                allowedRestoreAssignments.set(
-                  connectionAssignmentKey({
-                    map: mapName,
-                    fileId: reference.targetFileId,
-                  }),
-                  expected.connectionId,
-                );
+                snapshotConnectionIds.set(mapName, metadata.connectionId);
               }
             }
+            let authorizedAssignment = false;
+            for (const assignment of targetAddedAssignments) {
+              if (
+                snapshotConnectionIds.get(assignment.map) ===
+                assignment.connectionId
+              ) {
+                allowedRestoreAssignments.set(
+                  connectionAssignmentKey(assignment),
+                  assignment.connectionId,
+                );
+                authorizedAssignment = true;
+              }
+            }
+            if (!authorizedAssignment) continue;
             restoreClaimsToConsume.push({
               id: claim.id,
               targetFileId: reference.targetFileId,
-              consumedAt: claim.consumedAt,
-              restoredFileId: claim.restoredFileId,
             });
           }
         }
 
-        const existingAssignments = new Map(
-          connectionAssignments(existing.data).map((assignment) => [
-            connectionAssignmentKey(assignment),
-            assignment.connectionId,
-          ]),
-        );
-        const nextAssignments = connectionAssignments(nextData);
-        const addedAssignments = nextAssignments.filter(
-          (assignment) =>
-            existingAssignments.get(connectionAssignmentKey(assignment)) !==
-            assignment.connectionId,
-        );
         const requiredScopeIds = new Set<string>();
         for (const assignment of addedAssignments) {
           if (
@@ -987,6 +933,7 @@ export default defineAction({
           );
         const affected = affectedRowCount(updateResult);
         if (affected === undefined) {
+          // guard:allow-bare-error — invariant: the data update result must expose its affected-row count.
           throw new Error(
             "The Postgres update did not report an affected-row count for the design data update.",
           );
@@ -995,15 +942,18 @@ export default defineAction({
         if (affected > 0) {
           const consumedAt = new Date().toISOString();
           for (const claim of restoreClaimsToConsume) {
-            if (claim.consumedAt !== null) continue;
             const consumeResult = await tx
               .update(schema.designScreenRestoreClaims)
-              .set({ consumedAt, restoredFileId: claim.targetFileId })
+              .set({ consumedAt })
               .where(
                 and(
                   eq(schema.designScreenRestoreClaims.id, claim.id),
                   eq(schema.designScreenRestoreClaims.designId, id),
                   isNull(schema.designScreenRestoreClaims.consumedAt),
+                  eq(
+                    schema.designScreenRestoreClaims.restoredFileId,
+                    claim.targetFileId,
+                  ),
                 ),
               );
             if (affectedRowCount(consumeResult) !== 1) {

@@ -1,8 +1,8 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { seedFromText } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -13,6 +13,7 @@ import {
   checkpointSkippedResultField,
   snapshotDesignBeforeAgentEdit,
 } from "../server/lib/design-versions.js";
+import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   mergeCanvasFramePlacements,
@@ -31,6 +32,42 @@ const CREATED_SCREEN_WIDTH = 1440;
 const CREATED_SCREEN_HEIGHT = 1024;
 const CREATED_SCREEN_GAP = 96;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function screenRestoreSnapshotMatches(
+  rawSnapshot: string,
+  filename: string,
+  fileType: string,
+  contentHashes: readonly string[],
+): boolean {
+  let snapshot: unknown;
+  try {
+    snapshot = JSON.parse(rawSnapshot);
+  } catch (error) {
+    if (error instanceof SyntaxError) return false;
+    throw error;
+  }
+  if (
+    !isRecord(snapshot) ||
+    snapshot.filename !== filename ||
+    snapshot.fileType !== fileType ||
+    !Array.isArray(snapshot.contentHashes) ||
+    !snapshot.contentHashes.some(
+      (hash) => typeof hash === "string" && contentHashes.includes(hash),
+    )
+  ) {
+    return false;
+  }
+  return [snapshot.screenMetadata, snapshot.localhostScreen].some(
+    (metadata) =>
+      isRecord(metadata) &&
+      typeof metadata.connectionId === "string" &&
+      metadata.connectionId.length > 0,
+  );
+}
+
 export default defineAction({
   description:
     "Add a new file to a design project. Validates that the design exists and " +
@@ -39,13 +76,22 @@ export default defineAction({
     designId: z.string().describe("Design project ID to add the file to"),
     filename: z.string().describe("Filename (e.g. 'index.html', 'styles.css')"),
     content: z.string().describe("File content"),
+    restoreClaimId: z
+      .string()
+      .optional()
+      .describe(
+        "One-use authorization for restoring a previously deleted Screen.",
+      ),
     fileType: z
       .enum(["html", "css", "jsx", "asset"])
       .optional()
       .default("html")
       .describe("Type of file"),
   }),
-  run: async ({ designId, filename, content, fileType }, context) => {
+  run: async (
+    { designId, filename, content, fileType, restoreClaimId },
+    context,
+  ) => {
     if (
       filename.includes("..") ||
       filename.includes("/") ||
@@ -60,10 +106,14 @@ export default defineAction({
     });
     const checkpointField = checkpointSkippedResultField(checkpoint);
 
-    const id = nanoid();
+    const requestedId = nanoid();
     const now = new Date().toISOString();
 
     const annotatedContent = annotateScreenHtmlForPersist(content, fileType);
+    const restoredContentHashes = screenRestoreContentHashes(
+      annotatedContent,
+      fileType,
+    );
 
     const advisory = assertDesignHtmlCreateIntegrity({
       content: annotatedContent,
@@ -71,49 +121,193 @@ export default defineAction({
       filename,
     });
 
-    await withDesignSourceMutationTransaction(designId, async (tx) => {
-      const [existing] = await tx
-        .select({ id: schema.designFiles.id })
-        .from(schema.designFiles)
-        .where(
-          and(
-            eq(schema.designFiles.designId, designId),
-            eq(schema.designFiles.filename, filename),
-          ),
-        )
-        .limit(1);
-      if (existing) {
-        throw new Error(
-          `File "${filename}" already exists in design ${designId} — use edit-design to modify it`,
-        );
-      }
+    const createdFile = await withDesignSourceMutationTransaction(
+      designId,
+      async (tx) => {
+        let restoreClaim:
+          | {
+              id: string;
+              designId: string;
+              snapshot: string;
+              consumedAt: string | null;
+              restoredFileId: string | null;
+            }
+          | undefined;
+        let id = requestedId;
+        let existingRestoredFile:
+          | { id: string; filename: string; fileType: string; content: string }
+          | undefined;
+        if (restoreClaimId) {
+          const [candidate] = await tx
+            .select({
+              id: schema.designScreenRestoreClaims.id,
+              designId: schema.designScreenRestoreClaims.designId,
+              snapshot: schema.designScreenRestoreClaims.snapshot,
+              consumedAt: schema.designScreenRestoreClaims.consumedAt,
+              restoredFileId: schema.designScreenRestoreClaims.restoredFileId,
+            })
+            .from(schema.designScreenRestoreClaims)
+            .where(
+              and(
+                eq(schema.designScreenRestoreClaims.id, restoreClaimId),
+                eq(schema.designScreenRestoreClaims.designId, designId),
+              ),
+            )
+            .limit(1);
+          if (!candidate) {
+            fail("This Screen restore is no longer available.", {
+              errorCode: "screen_restore_claim_invalid",
+              statusCode: 403,
+            });
+          }
+          if (candidate.restoredFileId) {
+            const [boundFile] = await tx
+              .select({
+                id: schema.designFiles.id,
+                filename: schema.designFiles.filename,
+                fileType: schema.designFiles.fileType,
+                content: schema.designFiles.content,
+              })
+              .from(schema.designFiles)
+              .where(
+                and(
+                  eq(schema.designFiles.designId, designId),
+                  eq(schema.designFiles.id, candidate.restoredFileId),
+                ),
+              )
+              .limit(1);
+            if (boundFile) {
+              if (
+                boundFile.filename !== filename ||
+                boundFile.fileType !== fileType
+              ) {
+                fail("This Screen restore is no longer available.", {
+                  errorCode: "screen_restore_claim_invalid",
+                  statusCode: 403,
+                });
+              }
+              existingRestoredFile = boundFile;
+              id = boundFile.id;
+            } else {
+              if (
+                candidate.consumedAt !== null ||
+                !screenRestoreSnapshotMatches(
+                  candidate.snapshot,
+                  filename,
+                  fileType,
+                  restoredContentHashes,
+                )
+              ) {
+                fail("This Screen restore is no longer available.", {
+                  errorCode: "screen_restore_claim_invalid",
+                  statusCode: 403,
+                });
+              }
+              id = candidate.restoredFileId;
+            }
+          } else {
+            if (
+              candidate.consumedAt !== null ||
+              !screenRestoreSnapshotMatches(
+                candidate.snapshot,
+                filename,
+                fileType,
+                restoredContentHashes,
+              )
+            ) {
+              fail("This Screen restore is no longer available.", {
+                errorCode: "screen_restore_claim_invalid",
+                statusCode: 403,
+              });
+            }
+            restoreClaim = candidate;
+          }
+        }
 
-      await tx.insert(schema.designFiles).values({
-        id,
-        designId,
-        filename,
-        fileType: fileType ?? "html",
-        content: annotatedContent,
-        createdAt: now,
-        updatedAt: now,
-      });
+        if (existingRestoredFile) {
+          return {
+            id,
+            content: existingRestoredFile.content,
+            fileType: existingRestoredFile.fileType,
+            created: false,
+          };
+        }
 
-      await tx
-        .update(schema.designs)
-        .set({ updatedAt: now })
-        .where(eq(schema.designs.id, designId));
-    });
+        const [existing] = await tx
+          .select({ id: schema.designFiles.id })
+          .from(schema.designFiles)
+          .where(
+            and(
+              eq(schema.designFiles.designId, designId),
+              eq(schema.designFiles.filename, filename),
+            ),
+          )
+          .limit(1);
+        if (existing) {
+          fail(
+            `File "${filename}" already exists in design ${designId} — use edit-design to modify it`,
+            {
+              errorCode: "design_file_already_exists",
+              statusCode: 409,
+            },
+          );
+        }
 
-    await seedFromText(id, annotatedContent);
+        await tx.insert(schema.designFiles).values({
+          id,
+          designId,
+          filename,
+          fileType: fileType ?? "html",
+          content: annotatedContent,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        if (restoreClaim) {
+          const [boundClaim] = await tx
+            .update(schema.designScreenRestoreClaims)
+            .set({ restoredFileId: id })
+            .where(
+              and(
+                eq(schema.designScreenRestoreClaims.id, restoreClaim.id),
+                eq(schema.designScreenRestoreClaims.designId, designId),
+                isNull(schema.designScreenRestoreClaims.consumedAt),
+                isNull(schema.designScreenRestoreClaims.restoredFileId),
+              ),
+            )
+            .returning({ id: schema.designScreenRestoreClaims.id });
+          if (!boundClaim) {
+            fail("This Screen restore was already used.", {
+              errorCode: "screen_restore_claim_used",
+              statusCode: 403,
+            });
+          }
+        }
+
+        await tx
+          .update(schema.designs)
+          .set({ updatedAt: now })
+          .where(eq(schema.designs.id, designId));
+        return {
+          id,
+          content: annotatedContent,
+          fileType: fileType ?? "html",
+          created: true,
+        };
+      },
+    );
+
+    const { id } = createdFile;
+    await seedFromText(id, createdFile.content);
 
     const db = getDb();
 
-    const resolvedFileType = fileType ?? "html";
+    const resolvedFileType = createdFile.fileType;
     const renderable =
       (resolvedFileType === "html" || resolvedFileType === "jsx") &&
-      content.trim().length > 0;
+      createdFile.content.trim().length > 0;
 
-    if (renderable) {
+    if (renderable && createdFile.created) {
       const screenFiles = await db
         .select({
           id: schema.designFiles.id,

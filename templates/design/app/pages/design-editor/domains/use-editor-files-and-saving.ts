@@ -1256,6 +1256,8 @@ export function useEditorFilesAndSaving({
         liveEditCapability?: string;
         liveEditRegistrationCapability?: string;
         bridgeUrl?: string;
+        status?: "available" | "unavailable";
+        errorCode?: "localhost_preview_credentials_unavailable";
       }
     >;
   }>(
