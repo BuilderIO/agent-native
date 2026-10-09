@@ -71,6 +71,7 @@ import { isRetryableInfraError } from "./retry-infra.ts";
 import { readValueOption } from "./run-options.ts";
 import {
   ActionTransportError,
+  ActionRequestTimeoutError,
   canReuseAuthoringFuzzCleanupPage,
   CouldNotRun,
   getHarnessUnavailableError,
@@ -683,16 +684,19 @@ async function action<T = any>(
         signal: controller.signal,
       })
         .then(async (response) => ({
+          kind: "response" as const,
           ok: response.ok,
           status: response.status,
           text: await response.text(),
         }))
         .catch((error) => ({
+          kind: "transport" as const,
           ok: false,
           status: 0,
           text: `transport failure: ${String(error)}`,
         }));
       const timeout = new Promise<{
+        kind: "timeout";
         ok: false;
         status: 0;
         text: string;
@@ -700,6 +704,7 @@ async function action<T = any>(
         timeoutId = window.setTimeout(() => {
           controller.abort();
           resolve({
+            kind: "timeout" as const,
             ok: false,
             status: 0,
             text: `timed out after ${timeoutMs}ms`,
@@ -724,6 +729,11 @@ async function action<T = any>(
   });
   if (!res.ok) {
     if (res.status === 0) {
+      if (res.kind === "timeout") {
+        throw new ActionRequestTimeoutError(
+          `${method === "GET" ? "GET " : ""}${name} request ${res.text}`,
+        );
+      }
       throw new ActionTransportError(
         `${method === "GET" ? "GET " : ""}${name} request ${res.text}`,
       );
@@ -961,16 +971,6 @@ async function openSlide(
       const detail = `${String(error)}\nCanvas wait page state: ${JSON.stringify(pageState)}`;
       if (error instanceof CouldNotRun && failedStage === "navigation") {
         throw new CouldNotRun(`${error.message}\n${detail}`);
-      }
-      if (
-        options.initialOpenAsSetup &&
-        failedStage === "canvas" &&
-        (isPlaywrightTargetTransportFailure(error) ||
-          isPlaywrightTimeoutFailure(error))
-      ) {
-        throw new CouldNotRun(
-          `could not wait for authoring fuzz slide canvas: ${detail}`,
-        );
       }
       throw new Error(detail);
     }

@@ -27,6 +27,7 @@ import {
 import type { Snapshot } from "./lib/in-page.ts";
 import {
   canReuseAuthoringFuzzCleanupPage,
+  ActionRequestTimeoutError,
   ActionTransportError,
   CouldNotRun,
   getHarnessUnavailableError,
@@ -98,6 +99,21 @@ it("classifies fuzz action transport failures as could-not-run", () => {
       new Error("get-slide-content returned HTTP 500"),
     ),
   ).toBeNull();
+});
+
+it("keeps authoring action and canvas timeouts as seed failures", () => {
+  const actionTimeout = new ActionRequestTimeoutError(
+    "patch-deck request timed out after 30000ms",
+  );
+  expect(getHarnessUnavailableError(actionTimeout)).toBeNull();
+  expect(() => rethrowIfHarnessUnavailable(actionTimeout)).not.toThrow();
+
+  const canvasTimeout = Object.assign(
+    new Error("Timeout 45000ms exceeded while waiting for slide canvas"),
+    { name: "TimeoutError" },
+  );
+  expect(isPlaywrightTimeoutFailure(canvasTimeout)).toBe(true);
+  expect(getHarnessUnavailableError(canvasTimeout)).toBeNull();
 });
 
 it("preserves earlier authoring regressions when the harness becomes unavailable", () => {
@@ -190,15 +206,27 @@ it("classifies authoring action transport failures without masking HTTP errors",
     "could not create authoring fuzz deck",
     async () => {
       throw new ActionTransportError(
-        "create-deck request timed out after 30000ms",
+        "create-deck request transport failure: Failed to fetch",
       );
     },
   ).catch((error) => error);
   expect(setupFailure).toBeInstanceOf(CouldNotRun);
   expect(setupFailure).toMatchObject({
     message:
-      "could not create authoring fuzz deck: Error: create-deck request timed out after 30000ms",
+      "could not create authoring fuzz deck: Error: create-deck request transport failure: Failed to fetch",
   });
+
+  const setupTimeout = new ActionRequestTimeoutError(
+    "create-deck request timed out after 30000ms",
+  );
+  await expect(
+    runSetupActionAsCouldNotRun(
+      "could not create authoring fuzz deck",
+      async () => {
+        throw setupTimeout;
+      },
+    ),
+  ).rejects.toBe(setupTimeout);
 
   const applicationError = new Error("create-deck returned HTTP 500");
   await expect(
