@@ -297,7 +297,15 @@ async function writeResponseBodyToFileWithLimit(
   let totalBytes = 0;
   try {
     if (!response.body) {
-      const bytes = new Uint8Array(await response.arrayBuffer());
+      let bytes: Uint8Array;
+      try {
+        bytes = new Uint8Array(await response.arrayBuffer());
+      } catch {
+        throw new RecordingMediaFetchError(
+          "Recording media download failed while reading the response body.",
+          502,
+        );
+      }
       if (bytes.byteLength > maxBytes) {
         throw new Error(frameMediaTooLargeMessage(bytes.byteLength, maxBytes));
       }
@@ -308,7 +316,16 @@ async function writeResponseBodyToFileWithLimit(
     const reader = response.body.getReader();
     try {
       while (true) {
-        const { done, value } = await reader.read();
+        let result: ReadableStreamReadResult<Uint8Array>;
+        try {
+          result = await reader.read();
+        } catch {
+          throw new RecordingMediaFetchError(
+            "Recording media download failed while reading the response body.",
+            502,
+          );
+        }
+        const { done, value } = result;
         if (done) break;
         if (!value) continue;
         totalBytes += value.byteLength;

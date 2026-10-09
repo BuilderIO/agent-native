@@ -390,6 +390,9 @@ describe("Clip WebMCP tools", () => {
     });
     expect(result.instructions).toContain("Keep its id and any agent_access");
     expect(result.instructions).toContain("For any non-2xx response");
+    expect(result.instructions).toContain(
+      "If failureKind=unsupported, follow nextStep and do not retry frame extraction",
+    );
     expect(result.instructions).toContain("If failureKind=expired");
     expect(result.instructions).not.toContain("or HTTP 410");
   });

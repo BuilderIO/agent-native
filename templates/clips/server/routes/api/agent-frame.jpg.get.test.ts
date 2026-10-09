@@ -373,7 +373,7 @@ describe("agent-frame.jpg route", () => {
       .mockRejectedValueOnce(
         new MockVideoFrameExtractionError(
           "No frame was available at that timestamp.",
-          "NO_VIDEO",
+          "NO_FRAME_AT_TIMESTAMP",
         ),
       )
       .mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
@@ -436,7 +436,7 @@ describe("agent-frame.jpg route", () => {
       .mockRejectedValueOnce(
         new MockVideoFrameExtractionError(
           "No frame was available at that timestamp.",
-          "NO_VIDEO",
+          "NO_FRAME_AT_TIMESTAMP",
         ),
       )
       .mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
@@ -538,6 +538,71 @@ describe("agent-frame.jpg route", () => {
       error: "FFmpeg is not available",
       nextStep: expect.stringContaining("Retry once"),
     });
+  });
+
+  it("does not suggest timestamp retries when the recording has no video track", async () => {
+    mockExtractJpegFrameFromFile.mockRejectedValue(
+      new MockVideoFrameExtractionError(
+        "This recording does not contain a video track.",
+        "NO_VIDEO_TRACK",
+      ),
+    );
+
+    const event = makeEvent({ id: "audio-only", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(422);
+    expect(result).toMatchObject({
+      failureKind: "unsupported",
+      nextStep: expect.stringContaining("has no video track"),
+    });
+    expect((result as { nextStep: string }).nextStep).toContain(
+      "Do not retry with another timestamp",
+    );
+    expect(mockProbeMediaDurationMsFromFile).not.toHaveBeenCalled();
+  });
+
+  it("does not suggest timestamp retries when the stored recording is empty", async () => {
+    mockExtractJpegFrameFromFile.mockRejectedValue(
+      new MockVideoFrameExtractionError(
+        "Recording media is empty.",
+        "EMPTY_MEDIA",
+      ),
+    );
+
+    const event = makeEvent({ id: "empty-recording", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(422);
+    expect(result).toMatchObject({ failureKind: "processing" });
+    expect((result as { nextStep: string }).nextStep).toContain(
+      "Do not retry with another timestamp",
+    );
+    expect((result as { nextStep: string }).nextStep).toContain(
+      "replace or reupload",
+    );
+    expect(mockProbeMediaDurationMsFromFile).not.toHaveBeenCalled();
+  });
+
+  it("classifies interrupted media downloads without timestamp retry advice", async () => {
+    mockLoadRecordingMediaFile.mockRejectedValue(
+      new RecordingMediaFetchError(
+        "Recording media download failed while reading the response body.",
+        502,
+      ),
+    );
+
+    const event = makeEvent({ id: "rec-1", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(502);
+    expect(result).toMatchObject({
+      failureKind: "processing",
+      nextStep: expect.stringContaining("Retry once"),
+    });
+    expect((result as { nextStep: string }).nextStep).not.toContain(
+      "different timestamp",
+    );
   });
 
   it("marks unavailable screenshot assets as media failures", async () => {

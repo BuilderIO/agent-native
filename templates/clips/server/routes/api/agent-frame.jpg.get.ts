@@ -111,6 +111,42 @@ function applyFrameHeaders(event: H3Event) {
 function describeFrameFailure(error: unknown, status: number) {
   const message = error instanceof Error ? error.message : String(error);
   if (
+    error instanceof VideoFrameExtractionError &&
+    error.code === "NO_VIDEO_TRACK"
+  ) {
+    return {
+      failureKind: "unsupported",
+      error: message,
+      nextStep:
+        "This recording has no video track, so Clips cannot provide video frames. Do not retry with another timestamp. Continue with the transcript if available, and ask the owner to provide a video recording if visual inspection is needed.",
+    };
+  }
+
+  if (
+    error instanceof VideoFrameExtractionError &&
+    error.code === "EMPTY_MEDIA"
+  ) {
+    return {
+      failureKind: "processing",
+      error: message,
+      nextStep:
+        "The stored recording is empty and has no frames to inspect. Do not retry with another timestamp. Ask the owner to replace or reupload the clip's video; the transcript may still be available.",
+    };
+  }
+
+  if (
+    error instanceof VideoFrameExtractionError &&
+    error.code === "NO_FRAME_AT_TIMESTAMP"
+  ) {
+    return {
+      failureKind: "processing",
+      error: message,
+      nextStep:
+        "No frame was available at the requested timestamp. Try a different timestamp; if the failure continues, report the frame error. Do not treat it as an access failure or missing media.",
+    };
+  }
+
+  if (
     error instanceof RecordingMediaFetchError &&
     (error.statusCode === 404 || error.statusCode === 410)
   ) {
@@ -137,9 +173,7 @@ function describeFrameFailure(error: unknown, status: number) {
   const nextStep =
     status === 413
       ? "The stored media is too large for frame inspection. The share link may still be valid; report that frames cannot be inspected at this size."
-      : status === 422
-        ? "This frame could not be extracted at the requested timestamp. Try a different timestamp; if the failure continues, report the frame error. Do not treat it as an access failure or missing media."
-        : "Frame extraction or media storage failed after clip access was granted. Retry once; if it continues, report the returned error. Do not request another share link unless a context or transcript response has failureKind=access.";
+      : "Frame extraction or media storage failed after clip access was granted. Retry once; if it continues, report the returned error. Do not request another share link unless a context or transcript response has failureKind=access.";
 
   return { failureKind: "processing", error: message, nextStep };
 }
@@ -210,7 +244,7 @@ async function extractFrameWithStaleDurationRecovery({
   } catch (error) {
     if (
       !(error instanceof VideoFrameExtractionError) ||
-      error.code !== "NO_VIDEO" ||
+      error.code !== "NO_FRAME_AT_TIMESTAMP" ||
       atMs <= 0
     ) {
       throw error;
@@ -236,7 +270,7 @@ async function extractFrameWithStaleDurationRecovery({
       } catch (candidateError) {
         if (
           !(candidateError instanceof VideoFrameExtractionError) ||
-          candidateError.code !== "NO_VIDEO"
+          candidateError.code !== "NO_FRAME_AT_TIMESTAMP"
         ) {
           throw candidateError;
         }
@@ -413,11 +447,17 @@ export default defineEventHandler(async (event: H3Event) => {
     const status =
       err instanceof RecordingMediaFetchError
         ? err.statusCode
-        : isFrameError && err.code === "FFMPEG_UNAVAILABLE"
-          ? 503
+        : isFrameError
+          ? err.code === "FFMPEG_UNAVAILABLE"
+            ? 503
+            : err.code === "NO_VIDEO_TRACK" ||
+                err.code === "EMPTY_MEDIA" ||
+                err.code === "NO_FRAME_AT_TIMESTAMP"
+              ? 422
+              : 502
           : err instanceof Error && /too large/i.test(err.message)
             ? 413
-            : 422;
+            : 502;
     setResponseStatus(event, status);
     setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");

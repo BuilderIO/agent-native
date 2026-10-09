@@ -107,6 +107,15 @@ function streamFrom(chunks: Uint8Array[]) {
   });
 }
 
+function streamThatFailsAfterChunk() {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(Buffer.from("partial"));
+      controller.error(new Error("connection reset"));
+    },
+  });
+}
+
 describe("public agent context access", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -336,6 +345,24 @@ describe("loadRecordingMediaBytes", () => {
     } finally {
       await result.cleanup();
     }
+  });
+
+  it("classifies a failed response-body stream as a media fetch failure", async () => {
+    mockSsrfSafeFetch.mockResolvedValue(
+      new Response(streamThatFailsAfterChunk(), {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      }),
+    );
+
+    await expect(
+      loadRecordingMediaFile(makeRecording({ videoFormat: "mp4" }) as any),
+    ).rejects.toMatchObject({
+      name: "RecordingMediaFetchError",
+      statusCode: 502,
+      message:
+        "Recording media download failed while reading the response body.",
+    });
   });
 
   it("wraps remote media fetch exceptions as fetch failures", async () => {
