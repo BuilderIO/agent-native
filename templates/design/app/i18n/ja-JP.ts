@@ -22,6 +22,8 @@ export default {
       "{label}、ソース例{source}、ギャラリー位置 {current}/{total}、撮影日 {date}",
     screenshotMissing: "スクリーンショット未取得",
     recordingUnavailable: "利用不可",
+    recordingGap: "記録の空白",
+    recordingGapDuration: "記録の空白 · {duration}",
     eventTime: "イベント時刻（UTC）",
     generationCompletedEvent: "generation_completed イベント（UTC）",
     replayObservation: "リプレイ観測",
@@ -1623,6 +1625,13 @@ export default {
       permissionPromptSettingsInstructions:
         "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、ローカル ネットワークを「許可」に設定します。",
       permissionPromptRetry: "接続を再試行",
+      previewCredentialsUnavailableTitle:
+        "ローカルプレビューの認証情報を利用できません",
+      previewCredentialsUnavailableDescription:
+        "インスペクターでこの画面の localhost 接続を再接続してから、もう一度お試しください。",
+      publicPreviewUnavailableDescription:
+        "localhost のプレビューは公開ユーザーには共有されません。この画面を見るには、共同編集者としてこのデザインを開いてください。",
+      previewCredentialsRetry: "認証情報を再取得",
     },
   },
   multiScreenCanvas: {

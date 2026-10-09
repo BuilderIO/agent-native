@@ -23,6 +23,7 @@ import {
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
 import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
+import { trackSlides } from "../server/lib/slides-tracking.js";
 import {
   buildSourceImportMetadata,
   mergeSourceImportMetadata,
@@ -48,6 +49,27 @@ import {
 } from "./_deck-write.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 import { withDeckLock } from "./patch-deck.js";
+
+// Importing into a deck appends slides to it: a content edit, never a
+// creation (the deck's row, and its deck_created, already exist).
+function trackImportedIntoDeck(
+  deckId: string,
+  format: "pptx" | "docx" | "pdf",
+  slidesAdded: number,
+  source: Parameters<typeof trackSlides>[2],
+): void {
+  trackSlides(
+    "deck_edited",
+    {
+      output_id: deckId,
+      output_type: "deck",
+      edit_mode: `import_${format}`,
+      change_kinds: ["add_slide"],
+      slides_changed: slidesAdded,
+    },
+    source,
+  );
+}
 
 const DEFAULT_MAX_SOURCE_CHARS = 60_000;
 
@@ -270,6 +292,7 @@ export default defineAction({
           fallbackTitle,
           presentation.theme,
         );
+        trackImportedIntoDeck(deckId, "pptx", slides.length, ctx);
         return {
           format: "pptx",
           title: importedTitle,
@@ -337,6 +360,7 @@ export default defineAction({
           doc.text,
           fallbackTitle,
         );
+        trackImportedIntoDeck(deckId, "docx", slides.length, ctx);
         return {
           format: "docx",
           title: importedTitle,
@@ -370,7 +394,7 @@ export default defineAction({
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
-        return importPdfPagesWithFidelity({
+        const imported = await importPdfPagesWithFidelity({
           fileBuffer,
           title: "",
           deckId,
@@ -378,6 +402,8 @@ export default defineAction({
           canvasFactory,
           fallbackTitle: title,
         });
+        trackImportedIntoDeck(deckId, "pdf", imported.slideCount, ctx);
+        return imported;
       }
 
       const pdf = new PDFParse({

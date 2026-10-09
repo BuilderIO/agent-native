@@ -1261,6 +1261,10 @@ export default defineAction({
       ) {
         return linkedResult;
       }
+      // The linked transformer checked the current workspace and exact source
+      // versions. For an unlinked component root, continue through the normal
+      // inline source CAS path below instead of treating the prefix as proof of
+      // a component link.
     }
 
     const conditions = [

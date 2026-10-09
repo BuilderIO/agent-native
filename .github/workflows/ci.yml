@@ -230,12 +230,7 @@ jobs:
           pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
 
       - name: Allow the downloaded Chromium sandbox
-        run: |
-          if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" == "1" ]]; then
-            browser_path="$HOME/.cache/ms-playwright/**/chrome-headless-shell"
-            printf 'abi <abi/4.0>,\ninclude <tunables/global>\n\nprofile design-playwright-chromium %s flags=(unconfined) {\n  userns,\n}\n' "$browser_path" | sudo tee /etc/apparmor.d/design-playwright-chromium >/dev/null
-            sudo apparmor_parser -r /etc/apparmor.d/design-playwright-chromium
-          fi
+        uses: ./.github/actions/allow-playwright-sandbox
 
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
@@ -331,12 +326,7 @@ jobs:
           pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
 
       - name: Allow the downloaded Chromium sandbox
-        run: |
-          if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" == "1" ]]; then
-            browser_path="$HOME/.cache/ms-playwright/**/chrome-headless-shell"
-            printf 'abi <abi/4.0>,\ninclude <tunables/global>\n\nprofile design-playwright-chromium %s flags=(unconfined) {\n  userns,\n}\n' "$browser_path" | sudo tee /etc/apparmor.d/design-playwright-chromium >/dev/null
-            sudo apparmor_parser -r /etc/apparmor.d/design-playwright-chromium
-          fi
+        uses: ./.github/actions/allow-playwright-sandbox
 
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
@@ -470,6 +460,9 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell chromium
 
+      - name: Allow the downloaded Chromium sandbox
+        uses: ./.github/actions/allow-playwright-sandbox
+
       - name: Run focused Screen selection history regressions
         if: startsWith(matrix.shard, 'screen-history-')
         working-directory: templates/design
@@ -593,6 +586,9 @@ jobs:
 
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell chromium
+
+      - name: Allow the downloaded Chromium sandbox
+        uses: ./.github/actions/allow-playwright-sandbox
 
       - name: Run changed Design E2E specs
         working-directory: templates/design
@@ -789,9 +785,15 @@ jobs:
     if: needs.change-scope.outputs.content == 'true' || needs.change-scope.outputs.content_convergence == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     services:
       postgres:
-        image: postgres:17-alpine
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           POSTGRES_DB: content_migration_test
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -1150,11 +1152,17 @@ jobs:
     if: needs.change-scope.result == 'success' && (needs.change-scope.outputs.docs_only == 'true' || needs.change-scope.outputs.build == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     env:
       DATABASE_URL: postgresql://postgres@127.0.0.1:5432/agent_native_build
     services:
       postgres:
-        image: postgres:17-alpine
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           POSTGRES_DB: agent_native_build
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -1314,9 +1322,15 @@ jobs:
     if: needs.change-scope.outputs.neon_connection_budget == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
     services:
       postgres:
-        image: postgres:18-alpine
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:18-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           POSTGRES_PASSWORD: neon-budget
           POSTGRES_DB: neon_budget

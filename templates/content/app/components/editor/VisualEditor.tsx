@@ -84,13 +84,13 @@ import {
   useMemo,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Markdown } from "tiptap-markdown";
 import { Awareness } from "y-protocols/awareness";
 import { encodeStateAsUpdate, type Doc as YDoc } from "yjs";
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
-import { DirectoryWidgetFormattingToolbar } from "@/components/editor/DirectoryWidgetFormattingToolbar";
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import type { CommentThread } from "@/hooks/use-comments";
@@ -1591,6 +1591,8 @@ interface VisualEditorProps {
   user?: { name: string; color: string; email?: string; avatarUrl?: string };
   editable?: boolean;
   directoryWidgetEditing?: boolean;
+  /** Where the widget's docked formatting toolbar renders, under the page toolbar. */
+  widgetFormattingSlot?: HTMLElement | null;
   suggesting?: boolean;
   widgetLoadDiagnosticsActive?: boolean;
   localFileMode?: boolean;
@@ -3040,6 +3042,7 @@ export function VisualEditor({
   user,
   editable = true,
   directoryWidgetEditing = false,
+  widgetFormattingSlot = null,
   suggesting = false,
   widgetLoadDiagnosticsActive = false,
   localFileMode = false,
@@ -3442,6 +3445,9 @@ export function VisualEditor({
   };
 
   const historyEditorRef = useRef<CoreEditor | null>(null);
+  const historyControllerRef = useRef<VisualEditorHistoryController | null>(
+    null,
+  );
   const acknowledgedRestoreRef = useRef<{
     documentId: string | null;
     content: string;
@@ -3760,10 +3766,11 @@ export function VisualEditor({
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) {
+      historyControllerRef.current = null;
       onHistoryControllerChange?.(null);
       return;
     }
-    onHistoryControllerChange?.({
+    const historyController: VisualEditorHistoryController = {
       undo: () => runPersistableHistoryCommand(editor, "undo"),
       redo: () => runPersistableHistoryCommand(editor, "redo"),
       replaceWithAuthoritativeContent: (snapshot) => {
@@ -3797,14 +3804,19 @@ export function VisualEditor({
         }
         return applied;
       },
-    });
+    };
+    historyControllerRef.current = historyController;
+    onHistoryControllerChange?.(historyController);
     const initialHistoryState = {
       canUndo: editor.can().undo(),
       canRedo: editor.can().redo(),
     };
     deliveredHistoryStateRef.current = initialHistoryState;
     onHistoryStateChange?.(initialHistoryState);
-    return () => onHistoryControllerChange?.(null);
+    return () => {
+      historyControllerRef.current = null;
+      onHistoryControllerChange?.(null);
+    };
   }, [
     editor,
     documentId,
@@ -4629,6 +4641,15 @@ export function VisualEditor({
     );
   }
 
+  const widgetFormattingToolbar = (
+    <BubbleToolbar
+      docked
+      editor={editor}
+      onUndo={() => historyControllerRef.current?.undo()}
+      onRedo={() => historyControllerRef.current?.redo()}
+    />
+  );
+
   return (
     <div
       ref={wrapperRef}
@@ -4641,9 +4662,12 @@ export function VisualEditor({
         ttlMs={CONTENT_RECENT_EDIT_TTL_MS}
       />
       {editable && directoryWidgetEditing ? (
-        <DirectoryWidgetFormattingToolbar editor={editor} />
-      ) : null}
-      {editable ? (
+        widgetFormattingSlot ? (
+          createPortal(widgetFormattingToolbar, widgetFormattingSlot)
+        ) : (
+          <div className="sticky top-0 z-10">{widgetFormattingToolbar}</div>
+        )
+      ) : editable ? (
         <BubbleToolbar editor={editor} onComment={onComment} />
       ) : null}
       {editable ? (

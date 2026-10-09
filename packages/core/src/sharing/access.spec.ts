@@ -1096,6 +1096,14 @@ describe("shareable resource access helpers", () => {
 
   it("runs share, list, visibility, and unshare actions with role checks", async () => {
     await insertDoc({ id: "doc-actions" });
+    const widgetReadContext = {
+      caller: "mcp-widget",
+      mcpDirectoryWidgetReadOnly: true,
+      mcpDirectoryWidgetResourceIds: {
+        [`${resourceType}Id`]: "doc-actions",
+        resourceType,
+      },
+    } as const;
 
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       await expect(
@@ -1128,6 +1136,15 @@ describe("shareable resource access helpers", () => {
         ],
       });
       await expect(
+        listResourceShares.run(
+          {
+            resourceType,
+            resourceId: "doc-actions",
+          },
+          widgetReadContext,
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
         setResourceVisibility.run({
           resourceType,
           resourceId: "doc-actions",
@@ -1141,6 +1158,28 @@ describe("shareable resource access helpers", () => {
           visibility: "private",
         }),
       ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        listResourceShares.run(
+          {
+            resourceType,
+            resourceId: "doc-actions",
+          },
+          widgetReadContext,
+        ),
+      ).resolves.toMatchObject({
+        ownerEmail,
+        role: "owner",
+        shares: [
+          {
+            principalType: "user",
+            principalId: viewerEmail,
+            role: "viewer",
+          },
+        ],
+      });
     });
 
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
