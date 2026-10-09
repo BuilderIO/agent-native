@@ -617,6 +617,7 @@ export interface QueryResult {
 export interface RunQueryOptions {
   signal?: AbortSignal;
   forceRefresh?: boolean;
+  maxBytesBilled?: number;
 }
 
 interface BigQueryField {
@@ -898,6 +899,16 @@ export async function runQuery(
   options: RunQueryOptions = {},
 ): Promise<QueryResult> {
   assertReadOnlySql(sql, "bigquery");
+  const maxBytesBilled = options.maxBytesBilled ?? 750_000_000_000;
+  if (
+    !Number.isSafeInteger(maxBytesBilled) ||
+    maxBytesBilled < 1 ||
+    maxBytesBilled > 750_000_000_000
+  ) {
+    throw new Error(
+      "BigQuery maximum bytes billed is outside the allowed range",
+    );
+  }
   const { signal } = options;
   throwIfAborted(signal);
   const { projectId, cacheScope, appEventsTable } = await getProjectInfo();
@@ -983,7 +994,7 @@ export async function runQuery(
           query: {
             query: cacheableSql,
             useLegacySql: false,
-            maximumBytesBilled: "750000000000", // 750GB cap
+            maximumBytesBilled: String(maxBytesBilled),
             ...(forceRefresh ? { useQueryCache: false } : {}),
           },
         },

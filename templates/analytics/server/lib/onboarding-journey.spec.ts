@@ -41,6 +41,7 @@ const ARGS: OnboardingJourneyArgs = {
   dateTo: "2026-10-02",
   app: "clips",
   emailFilter: "exclude_builder",
+  followUpMode: "session",
   format: "tree",
   maxDepth: 8,
   minNodeSessions: 1,
@@ -64,6 +65,7 @@ function eventRow(
     timestamp: new Date(T0 + offsetSeconds * 1000).toISOString(),
     event_name: eventName,
     journey_kind: "onboarding",
+    app: "clips",
     path: null,
     flow: null,
     source: null,
@@ -305,6 +307,161 @@ describe("getOnboardingJourney", () => {
     now.mockRestore();
   });
 
+  it("adds distinct-person follow-up without changing tree or session denominators", async () => {
+    const now = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.parse("2026-11-05T00:00:00.000Z"));
+    const rows = [
+      eventRow("s1", "signup", 0, { auth_user_id: "person-1" }),
+      eventRow("s1", "onboarding_step_viewed", 5, {
+        step_id: "role",
+        auth_user_id: "person-1",
+      }),
+      eventRow("s1", "onboarding_completed", 10, {
+        auth_user_id: "person-1",
+      }),
+      eventRow("s2", "signup", 0, { auth_user_id: "person-1" }),
+      eventRow("s2", "onboarding_step_viewed", 5, {
+        step_id: "role",
+        auth_user_id: "person-1",
+      }),
+      eventRow("s3", "signup", 0, { auth_user_id: "org:org-1" }),
+    ];
+    mocks.queryFirstPartyAnalytics
+      .mockResolvedValueOnce({ rows, schema: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            terminal_step_key: "onboarding:completed",
+            cohort_sessions: 1,
+            later_recorded_activity: 1,
+          },
+          {
+            terminal_step_key: "signup",
+            cohort_sessions: 1,
+            later_recorded_activity: 0,
+          },
+          {
+            terminal_step_key: "step:role",
+            cohort_sessions: 1,
+            later_recorded_activity: 0,
+          },
+        ],
+        schema: [],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            terminal_step_key: "onboarding:completed",
+            canonical_people: 1,
+            identity_unavailable_sessions: 0,
+            later_activity_in_selected_session: 0,
+            later_activity_outside_selected_session_or_app: 1,
+            later_activity_in_both_selected_and_outside: 0,
+            later_activity_observed_anywhere: 1,
+            no_activity_observed_within_horizon: 0,
+            right_censored_horizon: 0,
+            fully_observed_canonical_people: 1,
+            identity_unavailable_with_selected_session_activity: 0,
+            identity_unavailable_with_outside_session_or_app_activity: 0,
+          },
+          {
+            terminal_step_key: "signup",
+            canonical_people: 0,
+            identity_unavailable_sessions: 1,
+            later_activity_in_selected_session: 0,
+            later_activity_outside_selected_session_or_app: 0,
+            later_activity_in_both_selected_and_outside: 0,
+            later_activity_observed_anywhere: 0,
+            no_activity_observed_within_horizon: 0,
+            right_censored_horizon: 0,
+            fully_observed_canonical_people: 0,
+            identity_unavailable_with_selected_session_activity: 0,
+            identity_unavailable_with_outside_session_or_app_activity: 0,
+          },
+        ],
+        schema: [],
+      });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      followUpMode: "person",
+    })) as JourneyTree;
+    expect(now).toHaveBeenCalledTimes(1);
+    expect(tree.rootN).toBe(3);
+    expect(tree.nodes.map((node) => [node.key, node.n, node.dropoffN])).toEqual(
+      [
+        ["signup", 3, 1],
+        ["signup > step:role", 2, 1],
+        ["signup > step:role > onboarding:completed", 1, 1],
+      ],
+    );
+    expect(tree.followUp.coverage.cohortSessions).toBe(3);
+    expect(tree.personFollowUp).toMatchObject({
+      status: "complete",
+      horizonDays: 30,
+      observationWatermark: "2026-11-05T00:00:00.000Z",
+      coverage: {
+        terminalSessions: 3,
+        sessionsWithoutSelectedStep: 0,
+        identityJoin: {
+          status: "partial",
+          terminalSessions: 3,
+          sessionsWithCanonicalIdentity: 2,
+          sessionsWithoutCanonicalIdentity: 1,
+          uniqueCanonicalPeople: 1,
+          coveragePct: 66.7,
+        },
+      },
+      total: {
+        canonicalPeople: 1,
+        laterActivityOutsideSelectedSessionOrApp: 1,
+        noActivityObservedWithinHorizon: 0,
+        rightCensoredHorizon: 0,
+        identityUnavailableSessions: 1,
+      },
+      byTerminalStepKey: {
+        "onboarding:completed": {
+          canonicalPeople: 1,
+          laterActivityOutsideSelectedSessionOrApp: 1,
+          noActivityObservedWithinHorizonPctOfFullyObservedCanonicalPeople: 0,
+        },
+        signup: { identityUnavailableSessions: 1 },
+        "step:role": { canonicalPeople: 0 },
+      },
+    });
+    expect(JSON.stringify(tree.personFollowUp)).not.toContain("person-1");
+    const journeySql = mocks.queryFirstPartyAnalytics.mock.calls[0]![0];
+    const personSql = mocks.queryFirstPartyAnalytics.mock.calls[2]![0];
+    expect(journeySql).toContain("received_at::timestamptz <");
+    expect(personSql).toContain("'person-1' AS auth_user_id");
+    expect(personSql).toContain("e.received_at::timestamptz <");
+    expect(personSql).toContain("'30 days'");
+    now.mockRestore();
+  });
+
+  it("keeps sessions without a selected journey step out of person inactivity counts", async () => {
+    const row = eventRow("no-step", "pageview", 0);
+    mocks.queryFirstPartyAnalytics
+      .mockResolvedValueOnce({ rows: [row], schema: [] })
+      .mockResolvedValueOnce({ rows: [], schema: [] });
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      followUpMode: "person",
+      format: "summary",
+    })) as JourneySummary;
+
+    expect(tree.personFollowUp).toMatchObject({
+      status: "complete",
+      coverage: { terminalSessions: 0, sessionsWithoutSelectedStep: 1 },
+      total: {
+        canonicalPeople: 0,
+        noActivityObservedWithinHorizon: 0,
+        identityUnavailableSessions: 0,
+      },
+    });
+  });
+
   it("keeps selected tree counts but nulls follow-up cohorts when journey events truncate", async () => {
     const rows = [
       eventRow("s1", "signup", 0),
@@ -315,6 +472,7 @@ describe("getOnboardingJourney", () => {
     mocks.queryFirstPartyAnalytics.mockResolvedValue({ rows, schema: [] });
     const tree = (await getOnboardingJourney(scope, {
       ...ARGS,
+      followUpMode: "person",
       maxEventRows: 3,
     })) as JourneyTree;
 
@@ -338,7 +496,50 @@ describe("getOnboardingJourney", () => {
       },
       observationFollowupDurationMs: null,
     });
+    expect(tree.personFollowUp).toMatchObject({
+      status: "incomplete",
+      incompleteReason: "journey_event_read_truncated",
+      total: null,
+      byTerminalStepKey: null,
+      coverage: {
+        journeyEventRead: { truncated: true },
+        followupAggregateRead: {
+          status: "not_run",
+          rows: null,
+          queries: 0,
+          truncated: false,
+        },
+        identityJoin: { status: "unknown" },
+      },
+    });
     expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(1);
+  });
+
+  it("nulls person counts when the cross-session aggregate truncates", async () => {
+    mocks.queryFirstPartyAnalytics
+      .mockResolvedValueOnce({ rows: journeyRows(), schema: [] })
+      .mockResolvedValueOnce({ rows: [], schema: [] })
+      .mockResolvedValueOnce({ rows: [], schema: [], truncated: true });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      followUpMode: "person",
+    })) as JourneyTree;
+
+    expect(tree.personFollowUp).toMatchObject({
+      status: "incomplete",
+      incompleteReason: "person_followup_aggregate_truncated",
+      total: null,
+      byTerminalStepKey: null,
+      coverage: {
+        followupAggregateRead: {
+          status: "truncated",
+          rows: 0,
+          queries: 1,
+          truncated: true,
+        },
+      },
+    });
   });
 
   it("nulls all follow-up cohort counts when the aggregate query truncates", async () => {

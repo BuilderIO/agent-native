@@ -6,10 +6,15 @@ import {
   type AnalyticsScope,
 } from "./first-party-analytics.js";
 import {
+  FIRST_PARTY_TEMPLATE_NAMES,
   buildOnboardingJourneyEventsSql,
   buildOnboardingJourneyFollowupSql,
+  buildOnboardingJourneyPersonFollowupSql,
+  MAX_ONBOARDING_PERSON_FOLLOWUP_MEMBERS,
+  ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS,
   type OnboardingJourneyEventsFilters,
   type OnboardingJourneyObservationWindow,
+  type OnboardingJourneyPersonMember,
   type OnboardingJourneyTerminalStep,
 } from "./first-party-metric-catalog.js";
 import {
@@ -36,6 +41,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface OnboardingJourneyArgs extends OnboardingJourneyEventsFilters {
   format: "tree" | "summary";
+  followUpMode: "session" | "person";
   maxDepth: number;
   minNodeSessions: number;
   examplesPerNode: number;
@@ -61,6 +67,7 @@ export interface JourneyTree {
   };
   nodes: JourneyNode[];
   followUp: JourneyFollowup;
+  personFollowUp?: JourneyPersonFollowup;
   /** Home chat setup sessions that did not enter onboarding, with a separate denominator. */
   standaloneSetup?: {
     rootN: number;
@@ -89,6 +96,7 @@ export interface JourneySummary {
   /** One line per node, indented by depth. */
   outline: string;
   followUp: JourneyFollowup;
+  personFollowUp?: JourneyPersonFollowup;
   standaloneSetup?: {
     rootN: number;
     coverage: {
@@ -140,6 +148,78 @@ export interface JourneyFollowup {
     total: number | null;
     byTerminalStepKey: Record<string, number> | null;
   };
+}
+
+export interface JourneyPersonFollowupCounts {
+  canonicalPeople: number;
+  /** Activity evidence classes overlap when both occurred during the horizon. */
+  laterActivityInSelectedSession: number;
+  laterActivityOutsideSelectedSessionOrApp: number;
+  laterActivityInBothSelectedAndOutside: number;
+  laterActivityObservedAnywhere: number;
+  noActivityObservedWithinHorizon: number;
+  rightCensoredHorizon: number;
+  fullyObservedCanonicalPeople: number;
+  noActivityObservedWithinHorizonPctOfFullyObservedCanonicalPeople:
+    | number
+    | null;
+  identityUnavailableSessions: number;
+  identityUnavailableSessionEvidence: {
+    laterActivityInSelectedSession: number;
+    laterActivityOutsideSelectedSessionOrApp: number;
+  };
+}
+
+export interface JourneyPersonFollowup {
+  status: "complete" | "incomplete";
+  incompleteReason?:
+    | "journey_event_read_truncated"
+    | "journey_event_read_invalid"
+    | "journey_event_read_may_have_shifted"
+    | "terminal_cohort_too_large"
+    | "terminal_cohort_invalid"
+    | "person_followup_aggregate_truncated"
+    | "person_followup_aggregate_invalid"
+    | "person_followup_terminal_cohort_mismatch";
+  horizonDays: typeof ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS;
+  horizonMs: number;
+  observationWatermark: string;
+  observationFollowupDurationMs: {
+    min: number;
+    max: number;
+    mean: number;
+  } | null;
+  coverage: {
+    journeyEventRead: {
+      rows: number;
+      pages: number;
+      truncated: boolean;
+      paginationConsistency: "stable" | "may_have_shifted";
+    };
+    followupAggregateRead: {
+      status: "complete" | "truncated" | "not_run";
+      rows: number | null;
+      queries: number;
+      truncated: boolean;
+    };
+    terminalSessions: number | null;
+    sessionsWithoutSelectedStep: number | null;
+    identityJoin: {
+      status:
+        | "complete"
+        | "partial"
+        | "unavailable"
+        | "not_applicable"
+        | "unknown";
+      terminalSessions: number | null;
+      sessionsWithCanonicalIdentity: number | null;
+      sessionsWithoutCanonicalIdentity: number | null;
+      uniqueCanonicalPeople: number | null;
+      coveragePct: number | null;
+    };
+  };
+  total: JourneyPersonFollowupCounts | null;
+  byTerminalStepKey: Record<string, JourneyPersonFollowupCounts> | null;
 }
 
 /** Recordings could not be read completely, so examples would misreport replay availability. */
@@ -203,6 +283,8 @@ export function parseJourneyEventRow(
     journeyKind,
     tsMs,
     eventName,
+    ...(text(raw.auth_user_id) ? { authUserId: text(raw.auth_user_id)! } : {}),
+    ...(text(raw.app) ? { app: text(raw.app)! } : {}),
     path: text(raw.path),
     flow: text(raw.flow),
     source: text(raw.source),
@@ -232,6 +314,7 @@ async function readJourneyEvents(
   filters: OnboardingJourneyEventsFilters,
   maxEventRows: number,
   observation: OnboardingJourneyObservationWindow,
+  freezeReceivedAt: boolean,
 ): Promise<EventRead> {
   const raw: Record<string, unknown>[] = [];
   let truncated = false;
@@ -250,6 +333,7 @@ async function readJourneyEvents(
           offset: raw.length,
         },
         observation,
+        { freezeReceivedAt },
       ),
       scope,
       { cache: true },
@@ -321,7 +405,7 @@ async function readJourneyEvents(
 
 function groupSessions(rows: readonly JourneyEventRow[]): {
   sessions: JourneySession[];
-  terminalSteps: OnboardingJourneyTerminalStep[];
+  terminalSteps: OnboardingJourneyPersonMember[];
   sessionsWithoutSteps: number;
 } {
   const bySession = new Map<string, JourneyEventRow[]>();
@@ -331,7 +415,7 @@ function groupSessions(rows: readonly JourneyEventRow[]): {
     else bySession.set(row.sessionId, [row]);
   }
   const sessions: JourneySession[] = [];
-  const terminalSteps: OnboardingJourneyTerminalStep[] = [];
+  const terminalSteps: OnboardingJourneyPersonMember[] = [];
   let sessionsWithoutSteps = 0;
   for (const [sessionId, sessionRows] of bySession) {
     const selected = projectSessionSteps(sessionRows);
@@ -347,6 +431,8 @@ function groupSessions(rows: readonly JourneyEventRow[]): {
         sessionId,
         stepKey: terminal.key,
         tsMs: terminal.tsMs,
+        app: terminal.app ?? "",
+        authUserId: terminal.authUserId ?? null,
       });
     } else sessionsWithoutSteps += 1;
   }
@@ -373,6 +459,7 @@ function freezeObservationWindow(
   return {
     observationCutoff,
     observationDate: observationCutoff.slice(0, 10),
+    observationWatermark: new Date(requestedAtMs).toISOString(),
   };
 }
 
@@ -603,6 +690,463 @@ async function readFollowup(
   };
 }
 
+function canonicalPersonId(value: string | null | undefined): string | null {
+  if (!value || value.trim() !== value || /^org:/i.test(value)) {
+    return null;
+  }
+  return value;
+}
+
+interface PersonFollowupStepCohort {
+  terminalSessions: number;
+  identifiedTerminalSessions: number;
+  identityUnavailableSessions: number;
+  canonicalPeople: number;
+  members: number;
+}
+
+function emptyPersonFollowupCounts(): JourneyPersonFollowupCounts {
+  return {
+    canonicalPeople: 0,
+    laterActivityInSelectedSession: 0,
+    laterActivityOutsideSelectedSessionOrApp: 0,
+    laterActivityInBothSelectedAndOutside: 0,
+    laterActivityObservedAnywhere: 0,
+    noActivityObservedWithinHorizon: 0,
+    rightCensoredHorizon: 0,
+    fullyObservedCanonicalPeople: 0,
+    noActivityObservedWithinHorizonPctOfFullyObservedCanonicalPeople: null,
+    identityUnavailableSessions: 0,
+    identityUnavailableSessionEvidence: {
+      laterActivityInSelectedSession: 0,
+      laterActivityOutsideSelectedSessionOrApp: 0,
+    },
+  };
+}
+
+function sumPersonFollowupCounts(
+  values: readonly JourneyPersonFollowupCounts[],
+): JourneyPersonFollowupCounts {
+  const sum = emptyPersonFollowupCounts();
+  for (const value of values) {
+    sum.canonicalPeople += value.canonicalPeople;
+    sum.laterActivityInSelectedSession += value.laterActivityInSelectedSession;
+    sum.laterActivityOutsideSelectedSessionOrApp +=
+      value.laterActivityOutsideSelectedSessionOrApp;
+    sum.laterActivityInBothSelectedAndOutside +=
+      value.laterActivityInBothSelectedAndOutside;
+    sum.laterActivityObservedAnywhere += value.laterActivityObservedAnywhere;
+    sum.noActivityObservedWithinHorizon +=
+      value.noActivityObservedWithinHorizon;
+    sum.rightCensoredHorizon += value.rightCensoredHorizon;
+    sum.fullyObservedCanonicalPeople += value.fullyObservedCanonicalPeople;
+    sum.identityUnavailableSessions += value.identityUnavailableSessions;
+    sum.identityUnavailableSessionEvidence.laterActivityInSelectedSession +=
+      value.identityUnavailableSessionEvidence.laterActivityInSelectedSession;
+    sum.identityUnavailableSessionEvidence.laterActivityOutsideSelectedSessionOrApp +=
+      value.identityUnavailableSessionEvidence.laterActivityOutsideSelectedSessionOrApp;
+  }
+  sum.noActivityObservedWithinHorizonPctOfFullyObservedCanonicalPeople =
+    sum.fullyObservedCanonicalPeople
+      ? Math.round(
+          (sum.noActivityObservedWithinHorizon /
+            sum.fullyObservedCanonicalPeople) *
+            1_000,
+        ) / 10
+      : null;
+  return sum;
+}
+
+async function readPersonFollowup(
+  scope: AnalyticsScope,
+  filters: OnboardingJourneyEventsFilters,
+  read: EventRead,
+  terminals: readonly OnboardingJourneyPersonMember[],
+  sessionsWithoutSelectedStep: number,
+  observation: OnboardingJourneyObservationWindow,
+): Promise<JourneyPersonFollowup> {
+  const horizonDays = ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS;
+  const horizonMs = horizonDays * DAY_MS;
+  const observationWatermark = observation.observationWatermark;
+  if (!observationWatermark) {
+    throw new Error("Onboarding person follow-up requires a frozen watermark");
+  }
+
+  const eventReadCoverage = {
+    rows: read.rawRows,
+    pages: read.pages,
+    truncated: read.truncated,
+    paginationConsistency: read.paginationConsistency,
+  };
+  const unknownIdentityCoverage = {
+    status: "unknown" as const,
+    terminalSessions: null,
+    sessionsWithCanonicalIdentity: null,
+    sessionsWithoutCanonicalIdentity: null,
+    uniqueCanonicalPeople: null,
+    coveragePct: null,
+  };
+  const incomplete = (
+    reason: NonNullable<JourneyPersonFollowup["incompleteReason"]>,
+    options: {
+      aggregateStatus?: JourneyPersonFollowup["coverage"]["followupAggregateRead"]["status"];
+      rows?: number | null;
+      queries?: number;
+      truncated?: boolean;
+      terminalSessions?: number | null;
+      sessionsWithoutSelectedStep?: number | null;
+      identityJoin?: JourneyPersonFollowup["coverage"]["identityJoin"];
+    } = {},
+  ): JourneyPersonFollowup => ({
+    status: "incomplete",
+    incompleteReason: reason,
+    horizonDays,
+    horizonMs,
+    observationWatermark,
+    observationFollowupDurationMs: null,
+    coverage: {
+      journeyEventRead: eventReadCoverage,
+      followupAggregateRead: {
+        status: options.aggregateStatus ?? "not_run",
+        rows: options.rows ?? null,
+        queries: options.queries ?? 0,
+        truncated: options.truncated ?? false,
+      },
+      terminalSessions: options.terminalSessions ?? null,
+      sessionsWithoutSelectedStep: options.sessionsWithoutSelectedStep ?? null,
+      identityJoin: options.identityJoin ?? unknownIdentityCoverage,
+    },
+    total: null,
+    byTerminalStepKey: null,
+  });
+
+  if (
+    read.truncated ||
+    read.invalidRows ||
+    read.paginationConsistency === "may_have_shifted"
+  ) {
+    const reason = read.truncated
+      ? "journey_event_read_truncated"
+      : read.invalidRows
+        ? "journey_event_read_invalid"
+        : "journey_event_read_may_have_shifted";
+    return incomplete(reason);
+  }
+
+  const invalidApp = terminals.some(
+    (terminal) =>
+      !terminal.app ||
+      !(FIRST_PARTY_TEMPLATE_NAMES as readonly string[]).includes(
+        terminal.app.toLowerCase(),
+      ),
+  );
+  if (invalidApp) {
+    return incomplete("terminal_cohort_invalid", {
+      terminalSessions: terminals.length,
+      sessionsWithoutSelectedStep,
+    });
+  }
+
+  const canonicalSessions = terminals.filter(
+    (terminal) => canonicalPersonId(terminal.authUserId) !== null,
+  ).length;
+  const identityUnavailableSessions = terminals.length - canonicalSessions;
+  const peopleById = new Map<string, OnboardingJourneyPersonMember>();
+  const identityUnavailableMembers: OnboardingJourneyPersonMember[] = [];
+  for (const terminal of terminals) {
+    const app = terminal.app.toLowerCase();
+    const personId = canonicalPersonId(terminal.authUserId);
+    if (!personId) {
+      identityUnavailableMembers.push({ ...terminal, app, authUserId: null });
+      continue;
+    }
+    const current = peopleById.get(personId);
+    if (
+      !current ||
+      terminal.tsMs > current.tsMs ||
+      (terminal.tsMs === current.tsMs &&
+        (terminal.sessionId > current.sessionId ||
+          (terminal.sessionId === current.sessionId &&
+            terminal.stepKey > current.stepKey)))
+    ) {
+      peopleById.set(personId, { ...terminal, app, authUserId: personId });
+    }
+  }
+  const personMembers = [...peopleById.values()];
+  const members = [...personMembers, ...identityUnavailableMembers];
+  const identityJoin: JourneyPersonFollowup["coverage"]["identityJoin"] = {
+    status:
+      terminals.length === 0
+        ? "not_applicable"
+        : canonicalSessions === 0
+          ? "unavailable"
+          : canonicalSessions === terminals.length
+            ? "complete"
+            : "partial",
+    terminalSessions: terminals.length,
+    sessionsWithCanonicalIdentity: canonicalSessions,
+    sessionsWithoutCanonicalIdentity: identityUnavailableSessions,
+    uniqueCanonicalPeople: personMembers.length,
+    coveragePct: terminals.length
+      ? Math.round((canonicalSessions / terminals.length) * 1_000) / 10
+      : null,
+  };
+
+  if (members.length > MAX_ONBOARDING_PERSON_FOLLOWUP_MEMBERS) {
+    return incomplete("terminal_cohort_too_large", {
+      terminalSessions: terminals.length,
+      sessionsWithoutSelectedStep,
+      identityJoin,
+    });
+  }
+
+  const observationStats = personMembers.map((member) =>
+    Math.max(
+      0,
+      Math.min(horizonMs, Date.parse(observationWatermark) - member.tsMs),
+    ),
+  );
+  const durationStats = observationStats.length
+    ? {
+        min: Math.min(...observationStats),
+        max: Math.max(...observationStats),
+        mean: Math.round(
+          observationStats.reduce((sum, duration) => sum + duration, 0) /
+            observationStats.length,
+        ),
+      }
+    : null;
+
+  const expectedByStep = new Map<string, PersonFollowupStepCohort>();
+  const ensureStep = (stepKey: string) => {
+    let cohort = expectedByStep.get(stepKey);
+    if (!cohort) {
+      cohort = {
+        terminalSessions: 0,
+        identifiedTerminalSessions: 0,
+        identityUnavailableSessions: 0,
+        canonicalPeople: 0,
+        members: 0,
+      };
+      expectedByStep.set(stepKey, cohort);
+    }
+    return cohort;
+  };
+  for (const terminal of terminals) {
+    const cohort = ensureStep(terminal.stepKey);
+    cohort.terminalSessions += 1;
+    if (canonicalPersonId(terminal.authUserId)) {
+      cohort.identifiedTerminalSessions += 1;
+    } else {
+      cohort.identityUnavailableSessions += 1;
+    }
+  }
+  for (const member of members) {
+    ensureStep(member.stepKey).members += 1;
+  }
+  for (const member of personMembers) {
+    ensureStep(member.stepKey).canonicalPeople += 1;
+  }
+
+  const baseCoverage = {
+    terminalSessions: terminals.length,
+    sessionsWithoutSelectedStep,
+    identityJoin,
+  };
+  if (members.length === 0) {
+    const countsByStep: Record<string, JourneyPersonFollowupCounts> = {};
+    for (const stepKey of [...expectedByStep.keys()].sort(compareKeys)) {
+      countsByStep[stepKey] = emptyPersonFollowupCounts();
+    }
+    return {
+      status: "complete",
+      horizonDays,
+      horizonMs,
+      observationWatermark,
+      observationFollowupDurationMs: null,
+      coverage: {
+        journeyEventRead: eventReadCoverage,
+        followupAggregateRead: {
+          status: "complete",
+          rows: 0,
+          queries: 0,
+          truncated: false,
+        },
+        ...baseCoverage,
+      },
+      total: emptyPersonFollowupCounts(),
+      byTerminalStepKey: countsByStep,
+    };
+  }
+
+  const sql = buildOnboardingJourneyPersonFollowupSql(
+    filters,
+    members,
+    observation,
+  );
+  if (
+    sql.length > MAX_FOLLOWUP_QUERY_CHARS ||
+    lexAgentSql(sql, { dialect: "postgres" }).length > MAX_FOLLOWUP_QUERY_TOKENS
+  ) {
+    return incomplete("terminal_cohort_too_large", baseCoverage);
+  }
+  const result = await queryFirstPartyAnalytics(sql, scope, {
+    cache: true,
+    timeoutMs: 20_000,
+    maxBytesBilled: 10_000_000_000,
+  });
+  if (result.truncated) {
+    return incomplete("person_followup_aggregate_truncated", {
+      aggregateStatus: "truncated",
+      rows: result.rows.length,
+      queries: 1,
+      truncated: true,
+      ...baseCoverage,
+    });
+  }
+
+  const aggregateByStep = new Map<string, JourneyPersonFollowupCounts>();
+  const rowCount = result.rows.length;
+  for (const row of result.rows) {
+    const stepKey = text(row.terminal_step_key);
+    const cohort = stepKey ? expectedByStep.get(stepKey) : undefined;
+    const values = {
+      canonicalPeople: integer(row.canonical_people),
+      identityUnavailableSessions: integer(row.identity_unavailable_sessions),
+      laterActivityInSelectedSession: integer(
+        row.later_activity_in_selected_session,
+      ),
+      laterActivityOutsideSelectedSessionOrApp: integer(
+        row.later_activity_outside_selected_session_or_app,
+      ),
+      laterActivityInBothSelectedAndOutside: integer(
+        row.later_activity_in_both_selected_and_outside,
+      ),
+      laterActivityObservedAnywhere: integer(
+        row.later_activity_observed_anywhere,
+      ),
+      noActivityObservedWithinHorizon: integer(
+        row.no_activity_observed_within_horizon,
+      ),
+      rightCensoredHorizon: integer(row.right_censored_horizon),
+      fullyObservedCanonicalPeople: integer(
+        row.fully_observed_canonical_people,
+      ),
+      identityUnavailableLaterInSession: integer(
+        row.identity_unavailable_with_selected_session_activity,
+      ),
+      identityUnavailableOutsideSessionOrApp: integer(
+        row.identity_unavailable_with_outside_session_or_app_activity,
+      ),
+    };
+    const identifiedStatusTotal =
+      (values.laterActivityObservedAnywhere ?? -1) +
+      (values.noActivityObservedWithinHorizon ?? -1) +
+      (values.rightCensoredHorizon ?? -1);
+    const activityClassesUnion =
+      (values.laterActivityInSelectedSession ?? -1) +
+      (values.laterActivityOutsideSelectedSessionOrApp ?? -1) -
+      (values.laterActivityInBothSelectedAndOutside ?? -1);
+    if (
+      !stepKey ||
+      !cohort ||
+      aggregateByStep.has(stepKey) ||
+      Object.values(values).some((value) => value === null || value < 0) ||
+      values.canonicalPeople !== cohort.canonicalPeople ||
+      values.identityUnavailableSessions !==
+        cohort.identityUnavailableSessions ||
+      identifiedStatusTotal !== values.canonicalPeople ||
+      activityClassesUnion !== values.laterActivityObservedAnywhere ||
+      values.laterActivityInBothSelectedAndOutside! >
+        values.laterActivityInSelectedSession! ||
+      values.laterActivityInBothSelectedAndOutside! >
+        values.laterActivityOutsideSelectedSessionOrApp! ||
+      values.laterActivityObservedAnywhere! > values.canonicalPeople! ||
+      values.fullyObservedCanonicalPeople! > values.canonicalPeople! ||
+      values.noActivityObservedWithinHorizon! >
+        values.fullyObservedCanonicalPeople! ||
+      values.identityUnavailableLaterInSession! >
+        values.identityUnavailableSessions! ||
+      values.identityUnavailableOutsideSessionOrApp! >
+        values.identityUnavailableSessions!
+    ) {
+      return incomplete("person_followup_aggregate_invalid", {
+        aggregateStatus: "complete",
+        rows: rowCount,
+        queries: 1,
+        ...baseCoverage,
+      });
+    }
+    const fullyObserved = values.fullyObservedCanonicalPeople!;
+    aggregateByStep.set(stepKey, {
+      canonicalPeople: values.canonicalPeople!,
+      laterActivityInSelectedSession: values.laterActivityInSelectedSession!,
+      laterActivityOutsideSelectedSessionOrApp:
+        values.laterActivityOutsideSelectedSessionOrApp!,
+      laterActivityInBothSelectedAndOutside:
+        values.laterActivityInBothSelectedAndOutside!,
+      laterActivityObservedAnywhere: values.laterActivityObservedAnywhere!,
+      noActivityObservedWithinHorizon: values.noActivityObservedWithinHorizon!,
+      rightCensoredHorizon: values.rightCensoredHorizon!,
+      fullyObservedCanonicalPeople: fullyObserved,
+      noActivityObservedWithinHorizonPctOfFullyObservedCanonicalPeople:
+        fullyObserved
+          ? Math.round(
+              (values.noActivityObservedWithinHorizon! / fullyObserved) * 1_000,
+            ) / 10
+          : null,
+      identityUnavailableSessions: values.identityUnavailableSessions!,
+      identityUnavailableSessionEvidence: {
+        laterActivityInSelectedSession:
+          values.identityUnavailableLaterInSession!,
+        laterActivityOutsideSelectedSessionOrApp:
+          values.identityUnavailableOutsideSessionOrApp!,
+      },
+    });
+  }
+
+  const expectedAggregateSteps = [...expectedByStep]
+    .filter(([, cohort]) => cohort.members > 0)
+    .map(([stepKey]) => stepKey)
+    .sort(compareKeys);
+  if (
+    aggregateByStep.size !== expectedAggregateSteps.length ||
+    expectedAggregateSteps.some((stepKey) => !aggregateByStep.has(stepKey))
+  ) {
+    return incomplete("person_followup_terminal_cohort_mismatch", {
+      aggregateStatus: "complete",
+      rows: rowCount,
+      queries: 1,
+      ...baseCoverage,
+    });
+  }
+
+  const countsByStep: Record<string, JourneyPersonFollowupCounts> = {};
+  for (const stepKey of [...expectedByStep.keys()].sort(compareKeys)) {
+    countsByStep[stepKey] =
+      aggregateByStep.get(stepKey) ?? emptyPersonFollowupCounts();
+  }
+  return {
+    status: "complete",
+    horizonDays,
+    horizonMs,
+    observationWatermark,
+    observationFollowupDurationMs: durationStats,
+    coverage: {
+      journeyEventRead: eventReadCoverage,
+      followupAggregateRead: {
+        status: "complete",
+        rows: rowCount,
+        queries: 1,
+        truncated: false,
+      },
+      ...baseCoverage,
+    },
+    total: sumPersonFollowupCounts(Object.values(countsByStep)),
+    byTerminalStepKey: countsByStep,
+  };
+}
+
 async function readRecordings(
   scope: AnalyticsScope,
   sessionIds: readonly string[],
@@ -700,6 +1244,7 @@ export async function getOnboardingJourney(
     args,
     args.maxEventRows,
     observation,
+    args.followUpMode === "person",
   );
   const { sessions, terminalSteps, sessionsWithoutSteps } = groupSessions(
     read.rows.filter((row) => row.journeyKind === "onboarding"),
@@ -714,6 +1259,17 @@ export async function getOnboardingJourney(
     terminalSteps,
     observation,
   );
+  const personFollowUp =
+    args.followUpMode === "person"
+      ? await readPersonFollowup(
+          scope,
+          args,
+          read,
+          terminalSteps,
+          sessionsWithoutSteps,
+          observation,
+        )
+      : undefined;
   const sessionIds = [
     ...new Set([
       ...sessions.map((session) => session.sessionId),
@@ -837,6 +1393,7 @@ export async function getOnboardingJourney(
       },
       outline: formatJourneyOutline(capped.nodes, args.maxDepth),
       followUp,
+      ...(personFollowUp ? { personFollowUp } : {}),
       ...(standaloneBuilt && standaloneCapped
         ? {
             standaloneSetup: {
@@ -874,6 +1431,7 @@ export async function getOnboardingJourney(
     },
     nodes: capped.nodes,
     followUp,
+    ...(personFollowUp ? { personFollowUp } : {}),
     ...(standaloneBuilt && standaloneCapped
       ? {
           standaloneSetup: {

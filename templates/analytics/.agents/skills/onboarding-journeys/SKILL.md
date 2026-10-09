@@ -34,11 +34,16 @@ same counts as an indented `outline` with no examples. Use it first to choose a
 window, `app`, `maxDepth`, `minNodeSessions` (small branches merge into an
 `other` node), and `maxNodes`.
 
+To include the bounded cross-session estimate from the repository root, run:
+`pnpm --filter analytics action get-onboarding-journey --dateFrom=2026-08-01 --dateTo=2026-08-31 --app=all --emailFilter=exclude_builder --followUpMode=person --format=summary`.
+
 ```ts
 type JourneyExample = { sessionId: string; recordingId: string | null; ts: string; offsetMs: number | null; viewport: { width: number; height: number } | null; viewportReason?: string; replayUrl?: string };
 type JourneyNode = { key: string; label: string; parentKey: string | null; depth: number; kind: "step" | "other"; n: number; pctOfRoot: number; pctOfParent: number; dropoffN: number; dropoffPct: number; deeperN: number; examples: JourneyExample[] };
 type JourneyFollowup = { status: "complete" | "incomplete"; incompleteReason?: "journey_event_read_truncated" | "journey_event_read_invalid" | "journey_event_read_may_have_shifted" | "terminal_cohort_query_too_large" | "followup_aggregate_truncated" | "followup_aggregate_invalid" | "terminal_cohort_mismatch"; observationCutoff: string; observationFollowupDurationMs: { min: number; max: number; mean: number } | null; rightCensoredAtWindowEnd: true; coverage: { journeyEventRead: { rows: number; pages: number; truncated: boolean; paginationConsistency: "stable" | "may_have_shifted" }; followupAggregateRead: { rows: number | null; queries: number; truncated: boolean }; cohortSessions: number | null }; laterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null }; noLaterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null } };
-type JourneyTree = { window: { from: string; to: string }; app: string; rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number; truncated: boolean }; nodes: JourneyNode[]; followUp: JourneyFollowup; standaloneSetup?: { rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number; truncated: boolean }; nodes: JourneyNode[] }; notes?: string[] };
+type JourneyPersonFollowupCounts = { canonicalPeople: number; laterActivityInSelectedSession: number; laterActivityOutsideSelectedSessionOrApp: number; laterActivityInBothSelectedAndOutside: number; laterActivityObservedAnywhere: number; noActivityObservedWithinHorizon: number; rightCensoredHorizon: number; fullyObservedCanonicalPeople: number; noActivityObservedWithinHorizonPctOfFullyObservedCanonicalPeople: number | null; identityUnavailableSessions: number; identityUnavailableSessionEvidence: { laterActivityInSelectedSession: number; laterActivityOutsideSelectedSessionOrApp: number } };
+type JourneyPersonFollowup = { status: "complete" | "incomplete"; incompleteReason?: "journey_event_read_truncated" | "journey_event_read_invalid" | "journey_event_read_may_have_shifted" | "terminal_cohort_too_large" | "terminal_cohort_invalid" | "person_followup_aggregate_truncated" | "person_followup_aggregate_invalid" | "person_followup_terminal_cohort_mismatch"; horizonDays: 30; horizonMs: number; observationWatermark: string; observationFollowupDurationMs: { min: number; max: number; mean: number } | null; coverage: { journeyEventRead: { rows: number; pages: number; truncated: boolean; paginationConsistency: "stable" | "may_have_shifted" }; followupAggregateRead: { status: "complete" | "truncated" | "not_run"; rows: number | null; queries: number; truncated: boolean }; terminalSessions: number | null; sessionsWithoutSelectedStep: number | null; identityJoin: { status: "complete" | "partial" | "unavailable" | "not_applicable" | "unknown"; terminalSessions: number | null; sessionsWithCanonicalIdentity: number | null; sessionsWithoutCanonicalIdentity: number | null; uniqueCanonicalPeople: number | null; coveragePct: number | null } }; total: JourneyPersonFollowupCounts | null; byTerminalStepKey: Record<string, JourneyPersonFollowupCounts> | null };
+type JourneyTree = { window: { from: string; to: string }; app: string; rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number; truncated: boolean }; nodes: JourneyNode[]; followUp: JourneyFollowup; personFollowUp?: JourneyPersonFollowup; standaloneSetup?: { rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number; truncated: boolean }; nodes: JourneyNode[] }; notes?: string[] };
 ```
 
 Analytics returns cohort nodes with counts. When extending a Design storyboard
@@ -89,6 +94,32 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   identifies the limiting read. Do not report percentages from that partial
   result. Existing journey counts and denominators remain independent of this
   follow-up read.
+- Set `followUpMode: "person"` to add `personFollowUp` without changing the
+  session tree or same-session `followUp`. Each direct `properties.auth_user_id`
+  is counted once and assigned to that person's latest terminal selected step
+  in the requested cohort. No email, anonymous, user-key, or organization
+  pseudo-ID fallback is used for cross-session matching. The query searches
+  later events across first-party apps under the same authenticated org,
+  Builder.io email, and test-identity filters. Selected-session/app and
+  outside-session/app activity are overlapping evidence classes;
+  `laterActivityInBothSelectedAndOutside` reports their overlap, and
+  `laterActivityObservedAnywhere` is their union. A member with activity in
+  either class is not counted as having no activity. The result also separates
+  no activity after a fully observed 30-day horizon, right-censored horizons,
+  and identity-unavailable sessions. Identity-unavailable session evidence can
+  report activity known from that exact session ID, but those sessions are not
+  people and never enter person percentages.
+- `personFollowUp.observationWatermark` freezes both event and receive time.
+  `observationFollowupDurationMs` summarizes capped follow-up among canonical
+  people. `noActivityObservedWithinHorizonPctOfFullyObservedCanonicalPeople`
+  uses only identified people whose complete 30-day horizon elapsed. It
+  measures bounded Analytics coverage, never abandonment or permanent churn.
+  Sessions without a selected journey step appear in
+  `coverage.sessionsWithoutSelectedStep` and are not eligible no-activity
+  observations; a missing next step does not mean no later activity. Read
+  `coverage.identityJoin` and `coverage.followupAggregateRead`; if a raw read
+  or aggregate is incomplete, counts and percentages are null with
+  `status: "incomplete"`.
 - `maxDepth` defaults to 8 and is bounded at 40. Request `maxDepth: 40` for a
   deeper pass. When sessions continue past the requested depth,
   `coverage.truncated` is true and the boundary node's `deeperN` says how many

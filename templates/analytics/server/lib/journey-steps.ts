@@ -15,6 +15,8 @@ export interface JourneyEventRow {
   journeyKind: "onboarding" | "standalone_setup";
   tsMs: number;
   eventName: string;
+  authUserId?: string | null;
+  app?: string | null;
   path: string | null;
   flow: string | null;
   source: string | null;
@@ -30,6 +32,8 @@ export interface JourneyStep {
   key: string;
   label: string;
   tsMs: number;
+  authUserId?: string;
+  app?: string;
 }
 
 /** Display names match the `onboarding-setup-choice` metric's method list. */
@@ -481,7 +485,12 @@ export function projectSessionSteps(
       seenAliases.add(aliasStep);
     }
     if (steps[steps.length - 1]?.key === step.key) continue;
-    steps.push({ ...step, tsMs: row.tsMs });
+    steps.push({
+      ...step,
+      tsMs: row.tsMs,
+      ...(row.authUserId ? { authUserId: row.authUserId } : {}),
+      ...(row.app ? { app: row.app } : {}),
+    });
   }
   return steps;
 }

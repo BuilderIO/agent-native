@@ -34,7 +34,7 @@ const isoDate = z
 
 export default defineAction({
   description:
-    'Build the onboarding journey tree for a date window: per-session step sequences (signup, onboarding questions, setup method, app entry, first action, first output) folded into a prefix tree. format "tree" returns { window, app, rootN, coverage, nodes } for sessions that entered onboarding, plus standaloneSetup for Home chat integration events in sessions without onboarding; its root and percentages have a separate denominator. Each node has n, pctOfRoot, pctOfParent, dropoffN/dropoffPct (last observed step, not a confirmed exit), deeperN (sessions with a later observed step omitted below this node), and example sessions with recordingId, a recording-start-relative offsetMs, and viewport. Both formats include followUp counts of sessions with and without any later native Analytics event in the same session after each terminal selected step, observed before one frozen observationCutoff. followUp.rightCensoredAtWindowEnd is true: no later event means none was recorded within that bounded window, not abandonment or churn. If the event read may be incomplete, the aggregate query truncates or exceeds the SQL size or parser-token limit, or cohort coverage mismatches, followUp.status is incomplete, incompleteReason names the cause, and its cohort counts and duration are null. format "summary" returns the same tree counts as indented outlines with no examples. Check each tree\'s coverage.truncated first: true means its event sample, requested depth, or node list cut that tree; notes explain why. Use it to plan onboarding storyboards or see each cohort\'s last recorded selected step. For a standalone storyboard, pass standaloneSetup as the top-level tree to journey:capture.',
+    'Build the onboarding journey tree for a date window: per-session step sequences folded into a prefix tree. followUpMode "session" (default) preserves the bounded same-session follow-up. followUpMode "person" adds personFollowUp: distinct canonical people, each assigned to their latest terminal selected step in this cohort, checked for later native Analytics events in the selected session/app or any other first-party app/session over a fixed 30-day horizon. Cross-session matching uses only direct properties.auth_user_id; missing or organization pseudo-identities stay unknown. Selected-session/app and outside-session/app activity are overlapping evidence classes; explicit both and anywhere counts identify their overlap. The frozen observationWatermark, follow-up duration, censoring, identity-join, and read-coverage fields bound the estimate. A no-activity count means no native event was observed within a fully observed 30-day horizon; it is not abandonment or permanent churn. Sessions without a selected step and identity-unavailable terminal sessions are not no-activity people. If the event read or aggregate is incomplete/truncated, personFollowUp counts and percentages are null. Existing tree session counts, direct-parent denominators, and same-session followUp remain unchanged. format "tree" includes example recordings; format "summary" returns the same counts as an indented outline with no examples. Check coverage.truncated first. For a standalone storyboard, pass standaloneSetup as the top-level tree to journey:capture.',
   schema: z.object({
     dateFrom: isoDate.describe(
       "Inclusive UTC start date, YYYY-MM-DD. Sessions that began earlier appear mid-journey, so start a day before the period you care about.",
@@ -55,6 +55,13 @@ export default defineAction({
       .default("exclude_builder")
       .describe(
         'Builder-employee scope, as in the onboarding metrics: "exclude_builder" (default), "only_builder", or "all". Test identities are always excluded.',
+      ),
+    followUpMode: z
+      .enum(["session", "person"])
+      .optional()
+      .default("session")
+      .describe(
+        'Follow-up grain: "session" (default) keeps existing same-session counts; "person" adds a scoped 30-day cross-session, cross-app estimate joined only by direct canonical auth_user_id.',
       ),
     format: z
       .enum(["tree", "summary"])
@@ -184,6 +191,7 @@ export default defineAction({
         dateTo: args.dateTo,
         app: args.app,
         emailFilter: args.emailFilter,
+        followUpMode: args.followUpMode,
         format: args.format,
         maxNodes: args.maxNodes,
         maxDepth: args.maxDepth,

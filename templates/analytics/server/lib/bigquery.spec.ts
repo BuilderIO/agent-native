@@ -320,6 +320,27 @@ describe("runQuery cancellation", () => {
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/cancel");
   });
 
+  it("applies the caller's BigQuery billed-byte cap", async () => {
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "0",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runQuery("SELECT 1 AS bounded_query", {
+      maxBytesBilled: 10_000_000_000,
+    });
+
+    const submission = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(submission.configuration.query.maximumBytesBilled).toBe(
+      "10000000000",
+    );
+  });
+
   it("cancels a submitted job when the caller aborts before the response arrives", async () => {
     const controller = new AbortController();
     let jobId = "";
