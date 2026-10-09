@@ -3481,16 +3481,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return !!cloneRoot && !isSourceOwned(cloneRoot);
   }
 
-  function repeatTemplateOwning(node: Element): Element | null {
+  function repeatTemplateOwning(
+    node: Element,
+    templateSiblingsByParent?: WeakMap<Element, Element[]>,
+  ): Element | null {
     var parent = node.parentElement;
     if (!parent) return null;
-    var siblings = parent.children;
+    var memoizedTemplateSiblings = !!templateSiblingsByParent;
+    var siblings: ArrayLike<Element> | HTMLCollection;
+    if (templateSiblingsByParent) {
+      var cachedSiblings = templateSiblingsByParent.get(parent);
+      if (!cachedSiblings) {
+        cachedSiblings = [];
+        var children = parent.children;
+        for (
+          var childIndex = 0;
+          childIndex < children.length;
+          childIndex += 1
+        ) {
+          var child = children[childIndex];
+          if (child.tagName.toLowerCase() === "template") {
+            cachedSiblings.push(child);
+          }
+        }
+        templateSiblingsByParent.set(parent, cachedSiblings);
+      }
+      siblings = cachedSiblings;
+    } else {
+      siblings = parent.children;
+    }
     for (var i = 0; i < siblings.length; i += 1) {
       var sib = siblings[i];
       if (
         sib === node ||
         !sib.tagName ||
-        sib.tagName.toLowerCase() !== "template"
+        (!memoizedTemplateSiblings && sib.tagName.toLowerCase() !== "template")
       ) {
         continue;
       }
@@ -3523,10 +3548,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return null;
   }
 
-  function isTemplateCloneElement(el: Element | null): boolean {
+  function isTemplateCloneElement(
+    el: Element | null,
+    templateSiblingsByParent?: WeakMap<Element, Element[]>,
+  ): boolean {
     var node: Element | null = el;
     while (node && !isDocumentRootElement(node)) {
-      if (repeatTemplateOwning(node)) return true;
+      if (repeatTemplateOwning(node, templateSiblingsByParent)) return true;
       node = node.parentElement;
     }
     return false;
@@ -6923,6 +6951,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
     var seen = new Set<Element>();
+    var templateSiblingsByParent = new WeakMap<Element, Element[]>();
     var elements: Element[] = [];
     nodes.forEach(function (node) {
       if (NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1) {
@@ -6943,8 +6972,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         isBoardRootMarqueeSurface(target) ||
         isOverlayElement(target) ||
         isLayerInteractionBlocked(target) ||
-        isTemplateCloneElement(target) ||
         seen.has(target) ||
+        isTemplateCloneElement(target, templateSiblingsByParent) ||
         isPaddedAwayFromView(target)
       ) {
         return;
@@ -23976,11 +24005,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       nextTop += snapResult.dy / dragElOffsetScaleY;
       var appliedDx = nextLeft - originLeft;
       var appliedDy = nextTop - originTop;
+      var groupAppliedDx = appliedDx;
+      var groupAppliedDy = appliedDy;
+      if (isGroupDrag) {
+        var groupOriginLeft = Infinity;
+        var groupOriginTop = Infinity;
+        memberStates.forEach(function (state) {
+          groupOriginLeft = Math.min(groupOriginLeft, state.originLeft);
+          groupOriginTop = Math.min(groupOriginTop, state.originTop);
+        });
+        var guideClaimsX = snapResult.guides.some(function (guide) {
+          return guide.orientation === "vertical";
+        });
+        var guideClaimsY = snapResult.guides.some(function (guide) {
+          return guide.orientation === "horizontal";
+        });
+        if (!guideClaimsX) {
+          groupAppliedDx =
+            quantizeToLayoutGrid(groupOriginLeft + appliedDx) - groupOriginLeft;
+        }
+        if (!guideClaimsY) {
+          groupAppliedDy =
+            quantizeToLayoutGrid(groupOriginTop + appliedDy) - groupOriginTop;
+        }
+      }
       memberStates.forEach(function (state) {
         state.el.style.left =
-          quantizeToLayoutGrid(state.originLeft + appliedDx) + "px";
+          (isGroupDrag
+            ? state.originLeft + groupAppliedDx
+            : quantizeToLayoutGrid(state.originLeft + appliedDx)) + "px";
         state.el.style.top =
-          quantizeToLayoutGrid(state.originTop + appliedDy) + "px";
+          (isGroupDrag
+            ? state.originTop + groupAppliedDy
+            : quantizeToLayoutGrid(state.originTop + appliedDy)) + "px";
       });
       if (!isGroupDrag) {
         scheduleCrossScreenDragMove(ev);
@@ -24972,7 +25029,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           phase: "preview",
           selector: getSelector(resizeEl),
           styles: previewStyles,
-          payload: getElementInfo(resizeEl),
+          payload: getElementInfo(resizeEl, undefined, false),
         },
         "*",
       );
@@ -25019,7 +25076,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             phase: "preview",
             selector: getSelector(resizeEl),
             styles: restoredStyles,
-            payload: getElementInfo(resizeEl),
+            payload: getElementInfo(resizeEl, undefined, false),
           },
           "*",
         );
@@ -27633,6 +27690,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
 
   var lastHoverClientPoint: { x: number; y: number } | null = null;
+  var lastHandledHoverMoveKey: string | null = null;
+  var lastHoverOverlayElement: Element | null = null;
+  var lastHoverOverlayRectKey: string | null = null;
+  function hideHoverOverlay(): void {
+    if (highlightOverlay.style.display !== "none") {
+      highlightOverlay.style.display = "none";
+    }
+    lastHoverOverlayElement = null;
+    lastHoverOverlayRectKey = null;
+  }
+  function positionHoverOverlayIfChanged(el: Element): void {
+    var rect = el.getBoundingClientRect();
+    var rectKey = [rect.left, rect.top, rect.width, rect.height].join(":");
+    if (
+      lastHoverOverlayElement === el &&
+      lastHoverOverlayRectKey === rectKey &&
+      highlightOverlay.style.display === "block"
+    ) {
+      return;
+    }
+    positionOverlay(highlightOverlay, el);
+    lastHoverOverlayElement = el;
+    lastHoverOverlayRectKey = rectKey;
+  }
   function resolveHoverTarget(
     clientX: number,
     clientY: number,
@@ -27651,9 +27732,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       deepSelect,
     );
     if (!hoveredEl || hoveredEl === selectedEl) {
-      highlightOverlay.style.display = "none";
+      hideHoverOverlay();
     } else {
-      positionOverlay(highlightOverlay, hoveredEl);
+      positionHoverOverlayIfChanged(hoveredEl);
     }
   }
   document.addEventListener(
@@ -27677,6 +27758,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function handleShieldPointerMove(e) {
     if (readOnly || interactionMode) return;
     measurementModifierActive = Boolean(e.altKey);
+    var moveKey = [
+      e.clientX,
+      e.clientY,
+      e.metaKey ? 1 : 0,
+      e.ctrlKey ? 1 : 0,
+      e.altKey ? 1 : 0,
+      e.shiftKey ? 1 : 0,
+    ].join(":");
+    if (lastHandledHoverMoveKey === moveKey) return;
+    lastHandledHoverMoveKey = moveKey;
     var isAltSpacingRegionPointerMove = Boolean(
       e.altKey &&
       spacingKeyFromTarget(
@@ -27692,7 +27783,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
     if (!hoveredEl) {
       measurementTargetEl = null;
-      highlightOverlay.style.display = "none";
+      hideHoverOverlay();
       if (!spacingDrag && !isAltSpacingRegionPointerMove) {
         scheduleSpacingHoverClear(e);
       }
@@ -27730,9 +27821,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
     if (hoveredEl === selectedEl) {
-      highlightOverlay.style.display = "none";
+      hideHoverOverlay();
     } else {
-      positionOverlay(highlightOverlay, hoveredEl);
+      positionHoverOverlayIfChanged(hoveredEl);
     }
     measurementTargetEl =
       e.altKey && selectedEl && hoveredEl !== selectedEl ? hoveredEl : null;
@@ -27807,6 +27898,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   shieldOverlay.addEventListener(
     "pointerleave",
     function (e) {
+      lastHandledHoverMoveKey = null;
       stopNativeInteraction(e);
       if (!isOverlayElement(e.relatedTarget)) clearRadiusHandleHover();
       if (shouldKeepSpacingOverlayForLeave(e)) {
@@ -27819,7 +27911,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (!spacingDrag) {
         scheduleSpacingHoverClear(e);
       }
-      highlightOverlay.style.display = "none";
+      hideHoverOverlay();
       hideMeasurements();
       syncOverlayObservers();
       (window.parent as Window).postMessage(
@@ -27829,6 +27921,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     },
     true,
   );
+  shieldOverlay.addEventListener("mouseleave", function () {
+    lastHandledHoverMoveKey = null;
+  });
 
   window.addEventListener(
     "keyup",

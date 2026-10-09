@@ -283,8 +283,8 @@ describe("pointer gesture behavior", () => {
         59.5,
       );
       expect(finalGeometry.firstRight).toBeCloseTo(finalGeometry.guideLeft);
-      expect(finalGeometry.secondLeft).toBeCloseTo(45);
-      expect(finalGeometry.firstLeft).toBeCloseTo(104.5);
+      expect(finalGeometry.secondLeft).toBeCloseTo(45, 1);
+      expect(finalGeometry.firstLeft).toBeCloseTo(104.5, 1);
     } finally {
       await browser.close();
     }

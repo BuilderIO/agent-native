@@ -10422,7 +10422,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const snap = computeMoveSnap(movingEntries, stationaryEntries, {
         thresholdScreenPx: DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
         zoom: zoomRef.current,
-        bypass: nudge.snap.bypass,
+        bypass: true,
       });
 
       if (targetIds.length > 0) {
