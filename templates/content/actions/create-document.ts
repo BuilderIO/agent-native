@@ -178,6 +178,48 @@ async function recordDocumentCreationContextIfMissing(input: {
   });
 }
 
+async function readDocumentCreationContextProvenance(input: {
+  artifactId: string;
+  provenance: DocumentCreationProvenance | null;
+  provenanceRequired: boolean;
+  reuseLabels: CreativeContextReuseLabel[];
+  contextModeOverride?: "off";
+}): Promise<DocumentCreationProvenance | null> {
+  if (input.provenance) return input.provenance;
+
+  const readOptions =
+    input.contextModeOverride === "off" ? { localOnly: true } : undefined;
+  const existing = await getGenerationCreativeContext(
+    {
+      appId: "content",
+      artifactType: "document",
+      artifactId: input.artifactId,
+    },
+    readOptions,
+  );
+  if (!existing) {
+    if (input.provenanceRequired) {
+      throw new ActionContractError(
+        "The committed document is missing its validated Creative Context snapshot; provenance cannot be reconstructed safely.",
+        {
+          errorCode: "CREATIVE_CONTEXT_PROVENANCE_MISSING",
+          statusCode: 500,
+        },
+      );
+    }
+    return null;
+  }
+
+  return {
+    contextMode: existing.contextMode,
+    contextPackId: existing.contextPackId,
+    reuseLabels: input.reuseLabels.map((label) => ({
+      ...label,
+      influence: label.influence ?? "reference-conditioned",
+    })),
+  };
+}
+
 async function repairDocumentCreationContextProjection(input: {
   artifactId: string;
   provenance: DocumentCreationProvenance | null;
@@ -524,14 +566,17 @@ export default defineAction({
               })),
             }
           : null;
-      const persistedCreativeContext =
-        await repairDocumentCreationContextProjection({
-          artifactId: id,
-          provenance: storedProvenance ?? explicitOffProvenance,
-          provenanceRequired: hasCreativeContextInput,
-          reuseLabels: args.reuseLabels,
-          contextModeOverride: args.contextModeOverride,
-        });
+      const persistedCreativeContext = await (
+        canEditRole(existingAccess.role)
+          ? repairDocumentCreationContextProjection
+          : readDocumentCreationContextProvenance
+      )({
+        artifactId: id,
+        provenance: storedProvenance ?? explicitOffProvenance,
+        provenanceRequired: hasCreativeContextInput,
+        reuseLabels: args.reuseLabels,
+        contextModeOverride: args.contextModeOverride,
+      });
       await writeAppState("refresh-signal", { ts: Date.now() });
       return documentCreationResult(
         existingAccess.resource as typeof schema.documents.$inferSelect,

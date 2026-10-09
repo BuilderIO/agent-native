@@ -344,11 +344,11 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("shouldCreateDocumentOptimistically({");
     expect(sidebar).toContain("filesDatabaseId: rootFilesDatabaseId");
     expect(sidebar).toContain("markDocumentCreationPending(queryClient, {");
-    expect(sidebar).toContain(
-      "const confirmed = markDocumentCreationConfirmed(queryClient, created);",
+    expect(sidebar).toMatch(
+      /const confirmed = markDocumentCreationConfirmed\(\s*queryClient,\s*created,\s*\);/,
     );
-    expect(sidebar).toContain(
-      '["action", "get-document", { id: nextId }],\n          confirmed,',
+    expect(sidebar).toMatch(
+      /queryClient\.setQueryData\(\s*\[\s*"action",\s*"get-document",\s*\{\s*id:\s*nextId\s*\}\s*\],\s*confirmed,\s*\);/,
     );
     expect(sidebar).toContain(
       "return withDocumentsCacheShape(old, [...docs, tempDoc])",

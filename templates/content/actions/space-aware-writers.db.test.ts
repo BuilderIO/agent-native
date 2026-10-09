@@ -319,7 +319,7 @@ describe("space-aware document writers", () => {
     ).resolves.toHaveLength(1);
     expect(actionEffects.writeAppState).toHaveBeenCalledTimes(2);
     expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledTimes(
-      2,
+      1,
     );
     expect(
       actionEffects.recordGenerationCreativeContext,
@@ -366,7 +366,7 @@ describe("space-aware document writers", () => {
     }
     expect(actionEffects.writeAppState).toHaveBeenCalledTimes(2);
     expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledTimes(
-      2,
+      1,
     );
     expect(actionEffects.track).toHaveBeenCalledTimes(1);
   });
@@ -556,6 +556,75 @@ describe("space-aware document writers", () => {
         results: [],
       }),
     );
+  });
+
+  it("replays an organization document to a viewer without repairing Creative Context", async () => {
+    const orgId = "org-create-retry-viewer-context";
+    await addOrganizationMember({ orgId, email: OWNER });
+    const input = {
+      id: "optimistic-create-org-viewer-context",
+      title: "Organization context retry",
+      spaceId: organizationContentSpaceId(orgId),
+      contextPackId: "creative-context-pack",
+      reuseLabels: [
+        {
+          itemId: "brand-voice-item",
+          itemVersionId: "brand-voice-version",
+          kind: "brand-voice",
+          label: "Brand voice",
+          dataRole: "untrusted-reference" as const,
+          influence: "reference-conditioned" as const,
+        },
+      ],
+    };
+    const validated = {
+      contextMode: "pinned" as const,
+      contextPackId: input.contextPackId,
+      reuseLabels: input.reuseLabels,
+      results: [],
+    };
+    actionEffects.generationContexts.delete(input.id);
+    actionEffects.validateGenerationCreativeContext.mockResolvedValueOnce(
+      validated,
+    );
+    const create = () =>
+      runWithRequestContext({ userEmail: OWNER, orgId }, () =>
+        createDocument.run(input),
+      );
+
+    await expect(create()).resolves.toMatchObject({
+      id: input.id,
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ ownerEmail: OUTSIDER })
+      .where(eq(schema.documents.id, input.id));
+    actionEffects.generationContexts.delete(input.id);
+    actionEffects.getGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockClear();
+
+    await expect(create()).resolves.toMatchObject({
+      id: input.id,
+      accessRole: "viewer",
+      canEdit: false,
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+    });
+    expect(
+      actionEffects.validateGenerationCreativeContext,
+    ).not.toHaveBeenCalled();
+    expect(actionEffects.getGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(
+      actionEffects.recordGenerationCreativeContextFromSnapshot,
+    ).not.toHaveBeenCalled();
+    expect(
+      actionEffects.recordGenerationCreativeContext,
+    ).not.toHaveBeenCalled();
+    expect(actionEffects.generationContexts.has(input.id)).toBe(false);
   });
 
   it("returns an off snapshot when the Creative Context Lab disables recording", async () => {
