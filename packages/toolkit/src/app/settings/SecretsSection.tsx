@@ -1125,7 +1125,7 @@ function AdHocKeysSection({
             </Button>
           </div>
           {formError && (
-            <p className="text-[10px] text-red-500" role="alert">
+            <p className="text-[10px] text-destructive" role="alert">
               {formError}
             </p>
           )}
