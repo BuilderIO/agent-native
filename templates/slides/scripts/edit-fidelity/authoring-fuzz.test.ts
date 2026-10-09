@@ -877,7 +877,7 @@ it("captures failed browser-session registration and subroute requests", () => {
   expect(isBrowserSessionPath("/_agent-native/actions/patch-deck")).toBe(false);
 });
 
-it("ignores browser-session registration aborts only during save/reload", () => {
+it("ignores registration aborts only when reload navigation cancels an in-flight request", () => {
   for (const errorText of [
     "Load request cancelled",
     "NS_BINDING_ABORTED",
@@ -889,10 +889,30 @@ it("ignores browser-session registration aborts only during save/reload", () => 
         errorText,
         "save/reload",
         "POST",
+        true,
+        100,
       ),
     ).toBe(true);
   }
 
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      9_000,
+    ),
+  ).toBe(false);
   expect(
     isExpectedSaveReloadWatchedRequestAbort(
       "/_agent-native/browser-sessions",
@@ -927,12 +947,15 @@ it("ignores browser-session registration aborts only during save/reload", () => 
   ).toBe(false);
 });
 
-it("ignores only known action and browser-session aborts during save/reload", () => {
+it("ignores only known aborts for requests pending at reload navigation", () => {
   expect(
     isExpectedSaveReloadWatchedRequestAbort(
       "/_agent-native/actions/get-lab-states",
       "NS_BINDING_ABORTED",
       "save/reload",
+      undefined,
+      true,
+      100,
     ),
   ).toBe(true);
   expect(
@@ -940,6 +963,9 @@ it("ignores only known action and browser-session aborts during save/reload", ()
       "/_agent-native/actions/get-deck-access-status",
       "NS_BINDING_ABORTED",
       "save/reload",
+      undefined,
+      true,
+      100,
     ),
   ).toBe(true);
   expect(
@@ -955,6 +981,8 @@ it("ignores only known action and browser-session aborts during save/reload", ()
       "Load request cancelled",
       "save/reload",
       "POST",
+      true,
+      100,
     ),
   ).toBe(true);
   expect(
@@ -963,6 +991,8 @@ it("ignores only known action and browser-session aborts during save/reload", ()
       "NS_BINDING_ABORTED",
       "save/reload",
       "POST",
+      true,
+      100,
     ),
   ).toBe(true);
   expect(
@@ -971,6 +1001,8 @@ it("ignores only known action and browser-session aborts during save/reload", ()
       "net::ERR_ABORTED",
       "save/reload",
       "POST",
+      true,
+      100,
     ),
   ).toBe(true);
   expect(
@@ -1016,6 +1048,9 @@ it("ignores only known action and browser-session aborts during save/reload", ()
       "/_agent-native/actions/get-lab-states",
       "NS_BINDING_ABORTED",
       "save/reload",
+      undefined,
+      true,
+      100,
     ),
   ).toBe(true);
   expect(
@@ -1023,6 +1058,9 @@ it("ignores only known action and browser-session aborts during save/reload", ()
       "/_agent-native/actions/get-deck-access-status",
       "net::ERR_ABORTED",
       "save/reload",
+      undefined,
+      true,
+      100,
     ),
   ).toBe(true);
   expect(

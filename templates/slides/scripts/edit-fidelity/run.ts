@@ -916,12 +916,14 @@ async function openSlide(
   options: {
     canvasTimeoutMs?: number;
     initialOpenAsSetup?: boolean;
+    onNavigationStart?: () => void;
     skipPointerMove?: boolean;
   } = {},
 ) {
   for (let attempt = 0; ; attempt++) {
     let failedStage: "navigation" | "canvas" = "navigation";
     try {
+      options.onNavigationStart?.();
       const navigate = () =>
         page.goto(`${base}/deck/${deckId}?slide=${index + 1}`, {
           waitUntil: "domcontentloaded",
@@ -5128,7 +5130,9 @@ async function runAuthoringFuzzQa(
         expectScaledSlide: profile?.kind === "scaled",
         browser: browserName as "chromium" | "webkit" | "firefox",
         lineKeys: { start: lineStartKey, end: lineEndKey },
-        finishAndReload: async (): Promise<AuthoringFuzzPersistence> => {
+        finishAndReload: async (
+          markReloadNavigationStart,
+        ): Promise<AuthoringFuzzPersistence> => {
           const trace = (phase: string) => {
             if (process.env.SLIDES_AUTHORING_FUZZ_TRACE === "1") {
               console.log(`[edit-fidelity] save/reload ${phase}`);
@@ -5153,6 +5157,7 @@ async function runAuthoringFuzzQa(
           trace("settle-saved:end");
           trace("open-reloaded-slide:start");
           await openSlide(activePage, base, deckId!, 0, slideId, {
+            onNavigationStart: markReloadNavigationStart,
             skipPointerMove: true,
           });
           trace("open-reloaded-slide:end");

@@ -180,6 +180,8 @@ type SaveReloadRequestAbortRule = {
 };
 
 const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
+// Browser-session requests abort after at least ten seconds; leave timer slack.
+const reloadNavigationAbortMaxRequestAgeMs = 9_000;
 
 const saveReloadRequestAbortRules: readonly SaveReloadRequestAbortRule[] = [
   {
@@ -207,9 +209,14 @@ export function isExpectedSaveReloadWatchedRequestAbort(
   errorText: string,
   activePhase: string,
   method?: string,
+  requestWasPendingAtReloadNavigation = false,
+  requestAgeMs = Number.POSITIVE_INFINITY,
 ) {
   return (
     activePhase === "save/reload" &&
+    requestWasPendingAtReloadNavigation &&
+    requestAgeMs >= 0 &&
+    requestAgeMs < reloadNavigationAbortMaxRequestAgeMs &&
     saveReloadRequestAbortRules.some((rule) => {
       const matchesPath =
         typeof rule.path === "string"
@@ -451,7 +458,9 @@ export interface AuthoringFuzzOptions {
   originalHtml: string;
   originalSlideHtml: string;
   /** Exit editing, wait for the save, read the stored HTML, then reload/read it. */
-  finishAndReload: () => Promise<AuthoringFuzzPersistence>;
+  finishAndReload: (
+    markReloadNavigationStart: () => void,
+  ) => Promise<AuthoringFuzzPersistence>;
   modifier: "Meta" | "Control";
   /** The in-place editor's undo snapshot cap. */
   historyLimit?: number;
@@ -817,6 +826,8 @@ export async function runAuthoringFuzz(
     any,
     { method: string; path: string; startedAt: number }
   >();
+  const watchedRequests = new Map<any, number>();
+  const reloadNavigationRequests = new Set<any>();
   const pendingSaveConflicts: Promise<void>[] = [];
   const conflictResponsePaths: string[] = [];
   const patchDeckActionPath = "/_agent-native/actions/patch-deck";
@@ -848,7 +859,12 @@ export async function runAuthoringFuzz(
   const onPageError = (error: Error) =>
     pageErrors.push(error.stack ?? error.message);
   const onRequestFailed = (request: any) => {
+    const requestStartedAt = watchedRequests.get(request);
+    const requestPendingAtReloadNavigation =
+      reloadNavigationRequests.has(request);
     pendingRequests.delete(request);
+    watchedRequests.delete(request);
+    reloadNavigationRequests.delete(request);
     const url = request.url();
     const pathname = new URL(url).pathname;
     const errorText = request.failure()?.errorText ?? "unknown";
@@ -863,6 +879,10 @@ export async function runAuthoringFuzz(
         errorText,
         activePhase,
         request.method(),
+        requestPendingAtReloadNavigation,
+        requestStartedAt === undefined
+          ? Number.POSITIVE_INFINITY
+          : Date.now() - requestStartedAt,
       )
     ) {
       return;
@@ -880,12 +900,22 @@ export async function runAuthoringFuzz(
     }
   };
   const onRequest = (request: any) => {
-    if (!traceEnabled) return;
     const requestUrl = new URL(request.url());
+    const startedAt = Date.now();
+    if (
+      [
+        "/_agent-native/actions/get-lab-states",
+        "/_agent-native/actions/get-deck-access-status",
+      ].includes(requestUrl.pathname) ||
+      isBrowserSessionPath(requestUrl.pathname)
+    ) {
+      watchedRequests.set(request, startedAt);
+    }
+    if (!traceEnabled) return;
     pendingRequests.set(request, {
       method: request.method(),
       path: requestUrl.pathname,
-      startedAt: Date.now(),
+      startedAt,
     });
     if (
       [
@@ -900,6 +930,8 @@ export async function runAuthoringFuzz(
   };
   const onRequestSettled = (request: any) => {
     pendingRequests.delete(request);
+    watchedRequests.delete(request);
+    reloadNavigationRequests.delete(request);
   };
   const onResponse = (response: any) => {
     if (traceEnabled) {
@@ -4536,7 +4568,11 @@ export async function runAuthoringFuzz(
     );
 
     activePhase = "save/reload";
-    const persistence = await options.finishAndReload();
+    const persistence = await options.finishAndReload(() => {
+      for (const request of watchedRequests.keys()) {
+        reloadNavigationRequests.add(request);
+      }
+    });
     assertAuthoringPersistence(persistence);
     await checkPageErrors();
     const unexpectedConflictPaths = [
