@@ -448,6 +448,8 @@ export function isStaleBuilderImageSourceComponentSave(args: {
   );
 }
 
+const saveObservationTimestampSchema = z.iso.datetime({ offset: true });
+
 const updateDocumentAction = defineAction({
   description:
     "Update an existing document's metadata or browser-owned content. Agents must use get-document followed by edit-document with baseRevision and idempotencyKey for body changes.",
@@ -701,22 +703,26 @@ const updateDocumentAction = defineAction({
         observedBaseRevision !== undefined &&
         observedBaseRevision !==
           documentRevisionToken(snapshot.bodyRevision, snapshot.content);
+      const snapshotTime = Date.parse(snapshot.updatedAt);
+      const compareTimestamp = (timestamp: string | undefined) => {
+        const baseTime = saveObservationTimestampSchema.safeParse(timestamp)
+          .success
+          ? Date.parse(timestamp!)
+          : NaN;
+        return Number.isFinite(baseTime) && Number.isFinite(snapshotTime)
+          ? [baseTime !== snapshotTime]
+          : [];
+      };
       const staleComparisons = [
         ...(observedBaseRevision &&
         parseDocumentRevisionToken(observedBaseRevision)
           ? [bodyBaseStale]
-          : args.baseUpdatedAt !== undefined
-            ? [args.baseUpdatedAt !== snapshot.updatedAt]
-            : []),
+          : compareTimestamp(args.baseUpdatedAt)),
         ...(args.baseTitle !== undefined
           ? [args.baseTitle !== snapshot.title]
           : []),
-        ...(args.recoveryExpectedUpdatedAt !== undefined
-          ? [args.recoveryExpectedUpdatedAt !== snapshot.updatedAt]
-          : []),
-        ...(args.loadedUpdatedAt
-          ? [args.loadedUpdatedAt !== snapshot.updatedAt]
-          : []),
+        ...compareTimestamp(args.recoveryExpectedUpdatedAt),
+        ...compareTimestamp(args.loadedUpdatedAt),
       ];
       measurement.stale_base =
         staleComparisons.length === 0

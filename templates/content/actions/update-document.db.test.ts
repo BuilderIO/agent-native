@@ -2178,6 +2178,63 @@ describe("update-document compare-and-swap", () => {
 });
 
 describe("update-document save outcome counts", () => {
+  it.each(
+    (
+      ["baseUpdatedAt", "loadedUpdatedAt", "recoveryExpectedUpdatedAt"] as const
+    ).flatMap((field) =>
+      (
+        ["malformed", "numeric", "invalid-date", "equivalent", "stale"] as const
+      ).map((base) => ({
+        field,
+        base,
+      })),
+    ),
+  )(
+    "observes a $base $field timestamp without writing",
+    async ({ field, base }) => {
+      const id = await createDocument({ content: "Body" });
+      const before = await documentRow(id);
+      const timestamp =
+        base === "malformed"
+          ? "not-a-timestamp"
+          : base === "numeric"
+            ? "5"
+            : base === "invalid-date"
+              ? "2026-02-30T00:00:00.000Z"
+              : base === "equivalent"
+                ? before.updatedAt.replace("Z", "+00:00")
+                : "2020-01-01T00:00:00.000Z";
+      await measuredSave(
+        () =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            updateDocumentAction.run(
+              { id, content: "Body", [field]: timestamp },
+              { caller: "frontend", userEmail: OWNER },
+            ),
+          ),
+        {
+          outcome: "unchanged",
+          stale_base:
+            base === "malformed" ||
+            base === "numeric" ||
+            base === "invalid-date"
+              ? "unknown"
+              : base === "equivalent"
+                ? "false"
+                : "true",
+          history_effect: "none",
+        },
+      );
+      expect(await documentRow(id)).toEqual(before);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, id)),
+      ).toHaveLength(0);
+    },
+  );
+
   it.each(["current", "stale"] as const)(
     "observes an unchanged save's %s loaded timestamp without writing",
     async (base) => {
