@@ -10,6 +10,7 @@ import type { AgentChatEvent, AgentToolInput } from "./types.js";
 export interface ToolCallJournalEntry {
   key: string;
   tool: string;
+  id?: string;
   input?: AgentToolInput;
   inputFingerprint?: string;
   order: number;
@@ -75,7 +76,7 @@ function canonicalizeForSignature(
   }
 
   const object = input as Record<string, unknown>;
-  const output: Record<string, unknown> = {};
+  const output: Record<string, unknown> = Object.create(null);
   for (const key of Object.keys(object).sort()) {
     const value = object[key];
     output[key] =
@@ -113,6 +114,7 @@ export function classifyToolCallJournal(
       const entry: ToolCallJournalEntry = {
         key: `${tool}#${order}:${displayInputSignature(input)}`,
         tool,
+        ...(event.id !== undefined ? { id: event.id } : {}),
         ...(input ? { input } : {}),
         ...(event.inputFingerprint
           ? { inputFingerprint: event.inputFingerprint }
@@ -167,22 +169,26 @@ function takeMatchingOpenEntry(
   event: Extract<AgentChatEvent, { type: "tool_done" }>,
 ): ToolCallJournalEntry | undefined {
   if (!queue || queue.length === 0) return undefined;
-  if (event.inputFingerprint) {
-    const index = queue.findIndex(
-      (entry) =>
+  const hasIdentity =
+    event.id !== undefined ||
+    event.inputFingerprint !== undefined ||
+    event.input !== undefined;
+  if (!hasIdentity) return queue.length === 1 ? queue.shift() : undefined;
+
+  const doneSig =
+    event.input === undefined ? undefined : inputSignature(event.input);
+  const matches = queue.filter((entry) => {
+    if (event.id !== undefined && entry.id !== event.id) return false;
+    if (event.inputFingerprint !== undefined)
+      return (
         (entry.inputFingerprint ?? toolCallInputFingerprint(entry.input)) ===
-        event.inputFingerprint,
-    );
-    return index >= 0 ? queue.splice(index, 1)[0] : undefined;
-  }
-  if (event.input !== undefined) {
-    const doneSig = inputSignature(event.input);
-    const index = queue.findIndex(
-      (entry) => inputSignature(entry.input) === doneSig,
-    );
-    if (index >= 0) return queue.splice(index, 1)[0];
-  }
-  return queue.shift();
+        event.inputFingerprint
+      );
+    return doneSig === undefined || inputSignature(entry.input) === doneSig;
+  });
+  if (matches.length === 0 || (event.id !== undefined && matches.length !== 1))
+    return undefined;
+  return queue.splice(queue.indexOf(matches[0]), 1)[0];
 }
 
 function isNonCompletedToolDone(

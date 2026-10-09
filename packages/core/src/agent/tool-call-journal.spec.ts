@@ -5,6 +5,7 @@ import {
   buildResumeJournalNote,
   findCompletedJournalEntry,
   isJournalEmpty,
+  toolCallInputFingerprint,
 } from "./tool-call-journal.js";
 import type { AgentChatEvent, AgentToolInput } from "./types.js";
 
@@ -24,6 +25,28 @@ function done(
 ): AgentChatEvent {
   return { type: "tool_done", tool, result, ...options };
 }
+
+it("includes own __proto__ JSON keys in replay identity", () => {
+  const first = JSON.parse(
+    '{"__proto__":{"destination":"a"},"attachments":[{"type":"file","data":"QQ=="}]}',
+  );
+  const second = JSON.parse(
+    '{"__proto__":{"destination":"b"},"attachments":[{"type":"file","data":"QQ=="}]}',
+  );
+  expect(toolCallInputFingerprint(first)).not.toBe(
+    toolCallInputFingerprint(second),
+  );
+  const journal = classifyToolCallJournal([
+    start("send-report", first),
+    done("send-report", "A sent", { input: first }),
+  ]);
+  expect(
+    findCompletedJournalEntry(journal, "send-report", second),
+  ).toBeUndefined();
+  expect(findCompletedJournalEntry(journal, "send-report", first)?.result).toBe(
+    "A sent",
+  );
+});
 
 describe("classifyToolCallJournal", () => {
   it("classifies one completed and one interrupted tool call", () => {
@@ -47,7 +70,7 @@ describe("classifyToolCallJournal", () => {
     expect(isJournalEmpty(journal)).toBe(false);
   });
 
-  it("matches tool_done to the oldest open start of the same tool (FIFO)", () => {
+  it("keeps concurrent calls unknown when a receipt has no call identity", () => {
     const events: AgentChatEvent[] = [
       start("readFile", { path: "a.ts" }),
       start("readFile", { path: "b.ts" }),
@@ -57,10 +80,97 @@ describe("classifyToolCallJournal", () => {
 
     const journal = classifyToolCallJournal(events);
 
-    expect(journal.completed).toHaveLength(1);
-    expect(journal.completed[0].input).toEqual({ path: "a.ts" });
+    expect(journal.completed).toHaveLength(0);
+    expect(journal.interrupted.map((entry) => entry.input)).toEqual([
+      { path: "a.ts" },
+      { path: "b.ts" },
+    ]);
+  });
+
+  it("associates an inputless receipt with its call ID instead of an earlier call", () => {
+    const inputA = { to: "a@example.com" };
+    const inputB = { to: "b@example.com" };
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", tool: "sendEmail", id: "call-a", input: inputA },
+      { type: "tool_start", tool: "sendEmail", id: "call-b", input: inputB },
+      { type: "tool_done", tool: "sendEmail", id: "call-b", result: "B sent" },
+    ]);
+    expect(
+      findCompletedJournalEntry(journal, "sendEmail", inputA),
+    ).toBeUndefined();
+    expect(
+      findCompletedJournalEntry(journal, "sendEmail", inputB)?.result,
+    ).toBe("B sent");
+    expect(journal.interrupted.map((entry) => entry.input)).toEqual([inputA]);
+  });
+
+  it("does not assign a receipt for another ID to the only pending call", () => {
+    const journal = classifyToolCallJournal([
+      {
+        type: "tool_start",
+        tool: "sendEmail",
+        id: "call-a",
+        input: { to: "a@example.com" },
+      },
+      { type: "tool_done", tool: "sendEmail", id: "call-b", result: "B sent" },
+    ]);
+    expect(journal.completed).toHaveLength(0);
     expect(journal.interrupted).toHaveLength(1);
-    expect(journal.interrupted[0].input).toEqual({ path: "b.ts" });
+  });
+
+  it("does not fall back to another call when the receipt input differs", () => {
+    const journal = classifyToolCallJournal([
+      start("sendEmail", { to: "a@example.com" }),
+      done("sendEmail", "B sent", { input: { to: "b@example.com" } }),
+    ]);
+    expect(journal.completed).toHaveLength(0);
+    expect(journal.interrupted).toHaveLength(1);
+  });
+
+  it("keeps contradictory call and input identities unknown", () => {
+    const journal = classifyToolCallJournal([
+      {
+        type: "tool_start",
+        tool: "sendEmail",
+        id: "call-a",
+        input: { to: "a@example.com" },
+      },
+      {
+        type: "tool_start",
+        tool: "sendEmail",
+        id: "call-b",
+        input: { to: "b@example.com" },
+      },
+      {
+        type: "tool_done",
+        tool: "sendEmail",
+        id: "call-a",
+        inputFingerprint: toolCallInputFingerprint({ to: "b@example.com" }),
+        result: "B sent",
+      },
+    ]);
+    expect(journal.completed).toHaveLength(0);
+    expect(journal.interrupted).toHaveLength(2);
+  });
+
+  it("keeps duplicate call IDs unknown when their receipt omits input", () => {
+    const journal = classifyToolCallJournal([
+      {
+        type: "tool_start",
+        tool: "sendEmail",
+        id: "call-a",
+        input: { to: "a@example.com" },
+      },
+      {
+        type: "tool_start",
+        tool: "sendEmail",
+        id: "call-a",
+        input: { to: "b@example.com" },
+      },
+      { type: "tool_done", tool: "sendEmail", id: "call-a", result: "sent" },
+    ]);
+    expect(journal.completed).toHaveLength(0);
+    expect(journal.interrupted).toHaveLength(2);
   });
 
   it("uses tool_done input to match the correct same-name start when available", () => {
