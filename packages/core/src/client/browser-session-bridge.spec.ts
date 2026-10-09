@@ -352,6 +352,30 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     expect(claimSignal?.aborted).toBe(true);
   });
 
+  it("propagates response-body read failures instead of returning an empty claim", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (
+        url === "/_agent-native/browser-sessions/tab-1/requests/claim" &&
+        init?.method === "POST"
+      ) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new DOMException("Aborted", "AbortError");
+          },
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch ${init?.method} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      sessionId: "tab-1",
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await expect(bridge.claimOnce()).rejects.toThrow("Aborted");
+  });
+
   it("registers direct embedded context and actions without postMessage", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe("/_agent-native/browser-sessions");
