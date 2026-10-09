@@ -1,6 +1,7 @@
 import { isAgentActionStopError } from "@agent-native/core";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+import { getPreset } from "../app/lib/design-systems.js";
 import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
 import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import { hashSlideContent } from "../shared/slide-fit";
@@ -1877,39 +1878,74 @@ describe("run() — asynchronous layout fit metadata", () => {
     ]);
   });
 
-  it("allows only scalar deck tweaks for widget writes", async () => {
-    const tweakOperation = {
-      op: "patch-deck-fields",
-      fields: { tweaks: { accent: "#123456", density: 2, compact: true } },
-    } as const;
+  it("allows widget tweaks only from the opened deck's preset", () => {
+    const tweakDefinitions = getPreset("light").tweaks;
+    const validOperation = {
+      op: "patch-deck-fields" as const,
+      fields: {
+        tweaks: { accentColor: "#2563EB", paperBackground: "white" },
+      },
+    };
 
-    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [tweakOperation])).toBe(
-      true,
-    );
     expect(
-      isMcpWidgetPatchAllowed("mcp-widget-write", [
-        {
-          ...tweakOperation,
-          fields: { ...tweakOperation.fields, title: "Deck" },
-        },
-      ] as unknown as Operation[]),
+      isMcpWidgetPatchAllowed("mcp-widget-write", [validOperation], {
+        tweakDefinitions,
+      }),
+    ).toBe(true);
+    expect(
+      isMcpWidgetPatchAllowed(
+        "mcp-widget-write",
+        [
+          {
+            op: "patch-deck-fields",
+            fields: { tweaks: { accentColor: "#00E5FF" } },
+          },
+        ],
+        { tweakDefinitions },
+      ),
     ).toBe(false);
     expect(
-      isMcpWidgetPatchAllowed("mcp-widget-write", [
-        {
-          op: "patch-deck-fields",
-          fields: { tweaks: { accent: { value: "#123456" } } },
-        } as unknown as Operation,
-      ]),
+      isMcpWidgetPatchAllowed(
+        "mcp-widget-write",
+        [
+          {
+            op: "patch-deck-fields",
+            fields: { tweaks: { customCss: "background: url(...)" } },
+          },
+        ],
+        { tweakDefinitions },
+      ),
     ).toBe(false);
     expect(
-      isMcpWidgetPatchAllowed("mcp-widget-write", [
-        {
-          op: "patch-deck-fields",
-          fields: { tweaks: null },
-        },
-      ]),
+      isMcpWidgetPatchAllowed(
+        "mcp-widget-write",
+        [
+          {
+            op: "patch-deck-fields",
+            fields: {
+              title: "Updated",
+              tweaks: { accentColor: "#2563EB" },
+            },
+          },
+        ],
+        { tweakDefinitions },
+      ),
     ).toBe(false);
+  });
+
+  it("persists a valid scoped widget tweak selection on its deck", async () => {
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        designSystemId: "light",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      }),
+    };
 
     await runPatchDeckAction(
       {
@@ -1919,13 +1955,58 @@ describe("run() — asynchronous layout fit metadata", () => {
           sequence: 1,
           expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
         },
-        operations: [tweakOperation],
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { tweaks: { accentColor: "#2563EB" } },
+          },
+        ],
       },
       { caller: "mcp-widget-write" },
     );
-    expect(JSON.parse(String(mockDeckRow?.data)).tweaks).toEqual(
-      tweakOperation.fields.tweaks,
-    );
+
+    expect(JSON.parse(String(mockDeckRow.data)).tweaks).toEqual({
+      accentColor: "#2563EB",
+    });
+  });
+
+  it("rejects a widget tweak value unavailable to the deck's preset", async () => {
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        designSystemId: "light",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      }),
+    };
+
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { tweaks: { accentColor: "#00E5FF" } },
+          },
+        ],
+      },
+      { caller: "mcp-widget-write" },
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "mcp_widget_write_outside_editor_scope",
+      statusCode: 403,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
   });
 
   it("allows widget background and slide-rail edits within the deck", () => {

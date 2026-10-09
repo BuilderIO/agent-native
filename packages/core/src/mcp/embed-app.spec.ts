@@ -533,10 +533,9 @@ describe("embedApp", () => {
     expect(embedSessionArgsFor("/page/document-1")).not.toHaveProperty(
       "toolOutput",
     );
-    expect(embedSessionArgsFor("/page/document-1", true)).toEqual({
-      sourceTicket: "saved-ticket",
-      renewInPlace: true,
-    });
+    expect(() => embedSessionArgsFor("/page/document-1", true)).toThrow(
+      "The active widget session ticket is unavailable.",
+    );
     rememberActiveEmbedSessionTicket(
       "https://content.agent-native.com/_agent-native/embed/start?ticket=mounted-ticket",
     );

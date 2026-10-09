@@ -614,14 +614,18 @@ export function embedApp(
           widgetSource.sourceTicket.trim()
             ? widgetSource.sourceTicket
             : embedTicketFromStartUrl(openStartUrl || value);
-        const sourceTicket =
-          renewInPlace &&
-          typeof renewalSourceTicket === "string" &&
-          renewalSourceTicket.trim()
+        const sourceTicket = renewInPlace
+          ? typeof renewalSourceTicket === "string" &&
+            renewalSourceTicket.trim()
             ? renewalSourceTicket
-            : originalSourceTicket;
+            : null
+          : originalSourceTicket;
         if (typeof sourceTicket !== "string" || !sourceTicket.trim()) {
-          throw new Error("The original widget session ticket is unavailable.");
+          throw new Error(
+            renewInPlace
+              ? "The active widget session ticket is unavailable."
+              : "The original widget session ticket is unavailable.",
+          );
         }
         return {
           sourceTicket,

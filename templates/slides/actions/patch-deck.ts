@@ -27,6 +27,7 @@ import type { CreativeContextReuseLabel } from "@agent-native/creative-context/t
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { getPreset, type TweakDefinition } from "../app/lib/design-systems.js";
 import {
   normalizeSlidePadding,
   normalizeSlidePaddingForWrite,
@@ -418,6 +419,31 @@ function hasExactMcpWidgetFieldBaselines(
   );
 }
 
+function hasOnlyMcpWidgetTweakSelections(
+  value: unknown,
+  tweakDefinitions: readonly TweakDefinition[],
+): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const tweaks = value as Record<string, unknown>;
+  const definitions = new Map(
+    tweakDefinitions.map((tweak) => [tweak.id, tweak]),
+  );
+  const entries = Object.entries(tweaks);
+  return (
+    entries.length > 0 &&
+    entries.every(([id, selectedValue]) => {
+      const definition = definitions.get(id);
+      return (
+        typeof selectedValue === "string" &&
+        (definition?.options?.some(
+          (option) => option.value === selectedValue,
+        ) ??
+          false)
+      );
+    })
+  );
+}
+
 export function isMcpWidgetPatchAllowed(
   caller: string | undefined,
   operations: Operation[],
@@ -425,6 +451,7 @@ export function isMcpWidgetPatchAllowed(
     rewriteSource?: boolean;
     hasCreativeContext?: boolean;
     requireAllSourceSlides?: boolean;
+    tweakDefinitions?: readonly TweakDefinition[];
   },
 ): boolean {
   if (caller !== "mcp-widget-write") return true;
@@ -451,17 +478,11 @@ export function isMcpWidgetPatchAllowed(
       }
       if (typeof operation.fields.title === "string") return true;
 
-      const tweaks = operation.fields.tweaks;
       return (
-        !!tweaks &&
-        typeof tweaks === "object" &&
-        !Array.isArray(tweaks) &&
-        Object.keys(tweaks).length > 0 &&
-        Object.values(tweaks).every(
-          (value) =>
-            typeof value === "string" ||
-            typeof value === "number" ||
-            typeof value === "boolean",
+        options?.tweakDefinitions !== undefined &&
+        hasOnlyMcpWidgetTweakSelections(
+          operation.fields.tweaks,
+          options.tweakDefinitions,
         )
       );
     }
@@ -1185,32 +1206,6 @@ export default defineAction({
     },
     ctx,
   ) => {
-    if (
-      !isMcpWidgetPatchAllowed(ctx?.caller, operations, {
-        rewriteSource,
-        hasCreativeContext: creativeContext !== undefined,
-        requireAllSourceSlides,
-      })
-    ) {
-      fail(
-        "The Slides widget can edit slide content and structure, the deck title, and deck style tweaks, not deck access or linked resources.",
-        {
-          errorCode: "mcp_widget_write_outside_editor_scope",
-          statusCode: 403,
-        },
-      );
-    }
-
-    if (
-      ctx?.caller === "mcp-widget-write" &&
-      clientWrite?.expectedUpdatedAt === undefined
-    ) {
-      fail("The Slides widget needs the current deck revision before saving.", {
-        errorCode: "mcp_widget_write_revision_required",
-        statusCode: 409,
-      });
-    }
-
     await assertAccess("deck", deckId, "editor");
     const isAgentCaller = isAgentPatchCaller(ctx?.caller);
 
@@ -1227,6 +1222,41 @@ export default defineAction({
           errorCode: "deck_not_found",
           statusCode: 404,
         });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const deck: any = JSON.parse(row.data);
+      if (
+        !isMcpWidgetPatchAllowed(ctx?.caller, operations, {
+          rewriteSource,
+          hasCreativeContext: creativeContext !== undefined,
+          requireAllSourceSlides,
+          tweakDefinitions: getPreset(
+            typeof deck.designSystemId === "string"
+              ? deck.designSystemId
+              : "default",
+          ).tweaks,
+        })
+      ) {
+        fail(
+          "The Slides widget can edit slide content, structure, title, and available design-system tweaks, not deck access or linked resources.",
+          {
+            errorCode: "mcp_widget_write_outside_editor_scope",
+            statusCode: 403,
+          },
+        );
+      }
+      if (
+        ctx?.caller === "mcp-widget-write" &&
+        clientWrite?.expectedUpdatedAt === undefined
+      ) {
+        fail(
+          "The Slides widget needs the current deck revision before saving.",
+          {
+            errorCode: "mcp_widget_write_revision_required",
+            statusCode: 409,
+          },
+        );
+      }
 
       const writeDisposition = assertDeckClientWriteCurrent(
         row,
@@ -1247,8 +1277,6 @@ export default defineAction({
         };
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const deck: any = JSON.parse(row.data);
       const existingContext = storedCreativeContext(deck.creativeContext);
       const previousDeckFitFields = {
         aspectRatio: deck.aspectRatio,
