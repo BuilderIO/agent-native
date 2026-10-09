@@ -714,6 +714,9 @@ const updateDocumentAction = defineAction({
         ...(args.recoveryExpectedUpdatedAt !== undefined
           ? [args.recoveryExpectedUpdatedAt !== snapshot.updatedAt]
           : []),
+        ...(args.loadedUpdatedAt
+          ? [args.loadedUpdatedAt !== snapshot.updatedAt]
+          : []),
       ];
       measurement.stale_base =
         staleComparisons.length === 0
@@ -879,6 +882,7 @@ const updateDocumentAction = defineAction({
         })
       ) {
         browserSaveContentRejected = true;
+        measurement.stale_base = "true";
         measurement.reason_code = "stale_empty_body";
         content = existing.content;
       }

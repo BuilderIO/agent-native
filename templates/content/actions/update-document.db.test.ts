@@ -2178,6 +2178,85 @@ describe("update-document compare-and-swap", () => {
 });
 
 describe("update-document save outcome counts", () => {
+  it.each(["current", "stale"] as const)(
+    "observes an unchanged save's %s loaded timestamp without writing",
+    async (base) => {
+      const id = await createDocument({ content: "Body" });
+      const before = await documentRow(id);
+      await measuredSave(
+        () =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            updateDocumentAction.run(
+              {
+                id,
+                content: "Body",
+                loadedUpdatedAt:
+                  base === "current"
+                    ? before.updatedAt
+                    : "2020-01-01T00:00:00.000Z",
+              },
+              { caller: "frontend", userEmail: OWNER },
+            ),
+          ),
+        {
+          outcome: "unchanged",
+          stale_base: base === "current" ? "false" : "true",
+          history_effect: "none",
+        },
+      );
+      expect(await documentRow(id)).toEqual(before);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, id)),
+      ).toHaveLength(0);
+    },
+  );
+
+  it.each(["current", "stale"] as const)(
+    "observes a suppressed empty snapshot as stale with only a %s loaded timestamp",
+    async (base) => {
+      const id = await createDocument({ content: "Hydrated body" });
+      const before = await documentRow(id);
+      const result = await measuredSave(
+        () =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            updateDocumentAction.run(
+              {
+                id,
+                content: "<empty-block/>",
+                loadedContentWasEmpty: true,
+                loadedUpdatedAt:
+                  base === "current"
+                    ? before.updatedAt
+                    : "2020-01-01T00:00:00.000Z",
+                browserSaveAttemptId: nextId("loaded-empty-attempt"),
+              },
+              { caller: "frontend", userEmail: OWNER },
+            ),
+          ),
+        {
+          outcome: "conflict",
+          stale_base: "true",
+          history_effect: "none",
+          reason_code: "stale_empty_body",
+        },
+      );
+      expect(result).toMatchObject({
+        conflict: true,
+        document: { content: "Hydrated body" },
+      });
+      expect(await documentRow(id)).toEqual(before);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, id)),
+      ).toHaveLength(0);
+    },
+  );
+
   it.each([false, true])(
     "does not treat a malformed base as stale (body changes: %s)",
     async (bodyChanges) => {
