@@ -1,6 +1,8 @@
 import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { BigQueryMaximumBytesBilledError } from "./bigquery.js";
+
 const mocks = vi.hoisted(() => ({
   queryFirstPartyAnalytics: vi.fn(),
   listJourneyRecordings: vi.fn(),
@@ -399,7 +401,7 @@ describe("getOnboardingJourney", () => {
   it("adds distinct-person follow-up without changing tree or session denominators", async () => {
     const now = vi
       .spyOn(Date, "now")
-      .mockReturnValue(Date.parse("2026-11-05T00:00:00.000Z"));
+      .mockReturnValue(Date.parse("2026-11-05T00:00:56.789Z"));
     const rows = [
       eventRow("s1", "signup", 0, { auth_user_id: "person-1" }),
       eventRow("s1", "onboarding_step_viewed", 5, {
@@ -527,6 +529,55 @@ describe("getOnboardingJourney", () => {
     expect(personSql).toContain("e.received_at::timestamptz <");
     expect(personSql).toContain("'30 days'");
     now.mockRestore();
+  });
+
+  it("marks only the person follow-up incomplete when BigQuery rejects its byte cap", async () => {
+    mocks.queryFirstPartyAnalytics
+      .mockResolvedValueOnce({ rows: journeyRows(), schema: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            terminal_step_key: "onboarding:completed",
+            cohort_sessions: 1,
+            later_recorded_activity: 0,
+          },
+          {
+            terminal_step_key: "signup",
+            cohort_sessions: 1,
+            later_recorded_activity: 0,
+          },
+          {
+            terminal_step_key: "step:role",
+            cohort_sessions: 1,
+            later_recorded_activity: 0,
+          },
+        ],
+        schema: [],
+      })
+      .mockRejectedValueOnce(new BigQueryMaximumBytesBilledError());
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      followUpMode: "person",
+      format: "summary",
+    })) as JourneySummary;
+
+    expect(tree.followUp.status).toBe("complete");
+    expect(tree.personFollowUp).toMatchObject({
+      status: "incomplete",
+      incompleteReason: "person_followup_query_cost_limited",
+      observationWatermark: expect.stringMatching(/:00\.000Z$/),
+      total: null,
+      byTerminalStepKey: null,
+      coverage: {
+        followupAggregateRead: {
+          status: "incomplete",
+          rows: null,
+          queries: 1,
+          truncated: false,
+        },
+      },
+    });
   });
 
   it("keeps sessions without a selected journey step out of person inactivity counts", async () => {

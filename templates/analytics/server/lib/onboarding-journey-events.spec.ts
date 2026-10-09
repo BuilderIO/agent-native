@@ -444,6 +444,57 @@ describe("onboarding journey events SQL", () => {
     });
   });
 
+  it("keeps Builder filtering session-scoped and counts sessionless activity as outside", async () => {
+    await setup();
+    const terminalAt = Date.parse(`${today}T12:00:02.000Z`);
+    await insert("builder-cohort", "onboarding_step_viewed", 2, {
+      email: "dev@builder.io",
+      properties: {
+        flow: "first_run",
+        step_id: "role",
+        auth_user_id: "person-builder",
+      },
+    });
+    await insert("builder-cohort", "button_click", 3, {
+      properties: { auth_user_id: "person-builder" },
+    });
+    await insert(null, "button_click", 4, {
+      email: "dev@builder.io",
+      template: "design",
+      properties: { auth_user_id: "person-builder" },
+    });
+    await insert("unclassified-session", "button_click", 5, {
+      template: "design",
+      properties: { auth_user_id: "person-builder" },
+    });
+
+    const rows = await runPersonFollowup(
+      [
+        {
+          sessionId: "builder-cohort",
+          stepKey: "step:role",
+          tsMs: terminalAt,
+          app: "clips",
+          authUserId: "person-builder",
+        },
+      ],
+      { emailFilter: "only_builder" },
+      observation({
+        observationWatermark: `${new Date(Date.parse(`${today}T00:00:00Z`) + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}T00:00:00.000Z`,
+      }),
+    );
+
+    expect(rows).toMatchObject([
+      {
+        canonical_people: 1,
+        later_activity_in_selected_session: 1,
+        later_activity_outside_selected_session_or_app: 1,
+        later_activity_in_both_selected_and_outside: 1,
+        later_activity_observed_anywhere: 1,
+      },
+    ]);
+  });
+
   it("selects renderable Design output events for onboarding sessions", async () => {
     await setup();
     await insert("design-output", "signup", 1, {

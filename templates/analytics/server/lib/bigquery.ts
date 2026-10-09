@@ -57,6 +57,39 @@ export interface BigQueryTableMetadata {
   schema?: { fields?: BigQueryTableField[] };
 }
 
+export class BigQueryMaximumBytesBilledError extends Error {
+  constructor() {
+    super("BigQuery query exceeded its configured billed-byte limit");
+    this.name = "BigQueryMaximumBytesBilledError";
+  }
+}
+
+function isMaximumBytesBilledError(status: number, responseText: string) {
+  if (status !== 400) return false;
+  try {
+    const response = JSON.parse(responseText) as {
+      error?: {
+        message?: unknown;
+        errors?: Array<{ message?: unknown }>;
+      };
+    };
+    return hasMaximumBytesBilledMessage([
+      response.error?.message,
+      ...(response.error?.errors ?? []).map((error) => error.message),
+    ]);
+  } catch {
+    return false;
+  }
+}
+
+function hasMaximumBytesBilledMessage(messages: readonly unknown[]) {
+  return messages.some(
+    (message) =>
+      typeof message === "string" &&
+      /query exceeded limit for bytes billed/i.test(message),
+  );
+}
+
 export interface BigQueryTableSummary {
   projectId?: string;
   datasetId?: string;
@@ -633,6 +666,7 @@ interface BigQueryGetQueryResultsResponse {
   totalRows?: string;
   jobComplete?: boolean;
   totalBytesProcessed?: string;
+  errors?: Array<{ message?: string }>;
 }
 
 function createAbortError(): Error {
@@ -1003,6 +1037,10 @@ export async function runQuery(
 
     if (!res.ok) {
       const text = await res.text();
+      if (isMaximumBytesBilledError(res.status, text)) {
+        jobId = null;
+        throw new BigQueryMaximumBytesBilledError();
+      }
       throw new Error(`BigQuery API error ${res.status}: ${text}`);
     }
 
@@ -1035,10 +1073,23 @@ export async function runQuery(
       });
       if (!pollRes.ok) {
         const text = await pollRes.text();
+        if (isMaximumBytesBilledError(pollRes.status, text)) {
+          jobId = null;
+          throw new BigQueryMaximumBytesBilledError();
+        }
         throw new Error(`BigQuery poll error ${pollRes.status}: ${text}`);
       }
       data = (await pollRes.json()) as BigQueryGetQueryResultsResponse;
       attempts++;
+      if (
+        data.jobComplete &&
+        hasMaximumBytesBilledMessage(
+          data.errors?.map((error) => error.message) ?? [],
+        )
+      ) {
+        jobId = null;
+        throw new BigQueryMaximumBytesBilledError();
+      }
       if (!data.jobComplete && attempts < 60) {
         await waitForPollInterval(signal);
       }

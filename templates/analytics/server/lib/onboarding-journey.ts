@@ -1,6 +1,7 @@
 import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { getAppBasePath, getRequestContext } from "@agent-native/core/server";
 
+import { BigQueryMaximumBytesBilledError } from "./bigquery.js";
 import {
   queryFirstPartyAnalytics,
   type AnalyticsScope,
@@ -179,6 +180,7 @@ export interface JourneyPersonFollowup {
     | "terminal_cohort_too_large"
     | "terminal_cohort_invalid"
     | "person_followup_aggregate_truncated"
+    | "person_followup_query_cost_limited"
     | "person_followup_aggregate_invalid"
     | "person_followup_terminal_cohort_mismatch";
   horizonDays: typeof ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS;
@@ -197,7 +199,7 @@ export interface JourneyPersonFollowup {
       paginationConsistency: "stable" | "may_have_shifted";
     };
     followupAggregateRead: {
-      status: "complete" | "truncated" | "not_run";
+      status: "complete" | "truncated" | "incomplete" | "not_run";
       rows: number | null;
       queries: number;
       truncated: boolean;
@@ -455,13 +457,16 @@ function freezeObservationWindow(
   args: OnboardingJourneyEventsFilters,
 ): OnboardingJourneyObservationWindow {
   const requestedAtMs = Date.now();
+  const observationWatermark = new Date(
+    Math.floor(requestedAtMs / 60_000) * 60_000,
+  ).toISOString();
   const requestedEndExclusive = Date.parse(`${args.dateTo}T00:00:00Z`) + DAY_MS;
   const cutoffMs = Math.min(requestedAtMs, requestedEndExclusive);
   const observationCutoff = new Date(cutoffMs).toISOString();
   return {
     observationCutoff,
     observationDate: observationCutoff.slice(0, 10),
-    observationWatermark: new Date(requestedAtMs).toISOString(),
+    observationWatermark,
   };
 }
 
@@ -992,11 +997,21 @@ async function readPersonFollowup(
   ) {
     return incomplete("terminal_cohort_too_large", baseCoverage);
   }
-  const result = await queryFirstPartyAnalytics(sql, scope, {
-    cache: true,
-    timeoutMs: 20_000,
-    maxBytesBilled: 10_000_000_000,
-  });
+  let result: Awaited<ReturnType<typeof queryFirstPartyAnalytics>>;
+  try {
+    result = await queryFirstPartyAnalytics(sql, scope, {
+      cache: true,
+      timeoutMs: 20_000,
+      maxBytesBilled: 10_000_000_000,
+    });
+  } catch (error) {
+    if (!(error instanceof BigQueryMaximumBytesBilledError)) throw error;
+    return incomplete("person_followup_query_cost_limited", {
+      aggregateStatus: "incomplete",
+      queries: 1,
+      ...baseCoverage,
+    });
+  }
   if (result.truncated) {
     return incomplete("person_followup_aggregate_truncated", {
       aggregateStatus: "truncated",

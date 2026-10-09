@@ -1773,7 +1773,10 @@ export function buildOnboardingJourneyPersonFollowupSql(
 
   const watermarkMs = Date.parse(watermark);
   const horizonMs = ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS * DAY_MS;
-  const activityStartMs = Math.min(...members.map((member) => member.tsMs));
+  const activityStartMs = Math.min(
+    Date.parse(`${filters.dateFrom}T00:00:00.000Z`),
+    ...members.map((member) => member.tsMs),
+  );
   const activityEndMs = Math.min(
     watermarkMs,
     Math.max(...members.map((member) => member.tsMs + horizonMs)),
@@ -1807,16 +1810,40 @@ export function buildOnboardingJourneyPersonFollowupSql(
     AND e.timestamp::timestamptz < NULLIF('{{observationWatermark}}', '')::timestamptz
     AND e.received_at::timestamptz < NULLIF('{{observationWatermark}}', '')::timestamptz
     AND ${FIRST_PARTY_TEMPLATE_FILTER}
+), activity_session_identity AS (
+  SELECT session_id,
+    MAX(CAST(${testIdentityEmailSql("funnel_user_email")} AS integer)) AS has_test,
+    MAX(CASE WHEN lower(coalesce(funnel_user_email, '')) LIKE '%@builder.io' THEN 1 ELSE 0 END) AS has_builder
+  FROM activity_events
+  WHERE NULLIF(session_id, '') IS NOT NULL
+  GROUP BY session_id
+), included_activity_sessions AS (
+  SELECT session_id
+  FROM activity_session_identity
+  WHERE has_test = 0
+    AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND has_builder = 0) OR ('{{emailFilter}}' = 'only_builder' AND has_builder = 1))
 ), filtered_activity_events AS (
-  SELECT * FROM activity_events
-  WHERE ${FUNNEL_EMAIL_FILTER}
-    AND NOT ${testIdentityEmailSql("funnel_user_email")}
+  SELECT activity.*
+  FROM activity_events activity
+  WHERE (
+    NULLIF(activity.session_id, '') IS NOT NULL
+    AND EXISTS (
+      SELECT 1 FROM included_activity_sessions included
+      WHERE included.session_id = activity.session_id
+    )
+  ) OR (
+    NULLIF(activity.session_id, '') IS NULL
+    AND ${FUNNEL_EMAIL_FILTER.replace(/funnel_user_email/g, "activity.funnel_user_email")}
+    AND NOT ${testIdentityEmailSql("activity.funnel_user_email")}
+  )
 ), activity_evidence AS (
   SELECT member.member_id, member.terminal_step_key, member.identity_status,
     MAX(CASE WHEN later.session_id = member.session_id
       AND later.activity_app = member.terminal_app THEN 1 ELSE 0 END) AS selected_session_activity,
-    MAX(CASE WHEN later.session_id <> member.session_id
-      OR later.activity_app <> member.terminal_app THEN 1 ELSE 0 END) AS outside_session_or_app_activity
+    MAX(CASE WHEN later.event_at IS NOT NULL AND (
+      later.session_id IS DISTINCT FROM member.session_id
+      OR later.activity_app IS DISTINCT FROM member.terminal_app
+    ) THEN 1 ELSE 0 END) AS outside_session_or_app_activity
   FROM terminal_members member
   LEFT JOIN filtered_activity_events later ON
     later.event_at > member.terminal_at
