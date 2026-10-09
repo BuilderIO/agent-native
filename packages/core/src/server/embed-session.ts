@@ -1384,6 +1384,10 @@ export async function resolveEmbedSessionFromRequest(
   return null;
 }
 
+export function hasExplicitEmbedSessionCredential(event: H3Event): boolean {
+  return Boolean(queryToken(event) || getCookie(event, EMBED_SESSION_COOKIE));
+}
+
 export function requestHasEmbedAuthMarker(event: H3Event): boolean {
   try {
     const q = getQuery(event) ?? {};

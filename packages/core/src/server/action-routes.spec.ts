@@ -94,6 +94,8 @@ vi.mock("./auth.js", () => ({
   isLoopbackRequest: () => false,
 }));
 vi.mock("./embed-session.js", () => ({
+  hasExplicitEmbedSessionCredential: (event: any) =>
+    Boolean(event._hasExplicitEmbedSessionCredential),
   resolveEmbedSessionFromRequest: (...args: unknown[]) =>
     mockResolveEmbedSessionFromRequest(...args),
   resolvedEmbedCapabilityScope: (session: { scope?: string } | null) =>
@@ -1468,6 +1470,117 @@ describe("mountActionRoutes", () => {
       }),
     ).rejects.toBe(unauthenticated);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("rejects a failed embed credential before same-origin cookie auth can fall through", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const getOwnerFromEvent = vi.fn(async () => "session-user@example.com");
+    mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "get-document": {
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: true,
+          run,
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _hasExplicitEmbedSessionCredential: true,
+        req: {
+          url: "http://app.test/_agent-native/actions/get-document?id=doc-1",
+        },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("propagates embed revocation lookup failures instead of using cookie auth", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const getOwnerFromEvent = vi.fn(async () => "session-user@example.com");
+    const unavailable = new Error("revocation lookup unavailable");
+    mockResolveEmbedSessionFromRequest.mockRejectedValue(unavailable);
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "get-document": {
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: true,
+          run,
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _hasExplicitEmbedSessionCredential: true,
+        req: {
+          url: "http://app.test/_agent-native/actions/get-document?id=doc-1",
+        },
+      }),
+    ).rejects.toBe(unavailable);
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("still permits cookie auth when the request has no embed credential", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (_args, context) => ({
+      userEmail: context?.userEmail,
+    }));
+    mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "get-document": {
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: true,
+          run,
+        } as any,
+      },
+      { getOwnerFromEvent: async () => "session-user@example.com" },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        req: {
+          url: "http://app.test/_agent-native/actions/get-document?id=doc-1",
+        },
+      }),
+    ).resolves.toEqual({ userEmail: "session-user@example.com" });
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("allows a matching capability on a frontend action request", async () => {

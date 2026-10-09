@@ -997,6 +997,56 @@ describe("update-document compare-and-swap", () => {
     ).rejects.toMatchObject({ errorCode: "INVALID_BROWSER_SAVE_ATTEMPT" });
   });
 
+  it("preserves newer body content when a widget save omits its base", async () => {
+    const id = await createDocument({ content: "Before" });
+    const initial = await documentRow(id);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run(
+        {
+          id,
+          baseRevision: documentRevisionToken(
+            initial.bodyRevision,
+            initial.content,
+          ),
+          idempotencyKey: nextId("widget-stale-agent-edit"),
+          find: "Before",
+          replace: "Agent current",
+        },
+        { caller: "mcp", userEmail: OWNER },
+      ),
+    );
+
+    const browserSaveAttemptId = nextId("widget-stale-save");
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run(
+        { id, content: "Stale browser body", browserSaveAttemptId },
+        {
+          caller: "mcp-widget-write",
+          userEmail: OWNER,
+          mcpDirectoryWidgetWrite: {
+            appId: "content",
+            resourceIds: { documentId: id },
+            actionNames: ["update-document"],
+          },
+        },
+      ),
+    );
+
+    expect(result).toMatchObject({
+      conflict: true,
+      document: { content: "Agent current" },
+    });
+    expect(await documentRow(id)).toMatchObject({
+      content: "Agent current",
+      bodyRevision: initial.bodyRevision + 1,
+    });
+    expect(
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        getDocumentSaveAttemptAction.run({ id, browserSaveAttemptId }),
+      ),
+    ).toEqual({ found: false });
+  });
+
   it("replays a lost title-only browser response without reverting a later rename", async () => {
     const id = await createDocument({ title: "Before", content: "Body" });
     const args = {

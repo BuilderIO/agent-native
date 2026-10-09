@@ -84,6 +84,7 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import {
+  hasExplicitEmbedSessionCredential,
   resolveEmbedSessionFromRequest,
   resolvedEmbedCapabilityScope,
   type ResolvedEmbedSession,
@@ -572,14 +573,11 @@ function allowsWebMcpCapabilityResource(
 async function resolveRequestAuthCapability(
   event: any,
 ): Promise<string | undefined> {
-  try {
-    return resolvedEmbedCapabilityScope(
-      await resolveEmbedSessionFromRequest(event),
-    );
-  } catch {
-    // Invalid or unavailable embed auth must fail closed as no capability.
-    return undefined;
+  const session = await resolveEmbedSessionFromRequest(event);
+  if (!session && hasExplicitEmbedSessionCredential(event)) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
   }
+  return resolvedEmbedCapabilityScope(session);
 }
 
 function resolveRequestEmbedSession(

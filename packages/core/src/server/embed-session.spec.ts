@@ -31,6 +31,7 @@ import {
   resolveEmbedSessionFromRequest,
   consumeEmbedSessionTicket,
   createEmbedSessionTicket,
+  hasExplicitEmbedSessionCredential,
   readMcpDirectoryWidgetRenewalTicket,
   revokeEmbedSessionsForOwner,
   revokeEmbedSessionsForOwners,
@@ -1055,6 +1056,35 @@ describe("requestMatchesEmbedTarget", () => {
         }),
       ),
     ).resolves.toBeNull();
+  });
+
+  it("recognizes only an explicit embed query token or embed-session cookie", () => {
+    expect(
+      hasExplicitEmbedSessionCredential(
+        fakeEvent(
+          "/_agent-native/actions/get-document?__an_embed_token=invalid",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      hasExplicitEmbedSessionCredential(
+        fakeEvent("/_agent-native/actions/get-document", {
+          cookie: `${EMBED_SESSION_COOKIE}=invalid`,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      hasExplicitEmbedSessionCredential(
+        fakeEvent("/_agent-native/actions/get-document", {
+          authorization: "Bearer unrelated-api-token",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      hasExplicitEmbedSessionCredential(
+        fakeEvent("/_agent-native/actions/get-document"),
+      ),
+    ).toBe(false);
   });
 
   it("resolves the embed owner for logout without a target referrer", async () => {
