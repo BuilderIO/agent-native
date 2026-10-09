@@ -224,26 +224,53 @@ describe("document share actions under a widget write grant", () => {
     expect(await visibilityOf(DOCUMENT_ID)).toBe("private");
   });
 
-  it("still requires admin on a document the grant does not name", async () => {
-    // The route binds resourceId to the ticketed document; the actions must
-    // hold the same line even if a call reached them with another id.
-    const forbidden = { name: "ForbiddenError", statusCode: 403 };
+  it("refuses a document the grant does not name before any access check runs", async () => {
+    // The route binds resourceId to the ticketed document; the actions repeat
+    // that scope check themselves, so a call that reached them with another id
+    // is rejected even for a user who could administer that document.
+    const outOfScope = {
+      errorCode: "mcp_widget_write_scope_mismatch",
+      statusCode: 403,
+    };
 
     await expect(
       asWidget(OWNER, shareResource, shareArgs(RECIPIENT, FOREIGN_DOCUMENT_ID)),
-    ).rejects.toMatchObject(forbidden);
+    ).rejects.toMatchObject(outOfScope);
     await expect(
       asWidget(OWNER, unshareResource, unshareArgs(OWNER, FOREIGN_DOCUMENT_ID)),
-    ).rejects.toMatchObject(forbidden);
+    ).rejects.toMatchObject(outOfScope);
     await expect(
       asWidget(
         OWNER,
         setResourceVisibility,
         visibilityArgs("public", FOREIGN_DOCUMENT_ID),
       ),
-    ).rejects.toMatchObject(forbidden);
+    ).rejects.toMatchObject(outOfScope);
     expect(await sharesFor(RECIPIENT, FOREIGN_DOCUMENT_ID)).toHaveLength(0);
     expect(await sharesFor(OWNER, FOREIGN_DOCUMENT_ID)).toHaveLength(1);
+    expect(await visibilityOf(FOREIGN_DOCUMENT_ID)).toBe("private");
+  });
+
+  it("still requires admin on a document the user cannot administer outside a widget", async () => {
+    const forbidden = { name: "ForbiddenError", statusCode: 403 };
+    const asApp = <T>(action: ShareAction, args: Record<string, unknown>) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run(args, { caller: "frontend", userEmail: OWNER }),
+      ) as Promise<T>;
+
+    await expect(
+      asApp(shareResource, shareArgs(RECIPIENT, FOREIGN_DOCUMENT_ID)),
+    ).rejects.toMatchObject(forbidden);
+    await expect(
+      asApp(unshareResource, unshareArgs(OWNER, FOREIGN_DOCUMENT_ID)),
+    ).rejects.toMatchObject(forbidden);
+    await expect(
+      asApp(
+        setResourceVisibility,
+        visibilityArgs("public", FOREIGN_DOCUMENT_ID),
+      ),
+    ).rejects.toMatchObject(forbidden);
+    expect(await sharesFor(RECIPIENT, FOREIGN_DOCUMENT_ID)).toHaveLength(0);
     expect(await visibilityOf(FOREIGN_DOCUMENT_ID)).toBe("private");
   });
 });
