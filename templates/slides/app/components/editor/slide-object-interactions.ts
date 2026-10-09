@@ -4,7 +4,10 @@ import {
   type CanvasResizeHandle,
 } from "@agent-native/toolkit/canvas-interactions";
 
-import { CROP_TRANSITION_ANIMATION_ID_PREFIX } from "@/lib/slide-image-replacement";
+import {
+  CROP_CSS_ANIMATION_NAME_PREFIX,
+  CROP_TRANSITION_ANIMATION_ID_PREFIX,
+} from "@/lib/slide-image-replacement";
 import { stripSourceStamps } from "@/lib/slide-source-map";
 
 import { hasInlineBottom, hasInlineHeight } from "./fit-text-object";
@@ -2326,7 +2329,7 @@ function serializeKeyframes(
 
 function nextCropAnimationName(): string {
   cropAnimationId += 1;
-  return `fmd_crop_${Date.now().toString(36)}_${cropAnimationId.toString(36)}`;
+  return `${CROP_CSS_ANIMATION_NAME_PREFIX}${Date.now().toString(36)}_${cropAnimationId.toString(36)}`;
 }
 
 function setAnimationList(

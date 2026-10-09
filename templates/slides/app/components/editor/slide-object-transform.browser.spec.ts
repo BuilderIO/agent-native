@@ -1886,6 +1886,87 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     }
   });
 
+  it("transfers generated crop animation time and play state across slide HTML replacement", async () => {
+    const css = `${SPIN} @keyframes fade { from { opacity: 0.2; } to { opacity: 1; } } .ruled { animation: fade 2s linear infinite, spin 4s linear infinite; }`;
+    const page = await openPage(css, imageHtml());
+    try {
+      const before = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        const frame = wrapped.frame;
+        const frameId = frame.getAttribute("data-slide-object-id")!;
+        wrapped.resumeAnimations();
+        const isGenerated = (animation: Animation): animation is CSSAnimation =>
+          "animationName" in animation &&
+          typeof animation.animationName === "string" &&
+          animation.animationName.startsWith("fmd_crop_");
+        const frameAnimation = frame.getAnimations().find(isGenerated)!;
+        const imageAnimation = image.getAnimations().find(isGenerated)!;
+        frameAnimation.pause();
+        const frameTime = frameAnimation.currentTime as number;
+        const imageTime = imageAnimation.currentTime as number;
+        const stage = document.querySelector(".stage") as HTMLElement;
+        const transfers =
+          window.slideObjects.captureCropTransitionAnimations(stage);
+        stage.innerHTML = frame.outerHTML;
+        const replacementFrame = Array.from(
+          stage.querySelectorAll<HTMLElement>(
+            ".fmd-pptx-image[data-slide-object-id]",
+          ),
+        ).find(
+          (candidate) =>
+            candidate.getAttribute("data-slide-object-id") === frameId,
+        )!;
+        window.slideObjects.restoreCropTransitionAnimations(stage, transfers);
+        const replacementImage = replacementFrame.querySelector("img")!;
+        const frameAnimationAfter = replacementFrame
+          .getAnimations()
+          .find(isGenerated)!;
+        const imageAnimationAfter = replacementImage
+          .getAnimations()
+          .find(isGenerated)!;
+        return {
+          frameTime,
+          frameTimeAfter: frameAnimationAfter.currentTime as number,
+          frameStateAfter: frameAnimationAfter.playState,
+          imageTime,
+          imageTimeAfter: imageAnimationAfter.currentTime as number,
+          imageStateAfter: imageAnimationAfter.playState,
+        };
+      });
+
+      expect(before.frameTimeAfter).toBeCloseTo(before.frameTime, 0);
+      expect(before.frameStateAfter).toBe("paused");
+      expect(before.imageTimeAfter).toBeCloseTo(before.imageTime, 0);
+      expect(before.imageStateAfter).toBe("running");
+
+      await page.waitForTimeout(200);
+      const after = await page.evaluate(() => {
+        const frame = document.querySelector<HTMLElement>(
+          ".fmd-pptx-image[data-slide-object-id]",
+        )!;
+        const image = frame.querySelector("img")!;
+        const animation = (element: Element) =>
+          element
+            .getAnimations()
+            .find(
+              (candidate) =>
+                "animationName" in candidate &&
+                typeof candidate.animationName === "string" &&
+                candidate.animationName.startsWith("fmd_crop_"),
+            )!;
+        return {
+          frameTime: animation(frame).currentTime as number,
+          imageTime: animation(image).currentTime as number,
+        };
+      });
+      expect(after.frameTime).toBeCloseTo(before.frameTimeAfter, 0);
+      expect(after.imageTime).toBeGreaterThan(before.imageTimeAfter + 100);
+    } finally {
+      await page.close();
+    }
+  });
+
   it("keeps image-owned opacity transitions moving when a crop is canceled", async () => {
     const css =
       ".ruled { opacity: 0.2; transition: opacity 2s linear; } .moving { opacity: 0.8; }";

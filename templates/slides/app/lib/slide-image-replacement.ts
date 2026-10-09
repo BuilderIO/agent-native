@@ -3,6 +3,7 @@ import { SOURCE_STAMP_ATTR } from "./slide-source-map";
 const PLACEHOLDER_TARGET_PREFIX = "placeholder:";
 const MAX_PENDING_SLIDE_IMAGE_UPLOADS = 16;
 export const CROP_TRANSITION_ANIMATION_ID_PREFIX = "fmd-crop-transition:";
+export const CROP_CSS_ANIMATION_NAME_PREFIX = "fmd_crop_";
 
 type InlineStyleDeclaration = {
   property: string;
@@ -41,30 +42,77 @@ function withCssTransitionsDisabled<T>(
   }
 }
 
-type CropTransitionAnimationTransfer = {
+type CropAnimationTransferBase = {
   animation: Animation;
-  animationId: string;
   objectId: string;
   targetKind: "frame" | "image";
-  property: string;
-  keyframes: Keyframe[];
-  timing: EffectTiming;
-  currentTime: CSSNumberish;
+  currentTime: CSSNumberish | null;
   playbackRate: number;
   playState: AnimationPlayState;
 };
 
+type CropTransitionAnimationTransfer = CropAnimationTransferBase & {
+  kind: "transition";
+  animationId: string;
+  property: string;
+  keyframes: Keyframe[];
+  timing: EffectTiming;
+};
+
+type CropCssAnimationTransfer = CropAnimationTransferBase & {
+  kind: "css";
+  animationName: string;
+  occurrence: number;
+};
+
+type CropAnimationTransfer =
+  | CropTransitionAnimationTransfer
+  | CropCssAnimationTransfer;
+
 export function captureCropTransitionAnimations(
   root: HTMLElement,
-): CropTransitionAnimationTransfer[] {
-  const transfers: CropTransitionAnimationTransfer[] = [];
+): CropAnimationTransfer[] {
+  const transfers: CropAnimationTransfer[] = [];
   const elements = [
     root,
     ...Array.from(root.querySelectorAll<HTMLElement>("*")),
   ];
   for (const element of elements) {
+    const cssAnimationOccurrences = new Map<string, number>();
     for (const animation of element.getAnimations()) {
+      const animationName =
+        "animationName" in animation &&
+        typeof animation.animationName === "string"
+          ? animation.animationName
+          : null;
       if (
+        animationName?.startsWith(CROP_CSS_ANIMATION_NAME_PREFIX) &&
+        animation.playState !== "idle"
+      ) {
+        const occurrence = cssAnimationOccurrences.get(animationName) ?? 0;
+        cssAnimationOccurrences.set(animationName, occurrence + 1);
+        const frame = element.matches(".fmd-pptx-image")
+          ? element
+          : element.closest<HTMLElement>(
+              ".fmd-pptx-image[data-slide-object-id]",
+            );
+        const objectId = frame?.getAttribute("data-slide-object-id");
+        if (!frame || !objectId) continue;
+        transfers.push({
+          kind: "css",
+          animation,
+          animationName,
+          occurrence,
+          objectId,
+          targetKind: element === frame ? "frame" : "image",
+          currentTime: animation.currentTime,
+          playbackRate: animation.playbackRate,
+          playState: animation.playState,
+        });
+        continue;
+      }
+      if (
+        animationName !== null ||
         !animation.id.startsWith(CROP_TRANSITION_ANIMATION_ID_PREFIX) ||
         animation.playState === "finished" ||
         animation.currentTime === null ||
@@ -82,6 +130,7 @@ export function captureCropTransitionAnimations(
       );
       if (!property) continue;
       transfers.push({
+        kind: "transition",
         animation,
         animationId: animation.id,
         objectId,
@@ -100,7 +149,7 @@ export function captureCropTransitionAnimations(
 
 export function restoreCropTransitionAnimations(
   root: HTMLElement,
-  transfers: CropTransitionAnimationTransfer[],
+  transfers: CropAnimationTransfer[],
 ): void {
   for (const transfer of transfers) {
     const frame = Array.from(
@@ -120,6 +169,27 @@ export function restoreCropTransitionAnimations(
         ? frame?.querySelector<HTMLImageElement>("img")
         : (target as HTMLImageElement | null | undefined);
     if (!frame || !(target instanceof HTMLElement)) {
+      if (transfer.kind === "transition") transfer.animation.cancel();
+      continue;
+    }
+
+    if (transfer.kind === "css") {
+      void getComputedStyle(target).animationName;
+      const animation = target
+        .getAnimations()
+        .filter(
+          (candidate): candidate is CSSAnimation =>
+            "animationName" in candidate &&
+            candidate.animationName === transfer.animationName,
+        )[transfer.occurrence];
+      if (!animation) continue;
+      animation.playbackRate = transfer.playbackRate;
+      if (transfer.playState === "paused") animation.pause();
+      if (transfer.currentTime !== null)
+        animation.currentTime = transfer.currentTime;
+      if (transfer.playState === "running") animation.play();
+      else if (transfer.playState === "finished") animation.finish();
+      else if (transfer.playState === "idle") animation.cancel();
       transfer.animation.cancel();
       continue;
     }
