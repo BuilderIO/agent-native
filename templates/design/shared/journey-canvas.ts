@@ -1121,7 +1121,8 @@ header details[open] .prompt-body,header details[open] .provenance-body{position
 header .prompt-body p{margin:0 0 8px;overflow:visible;text-overflow:clip;white-space:pre-wrap;color:${INK};overflow-wrap:anywhere}
 header .provenance-body p{margin:0 0 6px;overflow:visible;text-overflow:clip;white-space:pre-wrap;color:${INK};overflow-wrap:anywhere}
 header .prompt-source{font-size:9px;color:${MUTED}}
-header .example-switcher{display:flex;align-items:center;gap:5px;height:20px;color:${MUTED};font-size:10px;line-height:14px}
+header .example-switcher{display:flex;align-items:center;gap:5px;height:20px;max-width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;white-space:nowrap;color:${MUTED};font-size:10px;line-height:14px}
+header .example-switcher>*{flex:0 0 auto}
 header .example-position{display:none;margin-right:3px}
 header .example-switcher label{display:inline-flex;min-width:18px;height:18px;align-items:center;justify-content:center;border:1px solid ${BORDER};border-radius:3px;cursor:pointer;color:${INK};font-size:10px;line-height:16px}
 .example-selector{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

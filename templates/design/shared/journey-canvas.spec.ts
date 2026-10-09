@@ -488,6 +488,36 @@ describe("create-journey-canvas input", () => {
     expect(screen.html).not.toContain("not recorded");
   });
 
+  it("keeps all example controls reachable on narrow cards", () => {
+    const base = rawInput();
+    const root = base.tree.nodes[0]!;
+    const examples = Array.from({ length: 6 }, (_, index) =>
+      example(`signup-${index}`),
+    );
+    const result = plan(
+      rawInput({
+        cardWidth: 200,
+        maxExamplesPerNode: 6,
+        tree: {
+          ...base.tree,
+          nodes: [{ ...root, examples }, ...base.tree.nodes.slice(1)],
+        },
+        frames: examples.map((_, exampleIndex) =>
+          frame("signup", exampleIndex),
+        ),
+      }),
+    );
+    const screen = result.screens.find(
+      (candidate) => candidate.nodeKey === "signup",
+    )!;
+
+    expect(screen.html).toContain("max-width:100%;overflow-x:auto");
+    expect(screen.html).toContain("header .example-switcher>*{flex:0 0 auto}");
+    for (let index = 0; index < examples.length; index += 1) {
+      expect(screen.html).toContain(`Show source example ${index + 1}`);
+    }
+  });
+
   it("labels only validated same-recording reference edges without cohort percentages", () => {
     const recordingStartedAt = "2026-10-01T11:59:56.000Z";
     const start = referenceNode("clips::reference:start", null, 0, [
