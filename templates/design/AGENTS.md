@@ -5,7 +5,7 @@ actions against shared SQL state.
 
 ## Skills
 
-Read relevant guides before deeper work:
+Read relevant guides first:
 - `.agents/skills/design-generation/SKILL.md` — for generation, adaptation, and readiness checks.
 - `.agents/skills/design-templates/SKILL.md` — when reusing existing Design work.
 - `.agents/skills/responsive-breakpoints/SKILL.md` — for breakpoint editing.
@@ -18,16 +18,11 @@ Read relevant guides before deeper work:
 - `.agents/skills/shader-fills/SKILL.md` — for GLSL fills/effects.
 - `.agents/skills/journey-storyboards/SKILL.md` — for onboarding-journey storyboards.
 
-`.agents/skills/actions/SKILL.md`, `.agents/skills/adding-a-feature/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/security/SKILL.md`,
-`.agents/skills/secrets/SKILL.md`, `.agents/skills/sharing/SKILL.md`, `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`,
-`.agents/skills/real-time-sync/SKILL.md`, `.agents/skills/context-awareness/SKILL.md`, `.agents/skills/delegate-to-agent/SKILL.md`, `.agents/skills/agent-native-docs/SKILL.md`,
-`.agents/skills/agent-native-toolkit/SKILL.md`, `.agents/skills/customizing-agent-native/SKILL.md`, `.agents/skills/client-side-routing/SKILL.md`, `.agents/skills/reliable-mutations/SKILL.md`,
-`.agents/skills/performance/SKILL.md`, `.agents/skills/external-agents/SKILL.md`, `.agents/skills/portability/SKILL.md`, `.agents/skills/self-modifying-code/SKILL.md`,
-`.agents/skills/turn-into-skill/SKILL.md`, `.agents/skills/workspace-conventions/SKILL.md`.
+Read relevant `.agents/skills/<name>/SKILL.md` guides for actions, adding-a-feature, storing-data, security, secrets, sharing, frontend-design, shadcn-ui, real-time-sync, context-awareness, delegate-to-agent, agent-native-docs, agent-native-toolkit, customizing-agent-native, client-side-routing, reliable-mutations, performance, external-agents, portability, self-modifying-code, turn-into-skill, and workspace-conventions.
 
-## Framework Docs
+## Docs
 
-Use local framework docs, not web research: `pnpm action docs-search --query "<topic>"` searches; `pnpm action docs-search --slug "<slug>"` reads a page.
+Use local docs, not web research: `pnpm action docs-search --query "<topic>"` searches; `--slug "<slug>"` reads a page.
 
 ## Actions
 
@@ -76,6 +71,6 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 
 ## Source Changes
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI. Editor behavior lives in `app/pages/design-editor/commands/*.ts`; read `design-editor-architecture` before changing it.
+Read `agent-native-toolkit` before common workspace/agent UI work; read `customizing-agent-native` before adapting shared UI. Editor commands: `app/pages/design-editor/commands/*.ts`; read `design-editor-architecture` before editing.
 
-Search with `rg --hidden --follow`; read the exact linked guide before deeper work.
+Find additional guides with `rg --hidden --follow`.
