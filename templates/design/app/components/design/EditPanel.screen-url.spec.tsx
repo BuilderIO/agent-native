@@ -124,6 +124,57 @@ function screenInspectorDependencies(
   } as unknown as Parameters<typeof useEditorScreenInspector>[0];
 }
 
+function renderHookBackedUrlInspector(
+  queryClient: QueryClient,
+  mutationFn: () => Promise<unknown>,
+  reflectMutationPending: boolean,
+) {
+  function HookBackedUrlInspector() {
+    const updateScreenSourceMutation = useMutation({
+      mutationFn,
+      retry: false,
+    });
+    const { handleScreenSourceChange } = useEditorScreenInspector(
+      screenInspectorDependencies(updateScreenSourceMutation),
+    );
+
+    return (
+      <EditPanel
+        selectedElement={null}
+        selectedScreenGeometry={{
+          id: "screen-1",
+          title: "Students",
+          x: 0,
+          y: 0,
+          width: 1440,
+          height: 900,
+        }}
+        selectedScreenSource={{
+          sourceType: "url",
+          url: "http://localhost:5173/students",
+          connectionId: "localhost-1",
+        }}
+        viewMode="overview"
+        mode="edit"
+        onStyleChange={vi.fn()}
+        onScreenSourceChange={handleScreenSourceChange}
+        readOnly={false}
+        screenSourcePending={
+          reflectMutationPending ? updateScreenSourceMutation.isPending : false
+        }
+      />
+    );
+  }
+
+  act(() =>
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <HookBackedUrlInspector />
+      </QueryClientProvider>,
+    ),
+  );
+}
+
 it("lets a live-screen editor update only the URL", async () => {
   const onScreenUrlChange = vi.fn();
   renderUrlInspector({ onScreenUrlChange });
@@ -259,51 +310,13 @@ it("releases the transition guard when the source mutation rejects", async () =>
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false } },
   });
-
-  function HookBackedUrlInspector() {
-    const updateScreenSourceMutation = useMutation({
-      mutationFn: async () => {
-        attempts += 1;
-        throw new Error("source update failed");
-      },
-      retry: false,
-    });
-    const { handleScreenSourceChange } = useEditorScreenInspector(
-      screenInspectorDependencies(updateScreenSourceMutation),
-    );
-
-    return (
-      <EditPanel
-        selectedElement={null}
-        selectedScreenGeometry={{
-          id: "screen-1",
-          title: "Students",
-          x: 0,
-          y: 0,
-          width: 1440,
-          height: 900,
-        }}
-        selectedScreenSource={{
-          sourceType: "url",
-          url: "http://localhost:5173/students",
-          connectionId: "localhost-1",
-        }}
-        viewMode="overview"
-        mode="edit"
-        onStyleChange={vi.fn()}
-        onScreenSourceChange={handleScreenSourceChange}
-        readOnly={false}
-        screenSourcePending={false}
-      />
-    );
-  }
-
-  await act(() =>
-    root.render(
-      <QueryClientProvider client={queryClient}>
-        <HookBackedUrlInspector />
-      </QueryClientProvider>,
-    ),
+  renderHookBackedUrlInspector(
+    queryClient,
+    async () => {
+      attempts += 1;
+      throw new Error("source update failed");
+    },
+    false,
   );
 
   const selectStaticTab = async () => {
@@ -328,6 +341,72 @@ it("releases the transition guard when the source mutation rejects", async () =>
   expect(attempts).toBe(1);
   await selectStaticTab();
   expect(attempts).toBe(2);
+
+  queryClient.clear();
+});
+
+it("disables source tabs while the source mutation is pending", async () => {
+  let attempts = 0;
+  const rejectAttempts: Array<() => void> = [];
+  const queryClient = new QueryClient({
+    defaultOptions: { mutations: { retry: false } },
+  });
+  renderHookBackedUrlInspector(
+    queryClient,
+    () => {
+      attempts += 1;
+      return new Promise<never>((_resolve, reject) => {
+        rejectAttempts.push(() => reject(new Error("source update failed")));
+      });
+    },
+    true,
+  );
+
+  const selectStaticTab = async () => {
+    const staticTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "editPanel.positionOptions.static");
+    expect(staticTab).toBeDefined();
+    await act(async () => {
+      staticTab!.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      );
+      staticTab!.focus();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  };
+  const sourceTabs = () =>
+    Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ).filter((tab) =>
+      [
+        "editPanel.positionOptions.static",
+        "editPanel.screenSource.url",
+      ].includes(tab.textContent ?? ""),
+    );
+
+  await selectStaticTab();
+  expect(attempts).toBe(1);
+  expect(rejectAttempts).toHaveLength(1);
+  expect(sourceTabs()).toHaveLength(2);
+  expect(sourceTabs().every((tab) => tab.disabled)).toBe(true);
+
+  await act(async () => {
+    rejectAttempts[0]!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(sourceTabs().every((tab) => !tab.disabled)).toBe(true);
+
+  await selectStaticTab();
+  expect(attempts).toBe(2);
+  await act(async () => {
+    rejectAttempts[1]!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 
   queryClient.clear();
 });
