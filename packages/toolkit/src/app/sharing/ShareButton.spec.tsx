@@ -1395,6 +1395,65 @@ describe("ShareButton", () => {
     expect(queriedActions).not.toContain("list-resource-access-requests");
   });
 
+  it("keeps to the basic share actions when the session cannot run the rest", async () => {
+    sharesData.current = { ...sharesData.current, agentReadable: true };
+    accessRequestsData.current = [patRequest];
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="deck"
+              resourceId="deck-1"
+              basicSharingOnly
+            />
+          </QueryClientProvider>
+        </TooltipProvider>,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("People with access");
+    expect(text).not.toContain("Access requests");
+    expect(text).not.toContain("Share with agents");
+    expect(queriedActions).not.toContain("list-resource-access-requests");
+    expect(queriedActions).toContain("list-resource-shares");
+  });
+
+  it("does not search the organization for people when keeping to the basic share actions", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ members: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="deck"
+              resourceId="deck-1"
+              basicSharingOnly
+            />
+          </QueryClientProvider>
+        </TooltipProvider>,
+      );
+    });
+
+    const input = container.querySelector(
+      'input[placeholder="Add people by email"]',
+    ) as HTMLInputElement;
+    act(() => input.focus());
+    setInputValue(input, "guest@example.com");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 180));
+    });
+
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/_agent-native/org/members"),
+      ),
+    ).toBe(false);
+    expect(container.textContent).not.toContain("Could not load people.");
+  });
+
   // Keep the non-source-locale provider test last: react-i18next's global
   // fallback instance otherwise leaks the selected language into tests that
   // intentionally exercise providerless compatibility.
