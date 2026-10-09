@@ -10,7 +10,7 @@ La web pública de agentes facilita que los agentes rastreen, lean, citen y llam
 El sitio de documentos es la implementación de referencia. Hoy se envía:
 
 - `/robots.txt` con una política de rastreador que permite la recuperación pero no permite el entrenamiento de forma predeterminada.
-- `/sitemap.xml` con URL canónicos absolutos y `lastmod` cuando el archivo fuente lo expone.
+- `/sitemap.xml` como índice de sitemaps que apunta a un `/sitemaps/<locale>.xml` por idioma, con URL canónicos absolutos y `lastmod` cuando el archivo fuente lo expone.
 - `/llms.txt` y `/llms-full.txt` para un descubrimiento de contenido fácil de usar para los agentes.
 - Espejos Markdown como `/docs/getting-started.md`.
 - Respuestas `Accept: text/markdown` para páginas de documentos públicos después de una compilación de producción.
@@ -187,6 +187,8 @@ const files = buildAgentWebStaticFiles({
 ```
 
 Las aplicaciones Vite pueden usar `createAgentWebVitePlugin` de `@agent-native/core/vite` para escribir esos archivos en `public`, `dist`, `dist/client`, `dist/server/public` o `build/client` durante las compilaciones de producción.
+
+Pasa `sitemapGroup` a `buildAgentWebStaticFiles` o `createAgentWebVitePlugin` para dividir un sitemap grande. La opción asigna cada página a una clave de grupo, como su idioma, y `sitemap.xml` pasa a ser un índice de sitemaps con un `sitemaps/<group>.xml` por grupo.
 
 ## Auditar un sitio {#audit}
 

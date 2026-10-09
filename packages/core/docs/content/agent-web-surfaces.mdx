@@ -10,7 +10,7 @@ The public agent web makes public Agent-Native routes easy for agents to crawl, 
 The docs site is the reference implementation. Today it ships:
 
 - `/robots.txt` with a crawler policy that allows retrieval but disallows training by default.
-- `/sitemap.xml` with absolute canonical URLs and `lastmod` when the source file exposes it.
+- `/sitemap.xml` as a sitemap index that points to one `/sitemaps/<locale>.xml` per locale, with absolute canonical URLs and `lastmod` when the source file exposes it.
 - `/llms.txt` and `/llms-full.txt` for agent-friendly content discovery.
 - Markdown mirrors such as `/docs/getting-started.md`.
 - `Accept: text/markdown` responses for public docs pages after a production build.
@@ -187,6 +187,8 @@ const files = buildAgentWebStaticFiles({
 ```
 
 Vite apps can use `createAgentWebVitePlugin` from `@agent-native/core/vite` to write those files into `public`, `dist`, `dist/client`, `dist/server/public`, or `build/client` during production builds.
+
+Pass `sitemapGroup` to `buildAgentWebStaticFiles` or `createAgentWebVitePlugin` to split a large sitemap. It maps each page to a group key, such as its locale, and `sitemap.xml` becomes a sitemap index with one `sitemaps/<group>.xml` per group.
 
 ## Audit a site {#audit}
 

@@ -10,7 +10,7 @@ Le Web public des agents permet aux agents d'explorer, de lire, de citer et d'ap
 Le site de documentation est l'implémentation de référence. Aujourd'hui, il est expédié :
 
 - `/robots.txt` avec une stratégie de robot d'exploration qui autorise la récupération mais interdit l'entraînement par défaut.
-- `/sitemap.xml` avec URL canoniques absolus et `lastmod` lorsque le fichier source l'expose.
+- `/sitemap.xml` sous forme d'index de sitemaps qui pointe vers un `/sitemaps/<locale>.xml` par langue, avec URL canoniques absolus et `lastmod` lorsque le fichier source l'expose.
 - `/llms.txt` et `/llms-full.txt` pour une découverte de contenu conviviale pour les agents.
 - Miroirs Markdown tels que `/docs/getting-started.md`.
 - Réponses `Accept: text/markdown` pour les pages de documentation publique après une version de production.
@@ -187,6 +187,8 @@ const files = buildAgentWebStaticFiles({
 ```
 
 Les applications Vite peuvent utiliser `createAgentWebVitePlugin` à partir de `@agent-native/core/vite` pour écrire ces fichiers dans `public`, `dist`, `dist/client`, `dist/server/public` ou `build/client` pendant les versions de production.
+
+Passez `sitemapGroup` à `buildAgentWebStaticFiles` ou `createAgentWebVitePlugin` pour découper un sitemap volumineux. L'option associe chaque page à une clé de groupe, comme sa langue, et `sitemap.xml` devient un index de sitemaps avec un `sitemaps/<group>.xml` par groupe.
 
 ## Auditer un site {#audit}
 
