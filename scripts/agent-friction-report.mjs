@@ -2294,6 +2294,14 @@ const FEEDBACK_REPLY_DETAIL_OMISSION =
     .source;
 const FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION =
   "\\b(?:don['’]t|do not|shouldn['’]t|should not)\\s+(?:make|keep|write|use)\\s+(?:them|it|replies?|responses?)\\b[^.!?;]{0,40}\\bless\\s+(?:technical|detail|verbose)\\b";
+const FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION_WITH_OMISSION_RE = new RegExp(
+  FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION +
+    "\\s*;\\s*" +
+    FEEDBACK_REPLY_DETAIL_OMISSION +
+    "\\s+(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
+    FEEDBACK_REPLY_DETAIL_TARGET,
+  "gi",
+);
 const FEEDBACK_REPLY_DETAIL_ISSUE_RE = new RegExp(
   FEEDBACK_REPLY_DETAIL_ISSUE,
   "i",
@@ -2402,6 +2410,26 @@ const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
     ")",
   "i",
 );
+const FEEDBACK_REPLY_DETAIL_MATCH_SCAN_RE = new RegExp(
+  FEEDBACK_REPLY_DETAIL_RE.source,
+  "gi",
+);
+const FEEDBACK_REPLY_DETAIL_NON_CORRECTION_RE = new RegExp(
+  FEEDBACK_REPLY_DETAIL_NON_CORRECTION,
+  "i",
+);
+const FEEDBACK_REPLY_DETAIL_COMMA_ASIDE_RE = new RegExp(
+  "\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?;]{0,60},\\s*(?:honestly|frankly|in\\s+my\\s+view|to\\s+be\\s+honest)\\s*,?[^.!?;]{0,60}\\b" +
+    FEEDBACK_REPLY_DETAIL_ISSUE +
+    "\\b",
+  "gi",
+);
+const FEEDBACK_REPLY_DETAIL_COMMA_ASIDE_NEGATION_RE =
+  /\b(?:not|no\s+longer|isn't|aren't|wasn't|weren't)\b/i;
+const FEEDBACK_REPLY_DETAIL_RETRACTION_RE =
+  /^\s*(?:no|actually)\s*,?\s*(?:(?:they|it)\s+(?:(?:are|is)\s+not|aren['’]t|isn['’]t)|(?:they|it)['’](?:re|s)\s+not)\s*[.!?]?\s*$/i;
 const FEEDBACK_REPLY_DETAIL_CONTEXT_RE = new RegExp(
   "\\b" + FEEDBACK_REPLY_CONTEXT + "\\b",
   "i",
@@ -2465,6 +2493,7 @@ function hasFeedbackReplyDetailCorrection(message) {
   let sentenceEndIndex = 0;
   let sentenceButRetractionIndex = 0;
   let lastScannedBucket = -1;
+  let lastScannedBoundary = -1;
   for (const candidate of candidates) {
     while (
       boundaryIndex < boundaries.length &&
@@ -2502,6 +2531,13 @@ function hasFeedbackReplyDetailCorrection(message) {
       sentenceEndIndex += 1;
     }
     const nextSentenceEnd = sentenceEnds[sentenceEndIndex] ?? input.length;
+    const followingSentenceEnd =
+      sentenceEnds[sentenceEndIndex + 1] ?? input.length;
+    const followingSentence = input.slice(
+      nextSentenceEnd + 1,
+      followingSentenceEnd + 1,
+    );
+    if (FEEDBACK_REPLY_DETAIL_RETRACTION_RE.test(followingSentence)) continue;
     while (
       sentenceButRetractionIndex < sentenceButRetractions.length &&
       sentenceButRetractions[sentenceButRetractionIndex] < candidate.index
@@ -2522,8 +2558,11 @@ function hasFeedbackReplyDetailCorrection(message) {
     const scanBucket = Math.floor(
       candidate.index / FEEDBACK_REPLY_DETAIL_SCAN_BUCKET_SIZE,
     );
-    if (scanBucket === lastScannedBucket) continue;
+    if (scanBucket === lastScannedBucket && boundary === lastScannedBoundary) {
+      continue;
+    }
     lastScannedBucket = scanBucket;
+    lastScannedBoundary = boundary;
 
     // A bucket shares one bounded scan with enough room for nearby context.
     const start = Math.max(
@@ -2539,8 +2578,36 @@ function hasFeedbackReplyDetailCorrection(message) {
       continue;
     }
 
-    if (FEEDBACK_REPLY_DETAIL_RE.test(window)) {
-      return true;
+    for (const match of window.matchAll(FEEDBACK_REPLY_DETAIL_MATCH_SCAN_RE)) {
+      const matchStart = start + match.index;
+      if (
+        matchStart <= candidate.index &&
+        candidate.index < matchStart + match[0].length
+      ) {
+        return true;
+      }
+    }
+    for (const match of window.matchAll(
+      FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION_WITH_OMISSION_RE,
+    )) {
+      const matchStart = start + match.index;
+      if (
+        matchStart <= candidate.index &&
+        candidate.index < matchStart + match[0].length
+      ) {
+        return true;
+      }
+    }
+    for (const match of window.matchAll(FEEDBACK_REPLY_DETAIL_COMMA_ASIDE_RE)) {
+      const matchStart = start + match.index;
+      if (
+        matchStart <= candidate.index &&
+        candidate.index < matchStart + match[0].length &&
+        !FEEDBACK_REPLY_DETAIL_COMMA_ASIDE_NEGATION_RE.test(match[0]) &&
+        !FEEDBACK_REPLY_DETAIL_NON_CORRECTION_RE.test(match[0])
+      ) {
+        return true;
+      }
     }
   }
 
@@ -2587,6 +2654,16 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [false, "I like the less verbose responses."],
   [false, "The response is less verbose now."],
   [false, "Please don't make replies less verbose."],
+  [false, "E.g. reply in plain English. Too many PRs are open this week."],
+  [false, "E.g., reply in plain English. Too many PRs are open this week."],
+  [false, "E.g., reply in plain English, too many PRs are open this week."],
+  [false, "I like replies in plain English, but the roadmap is too detailed."],
+  [false, "Replies are too technical? No, they are not."],
+  [true, "Your replies are, honestly, too technical."],
+  [true, "Replies, in my view, are too technical."],
+  [false, "Replies are, honestly, not too technical."],
+  [true, "Don't include commit hashes, or CI results, in replies."],
+  [true, "Don't include commit hashes, nor branch details, in replies."],
   [false, "For example: reply in plain English."],
   [false, "For example, reply in plain English."],
   [false, "For instance: reply in plain English."],
@@ -2800,6 +2877,20 @@ if (process.argv.includes("--self-test")) {
     failures.push([
       false,
       `Boundary-dense feedback message took ${boundaryDenseDurationMs.toFixed(1)} ms or matched unexpectedly`,
+    ]);
+  }
+  const stressLargeDenseNegative = "reply too ".repeat(100_000);
+  const largeDenseStart = process.hrtime.bigint();
+  const largeDenseMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    stressLargeDenseNegative,
+  );
+  const largeDenseDurationMs =
+    Number(process.hrtime.bigint() - largeDenseStart) / 1_000_000;
+  if (largeDenseMatched || largeDenseDurationMs > 2_000) {
+    failures.push([
+      false,
+      `Large dense feedback message took ${largeDenseDurationMs.toFixed(1)} ms or matched unexpectedly`,
     ]);
   }
   failures.push(
