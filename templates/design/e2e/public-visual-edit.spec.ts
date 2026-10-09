@@ -531,6 +531,9 @@ test.describe.serial("public visual edit", () => {
       undefined,
       SIGNED_OUT_BASE_URL,
     );
+    const pendingVisualEditToolbar = signedOut.page.locator(
+      "[data-design-pending-visual-style-toolbar]",
+    );
     const unauthorizedResponses: string[] = [];
     const updateFileRequests: string[] = [];
     const bridgeResponses: string[] = [];
@@ -947,11 +950,9 @@ test.describe.serial("public visual edit", () => {
           timeout: 30_000,
         })
         .toBeCloseTo(before?.height ?? 0, 0);
-      await expect(
-        signedOut.page.getByRole("button", {
-          name: /copy prompt to your agent|apply design update/i,
-        }),
-      ).toHaveCount(0, { timeout: 30_000 });
+      await expect(pendingVisualEditToolbar).toHaveCount(0, {
+        timeout: 30_000,
+      });
       const { response: reloadPullResponse, body: reloadPulled } = await pull();
       expect(reloadPullResponse.status(), JSON.stringify(reloadPulled)).toBe(
         200,
@@ -1011,12 +1012,10 @@ test.describe.serial("public visual edit", () => {
         { steps: 4 },
       );
       await signedOut.page.mouse.up();
-      await waitForBridge(signedOut.page, "visual-style-change");
-      await expect(
-        signedOut.page.getByRole("button", {
-          name: /copy prompt to your agent|apply design update/i,
-        }),
-      ).toBeVisible();
+      await waitForBridge(signedOut.page, "visual-style-change", 15_000, {
+        phase: "commit",
+      });
+      await expect(pendingVisualEditToolbar).toBeVisible();
 
       await signedOut.page
         .locator("[data-screen-shell]")
@@ -1101,17 +1100,20 @@ test.describe.serial("public visual edit", () => {
             .locator("iframe[data-design-preview-iframe]")
             .last()
             .contentFrame()
-            .getByRole("heading", { name: "Local visual edit" }),
+            .getByRole("heading", { name: "Owner updated canvas" }),
         ).toBeVisible({ timeout: 30_000 });
         await installBridge(direct.page);
-        const selected = await selectByText(direct.page, "Local visual edit");
-        expect(selected.textContent).toBe("Local visual edit");
+        const selected = await selectByText(
+          direct.page,
+          "Owner updated canvas",
+        );
+        expect(selected.textContent).toBe("Owner updated canvas");
         const frame = direct.page
           .locator("iframe[data-design-preview-iframe]")
           .last()
           .contentFrame();
         const heading = frame.getByRole("heading", {
-          name: "Local visual edit",
+          name: "Owner updated canvas",
         });
         const before = await heading.boundingBox();
         expect(before).toBeTruthy();
@@ -1524,7 +1526,7 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
-  test("shares an inert live snapshot and hands guest edits back to the owner", async ({
+  test("keeps public snapshot edits with the guest until they share them", async ({
     browser,
     page,
   }) => {
@@ -1536,19 +1538,25 @@ test.describe.serial("public visual edit", () => {
     });
     const ownerSnapshotStatuses: number[] = [];
     let ownerSnapshotPublished = false;
+    let ownerSnapshotPublicationCount = 0;
     page.on("response", (response) => {
       if (response.url().includes("/publish-visual-edit-snapshot")) {
         ownerSnapshotStatuses.push(response.status());
         void response
           .json()
           .then((body: { published?: boolean }) => {
-            ownerSnapshotPublished ||= body.published === true;
+            if (body.published === true) {
+              ownerSnapshotPublished = true;
+              ownerSnapshotPublicationCount += 1;
+            }
           })
           .catch(() => {});
       }
     });
     await page.goto(
-      appUrl(`/visual-edit/${collaborationDesignId}?editorView=overview`),
+      appUrl(
+        `/visual-edit/${collaborationDesignId}?editorView=overview&screen=${encodeURIComponent(collaborationScreenId)}`,
+      ),
       { waitUntil: "domcontentloaded" },
     );
     await expect(page.locator("[data-design-editor]")).toBeVisible({
@@ -1559,6 +1567,32 @@ test.describe.serial("public visual edit", () => {
       ownerFrame.getByRole("heading", { name: "Local visual edit" }),
     ).toBeVisible({ timeout: 30_000 });
     await expect.poll(() => ownerSnapshotPublished).toBe(true);
+    const ownerSecondFrame = designFrame(page, collaborationSecondScreenId);
+    const ownerPublicationsBeforeSecondScreen = ownerSnapshotPublicationCount;
+    const secondOwnerScreenRow = page
+      .locator("[data-screen-row]")
+      .filter({ hasText: "Localhost settings" });
+    await secondOwnerScreenRow.click();
+    await expect(secondOwnerScreenRow).toHaveAttribute("aria-current", "page");
+    await expect(
+      ownerSecondFrame.getByRole("heading", { name: "Local visual edit" }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(() => ownerSnapshotPublicationCount, { timeout: 15_000 })
+      .toBeGreaterThan(ownerPublicationsBeforeSecondScreen);
+    const firstOwnerScreenRow = page
+      .locator("[data-screen-row]")
+      .filter({ hasText: "Localhost home" });
+    await firstOwnerScreenRow.click();
+    await expect(firstOwnerScreenRow).toHaveAttribute("aria-current", "page");
+    await expect(
+      ownerFrame.getByRole("heading", { name: "Local visual edit" }),
+    ).toBeVisible({ timeout: 30_000 });
+    const allScreensButton = page.getByRole("button", {
+      name: "All screens",
+    });
+    await allScreensButton.click();
+    await expect(allScreensButton).toHaveAttribute("aria-current", "page");
 
     await page.getByRole("button", { name: /^share$/i }).click();
     await expect(
@@ -1585,7 +1619,7 @@ test.describe.serial("public visual edit", () => {
     const guestSnapshotRequestCounts = new Map<string, number>();
     const guest = await openSignedOutPage(
       browser,
-      `/visual-edit/${collaborationDesignId}?share=1&editorView=overview`,
+      `/visual-edit/${collaborationDesignId}?share=1&editorView=overview&screen=${encodeURIComponent(collaborationScreenId)}`,
       (guestPage) => {
         guestPage.on("request", (request) => {
           const url = new URL(request.url());
@@ -1660,16 +1694,22 @@ test.describe.serial("public visual edit", () => {
         guestSnapshotRequestCounts.get(collaborationSecondScreenId) ?? 0,
       ).toBe(secondScreenReads);
 
-      await selectByText(guest.page, "Local visual edit", {
-        screenId: collaborationSecondScreenId,
-      });
+      const secondScreenRow = guest.page
+        .locator("[data-screen-row]")
+        .filter({ hasText: "Localhost settings" });
+      await expect(secondScreenRow).toHaveCount(1);
+      await secondScreenRow.click();
+      await expect(secondScreenRow).toHaveAttribute("aria-current", "page");
       await expect
         .poll(
           () =>
-            (guestSnapshotRequestCounts.get(collaborationSecondScreenId) ?? 0) >
-            secondScreenReads,
+            guestSnapshotRequestCounts.get(collaborationSecondScreenId) ?? 0,
+          { timeout: 15_000 },
         )
-        .toBe(true);
+        .toBeGreaterThan(secondScreenReads);
+      await expect(
+        secondGuestFrame.getByRole("heading", { name: "Local visual edit" }),
+      ).toBeVisible({ timeout: 30_000 });
       const firstScreenReadsAfterSwitch =
         guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0;
       const secondScreenReadsAfterSwitch =
@@ -1687,6 +1727,11 @@ test.describe.serial("public visual edit", () => {
 
       const firstScreenReadsBeforeRefocus =
         guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0;
+      const firstScreenRow = guest.page
+        .locator("[data-screen-row]")
+        .filter({ hasText: "Localhost home" });
+      await firstScreenRow.click();
+      await expect(firstScreenRow).toHaveAttribute("aria-current", "page");
       await selectByText(guest.page, "Local visual edit", {
         screenId: collaborationScreenId,
       });
@@ -1697,6 +1742,8 @@ test.describe.serial("public visual edit", () => {
         )
         .toBeGreaterThan(firstScreenReadsBeforeRefocus);
 
+      await firstOwnerScreenRow.click();
+      await expect(firstOwnerScreenRow).toHaveAttribute("aria-current", "page");
       const ownerPublicationsBeforeEdit = ownerSnapshotStatuses.filter(
         (status) => status === 200,
       ).length;
@@ -1716,6 +1763,7 @@ test.describe.serial("public visual edit", () => {
         const route = new URL(window.location.href);
         route.searchParams.set("e2eRoute", "account");
         window.history.pushState({}, "", route);
+        document.querySelector("h1")!.textContent = "Owner updated canvas";
       });
       await expect
         .poll(() =>
@@ -1741,6 +1789,9 @@ test.describe.serial("public visual edit", () => {
           ),
         )
         .toContain("agent-native:runtime-layer-snapshot");
+      await expect(
+        ownerFrame.getByRole("heading", { name: "Owner updated canvas" }),
+      ).toBeVisible({ timeout: 15_000 });
       await expect
         .poll(
           () => ownerSnapshotStatuses.filter((status) => status === 200).length,
@@ -1750,12 +1801,22 @@ test.describe.serial("public visual edit", () => {
         guestFrame.getByRole("heading", { name: "Owner updated canvas" }),
       ).toBeVisible({ timeout: 20_000 });
 
-      const publicationStatuses: number[] = [];
-      guest.page.on("response", (response) => {
-        if (response.url().includes("/publish-visual-edit-pending")) {
-          publicationStatuses.push(response.status());
+      const publicationRequests: string[] = [];
+      const trackPendingPublication = (request: {
+        url(): string;
+        method(): string;
+      }) => {
+        const pathname = new URL(request.url()).pathname;
+        if (
+          request.method() === "POST" &&
+          (pathname.endsWith("/live-edit-pending") ||
+            pathname.endsWith("/publish-visual-edit-pending"))
+        ) {
+          publicationRequests.push(pathname);
         }
-      });
+      };
+      guest.page.on("request", trackPendingPublication);
+      page.on("request", trackPendingPublication);
       await enterDirectMode(guest.page, { screenId: collaborationScreenId });
       await installBridge(guest.page);
       const heading = guestFrame.getByRole("heading", {
@@ -1794,13 +1855,25 @@ test.describe.serial("public visual edit", () => {
         { steps: 8 },
       );
       await guest.page.mouse.up();
-      await waitForBridge(guest.page, "visual-style-change");
-      await expect
-        .poll(() => publicationStatuses.some((status) => status === 200))
-        .toBe(true);
+      await waitForBridge(guest.page, "visual-style-change", 15_000, {
+        phase: "commit",
+      });
+      await expect(
+        guest.page.locator("[data-design-pending-visual-style-toolbar]"),
+      ).toBeVisible();
+      await expect(
+        guest.page.getByRole("button", {
+          name: "Copy agent prompt",
+          exact: true,
+        }),
+      ).toBeVisible();
+      // A share-only viewer can stage edits locally. Durable handoff to the
+      // owner requires the editor capability used by the signed-out editor flow.
+      await guest.page.waitForTimeout(1_000);
+      expect(publicationRequests).toEqual([]);
       await expect(
         page.getByRole("button", { name: "Apply edits", exact: true }),
-      ).toBeVisible({ timeout: 20_000 });
+      ).toHaveCount(0);
 
       await page.screenshot({
         path: path.resolve(
@@ -2114,7 +2187,7 @@ async function assertNoRuntimeErrors({
   pageErrors,
 }: PageRuntimeErrors): Promise<void> {
   const unexpectedConsoleErrors = consoleErrors.filter(
-    (message) => !message.includes("401 (Unauthorized)"),
+    (message) => !/\b401\b/.test(message),
   );
   expect(
     unexpectedConsoleErrors,
