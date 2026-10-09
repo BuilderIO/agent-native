@@ -75,7 +75,6 @@ import {
   canReuseAuthoringFuzzCleanupPage,
   CouldNotRun,
   getHarnessUnavailableError,
-  isPlaywrightTimeoutFailure,
   isPlaywrightTargetTransportFailure,
   runSetupActionAsCouldNotRun,
   runSetupAsCouldNotRun,
