@@ -184,9 +184,15 @@ function workspacePathBasePath(): string {
     const localPathname = pathname.slice(basePath.length) || "/";
     const routeForFullPath = routeTemplateForPath(pathname, routes);
     const routeForLocalPath = routeTemplateForPath(localPathname, routes);
+    const mountRootMatchedByRootParam =
+      pathname === basePath &&
+      localPathname === "/" &&
+      routeForLocalPath === "/" &&
+      routeForFullPath !== null &&
+      /^\/:[^/]+$/.test(routeForFullPath);
     if (
       routeForLocalPath &&
-      (!routeForFullPath || routeForFullPath === "/*") &&
+      (!routeForFullPath || mountRootMatchedByRootParam) &&
       workspaceAppIdentityBasePath() === basePath
     ) {
       return basePath;

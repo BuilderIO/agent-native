@@ -145,7 +145,7 @@ describe("appMountPath", () => {
     expect(appBasePath()).toBe("/dispatch");
   });
 
-  it("uses the workspace app identity to recover a mounted root catch-all", () => {
+  it("does not infer a nested mount from identity when the full path hits a catch-all", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
@@ -162,10 +162,10 @@ describe("appMountPath", () => {
       },
     });
 
-    expect(appBasePath()).toBe("/dispatch");
+    expect(appBasePath()).toBe("");
   });
 
-  it("uses the workspace app identity when a root catch-all masks a real route", () => {
+  it("uses the router basename when a root catch-all masks a real route", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
@@ -174,6 +174,7 @@ describe("appMountPath", () => {
     vi.stubGlobal("window", {
       location: { pathname: "/dispatch/home" },
       __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
+      __reactRouterContext: { basename: "/dispatch" },
       __reactRouterManifest: {
         routes: {
           root: { id: "root", path: "/" },
@@ -186,7 +187,7 @@ describe("appMountPath", () => {
     expect(appBasePath()).toBe("/dispatch");
   });
 
-  it("uses the workspace app identity to recover the mounted app root", () => {
+  it("uses the workspace app identity when a root parameter route masks the mount root", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
@@ -199,12 +200,34 @@ describe("appMountPath", () => {
         routes: {
           root: { id: "root", path: "/" },
           index: { id: "index", parentId: "root", index: true },
+          appId: { id: "appId", parentId: "root", path: ":appId" },
           home: { id: "home", parentId: "root", path: "home" },
         },
       },
     });
 
     expect(appBasePath()).toBe("/dispatch");
+  });
+
+  it("does not infer an identity-matching mount from a root catch-all and parameter route", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "content", path: "/content" }]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/dispatch/home" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "/" },
+          catchall: { id: "catchall", parentId: "root", path: "*" },
+          appId: { id: "appId", parentId: "root", path: ":appId" },
+        },
+      },
+    });
+
+    expect(appBasePath()).toBe("");
   });
 
   it("keeps a root route inside its live workspace mount when omitted by the manifest", () => {
