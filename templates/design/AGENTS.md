@@ -5,29 +5,31 @@ actions against shared SQL state.
 
 ## Skills
 
-Read relevant guides before deeper work:
-- `.agents/skills/design-generation/SKILL.md` — for generation, adaptation, and readiness checks.
-- `.agents/skills/design-templates/SKILL.md` — when reusing existing Design work.
-- `.agents/skills/responsive-breakpoints/SKILL.md` — for breakpoint editing.
-- `.agents/skills/design-systems/SKILL.md` — for tokens, brand extraction, or Figma.
-- `.agents/skills/design-figma-parity/SKILL.md` — for evidence rules on measured Figma behavior claims.
-- `.agents/skills/creative-context/SKILL.md` — for cross-app sources and governed context.
-- `.agents/skills/design-review-feedback/SKILL.md` — for persisted review comments.
-- `.agents/skills/export-handoff/SKILL.md` — for exports and coding handoffs.
-- `.agents/skills/full-app-build/SKILL.md` — for fusion-backed app builds.
-- `.agents/skills/shader-fills/SKILL.md` — for GLSL fills/effects.
-- `.agents/skills/journey-storyboards/SKILL.md` — for onboarding-journey storyboards.
+Read `.agents/skills/<name>/SKILL.md` before deeper work:
+- `design-generation` — generation, adaptation, and readiness checks.
+- `design-templates` — reusing existing Design work.
+- `responsive-breakpoints` — breakpoint editing.
+- `design-systems` — tokens, brand extraction, or Figma.
+- `design-figma-parity` — measured Figma behavior evidence.
+- `creative-context` — cross-app sources and governed context.
+- `design-review-feedback` — persisted review comments.
+- `export-handoff` — exports and coding handoffs.
+- `full-app-build` — fusion-backed app builds.
+- `shader-fills` — GLSL fills/effects.
+- `journey-storyboards` — onboarding-journey storyboards.
 
-`.agents/skills/actions/SKILL.md`, `.agents/skills/adding-a-feature/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/security/SKILL.md`,
-`.agents/skills/secrets/SKILL.md`, `.agents/skills/sharing/SKILL.md`, `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`,
-`.agents/skills/real-time-sync/SKILL.md`, `.agents/skills/context-awareness/SKILL.md`, `.agents/skills/delegate-to-agent/SKILL.md`, `.agents/skills/agent-native-docs/SKILL.md`,
-`.agents/skills/agent-native-toolkit/SKILL.md`, `.agents/skills/customizing-agent-native/SKILL.md`, `.agents/skills/client-side-routing/SKILL.md`, `.agents/skills/reliable-mutations/SKILL.md`,
-`.agents/skills/performance/SKILL.md`, `.agents/skills/external-agents/SKILL.md`, `.agents/skills/portability/SKILL.md`, `.agents/skills/self-modifying-code/SKILL.md`,
-`.agents/skills/turn-into-skill/SKILL.md`, `.agents/skills/workspace-conventions/SKILL.md`.
+Also read `.agents/skills/<name>/SKILL.md` for shared guides: `actions`,
+`adding-a-feature`, `storing-data`, `security`, `secrets`, `sharing`,
+`frontend-design`, `shadcn-ui`, `real-time-sync`, `context-awareness`,
+`delegate-to-agent`, `agent-native-docs`, `agent-native-toolkit`,
+`customizing-agent-native`, `client-side-routing`, `reliable-mutations`,
+`performance`, `external-agents`, `portability`, `self-modifying-code`,
+`turn-into-skill`, and `workspace-conventions`. Each guide is at
+`.agents/skills/<name>/SKILL.md`.
 
 ## Framework Docs
 
-Use local framework docs, not web research: `pnpm action docs-search --query "<topic>"` searches; `pnpm action docs-search --slug "<slug>"` reads a page.
+Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug with `pnpm action docs-search --slug "<slug>"`.
 
 ## Actions
 
