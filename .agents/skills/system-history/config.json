@@ -1,0 +1,32 @@
+{
+  "baseBranch": "main",
+  "windowHours": 24,
+  "lookbackDays": 21,
+  "regressionDays": 21,
+  "reFixDays": 7,
+  "minWindowCommits": 2,
+  "maxHotSystems": 15,
+  "systemDepth": {
+    "packages": 4,
+    "templates": 4,
+    "default": 2
+  },
+  "ignoreSubjects": [
+    "^chore: release packages",
+    "^Version Packages",
+    "^chore\\(deps"
+  ],
+  "ignorePaths": [
+    "(^|/)pnpm-lock\\.yaml$",
+    "(^|/)CHANGELOG\\.md$",
+    "^\\.changeset/",
+    "(^|/)changelog/",
+    "\\.snap$",
+    "^packages/core/docs/content/locales/"
+  ],
+  "mechanicalPaths": [
+    "(^|/)i18n/",
+    "(^|/)locales?/",
+    "i18n-catalog-english-value-baseline\\.txt$"
+  ]
+}

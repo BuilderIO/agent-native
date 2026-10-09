@@ -1,8 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   ssrfSafeFetch: vi.fn(),
   resolveAccess: vi.fn(),
+  track: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: mocks.track,
 }));
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
@@ -21,6 +26,7 @@ vi.mock("../server/db/index.js", () => ({}));
 
 import PptxGenJS from "pptxgenjs";
 
+import { asGoogleSlidesBuildStep } from "../server/lib/deck-export-tracking";
 import exportPptx, {
   applyDeckIdentity,
   assertServerPptxExportable,
@@ -35,6 +41,14 @@ import exportPptx, {
 } from "./export-pptx";
 
 describe("export-pptx action", () => {
+  beforeEach(() => {
+    mocks.track.mockReset();
+    vi.stubEnv("NETLIFY", "1");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("rejects empty decks before generating a PowerPoint", async () => {
     mocks.resolveAccess.mockResolvedValue({
       resource: { data: JSON.stringify({ slides: [] }) },
@@ -43,6 +57,104 @@ describe("export-pptx action", () => {
     await expect(
       exportPptx.run({ deckId: "deck-1", includeNotes: true }, {} as never),
     ).rejects.toThrow("Cannot export empty deck");
+  });
+
+  it("reports a failed export once, then rethrows", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        data: JSON.stringify({
+          slides: [],
+          generationContext: { generationAttemptId: "attempt-1" },
+        }),
+      },
+    });
+
+    await expect(
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+        caller: "ui",
+      } as never),
+    ).rejects.toThrow("Cannot export empty deck");
+
+    expect(mocks.track).toHaveBeenCalledTimes(1);
+    expect(mocks.track.mock.calls[0][0]).toBe("deck_exported");
+    expect(mocks.track.mock.calls[0][1]).toEqual({
+      caller: "ui",
+      output_id: "deck-1",
+      output_type: "deck",
+      export_format: "pptx",
+      render_location: "server",
+      status: "failed",
+      error_type: "empty_deck",
+      slide_count: 0,
+      generation_attempt_id: "attempt-1",
+      app_name: "slides",
+      template_name: "slides",
+    });
+  });
+
+  it("reports a completed export with its slide count", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    await exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+      caller: "agent",
+      runId: "run-1",
+    } as never);
+
+    expect(mocks.track).toHaveBeenCalledTimes(1);
+    expect(mocks.track.mock.calls[0][1]).toMatchObject({
+      run_id: "run-1",
+      caller: "agent",
+      output_id: "deck-1",
+      export_format: "pptx",
+      render_location: "server",
+      status: "completed",
+      slide_count: 1,
+    });
+  });
+
+  it("does not let a caller pass an analytics opt-out", () => {
+    const parsed = exportPptx.schema.safeParse({
+      deckId: "deck-1",
+      exportPurpose: "google_slides",
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).not.toHaveProperty("exportPurpose");
+  });
+
+  it("stays silent inside the Google Slides build step", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+    await asGoogleSlidesBuildStep(() =>
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+        caller: "ui",
+      } as never),
+    );
+
+    mocks.resolveAccess.mockResolvedValue({
+      resource: { data: JSON.stringify({ slides: [] }) },
+    });
+    await expect(
+      asGoogleSlidesBuildStep(() =>
+        exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+          caller: "ui",
+        } as never),
+      ),
+    ).rejects.toThrow("Cannot export empty deck");
+
+    expect(mocks.track).not.toHaveBeenCalled();
   });
 });
 
