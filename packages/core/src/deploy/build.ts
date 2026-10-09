@@ -1967,11 +1967,13 @@ function getAppOriginClientConfigScript() {
       return;
     }
   })();
+  const configuredWorkspaceAppPath =
+    typeof appConfig.app.basePath === "string" && appConfig.app.basePath.trim()
+      ? normalizeAppBasePath(appConfig.app.basePath) || "/"
+      : "";
   const workspaceAppPath =
     workspaceAppMountConfig?.currentPath ??
-    (workspaceRuntime
-      ? normalizeAppBasePath(appConfig.app.basePath) || "/"
-      : "");
+    (workspaceRuntime ? configuredWorkspaceAppPath : "");
   const config = {
     ...(appConfig.app.id ? { appId: appConfig.app.id } : {}),
     ...(appConfig.app.workspaceId

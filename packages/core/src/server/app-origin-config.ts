@@ -67,11 +67,12 @@ export function resolvePublicAppOriginConfig(): {
     config.workspace.appsJson,
     config.app.workspaceId,
   );
+  const configuredWorkspaceAppPath = config.app.basePath?.trim()
+    ? normalizeAppBasePath(config.app.basePath) || "/"
+    : undefined;
   const workspaceAppPath =
     workspaceAppMountConfig?.currentPath ??
-    (workspaceRuntime
-      ? normalizeAppBasePath(config.app.basePath) || "/"
-      : undefined);
+    (workspaceRuntime ? configuredWorkspaceAppPath : undefined);
   const resolved = {
     ...(config.app.id ? { appId: config.app.id } : {}),
     ...(config.app.workspaceId

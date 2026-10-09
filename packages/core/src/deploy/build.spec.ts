@@ -2056,7 +2056,7 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
     expect(html).toContain('"workspaceAppMountPaths":["/diagrams"]');
   });
 
-  it("projects a root mount for a workspace app without mount metadata", async () => {
+  it("does not project a root mount without explicit workspace mount metadata", async () => {
     vi.stubEnv("APP_BASE_PATH", "");
     vi.stubEnv("VITE_APP_BASE_PATH", "");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
@@ -2065,7 +2065,8 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
     const response = await worker.fetch(new Request("https://app.test/"));
     const html = await response.text();
 
-    expect(html).toContain('"workspaceAppPath":"/"');
+    expect(html).not.toContain('"workspaceAppPath"');
+    expect(html).toContain('"workspaceRuntime":true');
   });
 
   it("projects an explicit root workspace mount into the worker shell config", async () => {
