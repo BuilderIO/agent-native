@@ -3,8 +3,8 @@ name: Mirror CI service images
 # Copies the Postgres service images CI uses into GHCR. Docker Hub limits
 # anonymous pulls per runner IP, and that limit fails jobs while their service
 # containers start, before any step runs. Jobs pull from the mirror instead.
-# The copy reads from AWS's public mirror of the Docker official images,
-# because Docker Hub rate-limits this job's anonymous reads too.
+# This job logs in to Docker Hub first: a step can authenticate, and service
+# containers cannot, so the copy is the one place that needs credentials.
 
 on:
   push:
@@ -29,11 +29,23 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
+      - name: Log in to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "::error::Add DOCKERHUB_USERNAME and DOCKERHUB_TOKEN as repository secrets (a Docker Hub account and a read-only access token). Anonymous pulls are rate-limited on GitHub runners."
+            exit 1
+          fi
+          echo "$DOCKERHUB_TOKEN" | docker login docker.io -u "$DOCKERHUB_USERNAME" --password-stdin
+
       - name: Copy images with retries
         run: |
           set -euo pipefail
           registry=ghcr.io/builderio/agent-native-ci-postgres
-          source=public.ecr.aws/docker/library
+          source=docker.io/library
           for image in postgres:17-alpine postgres:18-alpine; do
             tag="${image#postgres:}"
             for attempt in 1 2 3 4 5; do
