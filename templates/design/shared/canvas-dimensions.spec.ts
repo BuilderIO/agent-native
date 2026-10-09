@@ -363,6 +363,11 @@ describe("resolveCanvasIntent", () => {
       1200,
       627,
     ],
+    [
+      "Create a poster at 700x1000 using a YouTube thumbnail as inspiration",
+      700,
+      1000,
+    ],
   ])(
     "prioritizes the requested output format in %s",
     (prompt, width, height) => {
@@ -372,6 +377,14 @@ describe("resolveCanvasIntent", () => {
       });
     },
   );
+
+  it("keeps an unaliased fixed output when a reference names a preset format", () => {
+    expect(
+      resolveCanvasIntent(
+        "Create a poster using a YouTube thumbnail as inspiration",
+      ),
+    ).toEqual({ kind: "fixed", source: "fixed-output" });
+  });
 
   it.each([
     "Build a Google Ads dashboard",
@@ -383,6 +396,7 @@ describe("resolveCanvasIntent", () => {
     "Create a dashboard with a banner ad",
     "Build a responsive landing page for our product",
     "Create a mobile app that manages ad campaigns",
+    "Design a poster maker tool",
   ])("keeps app surfaces responsive in %s", (prompt) => {
     expect(resolveCanvasIntent(prompt)).toEqual({ kind: "responsive" });
   });
@@ -393,7 +407,6 @@ describe("resolveCanvasIntent", () => {
     "OG image",
     "LinkedIn ad",
     "Make a flyer for the conference",
-    "Design a poster maker tool",
     "Design a social post announcing our new landing page",
   ])("recognizes fixed artwork in %s", (prompt) => {
     expect(resolveCanvasIntent(prompt).kind).toBe("fixed");

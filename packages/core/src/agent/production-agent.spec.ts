@@ -1194,6 +1194,50 @@ describe("buildUserContentWithAttachments", () => {
     );
   });
 
+  it("does not mark a storage-backed attachment unreadable when decoded text is included", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Summarize the attachment",
+      attachments: [
+        {
+          type: "file",
+          name: "decoded-notes.txt",
+          contentType: "text/plain",
+          text: "Readable decoded content",
+          url: "https://files.example.test/decoded-notes.txt",
+        },
+      ],
+    });
+
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(text).toContain("Readable decoded content");
+    expect(text).toContain("Summarize the attachment");
+    expect(text).not.toContain("<chat-attachment-processing-error");
+  });
+
+  it("still reports a storage-backed attachment with no decoded content", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Summarize the attachment",
+      attachments: [
+        {
+          type: "file",
+          name: "unknown.bin",
+          contentType: "application/octet-stream",
+          url: "https://files.example.test/unknown.bin",
+        },
+      ],
+    });
+
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(text).toContain('code="unsupported-or-malformed-payload"');
+    expect(text).toContain('name="unknown.bin"');
+  });
+
   it("unwraps and truncates oversized text attachments before model input", () => {
     const longBody = "A".repeat(60_010);
     const content = buildUserContentWithAttachments({

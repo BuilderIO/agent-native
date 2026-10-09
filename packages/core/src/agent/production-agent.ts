@@ -2362,7 +2362,10 @@ export function buildUserContentWithAttachments(opts: {
         attachmentCharBudget,
       );
     }
-    if (typeof att.data === "string" || typeof uploadedUrl === "string") {
+    if (
+      !textAttachment &&
+      (typeof att.data === "string" || typeof uploadedUrl === "string")
+    ) {
       textAttachments.push(describeUnprocessedAttachment(att));
     } else if (
       !textAttachment &&

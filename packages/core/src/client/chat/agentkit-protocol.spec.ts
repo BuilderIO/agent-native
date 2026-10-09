@@ -3572,6 +3572,8 @@ describe("createAgentKitProtocolAdapter", () => {
     let continuationRequest: Record<string, unknown> | undefined;
     const originalPrompt = "Create a 1080x1350 Instagram post";
     const referenceUrl = "https://files.example.test/instagram-reference.png";
+    const visionUrl =
+      "https://files.example.test/instagram-reference-resized.jpg";
     const olderMessages: AgentMessage[] = [
       { ...userMessage("Earlier project context"), id: "user-earlier" },
       {
@@ -3655,6 +3657,15 @@ describe("createAgentKitProtocolAdapter", () => {
     const { runId } = await transport.startRun({
       threadId: "thread-1",
       messages: olderMessages,
+      requestAttachments: [
+        {
+          type: "image",
+          name: "instagram-reference.png",
+          contentType: "image/jpeg",
+          url: visionUrl,
+          referenceUrl,
+        },
+      ],
       options: {
         model: "continuation-context-model",
         reasoningEffort: "high",
@@ -3676,12 +3687,19 @@ describe("createAgentKitProtocolAdapter", () => {
         { role: "user", content: originalPrompt },
       ]),
       attachments: [
-        expect.objectContaining({
-          type: "image",
+        {
+          type: "file",
           name: "instagram-reference.png",
           contentType: "image/png",
           url: referenceUrl,
-        }),
+          referenceOnly: true,
+        },
+        {
+          type: "image",
+          name: "instagram-reference.png",
+          contentType: "image/jpeg",
+          url: visionUrl,
+        },
       ],
       structuredHistory: expect.arrayContaining([
         {
@@ -3691,7 +3709,11 @@ describe("createAgentKitProtocolAdapter", () => {
       ]),
       metadata: { turnContextMarker: "preserved" },
     });
-    expect(continuationRequest?.attachments).toHaveLength(1);
+    expect(
+      (
+        continuationRequest?.attachments as Array<{ type?: string }> | undefined
+      )?.filter((attachment) => attachment.type === "image"),
+    ).toHaveLength(1);
     await transport.dispose();
   });
 

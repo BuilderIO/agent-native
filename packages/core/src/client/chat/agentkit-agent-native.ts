@@ -16,6 +16,7 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import {
   isAgentKitProtocolVersion,
+  parseAgentQueuedMessage,
   parseAgentRunOptions,
   parseAgentThreadSnapshot,
 } from "@agent-native/agentkit/protocol";
@@ -1216,12 +1217,23 @@ function storedQueue(
               part?.type === "file",
           )
       : undefined;
+    const requestAttachments =
+      queued.requestAttachments === undefined
+        ? undefined
+        : parseAgentQueuedMessage({
+            id: queued.id,
+            threadId,
+            text: queued.text,
+            createdAt: timestamp(queued.createdAt, fallbackCreatedAt),
+            requestAttachments: queued.requestAttachments,
+          }).requestAttachments;
     return {
       id: queued.id,
       threadId,
       text: queued.text,
       createdAt: timestamp(queued.createdAt, fallbackCreatedAt),
       ...(attachments?.length ? { attachments } : {}),
+      ...(requestAttachments?.length ? { requestAttachments } : {}),
       ...(asRecord(queued.metadata)
         ? { metadata: asRecord(queued.metadata)! }
         : {}),

@@ -3200,18 +3200,12 @@ export class AgentKitClient implements AgentKitController {
     if (input.attachments?.length || input.requestAttachments?.length) {
       await this.requireCapability("attachments", requestContext);
     }
-    const requestAttachments = await this.queueSafeRequestAttachments(
-      input.threadId,
-      input.requestAttachments,
-      requestContext,
-    );
     const optimisticMessage: AgentQueuedMessage = {
       id: this.createId("queued-message"),
       threadId: input.threadId,
       text: input.text,
       createdAt: this.now(),
       attachments: input.attachments,
-      ...(requestAttachments?.length ? { requestAttachments } : {}),
       metadata: input.metadata,
       options: input.options,
     };
@@ -3233,6 +3227,31 @@ export class AgentKitClient implements AgentKitController {
       input.onLocalSubmit?.();
       return await this.enqueueQueueMutation(input.threadId, async () => {
         this.assertActive();
+        const requestAttachments = await this.queueSafeRequestAttachments(
+          input.threadId,
+          input.requestAttachments,
+          requestContext,
+        );
+        if (requestAttachments?.length) {
+          const thread = this.getThread(input.threadId);
+          const queuedMessages = thread.queuedMessages.map((message) =>
+            message.id === optimisticMessage.id
+              ? { ...message, requestAttachments }
+              : message,
+          );
+          this.setThread(input.threadId, { ...thread, queuedMessages });
+          const queueOverride = this.queuedMessageOverrides.get(input.threadId);
+          if (queueOverride) {
+            this.queuedMessageOverrides.set(input.threadId, {
+              messages: queueOverride.messages.map((message) =>
+                message.id === optimisticMessage.id
+                  ? { ...message, requestAttachments }
+                  : message,
+              ),
+              removedIds: queueOverride.removedIds,
+            });
+          }
+        }
         const result = await this.invokeRequest(requestContext, (context) =>
           queueMessage(
             {

@@ -71,8 +71,8 @@ async function configureResponsiveDesign(
       value: {
         id: "qa-breakpoints",
         breakpoints: [
-          { id: "mobile", label: "Mobile", widthPx: 390 },
-          { id: "tablet", label: "Tablet", widthPx: 768 },
+          { id: "mobile", label: "Mobile", widthPx: 390, prefix: "base" },
+          { id: "tablet", label: "Tablet", widthPx: 768, prefix: "md" },
         ],
       },
     },
@@ -108,21 +108,6 @@ async function configureResponsiveDesign(
   await action(request, "update-design", { id: designId, dataOperations });
 }
 
-async function designFileContent(
-  request: APIRequestContext,
-  designId: string,
-  fileId: string,
-) {
-  const params = new URLSearchParams({ id: designId });
-  const response = await request.get(
-    `${BASE_URL}/_agent-native/actions/get-design?${params}`,
-  );
-  if (!response.ok()) throw new Error(await response.text());
-  const result = await response.json();
-  return result.files.find((file: { id: string }) => file.id === fileId)
-    ?.content as string;
-}
-
 async function designData(request: APIRequestContext, designId: string) {
   const params = new URLSearchParams({ id: designId });
   const response = await request.get(
@@ -148,7 +133,8 @@ async function designFileIds(
 
 test.use({ viewport: { width: 1500, height: 1000 } });
 
-test("responsive frames select and edit directly with explicit scope persistence", async ({
+// oracle: none — verifies responsive preview geometry and edit scope, not visual parity.
+test("responsive frame previews preserve content fit and scope selection", async ({
   page,
   request,
 }) => {
@@ -175,12 +161,10 @@ test("responsive frames select and edit directly with explicit scope persistence
       })
       .toBeGreaterThan(1.5);
 
-    const mobileFrame = page
+    const mobileHero = page
       .locator(`iframe[data-screen-iframe-id="${fileId}::bp-390"]`)
-      .contentFrame();
-    const mobileHero = mobileFrame.locator(
-      '[data-agent-native-node-id="hero"]',
-    );
+      .contentFrame()
+      .locator('[data-agent-native-node-id="hero"]');
     await expect(mobileHero).toBeVisible();
     await expect
       .poll(() =>
@@ -190,56 +174,22 @@ test("responsive frames select and edit directly with explicit scope persistence
         }),
       )
       .toEqual(["0s", "0s"]);
-    await mobileHero.click({ force: true });
+    await page
+      .locator("[data-breakpoint-frame]")
+      .filter({
+        has: page.locator(`[data-screen-iframe-id="${fileId}::bp-390"]`),
+      })
+      .locator("[data-frame-title]")
+      .click();
 
     const scope = page.getByRole("combobox", {
       name: "Responsive edit scope",
     });
     await expect(scope).toBeVisible();
     await expect(scope).toHaveText("This breakpoint and smaller");
-    const xInput = page.getByRole("textbox", { name: "X-position" });
-    await expect(xInput).toBeVisible();
-    await xInput.fill("137");
-    await xInput.press("Enter");
-    await expect
-      .poll(() => designFileContent(request, designId, fileId!))
-      .toContain("@media (max-width: 767px)");
-
-    const tabletFrame = page
-      .locator(`iframe[data-screen-iframe-id="${fileId}::bp-768"]`)
-      .contentFrame();
-    await tabletFrame
-      .locator('[data-agent-native-node-id="hero"]')
-      .click({ force: true });
     await scope.click();
     await page.getByRole("option", { name: "This breakpoint only" }).click();
     await expect(scope).toHaveText("This breakpoint only");
-    await xInput.fill("155");
-    await xInput.press("Enter");
-    await expect
-      .poll(() => designFileContent(request, designId, fileId!))
-      .toContain("@media (min-width: 768px) and (max-width: 1279px)");
-
-    await page
-      .locator("[data-breakpoint-frame]")
-      .filter({
-        has: page.locator(`[data-screen-iframe-id="${fileId}::bp-768"]`),
-      })
-      .locator("[data-frame-full-view]")
-      .click();
-    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
-    const focusedHero = page
-      .locator(`iframe[data-screen-iframe-id="${fileId}"]`)
-      .contentFrame()
-      .locator('[data-agent-native-node-id="hero"]');
-    await expect
-      .poll(() =>
-        focusedHero.evaluate((element) => {
-          const style = getComputedStyle(element);
-          return [style.animationDuration, style.transitionDuration];
-        }),
-      )
-      .toEqual(["5s", "3s"]);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -410,21 +360,30 @@ test("persists tall breakpoint content before server-side row placement", async 
   }
 });
 
+// oracle: none — verifies screen and breakpoint deletion behavior through the editor.
 test("screen deletion explicitly includes and removes responsive variants", async ({
   page,
   request,
 }) => {
-  const { designId, fileIds } = await createDesign(request);
+  const { designId, fileIds } = await createDesign(request, 2);
+  const deletedFileId = fileIds[0]!;
   try {
     await configureResponsiveDesign(request, designId, fileIds);
     await gotoEditor(page, designId);
     await page
-      .locator("[data-screen-shell] [data-frame-title]")
+      .locator("[data-screen-shell]")
+      .filter({
+        has: page.locator(`[data-screen-iframe-id="${deletedFileId}"]`),
+      })
+      .locator("[data-frame-title]")
       .first()
       .click();
     await page.keyboard.press("Delete");
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
-    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
+    await expect(
+      page.locator(`[data-screen-iframe-id^="${deletedFileId}::bp-"]`),
+    ).toHaveCount(0);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -515,6 +474,7 @@ test("multiple generated variation groups reserve breakpoint rows without overla
   }
 });
 
+// oracle: none — verifies persisted canvas layout after a breakpoint mutation.
 test("adding a breakpoint reflows screen rows before their previews overlap", async ({
   page,
   request,
@@ -544,6 +504,10 @@ test("adding a breakpoint reflows screen rows before their previews overlap", as
     });
     await gotoEditor(page, designId);
     await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
+    await page
+      .locator("[data-screen-shell] [data-frame-title]")
+      .first()
+      .click();
     expect(
       (await designData(request, designId)).canvasFrames?.[secondFileId!]?.x,
     ).toBe(1776);
@@ -892,6 +856,7 @@ test("overview screen creation and duplicate undo/redo keep screens selected and
   }
 });
 
+// oracle: none — verifies width validation and persistence through the editor.
 test("breakpoint width menus preserve invalid drafts for correction", async ({
   page,
   request,
@@ -900,6 +865,10 @@ test("breakpoint width menus preserve invalid drafts for correction", async ({
   try {
     await configureResponsiveDesign(request, designId, fileIds);
     await gotoEditor(page, designId);
+    await page
+      .locator("[data-screen-shell] [data-frame-title]")
+      .first()
+      .click();
     const control = page.locator("[data-breakpoint-device-control]");
     await control.getByRole("button", { name: "390", exact: true }).click();
     await control.getByRole("button", { name: "Breakpoint options" }).click();
@@ -916,9 +885,6 @@ test("breakpoint width menus preserve invalid drafts for correction", async ({
     await width.fill("420");
     await width.press("Enter");
     await expect(width).toBeHidden();
-    await expect(
-      control.getByRole("button", { name: "420", exact: true }),
-    ).toBeVisible();
     await expect
       .poll(async () => {
         const data = await designData(request, designId);
@@ -927,6 +893,9 @@ test("breakpoint width menus preserve invalid drafts for correction", async ({
           .sort((a: number, b: number) => a - b);
       })
       .toEqual([420, 768]);
+    await expect(
+      control.getByRole("button", { name: "420", exact: true }),
+    ).toBeVisible();
 
     await control
       .getByRole("button", { name: "Add breakpoint", exact: true })

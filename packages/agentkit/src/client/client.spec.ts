@@ -722,6 +722,80 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("reserves queue order before uploading a queued image", async () => {
+    const uploadStarted = Promise.withResolvers<void>();
+    const finishUpload = Promise.withResolvers<void>();
+    const queueOrder: string[] = [];
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: {
+          attachments: true,
+          messageQueue: true,
+          uploads: true,
+        },
+        async queueMessage(input) {
+          queueOrder.push(input.text);
+          return {
+            message: {
+              id: input.id ?? `queued-${input.text}`,
+              threadId: input.threadId,
+              text: input.text,
+              createdAt: "2026-10-08T00:00:00.000Z",
+              requestAttachments: input.requestAttachments,
+            },
+          };
+        },
+        async createUpload() {
+          return {
+            uploadId: "upload-image",
+            method: "PUT",
+            url: "https://upload.example.test/image.png",
+          };
+        },
+        async completeUpload() {
+          return {
+            type: "file",
+            name: "optimized.png",
+            mediaType: "image/png",
+            url: "https://storage.example.test/optimized.png",
+          };
+        },
+      },
+      upload: async () => {
+        uploadStarted.resolve();
+        await finishUpload.promise;
+      },
+    });
+
+    const imageMessage = client.queueMessage({
+      threadId: "thread-1",
+      text: "Describe this image",
+      requestAttachments: [
+        {
+          type: "image",
+          name: "optimized.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,SGVsbG8=",
+          referenceUrl: "https://storage.example.test/original.png",
+        },
+      ],
+    });
+    await uploadStarted.promise;
+    const textMessage = client.queueMessage({
+      threadId: "thread-1",
+      text: "Follow up",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(queueOrder).toEqual([]);
+
+    finishUpload.resolve();
+    await Promise.all([imageMessage, textMessage]);
+    expect(queueOrder).toEqual(["Describe this image", "Follow up"]);
+    await client.shutdown();
+  });
+
   it("does not acknowledge a message rejected by capability preflight", async () => {
     const startRun = vi.fn<AgentTransport["startRun"]>();
     const client = new AgentKitClient({

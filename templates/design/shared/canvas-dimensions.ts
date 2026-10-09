@@ -157,9 +157,9 @@ const CANVAS_PRESET_ALIASES: CanvasPresetAlias[] = [
 const OUTPUT_VERB =
   /\b(?:create|make|design|generate|build|produce|draft|render|draw|prepare|compose|crea(?:r)?|diseñ(?:a|ar)|disegna(?:re)?|erstelle|erstellen|gestalte(?:n)?|crée(?:z|r)?|concevoir|produire|dessiner|faire)\b/i;
 const OUTPUT_RELATION_BOUNDARY =
-  /\b(?:for|with|including|featuring|showing|based\s+on|announcing|promoting|about|on|that|which)\b/i;
+  /\b(?:for|with|using|including|featuring|showing|based\s+on|inspired\s+by|announcing|promoting|about|on|that|which)\b/i;
 const PRODUCT_SURFACE_OUTPUT =
-  /\b(?:dashboard|dashboards|manager|management\s+(?:tool|app|platform)|(?:web|mobile|desktop)\s+apps?|applications?|website|web\s+site|landing\s+page|pricing\s+page|settings\s+page|login\s+screen|web\s+page|product\s+interface|portal|platform|crm|workspace|admin\s+(?:panel|dashboard)|prototype|site|form)\b/i;
+  /\b(?:(?:poster|graphic|social(?:\s+media)?\s+post|ad|banner)\s+(?:maker|editor|creation)\s+tools?|dashboard|dashboards|manager|management\s+(?:tool|app|platform)|(?:web|mobile|desktop)\s+apps?|applications?|website|web\s+site|landing\s+page|pricing\s+page|settings\s+page|login\s+screen|web\s+page|product\s+interface|portal|platform|crm|workspace|admin\s+(?:panel|dashboard)|prototype|site|form)\b/i;
 const FIXED_ARTWORK_OUTPUT =
   /\b(?:ads?|advertisements?|banners?|leaderboards?|skyscrapers?|billboards?|anzeige(?:n)?|annonce(?:s)?|publicit[ée]|an[uú]ncio(?:s)?|publicidade|social(?:\s+media)?\s+(?:posts?|stor(?:y|ies))|instagram\s+(?:posts?|stor(?:y|ies))|email\s+headers?|newsletter\s+(?:headers?|graphics?)|flyers?|posters?|brochures?|infographics?|cover\s+art|favicons?|logos?|avatars?|thumbnails?|promo(?:tional)?\s+(?:graphics?|images?|posts?)|open\s+graph\s+(?:preview\s+)?images?|og\s+images?)\b/i;
 
@@ -197,11 +197,8 @@ export function resolveCanvasIntent(prompt?: string): CanvasIntent {
   const outputAlias = CANVAS_PRESET_ALIASES.find((alias) =>
     alias.pattern.test(output),
   );
-  const contextualAlias =
-    outputAlias ??
-    CANVAS_PRESET_ALIASES.find((alias) => alias.pattern.test(value));
-  if (contextualAlias) {
-    const alias = contextualAlias;
+  if (outputAlias) {
+    const alias = outputAlias;
     const dimensions = presetDimensions(alias.preset);
     if (dimensions) {
       return {
@@ -215,6 +212,21 @@ export function resolveCanvasIntent(prompt?: string): CanvasIntent {
 
   if (FIXED_ARTWORK_OUTPUT.test(output)) {
     return { kind: "fixed", source: "fixed-output" };
+  }
+
+  const contextualAlias = CANVAS_PRESET_ALIASES.find((alias) =>
+    alias.pattern.test(value),
+  );
+  if (contextualAlias) {
+    const dimensions = presetDimensions(contextualAlias.preset);
+    if (dimensions) {
+      return {
+        kind: "fixed",
+        source: "preset",
+        preset: contextualAlias.preset,
+        dimensions,
+      };
+    }
   }
 
   return { kind: "responsive" };

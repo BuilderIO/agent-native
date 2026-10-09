@@ -2,6 +2,7 @@
 
 import { AgentKitClient } from "@agent-native/agentkit/client";
 import type {
+  FilePart,
   AgentMessage,
   AgentTransport,
 } from "@agent-native/agentkit/protocol";
@@ -1679,7 +1680,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     const props = baseProps({ composerContextProvider: Provider });
     const file = new File(["image"], "keep.png", { type: "image/png" });
     chatMocks.pendingFiles = [file];
-    const uploading = Promise.withResolvers<[]>();
+    const uploading = Promise.withResolvers<FilePart[]>();
     chatMocks.control.uploadFiles.mockReturnValueOnce(uploading.promise);
     await mount(props);
     await act(async () =>
@@ -1693,7 +1694,16 @@ describe("AgentKitAssistantChat host behavior", () => {
     await act(async () =>
       root.render(<AgentKitAssistantChat {...props} threadId="thread-2" />),
     );
-    await act(async () => uploading.resolve([]));
+    await act(async () =>
+      uploading.resolve([
+        {
+          type: "file",
+          name: "keep.png",
+          mediaType: "image/png",
+          url: "https://files.example.test/keep.png",
+        },
+      ]),
+    );
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
     expect(context.submissionAccepted).not.toHaveBeenCalled();
     expect(chatMocks.pendingFiles).toEqual([file]);
