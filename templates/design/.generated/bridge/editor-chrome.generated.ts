@@ -3561,6 +3561,70 @@ export const editorChromeBridgeScript: string = `"use strict";
       var root = hit.closest('[data-an-primitive="text"]');
       return root && !isDocumentRootElement(root) ? root : null;
     }
+    function isGeneratedGroupWrapper(group) {
+      var generatedGroupMarker = group.getAttribute("data-agent-native-group-wrapper") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
+      var legacyNodeId = group.getAttribute("data-agent-native-node-id");
+      var legacyGeneratedGroup = /^an-[a-z0-9]+$/i.test(legacyNodeId || "") && /^group(?: \\d+)?$/i.test(layerNameForElement(group).trim()) && group.getAttribute("data-agent-native-preserve-styles") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
+      return generatedGroupMarker || legacyGeneratedGroup;
+    }
+    function hasSelectableLayerChildren(container) {
+      var children = container.children;
+      for (var i = 0; i < children.length; i += 1) {
+        var child = children[i];
+        if (isOverlayElement(child) || NON_SELECTABLE_TAGS.indexOf(child.tagName.toLowerCase()) !== -1) {
+          continue;
+        }
+        return true;
+      }
+      return false;
+    }
+    function canOpenSelectionContainer(container) {
+      var primitive = container.getAttribute("data-an-primitive");
+      return hasSelectableLayerChildren(container) && primitive !== "group" && primitive !== "boolean" && !isGeneratedGroupWrapper(container);
+    }
+    function opensByItself(container) {
+      if (container.parentElement !== document.body) return false;
+      var primitive = container.getAttribute("data-an-primitive");
+      return hasSelectableLayerChildren(container) && (primitive === "frame" || primitive === "section" || container.tagName.toLowerCase() === "section");
+    }
+    function selectionOpenedContainers() {
+      var opened = /* @__PURE__ */ new Set();
+      if (selectedEl && document.documentElement.contains(selectedEl)) {
+        var ancestor = selectedEl.parentElement;
+        while (ancestor) {
+          opened.add(ancestor);
+          if (ancestor === document.body) break;
+          ancestor = ancestor.parentElement;
+        }
+        if (canOpenSelectionContainer(selectedEl)) opened.add(selectedEl);
+      }
+      var entered = enteredContainerElement;
+      if (entered && document.documentElement.contains(entered) && canOpenSelectionContainer(entered) && (!enteredContainerId || entered.getAttribute("data-agent-native-node-id") === enteredContainerId)) {
+        opened.add(entered);
+      }
+      var scope = selectionContainerScope;
+      if (scope && document.documentElement.contains(scope) && canOpenSelectionContainer(scope)) {
+        opened.add(scope);
+      }
+      if (document.body) {
+        var topLevel = document.body.children;
+        for (var i = 0; i < topLevel.length; i += 1) {
+          var child = topLevel[i];
+          if (opensByItself(child)) opened.add(child);
+        }
+      }
+      return opened;
+    }
+    function directChildOfOpenedContainer(target, openedContainers) {
+      var node = target;
+      while (node && !isDocumentRootElement(node)) {
+        var parent = node.parentElement;
+        if (!parent) return null;
+        if (openedContainers.has(parent)) return node;
+        node = parent;
+      }
+      return null;
+    }
     function selectionTargetForHit(hit, descendIntoGroup = false) {
       if (!hit || isDocumentRootElement(hit)) return hit;
       var svgRoot = outermostSvgAncestor(hit);
@@ -3571,13 +3635,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!descendIntoGroup) {
         var group = target;
         while (group && !isDocumentRootElement(group)) {
-          var groupName = layerNameForElement(group);
-          var generatedGroupMarker = group.getAttribute && group.getAttribute("data-agent-native-group-wrapper") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
-          var legacyNodeId = group.getAttribute && group.getAttribute("data-agent-native-node-id");
-          var legacyGeneratedGroup = /^an-[a-z0-9]+$/i.test(legacyNodeId || "") && /^group(?: \\d+)?$/i.test(groupName.trim()) && group.getAttribute("data-agent-native-preserve-styles") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
-          if (generatedGroupMarker || legacyGeneratedGroup) {
-            return group;
-          }
+          if (isGeneratedGroupWrapper(group)) return group;
           group = group.parentElement;
         }
       }
@@ -3594,7 +3652,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       var resolved = selectionTargetForHit(hit, descendIntoGroup);
       if (!resolved || isDocumentRootElement(resolved)) return resolved;
       var scope = selectionContainerScope;
-      if (!scope || !document.documentElement.contains(scope) || !scope.contains(resolved)) {
+      var selectionTarget = directChildOfOpenedContainer(
+        resolved,
+        selectionOpenedContainers()
+      );
+      if (selectionTarget) return selectionTarget;
+      if (!scope || !document.documentElement.contains(scope) || !scope.contains(resolved) || !canOpenSelectionContainer(scope)) {
         selectionContainerScope = null;
         scope = topLevelBoardFrameOwning(resolved) || document.body;
       }
@@ -3620,6 +3683,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!selectedEl || !document.documentElement.contains(selectedEl)) {
         return null;
       }
+      if (!canOpenSelectionContainer(selectedEl)) return null;
       if (collectMoveGroupMembers(selectedEl).length > 1) return null;
       if (!hit || isDocumentRootElement(hit)) return null;
       var svgRoot = outermostSvgAncestor(hit);
@@ -6401,6 +6465,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       "agent-native-runtime-structure-transaction"
     );
     var selectionContainerScope = null;
+    var enteredContainerId = null;
+    var enteredContainerElement = null;
     var selectionGeneration = 0;
     var selectionChromeHidden = false;
     var hoveredEl = null;
@@ -6549,6 +6615,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.getSelection?.()?.removeAllRanges();
       selectedEl = null;
       selectionContainerScope = null;
+      enteredContainerId = null;
+      enteredContainerElement = null;
       clearHoverGate();
       setPassiveSelectionElements([]);
       clearSpacingHoverTimer();
@@ -22440,6 +22508,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (selectionChangedByHost) {
           hoveredSpacingHandleKey = "";
         }
+        enteredContainerElement = canOpenSelectionContainer(target) ? target : null;
+        enteredContainerId = enteredContainerElement?.getAttribute("data-agent-native-node-id") ?? null;
+        selectionContainerScope = enteredContainerElement;
         selectedEl = target;
         if (selectionChromeHidden) {
           hideSelectionOverlay();

@@ -67,6 +67,23 @@ const LAYERED_SELECTION_FIXTURE = `<!doctype html><html><body style="margin:0">
   </div>
 </body></html>`;
 
+const GENERATED_GROUP_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <div data-agent-native-node-id="screen-root" data-agent-native-layer-name="Screen"
+       data-an-primitive="frame"
+       style="position:absolute;left:0;top:0;width:520px;height:420px;background:#111827">
+    <div data-agent-native-node-id="parent" data-agent-native-layer-name="Parent"
+         data-an-primitive="frame"
+         style="position:absolute;left:20px;top:20px;width:360px;height:320px;background:#374151">
+      <div data-agent-native-node-id="generated-group" data-agent-native-layer-name="Group"
+           data-agent-native-group-wrapper="true"
+           style="position:absolute;left:20px;top:20px;width:260px;height:220px;background:#1f2937">
+        <div data-agent-native-node-id="group-child" data-agent-native-layer-name="Child"
+             style="position:absolute;left:20px;top:20px;width:100px;height:80px;background:#3b82f6"></div>
+      </div>
+    </div>
+  </div>
+</body></html>`;
+
 describe("container-first click selection", () => {
   it("clicking a child nested inside Card selects Card, not the child", async () => {
     const browser = await chromium.launch({ headless: true });
@@ -179,7 +196,7 @@ describe("container-first click selection", () => {
       const selectedIds = await page.evaluate(
         () => (window as any).__selectionIds as string[],
       );
-      expect(selectedIds.at(-1)).toBe("sibling");
+      expect(selectedIds[selectedIds.length - 1]).toBe("sibling");
     } finally {
       await browser.close();
     }
@@ -225,7 +242,7 @@ describe("container-first click selection", () => {
       const hoveredIds = await page.evaluate(
         () => (window as any).__hoverIds as string[],
       );
-      expect(hoveredIds.at(-1)).toBe("grandchild");
+      expect(hoveredIds[hoveredIds.length - 1]).toBe("grandchild");
 
       await page.mouse.click(100, 100);
       await page.waitForFunction(
@@ -245,6 +262,51 @@ describe("container-first click selection", () => {
         "grandchild",
         "outer-frame",
       ]);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("keeps a selected generated group closed to its children", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(GENERATED_GROUP_FIXTURE);
+      await page.evaluate(() => {
+        (window as any).__selectionIds = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__selectionIds.push(
+              event.data.payload?.sourceId ?? "",
+            );
+          }
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      await page.evaluate(() => {
+        const selector = '[data-agent-native-node-id="generated-group"]';
+        window.postMessage(
+          {
+            type: "select-element",
+            selector,
+            selectorCandidates: [selector],
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__selectionIds.length > 0,
+      );
+      await page.mouse.click(80, 80);
+      await page.waitForFunction(
+        () => (window as any).__selectionIds.length > 1,
+      );
+
+      const selectedIds = await page.evaluate(
+        () => (window as any).__selectionIds as string[],
+      );
+      expect(selectedIds[selectedIds.length - 1]).toBe("generated-group");
     } finally {
       await browser.close();
     }
