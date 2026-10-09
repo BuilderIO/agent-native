@@ -58,6 +58,7 @@ function eventRow(
     session_id: sessionId,
     timestamp: new Date(T0 + offsetSeconds * 1000).toISOString(),
     event_name: eventName,
+    journey_kind: "onboarding",
     path: null,
     flow: null,
     source: null,
@@ -133,6 +134,7 @@ describe("parseJourneyEventRow", () => {
       { ...eventRow("s1", "signup", 0), session_id: null },
       { ...eventRow("s1", "signup", 0), event_name: undefined },
       { ...eventRow("s1", "signup", 0), timestamp: "garbled" },
+      { ...eventRow("s1", "signup", 0), journey_kind: "other" },
     ]) {
       expect(parseJourneyEventRow(broken)).toBeNull();
     }
@@ -224,6 +226,68 @@ describe("getOnboardingJourney", () => {
     expect(tree.nodes[0]!.examples[0]).not.toHaveProperty("replayUrl");
   });
 
+  it("returns standalone chat setup sessions with a separate denominator", async () => {
+    const standaloneRows = [
+      eventRow("home-setup", "pageview", 1, {
+        path: "/home",
+        journey_kind: "standalone_setup",
+      }),
+      eventRow("home-setup", "integration_setup_exposed", 2, {
+        flow: "chat_setup",
+        method_id: "setup_card",
+        journey_kind: "standalone_setup",
+      }),
+      eventRow("home-setup", "integration_method_clicked", 3, {
+        flow: "chat_setup",
+        method_id: "custom_keys",
+        journey_kind: "standalone_setup",
+      }),
+      eventRow("home-setup", "integration_method_outcome", 4, {
+        flow: "chat_setup",
+        method_id: "custom_keys",
+        outcome: "credential_saved",
+        journey_kind: "standalone_setup",
+      }),
+    ];
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({
+      rows: [...journeyRows(), ...standaloneRows],
+      schema: [],
+    });
+    mocks.listJourneyRecordings.mockResolvedValue({
+      recordings: [
+        recordingFor("s1"),
+        recordingFor("s2"),
+        recordingFor("home-setup"),
+      ],
+      complete: true,
+    });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      maxNodes: 3,
+    })) as JourneyTree;
+
+    expect(tree.rootN).toBe(3);
+    expect(tree.coverage.sessionsWithEvents).toBe(3);
+    expect(tree.coverage.sessionsWithReplay).toBe(2);
+    expect(tree.nodes[0]?.key).toBe("signup");
+    expect(tree.coverage.truncated).toBe(false);
+    expect(tree.standaloneSetup).toMatchObject({
+      rootN: 1,
+      coverage: {
+        sessionsWithEvents: 1,
+        sessionsWithReplay: 1,
+        truncated: true,
+      },
+    });
+    expect(tree.standaloneSetup?.nodes.map((node) => node.key)).toEqual([
+      "page:/home",
+      "page:/home > integration:chat_setup:exposed:setup_card",
+      "page:/home > integration:chat_setup:exposed:setup_card > integration:chat_setup:method:custom_keys",
+    ]);
+    expect(tree.standaloneSetup?.nodes[2]).toMatchObject({ deeperN: 1 });
+  });
+
   it("flags a cut event read instead of presenting a partial tree as whole", async () => {
     // maxEventRows 3 reads one row past the budget; the 4th row proves a cut.
     const rows = [
@@ -244,7 +308,86 @@ describe("getOnboardingJourney", () => {
     expect(tree.coverage.truncated).toBe(true);
     // s2 was cut off mid-session, so it is not in the tree.
     expect(tree.rootN).toBe(1);
-    expect(tree.notes?.join(" ")).toMatch(/maxEventRows=3.*last session/);
+    expect(tree.notes?.join(" ")).toMatch(
+      /maxEventRows=3.*last onboarding session/,
+    );
+  });
+
+  it("keeps onboarding coverage complete when only standalone rows exceed the read cap", async () => {
+    const standaloneRows = [
+      eventRow("home-a", "pageview", 1, {
+        path: "/home",
+        journey_kind: "standalone_setup",
+      }),
+      eventRow("home-b", "pageview", 1, {
+        path: "/home",
+        journey_kind: "standalone_setup",
+      }),
+      eventRow("home-b", "integration_setup_exposed", 2, {
+        flow: "chat_setup",
+        method_id: "setup_card",
+        journey_kind: "standalone_setup",
+      }),
+    ];
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({
+      rows: [...journeyRows(), ...standaloneRows],
+      schema: [],
+    });
+    mocks.listJourneyRecordings.mockResolvedValue({
+      recordings: [...["s1", "s2", "s3", "home-a"].map(recordingFor)],
+      complete: true,
+    });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      maxEventRows: 8,
+    })) as JourneyTree;
+
+    expect(tree.coverage.truncated).toBe(false);
+    expect(tree.standaloneSetup?.coverage).toMatchObject({
+      sessionsWithEvents: 1,
+      truncated: true,
+    });
+    expect(tree.notes?.join(" ")).toMatch(
+      /standalone setup results may be incomplete or absent/,
+    );
+    expect(tree.notes?.join(" ")).not.toMatch(
+      /onboarding counts are a partial sample/,
+    );
+  });
+
+  it("marks unseen standalone results incomplete when onboarding exhausts the row cap", async () => {
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({
+      rows: [
+        eventRow("cohort", "signup", 1),
+        eventRow("cohort", "onboarding_completed", 2),
+        eventRow("later-cohort", "signup", 3),
+        eventRow("home-setup", "integration_setup_exposed", 4, {
+          flow: "chat_setup",
+          method_id: "setup_card",
+          journey_kind: "standalone_setup",
+        }),
+      ],
+      schema: [],
+    });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      maxEventRows: 2,
+    })) as JourneyTree;
+
+    expect(tree.coverage.truncated).toBe(true);
+    expect(tree.standaloneSetup).toMatchObject({
+      rootN: 0,
+      coverage: {
+        sessionsWithEvents: 0,
+        truncated: true,
+      },
+      nodes: [],
+    });
+    expect(tree.notes?.join(" ")).toMatch(
+      /maxEventRows=2.*standalone setup results may be incomplete or absent/,
+    );
   });
 
   it("does not flag a read that ends exactly at the budget", async () => {
@@ -463,6 +606,76 @@ describe("summary format", () => {
     ]);
     expect(summary.coverage.truncated).toBe(true);
     expect(summary.notes?.join(" ")).toMatch(/maxDepth=2.*deeperN/);
+  });
+
+  it("tracks standalone setup depth and replay coverage separately", async () => {
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({
+      rows: [
+        eventRow("cohort", "signup", 1),
+        eventRow("home-setup", "pageview", 1, {
+          path: "/home",
+          journey_kind: "standalone_setup",
+        }),
+        eventRow("home-setup", "integration_setup_exposed", 2, {
+          flow: "chat_setup",
+          method_id: "setup_card",
+          journey_kind: "standalone_setup",
+        }),
+        eventRow("home-setup", "integration_method_clicked", 3, {
+          flow: "chat_setup",
+          method_id: "custom_keys",
+          journey_kind: "standalone_setup",
+        }),
+      ],
+      schema: [],
+    });
+    mocks.listJourneyRecordings.mockResolvedValue({
+      recordings: [recordingFor("cohort"), recordingFor("home-setup")],
+      complete: true,
+    });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      maxDepth: 2,
+    })) as JourneyTree;
+
+    expect(tree.coverage).toMatchObject({
+      sessionsWithEvents: 1,
+      sessionsWithReplay: 1,
+      truncated: false,
+    });
+    expect(tree.standaloneSetup?.coverage).toMatchObject({
+      sessionsWithEvents: 1,
+      sessionsWithReplay: 1,
+      truncated: true,
+    });
+    expect(tree.standaloneSetup?.nodes[1]).toMatchObject({ deeperN: 1 });
+    expect(tree.notes?.join(" ")).toMatch(/standalone setup sessions continue/);
+  });
+
+  it("flags onboarding depth without marking a short standalone tree", async () => {
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({
+      rows: [
+        eventRow("cohort", "signup", 1),
+        eventRow("cohort", "onboarding_completed", 2),
+        eventRow("home-setup", "integration_setup_exposed", 1, {
+          flow: "chat_setup",
+          method_id: "setup_card",
+          journey_kind: "standalone_setup",
+        }),
+      ],
+      schema: [],
+    });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      maxDepth: 1,
+    })) as JourneyTree;
+
+    expect(tree.coverage.truncated).toBe(true);
+    expect(tree.nodes[0]).toMatchObject({ deeperN: 1 });
+    expect(tree.standaloneSetup?.coverage.truncated).toBe(false);
+    expect(tree.standaloneSetup?.nodes[0]).toMatchObject({ deeperN: 0 });
   });
 
   it("formats an empty tree as an empty outline", () => {

@@ -12,6 +12,7 @@ export { normalizeJourneyPath };
 export interface JourneyEventRow {
   id: string;
   sessionId: string;
+  journeyKind: "onboarding" | "standalone_setup";
   tsMs: number;
   eventName: string;
   path: string | null;
@@ -35,6 +36,8 @@ const METHOD_LABELS: Record<string, string> = {
   builder_create_account: "Use Builder.io",
   builder_sign_in: "Sign in with Builder.io account",
   custom_keys: "Configure custom keys",
+  builder: "Use Builder.io",
+  setup_card: "Connection options",
 };
 
 // Both spellings of the auth events: the catalog's SQL reads the dotted names
@@ -103,6 +106,19 @@ const PROVIDER_SETUP_OUTCOME_LABELS: Record<string, string> = {
 };
 
 const PROVIDER_SETUP_FLOWS = new Set(["chat_setup", "settings"]);
+const INTEGRATION_SETUP_FLOWS = new Set(["chat_setup"]);
+const INTEGRATION_SETUP_METHOD_IDS = new Set([
+  "setup_card",
+  "builder",
+  "custom_keys",
+]);
+const INTEGRATION_SETUP_OUTCOMES = new Set([
+  "exposed",
+  "started",
+  "connected",
+  "status_read_failed",
+  "connection_failed",
+]);
 
 /** Events that put a session in the onboarding cohort at all. */
 export const JOURNEY_COHORT_EVENT_NAMES: readonly string[] = [
@@ -116,6 +132,13 @@ export const JOURNEY_COHORT_EVENT_NAMES: readonly string[] = [
   "onboarding_method_clicked",
 ];
 
+/** Home integration sessions get a separate tree when they never entered onboarding. */
+export const JOURNEY_INTEGRATION_EVENT_NAMES: readonly string[] = [
+  "integration_setup_exposed",
+  "integration_method_clicked",
+  "integration_method_outcome",
+];
+
 /** Every event name that can become a step; the SQL selects exactly these. */
 export const JOURNEY_STEP_EVENT_NAMES: readonly string[] = [
   "pageview",
@@ -127,6 +150,9 @@ export const JOURNEY_STEP_EVENT_NAMES: readonly string[] = [
   "onboarding_method_clicked",
   "onboarding_method_started",
   "onboarding_method_outcome",
+  "integration_setup_exposed",
+  "integration_method_clicked",
+  "integration_method_outcome",
   "onboarding_abandoned",
   "onboarding_completed",
   "onboarding_app_entered",
@@ -160,19 +186,22 @@ const TIE_RANK: Record<string, number> = {
   onboarding_app_entered: 12,
   app_entered: 12,
   "app.first_action": 13,
-  integration_key_entry_started: 14,
-  integration_key_validation_outcome: 15,
-  integration_key_save_outcome: 16,
-  builder_connect_clicked: 14,
-  builder_connect_popup_blocked: 15,
-  builder_connect_started: 16,
-  builder_connect_succeeded: 17,
-  builder_connect_failed: 17,
-  generation_started: 18,
-  recording_started: 18,
-  generation_completed: 19,
-  recording_ready: 19,
-  design_output_created: 20,
+  integration_setup_exposed: 14,
+  integration_method_clicked: 15,
+  builder_connect_clicked: 16,
+  integration_key_entry_started: 16,
+  builder_connect_popup_blocked: 17,
+  integration_key_validation_outcome: 17,
+  builder_connect_started: 18,
+  integration_key_save_outcome: 18,
+  builder_connect_succeeded: 19,
+  builder_connect_failed: 19,
+  integration_method_outcome: 20,
+  generation_started: 21,
+  recording_started: 21,
+  generation_completed: 22,
+  recording_ready: 22,
+  design_output_created: 23,
 };
 
 function clean(value: string | null): string {
@@ -221,6 +250,14 @@ function providerSetupOutcome(outcome: string | null): {
   return label
     ? { key: normalized, label }
     : { key: "unknown", label: "unknown" };
+}
+
+function integrationSetupValue(
+  value: string | null,
+  allowed: ReadonlySet<string>,
+): string {
+  const normalized = clean(value);
+  return allowed.has(normalized) ? normalized : "unknown";
 }
 
 export function deriveJourneyStep(
@@ -294,6 +331,43 @@ export function deriveJourneyStep(
         label: `Custom key save (${flow}): ${outcome.label}`,
       };
     }
+    case "integration_setup_exposed": {
+      const flow = integrationSetupValue(row.flow, INTEGRATION_SETUP_FLOWS);
+      const id = integrationSetupValue(
+        row.methodId,
+        INTEGRATION_SETUP_METHOD_IDS,
+      );
+      return {
+        key: `integration:${flow}:exposed:${id}`,
+        label: `Setup shown: ${methodLabel(id)}`,
+      };
+    }
+    case "integration_method_clicked": {
+      const flow = integrationSetupValue(row.flow, INTEGRATION_SETUP_FLOWS);
+      const id = integrationSetupValue(
+        row.methodId,
+        INTEGRATION_SETUP_METHOD_IDS,
+      );
+      return {
+        key: `integration:${flow}:method:${id}`,
+        label: `Setup choice: ${methodLabel(id)}`,
+      };
+    }
+    case "integration_method_outcome": {
+      const flow = integrationSetupValue(row.flow, INTEGRATION_SETUP_FLOWS);
+      const id = integrationSetupValue(
+        row.methodId,
+        INTEGRATION_SETUP_METHOD_IDS,
+      );
+      const outcome = integrationSetupValue(
+        row.outcome,
+        INTEGRATION_SETUP_OUTCOMES,
+      );
+      return {
+        key: `integration:${flow}:outcome:${id}:${outcome}`,
+        label: `${methodLabel(id)}: ${outcome}`,
+      };
+    }
     case "signup":
       return { key: "signup", label: "Signed up" };
     case "auth.signup_viewed":
@@ -348,6 +422,10 @@ export function buildSessionSteps(
   const ordered = [...rows].sort((a, b) => {
     const aRank = eventRank(a);
     const bRank = eventRank(b);
+    const aEventOrderKey =
+      BUILDER_CONNECTION_EVENT_ALIASES[a.eventName] ?? a.eventName;
+    const bEventOrderKey =
+      BUILDER_CONNECTION_EVENT_ALIASES[b.eventName] ?? b.eventName;
     const aIsOnboardingStep = ONBOARDING_STEP_EVENT_NAMES.has(a.eventName);
     const bIsOnboardingStep = ONBOARDING_STEP_EVENT_NAMES.has(b.eventName);
     const aPositionRank = aIsOnboardingStep
@@ -371,6 +449,11 @@ export function buildSessionSteps(
       (aFlow < bFlow ? -1 : aFlow > bFlow ? 1 : 0) ||
       aStepIndex - bStepIndex ||
       aRank - bRank ||
+      (aEventOrderKey < bEventOrderKey
+        ? -1
+        : aEventOrderKey > bEventOrderKey
+          ? 1
+          : 0) ||
       (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
     );
   });

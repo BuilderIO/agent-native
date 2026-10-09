@@ -194,6 +194,49 @@ describe("onboarding journey events SQL", () => {
     ]);
   });
 
+  it("returns standalone chat setup sessions outside onboarding denominators", async () => {
+    await setup();
+    await insert("home-chat", "pageview", 1, { path: "/home" });
+    await insert("home-chat", "app_entered", 2);
+    await insert("home-chat", "integration_setup_exposed", 3, {
+      properties: { flow: "chat_setup", method_id: "setup_card" },
+    });
+    await insert("home-chat", "integration_method_clicked", 4, {
+      properties: { flow: "chat_setup", method_id: "custom_keys" },
+    });
+    await insert("home-chat", "integration_method_outcome", 5, {
+      properties: {
+        flow: "chat_setup",
+        method_id: "custom_keys",
+        outcome: "credential_saved",
+      },
+    });
+    await insert("cohort-chat", "signup", 1);
+    await insert("cohort-chat", "integration_setup_exposed", 2, {
+      properties: { flow: "chat_setup", method_id: "setup_card" },
+    });
+
+    const rows = await run();
+    const standalone = rows.filter((row) => row.session_id === "home-chat");
+    const cohort = rows.filter((row) => row.session_id === "cohort-chat");
+
+    expect(standalone.map((row) => row.event_name)).toEqual([
+      "pageview",
+      "app_entered",
+      "integration_setup_exposed",
+      "integration_method_clicked",
+      "integration_method_outcome",
+    ]);
+    expect(standalone.map((row) => row.journey_kind)).toEqual(
+      Array(standalone.length).fill("standalone_setup"),
+    );
+    expect(cohort.map((row) => row.journey_kind)).toEqual([
+      "onboarding",
+      "onboarding",
+    ]);
+    expect(rows.filter((row) => row.session_id === "returning")).toEqual([]);
+  });
+
   it("returns only step events of onboarding sessions, in window, with their properties", async () => {
     await setup();
     await seedSessions();
@@ -318,6 +361,7 @@ describe("onboarding journey events SQL", () => {
       "event_name",
       "flow",
       "id",
+      "journey_kind",
       "method_id",
       "outcome",
       "path",
@@ -329,6 +373,7 @@ describe("onboarding journey events SQL", () => {
     ]);
     expect(builderRows[2]).not.toHaveProperty("ignored");
     expect(builderRows[2]).not.toHaveProperty("user_id");
+    expect(builderRows[2]?.journey_kind).toBe("onboarding");
   });
 
   it("drops a Builder employee's whole session, including its anonymous events", async () => {

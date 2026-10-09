@@ -18,6 +18,7 @@ function row(
   return {
     id: `e${nextId++}`,
     sessionId: "s1",
+    journeyKind: "onboarding",
     tsMs,
     eventName,
     path: null,
@@ -43,6 +44,7 @@ describe("normalizeJourneyPath", () => {
     expect(normalizeJourneyPath("/design/aB3dE5gH7jK9mN2pQ4")).toBe(
       "/design/:id",
     );
+    expect(normalizeJourneyPath("/r/ifsHSxM8iCbH")).toBe("/r/:id");
   });
 
   it("replaces a segment that holds an email address", () => {
@@ -51,6 +53,47 @@ describe("normalizeJourneyPath", () => {
     );
     expect(normalizeJourneyPath("/invite/alice%40example.com/accept")).toBe(
       "/invite/:email/accept",
+    );
+  });
+
+  it("normalizes short resource ids at resource routes", () => {
+    for (const route of [
+      "r",
+      "deck",
+      "design",
+      "recording",
+      "share",
+      "visual-edit",
+    ]) {
+      expect(normalizeJourneyPath(`/${route}/AbCdEfGhIj`)).toBe(
+        `/${route}/:id`,
+      );
+      expect(normalizeJourneyPath(`/${route}/x_y-Z/present?q=1#slide`)).toBe(
+        `/${route}/:id/present`,
+      );
+    }
+    expect(normalizeJourneyPath("/design-systems/setup")).toBe(
+      "/design-systems/setup",
+    );
+    expect(normalizeJourneyPath("/settings/model")).toBe("/settings/model");
+    expect(normalizeJourneyPath("/templates/landing-page")).toBe(
+      "/templates/landing-page",
+    );
+    expect(normalizeJourneyPath("/design/new-copy")).toBe("/design/:id");
+  });
+
+  it("preserves static share sub-routes while replacing their resource id", () => {
+    expect(normalizeJourneyPath("/share/meeting/m123?token=secret")).toBe(
+      "/share/meeting/:id",
+    );
+  });
+
+  it("preserves the static Visual Edit shell route", () => {
+    expect(normalizeJourneyPath("/visual-edit/shell")).toBe(
+      "/visual-edit/shell",
+    );
+    expect(normalizeJourneyPath("/visual-edit/design_1")).toBe(
+      "/visual-edit/:id",
     );
   });
 
@@ -67,6 +110,84 @@ describe("normalizeJourneyPath", () => {
 });
 
 describe("deriveJourneyStep", () => {
+  it("retains chat setup exposure, choices, and connection outcomes separately from onboarding", () => {
+    const steps = buildSessionSteps([
+      row("onboarding_method_clicked", 1, {
+        methodId: "custom_keys",
+        flow: "first_run",
+      }),
+      row("integration_setup_exposed", 2, {
+        methodId: "setup_card",
+        flow: "chat_setup",
+      }),
+      row("integration_method_clicked", 3, {
+        methodId: "custom_keys",
+        flow: "chat_setup",
+      }),
+      row("integration_method_clicked", 4, {
+        methodId: "builder",
+        flow: "chat_setup",
+      }),
+      row("integration_method_outcome", 5, {
+        methodId: "builder",
+        flow: "chat_setup",
+        outcome: "connected",
+      }),
+    ]);
+    expect(steps.map((step) => step.key)).toEqual([
+      "method:custom_keys",
+      "integration:chat_setup:exposed:setup_card",
+      "integration:chat_setup:method:custom_keys",
+      "integration:chat_setup:method:builder",
+      "integration:chat_setup:outcome:builder:connected",
+    ]);
+    for (const event of [
+      "integration_setup_exposed",
+      "integration_method_clicked",
+      "integration_method_outcome",
+    ]) {
+      expect(JOURNEY_STEP_EVENT_NAMES).toContain(event);
+      expect(JOURNEY_COHORT_EVENT_NAMES).not.toContain(event);
+    }
+  });
+
+  it("keeps unexpected chat setup properties out of journey labels and keys", () => {
+    expect(
+      deriveJourneyStep(
+        row("integration_method_outcome", 1, {
+          flow: "private-user-value",
+          methodId: "private-provider-name",
+          outcome: "customer-error-message",
+        }),
+      ),
+    ).toEqual({
+      key: "integration:unknown:outcome:unknown:unknown",
+      label: "unknown: unknown",
+    });
+  });
+
+  it("retains the actual custom-key outcome contract", () => {
+    for (const outcome of [
+      "credential_entry_started",
+      "credential_validated",
+      "credential_saved",
+      "credential_skipped",
+      "credential_abandoned",
+      "local_endpoint_saved",
+      "local_endpoint_skipped",
+      "local_endpoint_abandoned",
+    ]) {
+      expect(
+        deriveJourneyStep(
+          row("onboarding_method_outcome", 1, {
+            methodId: "custom_keys",
+            outcome,
+          }),
+        ),
+      ).toMatchObject({ key: `outcome:custom_keys:${outcome}` });
+    }
+  });
+
   it("maps each onboarding event to a stable key and label", () => {
     const cases: Array<[JourneyEventRow, string, string]> = [
       [row("pageview", 1, { path: "/home" }), "page:/home", "/home"],
@@ -315,6 +436,22 @@ describe("buildSessionSteps", () => {
       "builder:connect:clicked",
       "builder:connect:started",
       "outcome:builder_create_account:connected",
+    ]);
+  });
+
+  it("groups same-time Builder aliases before collapsing them", () => {
+    const steps = buildSessionSteps([
+      row("builder connect clicked", 100, { id: "a-legacy" }),
+      row("integration_key_entry_started", 100, {
+        id: "b-key-entry",
+        flow: "settings",
+      }),
+      row("builder_connect_clicked", 100, { id: "c-canonical" }),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "builder:connect:clicked",
+      "custom_key:settings:entry_started",
     ]);
   });
 
