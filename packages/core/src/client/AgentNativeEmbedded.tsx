@@ -179,12 +179,9 @@ export function useAgentNativeEmbeddedBrowserSession({
       const onError = onBrowserSessionErrorRef.current;
       if (onError) {
         onError(error, source);
-      } else {
-        console.error(
-          `[Agent-Native browser session] ${source} failed:`,
-          error,
-        );
+        return;
       }
+      console.error(`[Agent-Native browser session] ${source} failed:`, error);
     },
     [],
   );

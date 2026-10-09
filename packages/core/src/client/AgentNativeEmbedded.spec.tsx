@@ -54,6 +54,7 @@ describe("useAgentNativeEmbeddedBrowserSession", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.restoreAllMocks();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -120,9 +121,11 @@ describe("useAgentNativeEmbeddedBrowserSession", () => {
     expect(deleteRequests).toBe(0);
   });
 
-  it("logs failures when no embedded error callback is configured", async () => {
+  it("logs browser session errors when no error callback is configured", async () => {
     let failRequests = false;
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     const fetchMock = vi.fn(
       async (
         input: RequestInfo | URL,
@@ -148,28 +151,30 @@ describe("useAgentNativeEmbeddedBrowserSession", () => {
         });
       },
     );
+    const onReady = vi.fn();
 
     await act(async () => {
       root.render(
         <Harness
           fetch={fetchMock as unknown as typeof fetch}
-          onReady={vi.fn()}
+          onReady={onReady}
         />,
       );
       await vi.advanceTimersByTimeAsync(0);
     });
+    expect(onReady).toHaveBeenCalledTimes(1);
     failRequests = true;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20);
     });
 
-    expect(errorSpy).toHaveBeenCalledWith(
+    expect(consoleError).toHaveBeenCalledWith(
       "[Agent-Native browser session] heartbeat failed:",
       expect.objectContaining({
         message: "Browser-session request failed (503)",
       }),
     );
-    expect(errorSpy).toHaveBeenCalledWith(
+    expect(consoleError).toHaveBeenCalledWith(
       "[Agent-Native browser session] poll failed:",
       expect.objectContaining({
         message: "Browser-session request failed (503)",
