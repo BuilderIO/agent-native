@@ -455,19 +455,10 @@ export default defineAction({
       requestedIds,
     );
     const preflightNow = Date.now();
-    const requestedIdSet = new Set(requestedIds);
     const preflightHasExpiredRows = [
       ...preflightRequestedRows,
       ...preflightStagedRows,
     ].some((row) => expiredStageRow(row.createdAt, preflightNow));
-    const preflightExpiredInput = [
-      ...preflightRequestedRows,
-      ...preflightStagedRows,
-    ].some(
-      (row) =>
-        requestedIdSet.has(row.id) &&
-        expiredStageRow(row.createdAt, preflightNow),
-    );
     const preflightRows = activeStageRows(
       preflightRequestedRows,
       preflightStagedRows,

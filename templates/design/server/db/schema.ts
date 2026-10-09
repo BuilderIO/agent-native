@@ -7,7 +7,6 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
-import { sql } from "drizzle-orm";
 import { boolean, index, primaryKey } from "drizzle-orm/pg-core";
 
 export const designs = table("designs", {
