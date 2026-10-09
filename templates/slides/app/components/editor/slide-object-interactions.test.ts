@@ -55,6 +55,7 @@ import {
   resizeSlideObjectMembers,
   resizeTransformedSlideObject,
   scaleSlideObjectGroupMembers,
+  readEditableSlideObjectRotation,
   readSlideObjectRotation,
   readSlideObjectTransformSnapshot,
   resolveSlideObjectRotationDelta,
@@ -4751,6 +4752,122 @@ describe("the effective transform of a slide object", () => {
       expect(element.style.transform).toBe("");
       expect(element.style.getPropertyValue("rotate")).toBe("x 20deg");
     });
+
+    it("leaves an object a stylesheet !important transform keeps painting as it was, and says so", () => {
+      withStylesheet(".pinned { transform: rotate(50deg) !important; }", () => {
+        const element = mount({ transform: "rotate(10deg)" });
+        element.className = "pinned";
+        document.body.append(element);
+        try {
+          const style = element.getAttribute("style");
+
+          expect(setSlideObjectRotation(element, 90)).toBe(false);
+
+          expect(element.getAttribute("style")).toBe(style);
+          expect(readSlideObjectRotation(element)).toBeCloseTo(50, 6);
+        } finally {
+          element.remove();
+        }
+      });
+    });
+
+    it.each([
+      ["with an inline transform", { transform: "rotate(10deg)" }],
+      ["with none", {}],
+    ])(
+      "leaves an object a stylesheet !important none keeps flat as it was, %s",
+      (_name, inline) => {
+        withStylesheet(".flat { transform: none !important; }", () => {
+          const element = mount(inline);
+          element.className = "flat";
+          document.body.append(element);
+          try {
+            const style = element.getAttribute("style");
+
+            expect(setSlideObjectRotation(element, 90)).toBe(false);
+
+            expect(element.getAttribute("style")).toBe(style);
+            expect(readSlideObjectRotation(element)).toBeCloseTo(0, 6);
+            expect(readEditableSlideObjectRotation(element)).toBeNull();
+          } finally {
+            element.remove();
+          }
+        });
+      },
+    );
+
+    it("says so when the painted rotation is the one asked for, whichever declaration paints it", () => {
+      withStylesheet(".pinned { transform: rotate(50deg) !important; }", () => {
+        const element = mount({ transform: "rotate(10deg)" });
+        element.className = "pinned";
+        document.body.append(element);
+        try {
+          expect(setSlideObjectRotation(element, 50)).toBe(true);
+
+          expect(readSlideObjectRotation(element)).toBeCloseTo(50, 6);
+        } finally {
+          element.remove();
+        }
+      });
+    });
+
+    it("restores the style when an animation the DOM cannot model keeps painting another rotation", () => {
+      const element = mount({ transform: "rotate(10deg)" });
+      const getComputedStyle = window.getComputedStyle;
+      const mock = vi
+        .spyOn(window, "getComputedStyle")
+        .mockImplementation((target, pseudoElement) =>
+          target === element
+            ? ({
+                transform:
+                  "matrix(0.642788, 0.766044, -0.766044, 0.642788, 0, 0)",
+                transformOrigin: "50px 10px",
+                getPropertyValue: () => "",
+              } as unknown as CSSStyleDeclaration)
+            : getComputedStyle.call(window, target, pseudoElement),
+        );
+      try {
+        const style = element.getAttribute("style");
+
+        expect(setSlideObjectRotation(element, 90)).toBe(false);
+
+        expect(element.getAttribute("style")).toBe(style);
+      } finally {
+        mock.mockRestore();
+      }
+    });
+
+    it("keeps the priority of the inline transform it replaces", () => {
+      const element = mount({});
+      element.style.setProperty("transform", "rotate(10deg)", "important");
+
+      expect(setSlideObjectRotation(element, 30)).toBe(true);
+
+      expect(element.style.getPropertyValue("transform")).toBe("rotate(30deg)");
+      expect(element.style.getPropertyPriority("transform")).toBe("important");
+    });
+
+    it("offers a rotation to edit only when an inline transform would paint", () => {
+      withStylesheet(".pinned { transform: rotate(50deg) !important; }", () => {
+        const pinned = mount({ transform: "rotate(10deg)" });
+        pinned.className = "pinned";
+        const free = mount({ transform: "rotate(10deg)" });
+        const collapsed = mount({ transform: "scale(0)" });
+        document.body.append(pinned, free, collapsed);
+        try {
+          const style = pinned.getAttribute("style");
+
+          expect(readEditableSlideObjectRotation(pinned)).toBeNull();
+          expect(readEditableSlideObjectRotation(free)).toBeCloseTo(10, 6);
+          expect(readEditableSlideObjectRotation(collapsed)).toBeNull();
+          expect(pinned.getAttribute("style")).toBe(style);
+        } finally {
+          pinned.remove();
+          free.remove();
+          collapsed.remove();
+        }
+      });
+    });
   });
 
   it("plans no rotation for a member whose rotation could not be read", () => {
@@ -4801,6 +4918,66 @@ describe("the effective transform of a slide object", () => {
       expect(group.isConnected).toBe(true);
     } finally {
       group.remove();
+    }
+  });
+
+  it("ungroups nothing when a member keeps a transform the ungrouping has to write", () => {
+    const sheet = document.createElement("style");
+    sheet.textContent = ".pinned { transform: rotate(10deg) !important; }";
+    document.head.append(sheet);
+    const group = document.createElement("div");
+    group.className = "fmd-slide-group";
+    group.setAttribute("data-slide-group", "true");
+    group.style.position = "absolute";
+    group.style.setProperty("rotate", "30deg");
+    const first = createFreeformObject("first");
+    first.className = "pinned";
+    const second = createFreeformObject("second");
+    group.append(first, second);
+    document.body.append(group);
+    const geometries = new Map<HTMLElement, SlideObjectGeometry>([
+      [group, { x: 100, y: 100, width: 200, height: 100 }],
+      [first, { x: 20, y: 20, width: 40, height: 20 }],
+      [second, { x: 120, y: 50, width: 30, height: 20 }],
+    ]);
+    const applied: HTMLElement[] = [];
+
+    try {
+      expect(
+        ungroupSlideObject(
+          group,
+          (element) => geometries.get(element)!,
+          (element) => applied.push(element),
+        ),
+      ).toBeNull();
+      expect(applied).toEqual([]);
+      expect(group.isConnected).toBe(true);
+      expect(first.parentElement).toBe(group);
+    } finally {
+      group.remove();
+      sheet.remove();
+    }
+  });
+
+  it("reads the origin a stylesheet !important declaration paints over an inline one", () => {
+    const sheet = document.createElement("style");
+    sheet.textContent = ".pinned { transform-origin: 100% 100% !important; }";
+    document.head.append(sheet);
+    const element = mount({
+      position: "absolute",
+      transform: "rotate(20deg)",
+      "transform-origin": "0 0",
+    });
+    element.className = "pinned";
+    document.body.append(element);
+
+    try {
+      expect(readSlideObjectTransformSnapshot(element).transformOrigin).toBe(
+        "100% 100%",
+      );
+    } finally {
+      element.remove();
+      sheet.remove();
     }
   });
 
@@ -5776,6 +5953,35 @@ describe("wrapping an image in its crop frame", () => {
     } finally {
       parent.remove();
     }
+  });
+
+  it("moves the transform a stylesheet !important rule paints, not the inline one it beats", () => {
+    withRule(".pinned { transform: rotate(50deg) !important; }", () => {
+      const { parent, image } = mountImage("pinned", "transform:rotate(20deg)");
+      try {
+        const { frame } = wrapImageInCropFrame(image)!;
+
+        expect(frame.style.transform).toBe("rotate(50deg)");
+        expect(image.style.getPropertyValue("transform")).toBe("none");
+        expect(image.style.getPropertyPriority("transform")).toBe("important");
+      } finally {
+        parent.remove();
+      }
+    });
+  });
+
+  it("moves no transform to the frame when an !important none switches the inline one off", () => {
+    withRule(".pinned { transform: none !important; }", () => {
+      const { parent, image } = mountImage("pinned", "transform:rotate(20deg)");
+      try {
+        const { frame } = wrapImageInCropFrame(image)!;
+
+        expect(frame.style.transform).toBe("");
+        expect(frame.style.transformOrigin).toBe("");
+      } finally {
+        parent.remove();
+      }
+    });
   });
 
   it("does not write a default transform origin for an image with no transform", () => {

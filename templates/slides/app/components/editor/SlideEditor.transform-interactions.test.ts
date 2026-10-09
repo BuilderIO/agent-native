@@ -24,8 +24,11 @@ describe("SlideEditor transformed-object interactions", () => {
     expect(resizeSource).toContain("gesture.canvasDelta.x");
     expect(resizeSource).toContain("gesture.canvasDelta.y");
     expect(resizeSource).toContain("readSlideObjectTransformSnapshot(child)");
+    expect(resizeSource).toContain("member.element.style.setProperty(");
+    expect(resizeSource).toContain('"transform"');
+    expect(resizeSource).toContain("plan.transform");
     expect(resizeSource).toContain(
-      "member.element.style.transform = plan.transform",
+      'member.element.style.getPropertyPriority("transform")',
     );
     expect(resizeSource).toContain(
       "member.element.style.transformOrigin = plan.transformOrigin",
@@ -44,7 +47,12 @@ describe("SlideEditor transformed-object interactions", () => {
       "readSlideObjectTransformSnapshot(member.element)",
     );
     expect(rotateSource).toContain(
-      "member.element.style.transform = next.transform",
+      "restoreSlideObjectTransformSnapshots(transforms)",
+    );
+    expect(rotateSource).toContain('"transform"');
+    expect(rotateSource).toContain("next.transform");
+    expect(rotateSource).toContain(
+      'member.element.style.getPropertyPriority("transform")',
     );
     expect(rotateSource).toContain(
       "freezeElementForFreeformSelection(element)",
