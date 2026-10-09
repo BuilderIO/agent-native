@@ -9913,10 +9913,6 @@ export const editorChromeBridgeScript: string = `"use strict";
     var observedResizeEls = [];
     var observedMutationRoot = null;
     var observedMutationTarget = null;
-    var observedMutationMeasurementTarget = null;
-    var observedMutationMeasurementParent = null;
-    var observedMutationLayoutRoot = null;
-    var observedMutationLayoutAncestors = [];
     var observedMutationPaintServers = [];
     var observedMutationPaintParents = [];
     function ensureOverlayObservers() {
@@ -9946,25 +9942,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return true;
     }
-    function measurementLayoutRoot(selected, target) {
-      if (!selected || !target) return null;
-      var ancestor = target;
-      while (ancestor) {
-        if (ancestor.contains(selected)) return ancestor;
-        ancestor = ancestor.parentElement;
-      }
-      return null;
-    }
-    function measurementLayoutAncestors(root) {
-      var ancestors = [];
-      var ancestor = root ? root.parentElement : null;
-      while (ancestor) {
-        ancestors.push(ancestor);
-        if (ancestor === document.documentElement) break;
-        ancestor = ancestor.parentElement;
-      }
-      return ancestors;
-    }
     function syncOverlayObservers() {
       ensureOverlayObservers();
       if (overlayResizeObserver) {
@@ -9988,13 +9965,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           observedResizeEls = nextTargets;
         }
       }
-      var nextMeasurementTarget = measurementModifierActive && measurementTargetEl && document.documentElement.contains(measurementTargetEl) ? measurementTargetEl : null;
-      var nextMeasurementParent = nextMeasurementTarget ? nextMeasurementTarget.parentElement : null;
-      var nextLayoutRoot = measurementLayoutRoot(
-        selectedEl && document.documentElement.contains(selectedEl) ? selectedEl : null,
-        nextMeasurementTarget
-      );
-      var nextLayoutAncestors = measurementLayoutAncestors(nextLayoutRoot);
       if (overlayMutationObserver) {
         var nextRoot = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl.parentElement || selectedEl : null;
         var nextTarget = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl : null;
@@ -10012,9 +9982,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var paintParentsChanged = nextPaintParents.length !== observedMutationPaintParents.length || nextPaintParents.some(function(parent, index) {
           return observedMutationPaintParents[index] !== parent;
         });
-        if (nextRoot !== observedMutationRoot || nextTarget !== observedMutationTarget || nextMeasurementTarget !== observedMutationMeasurementTarget || nextMeasurementParent !== observedMutationMeasurementParent || nextLayoutRoot !== observedMutationLayoutRoot || nextLayoutAncestors.length !== observedMutationLayoutAncestors.length || nextLayoutAncestors.some(function(ancestor, index) {
-          return observedMutationLayoutAncestors[index] !== ancestor;
-        }) || paintServersChanged || paintParentsChanged) {
+        if (nextRoot !== observedMutationRoot || nextTarget !== observedMutationTarget || paintServersChanged || paintParentsChanged) {
           let observeMutationTarget2 = function(element, options) {
             var existing = mutationObservations.find(function(observation) {
               return observation.element === element;
@@ -10056,21 +10024,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (nextRoot) {
             observeMutationTarget2(nextRoot, {
               attributes: true,
-              childList: true,
-              subtree: nextMeasurementParent === nextRoot
+              childList: true
             });
             if (nextRoot !== selectedEl && selectedEl) {
               observeMutationTarget2(selectedEl, {
                 attributes: true,
                 childList: true,
-                subtree: selectedEl.tagName.toLowerCase() === "svg" || nextMeasurementParent === selectedEl
+                subtree: selectedEl.tagName.toLowerCase() === "svg"
               });
             }
-          }
-          if (nextMeasurementTarget && nextMeasurementTarget !== nextRoot && nextMeasurementTarget !== nextTarget) {
-            observeMutationTarget2(nextMeasurementTarget, {
-              attributes: true
-            });
           }
           nextPaintServers.forEach(function(server) {
             if (server !== nextRoot && server !== nextTarget) {
@@ -10088,28 +10050,6 @@ export const editorChromeBridgeScript: string = `"use strict";
               subtree: false
             });
           });
-          if (nextMeasurementParent && nextMeasurementParent !== nextRoot && nextMeasurementParent !== nextTarget && nextMeasurementParent !== nextMeasurementTarget) {
-            observeMutationTarget2(nextMeasurementParent, {
-              attributes: true,
-              childList: true,
-              subtree: true
-            });
-          }
-          nextLayoutAncestors.forEach(function(ancestor) {
-            observeMutationTarget2(ancestor, {
-              attributes: true,
-              attributeFilter: ["class", "style"],
-              childList: true
-            });
-          });
-          if (nextLayoutRoot) {
-            observeMutationTarget2(nextLayoutRoot, {
-              attributes: true,
-              attributeFilter: ["class", "style"],
-              childList: true,
-              subtree: true
-            });
-          }
           mutationObservations.forEach(function(observation) {
             overlayMutationObserver.observe(
               observation.element,
@@ -10118,10 +10058,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           });
           observedMutationRoot = nextRoot;
           observedMutationTarget = nextTarget;
-          observedMutationMeasurementTarget = nextMeasurementTarget;
-          observedMutationMeasurementParent = nextMeasurementParent;
-          observedMutationLayoutRoot = nextLayoutRoot;
-          observedMutationLayoutAncestors = nextLayoutAncestors;
           observedMutationPaintServers = nextPaintServers;
           observedMutationPaintParents = nextPaintParents;
         }
@@ -10174,17 +10110,84 @@ export const editorChromeBridgeScript: string = `"use strict";
       onOverlayAnimationTrackingEvent,
       true
     );
+    var measurementPositionFrame = null;
+    var measurementPositionSnapshot = null;
+    function currentMeasurementGeometry() {
+      if (!measurementModifierActive || !selectedEl || !measurementTargetEl || selectedEl === measurementTargetEl || !document.documentElement.contains(selectedEl) || !document.documentElement.contains(measurementTargetEl)) {
+        return null;
+      }
+      var selectedRect = selectedEl.getBoundingClientRect();
+      var targetRect = measurementTargetEl.getBoundingClientRect();
+      return {
+        selectedRect,
+        targetRect,
+        snapshot: [
+          selectedRect.left,
+          selectedRect.top,
+          selectedRect.right,
+          selectedRect.bottom,
+          targetRect.left,
+          targetRect.top,
+          targetRect.right,
+          targetRect.bottom
+        ]
+      };
+    }
+    function sameMeasurementGeometry(a, b) {
+      return Boolean(
+        a && a.length === b.length && a.every(function(value, index) {
+          return value === b[index];
+        })
+      );
+    }
+    function refreshMeasurementPositions() {
+      measurementPositionFrame = null;
+      var geometry = currentMeasurementGeometry();
+      if (!geometry) {
+        hideMeasurements();
+        return;
+      }
+      if (!sameMeasurementGeometry(measurementPositionSnapshot, geometry.snapshot)) {
+        measurementPositionSnapshot = geometry.snapshot;
+        showMeasurements(
+          selectedEl,
+          measurementTargetEl,
+          geometry.selectedRect,
+          geometry.targetRect
+        );
+      }
+      measurementPositionFrame = window.requestAnimationFrame(
+        refreshMeasurementPositions
+      );
+    }
     function hideMeasurements() {
       measurementTargetEl = null;
+      measurementPositionSnapshot = null;
+      if (measurementPositionFrame !== null) {
+        window.cancelAnimationFrame(measurementPositionFrame);
+        measurementPositionFrame = null;
+      }
       measurementOverlay.style.display = "none";
       measurementOverlay.innerHTML = "";
     }
     function refreshMeasurements() {
-      if (!measurementModifierActive || !selectedEl || !measurementTargetEl || selectedEl === measurementTargetEl || !document.documentElement.contains(selectedEl) || !document.documentElement.contains(measurementTargetEl)) {
+      var geometry = currentMeasurementGeometry();
+      if (!geometry) {
         hideMeasurements();
         return;
       }
-      showMeasurements(selectedEl, measurementTargetEl);
+      measurementPositionSnapshot = geometry.snapshot;
+      showMeasurements(
+        selectedEl,
+        measurementTargetEl,
+        geometry.selectedRect,
+        geometry.targetRect
+      );
+      if (measurementPositionFrame === null) {
+        measurementPositionFrame = window.requestAnimationFrame(
+          refreshMeasurementPositions
+        );
+      }
     }
     function addMeasurementLine(x1, y1, x2, y2, label, dashed) {
       var horizontal = y1 === y2;
@@ -10264,7 +10267,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return segments;
     }
-    function showMeasurements(a, b) {
+    function showMeasurements(a, b, selectedRect, targetRect) {
       if (!a || !b || a === b) {
         hideMeasurements();
         return;
@@ -10275,8 +10278,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       measurementOverlay.innerHTML = "";
       measurementOverlay.style.display = "block";
       measurementSegments(
-        a.getBoundingClientRect(),
-        b.getBoundingClientRect()
+        selectedRect || a.getBoundingClientRect(),
+        targetRect || b.getBoundingClientRect()
       ).forEach(function(segment) {
         addMeasurementLine(
           segment.x1,

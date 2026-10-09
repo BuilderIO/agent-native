@@ -12394,10 +12394,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var observedResizeEls: Element[] = [];
   var observedMutationRoot: Element | null = null;
   var observedMutationTarget: Element | null = null;
-  var observedMutationMeasurementTarget: Element | null = null;
-  var observedMutationMeasurementParent: Element | null = null;
-  var observedMutationLayoutRoot: Element | null = null;
-  var observedMutationLayoutAncestors: Element[] = [];
   var observedMutationPaintServers: Element[] = [];
   var observedMutationPaintParents: Element[] = [];
 
@@ -12433,30 +12429,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
-  function measurementLayoutRoot(
-    selected: Element | null,
-    target: Element | null,
-  ): Element | null {
-    if (!selected || !target) return null;
-    var ancestor: Element | null = target;
-    while (ancestor) {
-      if (ancestor.contains(selected)) return ancestor;
-      ancestor = ancestor.parentElement;
-    }
-    return null;
-  }
-
-  function measurementLayoutAncestors(root: Element | null): Element[] {
-    var ancestors: Element[] = [];
-    var ancestor = root ? root.parentElement : null;
-    while (ancestor) {
-      ancestors.push(ancestor);
-      if (ancestor === document.documentElement) break;
-      ancestor = ancestor.parentElement;
-    }
-    return ancestors;
-  }
-
   function syncOverlayObservers(): void {
     ensureOverlayObservers();
     if (overlayResizeObserver) {
@@ -12486,22 +12458,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         observedResizeEls = nextTargets;
       }
     }
-    var nextMeasurementTarget =
-      measurementModifierActive &&
-      measurementTargetEl &&
-      document.documentElement.contains(measurementTargetEl)
-        ? measurementTargetEl
-        : null;
-    var nextMeasurementParent = nextMeasurementTarget
-      ? nextMeasurementTarget.parentElement
-      : null;
-    var nextLayoutRoot = measurementLayoutRoot(
-      selectedEl && document.documentElement.contains(selectedEl)
-        ? selectedEl
-        : null,
-      nextMeasurementTarget,
-    );
-    var nextLayoutAncestors = measurementLayoutAncestors(nextLayoutRoot);
     if (overlayMutationObserver) {
       var nextRoot: Element | null =
         selectedEl && document.documentElement.contains(selectedEl)
@@ -12539,13 +12495,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (
         nextRoot !== observedMutationRoot ||
         nextTarget !== observedMutationTarget ||
-        nextMeasurementTarget !== observedMutationMeasurementTarget ||
-        nextMeasurementParent !== observedMutationMeasurementParent ||
-        nextLayoutRoot !== observedMutationLayoutRoot ||
-        nextLayoutAncestors.length !== observedMutationLayoutAncestors.length ||
-        nextLayoutAncestors.some(function (ancestor, index) {
-          return observedMutationLayoutAncestors[index] !== ancestor;
-        }) ||
         paintServersChanged ||
         paintParentsChanged
       ) {
@@ -12605,26 +12554,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           observeMutationTarget(nextRoot, {
             attributes: true,
             childList: true,
-            subtree: nextMeasurementParent === nextRoot,
           });
           if (nextRoot !== selectedEl && selectedEl) {
             observeMutationTarget(selectedEl, {
               attributes: true,
               childList: true,
-              subtree:
-                selectedEl.tagName.toLowerCase() === "svg" ||
-                nextMeasurementParent === selectedEl,
+              subtree: selectedEl.tagName.toLowerCase() === "svg",
             });
           }
-        }
-        if (
-          nextMeasurementTarget &&
-          nextMeasurementTarget !== nextRoot &&
-          nextMeasurementTarget !== nextTarget
-        ) {
-          observeMutationTarget(nextMeasurementTarget, {
-            attributes: true,
-          });
         }
         nextPaintServers.forEach(function (server) {
           if (server !== nextRoot && server !== nextTarget) {
@@ -12642,33 +12579,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             subtree: false,
           });
         });
-        if (
-          nextMeasurementParent &&
-          nextMeasurementParent !== nextRoot &&
-          nextMeasurementParent !== nextTarget &&
-          nextMeasurementParent !== nextMeasurementTarget
-        ) {
-          observeMutationTarget(nextMeasurementParent, {
-            attributes: true,
-            childList: true,
-            subtree: true,
-          });
-        }
-        nextLayoutAncestors.forEach(function (ancestor) {
-          observeMutationTarget(ancestor, {
-            attributes: true,
-            attributeFilter: ["class", "style"],
-            childList: true,
-          });
-        });
-        if (nextLayoutRoot) {
-          observeMutationTarget(nextLayoutRoot, {
-            attributes: true,
-            attributeFilter: ["class", "style"],
-            childList: true,
-            subtree: true,
-          });
-        }
         mutationObservations.forEach(function (observation) {
           overlayMutationObserver!.observe(
             observation.element,
@@ -12677,10 +12587,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         });
         observedMutationRoot = nextRoot;
         observedMutationTarget = nextTarget;
-        observedMutationMeasurementTarget = nextMeasurementTarget;
-        observedMutationMeasurementParent = nextMeasurementParent;
-        observedMutationLayoutRoot = nextLayoutRoot;
-        observedMutationLayoutAncestors = nextLayoutAncestors;
         observedMutationPaintServers = nextPaintServers;
         observedMutationPaintParents = nextPaintParents;
       }
@@ -12746,13 +12652,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     true,
   );
 
-  function hideMeasurements(): void {
-    measurementTargetEl = null;
-    measurementOverlay.style.display = "none";
-    measurementOverlay.innerHTML = "";
-  }
+  var measurementPositionFrame: number | null = null;
+  var measurementPositionSnapshot: number[] | null = null;
 
-  function refreshMeasurements(): void {
+  function currentMeasurementGeometry() {
     if (
       !measurementModifierActive ||
       !selectedEl ||
@@ -12761,10 +12664,88 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       !document.documentElement.contains(selectedEl) ||
       !document.documentElement.contains(measurementTargetEl)
     ) {
+      return null;
+    }
+    var selectedRect = selectedEl.getBoundingClientRect();
+    var targetRect = measurementTargetEl.getBoundingClientRect();
+    return {
+      selectedRect: selectedRect,
+      targetRect: targetRect,
+      snapshot: [
+        selectedRect.left,
+        selectedRect.top,
+        selectedRect.right,
+        selectedRect.bottom,
+        targetRect.left,
+        targetRect.top,
+        targetRect.right,
+        targetRect.bottom,
+      ],
+    };
+  }
+
+  function sameMeasurementGeometry(a: number[] | null, b: number[]): boolean {
+    return Boolean(
+      a &&
+      a.length === b.length &&
+      a.every(function (value, index) {
+        return value === b[index];
+      }),
+    );
+  }
+
+  function refreshMeasurementPositions(): void {
+    measurementPositionFrame = null;
+    var geometry = currentMeasurementGeometry();
+    if (!geometry) {
       hideMeasurements();
       return;
     }
-    showMeasurements(selectedEl, measurementTargetEl);
+    if (
+      !sameMeasurementGeometry(measurementPositionSnapshot, geometry.snapshot)
+    ) {
+      measurementPositionSnapshot = geometry.snapshot;
+      showMeasurements(
+        selectedEl,
+        measurementTargetEl,
+        geometry.selectedRect,
+        geometry.targetRect,
+      );
+    }
+    measurementPositionFrame = window.requestAnimationFrame(
+      refreshMeasurementPositions,
+    );
+  }
+
+  function hideMeasurements(): void {
+    measurementTargetEl = null;
+    measurementPositionSnapshot = null;
+    if (measurementPositionFrame !== null) {
+      window.cancelAnimationFrame(measurementPositionFrame);
+      measurementPositionFrame = null;
+    }
+    measurementOverlay.style.display = "none";
+    measurementOverlay.innerHTML = "";
+  }
+
+  function refreshMeasurements(): void {
+    var geometry = currentMeasurementGeometry();
+    if (!geometry) {
+      hideMeasurements();
+      return;
+    }
+    measurementPositionSnapshot = geometry.snapshot;
+    showMeasurements(
+      selectedEl,
+      measurementTargetEl,
+      geometry.selectedRect,
+      geometry.targetRect,
+    );
+    if (measurementPositionFrame === null) {
+      measurementPositionFrame = window.requestAnimationFrame(
+        refreshMeasurementPositions,
+      );
+    }
   }
 
   function addMeasurementLine(x1, y1, x2, y2, label, dashed) {
@@ -12894,7 +12875,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return segments;
   }
 
-  function showMeasurements(a, b) {
+  function showMeasurements(a, b, selectedRect?, targetRect?) {
     if (!a || !b || a === b) {
       hideMeasurements();
       return;
@@ -12905,8 +12886,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     measurementOverlay.innerHTML = "";
     measurementOverlay.style.display = "block";
     measurementSegments(
-      a.getBoundingClientRect(),
-      b.getBoundingClientRect(),
+      selectedRect || a.getBoundingClientRect(),
+      targetRect || b.getBoundingClientRect(),
     ).forEach(function (segment) {
       addMeasurementLine(
         segment.x1,
