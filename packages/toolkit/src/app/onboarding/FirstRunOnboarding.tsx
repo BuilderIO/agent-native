@@ -1,3 +1,4 @@
+import { appMountedPath } from "@agent-native/core/client/api-path";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags/use-feature-flag";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -21,6 +22,7 @@ import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registr
 import {
   buildSettingsRoute,
   SETTINGS_PAGE_IDS,
+  STANDARD_APP_ROUTES,
 } from "@agent-native/core/navigation";
 import type {
   OnboardingAppProfile,
@@ -37,7 +39,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useNavigate } from "react-router";
+import { useHref, useLocation, useNavigate } from "react-router";
 
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import {
@@ -165,6 +167,8 @@ export function FirstRunOnboarding({
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
+  const { pathname } = useLocation();
+  const routerRootHref = useHref("/");
   const navigate = useNavigate();
   const previewMode = useOnboardingPreviewMode();
   const previewStep = useOnboardingPreviewStep();
@@ -623,7 +627,11 @@ export function FirstRunOnboarding({
     search.delete(ONBOARDING_PREVIEW_QUERY_PARAM);
     search.delete(ONBOARDING_PREVIEW_STEP_QUERY_PARAM);
     const query = search.toString();
-    const path = manualSetupSettingsRoute({ redesign: redesign.enabled });
+    const localPath = manualSetupSettingsRoute({ redesign: redesign.enabled });
+    const path =
+      routerRootHref === "/"
+        ? appMountedPath(localPath, pathname || STANDARD_APP_ROUTES.home)
+        : localPath;
     await navigate(`${path}${query ? `?${query}` : ""}`);
     trackFirstRunSetupOutcome(attempt, "settings_opened");
   };

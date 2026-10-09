@@ -55,6 +55,7 @@ vi.mock("react-router", async (importOriginal) => {
       mocks.useActualRouter
         ? actual.useLocation()
         : { pathname: mocks.routePathname },
+    useHref: () => (mocks.useActualRouter ? actual.useHref("/") : "/"),
     useNavigate: () =>
       mocks.useActualRouter ? actual.useNavigate() : mocks.navigate,
   };
@@ -2130,7 +2131,8 @@ describe("FirstRunOnboarding", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("uses an app-local API key destination when the live mount is missing from the workspace manifest", async () => {
+  it("keeps manual setup inside a live mount missing from the workspace manifest", async () => {
+    mocks.useActualRouter = true;
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
@@ -2138,12 +2140,26 @@ describe("FirstRunOnboarding", () => {
     );
     window.history.replaceState(null, "", "/dispatch/");
 
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          element: (
+            <TooltipProvider>
+              <FirstRunOnboarding />
+            </TooltipProvider>
+          ),
+        },
+        {
+          path: "/dispatch/settings/model",
+          element: <div data-testid="mounted-model-settings-route" />,
+        },
+      ],
+      { initialEntries: ["/"] },
+    );
+
     await act(async () => {
-      root.render(
-        <TooltipProvider>
-          <FirstRunOnboarding />
-        </TooltipProvider>,
-      );
+      root.render(<RouterProvider router={router} />);
     });
     act(() => {
       document.body
@@ -2157,7 +2173,12 @@ describe("FirstRunOnboarding", () => {
       await Promise.resolve();
     });
 
-    expect(mocks.navigate).toHaveBeenCalledWith("/settings/model");
+    expect(
+      document.body.querySelector(
+        '[data-testid="mounted-model-settings-route"]',
+      ),
+    ).not.toBeNull();
+    expect(router.state.location.pathname).toBe("/dispatch/settings/model");
   });
 
   it("sends manual setup to Agent › Model", () => {
