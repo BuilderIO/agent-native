@@ -290,6 +290,7 @@ test.describe.serial("public visual edit", () => {
       {
         data: {
           title: "Iframe load timing",
+          newDesign: true,
           devServerUrl: visualEditTargetUrl,
           bridgeUrl: visualEditBridge!.manifest.bridgeUrl,
           bridgeToken: VISUAL_EDIT_BRIDGE_TOKEN,
@@ -302,9 +303,11 @@ test.describe.serial("public visual edit", () => {
     expect(openedResponse.ok()).toBe(true);
     const opened = (await openedResponse.json()) as {
       designId?: string;
+      createdDesign?: boolean;
       urlPath?: string;
     };
     createdDesignId = opened.designId;
+    expect(opened.createdDesign).toBe(true);
     if (!createdDesignId) throw new Error("open-visual-edit returned no ID");
     if (!opened.urlPath) throw new Error("open-visual-edit returned no URL");
 
