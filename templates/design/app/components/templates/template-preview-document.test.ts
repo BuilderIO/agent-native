@@ -8,6 +8,7 @@ describe("read-only template preview document", () => {
   it("places its restrictive policy before authored executable content", () => {
     const result = templatePreviewDocument(
       "<html><head><script>window.fixture=true</script></head><body><button onclick=\"this.textContent='Changed'\">Try</button></body></html>",
+      { recordSessionReplay: true },
     );
     expect(result.indexOf("Content-Security-Policy")).toBeLessThan(
       result.indexOf("window.fixture"),
@@ -41,8 +42,9 @@ describe("read-only template preview document", () => {
       .split(";")
       .map((part) => part.trim())
       .find((part) => part.startsWith("script-src"));
-    expect(scriptPolicy).toContain(RRWEB_RECORD_IFRAME_CDN_URL);
+    expect(scriptPolicy).not.toContain(RRWEB_RECORD_IFRAME_CDN_URL);
     expect(scriptPolicy).not.toMatch(/https:\/\/cdn\.jsdelivr\.net(?:\s|$)/);
+    expect(result).not.toContain("agent-native-session-replay:probe");
     expect(
       policy
         .split(";")

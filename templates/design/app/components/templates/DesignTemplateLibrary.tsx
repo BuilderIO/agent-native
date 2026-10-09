@@ -178,7 +178,6 @@ export function DesignTemplateLibrary({
               title={template.title}
               width={template.width}
               height={template.height}
-              recordSessionReplay
               className="h-full w-full"
             />
           </div>
@@ -360,7 +359,6 @@ function DesignTemplatePreviewDialog({
                   title={file.filename}
                   width={file.width}
                   height={file.height}
-                  recordSessionReplay
                 />
               ),
             }))

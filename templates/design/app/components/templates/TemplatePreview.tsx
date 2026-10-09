@@ -60,8 +60,9 @@ export function TemplatePreview({
   const naturalWidth = Math.max(width ?? 1280, 320);
   const naturalHeight = Math.max(height ?? 720, 240);
   const document = useMemo(
-    () => (html ? templatePreviewDocument(html) : undefined),
-    [html],
+    () =>
+      html ? templatePreviewDocument(html, { recordSessionReplay }) : undefined,
+    [html, recordSessionReplay],
   );
 
   useEffect(() => {
@@ -115,6 +116,27 @@ export function TemplatePreview({
           entry.intersectionRect.width > 0 &&
           entry.intersectionRect.height > 0;
         if (!hasVisibleArea) return;
+        const frameStyle = window.getComputedStyle(frame);
+        if (
+          frameStyle.visibility === "hidden" ||
+          frameStyle.visibility === "collapse"
+        ) {
+          return;
+        }
+        for (
+          let current: Element | null = frame;
+          current;
+          current = current.parentElement
+        ) {
+          const styles = window.getComputedStyle(current);
+          if (
+            styles.display === "none" ||
+            styles.contentVisibility === "hidden" ||
+            (styles.opacity !== "" && Number(styles.opacity) === 0)
+          ) {
+            return;
+          }
+        }
         setSessionReplayVisibility({
           enabled: recordSessionReplay,
           html,

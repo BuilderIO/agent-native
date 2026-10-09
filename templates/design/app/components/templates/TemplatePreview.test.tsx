@@ -84,6 +84,7 @@ describe("template artboard preview", () => {
       expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(
         false,
       );
+      expect(frame.srcdoc).not.toContain("agent-native-session-replay:probe");
       expect(frame.style.getPropertyValue("--design-template-width")).toBe(
         `${width}px`,
       );
@@ -179,6 +180,37 @@ describe("template artboard preview", () => {
       ),
     );
     expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
+    frame.style.visibility = "hidden";
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 1,
+            intersectionRect: { width: 320, height: 180 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
+    frame.style.removeProperty("visibility");
+    const previewContainer = container.firstElementChild as HTMLElement;
+    previewContainer.style.opacity = "0";
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 1,
+            intersectionRect: { width: 320, height: 180 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
+    previewContainer.style.removeProperty("opacity");
     act(() =>
       intersectionObservers[0]!.callback(
         [
