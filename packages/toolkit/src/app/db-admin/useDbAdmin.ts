@@ -33,7 +33,7 @@ function requestBasePath(config?: DbAdminRequestConfig): string {
 }
 
 function requestScopeKey(config?: DbAdminRequestConfig): string {
-  return config?.scopeKey ?? requestBasePath(config);
+  return config?.scopeKey ?? config?.basePath?.replace(/\/+$/, "") ?? "default";
 }
 
 function getRequestSource(): string | undefined {
