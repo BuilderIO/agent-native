@@ -2340,6 +2340,122 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
+  it("builds an admitted queue promotion from its persisted payload", async () => {
+    const assertAiSetupReady = vi.fn(async () => {});
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-setup-gate",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-1",
+              text: "A queued prompt",
+              attachments: [
+                {
+                  type: "file",
+                  name: "notes.txt",
+                  fileId: "file-1",
+                  mediaType: "text/plain",
+                  url: "https://files.example/notes.txt",
+                },
+              ],
+              metadata: { queuedContext: "persisted" },
+              options: {
+                model: "queued-model",
+                reasoningEffort: "high",
+                mode: "plan",
+                metadata: { queuedOption: "persisted" },
+              },
+              promotionClaim: {
+                id: "claim-1",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+        }),
+      } as never);
+    const captured = Object.assign(
+      new Error("stop after request preparation"),
+      {
+        request: undefined as unknown,
+      },
+    );
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+      prepareRequest: vi.fn(async (request) => {
+        captured.request = request;
+        throw captured;
+      }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A queued prompt",
+          displayMessage: "Forged display text",
+          attachments: [{ name: "forged.txt", data: "forged attachment" }],
+          references: [
+            { type: "skill", name: "Injected skill", path: "skill.md" },
+          ],
+          history: [{ role: "user", content: "Injected history" }],
+          structuredHistory: [{ role: "user", content: "Injected history" }],
+          metadata: { queuedContext: "forged", injected: true },
+          model: "forged-model",
+          engine: "forged-engine",
+          effort: "low",
+          mode: "act",
+          harness: { runtime: "codex" },
+          skipPendingSelectionContext: true,
+          threadId: "thread-setup-gate",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "claim-1",
+          turnId: "forged-turn-id",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(captured);
+
+      expect(assertAiSetupReady).not.toHaveBeenCalled();
+      expect(captured.request).toMatchObject({
+        message: "A queued prompt",
+        displayMessage: "A queued prompt",
+        attachments: [
+          {
+            type: "file",
+            name: "notes.txt",
+            id: "file-1",
+            mediaType: "text/plain",
+            contentType: "text/plain",
+            url: "https://files.example/notes.txt",
+          },
+        ],
+        references: [],
+        mode: "plan",
+      });
+      expect(
+        JSON.stringify(
+          (captured.request as { requestContext?: unknown }).requestContext,
+        ),
+      ).not.toContain("Injected history");
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+    }
+  });
+
   it.each([
     {
       name: "a mismatched claim ID",

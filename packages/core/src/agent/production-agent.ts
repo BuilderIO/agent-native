@@ -8560,19 +8560,40 @@ async function readTurnStartedAt(
   return Number.isFinite(startedAt) && startedAt > 0 ? startedAt : null;
 }
 
-async function isAdmittedQueuedMessagePromotion(opts: {
+interface AdmittedQueuedMessagePromotion {
+  id: string;
+  text: string;
+  attachments?: unknown[];
+  metadata?: Record<string, unknown>;
+  options?: Record<string, unknown>;
+}
+
+function queuedPromotionRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+async function readAdmittedQueuedMessagePromotion(opts: {
   ownerEmail: string | null;
   orgId: string | null;
   threadId?: string;
   messageId: unknown;
   claimId: unknown;
   message: string;
-}): Promise<boolean> {
+  continuationRequested: boolean;
+}): Promise<AdmittedQueuedMessagePromotion | null> {
   const messageId =
     typeof opts.messageId === "string" ? opts.messageId.trim() : "";
   const claimId = typeof opts.claimId === "string" ? opts.claimId.trim() : "";
-  if (!opts.ownerEmail || !opts.threadId || !messageId || !claimId) {
-    return false;
+  if (
+    !opts.ownerEmail ||
+    !opts.threadId ||
+    !messageId ||
+    !claimId ||
+    opts.continuationRequested
+  ) {
+    return null;
   }
 
   const { resolveThreadAccess } = await import("../chat-threads/store.js");
@@ -8582,36 +8603,90 @@ async function isAdmittedQueuedMessagePromotion(opts: {
     "editor",
     { orgId: opts.orgId ?? undefined },
   );
-  if (!thread) return false;
+  if (!thread) return null;
 
   let repository: unknown;
   try {
     repository = JSON.parse(thread.threadData || "{}");
   } catch {
     // coercion-ok: malformed persisted queue data cannot authorize a continuation.
-    return false;
+    return null;
   }
-  if (!hasOwn(repository, "queuedMessages")) return false;
+  if (!hasOwn(repository, "queuedMessages")) return null;
   const queuedMessages = repository.queuedMessages;
-  if (!Array.isArray(queuedMessages)) return false;
+  if (!Array.isArray(queuedMessages)) return null;
   const queuedMessage = queuedMessages.find(
     (candidate) => hasOwn(candidate, "id") && candidate.id === messageId,
   );
   if (!queuedMessage || !hasOwn(queuedMessage, "promotionClaim")) {
-    return false;
+    return null;
   }
 
   const promotionClaim = queuedMessage.promotionClaim;
-  return (
-    hasOwn(queuedMessage, "text") &&
-    queuedMessage.text === opts.message &&
-    hasOwn(promotionClaim, "id") &&
-    promotionClaim.id === claimId &&
-    hasOwn(promotionClaim, "expiresAt") &&
-    typeof promotionClaim.expiresAt === "number" &&
-    Number.isFinite(promotionClaim.expiresAt) &&
-    promotionClaim.expiresAt > Date.now()
-  );
+  if (
+    !(
+      hasOwn(queuedMessage, "text") &&
+      queuedMessage.text === opts.message &&
+      hasOwn(promotionClaim, "id") &&
+      promotionClaim.id === claimId &&
+      hasOwn(promotionClaim, "expiresAt") &&
+      typeof promotionClaim.expiresAt === "number" &&
+      Number.isFinite(promotionClaim.expiresAt) &&
+      promotionClaim.expiresAt > Date.now()
+    )
+  ) {
+    return null;
+  }
+
+  if (typeof queuedMessage.text !== "string") return null;
+  const attachments = hasOwn(queuedMessage, "attachments")
+    ? queuedMessage.attachments
+    : undefined;
+  const metadata = hasOwn(queuedMessage, "metadata")
+    ? queuedMessage.metadata
+    : undefined;
+  const options = hasOwn(queuedMessage, "options")
+    ? queuedMessage.options
+    : undefined;
+  if (
+    (attachments !== undefined && !Array.isArray(attachments)) ||
+    (Array.isArray(attachments) &&
+      attachments.some((attachment) => {
+        const file = queuedPromotionRecord(attachment);
+        return !file || file.type !== "file" || typeof file.name !== "string";
+      })) ||
+    (metadata !== undefined &&
+      (!metadata || typeof metadata !== "object" || Array.isArray(metadata))) ||
+    (options !== undefined &&
+      (!options || typeof options !== "object" || Array.isArray(options)))
+  ) {
+    return null;
+  }
+
+  return {
+    id: messageId,
+    text: queuedMessage.text,
+    ...(Array.isArray(attachments) ? { attachments } : {}),
+    ...(metadata ? { metadata: metadata as Record<string, unknown> } : {}),
+    ...(options ? { options: options as Record<string, unknown> } : {}),
+  };
+}
+
+function queuedPromotionAttachments(
+  attachments: unknown[],
+): AgentChatAttachment[] {
+  return attachments.map((value) => {
+    const file = queuedPromotionRecord(value)!;
+    return {
+      type: "file",
+      name: file.name,
+      ...(typeof file.fileId === "string" ? { id: file.fileId } : {}),
+      ...(typeof file.mediaType === "string"
+        ? { mediaType: file.mediaType, contentType: file.mediaType }
+        : {}),
+      ...(typeof file.url === "string" ? { url: file.url } : {}),
+    } as AgentChatAttachment;
+  });
 }
 
 async function emitRunText(run: ActiveRun, text: string): Promise<void> {
@@ -9215,9 +9290,9 @@ export function createProductionAgentHandler(
 
     const {
       message,
-      history = [],
-      structuredHistory,
-      references = [],
+      history: submittedHistory = [],
+      structuredHistory: submittedStructuredHistory,
+      references: submittedReferences = [],
       threadId,
       attachments,
       displayMessage,
@@ -9225,19 +9300,35 @@ export function createProductionAgentHandler(
       queuedMessageId,
       queuedMessageClaimId,
       agentKitMessageId: requestedAgentKitMessageId,
-      internalContinuation,
+      internalContinuation: submittedInternalContinuation,
       autoContinueOfRunId: requestedAutoContinueOfRunId,
       continueOfRunId: requestedContinueOfRunId,
       turnId: requestTurnId,
-      model: requestModel,
-      engine: requestEngine,
-      effort: requestEffort,
+      model: submittedModel,
+      engine: submittedEngine,
+      effort: submittedEffort,
       browserTabId,
       scope,
-      harness: requestHarness,
+      harness: submittedHarness,
       trackInRunsTray,
       skipPendingSelectionContext,
     } = body;
+    let requestHistory = submittedHistory;
+    let requestStructuredHistory = submittedStructuredHistory;
+    let requestReferences = submittedReferences;
+    let requestModel = submittedModel;
+    let requestEngine = submittedEngine;
+    let requestEffort = submittedEffort;
+    let internalContinuation = submittedInternalContinuation;
+    let requestHarness = submittedHarness;
+    let requestSkipPendingSelectionContext = skipPendingSelectionContext;
+    let requestParentId =
+      parentId === null
+        ? null
+        : typeof parentId === "string" && parentId.trim()
+          ? parentId.trim()
+          : undefined;
+    let requestMetadata = body.metadata;
     const continuedRunId = (requested: unknown) =>
       internalContinuation === true &&
       typeof requested === "string" &&
@@ -9266,15 +9357,9 @@ export function createProductionAgentHandler(
       setResponseStatus(event, 400);
       return { error: "engine must be a string" };
     }
-    const requestParentId =
-      parentId === null
-        ? null
-        : typeof parentId === "string" && parentId.trim()
-          ? parentId.trim()
-          : undefined;
     setupMark("bodyParsed");
 
-    const agentKitMessageId =
+    let agentKitMessageId =
       typeof requestedAgentKitMessageId === "string" &&
       requestedAgentKitMessageId.trim().length <= 200
         ? requestedAgentKitMessageId.trim() || undefined
@@ -9382,11 +9467,10 @@ export function createProductionAgentHandler(
       requestRunCtx.chatScope = requestChatScope;
       requestRunCtx.isBackgroundWorker = isBackgroundWorker;
     }
-    const requestMode: AgentExecutionMode =
-      body.mode === "plan" ? "plan" : "act";
+    let requestMode: AgentExecutionMode = body.mode === "plan" ? "plan" : "act";
     const hasMessageText =
       typeof message === "string" && message.trim().length > 0;
-    const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    let hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     if (!hasMessageText && !hasAttachments) {
       setResponseStatus(event, 400);
       return { error: "message is required" };
@@ -9394,10 +9478,10 @@ export function createProductionAgentHandler(
     let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
     let requestDisplayMessage = displayMessage;
-    const requestContext = buildRecentUserRequestContext({
+    let requestContext = buildRecentUserRequestContext({
       request: requestMessage,
-      history,
-      structuredHistory,
+      history: requestHistory,
+      structuredHistory: requestStructuredHistory,
     });
 
     const ownerEmail = await resolveAgentOwnerEmail(options, event);
@@ -9446,14 +9530,74 @@ export function createProductionAgentHandler(
       typeof requestTurnId === "string" &&
       requestTurnId.trim(),
     );
-    const isQueuedPromotion = await isAdmittedQueuedMessagePromotion({
+    const admittedQueuedMessage = await readAdmittedQueuedMessagePromotion({
       ownerEmail,
       orgId: getRequestOrgId() ?? null,
       threadId,
       messageId: queuedMessageId,
       claimId: queuedMessageClaimId,
-      message: requestMessage,
+      message: typeof message === "string" ? message : "",
+      continuationRequested:
+        submittedInternalContinuation === true ||
+        typeof requestedAutoContinueOfRunId === "string" ||
+        typeof requestedContinueOfRunId === "string",
     });
+    const isQueuedPromotion = admittedQueuedMessage !== null;
+    if (admittedQueuedMessage) {
+      // A claim admits the persisted queue payload, not extra fields in this request.
+      const promotionOptions = admittedQueuedMessage.options ?? {};
+      const promotionMetadata = {
+        ...(admittedQueuedMessage.metadata ?? {}),
+        ...(queuedPromotionRecord(promotionOptions.metadata) ?? {}),
+      };
+      requestMessage = admittedQueuedMessage.text;
+      agentKitMessageId = admittedQueuedMessage.id;
+      requestDisplayMessage = admittedQueuedMessage.text;
+      requestAttachments = queuedPromotionAttachments(
+        admittedQueuedMessage.attachments ?? [],
+      );
+      hasAttachments = requestAttachments.length > 0;
+      requestReferences = [];
+      requestHistory = [];
+      requestStructuredHistory = undefined;
+      internalContinuation = false;
+      requestHarness = undefined;
+      requestSkipPendingSelectionContext = false;
+      requestParentId = undefined;
+      requestMetadata = promotionMetadata;
+      requestModel =
+        typeof promotionOptions.model === "string"
+          ? promotionOptions.model
+          : undefined;
+      requestEngine = undefined;
+      requestEffort = isReasoningEffort(promotionOptions.reasoningEffort)
+        ? promotionOptions.reasoningEffort
+        : undefined;
+      requestMode = promotionOptions.mode === "plan" ? "plan" : "act";
+      requestContext = buildRecentUserRequestContext({
+        request: requestMessage,
+        history: requestHistory,
+      });
+      const mutableBody = body as unknown as Record<string, unknown>;
+      mutableBody.message = requestMessage;
+      mutableBody.displayMessage = requestDisplayMessage;
+      mutableBody.attachments = requestAttachments;
+      mutableBody.references = requestReferences;
+      mutableBody.history = requestHistory;
+      delete mutableBody.structuredHistory;
+      mutableBody.metadata = requestMetadata;
+      mutableBody.model = requestModel;
+      delete mutableBody.engine;
+      mutableBody.effort = requestEffort;
+      mutableBody.mode = requestMode;
+      delete mutableBody.internalContinuation;
+      delete mutableBody.autoContinueOfRunId;
+      delete mutableBody.continueOfRunId;
+      delete mutableBody.harness;
+      delete mutableBody.parentId;
+      delete mutableBody.options;
+      delete mutableBody.skipPendingSelectionContext;
+    }
     const recordUnstartedTurn = async (failure: {
       code: string;
       message: string;
@@ -9545,7 +9689,7 @@ export function createProductionAgentHandler(
       message: requestMessage,
       displayMessage: requestDisplayMessage,
       attachments: requestAttachments,
-      references,
+      references: requestReferences,
       threadId,
       requestContext,
       contextPrefetchDeadlineAt,
@@ -9579,8 +9723,8 @@ export function createProductionAgentHandler(
     }
     const jevRequestContext = buildJevRequestContext({
       request: requestMessage,
-      history,
-      structuredHistory,
+      history: requestHistory,
+      structuredHistory: requestStructuredHistory,
     });
     const requestedHostedHarness = normalizeHostedHarnessRuntime(
       requestHarness?.runtime,
@@ -9938,7 +10082,7 @@ export function createProductionAgentHandler(
     setupMark("prepDone");
     workerStep("env_config");
     const enrichedMessageThunk = () =>
-      enrichMessage(requestMessage, references);
+      enrichMessage(requestMessage, requestReferences);
     const loopSettingsThunk = () =>
       readAgentLoopSettings({
         userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
@@ -10107,7 +10251,7 @@ export function createProductionAgentHandler(
     const SELECTION_TTL_MS = 5 * 60 * 1000;
     const selectionContextThunk = (): Promise<string> =>
       (async (): Promise<string> => {
-        if (skipPendingSelectionContext === true) return "";
+        if (requestSkipPendingSelectionContext === true) return "";
         try {
           const sel = (await readAppState("pending-selection-context")) as {
             text?: string;
@@ -10141,7 +10285,7 @@ export function createProductionAgentHandler(
         if (options.skipFilesContext || requestedHostedHarness) {
           return filesContext;
         }
-        if (history.length === 0) {
+        if (requestHistory.length === 0) {
           try {
             const {
               resourceListAccessible,
@@ -10512,8 +10656,10 @@ export function createProductionAgentHandler(
         ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
         : systemPrompt;
 
-    const agentRefs = references.filter((r) => r.type === "agent");
-    const customAgentRefs = references.filter((r) => r.type === "custom-agent");
+    const agentRefs = requestReferences.filter((r) => r.type === "agent");
+    const customAgentRefs = requestReferences.filter(
+      (r) => r.type === "custom-agent",
+    );
     const planModeAgentNote =
       requestMode === "plan" && agentRefs.length > 0
         ? "\n\n<plan-mode-note>Connected external agent mentions were not called because Plan mode is read-only. Mention that they can be called after the user switches to Act mode if the plan needs them.</plan-mode-note>"
@@ -10531,8 +10677,8 @@ export function createProductionAgentHandler(
     });
 
     const historyMessages =
-      structuredHistoryToEngineMessages(structuredHistory) ??
-      history
+      structuredHistoryToEngineMessages(requestStructuredHistory) ??
+      requestHistory
         .filter((m) => m.content.trim())
         .map(
           (m): EngineMessage => ({
@@ -10551,11 +10697,11 @@ export function createProductionAgentHandler(
     // The loop still consumes only a matching server-created grant for the
     // current owner/org/thread/turn/tool/input tuple.
     const exactApprovedToolCall = findApprovedStructuredToolCall(
-      structuredHistory,
+      requestStructuredHistory,
       requestedApprovedToolCalls,
     );
     const firstRequestPayloadDetail = buildFirstRequestPayloadDetail({
-      isFirstRequest: history.length === 0,
+      isFirstRequest: requestHistory.length === 0,
       systemPrompt: requestSystemPrompt,
       messages,
       tools: requestTools,

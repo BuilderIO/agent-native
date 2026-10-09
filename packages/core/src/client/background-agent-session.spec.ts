@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   AgentChatAiSetupRequiredError,
-  agentEngineStatusUrlForChatApi,
   ensureAgentEngineReadiness,
   resetAgentEngineReadinessForTests,
 } from "./agent-engine-readiness.js";
 
 const openThread = vi.hoisted(() => vi.fn());
+const STATUS_PATH = "/_agent-native/agent-engine/status";
+const CHAT_PATH = "/_agent-native/agent-chat";
 
 vi.mock("./agent-chat.js", () => ({
   requestAgentChatThreadOpen: openThread,
@@ -57,21 +58,23 @@ async function expectStartRequestIssued(fetchMock = vi.mocked(fetch)) {
   );
 }
 
+function requestsTo(fetchMock: ReturnType<typeof vi.fn>, path: string) {
+  return fetchMock.mock.calls.filter(([url]) => String(url) === path);
+}
+
 describe("background agent sessions", () => {
   beforeEach(async () => {
     openThread.mockReset();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => streamResponse()),
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input) === STATUS_PATH
+        ? jsonResponse({ configured: true, chatEligible: true })
+        : streamResponse(),
     );
+    vi.stubGlobal("fetch", fetchMock);
     resetAgentEngineReadinessForTests();
-    await ensureAgentEngineReadiness({
-      source: {
-        statusUrl: agentEngineStatusUrlForChatApi("/_agent-native/agent-chat"),
-        fetch: async () =>
-          jsonResponse({ configured: true, chatEligible: true }),
-      },
-    });
+    await expect(ensureAgentEngineReadiness()).resolves.toBe("configured");
+    expect(requestsTo(vi.mocked(fetch), STATUS_PATH)).toHaveLength(1);
+    fetchMock.mockClear();
   });
 
   afterEach(() => {
@@ -93,9 +96,8 @@ describe("background agent sessions", () => {
       AgentChatAiSetupRequiredError,
     );
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
-      "/_agent-native/agent-engine/status",
-    );
+    expect(requestsTo(fetchMock, STATUS_PATH)).toHaveLength(1);
+    expect(requestsTo(fetchMock, CHAT_PATH)).toHaveLength(0);
   });
 
   it("starts fresh isolated threads without touching the foreground chat UI", async () => {
@@ -130,9 +132,10 @@ describe("background agent sessions", () => {
     });
     await handle.accepted;
 
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("/_agent-native/agent-chat");
+    const [url, init] = requestsTo(fetchMock, CHAT_PATH)[0]!;
+    expect(requestsTo(fetchMock, CHAT_PATH)).toHaveLength(1);
+    expect(requestsTo(fetchMock, STATUS_PATH)).toHaveLength(0);
+    expect(url).toBe(CHAT_PATH);
     expect(JSON.parse(String(init?.body))).toMatchObject({
       message:
         'Reply to the comment\n\n<context data-agentkit-context-encoding="entities-v1">\nUse only the supplied comment context.\n</context>',

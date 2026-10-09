@@ -50,12 +50,25 @@ export async function isAgentChatAiSetupReady(input?: {
     const entry = input.status.engine
       ? getAgentEngineEntry(input.status.engine)
       : undefined;
-    if (input.status.configured && isChatSetupProviderEntry(entry)) return true;
     if (input.status.openAiBaseUrlConfigured) return true;
+    let unreadable = false;
+    if (input.status.configured && isChatSetupProviderEntry(entry)) {
+      const readiness = await checkProviderEntryReadiness(entry);
+      if (readiness.usable) return true;
+      unreadable ||= readiness.unreadable;
+    }
     const ollama = await resolveSecretDetailed(OLLAMA_BASE_URL_ENV_VAR);
-    assertCredentialStoreReadable(ollama);
     if (ollama.value?.trim()) return true;
-    return isChatSetupProviderEntry(await input.detectFromUserSecrets());
+    unreadable ||= ollama.lookupFailed;
+
+    const detectedEntry = await input.detectFromUserSecrets();
+    if (detectedEntry) {
+      const readiness = await checkProviderEntryReadiness(detectedEntry);
+      if (readiness.usable) return true;
+      unreadable ||= readiness.unreadable;
+    }
+    if (unreadable) throwAgentChatSetupReadUnavailable();
+    return false;
   }
 
   const ownerEmail = getRequestUserEmail();
@@ -105,30 +118,25 @@ export async function isAgentChatAiSetupReady(input?: {
         value.source === "workspace" ||
         value.source === "env"),
   );
-  let providerReadiness: Array<{
-    key: string;
-    resolved: (typeof providerCandidates)[number]["value"];
-    usable: boolean;
-  }>;
-  try {
-    providerReadiness = await Promise.all(
-      providerCandidates.map(async ({ key, value }) => ({
+  const providerReadiness = await Promise.allSettled(
+    providerCandidates.map(({ key, value }) =>
+      getProviderCredentialAuthFailure({
         key,
-        resolved: value,
-        usable: !(await getProviderCredentialAuthFailure({
-          key,
-          value: value.value!.trim(),
-          throwOnReadError: true,
-        })),
-      })),
-    );
-  } catch {
-    throw createError({
-      statusCode: 503,
-      statusMessage: "Could not read saved AI connections. Try again shortly.",
-    });
+        value: value.value!.trim(),
+        throwOnReadError: true,
+      }).then((failure) => failure === null),
+    ),
+  );
+  if (
+    providerReadiness.some(
+      (result) => result.status === "fulfilled" && result.value,
+    )
+  ) {
+    return true;
   }
-  if (providerReadiness.some((candidate) => candidate.usable)) return true;
+  const providerRejectionReadFailed = providerReadiness.some(
+    (result) => result.status === "rejected",
+  );
   const customEndpointIsConfigured = resolved.some(
     ({ key, value }) =>
       !PROVIDER_ENV_VARS.includes(key) &&
@@ -141,15 +149,80 @@ export async function isAgentChatAiSetupReady(input?: {
   if (customEndpointIsConfigured) return true;
 
   const unreadable = resolved.find(({ value }) => value.lookupFailed)?.value;
-  if (unreadable) {
-    assertCredentialStoreReadable(unreadable);
-    throw createError({
-      statusCode: 503,
-      statusMessage: "Could not read saved AI connections. Try again shortly.",
-    });
+  if (unreadable || providerRejectionReadFailed) {
+    if (unreadable) assertCredentialStoreReadable(unreadable);
+    throwAgentChatSetupReadUnavailable();
   }
 
   return false;
+}
+
+async function checkProviderEntryReadiness(
+  entry: AgentEngineEntry | undefined | null,
+): Promise<{ usable: boolean; unreadable: boolean }> {
+  if (!entry || !isChatSetupProviderEntry(entry)) {
+    return { usable: false, unreadable: false };
+  }
+  if (entry.name === "builder") return { usable: true, unreadable: false };
+
+  const providerKeys = entry.requiredEnvVars.filter((key) =>
+    PROVIDER_ENV_VARS.includes(key),
+  );
+  const reads = await Promise.allSettled(
+    providerKeys.map((key) => resolveSecretDetailed(key)),
+  );
+  const candidates = reads.flatMap((result, index) => {
+    if (result.status !== "fulfilled") return [];
+    const { value, source } = result.value;
+    const key = providerKeys[index]!;
+    return value?.trim() && isUsableCredentialSource(source)
+      ? [{ key, value: value.trim() }]
+      : [];
+  });
+  const markers = await checkProviderCandidateReadiness(candidates);
+  const unreadable =
+    reads.some(
+      (result) =>
+        result.status === "rejected" ||
+        (result.status === "fulfilled" && result.value.lookupFailed),
+    ) || markers.unreadable;
+  return { usable: markers.usable, unreadable };
+}
+
+async function checkProviderCandidateReadiness(
+  candidates: Array<{ key: string; value: string }>,
+): Promise<{ usable: boolean; unreadable: boolean }> {
+  const results = await Promise.allSettled(
+    candidates.map(({ key, value }) =>
+      getProviderCredentialAuthFailure({
+        key,
+        value,
+        throwOnReadError: true,
+      }).then((failure) => failure === null),
+    ),
+  );
+  return {
+    usable: results.some(
+      (result) => result.status === "fulfilled" && result.value,
+    ),
+    unreadable: results.some((result) => result.status === "rejected"),
+  };
+}
+
+function isUsableCredentialSource(source: string | null | undefined): boolean {
+  return (
+    source === "user" ||
+    source === "org" ||
+    source === "workspace" ||
+    source === "env"
+  );
+}
+
+function throwAgentChatSetupReadUnavailable(): never {
+  throw createError({
+    statusCode: 503,
+    statusMessage: "Could not read saved AI connections. Try again shortly.",
+  });
 }
 
 function isChatSetupProviderEntry(

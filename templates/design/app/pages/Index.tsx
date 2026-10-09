@@ -344,7 +344,6 @@ export default function Index() {
     refetch: refetchDesignSystems,
   } = useDesignSystems(systemsEnabled);
   const agentEngine = useAgentEngineConfigured();
-  const effectiveAgentEngineState = agentEngine.state;
   const agentEngineConfigured = agentEngine.canChat;
   const agentEngineMissing = agentEngine.missing;
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
@@ -1172,19 +1171,6 @@ export default function Index() {
               bouncePulse={setupCardBouncePulse}
               onConnected={retryAgentEngineStatus}
             />
-          ) : effectiveAgentEngineState === "unavailable" ? (
-            <div className="mb-2 flex items-center justify-center gap-3 text-sm text-muted-foreground">
-              <span role="status">
-                {t("agentChat.setup.providerStatusUnavailable")}
-              </span>
-              <button
-                type="button"
-                className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={retryAgentEngineStatus}
-              >
-                {t("agentChat.common.retry")}
-              </button>
-            </div>
           ) : null
         }
         composer={

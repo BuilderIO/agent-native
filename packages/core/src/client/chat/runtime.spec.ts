@@ -12,7 +12,6 @@ import {
 import {
   AgentChatAiSetupRequiredError,
   agentEngineStatusUrlForChatApi,
-  ensureAgentEngineReadiness,
   resetAgentEngineReadinessForTests,
 } from "../agent-engine-readiness.js";
 import {
@@ -22,6 +21,7 @@ import {
 import type { AgentChatRuntime as AgentChatRuntimeFromClientBarrel } from "../index.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index.js";
 import {
+  createAgentNativeChatRuntime as createAgentNativeChatRuntimeImpl,
   createAgentNativeChatRuntime,
   createHttpAgentChatRuntime,
   type AgentChatRuntime,
@@ -31,6 +31,7 @@ import {
   type AgentChatRuntimeToolCall,
   type AgentChatRuntimeTurn,
   type AgentChatRuntimeTurnInput,
+  type CreateAgentNativeChatRuntimeOptions,
 } from "./runtime.js";
 
 async function* streamRuntimeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
@@ -81,6 +82,19 @@ function sseResponse(events: unknown[], runId = "run-runtime"): Response {
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify(data), {
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+function createAgentNativeChatRuntime(
+  options: CreateAgentNativeChatRuntimeOptions = {},
+): AgentChatRuntime<AgentChatRuntimeKnownEvent> {
+  const fetchImpl = options.fetch ?? fetch;
+  return createAgentNativeChatRuntimeImpl({
+    ...options,
+    fetch: async (input, init) =>
+      String(input).includes("/agent-engine/status")
+        ? jsonResponse({ configured: true, chatEligible: true })
+        : fetchImpl(input, init),
   });
 }
 
@@ -628,15 +642,8 @@ describe("createHttpAgentChatRuntime", () => {
 });
 
 describe("createAgentNativeChatRuntime", () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     resetAgentEngineReadinessForTests();
-    await ensureAgentEngineReadiness({
-      source: {
-        statusUrl: agentEngineStatusUrlForChatApi("/_agent-native/agent-chat"),
-        fetch: async () =>
-          jsonResponse({ configured: true, chatEligible: true }),
-      },
-    });
   });
 
   afterEach(() => {
@@ -739,7 +746,7 @@ describe("createAgentNativeChatRuntime", () => {
       }
       return sseResponse([{ type: "done" }]);
     });
-    const runtime = createAgentNativeChatRuntime({
+    const runtime = createAgentNativeChatRuntimeImpl({
       apiUrl: "/_agent-native/agent-chat",
       threadId: "thread-readiness-gate",
       fetch: fetchMock as typeof fetch,
@@ -774,7 +781,7 @@ describe("createAgentNativeChatRuntime", () => {
       return Promise.resolve(sseResponse([{ type: "done" }]));
     });
     const apiUrl = "/_agent-native/agent-chat";
-    const runtime = createAgentNativeChatRuntime({
+    const runtime = createAgentNativeChatRuntimeImpl({
       apiUrl,
       threadId: "thread-readiness-pending",
       fetch: fetchMock as typeof fetch,
@@ -808,7 +815,7 @@ describe("createAgentNativeChatRuntime", () => {
       }
       return sseResponse([{ type: "done" }]);
     });
-    const runtime = createAgentNativeChatRuntime({
+    const runtime = createAgentNativeChatRuntimeImpl({
       apiUrl: "/_agent-native/agent-chat",
       threadId: "thread-readiness-unavailable",
       fetch: fetchMock as typeof fetch,

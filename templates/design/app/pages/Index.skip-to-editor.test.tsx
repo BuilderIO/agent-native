@@ -695,19 +695,15 @@ describe("Index skip to editor", () => {
       canChat: false,
     };
     await act(async () => root.render(<Index />));
-    expect(container.textContent).toContain(
+    expect(container.textContent).not.toContain(
       "agentChat.setup.providerStatusUnavailable",
     );
-    const dispatch = vi.spyOn(window, "dispatchEvent");
-    const retry = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "agentChat.common.retry",
-    );
-    expect(retry).toBeDefined();
-    await act(async () => retry?.click());
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-engine:configured-changed" }),
-    );
-    dispatch.mockRestore();
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(
+      [...container.querySelectorAll("button")].some(
+        (button) => button.textContent?.trim() === "agentChat.common.retry",
+      ),
+    ).toBe(false);
   });
 
   it("hides home suggestions while provider setup is pending", async () => {

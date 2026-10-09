@@ -1391,10 +1391,8 @@ describe("Slides prompt-led home", () => {
 
     agentEngine.state = "unavailable";
     await act(async () => home.rerenderHome());
-    expect(screen.getByRole("status").textContent).toContain(
-      "providerStatusUnavailable",
-    );
-    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     expect(
       (
         screen.getByRole("textbox", {
@@ -1402,12 +1400,6 @@ describe("Slides prompt-led home", () => {
         }) as HTMLTextAreaElement
       ).disabled,
     ).toBe(false);
-    const dispatch = vi.spyOn(window, "dispatchEvent");
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agent-engine:configured-changed" }),
-    );
-    dispatch.mockRestore();
   });
 
   it("shows both tabs while loading, then defaults to Recent when decks are available", async () => {

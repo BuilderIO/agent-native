@@ -807,6 +807,7 @@ function PromptComposerInner({
         modelsAdapter.fetchAgentEngineConfiguredState;
       if (!fetchConfiguredState) return "unavailable" as const;
       return await fetchConfiguredState(true, {
+        fresh: false,
         timeoutMs: 10_000,
       });
     } catch {

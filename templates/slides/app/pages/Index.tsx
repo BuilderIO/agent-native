@@ -651,7 +651,6 @@ export default function Index({ active = true }: { active?: boolean }) {
   // to sign in; otherwise the server stays the authority on the request.
   const isSignedOut = sessionStatus === "unauthenticated";
   const agentEngine = useAgentEngineConfigured();
-  const effectiveAgentEngineState = agentEngine.state;
   const agentEngineConfigured = agentEngine.canChat;
   const agentEngineMissing = agentEngine.missing;
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
@@ -2534,23 +2533,6 @@ export default function Index({ active = true }: { active?: boolean }) {
         >
           {isHome ? (
             <HomeChrome title={homeTitle} actions={homeHeaderActions} />
-          ) : null}
-          {effectiveAgentEngineState === "unavailable" ? (
-            <div className="mb-2">
-              <div
-                className="flex items-center justify-center gap-3 text-sm text-muted-foreground"
-                role="status"
-              >
-                <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
-                <button
-                  type="button"
-                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={retryAgentEngineStatus}
-                >
-                  {t("home.retry")}
-                </button>
-              </div>
-            </div>
           ) : null}
           <LazyChunkErrorBoundary
             fallback={

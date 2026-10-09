@@ -3760,8 +3760,6 @@ function AgentKitComposerSurface({
   ]);
   const currentSubmissionScope = useRef(submissionScope);
   currentSubmissionScope.current = submissionScope;
-  const currentProviderStatus = useRef(providerStatus);
-  currentProviderStatus.current = providerStatus;
   const { controller } = useAgentKit();
   const composerRef = useRef<TiptapComposerHandle>(null);
   const selectedSuggestionRef = useRef<
@@ -3773,7 +3771,6 @@ function AgentKitComposerSurface({
     references: Reference[],
     options: AgentKitSuggestionSubmitOptions,
   ) => {
-    const submissionProviderStatus = currentProviderStatus.current;
     options = {
       ...options,
       ...(selectedSuggestionRef.current
@@ -3785,8 +3782,7 @@ function AgentKitComposerSurface({
       if (
         !submissionAllowed.current ||
         !mounted.current ||
-        currentSubmissionScope.current !== submissionScope ||
-        currentProviderStatus.current !== submissionProviderStatus
+        currentSubmissionScope.current !== submissionScope
       ) {
         throw new Error(t("agentChat.error.failed"));
       }

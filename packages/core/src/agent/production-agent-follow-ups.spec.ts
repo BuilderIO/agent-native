@@ -258,7 +258,7 @@ describe("native agent follow-up publication", () => {
     const runtime = createAgentNativeChatRuntime({
       apiUrl,
       fetch: async (_url, init) => {
-        if (String(_url).endsWith("/_agent-native/agent-engine/status")) {
+        if (String(_url) === readinessUrl) {
           return Response.json({ configured: true, chatEligible: true });
         }
         const body = JSON.parse(String(init?.body));

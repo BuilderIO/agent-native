@@ -323,6 +323,38 @@ async function waitForStatus<T>(
   }
 }
 
+const READINESS_DEADLINE_REACHED = Symbol("readiness-deadline-reached");
+
+function remainingReadinessTime(
+  deadline: number | undefined,
+): number | undefined {
+  return deadline === undefined
+    ? undefined
+    : Math.max(0, deadline - Date.now());
+}
+
+async function waitForReadinessDeadline<T>(
+  request: Promise<T>,
+  deadline: number | undefined,
+): Promise<T | typeof READINESS_DEADLINE_REACHED> {
+  const timeoutMs = remainingReadinessTime(deadline);
+  if (timeoutMs === undefined) return request;
+  if (timeoutMs === 0) return READINESS_DEADLINE_REACHED;
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof READINESS_DEADLINE_REACHED>((resolve) => {
+    timeoutId = setTimeout(
+      () => resolve(READINESS_DEADLINE_REACHED),
+      timeoutMs,
+    );
+  });
+  try {
+    return await Promise.race([request, timeout]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+}
+
 function hasChatEligibleFlag(
   value: unknown,
 ): value is { chatEligible: boolean } {
@@ -337,12 +369,20 @@ function hasChatEligibleFlag(
 async function statusRequestOptions(
   store: AgentEngineReadinessStore,
   fresh: boolean,
+  deadline: number | undefined,
 ) {
   const source = store.source;
-  const headers =
-    typeof source?.headers === "function"
-      ? await source.headers()
-      : source?.headers;
+  let headers: HeadersInit | undefined;
+  if (typeof source?.headers === "function") {
+    const resolvedHeaders = await waitForReadinessDeadline(
+      Promise.resolve(source.headers()),
+      deadline,
+    );
+    if (resolvedHeaders === READINESS_DEADLINE_REACHED) return null;
+    headers = resolvedHeaders;
+  } else {
+    headers = source?.headers;
+  }
   return {
     fresh,
     url: store.statusUrl,
@@ -354,17 +394,24 @@ async function statusRequestOptions(
 
 async function readStoreReadiness(
   store: AgentEngineReadinessStore,
-  timeoutMs: number | undefined,
+  deadline: number | undefined,
   fresh: boolean,
 ): Promise<AgentEngineConfiguredState> {
+  let requestOptions = await statusRequestOptions(store, fresh, deadline);
+  let timeoutMs = remainingReadinessTime(deadline);
+  if (!requestOptions || timeoutMs === 0) return "unavailable";
+
   let engineResult = await waitForStatus(
-    fetchAgentEngineStatus(await statusRequestOptions(store, fresh)),
+    fetchAgentEngineStatus(requestOptions),
     timeoutMs,
     store.statusUrl,
   );
   while (engineResult.state === "unavailable" && engineResult.stale) {
+    requestOptions = await statusRequestOptions(store, false, deadline);
+    timeoutMs = remainingReadinessTime(deadline);
+    if (!requestOptions || timeoutMs === 0) return "unavailable";
     engineResult = await waitForStatus(
-      fetchAgentEngineStatus(await statusRequestOptions(store, false)),
+      fetchAgentEngineStatus(requestOptions),
       timeoutMs,
       store.statusUrl,
     );
@@ -443,7 +490,8 @@ async function ensureStoreReadiness(
     typeof options?.timeoutMs === "number" && options.timeoutMs > 0
       ? options.timeoutMs
       : undefined;
-  const request = readStoreReadiness(store, timeoutMs, fresh)
+  const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
+  const request = readStoreReadiness(store, deadline, fresh)
     .catch(() => "unavailable" as const)
     .then((nextState) => {
       if (requestRevision !== store.revision) {

@@ -1501,6 +1501,7 @@ describe("controlled composer context", () => {
       );
       const composerRef = React.createRef<TiptapComposerHandle>();
       const onSubmit = vi.fn();
+      const fetchReadiness = vi.fn(() => readiness);
       function ReadinessComposer() {
         const [state, setState] = React.useState<
           "unknown" | "configured" | "missing" | "unavailable"
@@ -1514,7 +1515,7 @@ describe("controlled composer context", () => {
                   state,
                   missing: state === "missing",
                 }),
-                fetchAgentEngineConfiguredState: () => readiness,
+                fetchAgentEngineConfiguredState: fetchReadiness,
                 BuilderSetupCard: () => <div data-testid="provider-setup" />,
               },
             }}
@@ -1541,6 +1542,10 @@ describe("controlled composer context", () => {
       )!;
       await act(async () => sendButton.click());
 
+      expect(fetchReadiness).toHaveBeenCalledWith(true, {
+        fresh: false,
+        timeoutMs: 10_000,
+      });
       expect(editor.getAttribute("contenteditable")).toBe("true");
       expect(sendButton.disabled).toBe(true);
       expect(sendButton.getAttribute("aria-busy")).toBe("true");
@@ -1581,6 +1586,21 @@ describe("controlled composer context", () => {
         expect(editor.textContent).toBe("Typed while readiness was checking");
         expect(sendButton.disabled).toBe(false);
         expect(sendButton.getAttribute("aria-busy")).toBeNull();
+        const statuses = container.querySelectorAll('[role="status"]');
+        expect(statuses).toHaveLength(1);
+        expect(statuses[0]?.textContent).toContain(
+          "agentChat.setup.providerStatusUnavailable",
+        );
+        const retryButtons = [...container.querySelectorAll("button")].filter(
+          (button) => button.textContent?.trim() === "agentChat.common.retry",
+        );
+        expect(retryButtons).toHaveLength(1);
+        const dispatch = vi.spyOn(window, "dispatchEvent");
+        await act(async () => retryButtons[0]?.click());
+        expect(dispatch).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "agent-engine:configured-changed" }),
+        );
+        dispatch.mockRestore();
       }
     },
   );

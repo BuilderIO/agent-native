@@ -26,13 +26,22 @@ const credentialMocks = vi.hoisted(() => ({
   legacyBuilderKey: vi.fn<() => Promise<string | null>>(),
   resolveSecret: vi.fn<(key: string) => Promise<any>>(),
   authFailure:
-    vi.fn<(args: { key: string; value: string }) => Promise<unknown>>(),
+    vi.fn<
+      (args: {
+        key: string;
+        value: string;
+        throwOnReadError?: boolean;
+      }) => Promise<unknown>
+    >(),
 }));
 
 vi.mock("./credential-provider.js", () => ({
   assertCredentialStoreReadable: vi.fn(),
-  getProviderCredentialAuthFailure: (args: { key: string; value: string }) =>
-    credentialMocks.authFailure(args),
+  getProviderCredentialAuthFailure: (args: {
+    key: string;
+    value: string;
+    throwOnReadError?: boolean;
+  }) => credentialMocks.authFailure(args),
   prefetchSecrets: vi.fn(async () => undefined),
   resolveBuilderGatewayCredentialsDetailed: () =>
     credentialMocks.builderCredentials(),
@@ -193,11 +202,11 @@ describe("Agent-Native chat AI setup gate", () => {
   });
 
   it("reports provider rejection marker read failures as unavailable", async () => {
-    credentialMocks.resolveSecret.mockResolvedValue({
-      value: "provider-key",
-      source: "user",
-      lookupFailed: false,
-    });
+    credentialMocks.resolveSecret.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY"
+        ? { value: "provider-key", source: "user", lookupFailed: false }
+        : { value: null, lookupFailed: false },
+    );
     credentialMocks.authFailure.mockRejectedValueOnce(
       new Error("settings store unavailable"),
     );
@@ -206,6 +215,42 @@ describe("Agent-Native chat AI setup gate", () => {
       statusCode: 503,
       statusMessage: "Could not read saved AI connections. Try again shortly.",
     });
+  });
+
+  it("keeps a usable provider when another provider rejection marker is unreadable", async () => {
+    credentialMocks.resolveSecret.mockImplementation(async (key: string) => {
+      if (key === "OPENAI_API_KEY") {
+        return { value: "sk-openai-key", source: "user", lookupFailed: false };
+      }
+      if (key === "ANTHROPIC_API_KEY") {
+        return {
+          value: "sk-anthropic-key",
+          source: "org",
+          lookupFailed: false,
+        };
+      }
+      return { value: null, lookupFailed: false };
+    });
+    credentialMocks.authFailure.mockImplementation(async ({ key }) => {
+      if (key === "OPENAI_API_KEY") {
+        throw new Error("settings store unavailable");
+      }
+      return null;
+    });
+
+    await expect(isAgentChatAiSetupReady()).resolves.toBe(true);
+    expect(credentialMocks.authFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "OPENAI_API_KEY",
+        throwOnReadError: true,
+      }),
+    );
+    expect(credentialMocks.authFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "ANTHROPIC_API_KEY",
+        throwOnReadError: true,
+      }),
+    );
   });
 
   it.each([
@@ -218,6 +263,13 @@ describe("Agent-Native chat AI setup gate", () => {
     async (_label, engine, expected) => {
       const entry = getAgentEngineEntry(engine);
       if (!entry) throw new Error(`Test engine ${engine} is not registered`);
+      if (engine === "ai-sdk:openai") {
+        credentialMocks.resolveSecret.mockImplementation(async (key) =>
+          key === "OPENAI_API_KEY"
+            ? { value: "sk-test-key", source: "user", lookupFailed: false }
+            : { value: null, lookupFailed: false },
+        );
+      }
       const result = await isAgentChatAiSetupReady({
         status: { configured: true, engine },
         detectFromUserSecrets: async () => null,
@@ -225,6 +277,109 @@ describe("Agent-Native chat AI setup gate", () => {
       expect(result).toBe(expected);
     },
   );
+
+  it("validates rejection markers before trusting a configured provider status", async () => {
+    credentialMocks.resolveSecret.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY"
+        ? { value: "sk-rejected-key", source: "user", lookupFailed: false }
+        : { value: null, lookupFailed: false },
+    );
+    credentialMocks.authFailure.mockResolvedValue({ status: 401 });
+
+    await expect(
+      isAgentChatAiSetupReady({
+        status: { configured: true, engine: "ai-sdk:openai" },
+        detectFromUserSecrets: async () => null,
+      }),
+    ).resolves.toBe(false);
+    expect(credentialMocks.authFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "OPENAI_API_KEY",
+        value: "sk-rejected-key",
+        throwOnReadError: true,
+      }),
+    );
+  });
+
+  it("returns unavailable when a configured provider status has an unreadable rejection marker", async () => {
+    credentialMocks.resolveSecret.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY"
+        ? { value: "sk-test-key", source: "user", lookupFailed: false }
+        : { value: null, lookupFailed: false },
+    );
+    credentialMocks.authFailure.mockRejectedValueOnce(
+      new Error("settings store unavailable"),
+    );
+
+    await expect(
+      isAgentChatAiSetupReady({
+        status: { configured: true, engine: "ai-sdk:openai" },
+        detectFromUserSecrets: async () => null,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      statusMessage: "Could not read saved AI connections. Try again shortly.",
+    });
+  });
+
+  it("accepts another usable saved provider when the configured provider marker is unreadable", async () => {
+    const otherProvider: AgentEngineEntry = {
+      name: "ai-sdk:anthropic",
+      label: "Anthropic",
+      description: "Test Anthropic engine",
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      defaultModel: "anthropic-test-model",
+      supportedModels: ["anthropic-test-model"],
+      requiredEnvVars: ["ANTHROPIC_API_KEY"],
+      create: () => {
+        throw new Error("The readiness test never creates an engine");
+      },
+    };
+    credentialMocks.resolveSecret.mockImplementation(async (key: string) => {
+      if (key === "OPENAI_API_KEY") {
+        return { value: "sk-openai-key", source: "user", lookupFailed: false };
+      }
+      if (key === "ANTHROPIC_API_KEY") {
+        return {
+          value: "sk-anthropic-key",
+          source: "org",
+          lookupFailed: false,
+        };
+      }
+      return { value: null, lookupFailed: false };
+    });
+    credentialMocks.authFailure.mockImplementation(async ({ key }) => {
+      if (key === "OPENAI_API_KEY") {
+        throw new Error("settings store unavailable");
+      }
+      return null;
+    });
+
+    await expect(
+      isAgentChatAiSetupReady({
+        status: { configured: true, engine: "ai-sdk:openai" },
+        detectFromUserSecrets: async () => otherProvider,
+      }),
+    ).resolves.toBe(true);
+    expect(credentialMocks.authFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "OPENAI_API_KEY",
+        throwOnReadError: true,
+      }),
+    );
+    expect(credentialMocks.authFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "ANTHROPIC_API_KEY",
+        throwOnReadError: true,
+      }),
+    );
+  });
 
   it.each([
     ["OpenAI-compatible endpoint", "OPENAI_BASE_URL"],

@@ -2094,6 +2094,59 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect(providerProps.mock.lastCall?.[0].isActive).toBe(false);
   });
 
+  it("continues a pending send when readiness becomes configured during preparation", async () => {
+    chatMocks.readiness = {
+      canChat: false,
+      missing: false,
+      state: "unknown",
+    };
+    const items = [
+      { key: "app-reference", title: "Reference", context: "Source" },
+    ];
+    const prepared = Promise.withResolvers<typeof items>();
+    const context: AssistantChatComposerContext = {
+      menuItems: [],
+      contextItems: items,
+      onRemoveContextItem: vi.fn(),
+      prepareSubmission: vi.fn(() => prepared.promise),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    await mount(baseProps({ composerContextProvider: Provider }));
+
+    let submission!: Promise<void>;
+    await act(async () => {
+      submission = chatMocks.composerProps.onSubmit("Use source", [], [], {
+        intent: "immediate",
+        composerModeContext: "Internal scheduling instructions",
+      });
+      await Promise.resolve();
+    });
+    expect(context.prepareSubmission).toHaveBeenCalledOnce();
+
+    chatMocks.readiness = {
+      canChat: true,
+      missing: false,
+      state: "configured",
+    };
+    await act(async () =>
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ composerContextProvider: Provider })}
+        />,
+      ),
+    );
+    await act(async () => {
+      prepared.resolve(items);
+      await submission;
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(context.submissionAccepted).toHaveBeenCalledExactlyOnceWith(items);
+  });
+
   it("loads the model catalog only when the visible picker has no host catalog", async () => {
     await mount(baseProps());
     expect(chatMocks.composerProps.modelStatusChecksEnabled).toBe(true);
