@@ -1040,6 +1040,8 @@ export interface TiptapComposerProps {
   /** Accessible name for the editable prompt surface. */
   ariaLabel?: string;
   disabled?: boolean;
+  /** Only the selected chat receiver reports readiness to the lazy sidebar. */
+  reportReferenceReadiness?: boolean;
   /** Disable the + and @ launchers while the editor stays editable. */
   contextControlsDisabled?: boolean;
   /** Prevent submission without making the editable surface lose focus. */
@@ -2750,6 +2752,7 @@ export function TiptapComposer({
   placeholder,
   ariaLabel,
   disabled = false,
+  reportReferenceReadiness = false,
   contextControlsDisabled = false,
   submissionDisabled = false,
   sendButtonDisabled = false,
@@ -3940,15 +3943,15 @@ export function TiptapComposer({
     window.addEventListener("message", handleMessage);
     const element = isComposerEditorUsable(editor) ? editor.view.dom : null;
     const reportUnavailable = () => {
-      if (element)
+      if (reportReferenceReadiness && element)
         window.dispatchEvent(
           new CustomEvent("agentNative:composer-reference-unavailable", {
             detail: element,
           }),
         );
     };
-    editor?.on("destroy", reportUnavailable);
-    if (element && !disabled) {
+    if (reportReferenceReadiness) editor?.on("destroy", reportUnavailable);
+    if (reportReferenceReadiness && element && !disabled) {
       window.dispatchEvent(
         new CustomEvent("agentNative:composer-reference-ready", {
           detail: element,
@@ -3964,7 +3967,7 @@ export function TiptapComposer({
       );
       window.removeEventListener("message", handleMessage);
     };
-  }, [adapters, insertReferenceIfEmpty]);
+  }, [adapters, insertReferenceIfEmpty, reportReferenceReadiness]);
 
   useImperativeHandle(focusRef, () => ({
     focus() {

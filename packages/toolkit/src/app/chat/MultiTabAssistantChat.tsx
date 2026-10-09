@@ -3304,6 +3304,7 @@ export function MultiTabAssistantChat({
                   contextNamespace={contextNamespace}
                   isolateHistoryByScope={isolateHistoryByScope}
                   isActiveComposer={!contentHidden && tabId === activeThreadId}
+                  isReferenceTarget={tabId === activeThreadId}
                   apiUrl={apiUrl}
                   isNewThread={isKnownNewThread}
                   onThreadRestoreNotFound={

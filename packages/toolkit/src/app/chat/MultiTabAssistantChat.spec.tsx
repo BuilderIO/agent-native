@@ -386,6 +386,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         composerDisabled?: boolean;
         composerDisabledPlaceholder?: string;
         isActiveComposer?: boolean;
+        isReferenceTarget?: boolean;
         isNewThread?: boolean;
         isThreadStateLoading?: boolean;
         contextScope?: ChatThreadScope | null;
@@ -438,6 +439,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
           }
           data-disabled-placeholder={props.composerDisabledPlaceholder}
           data-composer-active={props.isActiveComposer ? "true" : "false"}
+          data-reference-target={props.isReferenceTarget ? "true" : "false"}
           data-new-thread={props.isNewThread ? "true" : "false"}
           data-thread-state-loading={
             props.isThreadStateLoading ? "true" : "false"
@@ -858,6 +860,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
     const composer = container.querySelector('[data-testid="assistant-chat"]');
     expect(composer?.getAttribute("data-composer-active")).toBe("false");
+    expect(composer?.getAttribute("data-reference-target")).toBe("true");
     await act(async () =>
       root.render(
         <MultiTabAssistantChat

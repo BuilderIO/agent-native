@@ -128,6 +128,8 @@ type AgentPanelStyle = React.CSSProperties & {
   viewTransitionName?: string;
 };
 
+type PendingPanelEvent = { event: Event; order: number };
+
 const SIDEBAR_STORAGE_KEY = "agent-native-sidebar-width";
 const SIDEBAR_DRAWER_KEY = "agent-native-sidebar-wide-drawer";
 const SIDEBAR_DRAWER_PLACEHOLDER_KEY =
@@ -606,7 +608,9 @@ export function AgentSidebar({
   const composerReadyRef = useRef(false);
   const composerElementRef = useRef<HTMLElement | null>(null);
   const panelElementRef = useRef<HTMLDivElement>(null);
-  const pendingPanelEvents = useRef<Event[]>([]);
+  const pendingPanelEvents = useRef<PendingPanelEvent[]>([]);
+  const pendingPanelControls = useRef<PendingPanelEvent[]>([]);
+  const pendingEventOrder = useRef(0);
   const replayingPanelEvent = useRef<Event | null>(null);
   const drainScheduled = useRef(false);
   const drainPendingPanelEvents = useCallback(() => {
@@ -614,20 +618,35 @@ export function AgentSidebar({
     drainScheduled.current = true;
     queueMicrotask(() => {
       try {
-        while (panelReadyRef.current && pendingPanelEvents.current.length > 0) {
-          const event = pendingPanelEvents.current[0];
-          if (isComposerReferenceEvent(event) && !composerReadyRef.current)
-            break;
+        while (panelReadyRef.current) {
+          const conversation = pendingPanelEvents.current[0];
+          const control = pendingPanelControls.current[0];
+          const conversationReady =
+            conversation &&
+            (!isComposerReferenceEvent(conversation.event) ||
+              composerReadyRef.current);
+          const queue =
+            control &&
+            (!conversationReady || control.order < conversation.order)
+              ? pendingPanelControls.current
+              : conversationReady
+                ? pendingPanelEvents.current
+                : null;
+          if (!queue) break;
+          const { event } = queue[0];
           replayingPanelEvent.current = event;
           // Reference insertion must commit before a following submission reads its context.
           flushSync(() => window.dispatchEvent(event));
-          if (pendingPanelEvents.current[0] === event)
-            pendingPanelEvents.current.shift();
+          if (queue[0]?.event === event) queue.shift();
         }
       } finally {
         replayingPanelEvent.current = null;
         drainScheduled.current = false;
-        setHasPendingPanelEvents(pendingPanelEvents.current.length > 0);
+        setHasPendingPanelEvents(
+          pendingPanelEvents.current.length +
+            pendingPanelControls.current.length >
+            0,
+        );
       }
     });
   }, []);
@@ -743,13 +762,14 @@ export function AgentSidebar({
   useEffect(() => {
     if (!ownsPanel) {
       pendingPanelEvents.current.length = 0;
+      pendingPanelControls.current.length = 0;
       setHasPendingPanelEvents(false);
       panelReadyRef.current = false;
       composerReadyRef.current = false;
       composerElementRef.current = null;
       return;
     }
-    const retainEvent = (event: Event) => {
+    const retainEvent = (event: Event, queue: PendingPanelEvent[]) => {
       event.stopImmediatePropagation();
       const queued =
         event instanceof MessageEvent
@@ -761,17 +781,26 @@ export function AgentSidebar({
           : new CustomEvent(event.type, {
               detail: (event as CustomEvent).detail,
             });
-      pendingPanelEvents.current.push(queued);
+      queue.push({ event: queued, order: pendingEventOrder.current++ });
       setHasPendingPanelEvents(true);
       setBackgroundPanelActive(true);
       drainPendingPanelEvents();
     };
-    const shouldRetainEvent = (event: Event, ready: boolean) =>
-      event !== replayingPanelEvent.current &&
-      (!ready || pendingPanelEvents.current.length > 0);
+    const shouldRetainEvent = (
+      event: Event,
+      ready: boolean,
+      queue: PendingPanelEvent[],
+    ) => event !== replayingPanelEvent.current && (!ready || queue.length > 0);
     const replayAfterMount = (type: string, event: Event) => {
-      if (!shouldRetainEvent(event, panelReadyRef.current)) return;
-      retainEvent(event);
+      if (
+        !shouldRetainEvent(
+          event,
+          panelReadyRef.current,
+          pendingPanelControls.current,
+        )
+      )
+        return;
+      retainEvent(event, pendingPanelControls.current);
       if (type === AGENT_PANEL_OPEN_SETTINGS_EVENT) {
         setOpenPersisted(true);
       }
@@ -787,8 +816,15 @@ export function AgentSidebar({
     const handleOpenThread = (event: Event) =>
       replayAfterMount(event.type, event);
     const handleReference = (event: Event) => {
-      if (!shouldRetainEvent(event, composerReadyRef.current)) return;
-      retainEvent(event);
+      if (
+        !shouldRetainEvent(
+          event,
+          composerReadyRef.current,
+          pendingPanelEvents.current,
+        )
+      )
+        return;
+      retainEvent(event, pendingPanelEvents.current);
     };
     const handleComposerReady = (event: Event) => {
       const element = (event as CustomEvent).detail;
@@ -818,6 +854,7 @@ export function AgentSidebar({
           isComposerReferenceEvent(event)
             ? composerReadyRef.current
             : panelReadyRef.current,
+          pendingPanelEvents.current,
         )
       )
         return;
@@ -831,7 +868,7 @@ export function AgentSidebar({
         ].includes(event.data?.type)
       )
         return;
-      retainEvent(event);
+      retainEvent(event, pendingPanelEvents.current);
     };
 
     window.addEventListener(AGENT_PANEL_SET_MODE_EVENT, handleSetMode, true);

@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PromptComposer } from "../../composer/PromptComposer.js";
 import { AGENT_CHAT_INSERT_REFERENCE_EVENT } from "../../composer/runtime-adapters.js";
 import { TiptapComposer } from "../../composer/TiptapComposer.js";
 import { TooltipProvider } from "../../ui/tooltip.js";
@@ -52,6 +53,7 @@ vi.mock("./AgentSidebarPanel.js", async () => {
         window.addEventListener("agent-panel:set-mode", record);
         window.addEventListener("agent-panel:open-settings", record);
         window.addEventListener("agent-chat:open-thread", record);
+        window.addEventListener("agent-task-open", record);
         window.addEventListener("message", record);
         window.addEventListener(AGENT_CHAT_INSERT_REFERENCE_EVENT, record);
         onReadyChange?.(true);
@@ -60,6 +62,7 @@ vi.mock("./AgentSidebarPanel.js", async () => {
           window.removeEventListener("agent-panel:set-mode", record);
           window.removeEventListener("agent-panel:open-settings", record);
           window.removeEventListener("agent-chat:open-thread", record);
+          window.removeEventListener("agent-task-open", record);
           window.removeEventListener("message", record);
           window.removeEventListener(AGENT_CHAT_INSERT_REFERENCE_EVENT, record);
         };
@@ -315,7 +318,11 @@ describe("AgentSidebar panel", () => {
       mockPanel.resolveImport();
       await mockPanel.importGate;
     });
-    expect(mockPanel.events).toEqual([]);
+    expect(mockPanel.events.map((event) => event.type)).toEqual([
+      "agent-panel:set-mode",
+      "agent-panel:open-settings",
+      "agent-chat:open-thread",
+    ]);
     expect(container?.querySelector("textarea")).toBeTruthy();
     await act(async () => {
       window.dispatchEvent(
@@ -324,7 +331,7 @@ describe("AgentSidebar panel", () => {
         }),
       );
     });
-    expect(mockPanel.events).toHaveLength(0);
+    expect(mockPanel.events).toHaveLength(3);
     await act(async () => {
       window.dispatchEvent(
         new CustomEvent("agentNative:composer-reference-ready", {
@@ -333,14 +340,14 @@ describe("AgentSidebar panel", () => {
       );
     });
     expect(mockPanel.events).toHaveLength(7);
-    expect(mockPanel.events[0]).toEqual({
+    expect(mockPanel.events[3]).toEqual({
       type: "message",
       detail: {
         type: "agentNative.insertComposerReference",
         data: { type: "file", path: "/builder.md" },
       },
     });
-    expect(mockPanel.events.slice(1, 5)).toEqual([
+    expect([...mockPanel.events.slice(0, 3), mockPanel.events[4]]).toEqual([
       { type: "agent-panel:set-mode", detail: { mode: "resources" } },
       {
         type: "agent-panel:open-settings",
@@ -437,6 +444,7 @@ describe("AgentSidebar panel", () => {
           <TooltipProvider>
             <TiptapComposer
               disabled={disabled}
+              reportReferenceReadiness
               includeDefaultSlashSkills={false}
               plusMenuMode="hidden"
               voiceEnabled={false}
@@ -457,6 +465,8 @@ describe("AgentSidebar panel", () => {
         submissions.push(container!.textContent!);
     };
     window.addEventListener("message", observeSubmission);
+    const configureProvider = () => setDisabled(false);
+    window.addEventListener("agent-panel:open-settings", configureProvider);
     try {
       mockPanel.events = [];
       await act(async () => {
@@ -487,8 +497,11 @@ describe("AgentSidebar panel", () => {
       });
       expect(mockPanel.events).toEqual([]);
       expect(submissions).toEqual([]);
-      await act(async () => setDisabled(false));
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
+      });
       expect(mockPanel.events.map((event) => event.type)).toEqual([
+        "agent-panel:open-settings",
         AGENT_CHAT_INSERT_REFERENCE_EVENT,
         "message",
       ]);
@@ -496,7 +509,251 @@ describe("AgentSidebar panel", () => {
       expect(submissions[0]).toContain("Queued document");
     } finally {
       window.removeEventListener("message", observeSubmission);
+      window.removeEventListener(
+        "agent-panel:open-settings",
+        configureProvider,
+      );
     }
+  });
+
+  it("delivers panel controls while a reference and submission wait for the composer", async () => {
+    renderSidebar(false);
+    await act(async () =>
+      window.dispatchEvent(new CustomEvent("agent-panel:prepare")),
+    );
+    const controls = [
+      "agent-panel:open-settings",
+      "agent-panel:set-mode",
+      "agent-chat:open-thread",
+      "agent-task-open",
+    ];
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+          detail: { refType: "file", refId: "/waiting.md" },
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.submitChat",
+            data: {
+              message: "Use the reference",
+              submit: false,
+              targetTabId: "thread-example",
+            },
+          },
+        }),
+      );
+      for (const type of controls)
+        window.dispatchEvent(
+          new CustomEvent(type, {
+            detail: {
+              section: "api-keys",
+              mode: "resources",
+              threadId: "thread-example",
+            },
+          }),
+        );
+    });
+    expect(mockPanel.events.map((event) => event.type)).toEqual(controls);
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative:composer-reference-ready", {
+          detail: container!.querySelector("textarea"),
+        }),
+      );
+    });
+    expect(mockPanel.events.map((event) => event.type)).toEqual([
+      ...controls,
+      AGENT_CHAT_INSERT_REFERENCE_EVENT,
+      "message",
+    ]);
+    expect(mockPanel.events.at(-1)?.detail).toMatchObject({
+      data: { targetTabId: "thread-example" },
+    });
+  });
+
+  it("keeps real chat readiness when a resource composer opens and closes", async () => {
+    let showResource!: (show: boolean) => void;
+    function Composers() {
+      const runtime = useLocalRuntime({ async *run() {} });
+      const [resourceOpen, setResourceOpen] = React.useState(false);
+      showResource = setResourceOpen;
+      return (
+        <AssistantRuntimeProvider runtime={runtime}>
+          <TooltipProvider>
+            <TiptapComposer
+              ariaLabel="Chat editor"
+              reportReferenceReadiness
+              includeDefaultSlashSkills={false}
+              plusMenuMode="hidden"
+              voiceEnabled={false}
+            />
+            {resourceOpen && (
+              <PromptComposer
+                ariaLabel="Resource editor"
+                onSubmit={() => {}}
+                includeDefaultSlashSkills={false}
+                plusMenuMode="hidden"
+                voiceEnabled={false}
+              />
+            )}
+          </TooltipProvider>
+        </AssistantRuntimeProvider>
+      );
+    }
+    mockPanel.composer = <Composers />;
+    renderSidebar(false);
+    await act(async () =>
+      window.dispatchEvent(new CustomEvent("agent-panel:prepare")),
+    );
+    await act(async () => showResource(true));
+    expect(
+      container!.querySelector('[aria-label="Resource editor"]'),
+    ).toBeTruthy();
+    await act(async () => showResource(false));
+    mockPanel.events = [];
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+          detail: {
+            label: "Chat reference",
+            refType: "file",
+            refId: "/chat-reference.md",
+            slotKey: "document",
+            insertMessageId: "after-resource-close",
+          },
+        }),
+      ),
+    );
+    expect(mockPanel.events.map((event) => event.type)).toEqual([
+      AGENT_CHAT_INSERT_REFERENCE_EVENT,
+    ]);
+    expect(container!.textContent).toContain("Chat reference");
+  });
+
+  it("does not use a resource editor to unblock a disabled selected chat", async () => {
+    let setChatDisabled!: (disabled: boolean) => void;
+    function Composers() {
+      const runtime = useLocalRuntime({ async *run() {} });
+      const [disabled, setDisabled] = React.useState(false);
+      setChatDisabled = setDisabled;
+      return (
+        <AssistantRuntimeProvider runtime={runtime}>
+          <TooltipProvider>
+            <div data-testid="chat-composer">
+              <TiptapComposer
+                ariaLabel="Chat editor"
+                reportReferenceReadiness
+                disabled={disabled}
+                includeDefaultSlashSkills={false}
+                plusMenuMode="hidden"
+                voiceEnabled={false}
+              />
+            </div>
+            <PromptComposer
+              ariaLabel="Resource editor"
+              onSubmit={() => {}}
+              includeDefaultSlashSkills={false}
+              plusMenuMode="hidden"
+              voiceEnabled={false}
+            />
+          </TooltipProvider>
+        </AssistantRuntimeProvider>
+      );
+    }
+    mockPanel.composer = <Composers />;
+    renderSidebar(false);
+    await act(async () =>
+      window.dispatchEvent(new CustomEvent("agent-panel:prepare")),
+    );
+    await act(async () => setChatDisabled(true));
+    mockPanel.events = [];
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+          detail: {
+            label: "Retained chat reference",
+            refType: "file",
+            refId: "/retained.md",
+            slotKey: "document",
+            insertMessageId: "disabled-owner",
+          },
+        }),
+      ),
+    );
+    expect(mockPanel.events).toEqual([]);
+    await act(async () => setChatDisabled(false));
+    expect(mockPanel.events.map((event) => event.type)).toEqual([
+      AGENT_CHAT_INSERT_REFERENCE_EVENT,
+    ]);
+    expect(
+      container!.querySelector('[data-testid="chat-composer"]')!.textContent,
+    ).toContain("Retained chat reference");
+  });
+
+  it("revokes the old selected editor and waits for its replacement", async () => {
+    let selectEditor!: (editor: "first" | "second") => void;
+    let enableSecond!: () => void;
+    function Composers() {
+      const runtime = useLocalRuntime({ async *run() {} });
+      const [selected, setSelected] = React.useState("first");
+      const [secondDisabled, setSecondDisabled] = React.useState(true);
+      selectEditor = setSelected;
+      enableSecond = () => setSecondDisabled(false);
+      return (
+        <AssistantRuntimeProvider runtime={runtime}>
+          <TooltipProvider>
+            <TiptapComposer
+              ariaLabel="First editor"
+              reportReferenceReadiness={selected === "first"}
+              includeDefaultSlashSkills={false}
+              plusMenuMode="hidden"
+              voiceEnabled={false}
+            />
+            <div data-testid="second-composer">
+              <TiptapComposer
+                ariaLabel="Second editor"
+                reportReferenceReadiness={selected === "second"}
+                disabled={secondDisabled}
+                includeDefaultSlashSkills={false}
+                plusMenuMode="hidden"
+                voiceEnabled={false}
+              />
+            </div>
+          </TooltipProvider>
+        </AssistantRuntimeProvider>
+      );
+    }
+    mockPanel.composer = <Composers />;
+    renderSidebar(false);
+    await act(async () =>
+      window.dispatchEvent(new CustomEvent("agent-panel:prepare")),
+    );
+    await act(async () => selectEditor("second"));
+    mockPanel.events = [];
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+          detail: {
+            label: "Selected reference",
+            refType: "file",
+            refId: "/selected.md",
+            slotKey: "document",
+            insertMessageId: "selected-editor",
+          },
+        }),
+      ),
+    );
+    expect(mockPanel.events).toEqual([]);
+    await act(async () => enableSecond());
+    expect(mockPanel.events.map((event) => event.type)).toEqual([
+      AGENT_CHAT_INSERT_REFERENCE_EVENT,
+    ]);
+    expect(
+      container!.querySelector('[data-testid="second-composer"]')!.textContent,
+    ).toContain("Selected reference");
   });
 
   it("keeps pending work mounted when its chat run ends", async () => {
