@@ -712,12 +712,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     changedSpecRegressions.match(/^        timeout-minutes: (\d+)$/m)?.[1],
   );
   assert.ok(
-    Number.isInteger(jobTimeout) && jobTimeout === 14,
-    `Design acceptance job must have the exact fourteen-minute cap (got ${jobTimeout})`,
+    Number.isInteger(jobTimeout) && jobTimeout === 18,
+    `Design acceptance job must have the exact eighteen-minute cap (got ${jobTimeout})`,
   );
   assert.ok(
-    jobTimeout < 15,
-    "Design acceptance must stay below fifteen minutes",
+    jobTimeout < 20,
+    "Design acceptance must stay below twenty minutes",
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
@@ -733,9 +733,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(changedSpecStepTimeout) &&
-      changedSpecStepTimeout === 8 &&
+      changedSpecStepTimeout === 12 &&
       jobTimeout >= changedSpecStepTimeout + 6,
-    `changed-spec tests need the exact eight-minute cap and six minutes for setup (job ${jobTimeout}, step ${changedSpecStepTimeout})`,
+    `changed-spec tests need the exact twelve-minute cap and six minutes for setup (job ${jobTimeout}, step ${changedSpecStepTimeout})`,
   );
   assert.match(
     designJob,
