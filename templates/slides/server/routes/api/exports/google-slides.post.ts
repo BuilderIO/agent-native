@@ -9,6 +9,7 @@ import {
 import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
 import { trackDeckExported } from "../../../lib/deck-export-tracking.js";
 import { getGoogleDocsAccessToken } from "../../../lib/google-docs-oauth.js";
+import { requestWaitUntil } from "../../../lib/request-wait-until.js";
 import { generationAttemptIdOf } from "../../../lib/slides-tracking.js";
 
 const PPTX_CONTENT_TYPE =
@@ -110,10 +111,7 @@ export default defineEventHandler(async (event) => {
   );
   // The send may finish after the response; waitUntil keeps a serverless
   // function alive for it without delaying the response.
-  const waitUntil =
-    typeof event.req?.waitUntil === "function"
-      ? event.req.waitUntil.bind(event.req)
-      : undefined;
+  const waitUntil = requestWaitUntil(event);
   const trackExport = (errorType?: string) => {
     const send = factsPromise
       .then((facts) =>

@@ -98,13 +98,31 @@ export async function exportDeckToGoogleSlides(
   buildPptx?: () => Promise<DeckPptxFile>,
   analytics?: BrowserDeckExportFacts,
 ): Promise<GoogleSlidesExportResult> {
-  if (!(await googleDriveIsConnected())) {
+  const renderLocation = buildPptx ? "server" : "browser";
+  let connected: boolean;
+  try {
+    connected = await googleDriveIsConnected();
+  } catch (error) {
+    // No export happened, so this failure is unambiguous and nothing else
+    // reports it.
+    if (analytics) {
+      trackBrowserDeckExported("google_slides", {
+        ...analytics,
+        slideCount: slides.length,
+        renderLocation,
+        status: "failed",
+        errorType: "connection_check_failed",
+      });
+    }
+    throw error;
+  }
+  if (!connected) {
     // Same outcome the upload route records when it detects this itself.
     if (analytics) {
       trackBrowserDeckExported("google_slides", {
         ...analytics,
         slideCount: slides.length,
-        renderLocation: buildPptx ? "server" : "browser",
+        renderLocation,
         status: "failed",
         errorType: "google_not_connected",
       });
@@ -116,7 +134,6 @@ export async function exportDeckToGoogleSlides(
     };
   }
 
-  const renderLocation = buildPptx ? "server" : "browser";
   let built: DeckPptxFile;
   try {
     built = buildPptx
@@ -150,25 +167,13 @@ export async function exportDeckToGoogleSlides(
     form.append("renderLocation", renderLocation);
   }
 
-  let res: Response;
-  try {
-    res = await fetch(`${appBasePath()}/api/exports/google-slides`, {
-      method: "POST",
-      body: form,
-    });
-  } catch (error) {
-    // The request never reached the route, so nothing else reports it.
-    if (analytics) {
-      trackBrowserDeckExported("google_slides", {
-        ...analytics,
-        slideCount: slides.length,
-        renderLocation,
-        status: "failed",
-        errorType: "network_error",
-      });
-    }
-    throw error;
-  }
+  // A rejected upload doesn't prove the route never ran (the response can be
+  // lost after Drive accepted the file), so it is left to the route's own
+  // event; an export with no outcome counts as failed_unknown downstream.
+  const res = await fetch(`${appBasePath()}/api/exports/google-slides`, {
+    method: "POST",
+    body: form,
+  });
 
   const payload = (await res.json().catch(() => null)) as {
     url?: string;

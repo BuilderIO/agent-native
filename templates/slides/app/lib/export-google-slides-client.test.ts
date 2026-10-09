@@ -295,7 +295,7 @@ describe("exportDeckToGoogleSlides", () => {
     );
   });
 
-  it("reports a failed export when the upload request never reaches the route", async () => {
+  it("leaves an ambiguous upload rejection to the route's own event", async () => {
     vi.mocked(fetch).mockImplementation((async (input: RequestInfo | URL) => {
       if (requestString(input).includes("/api/exports/google-slides")) {
         throw new TypeError("Failed to fetch");
@@ -317,12 +317,30 @@ describe("exportDeckToGoogleSlides", () => {
       ),
     ).rejects.toThrow("Failed to fetch");
 
+    expect(trackMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed export when the connection check itself fails", async () => {
+    vi.mocked(fetch).mockImplementation(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    await expect(
+      exportDeckToGoogleSlides(
+        "Quarterly Review",
+        [{ id: "slide-1" }],
+        undefined,
+        undefined,
+        { deckId: "deck-1" },
+      ),
+    ).rejects.toThrow();
+
     expect(trackMock).toHaveBeenCalledTimes(1);
     expect(trackMock).toHaveBeenCalledWith(
       "deck_exported",
       expect.objectContaining({
         status: "failed",
-        error_type: "network_error",
+        error_type: "connection_check_failed",
       }),
     );
   });

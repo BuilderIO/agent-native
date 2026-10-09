@@ -455,6 +455,16 @@ describe("import-file PDF source extraction", () => {
     expect(
       mockTrack.mock.calls.filter(([name]) => name === "deck_created"),
     ).toHaveLength(0);
+    const edited = mockTrack.mock.calls.filter(
+      ([name]) => name === "deck_edited",
+    );
+    expect(edited).toHaveLength(1);
+    expect(edited[0]?.[1]).toMatchObject({
+      output_id: "deck-1",
+      edit_mode: "import_pdf",
+      change_kinds: ["add_slide"],
+      slides_changed: 1,
+    });
   });
 
   it("does not count a PDF imported into a deck that already has slides as a creation", async () => {
@@ -559,6 +569,19 @@ describe("import-file PDF source extraction", () => {
         ([name]) => name === "deck_created",
       );
       expect(created).toHaveLength(0);
+      expect(
+        mockTrack.mock.calls.filter(([name]) => name === "deck_edited"),
+      ).toEqual([
+        [
+          "deck_edited",
+          expect.objectContaining({
+            edit_mode: "import_docx",
+            change_kinds: ["add_slide"],
+            slides_changed: 1,
+          }),
+          { userId: "owner@example.com" },
+        ],
+      ]);
     },
   );
 

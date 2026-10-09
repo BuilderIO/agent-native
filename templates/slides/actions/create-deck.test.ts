@@ -1106,13 +1106,19 @@ describe("create-deck — generation lifecycle tracking", () => {
       output_type: "deck",
       creation_method: "generated",
       mode: "new",
-      has_text_prompt: false,
-      prompt_length_bucket: "0",
-      attachment_count: 0,
-      attachment_types: [],
-      has_reference_deck: false,
       is_retry: false,
     });
+    // An agent-created deck has no prompt or attachments to report: unknown,
+    // so the event must not claim "none".
+    for (const unknownFact of [
+      "has_text_prompt",
+      "prompt_length_bucket",
+      "attachment_count",
+      "attachment_types",
+      "has_reference_deck",
+    ]) {
+      expect(events[1]?.properties).not.toHaveProperty(unknownFact);
+    }
     expect(events[2]?.properties).toMatchObject({
       generation_mode: "incremental",
       slide_count: 0,

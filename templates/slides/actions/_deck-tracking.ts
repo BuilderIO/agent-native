@@ -230,13 +230,21 @@ export const trackDeckCreationStarted = bestEffort(
         creation_method: "generated",
         mode:
           context.mode === "source-preserving" ? "source_preserving" : "new",
-        has_text_prompt: typeof prompt === "string" && prompt.trim().length > 0,
-        prompt_length_bucket: promptLengthBucket(prompt),
-        attachment_count: files.length,
-        attachment_types: [...new Set(files.map(attachmentType))].sort(),
-        has_reference_deck:
-          typeof context.referenceDeckId === "string" &&
-          context.referenceDeckId.length > 0,
+        // The browser records the prompt, files and reference with every
+        // attempt; an agent-created deck has none of that, which is unknown
+        // rather than "no prompt" or "no attachments".
+        ...("originalPrompt" in context
+          ? {
+              has_text_prompt:
+                typeof prompt === "string" && prompt.trim().length > 0,
+              prompt_length_bucket: promptLengthBucket(prompt),
+              attachment_count: files.length,
+              attachment_types: [...new Set(files.map(attachmentType))].sort(),
+              has_reference_deck:
+                typeof context.referenceDeckId === "string" &&
+                context.referenceDeckId.length > 0,
+            }
+          : {}),
         has_design_system:
           typeof context.designSystemId === "string" &&
           context.designSystemId.length > 0,
