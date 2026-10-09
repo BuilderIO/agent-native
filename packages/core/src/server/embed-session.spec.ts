@@ -2429,7 +2429,7 @@ describe("directory widget session token size", () => {
 
   it("expires the cookie instead of sending the widest grant the browser would drop", () => {
     const { token } = slidesWidgetToken({
-      deckId: `deck-${"x".repeat(60)}`,
+      deckId: `deck-${"x".repeat(240)}`,
       email: `${"u".repeat(64)}@${"d".repeat(63)}.${"e".repeat(63)}.${"f".repeat(64)}.com`,
       orgId: "o".repeat(256),
     });
