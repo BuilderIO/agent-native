@@ -425,6 +425,8 @@ describe("resolveCanvasIntent", () => {
     "Create a reporting dashboard for Facebook ads",
     "Create a sales leaderboard for our Facebook ads team",
     "Show 3 options for a CRM dashboard for our ad agency",
+    "Design a Facebook ads dashboard UI",
+    "Create an email header editor UI",
   ])("keeps app surfaces responsive in %s", (prompt) => {
     expect(resolveCanvasIntent(prompt)).toEqual({ kind: "responsive" });
   });

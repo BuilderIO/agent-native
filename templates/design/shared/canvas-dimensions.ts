@@ -174,7 +174,7 @@ const OUTPUT_RELATION_BOUNDARY =
 // Matched against the head noun alone, so "Facebook ads reporting screen" stays
 // a screen: modifiers before a product-surface head never pick a fixed format.
 const PRODUCT_SURFACE_HEAD =
-  /^(?:pages?|screens?|views?|reports?|dashboards?|trackers?|analytics|lists?|managers?|editors?|builders?|makers?|generators?|creators?|tools?|apps?|applications?|forms?|librar(?:y|ies)|galler(?:y|ies)|schedulers?|portals?|platforms?|sites?|websites?|interfaces?|panels?|crms?|workspaces?|prototypes?|inbox(?:es)?|tables?|calendars?|feeds?|planners?|consoles?|flows?|settings)$/i;
+  /^(?:pages?|screens?|views?|reports?|dashboards?|trackers?|analytics|lists?|managers?|editors?|builders?|makers?|generators?|creators?|tools?|apps?|applications?|forms?|librar(?:y|ies)|galler(?:y|ies)|schedulers?|portals?|platforms?|sites?|websites?|interfaces?|uis?|ux|panels?|crms?|workspaces?|prototypes?|inbox(?:es)?|tables?|calendars?|feeds?|planners?|consoles?|flows?|settings)$/i;
 const GENERIC_ARTWORK_HEAD =
   /^(?:|graphics?|images?|creatives?|visuals?|assets?|artwork|art|designs?|mockups?|posts?|stor(?:y|ies)|banners?|ads?|thumbnails?|cards?|covers?|headers?|promos?|directions?|options?|variations?|variants?|versions?|concepts?|ideas?|layouts?|drafts?|sets?|series|batch(?:es)?)$/i;
 const NOUN_PHRASE_POSTMODIFIER = /,|\s(?:in|of|at|to|from|by|as|into|like)\s/i;

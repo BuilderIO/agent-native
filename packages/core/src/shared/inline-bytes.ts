@@ -32,6 +32,8 @@ const ATTACHMENT_LIST_KEYS = new Set([
 ]);
 const INLINE_URL_KEYS = ["image", "url", "referenceUrl", "dataUrl"] as const;
 const DATA_URL_PREFIX = /^\s*data:/i;
+// URL schemes are case-insensitive: `DATA:image/png;base64,...` is still bytes.
+const DATA_SCHEME = /data:/i;
 const HTTP_URL = /^https?:\/\//i;
 const EMBEDDED_DATA_URL =
   /\bdata:[\w.+-]+\/[\w.+-]+(?:;[^,;\s"'<>]*)*,[^\s"'<>)\]]*/gi;
@@ -88,7 +90,7 @@ function inlineMediaType(
 }
 
 function scrubString(value: string): string {
-  return value.includes("data:")
+  return DATA_SCHEME.test(value)
     ? value.replace(EMBEDDED_DATA_URL, (match) => {
         const mediaType = /^data:([^;,]+)/i.exec(match)?.[1] ?? "unknown";
         return `[inline ${mediaType.toLowerCase()} data omitted]`;
@@ -169,7 +171,7 @@ export function stripInlineBytesFromJson(
   json: string,
   policy: InlineBytesPolicy,
 ): string {
-  if (!json.includes("data:") && !json.includes('"data"')) return json;
+  if (!DATA_SCHEME.test(json) && !json.includes('"data"')) return json;
   return JSON.stringify(stripInlineBytes(JSON.parse(json), policy));
 }
 

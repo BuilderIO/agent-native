@@ -8,6 +8,7 @@ import {
   describeErrorWithCauses,
   isBareProviderRejectionMessage,
   isBuilderGatewayInternalErrorMessage,
+  isInvalidAttachmentProviderMessage,
   isProviderConnectionError,
   isProviderConnectionErrorMessage,
 } from "./error-detail.js";
@@ -121,9 +122,15 @@ describe("isProviderConnectionErrorMessage", () => {
     "Unable to process input image. Please retry.",
     "Provided image is not valid.",
     "Image too large",
-  ])("names a provider image rejection without a status: %s", (message) => {
-    expect(classifyTerminalErrorCode(message)).toBe("invalid_attachment");
-  });
+  ])(
+    "recognizes a provider image rejection without a status: %s",
+    (message) => {
+      expect(isInvalidAttachmentProviderMessage(message)).toBe(true);
+      // The message alone cannot say a request carried an attachment, so only
+      // the attachment-aware stop path may name it; a text-only run keeps Retry.
+      expect(classifyTerminalErrorCode(message)).toBe(undefined);
+    },
+  );
 
   it.each([
     "Image generation is not supported for this model.",

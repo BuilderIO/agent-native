@@ -97,6 +97,25 @@ describe("stripInlineBytes", () => {
     });
   });
 
+  it("scrubs data URLs whatever the case of the scheme", () => {
+    const upper = PIXELS.replace(/^data:/, "DATA:");
+    const mixed = PIXELS.replace(/^data:/, "Data:");
+
+    expect(
+      stripInlineBytes({ text: `a ${upper} b ${mixed} c` }, "reject"),
+    ).toEqual({
+      text: "a [inline image/png data omitted] b [inline image/png data omitted] c",
+    });
+
+    const event = JSON.stringify({ type: "text-delta", text: `look ${upper}` });
+    const stored = stripInlineBytesFromJson(event, "placeholder");
+    expect(stored).not.toMatch(/base64,/i);
+    expect(JSON.parse(stored)).toEqual({
+      type: "text-delta",
+      text: "look [inline image/png data omitted]",
+    });
+  });
+
   it("returns serialized JSON untouched when no body can be present", () => {
     const json = '{"type":"text-delta","text":"hi"}';
     expect(stripInlineBytesFromJson(json, "placeholder")).toBe(json);

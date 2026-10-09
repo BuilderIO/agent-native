@@ -323,9 +323,6 @@ export function classifyTerminalErrorCode(
   if (msg.includes("stream ended without a stop event")) {
     return "builder_gateway_network_error";
   }
-  if (PROVIDER_IMAGE_REJECTION_PATTERN.test(message)) {
-    return "invalid_attachment";
-  }
   if (
     msg.includes("reasoning_effort are not supported") ||
     msg.includes("reasoning_effort to 'none'") ||
