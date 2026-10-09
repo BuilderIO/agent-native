@@ -349,6 +349,9 @@ export const createJourneyCanvasInputSchema = z
           "Pass each app's root denominator for app-band layout.",
         );
       }
+      const appRootN = input.tree.appRootN ?? {};
+      const hasAppRootN = (app: string) =>
+        Object.prototype.hasOwnProperty.call(appRootN, app);
       const apps = new Set<string>();
       input.tree.nodes.forEach((node, index) => {
         const app = /^([a-z][a-z0-9-]{0,127})::/.exec(node.key)?.[1];
@@ -372,11 +375,10 @@ export const createJourneyCanvasInputSchema = z
           }
         }
         if (
-          input.tree.appRootN?.[app] !== undefined &&
+          hasAppRootN(app) &&
+          appRootN[app] !== undefined &&
           hasCohortMetrics(node) &&
-          Math.abs(
-            node.pctOfRoot - (node.n / input.tree.appRootN[app]!) * 100,
-          ) > 0.011
+          Math.abs(node.pctOfRoot - (node.n / appRootN[app]!) * 100) > 0.011
         ) {
           issue(
             ["tree", "nodes", index, "pctOfRoot"],
@@ -385,7 +387,7 @@ export const createJourneyCanvasInputSchema = z
         }
       });
       for (const app of apps) {
-        if (input.tree.appRootN?.[app] === undefined) {
+        if (!hasAppRootN(app) || appRootN[app] === undefined) {
           issue(
             ["tree", "appRootN", app],
             `Pass the root denominator for the ${app} cohort.`,

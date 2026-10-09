@@ -316,6 +316,15 @@ describe("create-journey-canvas input", () => {
     expect(problems(missingPrefix).join("\n")).toMatch(
       /App-band nodes need an app-prefixed key/,
     );
+
+    const inheritedDenominator = appBandsInput();
+    inheritedDenominator.tree.nodes[2]!.key = "constructor::root";
+    inheritedDenominator.tree.nodes[3]!.key = "constructor::child";
+    inheritedDenominator.tree.nodes[3]!.parentKey = "constructor::root";
+    inheritedDenominator.tree.appRootN = { clips: 100 };
+    expect(problems(inheritedDenominator).join("\n")).toMatch(
+      /Pass the root denominator for the constructor cohort/,
+    );
   });
 
   it("rejects data: and non-https image URLs with a clear message", () => {
