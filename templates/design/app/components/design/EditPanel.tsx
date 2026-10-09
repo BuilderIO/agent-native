@@ -340,6 +340,7 @@ interface EditPanelProps {
       url?: string;
       connectionId?: string;
     },
+    onSettled?: () => void,
   ) => void;
   onScreenUrlChange?: (screenId: string, url: string) => void;
   onAddLocalhostScreen?: () => void;
@@ -1125,6 +1126,7 @@ function ScreenGeometryProperties({
       url?: string;
       connectionId?: string;
     },
+    onSettled?: () => void,
   ) => void;
   onScreenUrlChange?: (screenId: string, url: string) => void;
   onAddLocalhostScreen?: () => void;
@@ -1252,7 +1254,13 @@ function ScreenGeometryProperties({
               }
               staticSourceTransitionInFlightRef.current = true;
               setSourceMode("url");
-              onScreenSourceChange?.(screen.id, { sourceType: "static" });
+              onScreenSourceChange?.(
+                screen.id,
+                { sourceType: "static" },
+                () => {
+                  staticSourceTransitionInFlightRef.current = false;
+                },
+              );
             }}
             className="w-full"
           >

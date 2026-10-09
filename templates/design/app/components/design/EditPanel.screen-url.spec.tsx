@@ -35,6 +35,7 @@ function renderUrlInspector(props: {
       url?: string;
       connectionId?: string;
     },
+    onSettled?: () => void,
   ) => void;
   screenSourcePending?: boolean;
 }) {
@@ -129,9 +130,13 @@ it("dispatches one source transition for one tab selection", async () => {
   });
 
   expect(onScreenSourceChange).toHaveBeenCalledTimes(1);
-  expect(onScreenSourceChange).toHaveBeenCalledWith("screen-1", {
-    sourceType: "static",
-  });
+  expect(onScreenSourceChange).toHaveBeenCalledWith(
+    "screen-1",
+    {
+      sourceType: "static",
+    },
+    expect.any(Function),
+  );
 
   renderUrlInspector({ onScreenSourceChange, screenSourcePending: true });
   renderUrlInspector({ onScreenSourceChange, screenSourcePending: false });
@@ -148,6 +153,47 @@ it("dispatches one source transition for one tab selection", async () => {
     );
     retryStaticTab!.focus();
   });
+  expect(onScreenSourceChange).toHaveBeenCalledTimes(2);
+});
+
+it("allows retry when a source transition fails before pending renders", async () => {
+  let settleTransition: (() => void) | undefined;
+  const onScreenSourceChange = vi.fn(
+    (
+      _screenId: string,
+      _next: {
+        sourceType: "static" | "url";
+        url?: string;
+        connectionId?: string;
+      },
+      onSettled?: () => void,
+    ) => {
+      settleTransition = onSettled;
+    },
+  );
+  const selectStaticTab = async () => {
+    const staticTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "editPanel.positionOptions.static");
+    expect(staticTab).toBeDefined();
+    await act(() => {
+      staticTab!.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      );
+      staticTab!.focus();
+    });
+  };
+
+  renderUrlInspector({ onScreenSourceChange, screenSourcePending: false });
+  await selectStaticTab();
+  expect(onScreenSourceChange).toHaveBeenCalledTimes(1);
+
+  act(() => settleTransition?.());
+  await selectStaticTab();
   expect(onScreenSourceChange).toHaveBeenCalledTimes(2);
 });
 
