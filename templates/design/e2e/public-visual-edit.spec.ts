@@ -1832,16 +1832,23 @@ test.describe.serial("public visual edit", () => {
       ).toBeVisible({ timeout: 20_000 });
 
       const publicationRequests: string[] = [];
-      const trackPendingPublication = (request: {
+      const isPendingPublicationRequest = (request: {
         url(): string;
         method(): string;
       }) => {
         const pathname = new URL(request.url()).pathname;
-        if (
+        return (
           request.method() === "POST" &&
           (pathname.endsWith("/live-edit-pending") ||
             pathname.endsWith("/publish-visual-edit-pending"))
-        ) {
+        );
+      };
+      const trackPendingPublication = (request: {
+        url(): string;
+        method(): string;
+      }) => {
+        if (isPendingPublicationRequest(request)) {
+          const pathname = new URL(request.url()).pathname;
           publicationRequests.push(pathname);
         }
       };
@@ -1899,8 +1906,22 @@ test.describe.serial("public visual edit", () => {
       ).toBeVisible();
       // A share-only viewer can stage edits locally. Durable handoff to the
       // owner requires the editor capability used by the signed-out editor flow.
-      await guest.page.waitForTimeout(1_000); // e2e-harness-ignore: observe delayed publication after commit
+      const unexpectedPublicationRequest = await guest.page
+        .waitForRequest(isPendingPublicationRequest, { timeout: 1_000 })
+        .then(
+          (request) => request.url(),
+          (error: unknown) => {
+            if (error instanceof Error && error.name === "TimeoutError") {
+              return null;
+            }
+            throw error;
+          },
+        );
+      expect(unexpectedPublicationRequest).toBeNull();
       expect(publicationRequests).toEqual([]);
+      await expect(
+        guest.page.getByRole("button", { name: "Apply edits", exact: true }),
+      ).toHaveCount(0);
       await expect(
         page.getByRole("button", { name: "Apply edits", exact: true }),
       ).toHaveCount(0);
