@@ -341,14 +341,30 @@ export type Operation = z.infer<typeof OperationSchema>;
 export function isMcpWidgetPatchAllowed(
   caller: string | undefined,
   operations: Operation[],
+  options?: { rewriteSource?: boolean; hasCreativeContext?: boolean },
 ): boolean {
   if (caller !== "mcp-widget-write") return true;
+  if (options?.rewriteSource || options?.hasCreativeContext) return false;
 
-  return operations.every(
-    (operation) =>
-      operation.op !== "patch-deck-fields" ||
-      Object.keys(operation.fields).every((field) => field === "title"),
-  );
+  return operations.every((operation) => {
+    if (operation.op === "patch-deck-fields") {
+      return (
+        Object.keys(operation.fields).length === 1 &&
+        typeof operation.fields.title === "string"
+      );
+    }
+
+    if (operation.op !== "patch-slide") return false;
+
+    return (
+      Object.keys(operation.fields).length === 1 &&
+      typeof operation.fields.content === "string" &&
+      typeof operation.baseContentHash === "string" &&
+      operation.baseContentHash.length > 0 &&
+      operation.baseFields === undefined &&
+      operation.preserveSource !== false
+    );
+  });
 }
 
 function persistedTargetSlideCount(deck: unknown): number | null {
@@ -994,7 +1010,12 @@ export default defineAction({
     },
     ctx,
   ) => {
-    if (!isMcpWidgetPatchAllowed(ctx?.caller, operations)) {
+    if (
+      !isMcpWidgetPatchAllowed(ctx?.caller, operations, {
+        rewriteSource,
+        hasCreativeContext: creativeContext !== undefined,
+      })
+    ) {
       fail(
         "The Slides widget can only update the deck title and slide content, not deck access or linked resources.",
         {

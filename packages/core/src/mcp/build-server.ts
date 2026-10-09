@@ -1722,6 +1722,7 @@ async function renewMcpDirectoryWidgetEmbedSession(
   );
   const scope = renewMcpDirectoryWidgetCapabilityScope(originalTicket.scope, {
     appId,
+    resourceUri: getMcpDirectoryWidgetResourceUri(appId),
     userEmail: identity.userEmail,
     orgId: callerOrgId,
     expiresAtMs: capabilityExpiresAtMs,

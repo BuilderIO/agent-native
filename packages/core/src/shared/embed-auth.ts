@@ -487,6 +487,7 @@ export function renewMcpDirectoryWidgetCapabilityScope(
   scope: string | undefined,
   input: {
     appId: string;
+    resourceUri: string;
     userEmail: string;
     orgId?: string | null;
     expiresAtMs: number;
@@ -510,20 +511,24 @@ export function renewMcpDirectoryWidgetCapabilityScope(
     if (!input.writeAllowed) {
       return createMcpDirectoryWidgetReadCapability({
         appId: capability.appId,
-        resourceUri: capability.resourceUri,
+        resourceUri: input.resourceUri,
         resourceIds: capability.resourceIds,
         actionArguments: capability.readActionArguments,
       });
     }
     return createMcpDirectoryWidgetWriteCapability({
       ...capability,
+      resourceUri: input.resourceUri,
       expiresAtMs: input.expiresAtMs,
     });
   }
 
   const decoded = decodeMcpDirectoryWidgetReadCapability(scope);
   return decoded.ok && decoded.capability.appId === input.appId
-    ? scope
+    ? createMcpDirectoryWidgetReadCapability({
+        ...decoded.capability,
+        resourceUri: input.resourceUri,
+      })
     : undefined;
 }
 

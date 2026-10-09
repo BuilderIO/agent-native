@@ -1058,7 +1058,7 @@ describe("requestMatchesEmbedTarget", () => {
     ).resolves.toBeNull();
   });
 
-  it("recognizes only an explicit embed query token or embed-session cookie", () => {
+  it("recognizes widget credentials without treating an unrelated cookie as explicit", () => {
     expect(
       hasExplicitEmbedSessionCredential(
         fakeEvent(
@@ -1069,7 +1069,8 @@ describe("requestMatchesEmbedTarget", () => {
     expect(
       hasExplicitEmbedSessionCredential(
         fakeEvent("/_agent-native/actions/get-document", {
-          cookie: `${EMBED_SESSION_COOKIE}=invalid`,
+          authorization: "Bearer invalid-widget-token",
+          [EMBED_TARGET_HEADER]: "/page/doc-1?embedded=1",
         }),
       ),
     ).toBe(true);
@@ -1080,11 +1081,29 @@ describe("requestMatchesEmbedTarget", () => {
         }),
       ),
     ).toBe(false);
+
+    const embedCookie = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "mail.test",
+      targetPath: "/design/design-1",
+      scope: "capability:mcp-directory-widget-read:test",
+      ttlSeconds: 60,
+    });
     expect(
       hasExplicitEmbedSessionCredential(
-        fakeEvent("/_agent-native/actions/get-document"),
+        fakeEvent("/_agent-native/actions/get-document", {
+          cookie: `${EMBED_SESSION_COOKIE}=${embedCookie}`,
+        }),
       ),
     ).toBe(false);
+    expect(
+      hasExplicitEmbedSessionCredential(
+        fakeEvent("/_agent-native/actions/get-document", {
+          cookie: `${EMBED_SESSION_COOKIE}=${embedCookie}`,
+          [EMBED_TARGET_HEADER]: "/design/design-1",
+        }),
+      ),
+    ).toBe(true);
   });
 
   it("resolves the embed owner for logout without a target referrer", async () => {

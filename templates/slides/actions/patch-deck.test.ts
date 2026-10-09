@@ -1803,6 +1803,16 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(
       isMcpWidgetPatchAllowed("mcp-widget-write", [
         { op: "patch-deck-fields", fields: { title: "Updated" } },
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: {
+            content:
+              '<div class="fmd-slide"><h1 style="left: 24px; width: 280px; color: #123456">Updated</h1></div>',
+          },
+          baseContentHash: "source-hash",
+          styleOnly: true,
+        },
       ]),
     ).toBe(true);
     expect(
@@ -1832,6 +1842,145 @@ describe("run() — asynchronous layout fit metadata", () => {
       id: "slide-1",
       content: "<div>Edited in widget</div>",
     });
+  });
+
+  it("denies structural ops and every non-editor slide field to widgets", () => {
+    const disallowed: Array<[string, Operation]> = [
+      ["delete", { op: "delete-slide", slideId: "slide-1" }],
+      [
+        "add",
+        {
+          op: "add-slide",
+          slideId: "slide-3",
+          fields: { content: "<div>New</div>" },
+        },
+      ],
+      ["reorder", { op: "reorder-slides", orderedIds: ["slide-2", "slide-1"] }],
+      ...Object.entries({
+        notes: "Presenter notes",
+        background: "#000000",
+        layout: "title",
+        layoutWarningDismissed: true,
+        imageUrl: "https://example.test/image.png",
+        imageLoading: true,
+        imagePrompt: "A landscape",
+        excalidrawData: "{}",
+        transition: "fade",
+        animations: [],
+        splitByParagraph: true,
+        skipped: true,
+      }).map(([field, value]): [string, Operation] => [
+        field,
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { [field]: value },
+          baseContentHash: "source-hash",
+        } as Operation,
+      ]),
+      [
+        "content plus notes",
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<div>Changed</div>", notes: "note" },
+          baseContentHash: "source-hash",
+        },
+      ],
+      [
+        "source-preservation override",
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<div>Changed</div>" },
+          baseContentHash: "source-hash",
+          preserveSource: false,
+        },
+      ],
+      [
+        "deck visibility metadata",
+        {
+          op: "patch-deck-fields",
+          fields: { title: "Updated", visibility: "public" },
+        },
+      ],
+    ];
+
+    for (const [name, operation] of disallowed) {
+      expect(
+        isMcpWidgetPatchAllowed("mcp-widget-write", [operation]),
+        name,
+      ).toBe(false);
+    }
+  });
+
+  it("rejects widget content patches with extra stale-write metadata", () => {
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<div>Changed</div>" },
+          baseContentHash: "source-hash",
+          baseFields: {},
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["source-import metadata", { rewriteSource: true }],
+    [
+      "creative-context metadata",
+      { creativeContext: { contextModeOverride: "off" } },
+    ],
+  ])("rejects widget writes to %s before writing", async (_name, extraArgs) => {
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        ...extraArgs,
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { title: "Updated" },
+          },
+        ],
+      },
+      { caller: "mcp-widget-write" },
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "mcp_widget_write_outside_editor_scope",
+      statusCode: 403,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("keeps structural and metadata operations available to normal callers", () => {
+    const operations: Operation[] = [
+      { op: "delete-slide", slideId: "slide-1" },
+      {
+        op: "add-slide",
+        slideId: "slide-3",
+        fields: { content: "<div>New slide</div>" },
+      },
+      { op: "reorder-slides", orderedIds: ["slide-2", "slide-1"] },
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { notes: "Presenter notes" },
+      },
+      { op: "patch-deck-fields", fields: { visibility: "public" } },
+    ];
+
+    expect(isMcpWidgetPatchAllowed("frontend", operations)).toBe(true);
+    expect(isMcpWidgetPatchAllowed("tool", operations)).toBe(true);
+    expect(
+      isMcpWidgetPatchAllowed("tool", operations, {
+        rewriteSource: true,
+        hasCreativeContext: true,
+      }),
+    ).toBe(true);
   });
 
   it.each(["tool", "webmcp"] as const)(

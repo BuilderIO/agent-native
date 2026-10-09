@@ -95,7 +95,13 @@ vi.mock("./auth.js", () => ({
 }));
 vi.mock("./embed-session.js", () => ({
   hasExplicitEmbedSessionCredential: (event: any) =>
-    Boolean(event._hasExplicitEmbedSessionCredential),
+    event._hasExplicitEmbedSessionCredential ??
+    Boolean(
+      event._query?.__an_embed_token ||
+      (event._headers?.authorization?.startsWith("Bearer ") &&
+        (event._headers?.["x-agent-native-embed-target"] ||
+          event._query?.__an_embed_target)),
+    ),
   resolveEmbedSessionFromRequest: (...args: unknown[]) =>
     mockResolveEmbedSessionFromRequest(...args),
   resolvedEmbedCapabilityScope: (session: { scope?: string } | null) =>
@@ -1499,9 +1505,10 @@ describe("mountActionRoutes", () => {
     await expect(
       mounted[0]!.handler({
         _method: "GET",
-        _hasExplicitEmbedSessionCredential: true,
+        _query: { __an_embed_token: "revoked-widget-token" },
+        _headers: { cookie: "better-auth.session_token=valid-session" },
         req: {
-          url: "http://app.test/_agent-native/actions/get-document?id=doc-1",
+          url: "http://app.test/_agent-native/actions/get-document?id=doc-1&__an_embed_token=revoked-widget-token",
         },
       }),
     ).rejects.toMatchObject({ statusCode: 401 });
@@ -1537,9 +1544,10 @@ describe("mountActionRoutes", () => {
     await expect(
       mounted[0]!.handler({
         _method: "GET",
-        _hasExplicitEmbedSessionCredential: true,
+        _query: { __an_embed_token: "scoped-widget-token" },
+        _headers: { cookie: "better-auth.session_token=valid-session" },
         req: {
-          url: "http://app.test/_agent-native/actions/get-document?id=doc-1",
+          url: "http://app.test/_agent-native/actions/get-document?id=doc-1&__an_embed_token=scoped-widget-token",
         },
       }),
     ).rejects.toBe(unavailable);
@@ -1575,6 +1583,10 @@ describe("mountActionRoutes", () => {
     await expect(
       mounted[0]!.handler({
         _method: "GET",
+        _headers: {
+          cookie:
+            "better-auth.session_token=valid-session; an_embed_session=unrelated-widget-cookie",
+        },
         req: {
           url: "http://app.test/_agent-native/actions/get-document?id=doc-1",
         },

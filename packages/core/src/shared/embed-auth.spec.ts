@@ -309,6 +309,7 @@ describe("MCP directory widget capability renewal", () => {
 
     const renewedScope = renewMcpDirectoryWidgetCapabilityScope(sourceScope, {
       appId: widget.appId,
+      resourceUri: widget.resourceUri,
       userEmail: widget.userEmail,
       expiresAtMs: Date.now() + 60_000,
       readAllowed: true,
@@ -341,12 +342,104 @@ describe("MCP directory widget capability renewal", () => {
     expect(
       renewMcpDirectoryWidgetCapabilityScope(sourceScope, {
         appId: widget.appId,
+        resourceUri: widget.resourceUri,
         userEmail: widget.userEmail,
         expiresAtMs: Date.now() + 60_000,
         readAllowed: false,
         writeAllowed: true,
       }),
     ).toBeUndefined();
+  });
+
+  it("rebinds a stale write capability to the current shared widget resource", () => {
+    const staleScope = createMcpDirectoryWidgetWriteCapability({
+      ...widget,
+      resourceUri: "ui://design/shell-v68",
+    });
+    expect(staleScope).toBeDefined();
+
+    const renewedScope = renewMcpDirectoryWidgetCapabilityScope(staleScope, {
+      appId: widget.appId,
+      resourceUri: widget.resourceUri,
+      userEmail: widget.userEmail,
+      expiresAtMs: Date.now() + 60_000,
+      readAllowed: true,
+      writeAllowed: true,
+    });
+
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(renewedScope, {
+        appId: widget.appId,
+        resourceUri: "ui://design/shell-v68",
+        userEmail: widget.userEmail,
+      }),
+    ).toBeUndefined();
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(renewedScope, {
+        appId: widget.appId,
+        resourceUri: widget.resourceUri,
+        userEmail: widget.userEmail,
+      }),
+    ).toEqual({
+      resourceIds: widget.resourceIds,
+      actionNames: ["update-design"],
+    });
+  });
+
+  it("rebinds a stale read capability without broadening its resource or actions", () => {
+    const staleScope = createMcpDirectoryWidgetReadCapability({
+      appId: widget.appId,
+      resourceUri: "ui://design/shell-v68",
+      resourceIds: widget.resourceIds,
+      actionArguments: widget.readActionArguments,
+    });
+    expect(staleScope).toBeDefined();
+
+    const renewedScope = renewMcpDirectoryWidgetCapabilityScope(staleScope, {
+      appId: widget.appId,
+      resourceUri: widget.resourceUri,
+      userEmail: widget.userEmail,
+      expiresAtMs: Date.now() + 60_000,
+      readAllowed: true,
+      writeAllowed: false,
+    });
+
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedScope, {
+        actionName: "get-design-snapshot",
+        appId: widget.appId,
+        resourceUri: widget.resourceUri,
+        args: { designId: "design-123" },
+        allowedArgumentNames: ["designId"],
+      }),
+    ).toBe(true);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedScope, {
+        actionName: "get-design-snapshot",
+        appId: widget.appId,
+        resourceUri: "ui://design/shell-v68",
+        args: { designId: "design-123" },
+        allowedArgumentNames: ["designId"],
+      }),
+    ).toBe(false);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedScope, {
+        actionName: "get-design-snapshot",
+        appId: widget.appId,
+        resourceUri: widget.resourceUri,
+        args: { designId: "different-design" },
+        allowedArgumentNames: ["designId"],
+      }),
+    ).toBe(false);
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedScope, {
+        actionName: "update-design",
+        appId: widget.appId,
+        resourceUri: widget.resourceUri,
+        args: { id: "design-123" },
+        allowedArgumentNames: ["id"],
+      }),
+    ).toBe(false);
   });
 });
 

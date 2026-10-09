@@ -1385,7 +1385,27 @@ export async function resolveEmbedSessionFromRequest(
 }
 
 export function hasExplicitEmbedSessionCredential(event: H3Event): boolean {
-  return Boolean(queryToken(event) || getCookie(event, EMBED_SESSION_COOKIE));
+  if (queryToken(event)) return true;
+
+  const targetHeader = getHeader(event, EMBED_TARGET_HEADER);
+  const targetQuery = getQuery(event)?.[EMBED_TARGET_QUERY_PARAM];
+  if (
+    bearerToken(event) &&
+    (typeof targetHeader === "string" ||
+      typeof targetQuery === "string" ||
+      (Array.isArray(targetQuery) && typeof targetQuery[0] === "string"))
+  ) {
+    return true;
+  }
+
+  const cookieClaims = verifyEmbedSessionToken(
+    getCookie(event, EMBED_SESSION_COOKIE),
+  );
+  return (
+    cookieClaims.ok &&
+    embedTokenMatchesRequestAudience(event, cookieClaims.claims) &&
+    requestMatchesEmbedTarget(event, cookieClaims.claims.targetPath)
+  );
 }
 
 export function requestHasEmbedAuthMarker(event: H3Event): boolean {

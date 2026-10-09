@@ -2415,6 +2415,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     const originalTicket = embedSessionMocks.renewalTickets.get(sourceTicket);
     expect(originalTicket).toBeDefined();
+    expect(originalTicket.scope).toContain("shell-v69");
+    originalTicket.scope = originalTicket.scope.replace(
+      "shell-v69",
+      "shell-v68",
+    );
+    embedSessionMocks.renewalTickets.set(sourceTicket, originalTicket);
     originalTicket.renewalExpiresAtMs = Date.now() + 7 * 24 * 60 * 60 * 1000;
     embedSessionMocks.renewalTickets.set("foreign-user-ticket", {
       ...originalTicket,
@@ -2482,9 +2488,28 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
     const {
       getMcpDirectoryWidgetWriteCapabilityExpiresAt,
+      getMcpDirectoryWidgetWriteCapabilityGrant,
+      isMcpDirectoryWidgetReadCapabilityScope,
       isMcpDirectoryWidgetWriteCapabilityScope,
     } = await import("../shared/embed-auth.js");
     expect(isMcpDirectoryWidgetWriteCapabilityScope(writeScope)).toBe(true);
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(writeScope, {
+        appId: "mail",
+        resourceUri: "ui://mail/shell-v68",
+        userEmail: "oauth@example.com",
+      }),
+    ).toBeUndefined();
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(writeScope, {
+        appId: "mail",
+        resourceUri: "ui://mail/shell-v69",
+        userEmail: "oauth@example.com",
+      }),
+    ).toEqual({
+      resourceIds: { documentId: "doc-1" },
+      actionNames: ["update-document"],
+    });
     const expiresAt = getMcpDirectoryWidgetWriteCapabilityExpiresAt(writeScope);
     expect(expiresAt).toBeGreaterThan(Date.now());
     expect(expiresAt).toBeLessThanOrEqual(Date.now() + 15 * 60 * 1000);
@@ -2512,10 +2537,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(readOnlyReopened.result.isError).not.toBe(true);
     const readOnlyScope =
       embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
-    const {
-      getMcpDirectoryWidgetWriteCapabilityGrant,
-      isMcpDirectoryWidgetReadCapabilityScope,
-    } = await import("../shared/embed-auth.js");
     expect(isMcpDirectoryWidgetReadCapabilityScope(readOnlyScope)).toBe(true);
     expect(
       getMcpDirectoryWidgetWriteCapabilityGrant(readOnlyScope, {
