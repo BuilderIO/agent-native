@@ -2967,6 +2967,13 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "const canEdit = widgetEditability.canEditDocument;",
     );
+    expect(source).toContain("<PageDraftRecovery");
+    const recoverySource = readFileSync(
+      new URL("./PageDraftRecovery.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(recoverySource).toContain("scopedWidgetReadOnly ||");
+    expect(recoverySource).toContain("document.canEdit !== true ||");
     expect(source).toContain("flushAllBlockFieldSaveControllersForDocument");
     expect(source).toContain("flushDocumentPropertyWrites(documentId)");
     const navigationFlushStart = source.indexOf("const flushLatestPageEdits =");
@@ -3105,6 +3112,10 @@ describe("document editor layout", () => {
     );
     expect(documentEditorSource).toContain(
       'awareness.setLocalStateField("canFlushDocument", false)',
+    );
+
+    expect(documentEditorSource).toContain(
+      "collabEnabled &&\n    !creationAwaitingFirstRead &&\n    !holdCollaborationForCreationSave &&\n    !isDocumentCreationPending(queryClient, document)\n      ? documentId\n      : null",
     );
 
     expect(documentEditorSource).toContain(
