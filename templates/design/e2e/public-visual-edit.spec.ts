@@ -307,10 +307,10 @@ test.describe.serial("public visual edit", () => {
       createdDesign?: boolean;
       urlPath?: string;
     };
-    createdDesignId = opened.designId;
     try {
       expect(opened.createdDesign).toBe(true);
-      if (!createdDesignId) throw new Error("open-visual-edit returned no ID");
+      if (!opened.designId) throw new Error("open-visual-edit returned no ID");
+      createdDesignId = opened.designId;
       if (!opened.urlPath) throw new Error("open-visual-edit returned no URL");
 
       await page.goto(
