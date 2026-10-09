@@ -418,36 +418,53 @@ export function auditReplayIframeContent({
   ] = [
     (value, geometry) => {
       const match = value.trim().match(/^rect\((.*)\)$/i);
-      if (!match || geometry.uncertain) {
-        return null;
-      }
+      if (!match) return null;
 
       const values = match[1]!
         .trim()
         .split(/\s*,\s*|\s+/)
         .filter(Boolean);
       if (values.length !== 4) return null;
-      const [resolveOffset]: [
-        (token: string, automatic: number) => number | null,
-      ] = [
-        (token, automatic) => {
-          if (token.toLowerCase() === "auto") return automatic;
+      type Offset = { kind: "auto" } | { kind: "value"; value: number };
+      const [parseOffset]: [(token: string) => Offset | null] = [
+        (token) => {
+          if (token.toLowerCase() === "auto") return { kind: "auto" };
           const number = token.match(/^(-?(?:\d+(?:\.\d*)?|\.\d+))(px)?$/i);
           if (!number) return null;
           const amount = Number(number[1]);
           if (!Number.isFinite(amount) || (!number[2] && amount !== 0)) {
             return null;
           }
-          return amount;
+          return { kind: "value", value: amount };
         },
       ];
-      const top = resolveOffset(values[0]!, 0);
-      const right = resolveOffset(values[1]!, geometry.width);
-      const bottom = resolveOffset(values[2]!, geometry.height);
-      const left = resolveOffset(values[3]!, 0);
-      if (top === null || right === null || bottom === null || left === null) {
-        return null;
-      }
+      const offsets = values.map(parseOffset);
+      if (offsets.some((offset) => offset === null)) return null;
+      const [topOffset, rightOffset, bottomOffset, leftOffset] = offsets as [
+        Offset,
+        Offset,
+        Offset,
+        Offset,
+      ];
+      const horizontalIsEmpty =
+        rightOffset.kind === "value" &&
+        leftOffset.kind === "value" &&
+        rightOffset.value <= leftOffset.value;
+      const verticalIsEmpty =
+        bottomOffset.kind === "value" &&
+        topOffset.kind === "value" &&
+        bottomOffset.value <= topOffset.value;
+      if (horizontalIsEmpty || verticalIsEmpty) return [];
+      if (geometry.uncertain) return null;
+
+      const [resolveOffset]: [(offset: Offset, automatic: number) => number] = [
+        (offset, automatic) =>
+          offset.kind === "auto" ? automatic : offset.value,
+      ];
+      const top = resolveOffset(topOffset, 0);
+      const right = resolveOffset(rightOffset, geometry.width);
+      const bottom = resolveOffset(bottomOffset, geometry.height);
+      const left = resolveOffset(leftOffset, 0);
       if (right <= left || bottom <= top) return [];
       if (geometry.width <= 0 || geometry.height <= 0) return null;
       return [
@@ -843,6 +860,7 @@ export function auditReplayIframeContent({
         if (
           legacyClip &&
           legacyClip !== "auto" &&
+          styles.display !== "contents" &&
           (styles.position === "absolute" || styles.position === "fixed")
         ) {
           const geometry = geometryFor(current, view);
