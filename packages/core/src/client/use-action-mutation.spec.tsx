@@ -5,7 +5,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { useActionMutation } from "./use-action.js";
+import { useActionMutation, useActionQuery } from "./use-action.js";
 
 describe("useActionMutation", () => {
   const roots: ReturnType<typeof createRoot>[] = [];
@@ -132,4 +132,134 @@ describe("useActionMutation", () => {
       expect(payload).toEqual({ id: "page" });
     },
   );
+});
+
+describe("useActionMutation resource-scoped invalidation", () => {
+  const roots: ReturnType<typeof createRoot>[] = [];
+  const containers: HTMLDivElement[] = [];
+
+  afterEach(() => {
+    for (const root of roots) act(() => root.unmount());
+    for (const container of containers) container.remove();
+    roots.length = 0;
+    containers.length = 0;
+    vi.unstubAllGlobals();
+  });
+
+  function actionFetchMock() {
+    return vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+  }
+
+  function refetchedActionNames(fetch: ReturnType<typeof actionFetchMock>) {
+    return fetch.mock.calls
+      .filter(([, init]) => (init?.method ?? "GET") === "GET")
+      .map(
+        ([input]) =>
+          String(input).split("/_agent-native/actions/")[1]!.split("?")[0],
+      )
+      .sort();
+  }
+
+  async function mountAndMutate(
+    Probe: React.FC<{ mutate: (run: () => Promise<unknown>) => void }>,
+    fetch: ReturnType<typeof actionFetchMock>,
+  ) {
+    vi.stubGlobal("fetch", fetch);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    let runMutation: (() => Promise<unknown>) | undefined;
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe mutate={(run) => (runMutation = run)} />
+        </QueryClientProvider>,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    fetch.mockClear();
+    await act(async () => {
+      await runMutation!();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+  }
+
+  it("refetches only the action queries tagged for the mutated resource", async () => {
+    const fetch = actionFetchMock();
+    function Probe({
+      mutate,
+    }: {
+      mutate: (run: () => Promise<unknown>) => void;
+    }) {
+      useActionQuery("list-designs", undefined, { resources: ["design"] });
+      useActionQuery("get-design", { id: "d1" }, { resources: ["design"] });
+      useActionQuery("list-documents", undefined, { resources: ["document"] });
+      const mutation = useActionMutation("update-design", {
+        resources: ["design"],
+      });
+      mutate(() => mutation.mutateAsync({ id: "d1" }));
+      return null;
+    }
+
+    await mountAndMutate(Probe, fetch);
+
+    expect(refetchedActionNames(fetch)).toEqual(["get-design", "list-designs"]);
+  });
+
+  it("still refetches untagged action queries, whose affected set is unknown", async () => {
+    const fetch = actionFetchMock();
+    function Probe({
+      mutate,
+    }: {
+      mutate: (run: () => Promise<unknown>) => void;
+    }) {
+      useActionQuery("list-designs", undefined, { resources: ["design"] });
+      useActionQuery("list-documents", undefined, { resources: ["document"] });
+      useActionQuery("get-settings");
+      const mutation = useActionMutation("update-design", {
+        resources: ["design"],
+      });
+      mutate(() => mutation.mutateAsync({ id: "d1" }));
+      return null;
+    }
+
+    await mountAndMutate(Probe, fetch);
+
+    expect(refetchedActionNames(fetch)).toEqual([
+      "get-settings",
+      "list-designs",
+    ]);
+  });
+
+  it("refetches every action query for a write that declares no resources", async () => {
+    const fetch = actionFetchMock();
+    function Probe({
+      mutate,
+    }: {
+      mutate: (run: () => Promise<unknown>) => void;
+    }) {
+      useActionQuery("list-designs", undefined, { resources: ["design"] });
+      useActionQuery("list-documents", undefined, { resources: ["document"] });
+      const mutation = useActionMutation("update-design");
+      mutate(() => mutation.mutateAsync({ id: "d1" }));
+      return null;
+    }
+
+    await mountAndMutate(Probe, fetch);
+
+    expect(refetchedActionNames(fetch)).toEqual([
+      "list-designs",
+      "list-documents",
+    ]);
+  });
 });

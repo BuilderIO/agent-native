@@ -25,6 +25,11 @@ import {
   resetActionFailureCircuit,
   resetActionFailureCircuits,
 } from "./action-failure-circuit.js";
+import {
+  ACTION_RESOURCES_META_KEY,
+  actionQueryAffectedByResources,
+  type ActionScopedQuery,
+} from "./action-query-scope.js";
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { trackEvent } from "./analytics.js";
@@ -1044,11 +1049,23 @@ export function useActionQuery<
   options?: Omit<
     UseQueryOptions<TResult extends undefined ? ActionResult<TName> : TResult>,
     "queryKey" | "queryFn"
-  >,
+  > & {
+    /**
+     * The resource types this query reads (matching a write's `resources` and a
+     * sync event's `resourceType`). Omit it and every resource-scoped change
+     * still refetches the query.
+     */
+    resources?: readonly string[];
+  },
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
   const apiDisabled = Boolean(agentNativeApiDisabledReason());
-  const { refetchInterval, retry: callerRetry, ...restOptions } = options ?? {};
+  const {
+    refetchInterval,
+    retry: callerRetry,
+    resources,
+    ...restOptions
+  } = options ?? {};
   const circuitKey = () => hashKey(["action", actionName, params]);
   return useQuery<R>({
     queryKey: ["action", actionName, params],
@@ -1077,11 +1094,33 @@ export function useActionQuery<
     },
     retryDelay: defaultActionQueryRetryDelay,
     ...restOptions,
+    ...(resources
+      ? {
+          meta: {
+            ...restOptions.meta,
+            [ACTION_RESOURCES_META_KEY]: resources,
+          },
+        }
+      : {}),
     ...(refetchInterval !== undefined
       ? { refetchInterval: guardActionQueryRefetchInterval(refetchInterval) }
       : {}),
     ...(apiDisabled ? { enabled: false as const } : {}),
   });
+}
+
+/**
+ * A write that names its resources refreshes only the action queries tagged for
+ * them (and untagged ones, whose reads are unknown). A write that names none
+ * refreshes every action query.
+ */
+function actionQueryInvalidation(resources: readonly string[] | undefined) {
+  if (!resources?.length) return { queryKey: ["action"] };
+  const changed = new Set(resources);
+  return {
+    predicate: (query: ActionScopedQuery) =>
+      actionQueryAffectedByResources(query, changed),
+  };
 }
 
 export function useActionMutation<
@@ -1100,6 +1139,8 @@ export function useActionMutation<
   > & {
     method?: "POST" | "PUT" | "DELETE";
     skipActionQueryInvalidation?: boolean;
+    /** The resource types this write changes; see `useActionQuery`. */
+    resources?: readonly string[];
     timeoutMs?: number;
     headers?:
       | Record<string, string>
@@ -1115,6 +1156,7 @@ export function useActionMutation<
     method: methodOpt,
     onSuccess,
     skipActionQueryInvalidation = false,
+    resources,
     timeoutMs,
     headers,
     ...restOptions
@@ -1138,7 +1180,7 @@ export function useActionMutation<
         window.dispatchEvent(new Event("agentNative:syncActivity"));
       }
       if (!skipActionQueryInvalidation) {
-        void queryClient.invalidateQueries({ queryKey: ["action"] });
+        void queryClient.invalidateQueries(actionQueryInvalidation(resources));
       }
       return (onSuccess as Function)?.(...args);
     },

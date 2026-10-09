@@ -13,6 +13,7 @@ vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
 }));
 
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { useActionQuery } from "@agent-native/core/client/use-action";
 import { navigateForSession } from "@agent-native/core/client/use-session";
 import {
   decodeContinuation,
@@ -20,6 +21,7 @@ import {
   SIGN_IN_LEGACY_ENTRY_PATH,
 } from "@agent-native/core/shared/sign-in-journey";
 import { SESSION_NAVIGATION_STALL_MS } from "@agent-native/core/shared/ssr-session-bootstrap";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { RequireSession } from "./RequireSession.js";
 
@@ -346,6 +348,156 @@ describe("RequireSession", () => {
     expect(container.querySelector('[data-testid="protected"]')).not.toBeNull();
     expect(useSessionMock).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("RequireSession action reads while the session resolves", () => {
+  let queryClient: QueryClient;
+
+  function setSessionHintCookie(present: boolean) {
+    document.cookie = present
+      ? "an_session_hint=1; path=/"
+      : "an_session_hint=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  }
+
+  function designsRequests(fetchMock: ReturnType<typeof vi.fn>): number {
+    return fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes("/_agent-native/actions/list-designs"),
+    ).length;
+  }
+
+  function DesignsChild() {
+    const designs = useActionQuery("list-designs");
+    return (
+      <div data-testid="protected">
+        {designs.isSuccess ? "designs" : "pending"}
+      </div>
+    );
+  }
+
+  function renderShell() {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RequireSession>
+          <DesignsChild />
+        </RequireSession>
+      </QueryClientProvider>,
+    );
+  }
+
+  async function settle() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  function designsFetch(status = 200) {
+    return vi.fn(
+      async () =>
+        new Response(JSON.stringify(status === 200 ? [{ id: "d1" }] : {}), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    queryClient = new QueryClient();
+  });
+
+  afterEach(() => {
+    setSessionHintCookie(false);
+    queryClient.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it("starts the action read before the session resolves when a hint exists", async () => {
+    setSessionHintCookie(true);
+    const fetchMock = designsFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: true,
+      status: "loading",
+    });
+
+    renderShell();
+    await settle();
+
+    expect(designsRequests(fetchMock)).toBe(1);
+    expect(
+      container.querySelector('[data-agent-native-app-skeleton="true"]'),
+    ).not.toBeNull();
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the app tree mounted when the session resolves, so the early read is not repeated", async () => {
+    setSessionHintCookie(true);
+    const fetchMock = designsFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: true,
+      status: "loading",
+    });
+    renderShell();
+    await settle();
+
+    useSessionMock.mockReturnValue({
+      session: { userId: "u1", email: "a@b.com" },
+      isLoading: false,
+      status: "authenticated",
+    });
+    renderShell();
+    await settle();
+
+    expect(
+      container.querySelector('[data-testid="protected"]')?.textContent,
+    ).toBe("designs");
+    expect(designsRequests(fetchMock)).toBe(1);
+  });
+
+  it("does not start the action read before the session resolves without a hint", async () => {
+    const fetchMock = designsFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: true,
+      status: "loading",
+    });
+
+    renderShell();
+    await settle();
+
+    expect(designsRequests(fetchMock)).toBe(0);
+    expect(container.querySelector('[data-testid="protected"]')).toBeNull();
+  });
+
+  it("still redirects to sign-in when a hinted read is refused and the session resolves signed out", async () => {
+    setSessionHintCookie(true);
+    const fetchMock = designsFetch(401);
+    vi.stubGlobal("fetch", fetchMock);
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: true,
+      status: "loading",
+    });
+    renderShell();
+    await settle();
+
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: false,
+      status: "unauthenticated",
+    });
+    renderShell();
+    await settle();
+
+    expect(designsRequests(fetchMock)).toBe(1);
+    expect(replaceMock).toHaveBeenCalledTimes(1);
+    expect(replaceMock.mock.calls[0][0]).toContain(`${SIGN_IN_ENTRY_PATH}?c=`);
+    expect(container.querySelector('[data-testid="protected"]')).toBeNull();
   });
 });
 
