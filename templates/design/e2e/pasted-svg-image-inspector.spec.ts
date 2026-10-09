@@ -628,7 +628,7 @@ test("stroke gradient edits stay on the selected nested pasted-SVG shape", async
       .getByRole("treeitem", { level: 4 })
       .first();
     await expect(reloadedTarget).toBeVisible();
-    await reloadedTarget.click();
+    await clickLayerRowAndAssertSelected(reloadedTarget);
     const reloadedStroke = page
       .getByRole("heading", { name: "Stroke", exact: true })
       .locator("xpath=ancestor::section");
