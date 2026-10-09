@@ -4157,9 +4157,15 @@ function createAuthGuardFn(
     if (tokenPublicPaths.length > 0) {
       const query = getQuery(event);
       if (
-        tokenPublicPaths.some(
-          ({ queryParam }) => query[queryParam] !== undefined,
-        )
+        tokenPublicPaths.some(({ queryParam }) => {
+          const value = query[queryParam];
+          if (typeof value === "string") return Boolean(value.trim());
+          return (
+            Array.isArray(value) &&
+            typeof value[0] === "string" &&
+            Boolean(value[0].trim())
+          );
+        })
       ) {
         return;
       }

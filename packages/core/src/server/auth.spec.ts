@@ -3655,14 +3655,22 @@ describe("server/auth", () => {
       const guard = app.use.mock.calls
         .map((call: any[]) => call[0])
         .find((handler: unknown) => typeof handler === "function");
-      const sessionFallback = createMockEvent({
-        path: "/api/session-replay/recordings/sr_1/chunks",
-        query: { seqs: "0" },
-      });
-      await expect(guard(sessionFallback)).resolves.toEqual({
-        error: "You do not have access to this workspace app.",
-      });
-      expect(sessionFallback.res.status).toBe(403);
+      const sessionFallbackQueries = [
+        { seqs: "0" },
+        { seqs: "0", agent_access: "" },
+        { seqs: "0", agent_access: "   " },
+        { seqs: "0", agent_access: ["", "scoped-token"] },
+      ];
+      for (const query of sessionFallbackQueries) {
+        const sessionFallback = createMockEvent({
+          path: "/api/session-replay/recordings/sr_1/chunks",
+          query,
+        });
+        await expect(guard(sessionFallback)).resolves.toEqual({
+          error: "You do not have access to this workspace app.",
+        });
+        expect(sessionFallback.res.status).toBe(403);
+      }
       expect(checkAppAccess).toHaveBeenCalledWith("analytics", {
         email: "member@example.com",
         orgId: "org-1",
@@ -3674,8 +3682,10 @@ describe("server/auth", () => {
       });
       await expect(guard(scopedTokenRequest)).resolves.toBeUndefined();
       expect(scopedTokenRequest.res.status).toBe(200);
-      expect(getSession).toHaveBeenCalledTimes(1);
-      expect(checkAppAccess).toHaveBeenCalledTimes(1);
+      expect(getSession).toHaveBeenCalledTimes(sessionFallbackQueries.length);
+      expect(checkAppAccess).toHaveBeenCalledTimes(
+        sessionFallbackQueries.length,
+      );
     });
 
     it("keeps org access recovery controls reachable for a disabled app", async () => {
@@ -12095,14 +12105,16 @@ function createMockApp(): any {
 
 function createMockEvent(opts?: {
   cookies?: Record<string, string>;
-  query?: Record<string, string>;
+  query?: Record<string, string | string[]>;
   headers?: Record<string, string>;
   path?: string;
 }): any {
   const query = opts?.query || {};
   const headers = opts?.headers || {};
   const qs = Object.entries(query)
-    .map(([k, v]) => `${k}=${v}`)
+    .flatMap(([key, value]) =>
+      (Array.isArray(value) ? value : [value]).map((item) => `${key}=${item}`),
+    )
     .join("&");
   const pathname = opts?.path || "/";
   const url = qs ? `${pathname}?${qs}` : pathname;
