@@ -832,6 +832,86 @@ test("Shift-picking a Screen extends the Delete selection in All screens", async
   }
 });
 
+test("Shift-marquee adds a hit Screen to the existing Delete selection", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 4400 });
+  const id = await newThreeScreenDesign(page);
+  try {
+    await openEditor(page, id);
+    const homeId = await fileIdByFilename(page, id, "index.html");
+    const secondId = await fileIdByFilename(page, id, "second.html");
+    const secondFrame = page.locator(`[data-frame-id="${secondId}"]`);
+    const homeTitle = page.locator(
+      `[data-frame-id="${homeId}"] [data-frame-title]`,
+    );
+    await homeTitle.click();
+    await expect.poll(() => selectedScreenIds(page)).toContain(homeId);
+    await expect
+      .poll(async () => {
+        const frameBox = await secondFrame.boundingBox();
+        const canvasBox = await page
+          .locator("[data-multi-screen-canvas-surface]")
+          .boundingBox();
+        return Boolean(
+          frameBox &&
+          canvasBox &&
+          frameBox.x >= canvasBox.x &&
+          frameBox.y >= canvasBox.y &&
+          frameBox.x + frameBox.width <= canvasBox.x + canvasBox.width &&
+          frameBox.y + frameBox.height <= canvasBox.y + canvasBox.height,
+        );
+      })
+      .toBe(true);
+
+    const frameBox = await secondFrame.boundingBox();
+    const canvas = await page
+      .locator("[data-multi-screen-canvas-surface]")
+      .boundingBox();
+    expect(frameBox).not.toBeNull();
+    expect(canvas).not.toBeNull();
+    const margin = 24;
+    const from = {
+      x: Math.max(canvas!.x, frameBox!.x - margin),
+      y: Math.max(canvas!.y, frameBox!.y - margin),
+    };
+    const to = {
+      x: Math.min(
+        canvas!.x + canvas!.width,
+        frameBox!.x + frameBox!.width + margin,
+      ),
+      y: Math.min(
+        canvas!.y + canvas!.height,
+        frameBox!.y + frameBox!.height + margin,
+      ),
+    };
+    expect(from.x).toBeGreaterThanOrEqual(canvas!.x);
+    expect(from.y).toBeGreaterThanOrEqual(canvas!.y);
+    expect(to.x).toBeLessThanOrEqual(canvas!.x + canvas!.width);
+    expect(to.y).toBeLessThanOrEqual(canvas!.y + canvas!.height);
+
+    await page.keyboard.down("Shift");
+    try {
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(to.x, to.y, { steps: 12 });
+      await page.mouse.up();
+    } finally {
+      await page.keyboard.up("Shift");
+    }
+    await expect
+      .poll(() => selectedScreenIds(page))
+      .toEqual(expect.arrayContaining([homeId, secondId]));
+
+    await page.keyboard.press("Delete");
+    await expect(layerRow(page, "Home")).toHaveCount(0);
+    await expect(layerRow(page, "Second")).toHaveCount(0);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+  } finally {
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
 test("undoing a canvas element click restores its explicit Screen target for Delete", async ({
   page,
 }) => {
