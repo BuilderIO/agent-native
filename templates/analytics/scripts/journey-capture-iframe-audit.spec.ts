@@ -350,6 +350,47 @@ describe("replay iframe audit", () => {
     ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
   });
 
+  it("does not treat a boxless contents ancestor as an absolute containing block", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const containingBlock = replayDocument.createElement("div");
+    containingBlock.style.position = "relative";
+    replayDocument.body.append(containingBlock);
+    const clipper = appendClipper(
+      replayDocument,
+      { left: 0, top: 0, width: 20, height: 20 },
+      20,
+      20,
+      containingBlock,
+    );
+    const contents = replayDocument.createElement("div");
+    contents.style.display = "contents";
+    contents.style.position = "relative";
+    contents.style.contain = "paint";
+    clipper.append(contents);
+    const frame = appendFrame(
+      replayDocument,
+      { left: 30, top: 30, width: 20, height: 20 },
+      20,
+      20,
+      contents,
+    );
+    frame.style.position = "absolute";
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
+  });
+
   it("does not clip frames against non-atomic inline ancestors", () => {
     const replayFrame = appendFrame(
       document,

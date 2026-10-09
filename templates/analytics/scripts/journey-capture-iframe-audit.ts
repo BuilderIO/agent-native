@@ -8,7 +8,7 @@ export interface ReplayIframeAudit {
   unavailableIframeCount: number;
 }
 
-/** This function is serialized into the local Playwright page by page.evaluate. */
+/** Serialized into Playwright's page; tsx-rewritten nested functions cannot run there. */
 export function auditReplayIframeContent({
   dimensions,
   recordedIframeParentIds,
@@ -37,85 +37,15 @@ export function auditReplayIframeContent({
   let visibleIframeCount = 0;
   let unavailableIframeCount = 0;
 
-  const establishesContainingBlock = (
-    element: Element,
-    position: string,
-    view: Window,
-  ): boolean => {
-    const styles = view.getComputedStyle(element);
-    if (
-      position === "absolute" &&
-      styles.position !== "" &&
-      styles.position !== "static"
-    ) {
-      return true;
-    }
-
-    const containment = styles.contain.split(/\s+/);
-    if (
-      containment.some((value) =>
-        ["layout", "paint", "strict", "content"].includes(value),
-      ) ||
-      styles.contentVisibility === "auto"
-    ) {
-      return true;
-    }
-
-    const containingBlockProperties = [
-      "transform",
-      "perspective",
-      "filter",
-      "backdrop-filter",
-      "translate",
-      "rotate",
-      "scale",
-    ];
-    const hasContainingBlockProperty = containingBlockProperties.some(
-      (property) => {
-        const value = styles.getPropertyValue(property);
-        return value !== "" && value !== "none";
-      },
-    );
-    if (hasContainingBlockProperty) return true;
-
-    const willChange = styles.willChange.split(/\s*,\s*/);
-    return (
-      (position === "absolute" && willChange.includes("position")) ||
-      willChange.some((property) =>
-        [
-          ...containingBlockProperties,
-          "contain",
-          "content-visibility",
-        ].includes(property),
-      )
-    );
-  };
-
-  const containingBlockFor = (
-    frame: HTMLIFrameElement,
-    position: string,
-    view: Window,
-  ): Element | null => {
-    if (position !== "absolute" && position !== "fixed") return null;
-    for (
-      let current: Element | null = frame.assignedSlot ?? frame.parentElement;
-      current;
-    ) {
-      if (establishesContainingBlock(current, position, view)) return current;
-      if (current.assignedSlot) {
-        current = current.assignedSlot;
-      } else if (current.parentElement) {
-        current = current.parentElement;
-      } else {
-        const root = current.getRootNode();
-        current =
-          root.nodeType === 11 && "host" in root
-            ? (root as ShadowRoot).host
-            : null;
-      }
-    }
-    return null;
-  };
+  const containingBlockProperties = [
+    "transform",
+    "perspective",
+    "filter",
+    "backdrop-filter",
+    "translate",
+    "rotate",
+    "scale",
+  ];
 
   while (documents.length > 0) {
     const { owner, clip, depth } = documents.pop()!;
@@ -152,7 +82,59 @@ export function auditReplayIframeContent({
       if (visibility === "hidden" || visibility === "collapse") continue;
       const position = frameStyle.position;
       const positioned = position === "absolute" || position === "fixed";
-      const containingBlock = containingBlockFor(frame, position, view);
+      let containingBlock: Element | null = null;
+      if (positioned) {
+        for (
+          let current: Element | null =
+            frame.assignedSlot ?? frame.parentElement;
+          current;
+        ) {
+          const styles = view.getComputedStyle(current);
+          let establishesContainingBlock = false;
+          if (styles.display !== "none" && styles.display !== "contents") {
+            const containment = styles.contain.split(/\s+/);
+            const hasContainingBlockProperty = containingBlockProperties.some(
+              (property) => {
+                const value = styles.getPropertyValue(property);
+                return value !== "" && value !== "none";
+              },
+            );
+            const willChange = styles.willChange.split(/\s*,\s*/);
+            establishesContainingBlock =
+              (position === "absolute" &&
+                styles.position !== "" &&
+                styles.position !== "static") ||
+              containment.some((value) =>
+                ["layout", "paint", "strict", "content"].includes(value),
+              ) ||
+              styles.contentVisibility === "auto" ||
+              hasContainingBlockProperty ||
+              (position === "absolute" && willChange.includes("position")) ||
+              willChange.some((property) =>
+                [
+                  ...containingBlockProperties,
+                  "contain",
+                  "content-visibility",
+                ].includes(property),
+              );
+          }
+          if (establishesContainingBlock) {
+            containingBlock = current;
+            break;
+          }
+          if (current.assignedSlot) {
+            current = current.assignedSlot;
+          } else if (current.parentElement) {
+            current = current.parentElement;
+          } else {
+            const root = current.getRootNode();
+            current =
+              root.nodeType === 11 && "host" in root
+                ? (root as ShadowRoot).host
+                : null;
+          }
+        }
+      }
       let reachedContainingBlock = !positioned;
       const rootElement = owner.documentElement;
       const rootStyle = view.getComputedStyle(rootElement);

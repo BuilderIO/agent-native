@@ -1,7 +1,10 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 
+import tailwindcss from "@tailwindcss/vite";
 import { chromium, type Browser, type Route } from "playwright";
 import { createServer, type ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -9,10 +12,31 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RRWEB_RECORD_IFRAME_CDN_URL } from "../extensions/session-replay-iframe.js";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../session-replay-iframe-protocol.js";
 
+const REPO_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
+const AUDIT_MODULE_URL = pathToFileURL(
+  resolve(
+    REPO_ROOT,
+    "templates/analytics/scripts/journey-capture-iframe-audit.ts",
+  ),
+).href;
 const RRWEB_RECORD_PATH = new URL(
   "../../node_modules/@rrweb/record/umd/record.min.js",
   import.meta.url,
 );
+
+function serializedAuditSource(): string {
+  return execFileSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "-e",
+      `import { auditReplayIframeContent } from ${JSON.stringify(AUDIT_MODULE_URL)}; process.stdout.write(auditReplayIframeContent.toString());`,
+    ],
+    { cwd: REPO_ROOT, encoding: "utf8" },
+  );
+}
 async function launchBrowser(): Promise<Browser> {
   try {
     return await chromium.launch({ headless: true });
@@ -36,6 +60,7 @@ async function startHostServer(): Promise<ViteDevServer> {
       port: 0,
     },
     plugins: [
+      tailwindcss(),
       {
         name: "session-replay-iframe-e2e",
         configureServer(devServer) {
@@ -54,16 +79,6 @@ async function startHostServer(): Promise<ViteDevServer> {
         position: relative;
         width: 600px;
         height: 680px;
-        overflow: hidden;
-      }
-      .design-template-preview-frame {
-        position: absolute;
-        width: var(--design-template-width);
-        height: var(--design-template-height);
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%) scale(var(--design-template-scale));
-        border: 0;
       }
     </style>
   </head>
@@ -238,14 +253,13 @@ describe("session replay iframe recording", () => {
       SESSION_REPLAY_IFRAME_ATTRIBUTE,
       { timeout: 5_000 },
     );
-    await iframe.evaluate((frame, attribute) => {
-      frame.removeAttribute(attribute);
-    }, SESSION_REPLAY_IFRAME_ATTRIBUTE);
-    await page.waitForTimeout(50);
-    await iframe.evaluate((frame, attribute) => {
-      frame.setAttribute(attribute, "");
-    }, SESSION_REPLAY_IFRAME_ATTRIBUTE);
-    await page.waitForTimeout(250);
+    await page
+      .frameLocator("iframe")
+      .locator("h1.title")
+      .evaluate((element) => {
+        element.textContent = "Post-reentry capture marker";
+      });
+    await page.waitForTimeout(100);
     await page.evaluate(async () => {
       await window.__sessionReplayIframeE2E?.stop?.();
     });
@@ -262,7 +276,112 @@ describe("session replay iframe recording", () => {
     );
     expect(serializedEvents).toContain("Halcyon");
     expect(serializedEvents).toContain("Night");
+    expect(serializedEvents).toContain("Post-reentry capture marker");
 
     await page.close();
   }, 60_000);
+
+  it("uses the CSS containing block when zoom changes offsetParent", async () => {
+    const page = await browser.newPage();
+    await page.setContent(
+      '<!doctype html><iframe id="replay" style="width:300px;height:200px;border:0"></iframe>',
+    );
+    await page.locator("#replay").evaluate((replayFrame) => {
+      const replayDocument = replayFrame.contentDocument!;
+      replayDocument.body.style.margin = "0";
+
+      const containingBlock = replayDocument.createElement("div");
+      containingBlock.id = "containing-block";
+      containingBlock.style.cssText =
+        "position:relative;width:300px;height:200px";
+      replayDocument.body.append(containingBlock);
+
+      const offsetParentClip = replayDocument.createElement("div");
+      offsetParentClip.id = "offset-parent-clip";
+      offsetParentClip.style.cssText =
+        "container-type:inline-size;overflow:hidden;width:20px;height:20px";
+      containingBlock.append(offsetParentClip);
+
+      const target = replayDocument.createElement("iframe");
+      target.id = "zoomed-target";
+      target.style.cssText =
+        "position:absolute;left:40px;top:40px;width:20px;height:20px;zoom:2;border:0";
+      target.srcdoc = "<!doctype html><html><body>target</body></html>";
+      offsetParentClip.append(target);
+
+      const clippingBlock = replayDocument.createElement("div");
+      clippingBlock.id = "clipping-block";
+      clippingBlock.style.cssText =
+        "position:relative;overflow:hidden;width:20px;height:20px;margin-top:30px";
+      containingBlock.append(clippingBlock);
+
+      const clipped = replayDocument.createElement("iframe");
+      clipped.id = "clipped-control";
+      clipped.style.cssText =
+        "position:absolute;left:40px;top:40px;width:20px;height:20px;border:0";
+      clipped.srcdoc = "<!doctype html><html><body>clipped</body></html>";
+      clippingBlock.append(clipped);
+    });
+    await page.waitForFunction(() => {
+      const replayDocument = (
+        document.querySelector("#replay") as HTMLIFrameElement
+      )?.contentDocument;
+      const frames = Array.from(
+        replayDocument?.querySelectorAll("iframe") ?? [],
+      );
+      return (
+        frames.length === 2 &&
+        frames.every(
+          (frame) => frame.contentDocument?.readyState === "complete",
+        )
+      );
+    });
+
+    const result = await page.evaluate((auditSource) => {
+      const replayFrame = document.querySelector(
+        "#replay",
+      ) as HTMLIFrameElement;
+      const replayDocument = replayFrame.contentDocument!;
+      const target = replayDocument.querySelector(
+        "#zoomed-target",
+      ) as HTMLIFrameElement;
+      const clipped = replayDocument.querySelector(
+        "#clipped-control",
+      ) as HTMLIFrameElement;
+      const ids = new Map<Element, number>([
+        [target, 1],
+        [clipped, 2],
+      ]);
+      (
+        window as typeof window & { __anJourneyCapture?: unknown }
+      ).__anJourneyCapture = {
+        replayer: {
+          getMirror: () => ({ getId: (element: Element) => ids.get(element) }),
+          iframe: replayFrame,
+        },
+      };
+      const audit = new Function(`return (${auditSource})`)() as (
+        input: unknown,
+      ) => unknown;
+      return {
+        targetOffsetParent: target.offsetParent?.id ?? null,
+        targetHitTest: replayDocument.elementFromPoint(85, 85) === target,
+        clippedControlHitTest:
+          replayDocument.elementFromPoint(45, 75) === clipped,
+        audit: audit({
+          dimensions: { width: 300, height: 200 },
+          recordedIframeParentIds: [],
+        }),
+      };
+    }, serializedAuditSource());
+
+    expect(result.targetOffsetParent).toBe("offset-parent-clip");
+    expect(result.targetHitTest).toBe(true);
+    expect(result.clippedControlHitTest).toBe(false);
+    expect(result.audit).toEqual({
+      visibleIframeCount: 1,
+      unavailableIframeCount: 1,
+    });
+    await page.close();
+  }, 30_000);
 });

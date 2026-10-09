@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
+import "@/global.css";
 import { TemplatePreview } from "@/components/templates/TemplatePreview";
 
 import { socialStory } from "../../../../templates/design/shared/design-template-presets/social-story.js";

@@ -39,7 +39,26 @@ export function TemplatePreview({
   const containerRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [scale, setScale] = useState(0.25);
-  const [sessionReplayVisible, setSessionReplayVisible] = useState(false);
+  const [sessionReplayVisibility, setSessionReplayVisibility] = useState({
+    enabled: recordSessionReplay,
+    html,
+    visible: false,
+  });
+  if (
+    sessionReplayVisibility.html !== html ||
+    sessionReplayVisibility.enabled !== recordSessionReplay
+  ) {
+    setSessionReplayVisibility({
+      enabled: recordSessionReplay,
+      html,
+      visible: false,
+    });
+  }
+  const sessionReplayVisible =
+    recordSessionReplay &&
+    sessionReplayVisibility.html === html &&
+    sessionReplayVisibility.enabled &&
+    sessionReplayVisibility.visible;
   const naturalWidth = Math.max(width ?? 1280, 320);
   const naturalHeight = Math.max(height ?? 720, 240);
   const document = useMemo(
@@ -101,18 +120,26 @@ export function TemplatePreview({
         if (hasVisibleArea) {
           if (stopTimer !== null) window.clearTimeout(stopTimer);
           stopTimer = null;
-          setSessionReplayVisible(true);
+          setSessionReplayVisibility({
+            enabled: recordSessionReplay,
+            html,
+            visible: true,
+          });
         } else if (
           stopTimer === null &&
           frame.hasAttribute(SESSION_REPLAY_IFRAME_ATTRIBUTE)
         ) {
           stopTimer = window.setTimeout(() => {
             stopTimer = null;
-            setSessionReplayVisible(false);
+            setSessionReplayVisibility({
+              enabled: recordSessionReplay,
+              html,
+              visible: false,
+            });
           }, SESSION_REPLAY_OFFSCREEN_STOP_DELAY_MS);
         }
       },
-      { threshold: [0, Number.EPSILON] },
+      { threshold: [0, Number.MIN_VALUE] },
     );
     observer.observe(frame);
     return () => {
