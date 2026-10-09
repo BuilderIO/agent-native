@@ -114,8 +114,8 @@ pnpm exec tsx scripts/edit-fidelity/run.ts --corpus ../../.tmp/private/corpus --
 
 Run seeded authoring soak checks. Each seed performs 500 mixed editing steps by
 default, checks caret, typing, layout, exception, undo/redo, and persistence
-invariants, and prints the seed plus a bounded operation log on failure. Use
-`--seeds 20` for the pre-merge cross-browser soak; seeds rotate through
+invariants, and prints the seed plus a bounded operation log on failure. For the
+manual pre-merge cross-browser soak, use `--seeds 20`; seeds rotate through
 synthetic, absolute, flex/grid, semantic-list, imported flex bullet-row, imported
 paragraph bullet-row, and scaled committed-corpus text targets:
 
