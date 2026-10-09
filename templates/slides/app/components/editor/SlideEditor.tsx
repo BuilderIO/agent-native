@@ -7608,6 +7608,22 @@ export default function SlideEditor({
           });
         }
         restoreSlideObjectTransformSnapshots(transforms);
+        const everyRotationPainted = members.every((member) => {
+          const expected = plan.get(member.objectId)?.rotation;
+          const painted = readEditableSlideObjectRotation(member.element);
+          if (expected === undefined || painted === null) return false;
+          const difference = Math.abs(((painted - expected + 540) % 360) - 180);
+          return difference <= 0.1;
+        });
+        if (!everyRotationPainted) {
+          // A rule can begin matching the preview style and override the
+          // transform after the initial editability check. Never persist a
+          // rotation that the selected objects did not actually paint.
+          changed = false;
+          restore();
+          stop();
+          return;
+        }
         changed = Math.abs(deltaDegrees) > 0.01;
         if (multiSelection.size > 0) {
           scheduleMultiSelectionRects(multiSelection);

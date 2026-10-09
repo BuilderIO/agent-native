@@ -1448,6 +1448,44 @@ describe("SlideEditor rotate handle with transform transitions", () => {
     expect(cancelSuppression).toBeGreaterThanOrEqual(0);
     expect(cancelSuppression).toBeLessThan(cancelTransformWrite);
   });
+
+  it("rolls back when a newly matching important rule hides the preview rotation", async () => {
+    const onUpdateSlide = vi.fn();
+    const editor = await mountEditor(ROTATING_TRANSITION_SLIDE, {
+      onUpdateSlide,
+    });
+    const object = editor.el("rotating");
+    Object.defineProperty(object, "offsetWidth", {
+      configurable: true,
+      value: 100,
+    });
+    Object.defineProperty(object, "offsetHeight", {
+      configurable: true,
+      value: 40,
+    });
+    const originalStyle = object.getAttribute("style");
+    const style = object.ownerDocument.createElement("style");
+    style.textContent =
+      '[style*="rotate("]:not([style*="rotate(20deg)"]) { transform: rotate(20deg) !important; }';
+    object.ownerDocument.head.append(style);
+
+    try {
+      editor.click("rotating", { x: 620, y: 110 });
+      const handle = document.querySelector<HTMLElement>(
+        "[data-slide-rotate-handle]",
+      );
+      expect(handle).not.toBeNull();
+
+      fireEvent.pointerDown(handle!, editor.init({ x: 650, y: 60 }));
+      fireEvent.pointerMove(window, editor.init({ x: 710, y: 120 }));
+      fireEvent.pointerUp(window, editor.init({ x: 710, y: 120 }));
+
+      expect(object.getAttribute("style")).toBe(originalStyle);
+      expect(onUpdateSlide).not.toHaveBeenCalled();
+    } finally {
+      style.remove();
+    }
+  });
 });
 
 describe("SlideEditor pointer pipeline Alt-drag of a multi-selection", () => {
