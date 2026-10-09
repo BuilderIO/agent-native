@@ -284,6 +284,74 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     expect(claimSignal?.aborted).toBe(true);
   });
 
+  it("aborts a polling claim while its response body is loading when stopped", async () => {
+    let claimSignal: AbortSignal | undefined;
+    let bodyReadStarted = false;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (
+        url === "/_agent-native/browser-sessions/tab-1/requests/claim" &&
+        init?.method === "POST"
+      ) {
+        claimSignal = init.signal ?? undefined;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => {
+            bodyReadStarted = true;
+            return new Promise((_resolve, reject) => {
+              const timeout = setTimeout(
+                () => reject(new Error("response body did not abort")),
+                1000,
+              );
+              claimSignal?.addEventListener(
+                "abort",
+                () => {
+                  clearTimeout(timeout);
+                  reject(new DOMException("Aborted", "AbortError"));
+                },
+                { once: true },
+              );
+            });
+          },
+        } as Response);
+      }
+      if (
+        url === "/_agent-native/browser-sessions" &&
+        init?.method === "POST"
+      ) {
+        const body = JSON.parse(String(init.body));
+        return Promise.resolve(
+          jsonResponse({
+            ok: true,
+            session: {
+              sessionId: body.sessionId,
+              session: body.session,
+              active: true,
+              actions: body.actions,
+            },
+          }),
+        );
+      }
+      if (
+        url === "/_agent-native/browser-sessions/tab-1" &&
+        init?.method === "DELETE"
+      ) {
+        return Promise.resolve(jsonResponse({ ok: true, deleted: true }));
+      }
+      throw new Error(`Unexpected fetch ${init?.method} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      session: { id: "tab-1" },
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    bridge.start();
+    await vi.waitFor(() => expect(bodyReadStarted).toBe(true));
+    bridge.stop();
+
+    expect(claimSignal?.aborted).toBe(true);
+  });
+
   it("registers direct embedded context and actions without postMessage", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe("/_agent-native/browser-sessions");

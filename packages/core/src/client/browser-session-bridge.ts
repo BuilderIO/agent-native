@@ -151,7 +151,7 @@ async function postJson(
           ? { signal }
           : {}),
     });
-    return readJsonResponse(response);
+    return await readJsonResponse(response);
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
     signal?.removeEventListener("abort", abortFromSignal);
