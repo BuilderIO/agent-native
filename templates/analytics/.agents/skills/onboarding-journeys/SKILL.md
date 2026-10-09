@@ -19,9 +19,11 @@ The pipeline runs without a UI. Codex does all four steps from the terminal:
    (`--per-node 2 --concurrency 3`, `--min-aspect` / `--max-aspect`, `--dry-run`
    to print the plan, `--upload` for private `attachmentRef`s).
 3. Call Design's `create-journey-canvas` with
-   `{ title, tree, frames: [{ nodeKey, exampleIndex, imageUrl?, attachmentRef?, width, height, sourceEventAt?, replayAt?, capturedAt }], designId? }`
+   `{ title, tree, frames: [{ nodeKey, exampleIndex, imageUrl?, attachmentRef?, width, height, capturedAt }], designId? }`
    -> `{ designId, url, nodeCount, frameCount }`. Build `frames` from
-   `frames/manifest.json`.
+   `frames/manifest.json`. Design reads event timestamps and replay offsets from
+   `tree`; keep `sourceEventAt`, `replayAt`, and `capturedAt` in the capture
+   manifest.
 4. Lay out and review the canvas.
 
 ## The tree

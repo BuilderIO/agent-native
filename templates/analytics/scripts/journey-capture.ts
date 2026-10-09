@@ -39,6 +39,10 @@ import {
 } from "../shared/replay-playback.js";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "../shared/session-replay-agent-access.js";
 import {
+  auditReplayIframeContent,
+  type ReplayIframeAudit,
+} from "./journey-capture-iframe-audit";
+import {
   aspectInRange,
   buildManifest,
   codexBearerForApp,
@@ -982,20 +986,9 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
           continue;
         }
         await page.setViewportSize(dimensions);
-        const recordedIframeParentIds = replayIframeParentIdsAt(
-          events,
-          recordingStartedAtMs + item.offsetMs,
-        );
-        const iframeAudit = await withTimeout(
-          page.evaluate<{
-            visibleIframeCount: number;
-            unavailableIframeCount: number;
-          }>(
-            async ({
-              playheadOffsetMs,
-              dimensions,
-              recordedIframeParentIds,
-            }) => {
+        await withTimeout(
+          page.evaluate(
+            async ({ playheadOffsetMs, dimensions }) => {
               const state = (window as any).__anJourneyCapture;
               const stage = document.getElementById("stage");
               const root = document.getElementById("stage-root");
@@ -1026,41 +1019,20 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
                   image.decode().catch(() => undefined),
                 ),
               );
-              const recordedParents = new Set(recordedIframeParentIds);
-              const mirror = state.replayer.getMirror?.();
-              const visibleIframes = Array.from(
-                replayDocument.querySelectorAll("iframe"),
-              ).filter((frame) => {
-                const rect = frame.getBoundingClientRect();
-                const style =
-                  replayDocument.defaultView?.getComputedStyle(frame);
-                return Boolean(
-                  rect.width > 0 &&
-                  rect.height > 0 &&
-                  rect.right > 0 &&
-                  rect.bottom > 0 &&
-                  rect.left < dimensions.width &&
-                  rect.top < dimensions.height &&
-                  style?.display !== "none" &&
-                  style?.visibility !== "hidden" &&
-                  Number(style?.opacity ?? "1") > 0,
-                );
-              });
-              const unavailableIframeCount = visibleIframes.filter((frame) => {
-                const id = mirror?.getId?.(frame);
-                return !Number.isSafeInteger(id) || !recordedParents.has(id);
-              }).length;
-              return {
-                visibleIframeCount: visibleIframes.length,
-                unavailableIframeCount,
-              };
             },
-            {
-              playheadOffsetMs,
-              dimensions,
-              recordedIframeParentIds: [...recordedIframeParentIds],
-            },
+            { playheadOffsetMs, dimensions },
           ),
+          ctx.timeoutMs,
+        );
+        const recordedIframeParentIds = replayIframeParentIdsAt(
+          events,
+          recordingStartedAtMs + item.offsetMs,
+        );
+        const iframeAudit = await withTimeout(
+          page.evaluate<ReplayIframeAudit>(auditReplayIframeContent, {
+            dimensions,
+            recordedIframeParentIds: [...recordedIframeParentIds],
+          }),
           ctx.timeoutMs,
         );
         if (iframeAudit.unavailableIframeCount > 0) {
