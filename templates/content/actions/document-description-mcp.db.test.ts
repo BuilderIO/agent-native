@@ -9,7 +9,7 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { setupCreativeContext } from "@agent-native/creative-context/server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
@@ -32,6 +32,8 @@ const databasePath = join(
   tmpdir(),
   `content-description-mcp-${process.pid}-${Date.now()}.pglite`,
 );
+const databaseUrl =
+  process.env.CONTENT_SETUP_POSTGRES_URL ?? `pglite:${databasePath}`;
 const owner = "description-owner@example.com";
 const outsider = "description-outsider@example.com";
 const viewer = "description-viewer@example.com";
@@ -121,7 +123,7 @@ async function createPage(args: Record<string, unknown>) {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `pglite:${databasePath}`;
+  process.env.DATABASE_URL = databaseUrl;
   registerLabs(CONTENT_LABS);
   setupCreativeContext({
     appId: "content",
@@ -131,6 +133,12 @@ beforeAll(async () => {
   getDb = database.getDb;
   schema = database.schema;
   await (await import("../server/plugins/db.js")).default(undefined as never);
+  if (!databaseUrl.startsWith("pglite:")) {
+    const { runMigrations } = await import("@agent-native/core/db");
+    const { ORG_MIGRATIONS } =
+      await import("../../../packages/core/src/org/migrations.js");
+    await runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" })();
+  }
   const { provisionContentSpaces } = await import("./_content-spaces.js");
   for (const userEmail of [owner, outsider, viewer, editor]) {
     await runWithRequestContext({ userEmail }, () =>
@@ -160,7 +168,9 @@ afterAll(async () => {
   await Promise.all(
     sessions.flatMap(({ client, server }) => [client.close(), server.close()]),
   );
-  rmSync(databasePath, { recursive: true, force: true });
+  if (databaseUrl.startsWith("pglite:")) {
+    rmSync(databasePath, { recursive: true, force: true });
+  }
 });
 
 const longDescription = `${"Complete guidance with Unicode café 🪶 and Markdown **emphasis**.\n".repeat(160)}END OF DESCRIPTION`;
@@ -502,6 +512,173 @@ describe("document descriptions through external MCP", () => {
       expect(retried.database.updatedAt).toBe(updated.updatedAt);
     },
   );
+
+  it("locks a database collection before its backing page for description updates", async () => {
+    const spaces = await callJson(ownerClient, "list-content-spaces", {});
+    const space = spaces.spaces.find((entry: any) => entry.kind === "personal");
+    const created = await callJson(ownerClient, "create-content-database", {
+      spaceId: space.id,
+      title: "Lock order database",
+      idempotencyKey: "lock-order-database",
+    });
+    const db = getDb();
+    const transaction = db.transaction.bind(db);
+    const locks: string[] = [];
+    const spy = vi.spyOn(db, "transaction").mockImplementationOnce((callback) =>
+      transaction(async (tx) => {
+        const wrapped = Object.create(tx);
+        wrapped.select = (...args: Parameters<typeof tx.select>) => {
+          const query = tx.select(...args);
+          const from = query.from.bind(query);
+          query.from = (table: any) => {
+            const selected = from(table);
+            const lock = selected.for.bind(selected);
+            selected.for = (...options: Parameters<typeof selected.for>) => {
+              if (table === schema.documents) locks.push("document");
+              if (table === schema.contentDatabases) locks.push("collection");
+              return lock(...options);
+            };
+            return selected;
+          };
+          return query;
+        };
+        return callback(wrapped);
+      }),
+    );
+    try {
+      const updated = await callJson(ownerClient, "update-document", {
+        id: created.database.documentId,
+        description: "Guidance after lock acquisition",
+      });
+      expect(updated.description).toBe("Guidance after lock acquisition");
+    } finally {
+      spy.mockRestore();
+    }
+    expect(locks).toEqual(["collection", "document"]);
+  });
+
+  it("completes a description update racing collection-first lifecycle locks", async () => {
+    const spaces = await callJson(ownerClient, "list-content-spaces", {});
+    const space = spaces.spaces.find((entry: any) => entry.kind === "personal");
+    const created = await callJson(ownerClient, "create-content-database", {
+      spaceId: space.id,
+      title: "Lifecycle lock race database",
+      idempotencyKey: "lifecycle-lock-race-database",
+    });
+    const db = getDb();
+    const transaction = db.transaction.bind(db);
+    const { lockContentDatabaseMutation } =
+      await import("./_content-database-mutation-lock.js");
+    const pglite = databaseUrl.startsWith("pglite:");
+    const { default: postgres } = await import(
+      requireFromCore.resolve("postgres")
+    );
+    const lifecycleClient = pglite
+      ? undefined
+      : postgres(databaseUrl, { max: 1 });
+    const collectionQuery = db
+      .update(schema.contentDatabases)
+      .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+      .where(eq(schema.contentDatabases.id, created.database.id))
+      .toSQL();
+    const documentQuery = db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, created.database.documentId))
+      .for("update")
+      .toSQL();
+    let collectionHeld!: () => void;
+    let releaseLifecycle!: () => void;
+    let metadataRequested!: () => void;
+    let collectionRequested!: () => void;
+    const held = new Promise<void>((resolve) => (collectionHeld = resolve));
+    const release = new Promise<void>(
+      (resolve) => (releaseLifecycle = resolve),
+    );
+    const requested = new Promise<void>(
+      (resolve) => (metadataRequested = resolve),
+    );
+    const attempted = new Promise<void>(
+      (resolve) => (collectionRequested = resolve),
+    );
+    const lifecycle = lifecycleClient
+      ? lifecycleClient.begin(async (connection: any) => {
+          await connection.unsafe(collectionQuery.sql, collectionQuery.params);
+          collectionHeld();
+          await release;
+          await connection.unsafe(documentQuery.sql, documentQuery.params);
+        })
+      : transaction(async (tx) => {
+          await lockContentDatabaseMutation(tx, created.database.id);
+          collectionHeld();
+          await release;
+          await tx
+            .select({ id: schema.documents.id })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, created.database.documentId))
+            .for("update");
+        });
+    const metadata =
+      await import("../server/lib/document-metadata-updated-at.js");
+    const acquireCollection = metadata.lockDocumentMetadataDatabase;
+    const spy = vi
+      .spyOn(metadata, "lockDocumentMetadataDatabase")
+      .mockImplementationOnce((args) => {
+        metadataRequested();
+        collectionRequested();
+        return acquireCollection(args);
+      });
+    let update: ReturnType<typeof callJson> | undefined;
+    try {
+      await Promise.race([
+        held,
+        lifecycle.then(() => {
+          throw new Error(
+            "Lifecycle finished before acquiring its collection lock",
+          );
+        }),
+      ]);
+      if (pglite) {
+        releaseLifecycle();
+        await lifecycle;
+      }
+      update = callJson(ownerClient, "update-document", {
+        id: created.database.documentId,
+        description: "Guidance survives lifecycle contention",
+      });
+      await Promise.race([
+        requested,
+        update.then(() => {
+          throw new Error("Metadata finished before entering its transaction");
+        }),
+      ]);
+      // PGlite serializes transactions; PostgreSQL exposes the competing row-lock attempt.
+      if (!pglite)
+        await Promise.race([
+          attempted,
+          update.then(() => {
+            throw new Error(
+              "Metadata finished before acquiring its collection lock",
+            );
+          }),
+        ]);
+      releaseLifecycle();
+      const [lifecycleResult, updateResult] = await Promise.allSettled([
+        lifecycle,
+        update,
+      ]);
+      expect(lifecycleResult.status).toBe("fulfilled");
+      expect(updateResult.status).toBe("fulfilled");
+      expect((await readRow(created.database.documentId)).description).toBe(
+        "Guidance survives lifecycle contention",
+      );
+    } finally {
+      releaseLifecycle();
+      await Promise.allSettled([lifecycle, ...(update ? [update] : [])]);
+      spy.mockRestore();
+      if (lifecycleClient) await lifecycleClient.end();
+    }
+  });
 
   it("rejects unauthorized updates and external body replacement without applying either patch", async () => {
     const created = await createPage({

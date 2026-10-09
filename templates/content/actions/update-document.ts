@@ -42,7 +42,10 @@ import {
 } from "../server/lib/document-body-intents.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
-import { nextDocumentMetadataUpdatedAt } from "../server/lib/document-metadata-updated-at.js";
+import {
+  lockDocumentMetadataDatabase,
+  nextDocumentMetadataUpdatedAt,
+} from "../server/lib/document-metadata-updated-at.js";
 import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
@@ -973,6 +976,11 @@ export default defineAction({
       let committedEditorSnapshot: { title: string; content: string } | null =
         null;
       const mutate = async (tx: any) => {
+        const lockedDatabaseId = await lockDocumentMetadataDatabase({
+          db: tx as unknown as ReturnType<typeof getDb>,
+          documentId: id,
+          ownerEmail,
+        });
         await tx
           .select({ id: schema.documents.id })
           .from(schema.documents)
@@ -1287,6 +1295,7 @@ export default defineAction({
                 documentId: id,
                 ownerEmail,
                 currentUpdatedAt: historyBefore.updatedAt,
+                lockedDatabaseId,
               })
             : nextDocumentUpdatedAt(historyBefore.updatedAt);
         const updates: Record<string, unknown> = { updatedAt };
@@ -1372,14 +1381,14 @@ export default defineAction({
           contentCasConflict = true;
           return;
         }
-        if (lockedDescriptionChanged) {
+        if (lockedDescriptionChanged && lockedDatabaseId !== null) {
           await tx
             .update(schema.contentDatabases)
             .set({ updatedAt })
             .where(
               and(
                 eq(schema.contentDatabases.documentId, id),
-                eq(schema.contentDatabases.ownerEmail, ownerEmail),
+                eq(schema.contentDatabases.id, lockedDatabaseId),
               ),
             );
         }
@@ -1420,6 +1429,7 @@ export default defineAction({
             title: args.title,
             updatedAt,
             organizationIds: titleOrganizationIds,
+            databaseId: lockedDatabaseId,
           });
         }
         if (lockedTitleChanged || lockedContentChanged) {
