@@ -3,7 +3,8 @@ import { markdownSuggestionOperation } from "@shared/suggestion-diff";
 import { describe, expect, it } from "vitest";
 
 import {
-  receiptSuggestionId,
+  receiptSuggestion,
+  reviewedInThread,
   suggestionLineExcerpt,
   suggestionsByThread,
 } from "./thread-suggestions";
@@ -12,24 +13,34 @@ const suggestion = (
   id: string,
   metadata: Record<string, unknown> | null,
   createdAt = "2026-10-09T17:00:00.000Z",
+  extra: Partial<ResourceSuggestion> = {},
 ) =>
   ({
     id,
     metadata,
     createdAt,
+    status: "pending",
+    authorEmail: "ana@example.com",
     operations: [],
+    ...extra,
   }) as unknown as ResourceSuggestion;
+
+const fromThread = (threadId: string) => ({
+  sourceThreadId: threadId,
+  commentAiRequestId: `request-${threadId}`,
+});
 
 describe("suggestionsByThread", () => {
   it("groups suggestions under the comment thread they came from, oldest first", () => {
     const grouped = suggestionsByThread(
       [
-        suggestion("later", { sourceThreadId: "t1" }, "2026-10-09T18:00:00Z"),
-        suggestion("earlier", { sourceThreadId: "t1" }, "2026-10-09T17:00:00Z"),
+        suggestion("later", fromThread("t1"), "2026-10-09T18:00:00Z"),
+        suggestion("earlier", fromThread("t1"), "2026-10-09T17:00:00Z"),
         suggestion("margin", null),
-        suggestion("elsewhere", { sourceThreadId: "other-page" }),
+        suggestion("elsewhere", fromThread("other-page")),
+        suggestion("claimed", { sourceThreadId: "t1" }),
       ],
-      new Set(["t1"]),
+      [{ threadId: "t1", resolved: false }],
     );
     expect([...grouped.keys()]).toEqual(["t1"]);
     expect(grouped.get("t1")!.map((entry) => entry.id)).toEqual([
@@ -39,22 +50,64 @@ describe("suggestionsByThread", () => {
   });
 });
 
-describe("receiptSuggestionId", () => {
-  it("reads the suggestion an AI receipt reply links to", () => {
+describe("reviewedInThread", () => {
+  it("sends a pending suggestion back to its card once its thread is resolved", () => {
+    const resolved = { threadId: "t1", resolved: true };
+    expect(reviewedInThread(suggestion("s", fromThread("t1")), resolved)).toBe(
+      false,
+    );
     expect(
-      receiptSuggestionId(
-        "[Name the time](/page/doc-1?suggestion=3f2a-9c_b.1)",
+      reviewedInThread(
+        suggestion("s", fromThread("t1"), undefined, { status: "accepted" }),
+        resolved,
       ),
-    ).toBe("3f2a-9c_b.1");
+    ).toBe(true);
+    expect(
+      reviewedInThread(suggestion("s", fromThread("t1")), {
+        ...resolved,
+        resolved: false,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("receiptSuggestion", () => {
+  const linked = suggestion("3f2a-9c_b.1", fromThread("t1"));
+  const reply = (content: string, author_email = "ana@example.com") => ({
+    content,
+    author_email,
   });
 
-  it("ignores ordinary replies that mention a link mid-sentence", () => {
+  it("finds the suggestion an AI receipt reply links to", () => {
     expect(
-      receiptSuggestionId(
-        "See [this](/page/doc-1?suggestion=abc) before we decide",
+      receiptSuggestion(
+        reply("[Name the time](/page/doc-1?suggestion=3f2a-9c_b.1)"),
+        [linked],
+      ),
+    ).toBe(linked);
+  });
+
+  it("leaves ordinary replies and other people's links alone", () => {
+    expect(
+      receiptSuggestion(
+        reply(
+          "See [this](/page/doc-1?suggestion=3f2a-9c_b.1) before we decide",
+        ),
+        [linked],
       ),
     ).toBeNull();
-    expect(receiptSuggestionId("actually, make it Thursday")).toBeNull();
+    expect(
+      receiptSuggestion(
+        reply(
+          "[Name the time](/page/doc-1?suggestion=3f2a-9c_b.1)",
+          "ben@example.com",
+        ),
+        [linked],
+      ),
+    ).toBeNull();
+    expect(
+      receiptSuggestion(reply("actually, make it Thursday"), [linked]),
+    ).toBeNull();
   });
 });
 

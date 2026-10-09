@@ -8,6 +8,7 @@ const quote = {
   quotedText: "ships every Friday afternoon",
   prefix: "The team ",
   suffix: ", so feedback",
+  startOffset: 28,
 };
 
 describe("reanchoredCommentQuote", () => {
@@ -32,6 +33,27 @@ describe("reanchoredCommentQuote", () => {
       quotedText: "ships every Friday at 3 PM, so all",
       prefix: "The team ",
       suffix: " feedback lands before the weeke",
+      startOffset: 28,
+    });
+  });
+
+  it("moves the start offset with an edit that begins before the quote", () => {
+    expect(
+      reanchoredCommentQuote(
+        {
+          quotedText: "every Friday",
+          prefix: "The team ships ",
+          suffix: " afternoon",
+          startOffset: 34,
+        },
+        before,
+        before.replace("team ships every", "crew sends each"),
+      ),
+    ).toEqual({
+      quotedText: "crew sends each Friday",
+      prefix: null,
+      suffix: " afternoon",
+      startOffset: 23,
     });
   });
 
@@ -51,6 +73,39 @@ describe("reanchoredCommentQuote", () => {
           "ships every Friday afternoon",
           "ships every Friday afternoon!",
         ),
+      ),
+    ).toBeNull();
+  });
+
+  it("re-anchors only the comment's own copy of a repeated quote", () => {
+    const page = "Ship on Friday.\n\nReview on Friday afternoon.\n";
+    const edited = page.replace("on Friday afternoon", "on Thursday afternoon");
+    const first = {
+      quotedText: "Friday",
+      prefix: "Ship on ",
+      suffix: ".Review on Friday afternoon.",
+      startOffset: 8,
+    };
+    const second = {
+      quotedText: "Friday",
+      prefix: "Ship on Friday.Review on ",
+      suffix: " afternoon.",
+      startOffset: 25,
+    };
+    expect(reanchoredCommentQuote(first, page, edited)).toBeNull();
+    expect(reanchoredCommentQuote(second, page, edited)).toEqual({
+      ...second,
+      quotedText: "Thursday",
+    });
+  });
+
+  it("gives up when two copies of the quote fit equally well", () => {
+    const page = "Friday.\n\nFriday.\n";
+    expect(
+      reanchoredCommentQuote(
+        { quotedText: "Friday", prefix: null, suffix: ".", startOffset: null },
+        page,
+        "Friday.\n\nThursday.\n",
       ),
     ).toBeNull();
   });

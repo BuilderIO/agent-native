@@ -28,13 +28,14 @@ import { suggestionLineExcerpt } from "./thread-suggestions";
 export function ThreadSuggestionBody({
   suggestion,
   canDecide,
-  deciding,
+  busy,
   conflict,
   onDecide,
 }: {
   suggestion: ResourceSuggestion;
   canDecide: boolean;
-  deciding: boolean;
+  /** A decision, or an AI revision in this thread, is still in flight. */
+  busy: boolean;
   conflict: boolean;
   onDecide: (decision: SuggestionDecision) => void;
 }) {
@@ -111,7 +112,7 @@ export function ThreadSuggestionBody({
           <Button
             type="button"
             size="sm"
-            disabled={deciding || conflict}
+            disabled={busy || conflict}
             onClick={(event) => {
               event.stopPropagation();
               onDecide("accepted");
@@ -125,7 +126,7 @@ export function ThreadSuggestionBody({
             type="button"
             size="sm"
             variant="outline"
-            disabled={deciding}
+            disabled={busy}
             onClick={(event) => {
               event.stopPropagation();
               onDecide("rejected");

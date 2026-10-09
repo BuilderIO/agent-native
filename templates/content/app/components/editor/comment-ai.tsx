@@ -42,6 +42,10 @@ const ACTIVE_STATUSES = new Set<CommentAiRequest["status"]>([
   "running",
   "refreshing",
 ]);
+
+export function isCommentAiRequestActive(request: CommentAiRequest) {
+  return ACTIVE_STATUSES.has(request.status);
+}
 const ACTIVE_REQUEST_REFETCH_INTERVAL_MS = 1_500;
 /** A result this recent on first load still counts as just finished. */
 const FRESH_RESOLUTION_WINDOW_MS = 2 * 60_000;

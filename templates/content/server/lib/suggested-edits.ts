@@ -547,10 +547,15 @@ async function reanchorSourceComment(
   now: string,
 ) {
   const threadId = suggestion.metadata?.sourceThreadId;
-  if (typeof threadId !== "string") return;
+  // Only a request-bound thread was checked against the request on create.
+  if (
+    typeof threadId !== "string" ||
+    typeof suggestion.metadata?.commentAiRequestId !== "string"
+  )
+    return;
   const root = (
     await tx.execute({
-      sql: "SELECT id,quoted_text,anchor_prefix,anchor_suffix FROM document_comments WHERE document_id = ? AND thread_id = ? AND parent_id IS NULL ORDER BY created_at ASC LIMIT 1",
+      sql: "SELECT id,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset FROM document_comments WHERE document_id = ? AND thread_id = ? AND parent_id IS NULL ORDER BY created_at ASC LIMIT 1",
       args: [documentId, threadId],
     })
   ).rows[0];
@@ -560,14 +565,25 @@ async function reanchorSourceComment(
       quotedText: String(root.quoted_text),
       prefix: root.anchor_prefix == null ? null : String(root.anchor_prefix),
       suffix: root.anchor_suffix == null ? null : String(root.anchor_suffix),
+      startOffset:
+        root.anchor_start_offset == null
+          ? null
+          : Number(root.anchor_start_offset),
     },
     before,
     after,
   );
   if (!next) return;
   await tx.execute({
-    sql: "UPDATE document_comments SET quoted_text = ?, anchor_prefix = ?, anchor_suffix = ?, updated_at = ? WHERE id = ?",
-    args: [next.quotedText, next.prefix, next.suffix, now, String(root.id)],
+    sql: "UPDATE document_comments SET quoted_text = ?, anchor_prefix = ?, anchor_suffix = ?, anchor_start_offset = ?, updated_at = ? WHERE id = ?",
+    args: [
+      next.quotedText,
+      next.prefix,
+      next.suffix,
+      next.startOffset,
+      now,
+      String(root.id),
+    ],
   });
 }
 
@@ -617,6 +633,14 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         ).rows[0];
         if (!request)
           throw new Error("The bound comment AI request is unavailable");
+        // The UI reviews the suggestion in this thread and accepting re-anchors
+        // its root comment, so the claimed thread must be the request's own.
+        if (input.metadata?.sourceThreadId !== String(request.thread_id)) {
+          fail("The source thread does not match the comment AI request", {
+            statusCode: 409,
+            errorCode: "comment_ai_thread_conflict",
+          });
+        }
         const comments = (
           await transaction.execute({
             sql: `SELECT id,parent_id,content,resolved,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset

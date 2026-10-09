@@ -55,6 +55,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   useCreateComment,
+  useDeleteComment,
   useResolveComment,
   type CommentThread,
 } from "@/hooks/use-comments";
@@ -91,6 +92,7 @@ export { getAiCommentSource } from "./CommentEntry";
 import {
   CommentAiConversation,
   CommentAiRequestStatus,
+  isCommentAiRequestActive,
   latestCommentAiRequest,
   startCommentAiSubmission,
   type CommentAiController,
@@ -102,7 +104,7 @@ import {
 } from "./ReviewDiscussionTools";
 import type { DraftSuggestion } from "./suggestions/draft-session";
 import { SuggestionText } from "./SuggestionText";
-import { receiptSuggestionId, suggestionsByThread } from "./thread-suggestions";
+import { receiptSuggestion, suggestionsByThread } from "./thread-suggestions";
 import { ThreadSuggestionBody, ThreadSuggestionRow } from "./ThreadSuggestion";
 
 /** Where a thread card is shown; each surface shares the same rows. */
@@ -778,6 +780,7 @@ export function CommentsSidebar({
   );
   const { data: members = [] } = useMentionMembers();
   const createComment = useCreateComment({ email: currentUserEmail });
+  const deleteComment = useDeleteComment();
   const resolveComment = useResolveComment();
   const queryClient = useQueryClient();
   const pendingDraft = useCommentDraft("pending");
@@ -893,11 +896,7 @@ export function CommentsSidebar({
   // An AI suggestion asked for from a comment lives inside that thread, so it
   // never gets a second card with its own Accept and Reject.
   const threadSuggestions = useMemo(
-    () =>
-      suggestionsByThread(
-        suggestions,
-        new Set(threads.map((thread) => thread.threadId)),
-      ),
+    () => suggestionsByThread(suggestions, threads),
     [suggestions, threads],
   );
   const embeddedSuggestionIds = useMemo(
@@ -1210,7 +1209,8 @@ export function CommentsSidebar({
 
   const handleReply = async (
     threadId: string,
-  ): Promise<{ id: string } | null> => {
+    { holdDraft = false } = {},
+  ): Promise<{ id: string; operationId: string } | null> => {
     const { text: replyText, mentions: replyMentions } =
       replyDrafts.get(threadId);
     if (!canComment) return null;
@@ -1243,8 +1243,8 @@ export function CommentsSidebar({
         mentions: mentionsJsonFor(replyText, replyMentions),
       });
       replyDrafts.clearRetry(threadId, clientOperationId);
-      replyDrafts.finishSubmission(clientOperationId);
-      return { id: created.id };
+      if (!holdDraft) replyDrafts.finishSubmission(clientOperationId);
+      return { id: created.id, operationId: clientOperationId };
     } catch (error) {
       replyDrafts.restoreSubmittedDraft(threadId, clientOperationId);
       if (isAmbiguousCommentCreateError(error)) {
@@ -1514,17 +1514,22 @@ export function CommentsSidebar({
     const embedded = threadSuggestions.get(thread.threadId) ?? [];
     const receipts = new Map<string, ResourceSuggestion>();
     for (const comment of thread.comments) {
-      const id = receiptSuggestionId(comment.content);
-      const suggestion = id && embedded.find((entry) => entry.id === id);
+      const suggestion = receiptSuggestion(comment, embedded);
       if (suggestion) receipts.set(comment.id, suggestion);
     }
     const receiptless = embedded.filter(
       (suggestion) => ![...receipts.values()].includes(suggestion),
     );
+    // Accepting moves the thread's quote, which a revision still in flight
+    // would read as changed feedback and abandon.
+    const aiWorking = Boolean(
+      commentAi?.startingThreadIds.has(thread.threadId) ||
+      (aiRequest && isCommentAiRequestActive(aiRequest)),
+    );
     const suggestionProps = (suggestion: ResourceSuggestion) => ({
       suggestion,
       canDecide: canDecideSuggestions,
-      deciding: decidingSuggestion(suggestion.id),
+      busy: decidingSuggestion(suggestion.id) || aiWorking,
       conflict: isUnplaceable(suggestion),
       onDecide: (decision: SuggestionDecision) =>
         onDecideSuggestion?.(suggestion, decision),
@@ -1573,16 +1578,19 @@ export function CommentsSidebar({
       }
     };
     // A reply that mentions AI is posted first, so "actually, make it X"
-    // stays in the thread the AI answers in.
+    // stays in the thread the AI answers in. If the AI does not start, the
+    // reply is taken back and the draft restored, so retrying does not post
+    // the same reply twice.
     const submitAi = async (selection: CommentAiSubmitPayload) => {
-      if (!commentAi || !thread.comments[0]) return;
+      if (!commentAi || !thread.comments[0] || aiWorking) return;
       const instructions = replyDrafts.get(thread.threadId).text.trim();
       if (!instructions) return;
       const rootCommentId = thread.comments[0].id;
-      const reply = await handleReply(thread.threadId);
+      const reply = await handleReply(thread.threadId, { holdDraft: true });
       if (!reply) return;
+      let outcome: "confirmed-start" | "busy" | "failed" = "failed";
       try {
-        await startCommentAiSubmission(commentAi, {
+        outcome = await startCommentAiSubmission(commentAi, {
           threadId: thread.threadId,
           rootCommentId,
           submittedMode: selection.intent,
@@ -1597,6 +1605,17 @@ export function CommentsSidebar({
           description: error instanceof Error ? error.message : undefined,
         });
       }
+      if (outcome !== "confirmed-start") {
+        try {
+          await deleteComment.mutateAsync({ id: reply.id, documentId });
+          replyDrafts.restoreSubmittedDraft(thread.threadId, reply.operationId);
+        } catch (error) {
+          toast.error(t("empty.genericError"), {
+            description: error instanceof Error ? error.message : undefined,
+          });
+        }
+      }
+      replyDrafts.finishSubmission(reply.operationId);
     };
     const stopAi = async () => {
       if (!commentAi || !aiRequest) return;

@@ -36,7 +36,9 @@ const actions = vi.hoisted(() => ({
   realMutation: false,
   reconcile: vi.fn(),
   edit: vi.fn(),
+  remove: vi.fn(),
   resolve: vi.fn(),
+  modelsReady: false,
 }));
 vi.mock("@/hooks/use-comments", async () => {
   const { useMutation } = await import("@tanstack/react-query");
@@ -52,6 +54,7 @@ vi.mock("@/hooks/use-comments", async () => {
     },
     useEditComment: () => ({ mutateAsync: actions.edit, isPending: false }),
     useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
+    useDeleteComment: () => ({ mutateAsync: actions.remove }),
     useResolveComment: () => ({
       mutateAsync: actions.resolve,
       isPending: false,
@@ -72,7 +75,7 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   chatModelSelectionStorageKey: (scope: string) => `model:${scope}`,
   useChatModels: () => ({
     configuredModels: [],
-    selectionReady: false,
+    selectionReady: actions.modelsReady,
     selectedModel: "",
     selectedEngine: "",
     selectedEffort: undefined,
@@ -230,6 +233,7 @@ describe("comment review interactions", () => {
   let resolveCreate: (result: { id: string; threadId: string }) => void;
   beforeEach(() => {
     actions.realMutation = false;
+    actions.modelsReady = false;
     queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
@@ -477,6 +481,60 @@ describe("comment review interactions", () => {
     expect(dismissResolution).toHaveBeenCalledWith("one");
   });
 
+  it("takes back an AI reply and restores its draft when the AI does not start", async () => {
+    actions.modelsReady = true;
+    actions.create.mockResolvedValue({ id: "reply-1", threadId: "one" });
+    actions.remove.mockResolvedValue(undefined);
+    const start = vi.fn().mockResolvedValue("busy");
+    const commentAi = {
+      requests: [],
+      startingThreadIds: new Set<string>(),
+      stoppingRequestIds: new Set<string>(),
+      continuations: new Map(),
+      transcriptRevision: 0,
+      start,
+      continue: vi.fn(),
+      retry: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(),
+      open: vi.fn(),
+      undo: vi.fn(),
+      freshResolutions: new Map(),
+      dismissResolution: vi.fn(),
+    } satisfies CommentAiController;
+    render("one", undefined, "inline", { commentAi });
+    await type("actually, make it Thursday");
+    act(() =>
+      replyDraft.setAiDraft({
+        mode: "suggest",
+        selection: { model: "model", engine: "engine", provider: "provider" },
+      }),
+    );
+    // The composer places the AI mention chip a tick after the AI is chosen.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const sent = replyDraft.draft.text;
+    expect(sent).toContain("actually, make it Thursday");
+    await act(async () =>
+      (
+        container.querySelector(
+          '[aria-label="comments.aiSend"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+
+    expect(actions.create).toHaveBeenCalledOnce();
+    expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "one",
+        instructions: sent.trim(),
+      }),
+    );
+    expect(actions.remove).toHaveBeenCalledWith({
+      id: "reply-1",
+      documentId: "fixture",
+    });
+    expect(replyDraft.draft.text).toBe(sent);
+  });
   it("preserves a reply through dismissal, thread switches, and panel presentation remounts", async () => {
     render("one");
     await type("Unsent detailed feedback");

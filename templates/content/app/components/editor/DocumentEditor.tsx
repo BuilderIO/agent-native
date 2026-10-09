@@ -303,7 +303,10 @@ import {
   type SuggestionPresentationTransition,
   type SuggestionPresentationTransitions,
 } from "./suggestions/presentation-rebase";
-import { suggestionSourceThreadId } from "./thread-suggestions";
+import {
+  reviewedInThread,
+  suggestionSourceThreadId,
+} from "./thread-suggestions";
 import {
   normalizeTitleText,
   stripMarkdownHeadingPrefixFromTitlePaste,
@@ -7559,10 +7562,10 @@ function PageEditorSessionBody({
       const suggestion = savedSuggestions.find(
         (entry) => entry.id === suggestionId,
       );
-      const threadId = suggestion && suggestionSourceThreadId(suggestion);
-      return threadId && threads?.some((thread) => thread.threadId === threadId)
-        ? threadId
-        : null;
+      const thread =
+        suggestion &&
+        threads?.find((entry) => reviewedInThread(suggestion, entry));
+      return thread ? thread.threadId : null;
     },
     [savedSuggestions, threads],
   );
@@ -7715,9 +7718,10 @@ function PageEditorSessionBody({
       appliedSuggestionLinkRef.current = null;
       return;
     }
+    // Comments that failed to load leave the suggestion's own card to open.
     if (
       !suggestionsQuery.data ||
-      !threads ||
+      commentsLoading ||
       appliedSuggestionLinkRef.current === key
     )
       return;
@@ -7751,7 +7755,7 @@ function PageEditorSessionBody({
     replyDrafts.setOpenReply,
     activateCommentThread,
     suggestionThreadOnPage,
-    threads,
+    commentsLoading,
     t,
   ]);
 
