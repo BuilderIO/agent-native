@@ -1638,6 +1638,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Klicke links neben der Adressleiste auf das Symbol für Website-Einstellungen, öffne die Website-Einstellungen und setze Lokales Netzwerk auf Zulassen.",
       permissionPromptRetry: "Verbindung wiederholen",
+      previewCredentialsUnavailableTitle:
+        "Anmeldedaten für die lokale Vorschau sind nicht verfügbar",
+      previewCredentialsUnavailableDescription:
+        "Verbinde die Localhost-Verbindung dieses Screens im Inspektor erneut und versuche es dann noch einmal.",
+      publicPreviewUnavailableDescription:
+        "Localhost-Vorschauen werden nicht mit öffentlichen Betrachtern geteilt. Öffne dieses Design als Mitwirkender, um diesen Screen zu sehen.",
+      previewCredentialsRetry: "Anmeldedaten erneut abrufen",
     },
   },
   multiScreenCanvas: {
