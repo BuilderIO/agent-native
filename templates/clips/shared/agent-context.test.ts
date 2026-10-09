@@ -57,6 +57,7 @@ describe("agent clip context helpers", () => {
 
     expect(payload.instructions).toContain("Use apis.transcript");
     expect(payload.instructions).toContain("keep the clip id");
+    expect(payload.instructions).toContain("For any non-2xx response");
     expect(payload.instructions).toContain(
       "fetch each recommendedFrames[].url",
     );
@@ -64,6 +65,7 @@ describe("agent clip context helpers", () => {
     expect(payload.webmcp.instructions).toContain(
       "For browser-independent access from any HTTP client",
     );
+    expect(payload.webmcp.instructions).toContain("For any non-2xx response");
     expect(payload.webmcp.instructions).toContain(
       "Read the complete transcript from apis.transcript",
     );
