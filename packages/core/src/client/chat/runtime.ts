@@ -2464,6 +2464,31 @@ function boundedStructuredHistorySources(
     }
   }
 
+  let firstUserPromptMessageIndex: number | undefined;
+  const historyWindowStart = Math.max(
+    0,
+    historyMessages.length - MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES,
+  );
+  for (
+    let index = historyWindowStart;
+    index < historyMessages.length;
+    index++
+  ) {
+    if (index === currentPromptMessageIndex) continue;
+    const message = historyMessages[index]!;
+    if (
+      message.role === "user" &&
+      message.content.some(
+        (part) =>
+          (part.type === "text" || part.type === "reasoning") &&
+          part.text.trim(),
+      )
+    ) {
+      firstUserPromptMessageIndex = index;
+      break;
+    }
+  }
+
   let previousUserPromptMessageIndex: number | undefined;
   if (preservePreviousUserPrompt) {
     for (let index = historyMessages.length - 1; index >= 0; index--) {
@@ -2482,6 +2507,14 @@ function boundedStructuredHistorySources(
       }
     }
   }
+  const protectedUserPromptMessageIndices = new Set(
+    [firstUserPromptMessageIndex, previousUserPromptMessageIndex].filter(
+      (index): index is number => index !== undefined,
+    ),
+  );
+  const regularTextPartLimit =
+    MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS -
+    protectedUserPromptMessageIndices.size;
 
   const selectedReversed: StructuredHistorySourceMessage[] = [];
   let selectedToolPartCount = 0;
@@ -2508,8 +2541,11 @@ function boundedStructuredHistorySources(
     }
     visitedMessageCount++;
     if (message.role !== "user" && message.role !== "assistant") return;
+    const isFirstUserPrompt =
+      list === "messages" && messageIndex === firstUserPromptMessageIndex;
     const isPreviousUserPrompt =
       list === "messages" && messageIndex === previousUserPromptMessageIndex;
+    const isProtectedUserPrompt = isFirstUserPrompt || isPreviousUserPrompt;
     const partsReversed: StructuredHistorySourcePart[] = [];
     let protectedPromptTextAdded = false;
     for (
@@ -2531,7 +2567,7 @@ function boundedStructuredHistorySources(
         part.type === "tool-result";
       const isTextPart = part.type === "text" || part.type === "reasoning";
       if (!isToolPart && !isTextPart) continue;
-      if (isPreviousUserPrompt && isTextPart) {
+      if (isProtectedUserPrompt && isTextPart) {
         if (!protectedPromptTextAdded) {
           const text = message.content
             .filter(
@@ -2577,11 +2613,7 @@ function boundedStructuredHistorySources(
         }
         selectedToolPartCount++;
       } else {
-        const textPartLimit =
-          previousUserPromptMessageIndex === undefined
-            ? MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS
-            : MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS - 1;
-        if (selectedTextPartCount >= textPartLimit) {
+        if (selectedTextPartCount >= regularTextPartLimit) {
           omitted = true;
           continue;
         }

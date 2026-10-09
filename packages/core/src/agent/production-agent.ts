@@ -1958,6 +1958,84 @@ function generateRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+export class DurableAttachmentReferenceRequiredError extends Error {
+  readonly code = "attachment_storage_required";
+
+  constructor() {
+    super(
+      "An attachment has inline bytes but no durable file URL. Configure file storage and retry this background run.",
+    );
+    this.name = "DurableAttachmentReferenceRequiredError";
+  }
+}
+
+function isDataUrlReference(value: unknown): boolean {
+  return typeof value === "string" && /^\s*data:/i.test(value);
+}
+
+function hasDurableAttachmentUrl(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    !isDataUrlReference(value)
+  );
+}
+
+function sanitizeDurableAttachment(
+  value: unknown,
+  attachmentContext = false,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeDurableAttachment(item));
+  }
+  if (!value || typeof value !== "object") return value;
+
+  const item = value as Record<string, unknown>;
+  const isAttachment =
+    attachmentContext ||
+    item.type === "image" ||
+    item.type === "file" ||
+    item.type === "document";
+  if (
+    isAttachment &&
+    (isDataUrlReference(item.url) || isDataUrlReference(item.referenceUrl))
+  ) {
+    throw new DurableAttachmentReferenceRequiredError();
+  }
+
+  const hasInlineData = isAttachment && item.data !== undefined;
+  if (
+    hasInlineData &&
+    !hasDurableAttachmentUrl(item.url) &&
+    !hasDurableAttachmentUrl(item.referenceUrl)
+  ) {
+    throw new DurableAttachmentReferenceRequiredError();
+  }
+
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(item)) {
+    if (key === "data" && hasInlineData) continue;
+    if (key === "attachments" || key === "requestAttachments") {
+      sanitized[key] = Array.isArray(child)
+        ? child.map((attachment) => sanitizeDurableAttachment(attachment, true))
+        : sanitizeDurableAttachment(child);
+    } else {
+      sanitized[key] = sanitizeDurableAttachment(child);
+    }
+  }
+  return sanitized;
+}
+
+export function serializeDurableDispatchPayload(
+  body: Record<string, unknown>,
+): string {
+  const payload = JSON.stringify(sanitizeDurableAttachment(body));
+  if (typeof payload !== "string") {
+    throw new TypeError("Durable dispatch payload could not be serialized");
+  }
+  return payload;
+}
+
 function toolInputActivityLabel(toolName?: string): string {
   return toolName ? `Preparing ${toolName} action` : "Preparing action input";
 }
@@ -2196,6 +2274,15 @@ function describeUnprocessedAttachment(att: AgentChatAttachment): string {
   return `<chat-attachment-processing-error code="unsupported-or-malformed-payload" name="${name}"${contentType}>The attachment included file data or a URL reference, but its contents were not sent to the model because the payload could not be converted to a supported attachment. Do not infer or describe its contents. Tell the user it could not be read and ask them to reattach it in a supported format.</chat-attachment-processing-error>`;
 }
 
+function describeReferenceOnlyAttachment(att: AgentChatAttachment): string {
+  const name = escapeAttachmentAttribute(att.name || "attachment");
+  const contentType = att.contentType
+    ? ` contentType="${escapeAttachmentAttribute(att.contentType)}"`
+    : "";
+  const url = escapeAttachmentAttribute(att.url || "");
+  return `<chat-attachment-reference-note code="reference-only-unavailable" name="${name}"${contentType} url="${url}">The attachment has a stored reference URL, but no readable contents were included in this request. Do not claim to have read or describe its contents. Use the URL only with an authorized tool or target that can retrieve it, or tell the user its contents were unavailable.</chat-attachment-reference-note>`;
+}
+
 function describeAttachmentPreUploadFailure(): string {
   return '<chat-attachment-processing-error code="pre-upload-failed">One or more attachments could not be prepared for this request. Their contents may be missing from the model context. Do not claim to have read or seen them; tell the user attachment processing failed and ask them to retry or provide the relevant content in text.</chat-attachment-processing-error>';
 }
@@ -2362,11 +2449,10 @@ export function buildUserContentWithAttachments(opts: {
         attachmentCharBudget,
       );
     }
-    if (
-      !textAttachment &&
-      (typeof att.data === "string" || typeof uploadedUrl === "string")
-    ) {
+    if (!textAttachment && typeof att.data === "string") {
       textAttachments.push(describeUnprocessedAttachment(att));
+    } else if (!textAttachment && typeof uploadedUrl === "string") {
+      textAttachments.push(describeReferenceOnlyAttachment(att));
     } else if (
       !textAttachment &&
       !(
@@ -8889,7 +8975,7 @@ export async function chainServerDrivenContinuation(opts: {
     try {
       await d.insertRun(nextRunId, effectiveThreadId, effectiveTurnId, {
         dispatchMode: "background",
-        dispatchPayload: JSON.stringify(continuationBody),
+        dispatchPayload: serializeDurableDispatchPayload(continuationBody),
         ...(opts.turnInitiator ? { turnInitiator: opts.turnInitiator } : {}),
       });
       nextRowInserted = true;
@@ -10503,6 +10589,27 @@ export function createProductionAgentHandler(
           (typeof requestTurnId === "string" && requestTurnId.trim()
             ? requestTurnId.trim()
             : runId));
+    let durableDispatchPayload: string | undefined;
+    if (dispatchToBackground) {
+      try {
+        durableDispatchPayload = serializeDurableDispatchPayload({
+          ...body,
+          ...(Array.isArray(attachments) || requestAttachments.length > 0
+            ? { attachments: requestAttachments }
+            : {}),
+        } as unknown as Record<string, unknown>);
+      } catch (error) {
+        if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
+          throw error;
+        }
+        setResponseStatus(event, 503);
+        return {
+          error: error.message,
+          code: error.code,
+          retryable: false,
+        };
+      }
+    }
     const foregroundSelfChainEligible =
       !isBackgroundWorker &&
       !dispatchToBackground &&
@@ -10548,7 +10655,7 @@ export function createProductionAgentHandler(
               ? "foreground-self-chain"
               : "foreground",
           ...(dispatchToBackground
-            ? { dispatchPayload: JSON.stringify(body) }
+            ? { dispatchPayload: durableDispatchPayload }
             : {}),
           ...(continueOf ? { continueOf } : {}),
         });
@@ -10816,7 +10923,7 @@ export function createProductionAgentHandler(
         try {
           await insertRun(runId, effectiveThreadId, effectiveTurnId, {
             dispatchMode: "background",
-            dispatchPayload: JSON.stringify(body),
+            dispatchPayload: durableDispatchPayload!,
             ...(turnInitiator ? { turnInitiator } : {}),
           });
           backgroundRowInserted = true;
@@ -11128,7 +11235,13 @@ export function createProductionAgentHandler(
                 run,
                 effectiveThreadId,
                 effectiveTurnId,
-                requestBody: body as unknown as Record<string, unknown>,
+                requestBody: {
+                  ...body,
+                  ...(Array.isArray(attachments) ||
+                  requestAttachments.length > 0
+                    ? { attachments: requestAttachments }
+                    : {}),
+                } as unknown as Record<string, unknown>,
                 backgroundContinuationCount,
                 noProgressRepeat,
                 turnInputTokens,

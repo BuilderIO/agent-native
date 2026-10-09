@@ -1568,6 +1568,14 @@ describe("AgentKitAssistantChat host behavior", () => {
       children,
     }: AssistantChatComposerContextProviderProps) => children(context);
     const file = new File(["image"], "reference.png", { type: "image/png" });
+    chatMocks.control.uploadFiles.mockResolvedValueOnce([
+      {
+        type: "file",
+        name: file.name,
+        mediaType: file.type,
+        url: "https://files.example.test/reference.png",
+      },
+    ]);
     chatMocks.pendingFiles = [file];
     chatMocks.pendingReferences = [{ type: "file", path: "/reference.md" }];
     await mount(baseProps({ composerContextProvider: Provider }));
@@ -2937,6 +2945,64 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
   });
 
+  it("validates a composer submission before uploading its files", async () => {
+    const items = [
+      { key: "figma", title: "Figma", context: "Authorized reference" },
+    ];
+    const prepare = Promise.withResolvers<typeof items>();
+    const context: AssistantChatComposerContext = {
+      menuItems: [],
+      contextItems: items,
+      onRemoveContextItem: vi.fn(),
+      prepareSubmission: vi.fn(() => prepare.promise),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    const firstScope = { type: "design", id: "first" };
+    await mount(
+      baseProps({
+        contextScope: firstScope,
+        composerContextProvider: Provider,
+      }),
+    );
+    const file = new File(["image bytes"], "reference.png", {
+      type: "image/png",
+    });
+    let submission!: Promise<void>;
+    let rejection!: Promise<void>;
+
+    await act(async () => {
+      submission = chatMocks.composerProps.onSubmit(
+        "Use this reference",
+        [file],
+        [],
+        { intent: "immediate" },
+      );
+      await vi.waitFor(() =>
+        expect(context.prepareSubmission).toHaveBeenCalledOnce(),
+      );
+    });
+    rejection = expect(submission).rejects.toThrow("agentChat.error.failed");
+
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({
+            contextScope: { type: "design", id: "second" },
+            composerContextProvider: Provider,
+          })}
+        />,
+      );
+      prepare.resolve(items);
+    });
+
+    await rejection;
+    expect(chatMocks.control.uploadFiles).not.toHaveBeenCalled();
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("stores only a durable URL for the resized image used by retry", async () => {
     const bitmap = {
       width: 2560,
@@ -3003,6 +3069,135 @@ describe("AgentKitAssistantChat host behavior", () => {
       },
     ]);
     expect(JSON.stringify(sent.metadata.custom)).not.toContain("data:image");
+  });
+
+  it.each(["immediate", "queued"] as const)(
+    "sends resized vision bytes with a durable retry payload for %s when the original reference upload fails",
+    async (intent) => {
+      const bitmap = {
+        width: 2560,
+        height: 1440,
+        close: vi.fn(),
+      } as unknown as ImageBitmap;
+      vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+        clearRect: vi.fn(),
+        drawImage: vi.fn(),
+        save: vi.fn(),
+        fillRect: vi.fn(),
+        restore: vi.fn(),
+      } as unknown as CanvasRenderingContext2D);
+      vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+        (callback, type) =>
+          callback(new Blob(["resized pixels"], { type: type ?? "image/png" })),
+      );
+      const resized = {
+        type: "file" as const,
+        name: "reference.png",
+        mediaType: "image/png",
+        url: "https://files.example.test/reference-resized.png",
+      };
+      chatMocks.control.uploadFiles
+        .mockRejectedValueOnce(new Error("Raw storage provider failure"))
+        .mockResolvedValueOnce([resized]);
+      await mount(baseProps());
+      const file = new File([new Uint8Array(6_000_000)], "reference.png", {
+        type: "image/png",
+      });
+
+      await act(async () => {
+        await chatMocks.composerProps.onSubmit(
+          "Use this reference",
+          [file],
+          [],
+          {
+            intent,
+          },
+        );
+      });
+
+      expect(bitmap.close).toHaveBeenCalledOnce();
+      expect(chatMocks.control.uploadFiles).toHaveBeenCalledTimes(2);
+      const sent = chatMocks.control.sendMessage.mock.calls[0]?.[0] as any;
+      expect(sent.requestAttachments).toEqual([
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,cmVzaXplZCBwaXhlbHM=",
+        },
+      ]);
+      expect(sent.queuedWhileRunActive).toBe(intent === "queued");
+      expect(sent.attachments).toEqual([]);
+      expect(sent.metadata.custom.agentNativeRetryRequestAttachments).toEqual([
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          url: resized.url,
+        },
+      ]);
+      expect(
+        sent.metadata.custom.agentNativeRetryAttachmentsUnavailable,
+      ).toBeUndefined();
+      expect(JSON.stringify(sent)).not.toContain(
+        "Raw storage provider failure",
+      );
+    },
+  );
+
+  it("sends a downscaled image without storage and marks retry unavailable", async () => {
+    const bitmap = {
+      width: 2560,
+      height: 1440,
+      close: vi.fn(),
+    } as unknown as ImageBitmap;
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+      save: vi.fn(),
+      fillRect: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      (callback, type) =>
+        callback(new Blob(["resized pixels"], { type: type ?? "image/png" })),
+    );
+    chatMocks.fileUploadStatus = {
+      data: { configured: false },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+    await mount(baseProps());
+    const file = new File([new Uint8Array(6_000_000)], "reference.png", {
+      type: "image/png",
+    });
+
+    await act(async () => {
+      await chatMocks.composerProps.onSubmit("Use this reference", [file], [], {
+        intent: "immediate",
+      });
+    });
+
+    expect(bitmap.close).toHaveBeenCalledOnce();
+    expect(chatMocks.control.uploadFiles).not.toHaveBeenCalled();
+    const sent = chatMocks.control.sendMessage.mock.calls[0]?.[0] as any;
+    expect(sent.requestAttachments).toEqual([
+      {
+        type: "image",
+        name: "reference.png",
+        contentType: "image/png",
+        data: "data:image/png;base64,cmVzaXplZCBwaXhlbHM=",
+      },
+    ]);
+    expect(sent.metadata.custom.agentNativeRetryAttachmentsUnavailable).toBe(
+      true,
+    );
+    expect(
+      sent.metadata.custom.agentNativeRetryRequestAttachments,
+    ).toBeUndefined();
   });
 
   it("localizes unsupported upload errors instead of exposing the HTTP status", async () => {
@@ -3163,7 +3358,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       {
         error: "Storage provider is unavailable. Check File uploads settings.",
       },
-      "Storage provider is unavailable. Check File uploads settings.",
+      "agentChat.composer.uploadFailed agentChat.onboarding.fileStorage.description",
       "upload_http_503",
     ],
   ] as const)(
@@ -3175,8 +3370,8 @@ describe("AgentKitAssistantChat host behavior", () => {
       await mount(baseProps());
 
       try {
-        await expect(
-          chatMocks.rootProps.clientOptions.upload(
+        const error = await chatMocks.rootProps.clientOptions
+          .upload(
             { uploadId: "upload-1", method: "POST", url: "/uploads" },
             {
               name: "reference.png",
@@ -3184,13 +3379,17 @@ describe("AgentKitAssistantChat host behavior", () => {
               size: 4,
               body: new Blob(["data"], { type: "image/png" }),
             },
-          ),
-        ).rejects.toMatchObject({
+          )
+          .catch((cause: unknown) => cause as Error);
+        expect(error).toMatchObject({
           message,
           code,
           status,
           retryable: status >= 500,
         });
+        if (status === 503) {
+          expect(error.message).not.toContain(payload.error);
+        }
       } finally {
         fetch.mockRestore();
       }

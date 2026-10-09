@@ -53,6 +53,8 @@ import {
   BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
   buildUserContentWithAttachments,
+  DurableAttachmentReferenceRequiredError,
+  serializeDurableDispatchPayload,
   callConnectedAgentReference,
   claimBackgroundWorkerRunEarly,
   createConnectedAgentReferenceEventRelay,
@@ -120,6 +122,8 @@ const mockTryClaimRunSlot = vi.hoisted(() =>
 const mockGetSlotHoldingRunId = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
+const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
+const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
@@ -167,6 +171,16 @@ vi.mock("./run-manager.js", async () => ({
   )),
   tryClaimRunSlot: mockTryClaimRunSlot,
   getSlotHoldingRunId: mockGetSlotHoldingRunId,
+}));
+
+vi.mock("./run-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./run-store.js")>()),
+  insertRun: (...args: any[]) => mockInsertRun(...args),
+}));
+
+vi.mock("../server/self-dispatch.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/self-dispatch.js")>()),
+  fireInternalDispatch: (...args: any[]) => mockFireInternalDispatch(...args),
 }));
 
 describe("runCompletionCallbackWithDatabaseRetry", () => {
@@ -791,6 +805,109 @@ describe("resolveSkillReferenceContent", () => {
   });
 });
 
+describe("serializeDurableDispatchPayload", () => {
+  it("keeps the resized vision URL and original reference when stripping inline pixels", () => {
+    const payload = serializeDurableDispatchPayload({
+      attachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          data: "data:image/png;base64,INLINE_RESIZED_PIXELS",
+          url: "https://files.example.test/reference-resized.png",
+          referenceUrl: "https://files.example.test/reference-original.png",
+        },
+      ],
+    });
+
+    expect(JSON.parse(payload).attachments[0]).toEqual({
+      type: "image",
+      name: "reference.png",
+      url: "https://files.example.test/reference-resized.png",
+      referenceUrl: "https://files.example.test/reference-original.png",
+    });
+    expect(payload).not.toContain("INLINE_RESIZED_PIXELS");
+  });
+
+  it("removes inline bytes from attachment arrays and nested image parts", () => {
+    const payload = serializeDurableDispatchPayload({
+      message: "Inspect these files",
+      attachments: [
+        {
+          type: "image",
+          name: "screen.png",
+          data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+          url: "https://files.example.test/screen.png",
+        },
+      ],
+      requestAttachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          data: "data:image/png;base64,INLINE_PROTOCOL_IMAGE_BYTES",
+          referenceUrl: "https://files.example.test/reference.png",
+        },
+      ],
+      structuredHistory: [
+        {
+          role: "user",
+          parts: [
+            {
+              type: "image",
+              data: "INLINE_HISTORY_IMAGE_BYTES",
+              url: "https://files.example.test/history.png",
+            },
+          ],
+        },
+      ],
+    });
+    const parsed = JSON.parse(payload);
+
+    expect(payload).not.toContain("INLINE_");
+    expect(parsed.attachments[0]).toEqual({
+      type: "image",
+      name: "screen.png",
+      url: "https://files.example.test/screen.png",
+    });
+    expect(parsed.requestAttachments[0]).toEqual({
+      type: "image",
+      name: "reference.png",
+      referenceUrl: "https://files.example.test/reference.png",
+    });
+    expect(parsed.structuredHistory[0].parts[0]).toEqual({
+      type: "image",
+      url: "https://files.example.test/history.png",
+    });
+  });
+
+  it("fails closed when attachment bytes have no durable reference", () => {
+    expect(() =>
+      serializeDurableDispatchPayload({
+        attachments: [
+          {
+            type: "image",
+            name: "local-only.png",
+            data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+          },
+        ],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+
+  it("rejects a data URL masquerading as a durable attachment reference", () => {
+    expect(() =>
+      serializeDurableDispatchPayload({
+        attachments: [
+          {
+            type: "image",
+            name: "inline-url.png",
+            url: "data:image/png;base64,INLINE_IMAGE_BYTES",
+          },
+        ],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+});
+
 describe("buildUserContentWithAttachments", () => {
   it("does not send display-only chat attachments to the model", () => {
     expect(
@@ -1217,15 +1334,46 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).not.toContain("<chat-attachment-processing-error");
   });
 
-  it("still reports a storage-backed attachment with no decoded content", () => {
+  it("marks URL-only text and PDF attachments as references without readable content", () => {
     const content = buildUserContentWithAttachments({
       text: "Summarize the attachment",
       attachments: [
         {
           type: "file",
-          name: "unknown.bin",
-          contentType: "application/octet-stream",
-          url: "https://files.example.test/unknown.bin",
+          name: "notes.txt",
+          contentType: "text/plain",
+          url: "https://files.example.test/notes.txt",
+        },
+        {
+          type: "file",
+          name: "report.pdf",
+          contentType: "application/pdf",
+          url: "https://files.example.test/report.pdf",
+        },
+      ],
+    });
+
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(text).toContain('code="reference-only-unavailable"');
+    expect(text).toContain('name="notes.txt"');
+    expect(text).toContain('name="report.pdf"');
+    expect(text).toContain("no readable contents were included");
+    expect(text).not.toContain('code="unsupported-or-malformed-payload"');
+  });
+
+  it("reports malformed inline payloads as unreadable even when a URL exists", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Summarize the attachment",
+      attachments: [
+        {
+          type: "file",
+          name: "broken.pdf",
+          contentType: "application/pdf",
+          data: "not a data URL",
+          url: "https://files.example.test/broken.pdf",
         },
       ],
     });
@@ -1235,7 +1383,8 @@ describe("buildUserContentWithAttachments", () => {
       .map((part) => part.text)
       .join("\n");
     expect(text).toContain('code="unsupported-or-malformed-payload"');
-    expect(text).toContain('name="unknown.bin"');
+    expect(text).toContain('name="broken.pdf"');
+    expect(text).not.toContain('code="reference-only-unavailable"');
   });
 
   it("unwraps and truncates oversized text attachments before model input", () => {
@@ -2272,6 +2421,221 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("persists the initial background slot payload without inline image bytes", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementationOnce(async ({ attachments }) => {
+        const prepared = attachments ?? [];
+        prepared[0]!.url = "https://files.example.test/screen.png";
+        return {
+          attachments: prepared,
+          uploaded: [],
+          uploadedFiles: [],
+          readFailures: [],
+          providerMissing: false,
+          uploadFailed: false,
+          readableWithoutStorage: [],
+          injectedText: null,
+        };
+      });
+    mockTryClaimRunSlot.mockClear();
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-existing",
+    });
+
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Inspect this image",
+          threadId: "thread-image-payload",
+          attachments: [
+            {
+              type: "image",
+              name: "screen.png",
+              contentType: "image/png",
+              data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+
+      expect(result).toMatchObject({ code: "run_slot_busy" });
+      expect(preUpload).toHaveBeenCalledOnce();
+      const dispatchPayload = (mockTryClaimRunSlot.mock.calls[0] as any)[3]
+        .dispatchPayload as string;
+      expect(dispatchPayload).toBeTruthy();
+      expect(dispatchPayload).not.toContain("INLINE_IMAGE_BYTES");
+      expect(JSON.parse(dispatchPayload).attachments[0]).toEqual({
+        type: "image",
+        name: "screen.png",
+        contentType: "image/png",
+        url: "https://files.example.test/screen.png",
+      });
+    } finally {
+      preUpload.mockRestore();
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("uses a data-free payload when the background insert falls back inline", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementationOnce(async ({ attachments }) => {
+        const prepared = attachments ?? [];
+        prepared[0]!.url = "https://files.example.test/fallback.png";
+        return {
+          attachments: prepared,
+          uploaded: [],
+          uploadedFiles: [],
+          readFailures: [],
+          providerMissing: false,
+          uploadFailed: false,
+          readableWithoutStorage: [],
+          injectedText: null,
+        };
+      });
+    mockInsertRun.mockClear();
+    mockFireInternalDispatch.mockClear();
+    mockInsertRun.mockRejectedValueOnce(new Error("fixture insert failure"));
+    mockFireInternalDispatch.mockRejectedValueOnce(
+      new Error("fixture dispatch failure"),
+    );
+    const modelMessageInputs: EngineMessage[][] = [];
+
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream({ messages }): AsyncIterable<EngineEvent> {
+        modelMessageInputs.push(messages);
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Inspect this image",
+          attachments: [
+            {
+              type: "image",
+              name: "screen.png",
+              contentType: "image/png",
+              data: `data:image/png;base64,${PNG_BASE64}`,
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      expect(response).toBeInstanceOf(ReadableStream);
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+
+      expect(preUpload).toHaveBeenCalledOnce();
+      const durableInsert = (mockInsertRun.mock.calls as any[]).find(
+        (call) => (call[3] as any)?.dispatchPayload,
+      );
+      expect(durableInsert).toBeTruthy();
+      const dispatchPayload = (durableInsert![3] as any)
+        .dispatchPayload as string;
+      expect(dispatchPayload).toBeTruthy();
+      expect(dispatchPayload).not.toContain(PNG_BASE64);
+      expect(JSON.parse(dispatchPayload).attachments[0]).toMatchObject({
+        type: "image",
+        name: "screen.png",
+        url: "https://files.example.test/fallback.png",
+      });
+      expect(
+        modelMessageInputs.flatMap((messages) =>
+          messages.flatMap((message) => message.content),
+        ),
+      ).toContainEqual({
+        type: "image",
+        data: PNG_BASE64,
+        mediaType: "image/png",
+      });
+      expect(mockFireInternalDispatch).toHaveBeenCalledOnce();
+    } finally {
+      preUpload.mockRestore();
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
   it("returns a typed conflict when another run owns the thread slot", async () => {
     mockTryClaimRunSlot.mockResolvedValueOnce({
       claimed: false,

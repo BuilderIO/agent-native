@@ -335,6 +335,7 @@ describe("resolveCanvasIntent", () => {
       1200,
       627,
     ],
+    ["Create an ad for LinkedIn", "LinkedIn Single Image Ad", 1200, 627],
     ["Diseña un anuncio de LinkedIn", "LinkedIn Single Image Ad", 1200, 627],
     ["Create a Meta feed ad", "Meta Feed Square Ad", 1080, 1080],
     ["Create a landscape Meta feed ad", "Meta Feed Landscape Ad", 1200, 628],
@@ -343,6 +344,7 @@ describe("resolveCanvasIntent", () => {
     ["Design an Instagram story", "Instagram Story", 1080, 1920],
     ["Create an OG image", "Open Graph Image", 1200, 630],
     ["Create a YouTube thumbnail", "YouTube Thumbnail", 1280, 720],
+    ["Create a thumbnail for YouTube", "YouTube Thumbnail", 1280, 720],
     ["Create a display ad", "Medium Rectangle", 300, 250],
     ["Create a display leaderboard", "Leaderboard", 728, 90],
     ["Create a mobile leaderboard ad", "Mobile Leaderboard", 320, 50],
@@ -388,6 +390,7 @@ describe("resolveCanvasIntent", () => {
 
   it.each([
     "Build a Google Ads dashboard",
+    "Build a Google Ads reporting tool",
     "Design an ad campaign manager",
     "Create a settings page with an avatar upload",
     "Create a login screen with a logo",
@@ -419,6 +422,17 @@ describe("resolveCanvasIntent", () => {
       kind: "fixed",
       source: "explicit-dimensions",
       dimensions: { width: 500, height: 200 },
+    });
+  });
+
+  it("uses the square Instagram preset when square format follows the post", () => {
+    expect(
+      resolveCanvasIntent("Design an Instagram post in square format"),
+    ).toEqual({
+      kind: "fixed",
+      source: "preset",
+      preset: "Instagram Post",
+      dimensions: { width: 1080, height: 1080 },
     });
   });
 

@@ -244,6 +244,46 @@ describe("isProviderConnectionErrorMessage", () => {
     });
   });
 
+  it.each([
+    [400, "Invalid 'input[0].content[1].file_url': string too long."],
+    [422, "Unsupported image format for media_type image/tiff."],
+    [400, "The image size exceeds the provider's maximum allowed size."],
+  ])(
+    "classifies a structured attachment rejection with status %i as non-retryable",
+    (statusCode, message) => {
+      const providerError = Object.assign(new Error(message), {
+        statusCode,
+        isRetryable: true,
+      });
+
+      expect(classifyProviderError(providerError)).toEqual({
+        errorCode: "invalid_attachment",
+        statusCode,
+        providerRetryable: false,
+      });
+    },
+  );
+
+  it.each([
+    [400, "Function tools with reasoning_effort are not supported."],
+    [400, "Image generation is not supported for this model."],
+    [413, "The file is too large for this request."],
+  ])(
+    "leaves unrelated provider status %i errors outside attachment classification",
+    (statusCode, message) => {
+      const providerError = Object.assign(new Error(message), {
+        statusCode,
+        isRetryable: false,
+      });
+
+      expect(classifyProviderError(providerError)).toEqual({
+        errorCode: `http_${statusCode}`,
+        statusCode,
+        providerRetryable: false,
+      });
+    },
+  );
+
   it("finds the transport failure on the cause chain", () => {
     const err = new Error("stream failed", {
       cause: new Error("Connection error."),

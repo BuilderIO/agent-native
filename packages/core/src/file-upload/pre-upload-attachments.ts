@@ -11,8 +11,11 @@ import {
   type InlineAttachmentBlockReason,
 } from "./inline-attachment-limits.js";
 import {
+  createOwnedImageHydrationBudget,
   describeOwnedImageReadFailure,
   hydrateOwnedImageUrl,
+  MAX_OWNED_IMAGE_HYDRATION_CANDIDATES,
+  type OwnedImageHydrationBudget,
   type OwnedImageReadFailureCode,
 } from "./owned-attachment.js";
 import { getActiveFileUploadProvider, uploadFile } from "./registry.js";
@@ -228,6 +231,9 @@ export async function preUploadAttachments(opts: {
   const uploadedFiles: PreUploadedFileAttachment[] = [];
   const readFailures: PreUploadAttachmentsResult["readFailures"] = [];
   const spreadsheetContexts: string[] = [];
+  let imageHydrationBudget: OwnedImageHydrationBudget | undefined;
+  let imageHydrationCandidates = 0;
+  let summarizedCandidateLimit = false;
   let providerMissing = false;
   let uploadFailed = false;
   let uploadError: string | undefined;
@@ -255,6 +261,19 @@ export async function preUploadAttachments(opts: {
     } else {
       unreadableWithoutStorage.push({ label, reason });
     }
+  };
+
+  const recordImageReadFailure = (
+    name: string,
+    code: OwnedImageReadFailureCode,
+  ) => {
+    if (code === "request-candidate-limit") {
+      if (summarizedCandidateLimit) return;
+      summarizedCandidateLimit = true;
+      readFailures.push({ name: "additional images", code });
+      return;
+    }
+    readFailures.push({ name, code });
   };
 
   for (const att of list) {
@@ -319,7 +338,29 @@ export async function preUploadAttachments(opts: {
         !isReferenceOnlySvg &&
         !parseBase64DataUrl(att.data ?? "")
       ) {
-        const hydration = await hydrateOwnedImageUrl(att.url, att.contentType);
+        let hydration:
+          | Awaited<ReturnType<typeof hydrateOwnedImageUrl>>
+          | { kind: "failed"; code: "request-candidate-limit" };
+        if (imageHydrationCandidates >= MAX_OWNED_IMAGE_HYDRATION_CANDIDATES) {
+          hydration = {
+            kind: "failed",
+            code: "request-candidate-limit",
+          };
+        } else {
+          imageHydrationCandidates += 1;
+          imageHydrationBudget ??= createOwnedImageHydrationBudget();
+          if (Date.now() >= imageHydrationBudget.deadlineAt) {
+            hydration = { kind: "failed", code: "request-time-limit" };
+          } else if (imageHydrationBudget.remainingBytes <= 0) {
+            hydration = { kind: "failed", code: "request-byte-limit" };
+          } else {
+            hydration = await hydrateOwnedImageUrl(
+              att.url,
+              att.contentType,
+              imageHydrationBudget,
+            );
+          }
+        }
         if (hydration.kind === "hydrated") {
           att.data = hydration.dataUrl;
           att.contentType = hydration.mediaType;
@@ -332,10 +373,7 @@ export async function preUploadAttachments(opts: {
           });
           continue;
         }
-        readFailures.push({
-          name: att.name || "image",
-          code: hydration.code,
-        });
+        recordImageReadFailure(att.name || "image", hydration.code);
       }
       const entry = {
         name: att.name,
@@ -525,10 +563,28 @@ function buildAttachmentReadFailureLines(
   return [
     "<chat-attachment-read-errors>",
     ...failures.map(({ name, code }) => {
-      const nextStep =
-        code === "image-too-large"
-          ? "This is a fixed vision payload size limit. Tell the user to export a smaller or more compressed image; retrying the same upload will not help."
-          : "Do not describe its contents; tell the user this specific image could not be read and suggest correcting the image or storage issue before attaching it again.";
+      let nextStep: string;
+      switch (code) {
+        case "image-too-large":
+          nextStep =
+            "This is a fixed vision payload size limit. Tell the user to export a smaller or more compressed image; retrying the same upload will not help.";
+          break;
+        case "request-candidate-limit":
+          nextStep =
+            "The request reached its image count limit. Keep the original references, and ask the user to attach fewer images or split them across turns.";
+          break;
+        case "request-byte-limit":
+          nextStep =
+            "The request reached its total image download limit. Keep the original references, and ask the user to attach fewer images or smaller exports.";
+          break;
+        case "request-time-limit":
+          nextStep =
+            "The shared time limit for reading images in this request expired. Keep the original references, and ask the user to attach fewer images or smaller exports.";
+          break;
+        default:
+          nextStep =
+            "Do not describe its contents; tell the user this specific image could not be read and suggest correcting the image or storage issue before attaching it again.";
+      }
       return (
         `<chat-attachment-read-error name="${escapeXmlAttr(name)}" code="${escapeXmlAttr(code)}">` +
         `The image was not supplied as vision input because ${escapeXmlAttr(describeOwnedImageReadFailure(code))}. ` +

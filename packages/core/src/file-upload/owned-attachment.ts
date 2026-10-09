@@ -17,11 +17,19 @@ export type OwnedImageReadFailureCode =
   | "redirect-rejected"
   | "response-rejected"
   | "image-too-large"
+  | "request-candidate-limit"
+  | "request-byte-limit"
+  | "request-time-limit"
   | "empty-response"
   | "invalid-image";
 
 export type OwnedImageHydrationResult =
-  | { kind: "hydrated"; dataUrl: string; mediaType: string; provider: string }
+  | {
+      kind: "hydrated";
+      dataUrl: string;
+      mediaType: string;
+      provider: string;
+    }
   | { kind: "failed"; code: Exclude<OwnedImageReadFailureCode, "unowned-url"> }
   | { kind: "unowned"; code: "unowned-url" };
 
@@ -29,7 +37,47 @@ export const MAX_OWNED_INLINE_IMAGE_BYTES = Math.floor(
   (MAX_INLINE_IMAGE_BASE64_CHARS * 3) / 4,
 );
 
-const OWNED_IMAGE_FETCH_TIMEOUT_MS = 15_000;
+export const MAX_OWNED_IMAGE_HYDRATION_CANDIDATES = 6;
+export const MAX_OWNED_IMAGE_HYDRATION_BYTES = 8 * 1024 * 1024;
+export const OWNED_IMAGE_HYDRATION_TIMEOUT_MS = 20_000;
+
+export interface OwnedImageHydrationBudget {
+  deadlineAt: number;
+  remainingBytes: number;
+}
+
+export function createOwnedImageHydrationBudget(
+  now = Date.now(),
+): OwnedImageHydrationBudget {
+  return {
+    deadlineAt: now + OWNED_IMAGE_HYDRATION_TIMEOUT_MS,
+    remainingBytes: MAX_OWNED_IMAGE_HYDRATION_BYTES,
+  };
+}
+
+class RequestDeadlineError extends Error {}
+
+function raceWithDeadline<T>(
+  value: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  if (signal.aborted) return Promise.reject(new RequestDeadlineError());
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new RequestDeadlineError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    value.then(
+      (result) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(result);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
 
 function parseOwnedHttpsUrl(value: string): URL | null {
   try {
@@ -44,19 +92,27 @@ function parseOwnedHttpsUrl(value: string): URL | null {
   }
 }
 
-async function readResponseBytes(response: Response): Promise<Uint8Array> {
+async function readResponseBytes(
+  response: Response,
+  budget: OwnedImageHydrationBudget,
+  signal: AbortSignal,
+): Promise<Uint8Array> {
+  const requestBytesAtStart = budget.remainingBytes;
+  const maxBytes = Math.min(MAX_OWNED_INLINE_IMAGE_BYTES, requestBytesAtStart);
+  const limitCode =
+    requestBytesAtStart < MAX_OWNED_INLINE_IMAGE_BYTES
+      ? ("request-byte-limit" as const)
+      : ("image-too-large" as const);
+
   const contentLength = response.headers.get("content-length");
   if (contentLength !== null) {
     const declaredLength = Number(contentLength);
-    if (
-      Number.isFinite(declaredLength) &&
-      declaredLength > MAX_OWNED_INLINE_IMAGE_BYTES
-    ) {
+    if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
       await response.body?.cancel().catch(() => {});
       throw Object.assign(
-        new Error("Image response exceeds the inline limit"),
+        new Error("Image response exceeds its hydration byte limit"),
         {
-          code: "image-too-large" as const,
+          code: limitCode,
         },
       );
     }
@@ -66,23 +122,34 @@ async function readResponseBytes(response: Response): Promise<Uint8Array> {
   if (!reader) throw new Error("Image response has no body");
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
+  const cancelOnAbort = () => {
+    void reader.cancel().catch(() => {});
+  };
+  signal.addEventListener("abort", cancelOnAbort, { once: true });
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      totalBytes += value.byteLength;
-      if (totalBytes > MAX_OWNED_INLINE_IMAGE_BYTES) {
+      const nextTotalBytes = totalBytes + value.byteLength;
+      if (nextTotalBytes > maxBytes) {
+        budget.remainingBytes = Math.max(
+          0,
+          requestBytesAtStart - nextTotalBytes,
+        );
         await reader.cancel().catch(() => {});
         throw Object.assign(
-          new Error("Image response exceeds the inline limit"),
+          new Error("Image response exceeds its hydration byte limit"),
           {
-            code: "image-too-large" as const,
+            code: limitCode,
           },
         );
       }
+      totalBytes = nextTotalBytes;
+      budget.remainingBytes = Math.max(0, requestBytesAtStart - totalBytes);
       chunks.push(value);
     }
   } finally {
+    signal.removeEventListener("abort", cancelOnAbort);
     reader.releaseLock();
   }
   if (totalBytes === 0) throw new Error("Image response is empty");
@@ -104,56 +171,121 @@ async function readResponseBytes(response: Response): Promise<Uint8Array> {
 export async function hydrateOwnedImageUrl(
   value: string,
   declaredMediaType?: string,
+  budget?: OwnedImageHydrationBudget,
 ): Promise<OwnedImageHydrationResult> {
   const url = parseOwnedHttpsUrl(value);
   if (!url) return { kind: "failed", code: "invalid-url" };
 
+  const hydrationBudget = budget ?? {
+    deadlineAt: Date.now() + OWNED_IMAGE_HYDRATION_TIMEOUT_MS,
+    remainingBytes: MAX_OWNED_INLINE_IMAGE_BYTES,
+  };
+  if (hydrationBudget.remainingBytes <= 0) {
+    return { kind: "failed", code: "request-byte-limit" };
+  }
+
+  const remainingMs = hydrationBudget.deadlineAt - Date.now();
+  if (remainingMs <= 0) {
+    return { kind: "failed", code: "request-time-limit" };
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), remainingMs);
+
   let provider;
   try {
-    provider = await findFileUploadProviderOwningUrl(url.href);
-  } catch {
-    return { kind: "failed", code: "ownership-check-failed" };
+    provider = await raceWithDeadline(
+      Promise.resolve().then(() => findFileUploadProviderOwningUrl(url.href)),
+      controller.signal,
+    );
+  } catch (error) {
+    return {
+      kind: "failed",
+      code:
+        error instanceof RequestDeadlineError
+          ? "request-time-limit"
+          : "ownership-check-failed",
+    };
+  } finally {
+    clearTimeout(timeout);
   }
   if (!provider) return { kind: "unowned", code: "unowned-url" };
 
+  const remainingMsForFetch = hydrationBudget.deadlineAt - Date.now();
+  if (remainingMsForFetch <= 0) {
+    return { kind: "failed", code: "request-time-limit" };
+  }
+  const fetchController = new AbortController();
+  const fetchTimeout = setTimeout(
+    () => fetchController.abort(),
+    remainingMsForFetch,
+  );
+
   let response: Response;
   try {
-    response = await fetch(url, {
-      method: "GET",
-      headers: { Accept: "image/jpeg, image/png, image/gif, image/webp" },
-      credentials: "omit",
-      redirect: "manual",
-      signal: AbortSignal.timeout(OWNED_IMAGE_FETCH_TIMEOUT_MS),
-    });
-  } catch {
-    return { kind: "failed", code: "fetch-failed" };
+    response = await raceWithDeadline(
+      fetch(url, {
+        method: "GET",
+        headers: { Accept: "image/jpeg, image/png, image/gif, image/webp" },
+        credentials: "omit",
+        redirect: "manual",
+        signal: fetchController.signal,
+      }),
+      fetchController.signal,
+    );
+  } catch (error) {
+    return {
+      kind: "failed",
+      code:
+        error instanceof RequestDeadlineError
+          ? "request-time-limit"
+          : "fetch-failed",
+    };
+  } finally {
+    clearTimeout(fetchTimeout);
   }
 
   if (response.status >= 300 && response.status < 400) {
-    await response.body?.cancel().catch(() => {});
+    void response.body?.cancel().catch(() => {});
     return { kind: "failed", code: "redirect-rejected" };
   }
   if (!response.ok) {
-    await response.body?.cancel().catch(() => {});
+    void response.body?.cancel().catch(() => {});
     return { kind: "failed", code: "response-rejected" };
   }
 
   let bytes: Uint8Array;
+  const bodyController = new AbortController();
+  const bodyTimeout = setTimeout(
+    () => bodyController.abort(),
+    Math.max(0, hydrationBudget.deadlineAt - Date.now()),
+  );
   try {
-    bytes = await readResponseBytes(response);
+    bytes = await raceWithDeadline(
+      readResponseBytes(response, hydrationBudget, bodyController.signal),
+      bodyController.signal,
+    );
   } catch (error) {
+    if (error instanceof RequestDeadlineError) {
+      void response.body?.cancel().catch(() => {});
+      return { kind: "failed", code: "request-time-limit" };
+    }
     if (
       error &&
       typeof error === "object" &&
       "code" in error &&
-      error.code === "image-too-large"
+      (error.code === "image-too-large" || error.code === "request-byte-limit")
     ) {
-      return { kind: "failed", code: "image-too-large" };
+      return { kind: "failed", code: error.code };
     }
     if (error instanceof Error && error.message === "Image response is empty") {
       return { kind: "failed", code: "empty-response" };
     }
     return { kind: "failed", code: "fetch-failed" };
+  } finally {
+    clearTimeout(bodyTimeout);
+  }
+  if (Date.now() >= hydrationBudget.deadlineAt) {
+    return { kind: "failed", code: "request-time-limit" };
   }
 
   const base64 = Buffer.from(bytes).toString("base64");
@@ -198,6 +330,12 @@ export function describeOwnedImageReadFailure(
       return "the storage provider rejected the image request";
     case "image-too-large":
       return `the image exceeds the ${formatBase64CharBudget(MAX_INLINE_IMAGE_BASE64_CHARS)} vision input limit`;
+    case "request-candidate-limit":
+      return "the request reached its limit for checking image attachments";
+    case "request-byte-limit":
+      return "the request reached its total downloaded image byte limit";
+    case "request-time-limit":
+      return "the shared image-reading time limit for this request expired";
     case "empty-response":
       return "the storage provider returned an empty image";
     case "invalid-image":

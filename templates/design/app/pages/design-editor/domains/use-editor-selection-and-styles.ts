@@ -10,7 +10,10 @@ import {
 } from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
 import type { InteractionState } from "@shared/interaction-states";
-import { utilityStem } from "@shared/responsive-classes";
+import {
+  breakpointUpperBoundPx,
+  utilityStem,
+} from "@shared/responsive-classes";
 import {
   isRunningAppSourceType,
   normalizeDesignSourceType,
@@ -206,6 +209,20 @@ export function useEditorSelectionAndStyles({
     overviewCanvasZoom,
     activeCanvasSourceType,
   } = editorActiveScreenAndGeometry;
+  const activeBreakpointUpperBoundAtEvent = useCallback(() => {
+    const activeWidthPx = activeBreakpointWidthStateRef.current;
+    return activeWidthPx == null
+      ? null
+      : breakpointUpperBoundPx(
+          designBreakpoints.map((breakpoint) => breakpoint.widthPx),
+          activeWidthPx,
+          activeScreenBaseWidthPx,
+        );
+  }, [
+    activeBreakpointWidthStateRef,
+    activeScreenBaseWidthPx,
+    designBreakpoints,
+  ]);
   const {
     localhostConnectionRootPathByIdRef,
     setHoveredElementScreenId,
@@ -849,7 +866,7 @@ export function useEditorSelectionAndStyles({
           : undefined);
       runCommitVisualStyles(
         {
-          activeBreakpointUpperBoundPx,
+          activeBreakpointUpperBoundPx: activeBreakpointUpperBoundAtEvent(),
           activeBreakpointWidthStateRef,
           activeCanvasSourceType,
           activeCodeLayerProjection,
@@ -901,8 +918,7 @@ export function useEditorSelectionAndStyles({
     },
     [
       activeFile,
-      activeBreakpointWidthState,
-      activeBreakpointUpperBoundPx,
+      activeBreakpointUpperBoundAtEvent,
       activeCanvasSourceType,
       activeCodeLayerProjection,
       activeProjectionContent,
@@ -943,7 +959,7 @@ export function useEditorSelectionAndStyles({
       return runCommitStylesToSelectedLayers(
         {
           activeCanvasSourceType,
-          activeBreakpointUpperBoundPx,
+          activeBreakpointUpperBoundPx: activeBreakpointUpperBoundAtEvent(),
           activeBreakpointWidthStateRef,
           activeContent,
           activeFile,
@@ -982,7 +998,7 @@ export function useEditorSelectionAndStyles({
     },
     [
       activeCanvasSourceType,
-      activeBreakpointUpperBoundPx,
+      activeBreakpointUpperBoundAtEvent,
       activeContent,
       activeFile?.id,
       applyFileContentUpdate,
@@ -1012,7 +1028,7 @@ export function useEditorSelectionAndStyles({
       return runCommitRelativeStyleDeltaToSelectedLayers(
         {
           activeCanvasSourceType,
-          activeBreakpointUpperBoundPx,
+          activeBreakpointUpperBoundPx: activeBreakpointUpperBoundAtEvent(),
           activeBreakpointWidthStateRef,
           activeContent,
           activeFile,
@@ -1049,7 +1065,7 @@ export function useEditorSelectionAndStyles({
     },
     [
       activeCanvasSourceType,
-      activeBreakpointUpperBoundPx,
+      activeBreakpointUpperBoundAtEvent,
       activeContent,
       activeFile?.id,
       applyFileContentUpdate,
@@ -1225,7 +1241,7 @@ export function useEditorSelectionAndStyles({
         nodeId,
         state,
         Object.fromEntries(entries),
-        activeBreakpointUpperBoundPx,
+        activeBreakpointUpperBoundAtEvent(),
       );
       if (nextContent === baseContent) return true;
       applyFileContentUpdate(activeFile.id, nextContent, {
@@ -1241,7 +1257,7 @@ export function useEditorSelectionAndStyles({
     [
       activeCodeLayerProjection,
       activeCanvasSourceType,
-      activeBreakpointUpperBoundPx,
+      activeBreakpointUpperBoundAtEvent,
       activeFile?.id,
       applyFileContentUpdate,
       canEditActiveVisualScreen,

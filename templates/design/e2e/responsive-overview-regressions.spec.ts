@@ -118,6 +118,35 @@ async function designData(request: APIRequestContext, designId: string) {
   return JSON.parse(result.data || "{}") as Record<string, any>;
 }
 
+async function designFileContent(
+  request: APIRequestContext,
+  designId: string,
+  fileId: string,
+) {
+  const params = new URLSearchParams({ id: designId });
+  const response = await request.get(
+    `${BASE_URL}/_agent-native/actions/get-design?${params}`,
+  );
+  if (!response.ok()) throw new Error(await response.text());
+  const result = await response.json();
+  return result.files.find((file: { id: string }) => file.id === fileId)
+    ?.content as string;
+}
+
+async function activeBreakpointState(
+  request: APIRequestContext,
+  designId: string,
+) {
+  const response = await request.get(
+    `${BASE_URL}/_agent-native/application-state/design-active-breakpoint:${designId}`,
+  );
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json() as Promise<{
+    activeBreakpointId?: string;
+    responsiveEditScope?: string;
+  } | null>;
+}
+
 async function designFileIds(
   request: APIRequestContext,
   designId: string,
@@ -141,6 +170,7 @@ test("responsive frame previews preserve content fit and scope selection", async
   const { designId, fileIds } = await createDesign(request);
   const [fileId] = fileIds;
   try {
+    await page.setViewportSize({ width: 2200, height: 1000 });
     await configureResponsiveDesign(request, designId, fileIds);
     await gotoEditor(page, designId);
     await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
@@ -181,15 +211,77 @@ test("responsive frame previews preserve content fit and scope selection", async
       })
       .locator("[data-frame-title]")
       .click();
-
+    await expect
+      .poll(
+        async () =>
+          (await activeBreakpointState(request, designId))?.activeBreakpointId,
+      )
+      .toBe("mobile");
     const scope = page.getByRole("combobox", {
       name: "Responsive edit scope",
     });
     await expect(scope).toBeVisible();
     await expect(scope).toHaveText("This breakpoint and smaller");
+    const mobileHeroBox = await mobileHero.boundingBox();
+    expect(mobileHeroBox).not.toBeNull();
+    await page.mouse.click(
+      mobileHeroBox!.x + mobileHeroBox!.width / 2,
+      mobileHeroBox!.y + mobileHeroBox!.height / 2,
+    );
+    await expect
+      .poll(
+        async () =>
+          (await activeBreakpointState(request, designId))?.activeBreakpointId,
+      )
+      .toBe("mobile");
+    const xInput = page.getByRole("textbox", { name: "X-position" });
+    await expect(xInput).toBeVisible();
+    await xInput.fill("137");
+    await xInput.press("Enter");
+    await expect
+      .poll(() => designFileContent(request, designId, fileId!))
+      .toContain("@media (max-width: 767px)");
+
+    const tabletHero = page
+      .locator(`iframe[data-screen-iframe-id="${fileId}::bp-768"]`)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="hero"]');
+    await page
+      .locator("[data-breakpoint-frame]")
+      .filter({
+        has: page.locator(`[data-screen-iframe-id="${fileId}::bp-768"]`),
+      })
+      .locator("[data-frame-title]")
+      .click();
+    await expect
+      .poll(
+        async () =>
+          (await activeBreakpointState(request, designId))?.activeBreakpointId,
+      )
+      .toBe("tablet");
+    await expect(scope).toBeVisible();
+    await expect(scope).toHaveText("This breakpoint and smaller");
     await scope.click();
     await page.getByRole("option", { name: "This breakpoint only" }).click();
     await expect(scope).toHaveText("This breakpoint only");
+    const tabletHeroBox = await tabletHero.boundingBox();
+    expect(tabletHeroBox).not.toBeNull();
+    await page.mouse.click(
+      tabletHeroBox!.x + tabletHeroBox!.width / 2,
+      tabletHeroBox!.y + tabletHeroBox!.height / 2,
+    );
+    await expect(xInput).toBeVisible();
+    await expect
+      .poll(
+        async () =>
+          (await activeBreakpointState(request, designId))?.activeBreakpointId,
+      )
+      .toBe("tablet");
+    await xInput.fill("155");
+    await xInput.press("Enter");
+    await expect
+      .poll(() => designFileContent(request, designId, fileId!))
+      .toContain("@media (min-width: 768px) and (max-width: 1279px)");
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -259,7 +351,7 @@ test("fixed-artwork variants preserve the original brief size without mobile fra
     await action(request, "present-design-variants", {
       designId,
       prompt: "Pick a direction",
-      brief: "Create a LinkedIn ad for our product launch",
+      brief: "Create an ad for LinkedIn, promoting our product launch",
       responsive: true,
       variants: [
         {

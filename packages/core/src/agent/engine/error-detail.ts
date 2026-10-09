@@ -128,6 +128,23 @@ export interface ProviderErrorClassification {
 
 const MAX_RETRY_AFTER_MS = 60_000;
 
+const PROVIDER_ATTACHMENT_FIELD_PATTERN =
+  /\b(?:files?|attachments?)\b|\b(?:images?|files?|attachments?|media)[_-](?:url|data|source|type|format|size|input)\b|\b(?:images?|files?|attachments?|media)\b.{0,40}\b(?:url|data|source|type|format|size|input|content)\b|\b(?:url|data|source|type|format|size|input|content)\b.{0,40}\b(?:images?|files?|attachments?|media)\b|\bmime[\s_-]?type\b/gi;
+const PROVIDER_ATTACHMENT_REJECTION_PATTERN =
+  /\b(?:invalid|unsupported|not supported|does not support|too large|too big|too long|exceeds?|over(?:sized|size| the)? limit|maximum (?:allowed )?(?:size|length)|(?:size|length) limit|malformed)\b/i;
+
+function isInvalidAttachmentProviderMessage(message: string): boolean {
+  for (const match of message.matchAll(PROVIDER_ATTACHMENT_FIELD_PATTERN)) {
+    const index = match.index ?? 0;
+    const start = Math.max(0, index - 100);
+    const end = Math.min(message.length, index + match[0].length + 140);
+    if (PROVIDER_ATTACHMENT_REJECTION_PATTERN.test(message.slice(start, end))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function extractRetryAfterMs(err: unknown): number | undefined {
   const wrapped = err as { lastError?: unknown; cause?: unknown } | null;
   for (const source of [err, wrapped?.lastError, wrapped?.cause]) {
@@ -201,6 +218,11 @@ export function classifyProviderError(
       ? providerError.statusCode
       : wrappedHttpStatus(providerError);
 
+  const invalidAttachment =
+    (statusCode === 400 || statusCode === 422) &&
+    typeof providerError?.message === "string" &&
+    isInvalidAttachmentProviderMessage(providerError.message);
+
   const described = describeErrorWithCauses(err);
   const isConnectionError =
     !timedOut &&
@@ -222,8 +244,9 @@ export function classifyProviderError(
           : stringifyUnknown(providerError),
       ));
 
-  const providerRetryable =
-    typeof providerError?.isRetryable === "boolean"
+  const providerRetryable = invalidAttachment
+    ? false
+    : typeof providerError?.isRetryable === "boolean"
       ? providerError.isRetryable
       : isConnectionError || isBareRejection || timedOut
         ? true
@@ -237,19 +260,21 @@ export function classifyProviderError(
     // retries, but run-level continuation keys off the errorCode. A bare 403
     // is the one status that gets a different code instead of `http_403`,
     // because that code is the client's credential-rejected signal.
-    ...(statusCode !== undefined
-      ? isBareRejection
-        ? {
-            errorCode: PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
-            statusCode,
-          }
-        : { errorCode: `http_${statusCode}`, statusCode }
-      : isConnectionError || timedOut
-        ? { errorCode: "provider_network_error" }
-        : (() => {
-            const code = classifyTerminalErrorCode(described);
-            return code ? { errorCode: code } : {};
-          })()),
+    ...(invalidAttachment
+      ? { errorCode: "invalid_attachment", statusCode }
+      : statusCode !== undefined
+        ? isBareRejection
+          ? {
+              errorCode: PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
+              statusCode,
+            }
+          : { errorCode: `http_${statusCode}`, statusCode }
+        : isConnectionError || timedOut
+          ? { errorCode: "provider_network_error" }
+          : (() => {
+              const code = classifyTerminalErrorCode(described);
+              return code ? { errorCode: code } : {};
+            })()),
     ...(providerRetryable !== undefined ? { providerRetryable } : {}),
     ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
   };

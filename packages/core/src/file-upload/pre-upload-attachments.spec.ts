@@ -72,6 +72,7 @@ describe("preUploadAttachments", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -131,6 +132,81 @@ describe("preUploadAttachments", () => {
     expect(att.uploadProvider).toBe("test-storage");
   });
 
+  it("caps image URL hydration candidates while preserving every original URL", async () => {
+    findOwnedProviderMock.mockResolvedValue({ id: "test-storage" });
+    const jpegBytes = Buffer.from(JPEG_BASE64, "base64");
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(jpegBytes, {
+          headers: { "content-type": "image/jpeg" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const attachments = Array.from({ length: 8 }, (_, index) =>
+      makeImageAtt({
+        name: `image-${index + 1}.jpg`,
+        contentType: "image/jpeg",
+        data: undefined,
+        url: `https://storage.example.test/${index + 1}.jpg`,
+      }),
+    );
+
+    const result = await preUploadAttachments({
+      attachments,
+      ownerEmail: "user@example.com",
+    });
+
+    expect(findOwnedProviderMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(result.uploaded).toHaveLength(8);
+    expect(result.readFailures).toEqual([
+      { name: "additional images", code: "request-candidate-limit" },
+    ]);
+    for (const attachment of attachments) {
+      expect(result.injectedText).toContain(attachment.url);
+    }
+    expect(result.injectedText).toContain('code="request-candidate-limit"');
+  });
+
+  it("uses one shared hydration deadline across image URL candidates", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    findOwnedProviderMock.mockResolvedValue({ id: "test-storage" });
+    const fetchMock = vi.fn(async () => {
+      now.mockReturnValue(31_000);
+      return new Response(Buffer.from(JPEG_BASE64, "base64"), {
+        headers: { "content-type": "image/jpeg" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const attachments = [
+      makeImageAtt({
+        name: "first.jpg",
+        data: undefined,
+        url: "https://storage.example/first.jpg",
+      }),
+      makeImageAtt({
+        name: "second.jpg",
+        data: undefined,
+        url: "https://storage.example/second.jpg",
+      }),
+    ];
+
+    const result = await preUploadAttachments({
+      attachments,
+      ownerEmail: "user@example.com",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(findOwnedProviderMock).toHaveBeenCalledTimes(1);
+    expect(result.readFailures).toEqual([
+      { name: "first.jpg", code: "request-time-limit" },
+      { name: "second.jpg", code: "request-time-limit" },
+    ]);
+    expect(result.injectedText).toContain("https://storage.example/first.jpg");
+    expect(result.injectedText).toContain("https://storage.example/second.jpg");
+    expect(result.injectedText).toContain('code="request-time-limit"');
+  });
+
   it("keeps resized image pixels and the original reference without reporting a read failure", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -151,6 +227,39 @@ describe("preUploadAttachments", () => {
     expect(result.readFailures).toEqual([]);
     expect(result.injectedText).toContain(originalUrl);
     expect(result.injectedText).not.toContain("<chat-attachment-read-error");
+    expect(result.injectedText).not.toContain(
+      "<chat-attachment-processing-error",
+    );
+  });
+
+  it("keeps a durable URL for resized vision pixels alongside the original reference", async () => {
+    const optimizedUrl = "https://storage.example.test/uploads/resized.jpg";
+    const originalUrl = "https://storage.example.test/uploads/original.png";
+    const data = `data:image/jpeg;base64,${JPEG_BASE64}`;
+    uploadFileMock.mockResolvedValue({
+      url: optimizedUrl,
+      provider: "builder",
+    });
+    const attachment = {
+      ...makeImageAtt({
+        contentType: "image/jpeg",
+        data,
+      }),
+      referenceUrl: originalUrl,
+    } as AgentChatAttachment & { referenceUrl: string };
+
+    const result = await preUploadAttachments({
+      attachments: [attachment],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(attachment).toMatchObject({
+      data,
+      url: optimizedUrl,
+      referenceUrl: originalUrl,
+      uploadProvider: "builder",
+    });
+    expect(result.injectedText).toContain(optimizedUrl);
     expect(result.injectedText).not.toContain(
       "<chat-attachment-processing-error",
     );

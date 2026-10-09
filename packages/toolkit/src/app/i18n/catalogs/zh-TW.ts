@@ -617,6 +617,8 @@ const messages: ToolkitAgentChatTranslation = {
     "您已登出，因此此對話無法追蹤代理。請重新登入，然後重新載入。",
   "errorMessages.malformedRequestAttachment":
     "模型拒絕了一個附加檔案，因此這則訊息並未送出。請移除附件後重試：PDF、純文字檔案以及 JPEG、PNG、GIF、WebP 圖片可直接讀取；其他格式需要先上傳再以連結引用。",
+  "errorMessages.invalidAttachment":
+    "模型供應商因附件格式或大小不受支援而拒絕了該附件。圖片請匯出為較小的 PNG、JPEG、GIF 或 WebP；文件請使用支援的檔案格式，或貼上相關文字，然後重新附加。",
   "errorMessages.noProviderConnected":
     "尚未連線 LLM 供應商。開啟設定 > 代理 > AI 供應商，然後使用 Builder.io（提供免費方案）或新增供應商金鑰。",
   "errorMessages.openBuilderSpaceSettings": "開啟 Builder 空間設定",

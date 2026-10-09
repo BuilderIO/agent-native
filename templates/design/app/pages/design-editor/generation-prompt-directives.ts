@@ -144,8 +144,8 @@ export function designCanvasIntentDirectives(prompt?: string): string[] {
       ? `run \`take-design-screenshot\` once with widths: [${intent.dimensions.width}] and heights: [${intent.dimensions.height}].`
       : "run `take-design-screenshot` once at the generated canvas's exact width and height.";
     return [
-      `Fixed canvas: ${canvas}. Generate one artwork canvas; pass \`devices: []\` to \`generate-design\` and do not add mobile/tablet breakpoints or alternate device frames.`,
-      `After generation, ${screenshot} Do not capture separate desktop and mobile screenshots.`,
+      `Fixed canvas: ${canvas}. Generate one artwork canvas and pass \`devices: []\` to \`generate-design\` unless the user explicitly asks for device variants; then preserve exactly the requested devices and add no others.`,
+      `After generation, ${screenshot} Capture additional device viewports only when the user requested those variants.`,
     ];
   }
 

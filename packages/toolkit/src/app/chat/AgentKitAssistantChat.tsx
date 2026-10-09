@@ -976,17 +976,6 @@ export const AgentKitAssistantChat = forwardRef<
         signal: context?.signal,
       });
       if (!response.ok) {
-        let detail: string | undefined;
-        try {
-          const payload = asRecord(await response.json());
-          const candidate = payload?.error ?? payload?.message;
-          if (typeof candidate === "string" && candidate.trim()) {
-            detail = candidate.trim().slice(0, 500);
-          }
-        } catch {
-          // coercion-ok: the HTTP status still supplies an actionable upload error when the body is empty or malformed.
-          // A status-specific message remains available when the body is absent.
-        }
         const messageKey =
           response.status === 415
             ? "agentChat.composer.unsupportedFileType"
@@ -995,12 +984,15 @@ export const AgentKitAssistantChat = forwardRef<
               : response.status === 401
                 ? "agentChat.composer.sessionExpired"
                 : undefined;
-        const error = new Error(
-          messageKey
-            ? translatorRef.current(messageKey)
-            : (detail ??
-                translatorRef.current("agentChat.composer.uploadFailed")),
-        );
+        const message = messageKey
+          ? translatorRef.current(messageKey)
+          : [
+              translatorRef.current("agentChat.composer.uploadFailed"),
+              translatorRef.current(
+                "agentChat.onboarding.fileStorage.description",
+              ),
+            ].join(" ");
+        const error = new Error(message);
         Object.assign(error, {
           code:
             response.status === 413
@@ -2296,11 +2288,10 @@ const AgentKitAssistantChatBody = forwardRef<
         ? text
         : appendAgentChatContextToMessage(text, context);
       const attachments = options.attachments ?? [];
-      const needsFileStorage =
-        files.length > 0 ||
-        attachments.some(
-          (attachment) => !attachment.displayOnly && !attachment.url,
-        );
+      const needsFileStorage = requiresDurableAttachmentUpload(
+        attachments,
+        files,
+      );
       composerOptions.validateSubmission?.();
       if (needsFileStorage && !fileStorageConfigured) {
         throw new Error(t("onboarding.fileStorage.title"));
@@ -2310,7 +2301,10 @@ const AgentKitAssistantChatBody = forwardRef<
             fileParts: options.deferredFileParts,
             requestAttachments: options.deferredRequestAttachments ?? [],
           }
-        : await uploadAgentChatAttachments(control, attachments, files);
+        : await uploadAgentChatAttachments(control, attachments, files, {
+            storageConfigured: fileStorageConfigured,
+            storageUnavailableMessage: t("onboarding.fileStorage.title"),
+          });
       const fileParts = uploadedAttachments.fileParts;
       const requestAttachments =
         options.deferredRequestAttachments ??
@@ -2320,18 +2314,22 @@ const AgentKitAssistantChatBody = forwardRef<
       );
       let retryAttachmentsUnavailable = false;
       if (requestAttachments.some((attachment) => attachment.data)) {
-        try {
-          const durableAttachments = await uploadRequestAttachments(
-            control,
-            requestAttachments,
-          );
-          retryRequestAttachments = durableAttachments.filter(
-            (attachment) => !attachment.data && attachment.url,
-          );
-          retryAttachmentsUnavailable =
-            retryRequestAttachments.length !== requestAttachments.length;
-        } catch {
+        if (!fileStorageConfigured) {
           retryAttachmentsUnavailable = true;
+        } else {
+          try {
+            const durableAttachments = await uploadRequestAttachments(
+              control,
+              requestAttachments,
+            );
+            retryRequestAttachments = durableAttachments.filter(
+              (attachment) => !attachment.data && attachment.url,
+            );
+            retryAttachmentsUnavailable =
+              retryRequestAttachments.length !== requestAttachments.length;
+          } catch {
+            retryAttachmentsUnavailable = true;
+          }
         }
       }
       composerOptions.validateSubmission?.();
@@ -2513,10 +2511,7 @@ const AgentKitAssistantChatBody = forwardRef<
             const attachments = options.attachments ?? [];
             const needsFileStorage =
               !options.deferredFileParts &&
-              (files.length > 0 ||
-                attachments.some(
-                  (attachment) => !attachment.displayOnly && !attachment.url,
-                ));
+              requiresDurableAttachmentUpload(attachments, files);
             submittedComposerOptions.validateSubmission?.();
             if (needsFileStorage && !fileStorageConfigured) {
               throw new Error(t("onboarding.fileStorage.title"));
@@ -2528,8 +2523,19 @@ const AgentKitAssistantChatBody = forwardRef<
                   fileParts: options.deferredFileParts,
                   requestAttachments: options.deferredRequestAttachments ?? [],
                 }
-              : await uploadAgentChatAttachments(control, attachments, files);
+              : await uploadAgentChatAttachments(control, attachments, files, {
+                  storageConfigured: fileStorageConfigured,
+                  storageUnavailableMessage: t("onboarding.fileStorage.title"),
+                });
             const fileParts = uploadedAttachments.fileParts;
+            if (
+              !fileStorageConfigured &&
+              uploadedAttachments.requestAttachments.some(
+                (attachment) => attachment.data,
+              )
+            ) {
+              throw new Error(t("onboarding.fileStorage.title"));
+            }
             const requestAttachments =
               options.deferredRequestAttachments ??
               (await uploadRequestAttachments(
@@ -5507,10 +5513,68 @@ interface UploadedAgentChatAttachments {
   requestAttachments: AgentRequestAttachment[];
 }
 
+const OPTIMIZABLE_RASTER_IMAGE_TYPES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+function isPotentiallyDownscalableImage(args: {
+  mediaType: string;
+  sizeBytes: number;
+}): boolean {
+  const mediaType = args.mediaType.split(";", 1)[0]!.trim().toLowerCase();
+  return (
+    args.sizeBytes > AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES &&
+    OPTIMIZABLE_RASTER_IMAGE_TYPES.has(mediaType)
+  );
+}
+
+function isPotentiallyDownscalableAttachment(
+  attachment: AgentChatAttachment,
+): boolean {
+  if (attachment.displayOnly || attachment.url || !attachment.data) {
+    return false;
+  }
+  const dataUrl = parseBase64DataUrl(attachment.data);
+  const base64 = dataUrl?.data ?? attachment.data;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) return false;
+  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+  const sizeBytes = Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+  const mediaType = attachment.contentType ?? dataUrl?.mediaType ?? "";
+  return isPotentiallyDownscalableImage({ mediaType, sizeBytes });
+}
+
+function requiresDurableAttachmentUpload(
+  attachments: readonly AgentChatAttachment[],
+  files: readonly PromptComposerFile[],
+): boolean {
+  return (
+    files.some(
+      (file) =>
+        !isPotentiallyDownscalableImage({
+          mediaType: file.type,
+          sizeBytes: file.size,
+        }),
+    ) ||
+    attachments.some(
+      (attachment) =>
+        !attachment.displayOnly &&
+        !attachment.url &&
+        !isPotentiallyDownscalableAttachment(attachment),
+    )
+  );
+}
+
 async function uploadAgentChatAttachments(
   control: ReturnType<typeof useAgentKitControl>,
   attachments: readonly AgentChatAttachment[],
   files: readonly PromptComposerFile[],
+  options: {
+    storageConfigured: boolean;
+    storageUnavailableMessage: string;
+  },
 ): Promise<UploadedAgentChatAttachments> {
   const entries: Array<FilePart | File> = [];
   for (const attachment of attachments) {
@@ -5556,23 +5620,50 @@ async function uploadAgentChatAttachments(
       }
     }),
   );
-  const uploaded = pending.length
-    ? await control.uploadFiles(
-        pending.map((file) => ({
+  const uploadedByFile = new Map<File, FilePart>();
+  const filesToUploadNormally = pending.filter(
+    (file) => !optimizedImages.has(file),
+  );
+  if (!options.storageConfigured && filesToUploadNormally.length > 0) {
+    throw new Error(options.storageUnavailableMessage);
+  }
+  if (filesToUploadNormally.length) {
+    const uploaded = await control.uploadFiles(
+      filesToUploadNormally.map((file) => ({
+        name: file.name,
+        mediaType: file.type || "application/octet-stream",
+        size: file.size,
+        body: file,
+      })),
+    );
+    filesToUploadNormally.forEach((file, index) => {
+      const part = uploaded[index];
+      if (!part) {
+        throw new TypeError("File upload did not return every uploaded file.");
+      }
+      uploadedByFile.set(file, part);
+    });
+  }
+  for (const file of pending) {
+    if (!optimizedImages.has(file) || !options.storageConfigured) continue;
+    try {
+      const [part] = await control.uploadFiles([
+        {
           name: file.name,
           mediaType: file.type || "application/octet-stream",
           size: file.size,
           body: file,
-        })),
-      )
-    : [];
-  let uploadIndex = 0;
-  const uploadedByFile = new Map<File, FilePart>();
-  const fileParts = entries.map((entry) => {
-    if (!(entry instanceof File)) return entry;
-    const part = uploaded[uploadIndex++]!;
-    uploadedByFile.set(entry, part);
-    return part;
+        },
+      ]);
+      if (part) uploadedByFile.set(file, part);
+    } catch {
+      // coercion-ok: the resized inline pixels are sent; this upload only adds a reusable URL.
+    }
+  }
+  const fileParts = entries.flatMap((entry) => {
+    if (!(entry instanceof File)) return [entry];
+    const part = uploadedByFile.get(entry);
+    return part ? [part] : [];
   });
   const requestAttachments = pending.flatMap((file) => {
     const optimized = optimizedImages.get(file);

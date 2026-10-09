@@ -665,6 +665,8 @@ const messages: ToolkitAgentChatTranslation = {
     "サインアウトしているため、このチャットはエージェントを追跡できません。もう一度サインインしてから再読み込みしてください。",
   "errorMessages.malformedRequestAttachment":
     "モデルが添付ファイルを拒否したため、このメッセージは送信されませんでした。添付を削除して再試行してください。PDF、プレーンテキスト、JPEG・PNG・GIF・WebP の画像は直接読み取れますが、その他の形式はアップロードしてリンクする必要があります。",
+  "errorMessages.invalidAttachment":
+    "モデルプロバイダーが、添付ファイルの形式またはサイズを理由に拒否しました。画像は小さい PNG、JPEG、GIF、WebP として書き出してください。文書は対応形式を使うか、関連するテキストを貼り付けてから、もう一度添付してください。",
   "errorMessages.noProviderConnected":
     "LLM プロバイダーが接続されていません。設定 > エージェント > AI プロバイダーを開き、Builder.io（無料プランあり）を使用するか、プロバイダーキーを追加してください。",
   "errorMessages.openBuilderSpaceSettings": "Builder スペース設定を開く",

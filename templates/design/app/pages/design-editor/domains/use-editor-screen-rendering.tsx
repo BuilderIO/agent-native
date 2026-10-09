@@ -382,7 +382,12 @@ export function useEditorScreenRendering({
         !intent &&
         activeFileIdRef.current !== null &&
         screenId !== activeFileIdRef.current;
-      const droppedEcho = supersededEcho || inactiveScreenEcho;
+      const inactiveBreakpointEcho =
+        viewModeRef.current === "overview" &&
+        !intent &&
+        options.breakpointWidthPx !== activeBreakpointWidthStateRef.current;
+      const droppedEcho =
+        supersededEcho || inactiveScreenEcho || inactiveBreakpointEcho;
       if (!intent && droppedEcho) {
         return;
       }
@@ -919,7 +924,6 @@ export function useEditorScreenRendering({
           lockedSelectors={getLayerSelectorsForFile(screen.id, lockedLayerIds)}
           hiddenSelectors={getLayerSelectorsForFile(screen.id, hiddenLayerIds)}
           onElementSelect={(info, intent) => {
-            activateResponsiveScope();
             handleIframeElementSelect(screen.id, info, intent, {
               breakpointWidthPx,
             });

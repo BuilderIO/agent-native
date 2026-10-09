@@ -115,7 +115,7 @@ const CANVAS_PRESET_ALIASES: CanvasPresetAlias[] = [
   {
     preset: "Instagram Post",
     pattern:
-      /\bsquare\s+instagram\s+posts?\b|\binstagram\b[\s\S]{0,24}\bsquare\b[\s\S]{0,12}\bposts?\b/i,
+      /\bsquare\s+instagram\s+posts?\b|\binstagram\b[\s\S]{0,24}\bsquare\b[\s\S]{0,12}\bposts?\b|\binstagram\b[\s\S]{0,24}\bposts?\s+in\s+(?:a\s+)?square(?:\s+format)?\b/i,
   },
   {
     preset: "Instagram Portrait Post",
@@ -159,7 +159,7 @@ const OUTPUT_VERB =
 const OUTPUT_RELATION_BOUNDARY =
   /\b(?:for|with|using|including|featuring|showing|based\s+on|inspired\s+by|announcing|promoting|about|on|that|which)\b/i;
 const PRODUCT_SURFACE_OUTPUT =
-  /\b(?:(?:poster|graphic|social(?:\s+media)?\s+post|ad|banner)\s+(?:maker|editor|creation)\s+tools?|dashboard|dashboards|manager|management\s+(?:tool|app|platform)|(?:web|mobile|desktop)\s+apps?|applications?|website|web\s+site|landing\s+page|pricing\s+page|settings\s+page|login\s+screen|web\s+page|product\s+interface|portal|platform|crm|workspace|admin\s+(?:panel|dashboard)|prototype|site|form)\b/i;
+  /\b(?:(?:[\w-]+\s+){0,5}(?:tools?|editors?|makers?|generators?|builders?|creators?)|dashboard|dashboards|manager|management\s+(?:tool|app|platform)|(?:web|mobile|desktop)\s+apps?|applications?|website|web\s+site|landing\s+page|pricing\s+page|settings\s+page|login\s+screen|web\s+page|product\s+interface|portal|platform|crm|workspace|admin\s+(?:panel|dashboard)|prototype|site|form)\b/i;
 const FIXED_ARTWORK_OUTPUT =
   /\b(?:ads?|advertisements?|banners?|leaderboards?|skyscrapers?|billboards?|anzeige(?:n)?|annonce(?:s)?|publicit[ée]|an[uú]ncio(?:s)?|publicidade|social(?:\s+media)?\s+(?:posts?|stor(?:y|ies))|instagram\s+(?:posts?|stor(?:y|ies))|email\s+headers?|newsletter\s+(?:headers?|graphics?)|flyers?|posters?|brochures?|infographics?|cover\s+art|favicons?|logos?|avatars?|thumbnails?|promo(?:tional)?\s+(?:graphics?|images?|posts?)|open\s+graph\s+(?:preview\s+)?images?|og\s+images?)\b/i;
 
@@ -168,7 +168,16 @@ function requestedOutputPhrase(prompt: string): string {
   const remainder = verb ? prompt.slice(verb.index + verb[0].length) : prompt;
   const sentence = remainder.split(/[.!?;\n]/, 1)[0] ?? remainder;
   const relation = OUTPUT_RELATION_BOUNDARY.exec(sentence);
-  return sentence.slice(0, relation?.index ?? sentence.length).trim();
+  const phrase = sentence.slice(0, relation?.index ?? sentence.length).trim();
+  if (relation && /^(?:for|on)$/i.test(relation[0])) {
+    const platform = sentence
+      .slice(relation.index + relation[0].length)
+      .match(
+        /^\s+(?:(?:an?|the)\s+)?(linkedin|meta|facebook|instagram|twitter|x|youtube|google)\b/i,
+      );
+    if (platform) return `${phrase} ${platform[1]}`;
+  }
+  return phrase;
 }
 
 function presetDimensions(name: string): CanvasDimensions | undefined {

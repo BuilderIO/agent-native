@@ -651,6 +651,8 @@ const messages = {
     "You're signed out, so this chat can't follow the agent. Sign in again, then reload.",
   "errorMessages.malformedRequestAttachment":
     "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.",
+  "errorMessages.invalidAttachment":
+    "The model provider rejected this attachment's format or size. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported file format or paste the relevant text, then attach it again.",
   "errorMessages.noProviderConnected":
     "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
   "errorMessages.openBuilderSpaceSettings": "Open Builder space settings",

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   AGENTKIT_PROTOCOL_VERSION,
   AgentProtocolValidationError,
+  MAX_AGENT_REQUEST_ATTACHMENTS,
+  MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
   createAgentProtocolEnvelope,
   isAgentEvent,
   parseAgentCapabilities,
@@ -439,6 +441,111 @@ describe("AgentKit protocol validation", () => {
         ],
       }).requestAttachments,
     ).toHaveLength(1);
+  });
+
+  it("rejects data URLs in durable queue attachment references", () => {
+    const dataUrl = "data:image/png;base64,iVBORw==";
+    expect(() =>
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Inspect this",
+        requestAttachments: [
+          { type: "image", name: "screen.png", url: dataUrl },
+        ],
+      }),
+    ).toThrow("queueMessage.requestAttachments[0].url");
+    expect(() =>
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Inspect this",
+        requestAttachments: [
+          {
+            type: "image",
+            name: "screen.png",
+            url: "https://files.example.test/screen.png",
+            referenceUrl: dataUrl,
+          },
+        ],
+      }),
+    ).toThrow("queueMessage.requestAttachments[0].referenceUrl");
+    expect(() =>
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Inspect this",
+        attachments: [{ type: "file", name: "screen.png", url: dataUrl }],
+      }),
+    ).toThrow("queueMessage.attachments[0].url");
+    expect(() =>
+      parseAgentQueuedMessage({
+        id: "queued-1",
+        threadId: "thread-1",
+        text: "Inspect this",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        attachments: [{ type: "file", name: "screen.png", url: dataUrl }],
+      }),
+    ).toThrow("queuedMessage.attachments[0].url");
+    expect(() =>
+      parseAgentQueuedMessage({
+        id: "queued-2",
+        threadId: "thread-1",
+        text: "Inspect this",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        requestAttachments: [
+          {
+            type: "image",
+            name: "screen.png",
+            url: "https://files.example.test/screen.png",
+            referenceUrl: dataUrl,
+          },
+        ],
+      }),
+    ).toThrow("queuedMessage.requestAttachments[0].referenceUrl");
+    expect(() =>
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Inspect this",
+        attachments: [
+          {
+            type: "file",
+            name: "screen.png",
+            fileId: "file-1",
+            data: dataUrl,
+          },
+        ],
+      }),
+    ).toThrow("inline file data cannot be persisted in a queue");
+  });
+
+  it("bounds request attachment count and aggregate inline image data", () => {
+    const requestAttachment = (index: number) => ({
+      type: "image",
+      name: `image-${index}.png`,
+      url: `https://files.example.test/image-${index}.png`,
+    });
+    expect(() =>
+      parseStartRunInput({
+        threadId: "thread-1",
+        messages: [],
+        requestAttachments: Array.from(
+          { length: MAX_AGENT_REQUEST_ATTACHMENTS + 1 },
+          (_, index) => requestAttachment(index),
+        ),
+      }),
+    ).toThrow("expected at most");
+
+    expect(() =>
+      parseStartRunInput({
+        threadId: "thread-1",
+        messages: [],
+        requestAttachments: Array.from({ length: 3 }, (_, index) => ({
+          type: "image",
+          name: `image-${index}.png`,
+          data: `data:image/png;base64,${"A".repeat(
+            Math.ceil(MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS / 3),
+          )}`,
+        })),
+      }),
+    ).toThrow("aggregate inline image data exceeds");
   });
 
   it("validates optional feedback trace identifiers and sequence numbers", () => {

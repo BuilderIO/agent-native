@@ -666,11 +666,12 @@ const generateDesignAction = defineAction({
       .array(z.enum(["mobile", "tablet", "desktop"]))
       .optional()
       .describe(
-        "Explicit device set for responsive frames. Honor the devices the " +
-          'prompt names; omit to default to ["desktop","mobile"]. Pass [] for ' +
-          "a static canvas or non-app asset with no extra device frames; static " +
-          "asset requests also suppress auto-generated device frames. Exact pixel " +
-          "dimensions in the prompt always take precedence. Widest " +
+        "Explicit device set for responsive frames. Honor device variants the " +
+          'prompt requests; omit to default to ["desktop","mobile"]. Pass [] for ' +
+          "a static canvas or non-app asset when no device variants are requested. " +
+          "If the prompt names exact pixel dimensions, use them for the canvas; " +
+          "when it also explicitly requests device variants, preserve those variants. " +
+          "Widest " +
           "device = primary/base frame; narrower devices = breakpoint frames " +
           "(never the base width, never an auto tablet). One device = a single " +
           "frame with no breakpoints. When provided, this overrides " +

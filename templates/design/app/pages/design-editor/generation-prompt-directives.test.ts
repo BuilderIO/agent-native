@@ -194,7 +194,7 @@ describe("DESIGN_MUTATION_REQUIRED_DIRECTIVE", () => {
 });
 
 describe("designCanvasIntentDirectives", () => {
-  it("uses one exact-size screenshot and no device frames for fixed artwork", () => {
+  it("uses one exact-size screenshot for fixed artwork without requested variants", () => {
     const text = designGenerationDirectives(
       "design-1",
       null,
@@ -205,9 +205,27 @@ describe("designCanvasIntentDirectives", () => {
     expect(text).toContain("devices: []");
     expect(text).toContain("widths: [1200] and heights: [627]");
     expect(text).toContain(
-      "Do not capture separate desktop and mobile screenshots.",
+      "Capture additional device viewports only when the user requested those variants.",
     );
     expect(text).not.toContain("After responsive app generation");
+  });
+
+  it("preserves only device variants the user explicitly requests for artwork", () => {
+    const text = designGenerationDirectives(
+      "design-1",
+      null,
+      0,
+      "Create a LinkedIn ad with desktop and mobile versions",
+    ).join("\n");
+    expect(text).toContain(
+      "unless the user explicitly asks for device variants",
+    );
+    expect(text).toContain(
+      "preserve exactly the requested devices and add no others",
+    );
+    expect(text).toContain(
+      "Capture additional device viewports only when the user requested those variants.",
+    );
   });
 
   it("keeps responsive screenshots for app UI even when it mentions advertising", () => {

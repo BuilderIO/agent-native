@@ -1,6 +1,9 @@
 import crypto from "node:crypto";
 
-import type { AgentRunOptions } from "@agent-native/agentkit/protocol";
+import {
+  parseQueueMessageInput,
+  type AgentRunOptions,
+} from "@agent-native/agentkit/protocol";
 
 import {
   extractThreadMeta,
@@ -1624,6 +1627,16 @@ export async function mutateThreadQueuedMessages(
   threadId: string,
   mutation: ThreadQueuedMessageMutation,
 ): Promise<ThreadQueuedMessageMutationResult | null> {
+  if (mutation.type === "append") {
+    parseQueueMessageInput(
+      {
+        ...mutation.message,
+        threadId: mutation.message.threadId ?? threadId,
+      },
+      "queuedMessage",
+    );
+  }
+
   return withThreadDataLock(threadId, async () => {
     let result: ThreadQueuedMessageMutationResult | undefined;
     await updateThreadData(threadId, "{}", "", "", 0, {

@@ -1488,10 +1488,10 @@ describe("generate-design: new-file creation path", () => {
     expect(data.breakpointSet).toBeUndefined();
   });
 
-  it("preserves explicitly supplied devices even for a fixed artwork prompt", async () => {
-    await action.run({
+  it("preserves explicitly requested devices and exact canvas size", async () => {
+    const result = await action.run({
       designId: "design-1",
-      prompt: "Create a LinkedIn ad",
+      prompt: "Create a LinkedIn ad at 1200x627 pixels for desktop and mobile",
       devices: ["desktop", "mobile"],
       files: [
         {
@@ -1502,8 +1502,15 @@ describe("generate-design: new-file creation path", () => {
       ],
     });
 
-    expect(mocks.getDesignData().breakpointSet).toMatchObject({
+    const data = mocks.getDesignData();
+    expect(data.breakpointSet).toMatchObject({
       breakpoints: [expect.objectContaining({ widthPx: 390 })],
+    });
+    expect(data.screenMetadata).toMatchObject({
+      [result.savedFiles[0]!.id]: expect.objectContaining({
+        width: 1200,
+        height: 627,
+      }),
     });
   });
 

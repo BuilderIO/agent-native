@@ -1318,6 +1318,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Vous êtes déconnecté, cette conversation ne peut donc pas suivre l’agent. Reconnectez-vous, puis rechargez.",
   "errorMessages.malformedRequestAttachment":
     "Le modèle a rejeté un fichier joint, donc ce message n’a jamais été envoyé. Retirez la pièce jointe et réessayez : un PDF, un fichier texte brut ou une image JPEG, PNG, GIF ou WebP est lu directement ; les autres formats doivent être téléversés puis liés.",
+  "errorMessages.invalidAttachment":
+    "Le fournisseur du modèle a rejeté cette pièce jointe en raison de son format ou de sa taille. Pour les images, exportez une version plus petite en PNG, JPEG, GIF ou WebP ; pour les documents, utilisez un format de fichier pris en charge ou collez le texte pertinent, puis joignez-le à nouveau.",
   "errorMessages.noProviderConnected":
     "Aucun fournisseur LLM n’est connecté. Ouvrez Paramètres > Agent > Fournisseurs IA, puis utilisez Builder.io (offre gratuite disponible) ou ajoutez une clé de fournisseur.",
   "errorMessages.openBuilderSpaceSettings":

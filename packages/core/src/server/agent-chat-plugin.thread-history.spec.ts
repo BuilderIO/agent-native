@@ -30,6 +30,41 @@ describe("AgentKit thread history", () => {
     });
   });
 
+  it("rejects data URLs before a queued message can be persisted", () => {
+    const queued = {
+      id: "queued-data-url",
+      threadId: "thread-1",
+      text: "Inspect this image",
+      requestAttachments: [
+        {
+          type: "image",
+          name: "screen.png",
+          url: "data:image/png;base64,iVBORw==",
+        },
+      ],
+    };
+
+    expect(parseQueuedMessageForThread(queued, "thread-1")).toBeNull();
+    expect(
+      parseQueuedMessageForThread(
+        {
+          ...queued,
+          requestAttachments: [
+            {
+              type: "image",
+              name: "screen.png",
+              url: "https://files.example.test/screen.png",
+            },
+          ],
+        },
+        "thread-1",
+      ),
+    ).toMatchObject({
+      id: "queued-data-url",
+      requestAttachments: [{ url: "https://files.example.test/screen.png" }],
+    });
+  });
+
   it("deduplicates plain replies across thread snapshot saves", () => {
     const reply = "Hello, AgentKit Browser!";
     const message = (id: string) => ({
