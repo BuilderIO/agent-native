@@ -1,15 +1,11 @@
 import type { Document } from "@shared/api";
 
 const pendingDocumentCreation = Symbol("pendingDocumentCreation");
-const confirmedDocumentCreation = Symbol("confirmedDocumentCreation");
+const confirmedDocumentCreations = new Set<string>();
 
 type PendingDocument = Document & {
   [pendingDocumentCreation]?: true;
 };
-type ConfirmedDocument = Document & {
-  [confirmedDocumentCreation]?: true;
-};
-
 export function markDocumentCreationPending(document: Document): Document {
   return Object.assign(document, { [pendingDocumentCreation]: true as const });
 }
@@ -19,23 +15,17 @@ export function isDocumentCreationPending(document: Document): boolean {
 }
 
 export function markDocumentCreationConfirmed(document: Document): Document {
-  return Object.assign(
-    { ...document },
-    {
-      [confirmedDocumentCreation]: true as const,
-    },
-  );
+  confirmedDocumentCreations.add(document.id);
+  return document;
 }
 
 export function isDocumentCreationConfirmed(document: Document): boolean {
-  return (document as ConfirmedDocument)[confirmedDocumentCreation] === true;
+  return confirmedDocumentCreations.has(document.id);
 }
 
 export function clearDocumentCreationConfirmed(document: Document): Document {
-  if (!isDocumentCreationConfirmed(document)) return document;
-  const clean = { ...document } as ConfirmedDocument;
-  delete clean[confirmedDocumentCreation];
-  return clean;
+  confirmedDocumentCreations.delete(document.id);
+  return document;
 }
 
 export function shouldCreateDocumentOptimistically(args: {

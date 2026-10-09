@@ -1367,6 +1367,9 @@ export function PageEditorSurface({
     previous: loadFailureRef.current,
     documentId,
     admitted: admittedDocumentIdRef.current === documentId,
+    isDocumentCreationConfirmed: document
+      ? isDocumentCreationConfirmed(document)
+      : false,
     dataUpdatedAt,
     errorUpdateCount,
     errorUpdatedAt,
@@ -1627,7 +1630,11 @@ export function documentEditorLoadState({
       admittedDocumentId: documentId,
     };
   }
-  if (hasDocument && activeAdmittedDocumentId === documentId) {
+  if (
+    hasDocument &&
+    activeAdmittedDocumentId === documentId &&
+    !hasLoadFailure
+  ) {
     return {
       view: "editor" as const,
       admittedDocumentId: documentId,
@@ -1724,6 +1731,7 @@ export function updateDocumentLoadFailureState({
   previous,
   documentId,
   admitted,
+  isDocumentCreationConfirmed = false,
   dataUpdatedAt,
   errorUpdateCount,
   errorUpdatedAt,
@@ -1733,12 +1741,15 @@ export function updateDocumentLoadFailureState({
   previous: DocumentLoadFailureState | null;
   documentId: string;
   admitted: boolean;
+  isDocumentCreationConfirmed?: boolean;
   dataUpdatedAt: number;
   errorUpdateCount: number;
   errorUpdatedAt: number;
   isError: boolean;
   authoritativeSuccess: AuthoritativeQuerySuccess;
 }): DocumentLoadFailureState {
+  const hasAuthoritativelyAdmittedDocument =
+    admitted && !isDocumentCreationConfirmed;
   if (
     previous?.documentId !== documentId ||
     previous.queryIdentity !== authoritativeSuccess.queryIdentity
@@ -1765,7 +1776,7 @@ export function updateDocumentLoadFailureState({
       failed: false,
     };
   }
-  if (admitted || previous.failed) return previous;
+  if (hasAuthoritativelyAdmittedDocument || previous.failed) return previous;
   return errorUpdateCount > previous.baselineErrorUpdateCount
     ? {
         ...previous,

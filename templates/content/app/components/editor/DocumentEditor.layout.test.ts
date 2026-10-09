@@ -1660,22 +1660,67 @@ describe("document editor layout", () => {
     ).toEqual({ view: "editor", admittedDocumentId: "new-document" });
   });
 
-  it("does not show a confirmed create response after its first read fails", () => {
+  it("surfaces a first-read failure after admitting a confirmed create response", () => {
+    const admitted = documentEditorLoadState({
+      documentId: "new-document",
+      admittedDocumentId: null,
+      hasDocument: true,
+      isDocumentCreationConfirmed: true,
+      isDocumentCreationPending: false,
+      isFetchedAfterMount: false,
+      isFetching: true,
+      isError: false,
+      hasLoadFailure: false,
+      isManualRetrying: false,
+      error: null,
+    });
+    const initialLoadFailure = updateDocumentLoadFailureState({
+      previous: null,
+      documentId: "new-document",
+      admitted: false,
+      isDocumentCreationConfirmed: true,
+      dataUpdatedAt: 1,
+      errorUpdateCount: 0,
+      errorUpdatedAt: 0,
+      isError: false,
+      authoritativeSuccess: {
+        queryIdentity: "new-document",
+        generation: 0,
+        errorUpdateCount: 0,
+      },
+    });
+    const loadFailure = updateDocumentLoadFailureState({
+      previous: initialLoadFailure,
+      documentId: "new-document",
+      admitted: admitted.admittedDocumentId === "new-document",
+      isDocumentCreationConfirmed: true,
+      dataUpdatedAt: 1,
+      errorUpdateCount: 1,
+      errorUpdatedAt: 2,
+      isError: true,
+      authoritativeSuccess: {
+        queryIdentity: "new-document",
+        generation: 0,
+        errorUpdateCount: 0,
+      },
+    });
+
+    expect(loadFailure.failed).toBe(true);
     expect(
       documentEditorLoadState({
         documentId: "new-document",
-        admittedDocumentId: null,
+        admittedDocumentId: admitted.admittedDocumentId,
         hasDocument: true,
         isDocumentCreationConfirmed: true,
         isDocumentCreationPending: false,
-        isFetchedAfterMount: false,
+        isFetchedAfterMount: true,
         isFetching: false,
         isError: true,
-        hasLoadFailure: true,
+        hasLoadFailure: loadFailure.failed,
         isManualRetrying: false,
         error: new Error("read failed"),
-      }),
-    ).toEqual({ view: "error", admittedDocumentId: null });
+      }).view,
+    ).toBe("error");
   });
 
   it("latches a first-fetch failure across an immediate replacement fetch", async () => {

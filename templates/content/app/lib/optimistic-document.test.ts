@@ -1,4 +1,5 @@
 import type { Document } from "@shared/api";
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -38,12 +39,29 @@ describe("optimistic document creation", () => {
     const persisted = document();
     const confirmed = markDocumentCreationConfirmed(persisted);
 
-    expect(confirmed).not.toBe(persisted);
+    expect(confirmed).toBe(persisted);
     expect(isDocumentCreationConfirmed(confirmed)).toBe(true);
     expect(
       isDocumentCreationConfirmed(clearDocumentCreationConfirmed(confirmed)),
     ).toBe(false);
     expect(isDocumentCreationConfirmed(persisted)).toBe(false);
+  });
+
+  it("preserves create confirmation through query cache structural sharing", () => {
+    const queryClient = new QueryClient();
+    const queryKey = ["action", "get-document", { id: "page-1" }];
+    queryClient.setQueryData(queryKey, markDocumentCreationPending(document()));
+    queryClient.setQueryData(
+      queryKey,
+      markDocumentCreationConfirmed(document()),
+    );
+
+    const cached = queryClient.getQueryData<Document>(queryKey);
+    expect(cached).toBeDefined();
+    expect(isDocumentCreationConfirmed(cached!)).toBe(true);
+
+    clearDocumentCreationConfirmed(cached!);
+    queryClient.clear();
   });
 
   it("keeps database-backed workspace creation optimistic when local files coexist", () => {

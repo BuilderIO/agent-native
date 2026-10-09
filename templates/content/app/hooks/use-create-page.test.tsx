@@ -150,7 +150,7 @@ describe("useCreatePage", () => {
       | Document
       | undefined;
     if (!confirmedDocument) throw new Error("Create response was not cached");
-    expect(confirmedDocument).not.toBe(persistedDocument);
+    expect(confirmedDocument).toBe(persistedDocument);
     expect(isDocumentCreationPending(confirmedDocument)).toBe(false);
     expect(isDocumentCreationConfirmed(confirmedDocument)).toBe(true);
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
