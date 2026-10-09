@@ -187,27 +187,30 @@ describe("appMountPath", () => {
     expect(appBasePath()).toBe("/dispatch");
   });
 
-  it("uses the workspace app identity when a root parameter route masks the mount root", () => {
-    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
-    vi.stubEnv(
-      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
-      JSON.stringify([{ id: "content", path: "/content" }]),
-    );
-    vi.stubGlobal("window", {
-      location: { pathname: "/dispatch" },
-      __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
-      __reactRouterManifest: {
-        routes: {
-          root: { id: "root", path: "/" },
-          index: { id: "index", parentId: "root", index: true },
-          appId: { id: "appId", parentId: "root", path: ":appId" },
-          home: { id: "home", parentId: "root", path: "home" },
+  it.each(["/dispatch", "/dispatch/"])(
+    "uses the workspace app identity when a root parameter route masks %s",
+    (pathname) => {
+      vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv(
+        "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+        JSON.stringify([{ id: "content", path: "/content" }]),
+      );
+      vi.stubGlobal("window", {
+        location: { pathname },
+        __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
+        __reactRouterManifest: {
+          routes: {
+            root: { id: "root", path: "/" },
+            index: { id: "index", parentId: "root", index: true },
+            appId: { id: "appId", parentId: "root", path: ":appId" },
+            home: { id: "home", parentId: "root", path: "home" },
+          },
         },
-      },
-    });
+      });
 
-    expect(appBasePath()).toBe("/dispatch");
-  });
+      expect(appBasePath()).toBe("/dispatch");
+    },
+  );
 
   it("does not infer an identity-matching mount from a root catch-all and parameter route", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");

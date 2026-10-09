@@ -185,7 +185,7 @@ function workspacePathBasePath(): string {
     const routeForFullPath = routeTemplateForPath(pathname, routes);
     const routeForLocalPath = routeTemplateForPath(localPathname, routes);
     const mountRootMatchedByRootParam =
-      pathname === basePath &&
+      normalizeBasePath(pathname) === basePath &&
       localPathname === "/" &&
       routeForLocalPath === "/" &&
       routeForFullPath !== null &&
