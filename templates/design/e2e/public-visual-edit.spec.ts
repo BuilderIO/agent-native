@@ -1895,7 +1895,7 @@ test.describe.serial("public visual edit", () => {
       ).toBeVisible();
       // A share-only viewer can stage edits locally. Durable handoff to the
       // owner requires the editor capability used by the signed-out editor flow.
-      await guest.page.waitForTimeout(1_000);
+      await guest.page.waitForTimeout(1_000); // e2e-harness-ignore: observe delayed publication after commit
       expect(publicationRequests).toEqual([]);
       await expect(
         page.getByRole("button", { name: "Apply edits", exact: true }),
