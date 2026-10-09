@@ -23,7 +23,7 @@ import {
 } from "../grant.js";
 import { requireShareableResource } from "../registry.js";
 import type { ShareEmailExtras } from "../registry.js";
-import { assertWidgetShareScope } from "../widget-share-scope.js";
+import { assertWidgetShareWriteGrant } from "../widget-grant.js";
 import { resourceSharingChange } from "./change-result.js";
 
 function appPath(path: string): string {
@@ -175,7 +175,7 @@ export default defineAction({
   }),
   needsApproval: needsExternalShareApproval,
   run: async (args, ctx) => {
-    assertWidgetShareScope(ctx, "share-resource", args);
+    assertWidgetShareWriteGrant(ctx, "share-resource", args);
     const reg = requireShareableResource(args.resourceType);
     const grant = await grantResourceAccess({
       resourceType: args.resourceType,

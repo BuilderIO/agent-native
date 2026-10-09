@@ -12,7 +12,7 @@ import {
   resolveRegisteredAccessContext,
 } from "../access.js";
 import { requireShareableResource } from "../registry.js";
-import { assertWidgetShareScope } from "../widget-share-scope.js";
+import { assertWidgetShareWriteGrant } from "../widget-grant.js";
 import { resourceSharingChange } from "./change-result.js";
 import {
   getExtensionShareChangeTargets,
@@ -45,7 +45,7 @@ export default defineAction({
     return access.resource.visibility !== "public";
   },
   run: async (args, ctx) => {
-    assertWidgetShareScope(ctx, "set-resource-visibility", args);
+    assertWidgetShareWriteGrant(ctx, "set-resource-visibility", args);
     const reg = requireShareableResource(args.resourceType);
     if (args.visibility === "public" && reg.allowPublic === false) {
       throw new ForbiddenError(

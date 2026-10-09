@@ -14,6 +14,11 @@ export const MCP_DIRECTORY_WIDGET_READ_CAPABILITY_PREFIX =
 export const MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_PREFIX =
   "capability:mcp-directory-widget-write:";
 export const MCP_DIRECTORY_WIDGET_READ_CAPABILITY_MAX_LENGTH = 2048;
+// The scope is signed into the embed token (about 1.3x its length plus the
+// session claims), and that token is also the embed session cookie, which a
+// browser drops above 4096 bytes. A realistic Slides grant signs to about 3.1 KB;
+// only the widest identities exceed a cookie, and setEmbedSessionCookie then
+// leaves the page on its query/bearer token. embed-session.spec.ts measures both.
 export const MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH = 4096;
 export const MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS = 15 * 60 * 1000;
 const MCP_DIRECTORY_WIDGET_INTEGER_ARGUMENT_MAX = 5_000;
@@ -836,6 +841,20 @@ export function isExpiredMcpDirectoryWidgetWriteCapability(
     capability.userEmail === input.userEmail.trim().toLowerCase() &&
     capability.orgId === (input.orgId ?? undefined)
   );
+}
+
+export function getMcpDirectoryWidgetReadCapabilityResourceIds(
+  scope: string | undefined,
+  input: { appId: string; resourceUri: string },
+): Record<string, string> | undefined {
+  if (
+    !matchesMcpDirectoryWidgetReadCapabilityResource(scope, input) ||
+    !scope
+  ) {
+    return undefined;
+  }
+  const decoded = decodeMcpDirectoryWidgetReadCapability(scope);
+  return decoded.ok ? { ...decoded.capability.resourceIds } : undefined;
 }
 
 export function getMcpDirectoryWidgetWriteCapabilityGrant(

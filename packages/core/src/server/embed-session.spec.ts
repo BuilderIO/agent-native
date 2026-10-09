@@ -19,6 +19,7 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn(async () => {}),
 }));
 
+import { CHATGPT_DIRECTORY_PROFILE as slidesProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_TARGET_HEADER,
@@ -2084,5 +2085,146 @@ describe("directory widget write session renewal", () => {
     await expect(
       resolveEmbedSessionTokenForHost(token, "content.example.test"),
     ).resolves.toBeNull();
+  });
+});
+
+describe("directory widget session token size", () => {
+  // A browser drops a cookie whose name and value exceed 4096 bytes.
+  const COOKIE_NAME_VALUE_LIMIT = 4096;
+
+  beforeEach(() => {
+    process.env = { ...ORIGINAL_ENV, OAUTH_STATE_SECRET: "embed-test-secret" };
+  });
+
+  afterEach(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  function slidesWidgetToken({
+    deckId,
+    email,
+    orgId,
+  }: {
+    deckId: string;
+    email: string;
+    orgId?: string;
+  }) {
+    const target = slidesProfile.widgetTargets["create-deck"](
+      {},
+      { id: deckId },
+    );
+    if (!target) throw new Error("Slides create-deck target is missing.");
+    const materialize = (
+      argumentMaps: Record<string, Record<string, unknown>>,
+      only?: readonly string[],
+    ) =>
+      Object.fromEntries(
+        Object.entries(argumentMaps)
+          .filter(([name]) => !only || only.includes(name))
+          .map(([name, args]) => [
+            name,
+            Object.fromEntries(
+              Object.entries(args).map(([key, rule]) => [
+                key,
+                typeof rule === "string" ? target.resourceIds[rule] : rule,
+              ]),
+            ),
+          ]),
+      );
+    const scope = createMcpDirectoryWidgetWriteCapability({
+      appId: "slides",
+      resourceUri: "ui://slides/shell-v69",
+      resourceIds: target.resourceIds,
+      userEmail: email,
+      ...(orgId ? { orgId } : {}),
+      expiresAtMs: Date.now() + 15 * 60 * 1000,
+      readActionArguments: materialize(
+        slidesProfile.widgetReadActionArguments as never,
+      ) as never,
+      writeActionArguments: materialize(
+        slidesProfile.widgetWriteActionArguments as never,
+        target.writeActions,
+      ) as never,
+    });
+    if (!scope) throw new Error("Could not build the Slides widget scope.");
+    return {
+      scope,
+      token: signEmbedSessionToken({
+        ownerEmail: email,
+        orgId,
+        targetPath: `/deck/${encodeURIComponent(deckId)}?__an_mcp_chat_bridge=1`,
+        audienceHost: "slides.agent-native.com",
+        scope,
+        ticketCreatedAtMs: Date.now(),
+        sessionId: "a".repeat(64),
+        ttlSeconds: 15 * 60,
+      }),
+    };
+  }
+
+  it("fits the full Slides grant in one cookie for a realistic deck, user and org", () => {
+    const { scope, token } = slidesWidgetToken({
+      deckId: "deck-V1StGXR8_Z5jdHi6B-myT-cd1",
+      email: "taylor.reviewer@example-company.com",
+      orgId: "org_2f6c1f6e-9a2b-4c0a-8d4e-0b7f1b8e3a11",
+    });
+    const cookieBytes = `${EMBED_SESSION_COOKIE}=${token}`.length;
+
+    expect(scope.length).toBeLessThan(2500);
+    // Keep at least 800 bytes between a realistic widget and the cookie limit.
+    expect(cookieBytes).toBeLessThan(COOKIE_NAME_VALUE_LIMIT - 800);
+  });
+
+  function cookieEvent(host: string) {
+    const requestHeaders = new Headers({
+      host,
+      "x-forwarded-proto": "https",
+    });
+    const requestUrl = new URL("/", `https://${host}`);
+    return {
+      path: "/",
+      req: { url: requestUrl.href, headers: requestHeaders },
+      request: { url: requestUrl.href, headers: requestHeaders },
+      headers: requestHeaders,
+      node: { req: { url: "/", headers: { host } } },
+      res: { headers: new Headers(), status: 200 },
+    } as any;
+  }
+
+  it("sets the realistic token as a cookie", () => {
+    const { token } = slidesWidgetToken({
+      deckId: "deck-V1StGXR8_Z5jdHi6B-myT-cd1",
+      email: "taylor.reviewer@example-company.com",
+      orgId: "org_2f6c1f6e-9a2b-4c0a-8d4e-0b7f1b8e3a11",
+    });
+    const event = cookieEvent("slides.agent-native.com");
+
+    setEmbedSessionCookie(event, token);
+
+    expect(event.res.headers.get("set-cookie")).toContain(
+      `${EMBED_SESSION_COOKIE}=${token}`,
+    );
+  });
+
+  it("expires the cookie instead of sending the widest grant the browser would drop", () => {
+    const { token } = slidesWidgetToken({
+      deckId: `deck-${"x".repeat(240)}`,
+      email: `${"u".repeat(64)}@${"d".repeat(63)}.${"e".repeat(63)}.${"f".repeat(64)}.com`,
+      orgId: "o".repeat(256),
+    });
+    expect(`${EMBED_SESSION_COOKIE}=${token}`.length).toBeGreaterThan(
+      COOKIE_NAME_VALUE_LIMIT,
+    );
+    // The token is still valid: the page keeps it and sends it as a query or
+    // bearer token, which resolve ahead of the cookie.
+    expect(verifyEmbedSessionToken(token).ok).toBe(true);
+    const event = cookieEvent("slides.agent-native.com");
+
+    setEmbedSessionCookie(event, token);
+
+    const cookie = event.res.headers.get("set-cookie") ?? "";
+    expect(cookie).not.toContain(token);
+    expect(cookie).toContain(`${EMBED_SESSION_COOKIE}=;`);
+    expect(cookie).toMatch(/Max-Age=0/i);
   });
 });

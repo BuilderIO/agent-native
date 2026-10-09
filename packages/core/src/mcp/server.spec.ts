@@ -370,6 +370,24 @@ vi.mock("../server/framework-request-handler.js", () => ({
   getH3App: () => ({ use: () => {} }),
 }));
 
+// Framework actions the runtime merges into every app that a directory
+// profile binds to widget grants, so they have no file under actions/.
+const sharedDirectoryActionsByApp: Record<string, Record<string, unknown>> = {
+  content: {
+    "list-resource-suggestions": listResourceSuggestions,
+    "list-resource-shares": listResourceShares,
+    "share-resource": shareResource,
+    "unshare-resource": unshareResource,
+    "set-resource-visibility": setResourceVisibility,
+  },
+  slides: {
+    "list-resource-shares": listResourceShares,
+    "share-resource": shareResource,
+    "unshare-resource": unshareResource,
+    "set-resource-visibility": setResourceVisibility,
+  },
+};
+
 const config = {
   name: "agent-native-mail",
   title: "Agent-Native Mail",
@@ -705,16 +723,7 @@ async function directoryWidgetTemplateConfig(
     path.dirname(fileURLToPath(import.meta.url)),
     "../../../../",
   );
-  const sharedActions =
-    appId === "content"
-      ? {
-          "list-resource-suggestions": listResourceSuggestions,
-          "list-resource-shares": listResourceShares,
-          "share-resource": shareResource,
-          "unshare-resource": unshareResource,
-          "set-resource-visibility": setResourceVisibility,
-        }
-      : {};
+  const sharedActions = sharedDirectoryActionsByApp[appId] ?? {};
   const actionNames = [
     ...new Set([
       ...profile.connectorCatalog,
@@ -727,7 +736,7 @@ async function directoryWidgetTemplateConfig(
       actionNames.map(async (name) => [
         name,
         Object.hasOwn(sharedActions, name)
-          ? sharedActions[name as keyof typeof sharedActions]
+          ? sharedActions[name]
           : await import(
               pathToFileURL(
                 path.join(
@@ -1013,24 +1022,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             ...Object.keys(profile.widgetWriteActionArguments ?? {}),
           ]),
         ];
-        const sharedActions =
-          appId === "content"
-            ? {
-                "list-resource-suggestions": listResourceSuggestions,
-                "list-resource-shares": listResourceShares,
-                "share-resource": shareResource,
-                "unshare-resource": unshareResource,
-                "set-resource-visibility": setResourceVisibility,
-              }
-            : {};
+        const sharedActions = sharedDirectoryActionsByApp[appId] ?? {};
         const modules = Object.fromEntries(
           await Promise.all(
             actionNames.map(async (name) => {
               if (Object.hasOwn(sharedActions, name)) {
-                return [
-                  name,
-                  sharedActions[name as keyof typeof sharedActions],
-                ];
+                return [name, sharedActions[name]];
               }
               const actionUrl =
                 pathToFileURL(path.join(projectRoot, "actions", `${name}.ts`))
@@ -2464,6 +2461,185 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         userEmail: "oauth@example.com",
       }),
     ).toBeUndefined();
+  });
+
+  it("mints the Slides share grant only for authorized deck editors and keeps others read-only", async () => {
+    const entryAnnotations = {
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    };
+    const createDeck = defineAction({
+      description: "Create one editable deck.",
+      parameters: {},
+      mcpAnnotations: entryAnnotations,
+      mcpApp: {
+        resource: {
+          uri: "ui://slides/shell-v69",
+          title: "Slides",
+          html: "<!doctype html><html><body>Slides</body></html>",
+        },
+      },
+      run: async () => ({ id: "deck-a" }),
+    });
+    const getDeck = defineAction({
+      description: "Read one deck.",
+      schema: z.object({ id: z.string(), deckId: z.string().optional() }),
+      readOnly: true,
+      http: { method: "GET" },
+      requiresAuth: true,
+      mcpAnnotations: { ...entryAnnotations, readOnlyHint: true },
+      run: async () => ({ id: "deck-a" }),
+    });
+    const patchDeck = defineAction({
+      description: "Patch one deck.",
+      schema: z.object({
+        deckId: z.string(),
+        operations: z.array(z.unknown()),
+        clientWrite: z.unknown().optional(),
+      }),
+      http: { method: "POST" },
+      requiresAuth: true,
+      mcpAnnotations: entryAnnotations,
+      run: async () => ({ ok: true }),
+    });
+    const shareActions = loadActionsFromStaticRegistry(
+      sharedDirectoryActionsByApp.slides!,
+    );
+    const authorizeWidgetWrite = vi.fn(async () => true);
+    const directoryProfile = {
+      connectorCatalog: ["create-deck", "get-deck"],
+      widgetDomain: "https://slides.agent-native.com",
+      authorizeWidgetWrite,
+      widgetTargets: {
+        "create-deck": slidesDirectoryProfile.widgetTargets["create-deck"],
+      },
+      widgetReadActionArguments:
+        slidesDirectoryProfile.widgetReadActionArguments,
+      widgetReadOnlyActions: slidesDirectoryProfile.widgetReadOnlyActions,
+      widgetReadAuthenticatedActions:
+        slidesDirectoryProfile.widgetReadAuthenticatedActions,
+      widgetWriteActionArguments:
+        slidesDirectoryProfile.widgetWriteActionArguments,
+    };
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      appId: "slides",
+      directoryProfile,
+      widgetDomain: "https://slides.agent-native.com",
+      actions: { "create-deck": createDeck, "get-deck": getDeck },
+      widgetReadActions: selectMcpDirectoryWidgetReadActions(
+        directoryProfile,
+        shareActions,
+      ),
+      widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
+        directoryProfile,
+        { ...shareActions, "patch-deck": patchDeck },
+      ),
+    };
+    const mintScope = async () => {
+      const headers = await mcpAppsAuthHeaders({
+        resource: `https://slides.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+        issuer: "https://slides.agent-native.com",
+      });
+      const created = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 150,
+          method: "tools/call",
+          params: { name: "create-deck", arguments: {} },
+        },
+        {
+          headers: { ...headers, host: "slides.agent-native.com" },
+          config: directoryConfig,
+          routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+        },
+      );
+      expect(created.result.isError).not.toBe(true);
+      return embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]
+        ?.scope as string;
+    };
+    const embedAuth = await import("../shared/embed-auth.js");
+    const caller = {
+      appId: "slides",
+      resourceUri: "ui://slides/shell-v69",
+      userEmail: "oauth@example.com",
+    };
+    const normalizeShare = (scope: string, resourceId: string) =>
+      embedAuth.normalizeMcpDirectoryWidgetWriteActionArguments(scope, {
+        ...caller,
+        actionName: "share-resource",
+        args: {
+          resourceType: "deck",
+          resourceId,
+          principalType: "user",
+          principalId: "teammate@example.com",
+        },
+        allowedArgumentNames: Object.keys(
+          slidesDirectoryProfile.widgetWriteActionArguments["share-resource"],
+        ),
+      });
+    const normalizeList = (scope: string, resourceId: string) =>
+      embedAuth.normalizeMcpDirectoryWidgetReadActionArguments(scope, {
+        ...caller,
+        actionName: "list-resource-shares",
+        args: { resourceType: "deck", resourceId },
+        allowedArgumentNames: Object.keys(
+          slidesDirectoryProfile.widgetReadActionArguments[
+            "list-resource-shares"
+          ],
+        ),
+      });
+
+    const editorScope = await mintScope();
+    expect(authorizeWidgetWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: expect.objectContaining({
+          resourceIds: { deckId: "deck-a", resourceType: "deck" },
+          writeActions: [
+            "patch-deck",
+            "share-resource",
+            "unshare-resource",
+            "set-resource-visibility",
+          ],
+        }),
+      }),
+    );
+    expect(
+      embedAuth.isMcpDirectoryWidgetWriteCapabilityScope(editorScope),
+    ).toBe(true);
+    expect(
+      embedAuth.getMcpDirectoryWidgetWriteCapabilityGrant(editorScope, caller),
+    ).toEqual({
+      resourceIds: { deckId: "deck-a", resourceType: "deck" },
+      actionNames: [
+        "patch-deck",
+        "set-resource-visibility",
+        "share-resource",
+        "unshare-resource",
+      ],
+    });
+    expect(editorScope.length).toBeLessThanOrEqual(
+      embedAuth.MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH - 1024,
+    );
+    expect(normalizeShare(editorScope, "deck-a")).toBeDefined();
+    expect(normalizeShare(editorScope, "deck-b")).toBeUndefined();
+    expect(normalizeList(editorScope, "deck-a")).toBeDefined();
+    expect(normalizeList(editorScope, "deck-b")).toBeUndefined();
+
+    // A viewer or commenter: authorizeWidgetWrite (editor access) says no.
+    authorizeWidgetWrite.mockResolvedValue(false);
+    const viewerScope = await mintScope();
+    expect(embedAuth.isMcpDirectoryWidgetReadCapabilityScope(viewerScope)).toBe(
+      true,
+    );
+    expect(
+      embedAuth.getMcpDirectoryWidgetWriteCapabilityGrant(viewerScope, caller),
+    ).toBeUndefined();
+    expect(normalizeShare(viewerScope, "deck-a")).toBeUndefined();
+    expect(normalizeList(viewerScope, "deck-a")).toBeDefined();
+    expect(normalizeList(viewerScope, "deck-b")).toBeUndefined();
   });
 
   describe.each(directoryWidgetTemplates)(
