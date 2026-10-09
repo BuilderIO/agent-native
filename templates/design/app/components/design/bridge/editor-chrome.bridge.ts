@@ -12516,7 +12516,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           overlayMutationObserver.observe(nextRoot, {
             attributes: true,
             childList: true,
-            subtree: false,
+            subtree: nextMeasurementParent === nextRoot,
           });
           if (nextRoot !== selectedEl && selectedEl) {
             overlayMutationObserver.observe(selectedEl, {

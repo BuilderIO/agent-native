@@ -9992,7 +9992,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             overlayMutationObserver.observe(nextRoot, {
               attributes: true,
               childList: true,
-              subtree: false
+              subtree: nextMeasurementParent === nextRoot
             });
             if (nextRoot !== selectedEl && selectedEl) {
               overlayMutationObserver.observe(selectedEl, {
