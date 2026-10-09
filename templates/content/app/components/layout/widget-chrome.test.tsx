@@ -27,12 +27,12 @@ import {
 } from "@/components/editor/DocumentEditorSkeleton";
 import { DocumentToolbar } from "@/components/editor/DocumentToolbar";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { queryByLabel, renderUi } from "@/test-utils/render-ui";
+import { click, queryByLabel, renderUi } from "@/test-utils/render-ui";
 
 import { ContentStartupShell } from "./ContentStartupShell";
 import { Header } from "./Header";
 
-const widgetHost = vi.hoisted(() => ({ embedded: false }));
+const widgetHost = vi.hoisted(() => ({ embedded: false, writable: false }));
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
@@ -46,7 +46,7 @@ vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
   >()),
   useIsMcpAppWidgetEmbed: () => widgetHost.embedded,
   useIsMcpDirectoryWidgetReadOnlyEmbed: () => false,
-  useIsMcpDirectoryWidgetWriteEmbed: () => false,
+  useIsMcpDirectoryWidgetWriteEmbed: () => widgetHost.writable,
 }));
 
 const WIDGET_ATTRIBUTE = "data-agent-native-mcp-widget";
@@ -104,6 +104,7 @@ afterAll(() => {
 
 afterEach(() => {
   widgetHost.embedded = false;
+  widgetHost.writable = false;
   document.head.replaceChildren();
   document.documentElement.removeAttribute(WIDGET_ATTRIBUTE);
 });
@@ -230,4 +231,53 @@ describe.each([
       else expect(title.paddingTop).not.toBe("24px");
     },
   );
+});
+
+it("shows undo and redo controls in an editable directory widget", async () => {
+  const onUndo = vi.fn();
+  const onRedo = vi.fn();
+  openPage({ inWidget: true });
+  widgetHost.writable = true;
+
+  const { container } = renderUi(
+    <MemoryRouter>
+      <TooltipProvider>
+        <DocumentToolbar
+          canEdit
+          canUndo
+          canRedo
+          onUndo={onUndo}
+          onRedo={onRedo}
+          utilityPanel={null}
+          onUtilityPanelChange={() => {}}
+        />
+      </TooltipProvider>
+    </MemoryRouter>,
+  );
+
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  const toolbar = container.querySelector(
+    "[data-content-widget-editor-toolbar]",
+  );
+  expect(toolbar).not.toBeNull();
+  expect(toolbar?.getAttribute("role")).toBe("toolbar");
+  expect(toolbar?.classList.contains("h-12")).toBe(true);
+
+  const undo = queryByLabel<HTMLButtonElement>(
+    "editor.toolbar.undo",
+    container,
+  );
+  const redo = queryByLabel<HTMLButtonElement>(
+    "editor.toolbar.redo",
+    container,
+  );
+  expect(undo).not.toBeNull();
+  expect(redo).not.toBeNull();
+  await click(undo!);
+  await click(redo!);
+  expect(onUndo).toHaveBeenCalledOnce();
+  expect(onRedo).toHaveBeenCalledOnce();
 });

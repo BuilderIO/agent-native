@@ -13,6 +13,7 @@ vi.mock("../db/client.js", () => ({
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn(async () => {}),
   ensureTableExists: vi.fn(async () => {}),
 }));
 
@@ -28,6 +29,7 @@ import {
   resolveEmbedSessionFromRequest,
   consumeEmbedSessionTicket,
   createEmbedSessionTicket,
+  readMcpDirectoryWidgetRenewalTicket,
   revokeEmbedSessionsForOwner,
   revokeEmbedSessionsForOwners,
   resolveEmbedSessionCookieOwners,
@@ -156,6 +158,120 @@ describe("embed session tickets", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("stores a separate 30-day renewal cutoff for directory widget tickets", async () => {
+    const inserted: { sql: string; args: unknown[] }[] = [];
+    dbExec.execute.mockImplementation(async ({ sql, args }: any) => {
+      if (sql.includes("INSERT INTO agent_native_embed_tickets")) {
+        inserted.push({ sql, args });
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    const ticket = await createEmbedSessionTicket({
+      ownerEmail: "owner@example.com",
+      targetPath: "/page/doc_123",
+      scope: "capability:mcp-directory-widget-read:example",
+      ttlSeconds: 15 * 60,
+    });
+
+    expect(ticket.expiresAt).toBe(Date.now() + 15 * 60 * 1000);
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0].sql).toContain("renewal_expires_at");
+    expect(inserted[0].args[6]).toBe(Date.now() + 15 * 60 * 1000);
+    expect(inserted[0].args[7]).toBeNull();
+    expect(inserted[0].args[8]).toBe(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  });
+
+  it("keeps renewal available after the short-lived widget ticket expires", async () => {
+    const createdAt = Date.now() - 16 * 60 * 1000;
+    const expiresAt = createdAt + 15 * 60 * 1000;
+    const renewalExpiresAt = createdAt + 30 * 24 * 60 * 60 * 1000;
+    dbExec.execute.mockImplementation(async ({ sql }: any) =>
+      sql.includes("FROM agent_native_embed_tickets")
+        ? {
+            rows: [
+              {
+                owner_email: "owner@example.com",
+                target_path: "/page/doc_123",
+                scope: "capability:mcp-directory-widget-write:example",
+                created_at: createdAt,
+                expires_at: expiresAt,
+                renewal_expires_at: renewalExpiresAt,
+              },
+            ],
+          }
+        : { rows: [], rowsAffected: 1 },
+    );
+
+    await expect(
+      readMcpDirectoryWidgetRenewalTicket("expired-capability-ticket"),
+    ).resolves.toMatchObject({
+      ownerEmail: "owner@example.com",
+      createdAtMs: createdAt,
+      expiresAtMs: expiresAt,
+      renewalExpiresAtMs: renewalExpiresAt,
+    });
+  });
+
+  it("bounds legacy and persisted renewal handles to 30 days from creation", async () => {
+    const createdAt = Date.now() - 29 * 24 * 60 * 60 * 1000;
+    const renewalExpiryCap = createdAt + 30 * 24 * 60 * 60 * 1000;
+    dbExec.execute.mockImplementation(async ({ sql }: any) =>
+      sql.includes("FROM agent_native_embed_tickets")
+        ? {
+            rows: [
+              {
+                owner_email: "owner@example.com",
+                target_path: "/page/doc_123",
+                scope: "capability:mcp-directory-widget-read:example",
+                created_at: createdAt,
+                expires_at: createdAt + 15 * 60 * 1000,
+                renewal_expires_at: renewalExpiryCap + 60 * 60 * 1000,
+              },
+            ],
+          }
+        : { rows: [], rowsAffected: 1 },
+    );
+
+    await expect(
+      readMcpDirectoryWidgetRenewalTicket("overlong-renewal-ticket"),
+    ).resolves.toMatchObject({ renewalExpiresAtMs: renewalExpiryCap });
+
+    vi.setSystemTime(renewalExpiryCap);
+    await expect(
+      readMcpDirectoryWidgetRenewalTicket("overlong-renewal-ticket"),
+    ).resolves.toBeNull();
+  });
+
+  it("uses createdAt plus 30 days as the cutoff for legacy rows", async () => {
+    const createdAt = Date.now() - 29 * 24 * 60 * 60 * 1000;
+    const renewalExpiryCap = createdAt + 30 * 24 * 60 * 60 * 1000;
+    dbExec.execute.mockImplementation(async ({ sql }: any) =>
+      sql.includes("FROM agent_native_embed_tickets")
+        ? {
+            rows: [
+              {
+                owner_email: "owner@example.com",
+                target_path: "/page/doc_123",
+                scope: "capability:mcp-directory-widget-read:example",
+                created_at: createdAt,
+                expires_at: createdAt + 5 * 60 * 1000,
+              },
+            ],
+          }
+        : { rows: [], rowsAffected: 1 },
+    );
+
+    await expect(
+      readMcpDirectoryWidgetRenewalTicket("legacy-ticket"),
+    ).resolves.toMatchObject({ renewalExpiresAtMs: renewalExpiryCap });
+
+    vi.setSystemTime(renewalExpiryCap + 1);
+    await expect(
+      readMcpDirectoryWidgetRenewalTicket("legacy-ticket"),
+    ).resolves.toBeNull();
   });
 
   it("rejects ticket creation when logout wins after the request was authenticated", async () => {

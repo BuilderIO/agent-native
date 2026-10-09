@@ -26,6 +26,16 @@ function id(...values: unknown[]): string | null {
   );
 }
 
+function generatedScreenId(designId: string, result: unknown): string | null {
+  const urlPath = record(result).urlPath;
+  if (typeof urlPath !== "string") return null;
+  const queryStart = urlPath.indexOf("?");
+  const pathname = queryStart < 0 ? urlPath : urlPath.slice(0, queryStart);
+  if (pathname !== `/design/${encodeURIComponent(designId)}`) return null;
+  const query = queryStart < 0 ? "" : urlPath.slice(queryStart + 1);
+  return id(new URLSearchParams(query.split("#", 1)[0]).get("screen"));
+}
+
 export const CHATGPT_DIRECTORY_PROFILE = {
   connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
   widgets: true,
@@ -60,9 +70,14 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     },
     "generate-design": (args: Record<string, unknown>, result: unknown) => {
       const designId = id(args.designId, record(result).designId);
+      const screenId = designId ? generatedScreenId(designId, result) : null;
       return designId
         ? {
-            targetPath: `/design/${encodeURIComponent(designId)}`,
+            targetPath: `/design/${encodeURIComponent(designId)}${
+              screenId
+                ? `?editorView=overview&screen=${encodeURIComponent(screenId)}`
+                : ""
+            }`,
             resourceIds: { designId },
             writeActions: ["update-design", "update-file"],
           }

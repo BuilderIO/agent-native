@@ -10,13 +10,14 @@ import {
 } from "h3";
 
 import { getDbExec, type DbExec } from "../db/client.js";
-import { ensureTableExists } from "../db/ddl-guard.js";
+import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_SESSION_COOKIE,
   EMBED_TARGET_HEADER,
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
+  isMcpDirectoryWidgetCapabilityScope,
   MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH,
 } from "../shared/embed-auth.js";
 import { normalizeAppPath } from "../shared/sign-in-journey.js";
@@ -30,6 +31,7 @@ import { getForwardedRequestHostname } from "./request-origin.js";
 const TOKEN_KIND = "agent-native-embed-session";
 const DEFAULT_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_TICKET_TTL_SECONDS = 5 * 60;
+const MCP_DIRECTORY_WIDGET_RENEWAL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const EMBED_CAPABILITY_SCOPE_PREFIX = "capability:";
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 const OPEN_ROUTE_PATH = "/_agent-native/open";
@@ -91,6 +93,7 @@ export interface McpDirectoryWidgetRenewalTicket {
   scope: string;
   createdAtMs: number;
   expiresAtMs: number;
+  renewalExpiresAtMs: number;
 }
 
 export type EmbedSessionTicketConsumeOutcome =
@@ -193,12 +196,18 @@ export async function ensureTable(): Promise<void> {
           scope TEXT,
           created_at BIGINT NOT NULL,
           expires_at BIGINT NOT NULL,
-          consumed_at BIGINT
+          consumed_at BIGINT,
+          renewal_expires_at BIGINT
         )
       `;
       await ensureTableExists(
         "agent_native_embed_tickets",
         embedTicketsCreateSql,
+      );
+      await ensureColumnExists(
+        "agent_native_embed_tickets",
+        "renewal_expires_at",
+        "ALTER TABLE agent_native_embed_tickets ADD COLUMN renewal_expires_at BIGINT",
       );
       await ensureTableExists(
         "agent_native_embed_session_revocations",
@@ -795,6 +804,11 @@ export async function createEmbedSessionTicket(
   const createdAt = Date.now();
   const ttlSeconds = input.ttlSeconds ?? DEFAULT_TICKET_TTL_SECONDS;
   const expiresAt = createdAt + Math.max(1, ttlSeconds) * 1000;
+  const renewalExpiresAt = isMcpDirectoryWidgetCapabilityScope(
+    input.scope ?? undefined,
+  )
+    ? createdAt + MCP_DIRECTORY_WIDGET_RENEWAL_TTL_MS
+    : null;
   const client = getDbExec();
   const insert = async (tx: DbExec) => {
     if (!capabilityScope) {
@@ -819,8 +833,8 @@ export async function createEmbedSessionTicket(
     await tx.execute({
       sql:
         "INSERT INTO agent_native_embed_tickets " +
-        "(ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "(ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at, renewal_expires_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       args: [
         ticketHash,
         ownerEmail,
@@ -830,6 +844,7 @@ export async function createEmbedSessionTicket(
         createdAt,
         expiresAt,
         null,
+        renewalExpiresAt,
       ],
     });
   };
@@ -855,7 +870,7 @@ export async function readMcpDirectoryWidgetRenewalTicket(
   await ensureTable();
   const { rows } = await getDbExec().execute({
     sql:
-      "SELECT owner_email, org_id, target_path, scope, created_at, expires_at " +
+      "SELECT owner_email, org_id, target_path, scope, created_at, expires_at, renewal_expires_at " +
       "FROM agent_native_embed_tickets WHERE ticket_hash = ? LIMIT 1",
     args: [hashTicket(ticket)],
   });
@@ -868,15 +883,28 @@ export async function readMcpDirectoryWidgetRenewalTicket(
   const scope = stringOrUndefined(row.scope);
   const createdAtMs = numberOrNull(row.created_at ?? row.createdAt);
   const expiresAtMs = numberOrNull(row.expires_at ?? row.expiresAt);
+  const storedRenewalExpiresAt = row.renewal_expires_at ?? row.renewalExpiresAt;
   if (
     !ownerEmail ||
     !targetPath ||
     !scope ||
+    !isMcpDirectoryWidgetCapabilityScope(scope) ||
     !createdAtMs ||
     expiresAtMs === null
   ) {
     return null;
   }
+  const renewalExpiryCap = createdAtMs + MCP_DIRECTORY_WIDGET_RENEWAL_TTL_MS;
+  const renewalExpiresAtMs =
+    storedRenewalExpiresAt == null
+      ? renewalExpiryCap
+      : numberOrNull(storedRenewalExpiresAt);
+  if (renewalExpiresAtMs === null) return null;
+  const boundedRenewalExpiresAtMs = Math.min(
+    renewalExpiresAtMs,
+    renewalExpiryCap,
+  );
+  if (Date.now() >= boundedRenewalExpiresAtMs) return null;
   const orgId = stringOrUndefined(row.org_id ?? row.orgId);
   return {
     ownerEmail,
@@ -885,6 +913,7 @@ export async function readMcpDirectoryWidgetRenewalTicket(
     scope,
     createdAtMs,
     expiresAtMs,
+    renewalExpiresAtMs: boundedRenewalExpiresAtMs,
   };
 }
 

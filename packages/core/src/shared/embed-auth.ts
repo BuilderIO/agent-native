@@ -490,9 +490,13 @@ export function renewMcpDirectoryWidgetCapabilityScope(
     userEmail: string;
     orgId?: string | null;
     expiresAtMs: number;
+    readAllowed: boolean;
+    writeAllowed: boolean;
   },
 ): string | undefined {
-  if (!scope || !input.appId || !input.userEmail) return undefined;
+  if (!scope || !input.appId || !input.userEmail || !input.readAllowed) {
+    return undefined;
+  }
   if (isMcpDirectoryWidgetWriteCapabilityScope(scope)) {
     const capability = decodeMcpDirectoryWidgetWriteCapability(scope);
     if (
@@ -502,6 +506,14 @@ export function renewMcpDirectoryWidgetCapabilityScope(
       capability.orgId !== (input.orgId ?? undefined)
     ) {
       return undefined;
+    }
+    if (!input.writeAllowed) {
+      return createMcpDirectoryWidgetReadCapability({
+        appId: capability.appId,
+        resourceUri: capability.resourceUri,
+        resourceIds: capability.resourceIds,
+        actionArguments: capability.readActionArguments,
+      });
     }
     return createMcpDirectoryWidgetWriteCapability({
       ...capability,

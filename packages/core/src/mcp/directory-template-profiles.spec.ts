@@ -156,6 +156,34 @@ describe("ChatGPT directory template profiles", () => {
     });
   });
 
+  it("opens a generated Design screen focused in the overview canvas", () => {
+    const target = designProfile.widgetTargets?.["generate-design"];
+    if (!target)
+      throw new Error("Design generate-design widget target is missing.");
+
+    expect(
+      target(
+        { designId: "design-123" },
+        {
+          designId: "design-123",
+          urlPath: "/design/design-123?editorView=overview&screen=file-456",
+        },
+      ),
+    ).toMatchObject({
+      targetPath: "/design/design-123?editorView=overview&screen=file-456",
+      resourceIds: { designId: "design-123" },
+    });
+    expect(
+      target(
+        { designId: "design-123" },
+        {
+          designId: "design-123",
+          urlPath: "https://example.com/design/design-123?screen=file-456",
+        },
+      )?.targetPath,
+    ).toBe("/design/design-123");
+  });
+
   it(
     "allows Design widget sync flags while excluding file metadata from update-file writes",
     async () => {

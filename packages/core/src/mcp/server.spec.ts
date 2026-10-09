@@ -2483,6 +2483,66 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const expiresAt = getMcpDirectoryWidgetWriteCapabilityExpiresAt(writeScope);
     expect(expiresAt).toBeGreaterThan(Date.now());
     expect(expiresAt).toBeLessThanOrEqual(Date.now() + 15 * 60 * 1000);
+
+    const readOnlyHeaders = await mcpAppsAuthHeaders({
+      scope: "mcp:read mcp:apps",
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    });
+    const readOnlyReopened = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 148,
+        method: "tools/call",
+        params: {
+          name: "create_embed_session",
+          arguments: { sourceTicket },
+        },
+      },
+      {
+        headers: readOnlyHeaders,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(readOnlyReopened.result.isError).not.toBe(true);
+    const readOnlyScope =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
+    const {
+      getMcpDirectoryWidgetWriteCapabilityGrant,
+      isMcpDirectoryWidgetReadCapabilityScope,
+    } = await import("../shared/embed-auth.js");
+    expect(isMcpDirectoryWidgetReadCapabilityScope(readOnlyScope)).toBe(true);
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(readOnlyScope, {
+        appId: "mail",
+        resourceUri: "ui://mail/create-document/shell-v65",
+        userEmail: "oauth@example.com",
+      }),
+    ).toBeUndefined();
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(3);
+
+    const noReadHeaders = await mcpAppsAuthHeaders({
+      scope: "mcp:apps",
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    });
+    const noReadRenewal = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 149,
+        method: "tools/call",
+        params: {
+          name: "create_embed_session",
+          arguments: { sourceTicket },
+        },
+      },
+      {
+        headers: noReadHeaders,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(noReadRenewal.result.isError).toBe(true);
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(3);
   });
 
   it("does not publish directory widgets or embed tickets to non-user principals", async () => {

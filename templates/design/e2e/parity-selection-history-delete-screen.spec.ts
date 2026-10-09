@@ -806,7 +806,7 @@ test("Shift-marquee reselecting an owner Screen makes Delete target the Screen",
 });
 
 // oracle: none — this checks additive Screen selection and deletion, not a Figma observation.
-test("Shift-marquee adds a hit Screen to the existing Delete selection", async ({
+test("Shift-picking a Screen extends the Delete selection in All screens", async ({
   page,
 }) => {
   const id = await newThreeScreenDesign(page);
@@ -819,37 +819,19 @@ test("Shift-marquee adds a hit Screen to the existing Delete selection", async (
     );
     await homeTitle.click();
     await expect.poll(() => selectedScreenIds(page)).toContain(homeId);
-
-    const secondFrame = page.locator(`[data-frame-id="${secondId}"]`);
-    const frameBox = await secondFrame.boundingBox();
-    const canvas = await page
-      .locator("[data-multi-screen-canvas-surface]")
-      .boundingBox();
-    expect(frameBox).not.toBeNull();
-    expect(canvas).not.toBeNull();
-    const margin = 24;
-    const from = { x: frameBox!.x - margin, y: frameBox!.y - margin };
-    const to = {
-      x: frameBox!.x + frameBox!.width + margin,
-      y: frameBox!.y + frameBox!.height + margin,
-    };
-    expect(from.x).toBeGreaterThanOrEqual(canvas!.x);
-    expect(from.y).toBeGreaterThanOrEqual(canvas!.y);
-    expect(to.x).toBeLessThanOrEqual(canvas!.x + canvas!.width);
-    expect(to.y).toBeLessThanOrEqual(canvas!.y + canvas!.height);
-
-    await page.keyboard.down("Shift");
-    try {
-      await page.mouse.move(from.x, from.y);
-      await page.mouse.down();
-      await page.mouse.move(to.x, to.y, { steps: 12 });
-      await page.mouse.up();
-    } finally {
-      await page.keyboard.up("Shift");
-    }
+    await expect(
+      page.getByRole("button", { name: "Design", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    const secondTitle = page.locator(
+      `[data-frame-id="${secondId}"] [data-frame-title]`,
+    );
+    await secondTitle.click({ modifiers: ["Shift"] });
     await expect
       .poll(() => selectedScreenIds(page))
       .toEqual(expect.arrayContaining([homeId, secondId]));
+    await expect(
+      page.getByRole("button", { name: "Design", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
 
     await page.keyboard.press("Delete");
     await expect(layerRow(page, "Home")).toHaveCount(0);
@@ -1163,11 +1145,14 @@ test("a newer sidebar Screen selection survives failed Screen deletion settlemen
     const homeSidebarRow = page
       .locator("[data-screen-row]")
       .filter({ hasText: "Home" });
+    const allScreensRow = page.locator('button[title="All screens"]');
     await homeSidebarRow.click();
-    await expect(homeSidebarRow).toHaveAttribute("aria-current", "page");
+    await expect.poll(() => selectedScreenIds(page)).toEqual([homeId]);
+    await expect(allScreensRow).toHaveAttribute("aria-current", "page");
     releaseFirstDelete();
 
-    await expect(homeSidebarRow).toHaveAttribute("aria-current", "page");
+    await expect.poll(() => selectedScreenIds(page)).toEqual([homeId]);
+    await expect(allScreensRow).toHaveAttribute("aria-current", "page");
     await expect(
       page.locator("[data-screen-row]").filter({ hasText: "Second" }),
     ).toHaveCount(1);

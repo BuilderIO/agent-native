@@ -4,10 +4,13 @@ import {
   allowsMcpDirectoryWidgetReadAction,
   createMcpDirectoryWidgetReadCapability,
   createMcpDirectoryWidgetWriteCapability,
+  getMcpDirectoryWidgetWriteCapabilityGrant,
   isMcpDirectoryWidgetReadCapabilityScope,
+  isMcpDirectoryWidgetWriteCapabilityScope,
   MCP_DIRECTORY_WIDGET_READ_CAPABILITY_PREFIX,
   MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_PREFIX,
   normalizeMcpDirectoryWidgetWriteActionArguments,
+  renewMcpDirectoryWidgetCapabilityScope,
 } from "./embed-auth.js";
 
 describe("MCP directory widget read capabilities", () => {
@@ -279,6 +282,71 @@ describe("MCP directory widget read capabilities", () => {
         allowedArgumentNames: [],
       }),
     ).toBe(false);
+  });
+});
+
+describe("MCP directory widget capability renewal", () => {
+  const widget = {
+    appId: "design",
+    resourceUri: "ui://design/shell-v69",
+    resourceIds: { designId: "design-123" },
+    userEmail: "reviewer@example.com",
+    expiresAtMs: Date.now() + 60_000,
+    readActionArguments: {
+      "get-design-snapshot": { designId: "design-123" },
+    },
+    writeActionArguments: {
+      "update-design": {
+        id: "design-123",
+        content: { type: "actionSchema" as const },
+      },
+    },
+  };
+
+  it("downgrades a saved widget to read-only when renewed without mcp:write", () => {
+    const sourceScope = createMcpDirectoryWidgetWriteCapability(widget);
+    expect(sourceScope).toBeDefined();
+
+    const renewedScope = renewMcpDirectoryWidgetCapabilityScope(sourceScope, {
+      appId: widget.appId,
+      userEmail: widget.userEmail,
+      expiresAtMs: Date.now() + 60_000,
+      readAllowed: true,
+      writeAllowed: false,
+    });
+
+    expect(renewedScope).toContain(MCP_DIRECTORY_WIDGET_READ_CAPABILITY_PREFIX);
+    expect(isMcpDirectoryWidgetWriteCapabilityScope(renewedScope)).toBe(false);
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(renewedScope, {
+        appId: widget.appId,
+        resourceUri: widget.resourceUri,
+        userEmail: widget.userEmail,
+      }),
+    ).toBeUndefined();
+    expect(
+      allowsMcpDirectoryWidgetReadAction(renewedScope, {
+        actionName: "get-design-snapshot",
+        appId: widget.appId,
+        resourceUri: widget.resourceUri,
+        args: { designId: "design-123" },
+        allowedArgumentNames: ["designId"],
+      }),
+    ).toBe(true);
+  });
+
+  it("does not renew widget capabilities when the caller lacks mcp:read", () => {
+    const sourceScope = createMcpDirectoryWidgetWriteCapability(widget);
+
+    expect(
+      renewMcpDirectoryWidgetCapabilityScope(sourceScope, {
+        appId: widget.appId,
+        userEmail: widget.userEmail,
+        expiresAtMs: Date.now() + 60_000,
+        readAllowed: false,
+        writeAllowed: true,
+      }),
+    ).toBeUndefined();
   });
 });
 

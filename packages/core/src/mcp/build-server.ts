@@ -1719,6 +1719,8 @@ async function renewMcpDirectoryWidgetEmbedSession(
     userEmail: identity.userEmail,
     orgId: callerOrgId,
     expiresAtMs: Date.now() + MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
+    readAllowed: hasMcpOAuthScope(identity.oauthScopes, "mcp:read"),
+    writeAllowed: hasMcpOAuthScope(identity.oauthScopes, "mcp:write"),
   });
   if (!scope) {
     throw new Error(
