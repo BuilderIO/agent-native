@@ -1633,9 +1633,14 @@ async function trackBuilderLifecycle(
 ): Promise<void> {
   if (!userEmail) return;
   const engine = await detectUsageEngineName(event, userEmail);
+  const cookieSessionId = readAnalyticsSessionId(getHeader(event, "cookie"));
+  const headerSessionId = readBrowserSessionIdHeader(event);
   const sessionId =
-    readBrowserSessionIdHeader(event) ??
-    readAnalyticsSessionId(getHeader(event, "cookie"));
+    cookieSessionId && headerSessionId
+      ? cookieSessionId === headerSessionId
+        ? cookieSessionId
+        : undefined
+      : (cookieSessionId ?? headerSessionId);
   track(
     name,
     {

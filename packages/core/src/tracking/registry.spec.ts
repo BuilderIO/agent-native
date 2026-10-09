@@ -273,12 +273,17 @@ describe("tracking registry", () => {
 
     expect(events).toHaveLength(2);
     expect(events[0]?.name).toBe(legacyName);
+    expect(events[0]?.properties).toHaveProperty(
+      "event_alias_id",
+      expect.any(String),
+    );
     expect(events[1]).toMatchObject({
       name: "session_status",
       properties: {
         signed_in: true,
         canonical_event_name: "session_status",
         legacy_event_name: legacyName,
+        event_alias_id: events[0]?.properties.event_alias_id,
       },
     });
   });

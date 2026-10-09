@@ -124,10 +124,15 @@ describe("parseJourneyTimestampMs", () => {
 
 describe("parseJourneyEventRow", () => {
   it("requires an id, a session, a name, and a readable timestamp", () => {
-    expect(parseJourneyEventRow(eventRow("s1", "signup", 0))).toMatchObject({
+    expect(
+      parseJourneyEventRow(
+        eventRow("s1", "signup", 0, { alias_id: "alias-pair-1" }),
+      ),
+    ).toMatchObject({
       sessionId: "s1",
       eventName: "signup",
       tsMs: T0,
+      aliasId: "alias-pair-1",
     });
     for (const broken of [
       { ...eventRow("s1", "signup", 0), id: "" },

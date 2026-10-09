@@ -1234,6 +1234,10 @@ describe("browser analytics pageviews", () => {
         legacy_event_name: legacyName,
       },
     });
+    expect(events[0]?.properties.event_alias_id).toEqual(
+      events[1]?.properties.event_alias_id,
+    );
+    expect(events[0]?.properties.event_alias_id).toEqual(expect.any(String));
     expect(gtag).toHaveBeenCalledWith(
       "event",
       "session_status",

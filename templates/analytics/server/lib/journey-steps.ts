@@ -23,6 +23,7 @@ export interface JourneyEventRow {
   methodId: string | null;
   outcome: string | null;
   action: string | null;
+  aliasId?: string | null;
 }
 
 export interface JourneyStep {
@@ -468,9 +469,18 @@ export function buildSessionSteps(
     );
   });
   const steps: JourneyStep[] = [];
+  const seenAliases = new Set<string>();
   for (const row of ordered) {
     const step = deriveJourneyStep(row);
-    if (!step || steps[steps.length - 1]?.key === step.key) continue;
+    if (!step) continue;
+    if (row.aliasId) {
+      // Legacy and canonical telemetry records can arrive on either side of
+      // other session events, but share this per-occurrence correlation key.
+      const aliasStep = `${row.sessionId}\u0000${row.aliasId}\u0000${step.key}`;
+      if (seenAliases.has(aliasStep)) continue;
+      seenAliases.add(aliasStep);
+    }
+    if (steps[steps.length - 1]?.key === step.key) continue;
     steps.push({ ...step, tsMs: row.tsMs });
   }
   return steps;

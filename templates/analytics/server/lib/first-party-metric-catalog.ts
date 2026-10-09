@@ -1403,7 +1403,8 @@ SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
   NULLIF(e.properties::jsonb ->> 'step_index', '') AS step_index,
   NULLIF(e.properties::jsonb ->> 'method_id', '') AS method_id,
   NULLIF(e.properties::jsonb ->> 'outcome', '') AS outcome,
-  NULLIF(e.properties::jsonb ->> 'action', '') AS action
+  NULLIF(e.properties::jsonb ->> 'action', '') AS action,
+  NULLIF(e.properties::jsonb ->> 'event_alias_id', '') AS alias_id
 FROM journey_events e
 ORDER BY e.journey_kind, e.session_id, e.timestamp, e.id
 LIMIT {{journeyLimit}} OFFSET {{journeyOffset}}`;

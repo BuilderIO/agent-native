@@ -477,6 +477,42 @@ describe("buildSessionSteps", () => {
     ]);
   });
 
+  it("deduplicates an alias pair across interleaved events and keeps a later retry", () => {
+    const steps = buildSessionSteps([
+      row("builder connect clicked", 100, {
+        id: "a-legacy-clicked",
+        aliasId: "click-pair-1",
+      }),
+      row("builder_connect_popup_blocked", 100, {
+        id: "b-popup-blocked",
+      }),
+      row("builder_connect_clicked", 102, {
+        id: "c-canonical-clicked",
+        aliasId: "click-pair-1",
+      }),
+      row("onboarding_method_outcome", 103, {
+        id: "d-retry-outcome",
+        methodId: "builder_create_account",
+        outcome: "failed",
+      }),
+      row("builder connect clicked", 104, {
+        id: "e-retry-legacy-clicked",
+        aliasId: "click-pair-2",
+      }),
+      row("builder_connect_clicked", 105, {
+        id: "f-retry-canonical-clicked",
+        aliasId: "click-pair-2",
+      }),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "builder:connect:clicked",
+      "builder:connect:popup_blocked",
+      "outcome:builder_create_account:failed",
+      "builder:connect:clicked",
+    ]);
+  });
+
   it("orders by timestamp, then by journey position, then by id", () => {
     const steps = buildSessionSteps([
       row("onboarding_step_viewed", 200, { stepId: "role" }),

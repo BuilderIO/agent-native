@@ -224,7 +224,7 @@ describe("POST /builder/provision", () => {
     );
   });
 
-  it("attaches the browser session to lifecycle tracking from the request", async () => {
+  it("omits the session when the analytics cookie and session header disagree", async () => {
     const response = await post(
       { provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN) },
       {
@@ -235,9 +235,27 @@ describe("POST /builder/provision", () => {
 
     expect(response.status).toBe(200);
     expect(trackedSources("builder connect succeeded")).toEqual([
+      expect.objectContaining({ userId: OWNER }),
+    ]);
+    expect(trackedSources("builder connect succeeded")[0]).not.toHaveProperty(
+      "sessionId",
+    );
+  });
+
+  it("keeps the session when the analytics cookie and header agree", async () => {
+    const response = await post(
+      { provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN) },
+      {
+        cookie: "an_sid=shared-session",
+        "x-agent-native-session-id": "shared-session",
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(trackedSources("builder connect succeeded")).toEqual([
       expect.objectContaining({
         userId: OWNER,
-        sessionId: "header-session",
+        sessionId: "shared-session",
       }),
     ]);
   });
@@ -253,6 +271,21 @@ describe("POST /builder/provision", () => {
       expect.objectContaining({
         userId: OWNER,
         sessionId: "popup-session",
+      }),
+    ]);
+  });
+
+  it("uses the session header when the analytics cookie is absent", async () => {
+    const response = await post(
+      { provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN) },
+      { "x-agent-native-session-id": "header-session" },
+    );
+
+    expect(response.status).toBe(200);
+    expect(trackedSources("builder connect succeeded")).toEqual([
+      expect.objectContaining({
+        userId: OWNER,
+        sessionId: "header-session",
       }),
     ]);
   });

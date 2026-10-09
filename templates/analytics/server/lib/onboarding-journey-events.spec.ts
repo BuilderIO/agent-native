@@ -271,6 +271,7 @@ describe("onboarding journey events SQL", () => {
       properties: {
         agent_native_flow: "first_run",
         agent_native_connect_source: "first_run_onboarding",
+        event_alias_id: "builder-click-alias-1",
         ignored: "not-selected",
       },
     });
@@ -358,6 +359,7 @@ describe("onboarding journey events SQL", () => {
     ]);
     expect(Object.keys(builderRows[2]!).sort()).toEqual([
       "action",
+      "alias_id",
       "event_name",
       "flow",
       "id",
@@ -372,6 +374,7 @@ describe("onboarding journey events SQL", () => {
       "timestamp",
     ]);
     expect(builderRows[2]).not.toHaveProperty("ignored");
+    expect(builderRows[2]?.alias_id).toBe("builder-click-alias-1");
     expect(builderRows[2]).not.toHaveProperty("user_id");
     expect(builderRows[2]?.journey_kind).toBe("onboarding");
   });
