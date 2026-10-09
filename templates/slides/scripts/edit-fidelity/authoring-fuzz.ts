@@ -757,6 +757,7 @@ const MAX_FAILURE_LOG_OPERATIONS = 20;
 const MAX_FAILURE_MESSAGE_LENGTH = 3500;
 const MAX_PRIOR_REGRESSION_SUMMARIES = 5;
 const MAX_PRIOR_REGRESSION_SUMMARY_LENGTH = 300;
+const SLASH_MENU_READY_BUDGET_MS = 400;
 
 export function formatAuthoringFuzzUnavailable(
   message: string,
@@ -1051,6 +1052,7 @@ export async function runAuthoringFuzz(
         inputType: event.inputType,
         dataLength: data?.length ?? null,
         lastCodePoint: lastCodePoint?.toString(16) ?? null,
+        time: performance.now(),
         cancelable: event.cancelable,
         composing: event.isComposing,
         trusted: event.isTrusted,
@@ -2558,7 +2560,31 @@ export async function runAuthoringFuzz(
     tracePhase("slash.type:end");
     const options = page.locator('[role="listbox"] [role="option"]');
     tracePhase("slash.wait-visible:start");
-    await options.first().waitFor({ state: "visible", timeout: 1500 });
+    await options.first().waitFor({ state: "visible", timeout: 3000 });
+    const readyMs = await page.evaluate(() => {
+      const scope = window as Window & {
+        __slidesAuthoringInputTrace?: Array<Record<string, unknown>>;
+      };
+      const trigger = [...(scope.__slidesAuthoringInputTrace ?? [])]
+        .reverse()
+        .find(
+          (event) =>
+            event.type === "beforeinput" &&
+            event.inputType === "insertText" &&
+            event.lastCodePoint === "2f",
+        );
+      return typeof trigger?.time === "number"
+        ? performance.now() - trigger.time
+        : null;
+    });
+    if (readyMs === null) {
+      throw new Error("slash menu readiness could not be measured");
+    }
+    if (readyMs > SLASH_MENU_READY_BUDGET_MS) {
+      throw new Error(
+        `slash menu became usable after ${Math.round(readyMs)}ms (budget ${SLASH_MENU_READY_BUDGET_MS}ms)`,
+      );
+    }
     tracePhase("slash.wait-visible:end");
     if ((await options.count()) !== SLASH_COMMANDS.length)
       throw new Error("slash menu did not expose all eight commands");
@@ -4685,6 +4711,22 @@ export async function runAuthoringFuzz(
         }
         const listbox = document.querySelector<HTMLElement>('[role="listbox"]');
         const listboxStyle = listbox ? getComputedStyle(listbox) : null;
+        const slashOptions = Array.from(
+          listbox?.querySelectorAll<HTMLElement>('[role="option"]') ?? [],
+        ).slice(0, 2);
+        const rectSummary = (element: Element | null) => {
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+          };
+        };
+        const popover = listbox?.closest<HTMLElement>(
+          "[data-radix-popper-content-wrapper]",
+        );
         return {
           historyStats:
             root instanceof HTMLElement
@@ -4723,8 +4765,50 @@ export async function runAuthoringFuzz(
               listboxStyle?.visibility !== "hidden" &&
               listboxStyle?.display !== "none" &&
               listbox.getClientRects().length > 0,
+            rect: rectSummary(listbox),
+            popoverRect: rectSummary(popover),
             optionCount:
               listbox?.querySelectorAll('[role="option"]').length ?? 0,
+            options: slashOptions.map((option) => {
+              const style = getComputedStyle(option);
+              const rect = option.getBoundingClientRect();
+              return {
+                id: option.id,
+                hidden: option.hidden,
+                ariaHidden: option.getAttribute("aria-hidden"),
+                ariaSelected: option.getAttribute("aria-selected"),
+                state: option.getAttribute("data-state"),
+                display: style.display,
+                visibility: style.visibility,
+                opacity: style.opacity,
+                transform: style.transform,
+                rect: {
+                  x: rect.x,
+                  y: rect.y,
+                  width: rect.width,
+                  height: rect.height,
+                },
+                clientRects: option.getClientRects().length,
+              };
+            }),
+            optionAncestors: slashOptions.map((option) => {
+              const ancestors: Array<Record<string, unknown>> = [];
+              let element: HTMLElement | null = option;
+              while (element && element !== listbox && ancestors.length < 5) {
+                const style = getComputedStyle(element);
+                ancestors.push({
+                  tag: element.tagName,
+                  role: element.getAttribute("role"),
+                  className: element.className,
+                  display: style.display,
+                  visibility: style.visibility,
+                  opacity: style.opacity,
+                  rect: rectSummary(element),
+                });
+                element = element.parentElement;
+              }
+              return ancestors;
+            }),
             activeDescendant:
               root instanceof HTMLElement
                 ? root.getAttribute("aria-activedescendant")
