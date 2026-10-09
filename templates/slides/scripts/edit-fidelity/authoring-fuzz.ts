@@ -725,6 +725,7 @@ export function createAuthoringFuzzPlan(
     { kind: "slash-away" },
     { kind: "slash-delete" },
     { kind: "slash-position" },
+    { kind: "slash-outside" },
     { kind: "shortcut-undo" },
     { kind: "slash-undo" },
     { kind: "heading-backspace" },
@@ -2646,6 +2647,16 @@ export async function runAuthoringFuzz(
       );
     return listbox;
   };
+  const controlledSlashListbox = async () => {
+    const listboxId = await editor.getAttribute("aria-controls");
+    return listboxId
+      ? page.locator(`[role="listbox"][id=${JSON.stringify(listboxId)}]`)
+      : null;
+  };
+  const waitForSlashMenuHidden = async () => {
+    const listbox = await controlledSlashListbox();
+    if (listbox) await listbox.waitFor({ state: "hidden", timeout: 1500 });
+  };
   const runSlashCommand = async (
     command: string,
     key: "Enter" | "Tab" = "Enter",
@@ -3181,14 +3192,12 @@ export async function runAuthoringFuzz(
           break;
         case "slash-escape": {
           const before = await inspectSelection();
-          await openSlashMenu();
+          const listbox = await openSlashMenu();
           const withTrigger = await inspectSelection();
           if (slashCount(withTrigger.text) !== slashCount(before.text) + 1)
             throw new Error("slash menu did not insert a single trigger token");
           await page.keyboard.press("Escape");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
+          await listbox.waitFor({ state: "hidden", timeout: 1500 });
           if (
             slashCount((await inspectSelection()).text) !==
             slashCount(withTrigger.text)
@@ -3197,14 +3206,12 @@ export async function runAuthoringFuzz(
           break;
         }
         case "slash-filter": {
-          await openSlashMenu();
+          const emptyListbox = await openSlashMenu();
           await typeText("zz-no-command");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
-          await openSlashMenu();
+          await emptyListbox.waitFor({ state: "hidden", timeout: 1500 });
+          const listbox = await openSlashMenu();
           await typeText("heading 2");
-          const options = page.locator('[role="listbox"] [role="option"]');
+          const options = listbox.locator('[role="option"]');
           if ((await options.count()) !== 1)
             throw new Error("slash query did not filter to one command");
           const headingOptionId = await options.getAttribute("id");
@@ -3217,9 +3224,7 @@ export async function runAuthoringFuzz(
           }
           const withQuery = await inspectSelection();
           await page.keyboard.press("Enter");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
+          await listbox.waitFor({ state: "hidden", timeout: 1500 });
           if (
             slashCount((await inspectSelection()).text) !==
             slashCount(withQuery.text) - 1
@@ -3227,62 +3232,53 @@ export async function runAuthoringFuzz(
             throw new Error("filtered slash command did not consume its query");
           break;
         }
-        case "slash-away":
-          await openSlashMenu();
+        case "slash-away": {
+          const listbox = await openSlashMenu();
           await page.keyboard.press("ArrowLeft");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
+          await listbox.waitFor({ state: "hidden", timeout: 1500 });
           break;
-        case "slash-delete":
-          await openSlashMenu();
-          {
-            const beforeDelete = await inspectSelection();
-            await page.keyboard.press("Backspace");
-            await page
-              .locator('[role="listbox"]')
-              .waitFor({ state: "hidden", timeout: 1500 });
-            if (
-              slashCount((await inspectSelection()).text) !==
-              slashCount(beforeDelete.text) - 1
-            )
-              throw new Error(
-                "deleting slash did not remove its trigger token",
-              );
-          }
+        }
+        case "slash-delete": {
+          const listbox = await openSlashMenu();
+          const beforeDelete = await inspectSelection();
+          await page.keyboard.press("Backspace");
+          await listbox.waitFor({ state: "hidden", timeout: 1500 });
+          if (
+            slashCount((await inspectSelection()).text) !==
+            slashCount(beforeDelete.text) - 1
+          )
+            throw new Error("deleting slash did not remove its trigger token");
           break;
+        }
         case "slash-position": {
           await newLine();
           await typeText("and");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
+          await waitForSlashMenuHidden();
           await typeText("/");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
+          await waitForSlashMenuHidden();
           await typeText("or https:");
           await typeText("/");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
+          await waitForSlashMenuHidden();
           await typeText("/example.com ");
           await typeText("/");
-          await page
-            .locator('[role="listbox"] [role="option"]')
+          const listbox = await controlledSlashListbox();
+          if (!listbox)
+            throw new Error("slash menu did not expose its listbox");
+          await listbox
+            .locator('[role="option"]')
             .first()
             .waitFor({ state: "visible", timeout: 1500 });
           await page.keyboard.press("Escape");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
+          await listbox.waitFor({ state: "hidden", timeout: 1500 });
           break;
         }
-        case "slash-outside":
-          await openSlashMenu();
-          {
-            const point = await editor.evaluate((root: HTMLElement) => {
-              const menu = document.querySelector('[role="listbox"]');
+        case "slash-outside": {
+          const listbox = await openSlashMenu();
+          const listboxId = await listbox.getAttribute("id");
+          if (!listboxId) throw new Error("slash menu has no listbox id");
+          const point = await editor.evaluate(
+            (root: HTMLElement, id: string) => {
+              const menu = document.getElementById(id);
               const overlay =
                 menu?.closest<HTMLElement>(
                   "[data-radix-popper-content-wrapper]",
@@ -3302,19 +3298,19 @@ export async function runAuthoringFuzz(
                 const hit = document.elementFromPoint(x, y);
                 return !!hit && root.contains(hit) && !overlay?.contains(hit);
               });
-            });
-            if (!point) {
-              throw new Error(
-                "could not find an in-editor point outside the slash menu",
-              );
-            }
-            await page.mouse.click(point[0], point[1]);
+            },
+            listboxId,
+          );
+          if (!point) {
+            throw new Error(
+              "could not find an in-editor point outside the slash menu",
+            );
           }
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
+          await page.mouse.click(point[0], point[1]);
+          await listbox.waitFor({ state: "hidden", timeout: 1500 });
           await assertCaret();
           break;
+        }
         case "shortcut-undo": {
           await newLine();
           await typeText("# ", true, true);
@@ -3333,13 +3329,14 @@ export async function runAuthoringFuzz(
           break;
         }
         case "slash-undo": {
-          await newLine();
-          await typeText("/heading 2");
-          await page
-            .locator('[role="listbox"] [role="option"]')
+          const listbox = await openSlashMenu();
+          await typeText("heading 2");
+          await listbox
+            .locator('[role="option"]')
             .first()
             .waitFor({ state: "visible", timeout: 1500 });
           await page.keyboard.press("Enter");
+          await listbox.waitFor({ state: "hidden", timeout: 1500 });
           await page.keyboard.press(`${modifier}+Z`);
           if (!(await inspectSelection()).text.includes("/heading 2")) {
             throw new Error("undo did not restore literal slash command text");

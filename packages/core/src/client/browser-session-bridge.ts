@@ -625,6 +625,7 @@ export function createAgentNativeBrowserSessionBridge(
           new Error(
             `Browser-session request "${request.id}" is still running after expiry`,
           ),
+          { force: true },
         );
       },
       Math.max(0, request.expiresAt - Date.now()),
@@ -666,8 +667,9 @@ export function createAgentNativeBrowserSessionBridge(
         await attempt(signal);
         reportedFailure = false;
       },
-      onError: (error: unknown) => {
-        if (reportedFailure) return;
+      onError: (error: unknown, control: { force?: boolean } = {}) => {
+        const force = control.force ?? false;
+        if (reportedFailure && !force) return;
         reportedFailure = true;
         if (options.onError) {
           try {

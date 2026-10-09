@@ -890,6 +890,13 @@ it("creates reproducible authoring plans with full command coverage", () => {
   expect(first.map((step) => step.kind)).toContain("quote-exit");
   expect(first.map((step) => step.kind)).toContain("backspace-block-edge");
   expect(first.map((step) => step.kind)).toContain("delete-block-edge");
+  const slashPosition = first.findIndex(
+    (step) => step.kind === "slash-position",
+  );
+  expect(slashPosition).toBeGreaterThanOrEqual(0);
+  expect(
+    first.slice(slashPosition, slashPosition + 3).map((step) => step.kind),
+  ).toEqual(["slash-position", "slash-outside", "shortcut-undo"]);
   expect(first.map((step) => step.kind)).toContain("copy-inline");
   expect(() =>
     createAuthoringFuzzPlan(Number.MAX_SAFE_INTEGER + 1, 500),

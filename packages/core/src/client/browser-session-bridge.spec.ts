@@ -615,10 +615,11 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     }
   });
 
-  it("reports a claimed action that is still running after its request expires", async () => {
+  it("reports a stalled action after a prior poll failure", async () => {
     vi.useFakeTimers();
     const onError = vi.fn();
     let resolveAction: ((result: unknown) => void) | undefined;
+    let claimCount = 0;
     const runAction = vi.fn(
       () =>
         new Promise((resolve) => {
@@ -642,6 +643,13 @@ describe("createAgentNativeBrowserSessionBridge", () => {
         });
       }
       if (url.endsWith("/requests/claim")) {
+        claimCount++;
+        if (claimCount === 1) {
+          return jsonResponse(
+            { ok: false, error: "Temporary claim failure" },
+            { status: 503 },
+          );
+        }
         return jsonResponse({
           ok: true,
           request: {
@@ -681,17 +689,27 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     });
 
     bridge.start();
-    await vi.advanceTimersByTimeAsync(0);
-
     try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "Temporary claim failure",
+        }),
+        "poll",
+      );
+      await vi.advanceTimersByTimeAsync(500);
+
       expect(runAction).toHaveBeenCalledTimes(1);
+      expect(claimCount).toBe(2);
       await vi.advanceTimersByTimeAsync(10_000);
-      expect(onError).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledTimes(1);
 
       await vi.advanceTimersByTimeAsync(2_000);
 
-      expect(onError).toHaveBeenCalledTimes(1);
-      expect(onError).toHaveBeenCalledWith(
+      expect(onError).toHaveBeenCalledTimes(2);
+      expect(onError).toHaveBeenNthCalledWith(
+        2,
         expect.objectContaining({
           message:
             'Browser-session request "req-stalled" is still running after expiry',
@@ -700,7 +718,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
       );
       expect(
         fetchMock.mock.calls.filter(([url]) => url.endsWith("/requests/claim")),
-      ).toHaveLength(1);
+      ).toHaveLength(2);
     } finally {
       resolveAction?.({ completed: true });
       await vi.advanceTimersByTimeAsync(0);
