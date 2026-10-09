@@ -1,14 +1,14 @@
 /**
  * Frame-tool size presets shown while the Frame tool (F / A) is armed. Each
- * category maps to a `framePresets.categories.<key>` i18n label; preset
- * `name` values are product/device names and are intentionally left as
- * untranslated literals.
+ * category maps to a `framePresets.categories.<key>` i18n label. Preset names
+ * are standardized product, device, and canvas-format names that remain
+ * untranslated.
  *
- * Pure data + a couple of small pure helpers so the shape can be unit tested
- * without mounting EditPanel.
+ * Pure data + small pure helpers so the shape can be unit-tested without
+ * mounting EditPanel.
  *
- * i18n-raw-literal-disable-file: every `name` below is a real-world
- * product/device name (iPhone, Android, Instagram Post, etc.) and must stay
+ * i18n-raw-literal-disable-file: preset names are product/device names
+ * (iPhone, Android, Instagram Post, Medium Rectangle, etc.) and remain
  * untranslated in every locale.
  */
 
@@ -96,9 +96,17 @@ export const FRAME_SIZE_PRESET_CATEGORIES: FrameSizePresetCategory[] = [
     key: "socialMedia",
     presets: [
       { name: "Instagram Post", width: 1080, height: 1080 },
+      { name: "Instagram Portrait Post", width: 1080, height: 1350 },
       { name: "Instagram Story", width: 1080, height: 1920 },
       { name: "X Post", width: 1200, height: 675 },
+      { name: "X Promo Graphic", width: 1200, height: 675 },
       { name: "Facebook Cover", width: 820, height: 312 },
+      { name: "Meta Feed Square Ad", width: 1080, height: 1080 },
+      { name: "Meta Feed Landscape Ad", width: 1200, height: 628 },
+      { name: "LinkedIn Single Image Ad", width: 1200, height: 627 },
+      { name: "Open Graph Image", width: 1200, height: 630 },
+      { name: "YouTube Thumbnail", width: 1280, height: 720 },
+      { name: "Email Header", width: 600, height: 200 },
       { name: "LinkedIn Cover", width: 1584, height: 396 },
     ],
   },

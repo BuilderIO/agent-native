@@ -1025,6 +1025,8 @@ export default {
       "Die Generierung wurde vor dem Erstellen von Dateien gestoppt. Versuchen Sie es erneut, um mit demselben Prompt fortzufahren.",
     generationStoppedCheckAgent:
       "Die Generierung wurde vor dem Erstellen von Dateien gestoppt. Prüfen Sie die Agentenmeldung oder versuchen Sie es erneut.",
+    invalidCanvasDimensions:
+      "Die angeforderte Leinwandgröße wird nicht unterstützt. Verwenden Sie positive Pixelmaße innerhalb der Editorgrenzen.",
     notFound: "Design nicht gefunden",
     backToDesigns: "Zurück zu Designs",
     designNotFoundDescription:

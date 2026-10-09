@@ -7154,8 +7154,30 @@ describe("createAgentNativeAgentKitTransport", () => {
 
   it("releases a claimed queue item when starting its run fails", async () => {
     const queueWrites: unknown[] = [];
-    let queuedMessages = [{ id: "queued-terminal", text: "Try again" }];
+    const queuedImage = {
+      type: "image",
+      name: "optimized.png",
+      contentType: "image/png",
+      url: "https://storage.example.test/optimized.png",
+      referenceUrl: "https://storage.example.test/original.png",
+    };
+    let queuedMessages = [
+      {
+        id: "queued-terminal",
+        text: "Try again",
+        attachments: [
+          {
+            type: "file",
+            name: "original.png",
+            mediaType: "image/png",
+            url: "https://storage.example.test/original.png",
+          },
+        ],
+        requestAttachments: [queuedImage],
+      },
+    ];
     let startRunRequests = 0;
+    let startRunBody: Record<string, unknown> | undefined;
     let claimId: string | undefined;
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -7191,6 +7213,10 @@ describe("createAgentNativeAgentKitTransport", () => {
         }
         if (url.endsWith("/_agent-native/agent-chat")) {
           startRunRequests += 1;
+          startRunBody = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
           return json({ error: "Deterministic start rejection" }, 502);
         }
         return json({ error: "Not found" }, 404);
@@ -7209,6 +7235,21 @@ describe("createAgentNativeAgentKitTransport", () => {
     ).rejects.toThrow("Deterministic start rejection");
 
     expect(startRunRequests).toBe(1);
+    expect(startRunBody?.attachments).toEqual([
+      {
+        type: "file",
+        name: "original.png",
+        contentType: "image/png",
+        url: "https://storage.example.test/original.png",
+        referenceOnly: true,
+      },
+      {
+        type: "image",
+        name: "optimized.png",
+        contentType: "image/png",
+        url: "https://storage.example.test/optimized.png",
+      },
+    ]);
     expect(queueWrites).toHaveLength(2);
     expect(queueWrites[0]).toEqual({
       type: "claim",
@@ -7220,8 +7261,18 @@ describe("createAgentNativeAgentKitTransport", () => {
       messageId: "queued-terminal",
       claimId,
     });
-    expect(queuedMessages).toEqual([
-      { id: "queued-terminal", text: "Try again" },
+    expect(queuedMessages).toMatchObject([
+      {
+        id: "queued-terminal",
+        text: "Try again",
+        attachments: [
+          {
+            type: "file",
+            url: "https://storage.example.test/original.png",
+          },
+        ],
+        requestAttachments: [queuedImage],
+      },
     ]);
     await transport.dispose();
   });

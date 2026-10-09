@@ -120,6 +120,14 @@ export function runScreenElementSelect(
     breakpointWidthPx?: number;
   } = {},
 ) {
+  if (
+    viewModeRef.current === "overview" &&
+    !intent &&
+    options.breakpointWidthPx !== activeBreakpointWidthStateRef.current
+  ) {
+    return false;
+  }
+
   const pendingLayerId = pendingOverviewLayerSelectionRef.current;
   const pendingScreenId =
     pendingOverviewScreenSelectionRef.current ??
@@ -257,7 +265,7 @@ export function runScreenElementSelect(
     }
   }
   if (node) {
-    if (viewModeRef.current === "overview") {
+    if (viewModeRef.current === "overview" && intent) {
       // Activate the frame scope before caching its measurement. The scope
       // switch invalidates rendered metadata, so doing this after the write
       // drops the only responsive measurement for the selected layer.

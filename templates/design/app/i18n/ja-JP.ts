@@ -1022,6 +1022,8 @@ export default {
       "ファイルを作成する前に生成が停止しました。同じプロンプトから続行するには、もう一度お試しください。",
     generationStoppedCheckAgent:
       "ファイルを作成する前に生成が停止しました。エージェントのメッセージを確認するか、もう一度お試しください。",
+    invalidCanvasDimensions:
+      "指定されたキャンバスサイズには対応していません。エディターの上限内で、正のピクセル寸法を指定してください。",
     notFound: "デザインが見つかりません",
     backToDesigns: "デザインに戻る",
     designNotFoundDescription: "このデザインは存在しないか、削除されています。",
