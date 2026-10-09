@@ -214,13 +214,13 @@ describe("inferAutoLayoutFromChildren", () => {
     );
   });
 
-  it("matches Figma's vertical default with no children", () => {
+  it("uses the vertical default with no children", () => {
     const container = { x: 0, y: 0, width: 100, height: 100 };
     const result = inferAutoLayoutFromChildren(container, []);
     expect(result).toEqual({ direction: "column", gap: 10, padding: 0 });
   });
 
-  it("matches Figma's vertical default for one child regardless of aspect ratio", () => {
+  it("uses the vertical default for one child regardless of aspect ratio", () => {
     const container = { x: 0, y: 0, width: 300, height: 40 };
     const result = inferAutoLayoutFromChildren(container, [
       { id: "wide", x: 0, y: 0, width: 300, height: 40 },

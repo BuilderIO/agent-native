@@ -239,7 +239,7 @@ describe("an empty auto-layout frame that hugs", () => {
     } as FigmaNode;
   }
 
-  it("keeps the size Figma resolved instead of collapsing to zero", () => {
+  it("uses the resolved input size instead of collapsing to zero", () => {
     const { html } = mapFigmaNodeToHtml(heroRow(), {});
     expect(html).toContain("width: 685px");
     expect(html).toContain("height: 456px");
@@ -307,7 +307,7 @@ describe("mirrored nodes", () => {
   });
 });
 
-describe("space-between rows ignore itemSpacing, as Figma does", () => {
+describe("space-between rows ignore itemSpacing", () => {
   function logoRow(align?: string): FigmaNode {
     return {
       id: "1:1",
@@ -495,7 +495,7 @@ describe("a HUG container holding a cross-axis FILL child", () => {
     } as FigmaNode;
   }
 
-  it("uses the width Figma resolved rather than hugging max-content", () => {
+  it("uses the resolved width rather than hugging max-content", () => {
     const { html } = mapFigmaNodeToHtml(card(), {});
     expect(html).toContain("width: 317px");
   });
@@ -564,7 +564,7 @@ describe("a FILL child may shrink below its content", () => {
 });
 
 describe("underline placement", () => {
-  it("puts an underline where Figma puts it, below the descender", () => {
+  it("places an underline below the descender", () => {
     const { html } = mapFigmaNodeToHtml(
       {
         id: "1:1",
@@ -601,7 +601,7 @@ describe("underline placement", () => {
   });
 });
 
-describe("which break characters Figma actually lays out", () => {
+describe("line break handling", () => {
   function label(characters: string, lineTypes?: string[]): FigmaNode {
     return {
       id: "1:1",
@@ -614,7 +614,7 @@ describe("which break characters Figma actually lays out", () => {
     } as FigmaNode;
   }
 
-  it("keeps a break Figma counted as a line", () => {
+  it("keeps a break marked as a line", () => {
     const { html } = mapFigmaNodeToHtml(
       label("First\rSecond", ["NONE", "NONE"]),
       {},
@@ -622,7 +622,7 @@ describe("which break characters Figma actually lays out", () => {
     expect(html).toMatch(/First[\r\n]Second/);
   });
 
-  it("draws a break Figma did NOT count as the space it renders", () => {
+  it("preserves a break that has no line-count marker as text", () => {
     const { html } = mapFigmaNodeToHtml(
       label("Get started for free.\rAdd your whole team.", ["NONE"]),
       {},
@@ -630,7 +630,7 @@ describe("which break characters Figma actually lays out", () => {
     expect(html).toContain("Get started for free. Add your whole team.");
   });
 
-  it("drops a trailing break Figma did not count", () => {
+  it("drops a trailing break when no line count is present", () => {
     const { html } = mapFigmaNodeToHtml(
       label("Connect the account\r", ["NONE"]),
       {},
@@ -639,7 +639,7 @@ describe("which break characters Figma actually lays out", () => {
     expect(html).not.toMatch(/Connect the account[\r\n ]/);
   });
 
-  it("drops trailing spaces that follow the break, which Figma also ignores", () => {
+  it("drops trailing spaces after a terminal break", () => {
     const { html } = mapFigmaNodeToHtml(
       label("Add due dates\r ", ["NONE"]),
       {},
@@ -656,12 +656,12 @@ describe("which break characters Figma actually lays out", () => {
     expect(html).not.toContain("First\r\n\r\nSecond");
   });
 
-  it("keeps as many breaks as Figma counted and folds only the extras", () => {
+  it("keeps the marked line count and folds only extra breaks", () => {
     const { html } = mapFigmaNodeToHtml(label("a\rb\rc", ["NONE", "NONE"]), {});
     expect(html).toMatch(/a[\r\n]b c/);
   });
 
-  it("drops a trailing space, which Figma neither draws nor hugs to", () => {
+  it("drops a trailing space after the final line", () => {
     const { html } = mapFigmaNodeToHtml(
       label("Our Working Process ", ["NONE"]),
       {},
@@ -669,7 +669,7 @@ describe("which break characters Figma actually lays out", () => {
     expect(html).toContain(">Our Working Process<");
   });
 
-  it("keeps a trailing break Figma counted as its own empty line", () => {
+  it("keeps a trailing break as its own empty line when marked", () => {
     const { html } = mapFigmaNodeToHtml(
       label("Heading\r", ["NONE", "NONE"]),
       {},
@@ -677,18 +677,18 @@ describe("which break characters Figma actually lays out", () => {
     expect(html).toMatch(/Heading[\r\n]/);
   });
 
-  it("still drops a trailing break when Figma reports no line count", () => {
+  it("drops a trailing break when the input has no line count", () => {
     const { html } = mapFigmaNodeToHtml(label("Connect the account\r"), {});
     expect(html).not.toMatch(/Connect the account[\r\n]/);
   });
 
-  it("leaves interior breaks alone when Figma reports no line count", () => {
+  it("leaves interior breaks intact when the input has no line count", () => {
     const { html } = mapFigmaNodeToHtml(label("First\rSecond"), {});
     expect(html).toMatch(/First[\r\n]Second/);
   });
 });
 
-describe("Figma rounds a hugging text box's height", () => {
+describe("rounded input height for a hugging text box", () => {
   function headingInStack(autoResize: string): FigmaNode {
     return {
       id: "1:1",
@@ -759,7 +759,7 @@ describe("an INSIDE stroke stays inside its shape", () => {
   });
 });
 
-describe("text Figma laid out on one line must not wrap", () => {
+describe("single-line input text must not wrap", () => {
   function placeholder(height: number, lineTypes: string[]): FigmaNode {
     return {
       id: "1:1",
@@ -777,7 +777,7 @@ describe("text Figma laid out on one line must not wrap", () => {
     } as FigmaNode;
   }
 
-  it("refuses the break Figma did not take", () => {
+  it("does not introduce an additional line break", () => {
     const { html } = mapFigmaNodeToHtml(placeholder(27, ["NONE"]), {});
     expect(html).toContain("white-space: pre");
     expect(html).not.toContain("white-space: pre-wrap");
@@ -864,7 +864,7 @@ describe("an image fallback's ink must not take layout space", () => {
   });
 });
 
-describe("angular (conic) gradients sweep in Figma's normalized space", () => {
+describe("angular (conic) gradients sweep in normalized input coordinates", () => {
   function angularTile(width: number, height: number): FigmaNode {
     return {
       id: "1:1",
@@ -954,7 +954,7 @@ describe("zero-thickness vector geometry", () => {
   });
 });
 
-describe("Figma's image crop (STRETCH with an imageTransform)", () => {
+describe("image crop (STRETCH with an image transform)", () => {
   function cropped(transform?: number[][]): FigmaNode {
     return {
       id: "1:1",
@@ -1005,7 +1005,7 @@ describe("Figma's image crop (STRETCH with an imageTransform)", () => {
   });
 });
 
-describe("a hugging text box takes Figma's rounded width as a minimum", () => {
+describe("a hugging text box uses the rounded input width as a minimum", () => {
   function label(): FigmaNode {
     return {
       id: "1:1",
@@ -1027,7 +1027,7 @@ describe("a hugging text box takes Figma's rounded width as a minimum", () => {
     } as FigmaNode;
   }
 
-  it("sets it as a minimum, so the box is never narrower than Figma's", () => {
+  it("uses it as a minimum width", () => {
     const { html } = mapFigmaNodeToHtml(label(), {});
     expect(html).toContain("min-width: 70px");
   });
@@ -1038,7 +1038,7 @@ describe("a hugging text box takes Figma's rounded width as a minimum", () => {
     expect(html).not.toMatch(/(?<!min-)width: 70px/);
   });
 
-  it("leaves an explicit minWidth from Figma alone", () => {
+  it("preserves an explicit minWidth", () => {
     const node = label();
     node.children![0]!.minWidth = 120;
     const { html } = mapFigmaNodeToHtml(node, {});
@@ -1059,7 +1059,7 @@ describe("icon-font glyphs", () => {
     } as FigmaNode;
   }
 
-  it("renders a Private Use Area glyph from Figma instead of a .notdef box", () => {
+  it("renders an imported Private Use Area glyph instead of a .notdef box", () => {
     expect(collectFallbackNodeIds(iconLabel("\uf2c6"), {})).toEqual(["1:1"]);
   });
 
@@ -1068,7 +1068,7 @@ describe("icon-font glyphs", () => {
   });
 });
 
-describe("a drop shadow Figma draws behind the layer", () => {
+describe("imported drop shadows render behind the layer", () => {
   function mockup(fills: unknown[]): FigmaNode {
     return {
       id: "1:1",
@@ -1112,7 +1112,7 @@ describe("a drop shadow Figma draws behind the layer", () => {
     );
   });
 
-  it("needs the flag set, since Figma defaults it to false", () => {
+  it("uses the imported shadow flag when provided and the schema default otherwise", () => {
     const node = mockup([]) as FigmaNode & {
       effects: Array<Record<string, unknown>>;
     };
@@ -1142,7 +1142,7 @@ describe("a drop shadow Figma draws behind the layer", () => {
   });
 });
 
-describe("a per-side stroke Figma centres on the edge", () => {
+describe("per-side strokes use centered edge geometry", () => {
   function footer(strokeAlign: string): FigmaNode {
     return {
       id: "1:1",
@@ -1178,7 +1178,7 @@ describe("a per-side stroke Figma centres on the edge", () => {
     expect(html).not.toContain("inset 0px");
   });
 
-  it("takes no space from the content box, as a Figma stroke does not", () => {
+  it("does not reduce the content box size", () => {
     const { html } = mapFigmaNodeToHtml(footer("CENTER"), {});
     expect(html).not.toContain("border");
   });

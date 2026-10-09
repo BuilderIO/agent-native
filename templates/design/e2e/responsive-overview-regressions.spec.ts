@@ -162,7 +162,6 @@ async function designFileIds(
 
 test.use({ viewport: { width: 1500, height: 1000 } });
 
-// oracle: none — verifies responsive preview geometry and edit scope, not visual parity.
 test("responsive frame previews preserve content fit and scope selection", async ({
   page,
   request,
@@ -341,7 +340,6 @@ test("exact-size generation preserves its canvas dimensions without mobile frame
   }
 });
 
-// oracle: none — verifies persisted canvas dimensions and breakpoint metadata, not visual parity.
 test("fixed-artwork variants preserve the original brief size without mobile frames", async ({
   page,
   request,
@@ -452,7 +450,6 @@ test("persists tall breakpoint content before server-side row placement", async 
   }
 });
 
-// oracle: none — verifies screen and breakpoint deletion behavior through the editor.
 test("screen deletion explicitly includes and removes responsive variants", async ({
   page,
   request,
@@ -566,7 +563,6 @@ test("multiple generated variation groups reserve breakpoint rows without overla
   }
 });
 
-// oracle: none — verifies persisted canvas layout after a breakpoint mutation.
 test("adding a breakpoint reflows screen rows before their previews overlap", async ({
   page,
   request,
@@ -948,7 +944,6 @@ test("overview screen creation and duplicate undo/redo keep screens selected and
   }
 });
 
-// oracle: none — verifies width validation and persistence through the editor.
 test("breakpoint width menus preserve invalid drafts for correction", async ({
   page,
   request,

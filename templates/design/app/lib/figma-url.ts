@@ -42,31 +42,31 @@ export function extractFigmaLink(text: string): FigmaLink | null {
 
 export type FigmaLinkChatAction = "import" | "inspect" | "export-svg";
 
+export interface FigmaLinkChatPrompts {
+  importFrame: string;
+  importFile: string;
+  inspectFrame: string;
+  inspectFile: string;
+  exportSvg: string;
+}
+
 export function buildFigmaLinkChatPrompt(
   action: FigmaLinkChatAction,
   link: FigmaLink,
-  designId?: string | null,
+  prompts: FigmaLinkChatPrompts,
 ): { message: string } {
   if (action === "import") {
-    const destination = designId
-      ? "the current Design"
-      : "a Design (ask me which Design to use if needed)";
     return {
-      message:
-        link.kind === "frame"
-          ? `Import this Figma frame into ${destination} and report any fidelity differences: ${link.url}`
-          : `Open this Figma file, list its top-level frames, and ask me which frame to import: ${link.url}`,
+      message: link.kind === "frame" ? prompts.importFrame : prompts.importFile,
     };
   }
 
   if (action === "inspect") {
     return {
-      message: `Inspect this Figma ${link.kind} and summarize its structure, components, styles, and reusable tokens: ${link.url}`,
+      message:
+        link.kind === "frame" ? prompts.inspectFrame : prompts.inspectFile,
     };
   }
 
-  return {
-    message:
-      "Export the current Design screen as Figma-compatible SVG and explain which text, auto-layout, component, variable, and prototype behavior will not stay live in Figma.",
-  };
+  return { message: prompts.exportSvg };
 }

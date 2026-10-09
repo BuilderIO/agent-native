@@ -10,7 +10,6 @@ Read `.agents/skills/<name>/SKILL.md` before deeper work:
 - `design-templates` — reusing existing Design work.
 - `responsive-breakpoints` — breakpoint editing.
 - `design-systems` — tokens, brand extraction, or Figma.
-- `design-figma-parity` — measured Figma behavior evidence.
 - `creative-context` — cross-app sources and governed context.
 - `design-review-feedback` — persisted review comments.
 - `export-handoff` — exports and coding handoffs.

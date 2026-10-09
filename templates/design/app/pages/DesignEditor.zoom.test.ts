@@ -43,7 +43,7 @@ describe("clampZoom", () => {
   });
 });
 
-describe("getNextZoomStepUp / getNextZoomStepDown — Figma-style doubling anchors", () => {
+describe("getNextZoomStepUp / getNextZoomStepDown — doubling anchors", () => {
   it("steps up through the doubling sequence anchored at 100", () => {
     expect(getNextZoomStepUp(100)).toBe(200);
     expect(getNextZoomStepUp(200)).toBe(400);

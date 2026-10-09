@@ -280,6 +280,18 @@ export default {
       exportSvg: "SVG 내보내기",
       actionsPrefill: "검토 후 보내기",
       retry: "다시 시도",
+      currentDesign: "현재 Design",
+      chooseDesign: "Design (필요하면 어떤 Design을 사용할지 물어보세요)",
+      importFramePrompt:
+        "이 Figma 프레임을 {{destination}}으로 가져오고, 가져오지 못한 콘텐츠를 알려 주세요: {{url}}",
+      importFilePrompt:
+        "이 Figma 파일을 열고 최상위 프레임을 나열한 다음, 가져올 프레임을 물어보세요: {{url}}",
+      inspectFramePrompt:
+        "이 Figma 프레임의 구조, 구성 요소, 스타일, 재사용 가능한 토큰을 요약하세요: {{url}}",
+      inspectFilePrompt:
+        "이 Figma 파일의 구조, 구성 요소, 스타일, 재사용 가능한 토큰을 요약하세요: {{url}}",
+      exportSvgPrompt:
+        "현재 Design 화면을 Figma에서 사용할 SVG로 내보내고 정적 SVG 콘텐츠가 되는 부분을 알려 주세요.",
     },
   },
   common: {

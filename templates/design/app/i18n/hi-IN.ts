@@ -279,6 +279,18 @@ export default {
       exportSvg: "SVG export करें",
       actionsPrefill: "जाँचें, फिर भेजें",
       retry: "फिर कोशिश करें",
+      currentDesign: "मौजूदा Design",
+      chooseDesign: "एक Design (ज़रूरत हो तो पूछें कि कौन-सा Design इस्तेमाल करना है)",
+      importFramePrompt:
+        "इस Figma frame को {{destination}} में import करें और बताएँ कि importer कौन-सी सामग्री साथ नहीं ला सका: {{url}}",
+      importFilePrompt:
+        "यह Figma file खोलें, उसके शीर्ष-स्तर के frames की सूची दें, और पूछें कि कौन-सा frame import करना है: {{url}}",
+      inspectFramePrompt:
+        "इस Figma frame की संरचना, components, styles और दोबारा इस्तेमाल किए जा सकने वाले tokens का सार दें: {{url}}",
+      inspectFilePrompt:
+        "इस Figma file की संरचना, components, styles और दोबारा इस्तेमाल किए जा सकने वाले tokens का सार दें: {{url}}",
+      exportSvgPrompt:
+        "मौजूदा Design screen को Figma में इस्तेमाल के लिए SVG के रूप में export करें और बताएँ कि कौन-से हिस्से स्थिर SVG सामग्री बनेंगे।",
     },
   },
   common: {
