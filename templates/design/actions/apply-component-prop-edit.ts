@@ -1191,13 +1191,19 @@ export default defineAction({
             : edit.kind === "structure"
               ? (edit as ComponentStructureEdit)
               : { kind: "resetOverrides" };
-      return persistLinkedComponentEdit({
+      const linkedResult = await persistLinkedComponentEdit({
         designId,
         nodeId,
         fileId,
         edit: linkedEdit,
         expectedFiles: source.expectedFiles,
       });
+      if (
+        !isLinkedComponentAttributeEdit ||
+        linkedResult.transformStatus !== "not-linked"
+      ) {
+        return linkedResult;
+      }
     }
 
     const conditions = [
