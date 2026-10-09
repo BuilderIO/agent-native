@@ -389,4 +389,55 @@ describe("ActionQueryCacheGate", () => {
 
     expect(records.size).toBe(0);
   });
+
+  it.each([403, 404])(
+    "deletes the stored record at once when a refetch returns %i",
+    async (status) => {
+      const { storage, records } = memoryStorage();
+      setActionQueryCacheStorage(storage);
+      stubFetch(() => designsResponse("revoked-soon"));
+      await mount(new QueryClient(), <Designs onRender={() => {}} />);
+      await settle(WRITE_SETTLE_MS);
+      await unmountAll();
+      expect(records.has(ALICE_SCOPE)).toBe(true);
+
+      stubFetch(
+        () => new Response(JSON.stringify({ error: "Refused" }), { status }),
+      );
+      await mount(new QueryClient(), <Designs onRender={() => {}} />);
+      await settleUntil(() => !records.has(ALICE_SCOPE), 2_000);
+      // Gone right away, not left for the debounced rewrite to replace.
+      expect(records.has(ALICE_SCOPE)).toBe(false);
+
+      await settle(WRITE_SETTLE_MS);
+      expect(JSON.stringify(records.get(ALICE_SCOPE) ?? {})).not.toContain(
+        "revoked-soon",
+      );
+    },
+  );
+
+  it("does not restore a record older than an hour", async () => {
+    const { storage, records } = memoryStorage();
+    setActionQueryCacheStorage(storage);
+    const stale = new QueryClient();
+    stale.setQueryData<Designs>(["action", "list-designs", undefined], {
+      designs: [{ title: "over-an-hour-old" }],
+    });
+    records.set(ALICE_SCOPE, {
+      timestamp: Date.now() - 61 * 60 * 1000,
+      buster: "action-query-cache-v1",
+      clientState: dehydrate(stale),
+    });
+
+    const titles: Array<string | undefined> = [];
+    stubFetch(() => new Promise<Response>(() => {}));
+    await mount(
+      new QueryClient(),
+      <Designs onRender={(title) => titles.push(title)} />,
+    );
+    await settle(50);
+
+    expect(titles).not.toContain("over-an-hour-old");
+    expect(records.has(ALICE_SCOPE)).toBe(false);
+  });
 });

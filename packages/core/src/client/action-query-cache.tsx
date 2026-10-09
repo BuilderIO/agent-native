@@ -19,6 +19,7 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 
 import type { AuthSession } from "../server/auth.js";
+import { actionErrorStatus } from "./action-failure-circuit.js";
 import { clientBuildId } from "./build-compatibility.js";
 import { isBrowserPersistableActionQuery } from "./use-action.js";
 import { useSession } from "./use-session.js";
@@ -26,7 +27,7 @@ import { useSession } from "./use-session.js";
 // Bump when a cached result's shape or meaning changes. A record stored under
 // another buster is discarded on restore instead of being hydrated.
 const ACTION_QUERY_CACHE_BUSTER = "action-query-cache-v1";
-const ACTION_QUERY_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const ACTION_QUERY_CACHE_MAX_AGE_MS = 60 * 60 * 1000;
 // Every cache event dehydrates the whole client, so writes are coalesced to one
 // per window instead of one per fetch state change.
 const WRITE_DELAY_MS = 1_000;
@@ -82,6 +83,8 @@ export function actionQueryCacheScope(
 }
 
 interface ScopedPersister extends Persister {
+  /** Drops a write still waiting on the debounce, then deletes the record. */
+  discard(): void;
   close(): void;
 }
 
@@ -118,6 +121,18 @@ function scopedPersister(scope: string): ScopedPersister {
     },
     removeClient() {
       return storage.del(scope);
+    },
+    discard() {
+      // A debounced write still holds the client as it was before the revoke,
+      // and would put the revoked result back after this delete.
+      latest = undefined;
+      clearTimeout(timer);
+      timer = undefined;
+      storage
+        .del(scope)
+        .catch((error) =>
+          console.warn("Unable to delete cached action results", error),
+        );
     },
     close() {
       open = false;
@@ -201,7 +216,25 @@ export async function bindActionQueryCache(
       shouldDehydrateMutation: () => false,
     },
   });
-  binding = { client, persister, unsubscribe };
+  // Subscribed before persistQueryClient's own listener (which subscribes only
+  // after the restore), so the delete runs before the error's rewrite.
+  const unsubscribeRevoked = client.getQueryCache().subscribe((event) => {
+    if (event.type !== "updated" || event.action.type !== "error") return;
+    if (event.query.queryKey[0] !== "action") return;
+    const status = actionErrorStatus(event.action.error);
+    // The record may still hold this result from before the refetch. Only a
+    // successful query is dehydrated, so the rewrite after this error leaves
+    // it out.
+    if (status === 403 || status === 404) persister.discard();
+  });
+  binding = {
+    client,
+    persister,
+    unsubscribe: () => {
+      unsubscribe();
+      unsubscribeRevoked();
+    },
+  };
 
   await waitForRestore(restored);
   // A scope change during the restore can hydrate the old scope after the new
