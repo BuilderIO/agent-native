@@ -9,9 +9,20 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const actionEffects = vi.hoisted(() => ({
   generationContexts: new Map<string, Record<string, unknown>>(),
+  savedCreativeContextMode: "off" as "off" | "auto",
   getGenerationCreativeContext: vi.fn(
-    async ({ artifactId }: { artifactId: string }) =>
-      actionEffects.generationContexts.get(artifactId) ?? null,
+    async (
+      { artifactId }: { artifactId: string },
+      options?: { localOnly?: boolean },
+    ) => {
+      if (
+        actionEffects.savedCreativeContextMode === "auto" &&
+        !options?.localOnly
+      ) {
+        return null;
+      }
+      return actionEffects.generationContexts.get(artifactId) ?? null;
+    },
   ),
   recordGenerationCreativeContext: vi.fn(
     async (input: { artifactId: string } & Record<string, unknown>) => {
@@ -403,6 +414,63 @@ describe("space-aware document writers", () => {
         .from(schema.documents)
         .where(eq(schema.documents.id, input.id)),
     ).resolves.toHaveLength(1);
+  });
+
+  it("repairs explicit off provenance locally after the saved mode changes", async () => {
+    const input = {
+      id: "optimistic-create-context-off-local-replay",
+      title: "Local context repair",
+      contextModeOverride: "off" as const,
+    };
+    actionEffects.savedCreativeContextMode = "auto";
+    actionEffects.generationContexts.delete(input.id);
+    actionEffects.getGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockClear();
+    const recordGeneration =
+      actionEffects.recordGenerationCreativeContext.getMockImplementation();
+    actionEffects.recordGenerationCreativeContext.mockImplementationOnce(
+      async (record) => {
+        await recordGeneration?.(record);
+        throw new Error("projection store unavailable");
+      },
+    );
+
+    const create = () =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        createDocument.run(input),
+      );
+
+    try {
+      await expect(create()).rejects.toThrow("projection store unavailable");
+      actionEffects.getGenerationCreativeContext.mockClear();
+      actionEffects.recordGenerationCreativeContext.mockClear();
+      actionEffects.validateGenerationCreativeContext.mockClear();
+
+      await expect(create()).resolves.toMatchObject({
+        id: input.id,
+        contextMode: "off",
+        contextPackId: null,
+      });
+      expect(actionEffects.getGenerationCreativeContext).toHaveBeenCalledWith(
+        expect.objectContaining({ artifactId: input.id }),
+        { localOnly: true },
+      );
+      expect(
+        actionEffects.recordGenerationCreativeContext,
+      ).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          contextMode: "off",
+          contextPackId: null,
+          onlyIfMissing: true,
+        }),
+      );
+      expect(
+        actionEffects.validateGenerationCreativeContext,
+      ).not.toHaveBeenCalled();
+    } finally {
+      actionEffects.savedCreativeContextMode = "off";
+    }
   });
 
   it("uses persisted Creative Context when settings or pack access change before replay", async () => {

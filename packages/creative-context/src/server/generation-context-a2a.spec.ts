@@ -162,6 +162,26 @@ describe("generation context isolated A2A routing", () => {
     expect(mocks.getLocal).not.toHaveBeenCalled();
   });
 
+  it("keeps an explicit local read local when saved mode is auto", async () => {
+    const identity = {
+      appId: "content",
+      artifactType: "document",
+      artifactId: "document-1",
+    };
+    const localRecord = { contextMode: "off", contextPackId: null };
+    mocks.getLocal.mockResolvedValue(localRecord);
+
+    await expect(
+      getGenerationCreativeContext(identity, { localOnly: true }),
+    ).resolves.toEqual(localRecord);
+
+    expect(mocks.getLocal).toHaveBeenCalledWith(
+      identity,
+      expect.objectContaining({ db: undefined }),
+    );
+    expect(mocks.callA2A).not.toHaveBeenCalled();
+  });
+
   it.each([
     { path: "isolated A2A", hasA2A: true },
     { path: "local storage", hasA2A: false },

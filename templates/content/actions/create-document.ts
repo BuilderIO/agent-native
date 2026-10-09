@@ -159,13 +159,16 @@ async function recordDocumentCreationContextIfMissing(input: {
 async function repairDocumentCreationContextProjection(input: {
   artifactId: string;
   reuseLabels: CreativeContextReuseLabel[];
+  contextModeOverride?: "off";
 }): Promise<DocumentCreationProvenance | null> {
   const identity = {
     appId: "content",
     artifactType: "document",
     artifactId: input.artifactId,
   };
-  const existing = await getGenerationCreativeContext(identity);
+  const readOptions =
+    input.contextModeOverride === "off" ? { localOnly: true } : undefined;
+  const existing = await getGenerationCreativeContext(identity, readOptions);
   if (!existing) return null;
 
   // Keep the retry on the same local or isolated storage path as the persisted record.
@@ -416,6 +419,7 @@ export default defineAction({
         await repairDocumentCreationContextProjection({
           artifactId: id,
           reuseLabels: args.reuseLabels,
+          contextModeOverride: args.contextModeOverride,
         });
       await writeAppState("refresh-signal", { ts: Date.now() });
       return documentCreationResult(

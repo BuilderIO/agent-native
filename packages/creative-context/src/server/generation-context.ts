@@ -626,6 +626,7 @@ export async function getGenerationCreativeContext(
   options: {
     artifactAccess?: GenerationArtifactAccessTarget;
     db?: any;
+    localOnly?: boolean;
   } = {},
 ) {
   if (!(await creativeContextLabEnabled())) return null;
@@ -633,7 +634,7 @@ export async function getGenerationCreativeContext(
     input,
     options.artifactAccess,
   );
-  if (!options.db && hasIsolatedCreativeContextA2A()) {
+  if (!options.db && !options.localOnly && hasIsolatedCreativeContextA2A()) {
     const state = (await readAppState("creative-context")) as {
       contextMode?: "auto" | "off";
     } | null;
