@@ -417,6 +417,8 @@ runtime code:
 | `DOCS_ONLY`                   | Whether change-scope selected a docs-only change; the required Build gate requires the build job to succeed when this is true. Do not set manually.                                   |
 | `GUARDS_REQUIRED`             | Whether change-scope selected the Security guards job; the required Build gate checks the corresponding job result.                                                                   |
 | `GUARDS_RESULT`               | Result of the Security guards job, checked by the required Build gate.                                                                                                                |
+| `PRE_AUTH_REPLAY_E2E`          | Whether change-scope selected the pre-auth session replay smoke; the required Fast tests gate validates the matching job result.                                                       |
+| `PRE_AUTH_REPLAY_RESULT`       | Result of the pre-auth session replay smoke job, checked by the required Fast tests gate.                                                                                              |
 | `POSTGRES_DB`                 | Database name for the PostgreSQL service container used in CI integration tests.                                                                                                      |
 | `POSTGRES_HOST_AUTH_METHOD`   | PostgreSQL host-based authentication method for the CI service container (e.g. `trust`).                                                                                              |
 | `S2573_PGLITE_INSTALL_PREFIX` | Override for the PGlite native binary install prefix used by the content-database lock CI test.                                                                                       |
