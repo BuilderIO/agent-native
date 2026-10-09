@@ -19,8 +19,10 @@ import {
   type JourneyCanvasMessages,
 } from "./journey-canvas-messages.js";
 import {
+  APP_BAND_HEADER_HEIGHT,
   CARD_HEADER_HEIGHT,
   CARD_PROVENANCE_HEADER_HEIGHT,
+  layoutJourneyAppBands,
   layoutJourney,
   type JourneyLayoutNode,
   type PlacedEdge,
@@ -42,7 +44,6 @@ export const MAX_JOURNEY_FRAMES = 900;
 export const MAX_EXAMPLES_PER_NODE = 6;
 const MAX_DIMENSION = 16_384;
 const MAX_IMAGE_URL_CHARS = 2_048;
-const PROVENANCE_ROW_HEIGHT = 10;
 
 // guard:allow-raw-color — generated storyboard HTML is standalone and cannot read app theme tokens
 const INK = "#111827";
@@ -146,6 +147,10 @@ export const journeyTreeSchema = z.object({
   window: z.object({ from: z.string().max(64), to: z.string().max(64) }),
   app: z.string().min(1).max(128),
   rootN: count,
+  appRootN: z
+    .record(z.string().regex(/^[a-z][a-z0-9-]{0,127}$/), count.min(1))
+    .optional()
+    .describe("Per-app root denominators for separate app-band layouts."),
   coverage: z.object({
     sessionsWithEvents: count,
     sessionsWithReplay: count,
@@ -302,6 +307,13 @@ export const createJourneyCanvasInputSchema = z
         "Locale used for the standalone storyboard labels; defaults to en-US.",
       ),
     tree: journeyTreeSchema,
+    layoutMode: z
+      .enum(["tree", "appBands"])
+      .optional()
+      .default("tree")
+      .describe(
+        "Use one tree or place independent app cohorts in side-by-side bands.",
+      ),
     frames: z.array(journeyFrameSchema).max(MAX_JOURNEY_FRAMES),
     designId: z.string().min(1).max(128).optional(),
     cardWidth: z.number().int().min(200).max(800).optional().default(360),
@@ -324,6 +336,71 @@ export const createJourneyCanvasInputSchema = z
   .superRefine((input, ctx) => {
     const issue = (path: (string | number)[], message: string) =>
       ctx.addIssue({ code: "custom", path, message });
+    if (input.layoutMode === "appBands") {
+      if (input.tree.app !== "all") {
+        issue(
+          ["tree", "app"],
+          'App-band layout requires tree.app to be "all".',
+        );
+      }
+      if (!input.tree.appRootN) {
+        issue(
+          ["tree", "appRootN"],
+          "Pass each app's root denominator for app-band layout.",
+        );
+      }
+      const apps = new Set<string>();
+      input.tree.nodes.forEach((node, index) => {
+        const app = /^([a-z][a-z0-9-]{0,127})::/.exec(node.key)?.[1];
+        if (!app) {
+          issue(
+            ["tree", "nodes", index, "key"],
+            "App-band nodes need an app-prefixed key such as clips::....",
+          );
+          return;
+        }
+        apps.add(app);
+        if (node.parentKey !== null) {
+          const parentApp = /^([a-z][a-z0-9-]{0,127})::/.exec(
+            node.parentKey,
+          )?.[1];
+          if (parentApp !== app) {
+            issue(
+              ["tree", "nodes", index, "parentKey"],
+              "App-band parent links must stay within the same app cohort.",
+            );
+          }
+        }
+        if (
+          input.tree.appRootN?.[app] !== undefined &&
+          hasCohortMetrics(node) &&
+          Math.abs(
+            node.pctOfRoot - (node.n / input.tree.appRootN[app]!) * 100,
+          ) > 0.011
+        ) {
+          issue(
+            ["tree", "nodes", index, "pctOfRoot"],
+            `Node "${node.key}" percent does not use the ${app} cohort denominator.`,
+          );
+        }
+      });
+      for (const app of apps) {
+        if (input.tree.appRootN?.[app] === undefined) {
+          issue(
+            ["tree", "appRootN", app],
+            `Pass the root denominator for the ${app} cohort.`,
+          );
+        }
+      }
+      for (const app of Object.keys(input.tree.appRootN ?? {})) {
+        if (!apps.has(app)) {
+          issue(
+            ["tree", "appRootN", app],
+            `The ${app} cohort has no nodes in this tree.`,
+          );
+        }
+      }
+    }
     if (
       !input.designId &&
       input.frames.some((frame) => frame.stagedFrameId !== undefined)
@@ -486,6 +563,18 @@ function slug(value: string): string {
 const formatInt = (value: number, locale = "en-US") =>
   value.toLocaleString(locale);
 
+function appDisplayName(value: string): string {
+  const knownApps: Record<string, string> = {
+    clips: "Clips",
+    design: "Design",
+    slides: "Slides",
+  };
+  return (
+    knownApps[value] ??
+    value.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
+  );
+}
+
 export function formatPercent(value: number, locale = "en-US"): string {
   const clamped = Math.min(100, Math.max(0, value));
   return new Intl.NumberFormat(locale, {
@@ -508,6 +597,10 @@ function replayObservedAt(
 
 function utcTimestamp(value: string): string {
   return new Date(Date.parse(value)).toISOString();
+}
+
+function utcDate(value: string): string {
+  return `${utcTimestamp(value).slice(0, 10)} UTC`;
 }
 
 function localizedDateLabel(
@@ -562,11 +655,14 @@ export interface PlannedScreen {
     eventAt: string;
     dateLabel: string;
     recordingId: string | null;
+    recordingStartedAt?: string;
     offsetMs: number | null;
     offsetIsObserved: boolean;
     checkpointOffsetMs: number | null;
     replayObservedAt: string | null;
     screenshotCapturedAt: string;
+    sourceApp?: string;
+    route?: string;
     caption?: JourneyFrameCaption;
   };
   /** Frame geometry relative to the canvas origin. */
@@ -619,7 +715,6 @@ function cardProvenanceMarkup(
       ? messages.replayOffsetUnavailable
       : `${formatInt(provenance.offsetMs, messages.htmlLanguage)} ms`;
   const caption = provenance.caption;
-  const evidenceText = caption ? captionEvidenceText(caption, messages) : null;
   const showsReplayObservation =
     provenance.dateLabel === `${messages.replayObservation} (UTC)` &&
     provenance.replayObservedAt !== null;
@@ -635,16 +730,10 @@ function cardProvenanceMarkup(
   const captionMarkup = caption
     ? [
         caption.observedState
-          ? `<p class="caption-line"><strong>${escapeHtml(messages.observedState)}:</strong> ${escapeHtml(caption.observedState)}</p>`
+          ? `<p class="caption-line" title="${escapeHtml(`${messages.observedState}: ${caption.observedState}`)}"><strong>${escapeHtml(messages.observedState)}:</strong> ${escapeHtml(caption.observedState)}</p>`
           : "",
         caption.outputTitle
           ? `<p class="caption-line" title="${escapeHtml(messages.outputTitle)}: ${escapeHtml(caption.outputTitle)}">${escapeHtml(messages.output)}: ${escapeHtml(caption.outputTitle)}</p>`
-          : "",
-        caption.actor
-          ? `<p class="caption-line" title="${escapeHtml(messages.actorSource)}: ${escapeHtml(caption.actorSource ?? messages.recordingMetadata)}">${escapeHtml(messages.actorRecording)}: ${escapeHtml(caption.actor)}</p>`
-          : "",
-        evidenceText
-          ? `<p class="caption-line">${escapeHtml(evidenceText)}</p>`
           : "",
         caption.prompt
           ? `<details class="prompt"><summary title="${escapeHtml(messages.openFullPrompt)}">${escapeHtml(messages.prompt)}: ${escapeHtml(promptExcerpt(caption.promptTranslation ?? caption.prompt))}</summary><div class="prompt-body">${caption.promptTranslation ? `<p><strong>${escapeHtml(messages.promptEnglish)}</strong><br>${escapeHtml(caption.promptTranslation)}</p>` : ""}<p><strong>${escapeHtml(messages.promptSource)}</strong><br>${escapeHtml(caption.prompt)}</p>${caption.promptSource ? `<p class="prompt-source">${escapeHtml(messages.source)}: ${escapeHtml(caption.promptSource)}</p>` : ""}</div></details>`
@@ -653,28 +742,45 @@ function cardProvenanceMarkup(
             : "",
       ].join("")
     : "";
-  return `<section class="example-provenance" data-index="${index}">${[
-    `<p class="provenance" title="${escapeHtml(messages.utcTimestamp)}: ${escapeHtml(utcTimestamp(displayedTimestamp))}">${escapeHtml(provenance.dateLabel)} ${escapeHtml(utcTimestamp(displayedTimestamp))}</p>`,
-    `<p class="provenance recording-id" title="${escapeHtml(messages.recordingId)}: ${escapeHtml(recordingId)}">${escapeHtml(messages.recordingId)} ${escapeHtml(recordingId)}</p>`,
-    `<p class="provenance" title="${escapeHtml(messages.replayOffset)}: ${escapeHtml(replayOffset)}">${escapeHtml(messages.replayOffset)} ${escapeHtml(replayOffset)}</p>`,
+  const actor = caption?.actor ?? messages.actorUnavailable;
+  const actorSource = caption?.actorSource ?? messages.recordingMetadata;
+  const evidenceText = caption ? captionEvidenceText(caption, messages) : null;
+  const technicalRows = [
+    `<p>${escapeHtml(messages.recordingId)}: ${escapeHtml(recordingId)}</p>`,
+    provenance.sourceApp
+      ? `<p>${escapeHtml(messages.sourceApp)}: ${escapeHtml(appDisplayName(provenance.sourceApp))}</p>`
+      : "",
+    provenance.route
+      ? `<p>${escapeHtml(messages.route)}: ${escapeHtml(provenance.route)}</p>`
+      : "",
+    provenance.recordingStartedAt
+      ? `<p>${escapeHtml(messages.recordingStarted)}: ${escapeHtml(utcTimestamp(provenance.recordingStartedAt))}</p>`
+      : "",
+    `<p>${escapeHtml(provenance.dateLabel)}: ${escapeHtml(utcTimestamp(displayedTimestamp))}</p>`,
+    provenance.eventAt !== displayedTimestamp
+      ? `<p>${escapeHtml(messages.eventTime)}: ${escapeHtml(utcTimestamp(provenance.eventAt))}</p>`
+      : "",
+    provenance.replayObservedAt &&
+    provenance.replayObservedAt !== displayedTimestamp
+      ? `<p>${escapeHtml(messages.replayObserved)}: ${escapeHtml(utcTimestamp(provenance.replayObservedAt))}</p>`
+      : "",
+    `<p>${escapeHtml(messages.replayOffset)}: ${escapeHtml(replayOffset)}</p>`,
     provenance.offsetIsObserved
-      ? `<p class="provenance">${escapeHtml(messages.replaySeek)} ${escapeHtml(replayOffset)}</p>`
+      ? `<p>${escapeHtml(messages.replaySeek)}: ${escapeHtml(replayOffset)}</p>`
       : provenance.checkpointOffsetMs !== null
-        ? `<p class="provenance">${escapeHtml(messages.checkpointSeekTarget)} ${formatInt(provenance.checkpointOffsetMs, messages.htmlLanguage)} ms</p>`
+        ? `<p>${escapeHtml(messages.checkpointSeekTarget)}: ${formatInt(provenance.checkpointOffsetMs, messages.htmlLanguage)} ms</p>`
         : "",
     provenance.checkpointOffsetMs !== null &&
     provenance.checkpointOffsetMs !== provenance.offsetMs
-      ? `<p class="provenance" title="${escapeHtml(messages.analyticsCheckpointOffset)}">${escapeHtml(messages.analyticsCheckpointOffset)} ${formatInt(provenance.checkpointOffsetMs, messages.htmlLanguage)} ms</p>`
+      ? `<p>${escapeHtml(messages.analyticsCheckpointOffset)}: ${formatInt(provenance.checkpointOffsetMs, messages.htmlLanguage)} ms</p>`
       : "",
-    provenance.replayObservedAt &&
-    provenance.replayObservedAt !== provenance.eventAt
-      ? showsReplayObservation
-        ? `<p class="provenance" title="${escapeHtml(messages.utcTimestamp)}: ${escapeHtml(utcTimestamp(provenance.eventAt))}">${escapeHtml(messages.eventTime)} ${escapeHtml(utcTimestamp(provenance.eventAt))}</p>`
-        : `<p class="provenance" title="${escapeHtml(messages.replayObservation)} ${escapeHtml(messages.utcTimestamp)}: ${escapeHtml(provenance.replayObservedAt)}">${escapeHtml(messages.replayObserved)} ${escapeHtml(provenance.replayObservedAt)} UTC</p>`
+    `<p>${escapeHtml(messages.screenshotCaptured)}: ${escapeHtml(utcTimestamp(provenance.screenshotCapturedAt))}</p>`,
+    caption?.actor
+      ? `<p>${escapeHtml(messages.actorSource)}: ${escapeHtml(actorSource)}</p>`
       : "",
-    `<p class="provenance" title="${escapeHtml(messages.screenshotExportTimestamp)}: ${escapeHtml(utcTimestamp(provenance.screenshotCapturedAt))}">${escapeHtml(messages.screenshotCaptured)} ${escapeHtml(utcTimestamp(provenance.screenshotCapturedAt).slice(0, 10))} UTC</p>`,
-    captionMarkup,
-  ].join("")}</section>`;
+    evidenceText ? `<p>${escapeHtml(evidenceText)}</p>` : "",
+  ].join("");
+  return `<section class="example-provenance" data-index="${index}"><p class="provenance date-line" title="${escapeHtml(`${messages.utcTimestamp}: ${utcTimestamp(displayedTimestamp)}`)}">${escapeHtml(utcDate(displayedTimestamp))}</p><p class="provenance actor-line" title="${escapeHtml(`${messages.actorRecording}: ${actor} (${messages.actorSource}: ${actorSource})`)}">${escapeHtml(messages.actorRecording)}: ${escapeHtml(actor)}</p>${captionMarkup}<details class="provenance-details"><summary title="${escapeHtml(messages.replayDetails)}">${escapeHtml(messages.replayDetails)}</summary><div class="provenance-body">${technicalRows}</div></details></section>`;
 }
 
 function promptExcerpt(value: string): string {
@@ -687,7 +793,7 @@ function captionHeaderHeight(
   cardWidth: number,
   messages: JourneyCanvasMessages,
 ): number {
-  const charactersPerLine = Math.max(24, Math.floor((cardWidth - 24) / 5.5));
+  const charactersPerLine = Math.max(18, Math.floor((cardWidth - 24) / 10));
   const rowsFor = (value: string) =>
     Math.max(1, Math.ceil(value.length / charactersPerLine));
   const rows = Math.max(
@@ -695,66 +801,99 @@ function captionHeaderHeight(
     ...frames.map((frame) => {
       const caption = frame.caption;
       if (!caption) return 0;
-      const evidenceText = captionEvidenceText(caption, messages);
-      return [
-        caption.observedState
-          ? rowsFor(`${messages.observedState}: ${caption.observedState}`)
-          : 0,
-        caption.outputTitle
-          ? rowsFor(`${messages.output}: ${caption.outputTitle}`)
-          : 0,
-        caption.actor
-          ? rowsFor(`${messages.actorRecording}: ${caption.actor}`)
-          : 0,
-        evidenceText ? rowsFor(evidenceText) : 0,
-        caption.prompt || caption.promptUnavailableReason ? 1 : 0,
-      ].reduce((sum, lineCount) => sum + lineCount, 0);
+      const rowsForCaption = (value: string) => Math.min(2, rowsFor(value));
+      return (
+        (caption.outputTitle
+          ? rowsForCaption(`${messages.output}: ${caption.outputTitle}`)
+          : 0) +
+        (caption.observedState
+          ? rowsForCaption(
+              `${messages.observedState}: ${caption.observedState}`,
+            )
+          : 0) +
+        Number(Boolean(caption.prompt || caption.promptUnavailableReason))
+      );
     }),
   );
-  return rows === 0 ? 0 : Math.max(48, rows * 12);
+  return rows * 12;
 }
 
-function provenanceHeaderExtraHeight(
+function cardHeaderHeight(
   frames: JourneyFrame[],
-  examples: JourneyExample[],
   cardWidth: number,
   messages: JourneyCanvasMessages,
+  hasCoverageNote: boolean,
 ): number {
-  const charactersPerLine = Math.max(1, Math.floor((cardWidth - 24) / 5.5));
-  // The base reserves the event, ID, offset, seek, and capture rows.
-  const extraRows = Math.max(
-    0,
-    ...frames.map((frame) => {
-      const example = examples[frame.exampleIndex];
-      if (!example) return 0;
-
-      const offsetMs = frame.screenshotOffsetMs ?? example.offsetMs;
-      const observedAt = replayObservedAt(
-        frame.recordingStartedAt,
-        frame.screenshotOffsetMs,
-      );
-      const eventAt = utcTimestamp(example.ts);
-      const recordingId = example.recordingId ?? messages.recordingUnavailable;
-      const recordingText = `${messages.recordingId} ${recordingId}`;
-      const recordingRows = Math.min(
-        2,
-        Math.max(1, Math.ceil(recordingText.length / charactersPerLine)),
-      );
-      const provenanceRows =
-        1 +
-        recordingRows +
-        1 +
-        Number(
-          frame.screenshotOffsetMs !== undefined || example.offsetMs !== null,
-        ) +
-        Number(example.offsetMs !== null && example.offsetMs !== offsetMs) +
-        Number(observedAt !== null && observedAt !== eventAt) +
-        1;
-
-      return Math.max(0, provenanceRows - 5);
-    }),
+  return (
+    CARD_PROVENANCE_HEADER_HEIGHT +
+    captionHeaderHeight(frames, cardWidth, messages) +
+    (hasCoverageNote ? 12 : 0) +
+    (frames.length > 1 ? 20 : 0)
   );
-  return extraRows * PROVENANCE_ROW_HEIGHT;
+}
+
+function appKeyForNode(nodeKey: string): string | null {
+  return /^([a-z][a-z0-9-]{0,127})::/.exec(nodeKey)?.[1] ?? null;
+}
+
+function orderAppBandComponents(
+  nodes: JourneyLayoutNode[],
+  entriesByLayoutId: Map<string, Rendered>,
+): JourneyLayoutNode[] {
+  const byKey = new Map(nodes.map((node) => [node.key, node]));
+  const originalIndex = new Map(nodes.map((node, index) => [node.key, index]));
+  const rootKeyFor = (node: JourneyLayoutNode): string => {
+    const visited = new Set<string>();
+    let current = node;
+    while (current.parentKey !== null) {
+      if (visited.has(current.key)) return current.key;
+      visited.add(current.key);
+      const parent = byKey.get(current.parentKey);
+      if (!parent) return current.key;
+      current = parent;
+    }
+    return current.key;
+  };
+  const componentNodes = new Map<string, JourneyLayoutNode[]>();
+  for (const node of nodes) {
+    const rootKey = rootKeyFor(node);
+    const component = componentNodes.get(rootKey) ?? [];
+    component.push(node);
+    componentNodes.set(rootKey, component);
+  }
+
+  const onboardingPath = /step:(?:role|choice)|auth:signup|signup_clicked/;
+  const componentOrder = [...componentNodes.entries()]
+    .map(([rootKey, component]) => {
+      const rootEntry = entriesByLayoutId.get(rootKey);
+      const containsOnboardingPath = component.some((node) =>
+        onboardingPath.test(
+          entriesByLayoutId.get(node.key)?.node.key ?? node.key,
+        ),
+      );
+      return {
+        rootKey,
+        originalIndex: originalIndex.get(rootKey) ?? Number.MAX_SAFE_INTEGER,
+        hasOnboardingPath: containsOnboardingPath,
+        rootCount:
+          rootEntry && hasCohortMetrics(rootEntry.node) ? rootEntry.node.n : 0,
+      };
+    })
+    .sort(
+      (left, right) =>
+        Number(right.hasOnboardingPath) - Number(left.hasOnboardingPath) ||
+        right.rootCount - left.rootCount ||
+        left.originalIndex - right.originalIndex,
+    );
+  const orderByRoot = new Map(
+    componentOrder.map((component, index) => [component.rootKey, index]),
+  );
+  return [...nodes].sort(
+    (left, right) =>
+      (orderByRoot.get(rootKeyFor(left)) ?? Number.MAX_SAFE_INTEGER) -
+        (orderByRoot.get(rootKeyFor(right)) ?? Number.MAX_SAFE_INTEGER) ||
+      (originalIndex.get(left.key) ?? 0) - (originalIndex.get(right.key) ?? 0),
+  );
 }
 
 interface ExampleGalleryItem {
@@ -856,15 +995,16 @@ h1{margin:0;font-size:14px;line-height:20px;font-weight:600;color:${INK};white-s
 header p{margin:0;color:${MUTED};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 header .metrics{font-size:12px;line-height:18px}
 header .coverage-note{font-size:10px;line-height:12px;overflow:hidden;text-overflow:ellipsis}
-header .provenance{font-size:9px;line-height:${PROVENANCE_ROW_HEIGHT}px}
+header .provenance{font-size:9px;line-height:12px}
 header .example-provenance{display:block}
-header .recording-id{font-family:ui-monospace,monospace;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;overflow-wrap:anywhere}
-header .caption-line{font-size:10px;line-height:12px;white-space:normal;overflow-wrap:anywhere}
+header .date-line,header .actor-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header .caption-line{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:10px;line-height:12px;white-space:normal;overflow-wrap:anywhere}
 header .prompt summary{font-size:10px;line-height:12px}
 header details{margin:0;color:${MUTED};font-size:10px;line-height:12px}
 header details summary{cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-header details[open] .prompt-body{position:absolute;z-index:3;top:100%;left:0;width:100%;max-height:45vh;overflow:auto;padding:8px 12px;background:${SURFACE};border:1px solid ${BORDER};box-shadow:0 4px 12px ${PROMPT_SHADOW};white-space:pre-wrap;color:${INK}}
+header details[open] .prompt-body,header details[open] .provenance-body{position:absolute;z-index:3;top:100%;left:0;width:100%;max-height:45vh;overflow:auto;padding:8px 12px;background:${SURFACE};border:1px solid ${BORDER};box-shadow:0 4px 12px ${PROMPT_SHADOW};white-space:pre-wrap;color:${INK}}
 header .prompt-body p{margin:0 0 8px;overflow:visible;text-overflow:clip;white-space:pre-wrap;color:${INK};overflow-wrap:anywhere}
+header .provenance-body p{margin:0 0 6px;overflow:visible;text-overflow:clip;white-space:pre-wrap;color:${INK};overflow-wrap:anywhere}
 header .prompt-source{font-size:9px;color:${MUTED}}
 header .example-switcher{display:flex;align-items:center;gap:5px;height:20px;color:${MUTED};font-size:10px;line-height:14px}
 header .example-position{display:none;margin-right:3px}
@@ -1034,17 +1174,24 @@ export function planJourneyCanvas(
     );
   }
 
-  // Analytics already returns roots and siblings in presentation order. Keep
-  // that order so concatenated app journeys stay grouped on the canvas.
+  // Analytics already returns siblings in presentation order. App bands put
+  // the main onboarding path ahead of independent route components.
   const ordered = [...rendered.values()];
 
   const layoutNodes: JourneyLayoutNode[] = [];
+  const layoutAppById = new Map<string, string>();
+  const layoutEntryById = new Map<string, Rendered>();
   const dropoffOf = new Map<string, z.infer<typeof cohortJourneyNodeSchema>>();
   const effectiveParent = new Map<string, JourneyNode | null>();
   for (const entry of ordered) {
     const parent = nearestCardAncestor(entry.node);
     effectiveParent.set(entry.node.key, parent);
     const parentId = parent ? rendered.get(parent.key)!.layoutId : null;
+    const appKey = appKeyForNode(entry.node.key);
+    if (appKey) {
+      layoutAppById.set(entry.layoutId, appKey);
+      layoutEntryById.set(entry.layoutId, entry);
+    }
     layoutNodes.push(
       entry.kind === "stub"
         ? { key: entry.layoutId, parentKey: parentId, kind: "stub" }
@@ -1056,19 +1203,15 @@ export function planJourneyCanvas(
               ? { width: entry.frames[0].width, height: entry.frames[0].height }
               : (entry.node.examples[0]?.viewport ?? undefined),
             headerHeight: entry.frames.length
-              ? CARD_PROVENANCE_HEADER_HEIGHT +
-                captionHeaderHeight(entry.frames, cardWidth, messages) +
-                provenanceHeaderExtraHeight(
+              ? cardHeaderHeight(
                   entry.frames,
-                  entry.node.examples,
                   cardWidth,
                   messages,
-                ) +
-                (continuationNotes.has(entry.node.key) ? 12 : 0) +
-                (entry.frames.length > 1 ? 20 : 0)
+                  continuationNotes.has(entry.node.key),
+                )
               : CARD_HEADER_HEIGHT,
             layers: Math.max(0, entry.frames.length - 1),
-            footer: entry.frames.length > 0,
+            footer: false,
           },
     );
   }
@@ -1084,10 +1227,33 @@ export function planJourneyCanvas(
         parentKey: entry.layoutId,
         kind: "stub",
       });
+      const appKey = appKeyForNode(entry.node.key);
+      if (appKey) {
+        layoutAppById.set(`d${entry.index}`, appKey);
+        layoutEntryById.set(`d${entry.index}`, entry);
+      }
     }
   }
 
-  const layout = layoutJourney(layoutNodes, { cardWidth });
+  const appBandLayout =
+    input.layoutMode === "appBands"
+      ? layoutJourneyAppBands(
+          [...new Set(ordered.map((entry) => appKeyForNode(entry.node.key)!))]
+            .filter((app) => app !== null)
+            .map((app) => ({
+              key: app,
+              rootN: tree.appRootN![app]!,
+              nodes: orderAppBandComponents(
+                layoutNodes.filter(
+                  (node) => layoutAppById.get(node.key) === app,
+                ),
+                layoutEntryById,
+              ),
+            })),
+          { cardWidth },
+        )
+      : null;
+  const layout = appBandLayout ?? layoutJourney(layoutNodes, { cardWidth });
   const placed = new Map(layout.nodes.map((node) => [node.key, node]));
   const outgoing = new Map<string, number>();
   for (const edge of layout.edges) {
@@ -1144,11 +1310,32 @@ export function planJourneyCanvas(
               messages,
             ),
             recordingId: candidateExample.recordingId,
+            ...(candidate.recordingStartedAt
+              ? {
+                  recordingStartedAt: utcTimestamp(
+                    candidate.recordingStartedAt,
+                  ),
+                }
+              : {}),
             offsetMs: candidate.screenshotOffsetMs ?? candidateExample.offsetMs,
             offsetIsObserved: candidate.screenshotOffsetMs !== undefined,
             checkpointOffsetMs: candidateExample.offsetMs,
             replayObservedAt: candidateReplayObservedAt,
             screenshotCapturedAt: utcTimestamp(candidate.capturedAt),
+            ...(journeyFrameSourceApp(
+              entry.node.key,
+              tree.app,
+              candidate.sourceApp,
+            )
+              ? {
+                  sourceApp: journeyFrameSourceApp(
+                    entry.node.key,
+                    tree.app,
+                    candidate.sourceApp,
+                  )!,
+                }
+              : {}),
+            ...(candidate.route ? { route: candidate.route } : {}),
             ...(candidate.caption ? { caption: candidate.caption } : {}),
           }
         : undefined;
@@ -1186,16 +1373,12 @@ export function planJourneyCanvas(
         placeholder: messages.screenshotMissing,
         messages,
         headerHeight: provenance
-          ? CARD_PROVENANCE_HEADER_HEIGHT +
-            captionHeaderHeight(entry.frames, cardWidth, messages) +
-            provenanceHeaderExtraHeight(
+          ? cardHeaderHeight(
               entry.frames,
-              entry.node.examples,
               cardWidth,
               messages,
-            ) +
-            (continuationNotes.has(entry.node.key) ? 12 : 0) +
-            (entry.frames.length > 1 ? 20 : 0)
+              continuationNotes.has(entry.node.key),
+            )
           : CARD_HEADER_HEIGHT,
       }),
       "html",
@@ -1249,10 +1432,26 @@ export function planJourneyCanvas(
     const meta = !hasCohortMetrics(entry.node)
       ? messages.observedSessionReference
       : !parent || !hasCohortMetrics(parent)
-        ? interpolateJourneyCanvasMessage(messages.sessionsOfAll, {
-            count: formatInt(entry.node.n, messages.htmlLanguage),
-            percent: formatPercent(entry.node.pctOfRoot, messages.htmlLanguage),
-          })
+        ? input.layoutMode === "appBands"
+          ? interpolateJourneyCanvasMessage(messages.sessionsOfAppRoot, {
+              count: formatInt(entry.node.n, messages.htmlLanguage),
+              percent: formatPercent(
+                entry.node.pctOfRoot,
+                messages.htmlLanguage,
+              ),
+              app: appDisplayName(appKeyForNode(entry.node.key)!),
+              rootCount: formatInt(
+                tree.appRootN![appKeyForNode(entry.node.key)!]!,
+                messages.htmlLanguage,
+              ),
+            })
+          : interpolateJourneyCanvasMessage(messages.sessionsOfAll, {
+              count: formatInt(entry.node.n, messages.htmlLanguage),
+              percent: formatPercent(
+                entry.node.pctOfRoot,
+                messages.htmlLanguage,
+              ),
+            })
         : viaSkipped
           ? interpolateJourneyCanvasMessage(messages.sessionsOfParent, {
               count: formatInt(entry.node.n, messages.htmlLanguage),
@@ -1317,6 +1516,26 @@ export function planJourneyCanvas(
       y: rect.y + origin.y,
     });
     const fragments: string[] = [];
+    const partial = tree.coverage.truncated
+      ? ` · ${messages.partialSample}`
+      : "";
+    const titleSummary =
+      input.layoutMode === "appBands"
+        ? interpolateJourneyCanvasMessage(
+            messages.journeyTitleAppBandsSummary,
+            {
+              from: tree.window.from,
+              to: tree.window.to,
+              partial,
+            },
+          )
+        : interpolateJourneyCanvasMessage(messages.journeyTitleSummary, {
+            app: tree.app,
+            from: tree.window.from,
+            to: tree.window.to,
+            count: formatInt(tree.rootN, messages.htmlLanguage),
+            partial,
+          });
     const heading = at({ x: 0, y: -72, width: 560, height: 56 });
     fragments.push(
       boardDiv({
@@ -1325,19 +1544,30 @@ export function planJourneyCanvas(
         primitive: "text",
         rect: heading,
         style: `padding:4px 12px;background:${SURFACE};border:1px solid ${BORDER};border-radius:6px;font-family:system-ui,sans-serif;color:${INK};overflow:hidden;white-space:nowrap;text-overflow:ellipsis`,
-        html: `<div style="font-size:20px;line-height:28px;font-weight:600">${escapeHtml(input.title)}</div><div style="font-size:13px;line-height:20px;color:${MUTED}">${escapeHtml(
-          interpolateJourneyCanvasMessage(messages.journeyTitleSummary, {
-            app: tree.app,
-            from: tree.window.from,
-            to: tree.window.to,
-            count: formatInt(tree.rootN, messages.htmlLanguage),
-            partial: tree.coverage.truncated
-              ? ` · ${messages.partialSample}`
-              : "",
-          }),
-        )}</div>`,
+        html: `<div style="font-size:20px;line-height:28px;font-weight:600">${escapeHtml(input.title)}</div><div style="font-size:13px;line-height:20px;color:${MUTED}">${escapeHtml(titleSummary)}</div>`,
       }),
     );
+
+    for (const band of appBandLayout?.bands ?? []) {
+      fragments.push(
+        boardDiv({
+          id: `${JOURNEY_BOARD_ID_PREFIX}band-${hashId(`${designId}\u0000${band.key}`)}`,
+          name: "App journey band",
+          primitive: "text",
+          rect: at({
+            ...band.rect,
+            height: APP_BAND_HEADER_HEIGHT,
+          }),
+          style: `padding:6px 10px;background:${SURFACE};border:1px solid ${BORDER};border-radius:6px;font-family:system-ui,sans-serif;color:${INK};overflow:hidden;white-space:nowrap;text-overflow:ellipsis`,
+          html: escapeHtml(
+            interpolateJourneyCanvasMessage(messages.appBandHeading, {
+              app: appDisplayName(band.key),
+              count: formatInt(band.rootN, messages.htmlLanguage),
+            }),
+          ),
+        }),
+      );
+    }
 
     for (const edge of layout.edges) {
       const id = `${JOURNEY_BOARD_ID_PREFIX}edge-${hashId(`${designId}\u0000${edge.fromKey}\u0000${edge.toKey}`)}`;
@@ -1409,32 +1639,6 @@ export function planJourneyCanvas(
               percent: formatPercent(dropoff.dropoffPct, messages.htmlLanguage),
             }),
           ),
-        );
-      }
-      if (box.footer && entry.frames[0]) {
-        const extra = entry.frames.length - 1;
-        fragments.push(
-          boardDiv({
-            id: `${JOURNEY_BOARD_ID_PREFIX}date-${hashId(`${designId}\u0000${entry.node.key}`)}`,
-            name: "Captured date",
-            primitive: "text",
-            rect: at(box.footer),
-            style: `padding:0 8px;background:${SURFACE};border:1px solid ${BORDER};border-radius:4px;font:12px/20px system-ui,sans-serif;color:${MUTED};white-space:nowrap;overflow:hidden;text-overflow:ellipsis`,
-            html: escapeHtml(
-              interpolateJourneyCanvasMessage(messages.capturedDate, {
-                date: utcTimestamp(entry.frames[0].capturedAt).slice(0, 10),
-                examples:
-                  extra > 0
-                    ? interpolateJourneyCanvasMessage(
-                        messages.additionalExamples,
-                        {
-                          count: formatInt(extra + 1, messages.htmlLanguage),
-                        },
-                      )
-                    : "",
-              }),
-            ),
-          }),
         );
       }
     }
