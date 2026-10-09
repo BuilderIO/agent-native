@@ -38,8 +38,12 @@ export function scrubUrl(
         mutated = true;
       }
     }
-    if (u.hash.includes("=")) {
-      const hashParams = new URLSearchParams(u.hash.slice(1));
+    const hash = u.hash.slice(1);
+    const hashRouteQueryIndex = hash.indexOf("?");
+    const hashQuery =
+      hashRouteQueryIndex === -1 ? hash : hash.slice(hashRouteQueryIndex + 1);
+    if (hashQuery.includes("=")) {
+      const hashParams = new URLSearchParams(hashQuery);
       let hashMutated = false;
       for (const key of Array.from(hashParams.keys())) {
         if (
@@ -53,7 +57,12 @@ export function scrubUrl(
           hashMutated = true;
         }
       }
-      if (hashMutated) u.hash = hashParams.toString();
+      if (hashMutated) {
+        u.hash =
+          hashRouteQueryIndex === -1
+            ? hashParams.toString()
+            : `${hash.slice(0, hashRouteQueryIndex)}?${hashParams.toString()}`;
+      }
     }
     if (!mutated) return url;
     if (u.origin === "http://placeholder.local") {

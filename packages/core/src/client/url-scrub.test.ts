@@ -22,6 +22,17 @@ describe("scrubUrl", () => {
     );
   });
 
+  it("redacts sensitive query values inside hash routes", () => {
+    const url = "https://app.agent-native.com/auth#/verify?token=secret&step=1";
+
+    const scrubbed = scrubUrl(url);
+
+    expect(scrubbed).toBe(
+      "https://app.agent-native.com/auth#/verify?token=%3Credacted%3E&step=1",
+    );
+    expect(scrubbed).not.toContain("secret");
+  });
+
   it("redacts Mail search terms from absolute and relative URLs", () => {
     const query = "private.sender@example.com";
     const absolute = scrubUrl(

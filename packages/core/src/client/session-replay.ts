@@ -599,8 +599,8 @@ function getOrCreateReplaySession(
   const resumesPreAuthReplay =
     parsed?.captureContext === "pre_auth" ||
     parsed?.suppressIdentityInProperties === true;
-  const crossesAuthBoundary =
-    resumesPreAuthReplay && captureContext !== "pre_auth";
+  const startsPreAuthReplay = captureContext === "pre_auth";
+  const crossesAuthBoundary = resumesPreAuthReplay !== startsPreAuthReplay;
   if (
     !crossesAuthBoundary &&
     parsed?.sessionId === sessionId &&

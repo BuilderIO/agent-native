@@ -4036,7 +4036,7 @@ describe("session replay", () => {
     await second.stopSessionReplay();
   });
 
-  it("does not promote an existing replay when the same tab resumes on auth", async () => {
+  it("starts a separate pre-auth replay when the same tab enters auth", async () => {
     const { fetchMock, location, storage } = installBrowser(
       "https://app.agent-native.com/inbox",
     );
@@ -4072,13 +4072,15 @@ describe("session replay", () => {
     });
 
     expect(secondResult.started).toBe(true);
-    expect(secondResult.replayId).toBe(firstResult.replayId);
+    expect(secondResult.replayId).not.toBe(firstResult.replayId);
+    expect(secondResult.sessionId).toBe(firstResult.sessionId);
     expect(
       JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}"),
-    ).not.toHaveProperty("captureContext");
-    expect(
-      JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}"),
-    ).not.toHaveProperty("suppressIdentityInProperties");
+    ).toMatchObject({
+      replayId: secondResult.replayId,
+      captureContext: "pre_auth",
+      suppressIdentityInProperties: true,
+    });
     recordOptions[1].emit({ type: 3, data: { href: "/signup" } });
     await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     const resumedBody = await parseReplayUpload(
@@ -4088,6 +4090,7 @@ describe("session replay", () => {
       capture_context: "pre_auth",
     });
     expect(resumedBody.userId).toBeUndefined();
+    expect(resumedBody.userEmail).toBeUndefined();
     await second.stopSessionReplay();
   });
 
