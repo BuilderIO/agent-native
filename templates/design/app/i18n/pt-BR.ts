@@ -1579,6 +1579,11 @@ export default {
       permissionPromptSettingsInstructions:
         "Clique no ícone de controles do site à esquerda da barra de endereço, abra as configurações do site e defina Rede local como Permitir.",
       permissionPromptRetry: "Tentar conexão novamente",
+      previewCredentialsUnavailableTitle:
+        "As credenciais da pré-visualização local não estão disponíveis",
+      previewCredentialsUnavailableDescription:
+        "Reconecte a conexão localhost desta tela no inspetor e tente novamente.",
+      previewCredentialsRetry: "Tentar credenciais novamente",
     },
   },
   multiScreenCanvas: {

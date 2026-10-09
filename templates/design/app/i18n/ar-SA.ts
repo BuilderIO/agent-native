@@ -1542,6 +1542,11 @@ export default {
       permissionPromptSettingsInstructions:
         "انقر على رمز عناصر التحكم بالموقع إلى يسار شريط العناوين، وافتح إعدادات الموقع، ثم اضبط الشبكة المحلية على «السماح».",
       permissionPromptRetry: "إعادة محاولة الاتصال",
+      previewCredentialsUnavailableTitle:
+        "بيانات اعتماد المعاينة المحلية غير متاحة",
+      previewCredentialsUnavailableDescription:
+        "أعِد توصيل اتصال localhost لهذه الشاشة من المفتش، ثم أعد المحاولة.",
+      previewCredentialsRetry: "إعادة محاولة بيانات الاعتماد",
     },
   },
   multiScreenCanvas: {

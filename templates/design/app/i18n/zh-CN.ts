@@ -1509,6 +1509,10 @@ export default {
       permissionPromptSettingsInstructions:
         "点击地址栏左侧的站点控制图标，打开网站设置，然后将本地网络设为“允许”。",
       permissionPromptRetry: "重试连接",
+      previewCredentialsUnavailableTitle: "本地预览凭据不可用",
+      previewCredentialsUnavailableDescription:
+        "请在检查器中重新连接此屏幕的 localhost 连接，然后重试。",
+      previewCredentialsRetry: "重试获取凭据",
     },
   },
   multiScreenCanvas: {

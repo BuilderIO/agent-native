@@ -713,7 +713,8 @@ export default defineAction({
                 eq(schema.designFiles.designId, id),
                 inArray(schema.designFiles.id, targetFileIds),
               ),
-            );
+            )
+            .for("update");
           const claimById = new Map(
             claimRows.map((claim) => [claim.id, claim]),
           );

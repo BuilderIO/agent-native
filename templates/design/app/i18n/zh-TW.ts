@@ -1601,6 +1601,10 @@ export default {
       permissionPromptSettingsInstructions:
         "點擊網址列左側的網站控制圖示，開啟網站設定，然後將本機網路設為「允許」。",
       permissionPromptRetry: "重試連線",
+      previewCredentialsUnavailableTitle: "本機預覽認證資訊無法使用",
+      previewCredentialsUnavailableDescription:
+        "請在檢查器中重新連線此畫面的 localhost 連線，然後再試一次。",
+      previewCredentialsRetry: "重新取得認證資訊",
     },
   },
   multiScreenCanvas: {

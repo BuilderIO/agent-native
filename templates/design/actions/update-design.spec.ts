@@ -65,6 +65,7 @@ const mocks = vi.hoisted(() => {
     connections: [] as ConnectionRow[],
     restoreClaims: [] as RestoreClaimRow[],
     designFiles: [] as DesignFileRow[],
+    selectForUpdateTables: [] as string[],
     resolveScope: vi.fn(),
   };
 
@@ -236,33 +237,43 @@ vi.mock("../server/db/index.js", () => {
 
   const select = () => ({
     from: (table: unknown) => ({
-      where: async (predicate: Predicate) => {
-        if (table === schema.designLocalhostConnections) {
-          return mocks.state.connections.filter((connection) =>
-            matches(predicate, connection),
-          );
-        }
-        if (table === schema.designScreenRestoreClaims) {
-          return mocks.state.restoreClaims.filter((claim) =>
-            matches(predicate, claim),
-          );
-        }
-        if (table === schema.designFiles) {
-          return mocks.state.designFiles.filter((file) =>
-            matches(predicate, file),
-          );
-        }
-        const snapshot = { ...mocks.state.row };
-        await mocks.waitAtReadGate();
-        return matches(predicate, snapshot)
-          ? [
-              {
-                id: snapshot.id,
-                data: snapshot.data,
-                dataOperationRevisions: snapshot.dataOperationRevisions,
-              },
-            ]
-          : [];
+      where: (predicate: Predicate) => {
+        const result = (async () => {
+          if (table === schema.designLocalhostConnections) {
+            return mocks.state.connections.filter((connection) =>
+              matches(predicate, connection),
+            );
+          }
+          if (table === schema.designScreenRestoreClaims) {
+            return mocks.state.restoreClaims.filter((claim) =>
+              matches(predicate, claim),
+            );
+          }
+          if (table === schema.designFiles) {
+            return mocks.state.designFiles.filter((file) =>
+              matches(predicate, file),
+            );
+          }
+          const snapshot = { ...mocks.state.row };
+          await mocks.waitAtReadGate();
+          return matches(predicate, snapshot)
+            ? [
+                {
+                  id: snapshot.id,
+                  data: snapshot.data,
+                  dataOperationRevisions: snapshot.dataOperationRevisions,
+                },
+              ]
+            : [];
+        })();
+        return Object.assign(result, {
+          for: (lock: "update") => {
+            if (lock === "update" && table === schema.designFiles) {
+              mocks.state.selectForUpdateTables.push("designFiles");
+            }
+            return result;
+          },
+        });
       },
     }),
   });
@@ -342,6 +353,7 @@ describe("update-design data concurrency", () => {
     mocks.state.connections = [];
     mocks.state.restoreClaims = [];
     mocks.state.designFiles = [];
+    mocks.state.selectForUpdateTables = [];
     mocks.state.resolveScope.mockReset();
     mocks.state.resolveScope.mockResolvedValue({
       ownerEmail: "editor@example.com",
@@ -636,6 +648,7 @@ describe("update-design data concurrency", () => {
         operationRevision: 1,
       } as never),
     ).resolves.toMatchObject({ changed: true });
+    expect(mocks.state.selectForUpdateTables).toContain("designFiles");
     expect(
       JSON.parse(mocks.state.row.data!).screenMetadata["restored-file-1"],
     ).toEqual(editedMetadata);

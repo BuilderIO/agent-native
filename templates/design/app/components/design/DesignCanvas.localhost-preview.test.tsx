@@ -2,6 +2,7 @@
 
 import http, { type Server } from "node:http";
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -16,6 +17,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: useActionQueryMock,
 }));
 
+import { i18nCatalog } from "../../i18n";
 import {
   getDesignCanvasIframeAllow,
   getLocalNetworkAccessPermissionState,
@@ -54,7 +56,14 @@ beforeEach(() => {
   root.render = (children) =>
     render(
       <QueryClientProvider client={queryClient}>
-        {children}
+        <AgentNativeI18nProvider
+          catalog={i18nCatalog}
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          {children}
+        </AgentNativeI18nProvider>
       </QueryClientProvider>,
     );
   queryClient.clear();
@@ -1842,6 +1851,7 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
   });
 
   it("surfaces unavailable preview credentials with a recovery message", async () => {
+    const retryLocalhostPreview = vi.fn();
     await act(async () => {
       root.render(
         <DesignCanvas
@@ -1850,6 +1860,7 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
           screenId="screen-settings"
           sourceType="localhost"
           localhostPreviewUnavailable
+          onRetryLocalhostPreview={retryLocalhostPreview}
           zoom={100}
           deviceFrame="none"
           editMode
@@ -1865,8 +1876,14 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
       "Local preview credentials are unavailable",
     );
     expect(container.textContent).toContain(
-      "Reconnect this Screen, then retry.",
+      "Reconnect this Screen's localhost connection in the inspector, then retry.",
     );
+    const retryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Retry credentials"),
+    );
+    expect(retryButton).toBeTruthy();
+    await act(async () => retryButton?.click());
+    expect(retryLocalhostPreview).toHaveBeenCalledOnce();
   });
 
   it("keeps an entitled viewer on the proxied document instead of the snapshot", async () => {

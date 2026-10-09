@@ -619,6 +619,8 @@ interface DesignCanvasProps {
    * this browser component. */
   previewToken?: string;
   localhostPreviewUnavailable?: boolean;
+  onRetryLocalhostPreview?: () => void;
+  localhostPreviewRetryPending?: boolean;
   liveEditCapability?: string;
   liveEditRegistrationCapability?: string;
   publicVisualEdit?: boolean;
@@ -1314,6 +1316,8 @@ export function DesignCanvas({
   fusionUrl,
   previewToken,
   localhostPreviewUnavailable = false,
+  onRetryLocalhostPreview,
+  localhostPreviewRetryPending = false,
   liveEditCapability,
   liveEditRegistrationCapability,
   zoom,
@@ -7582,15 +7586,27 @@ export function DesignCanvas({
             >
               <div className="flex items-center gap-1.5 font-medium text-foreground">
                 <IconPlugConnectedX className="size-4 shrink-0 text-destructive" />
-                {
-                  "Local preview credentials are unavailable" /* i18n-ignore blocked localhost preview state */
-                }
+                {t(
+                  "designCanvas.localBridge.previewCredentialsUnavailableTitle",
+                )}
               </div>
               <div className="text-xs text-muted-foreground">
-                {
-                  "Reconnect this Screen, then retry." /* i18n-ignore blocked localhost preview recovery */
-                }
+                {t(
+                  "designCanvas.localBridge.previewCredentialsUnavailableDescription",
+                )}
               </div>
+              {onRetryLocalhostPreview ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={onRetryLocalhostPreview}
+                  disabled={localhostPreviewRetryPending}
+                >
+                  <IconRefresh className="size-3.5" />
+                  {t("designCanvas.localBridge.previewCredentialsRetry")}
+                </Button>
+              ) : null}
             </div>
           ) : bridgeConnectionLostError?.bridgeKey === liveEditBridgeKey ? (
             <div className="pointer-events-auto flex max-w-[28rem] flex-col items-center gap-2 rounded-md border bg-card px-4 py-3 shadow-sm">

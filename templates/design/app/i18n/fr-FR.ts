@@ -1593,6 +1593,11 @@ export default {
       permissionPromptSettingsInstructions:
         "Cliquez sur l’icône de commandes du site à gauche de la barre d’adresse, ouvrez les paramètres du site, puis définissez Réseau local sur Autoriser.",
       permissionPromptRetry: "Réessayer la connexion",
+      previewCredentialsUnavailableTitle:
+        "Les identifiants de l’aperçu local ne sont pas disponibles",
+      previewCredentialsUnavailableDescription:
+        "Reconnectez la connexion localhost de cet écran dans l’inspecteur, puis réessayez.",
+      previewCredentialsRetry: "Réessayer les identifiants",
     },
   },
   multiScreenCanvas: {

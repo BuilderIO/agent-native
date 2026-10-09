@@ -1432,6 +1432,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     y: number;
     width: number;
     height: number;
+    rotation?: number;
     viewportW: number;
     viewportH: number;
   } | null>(null);
@@ -3008,6 +3009,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 y: dragStart.y,
                 width: dragStart.width,
                 height: dragStart.height,
+                rotation: dragStart.rotation,
               }
             : undefined,
         renderedGeometry: renderedFrameGeometryRef.current[sourceScreenId],
@@ -4256,6 +4258,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 y: startFrame.y,
                 width: startFrame.width,
                 height: startFrame.height,
+                rotation: startFrame.rotation,
                 viewportW: msg.viewportW!,
                 viewportH: msg.viewportH!,
               }

@@ -810,6 +810,10 @@ export function useEditorScreenRendering({
           sharedSnapshotPollActive={screenIsActive}
           previewToken={screenSnapshotOnly ? undefined : screenPreviewToken}
           localhostPreviewUnavailable={localhostPreviewUnavailable}
+          onRetryLocalhostPreview={() =>
+            void localhostPreviewTokenQuery.refetch()
+          }
+          localhostPreviewRetryPending={localhostPreviewTokenQuery.isFetching}
           liveEditCapability={
             screenSnapshotOnly ? undefined : screenLiveEditCapability
           }

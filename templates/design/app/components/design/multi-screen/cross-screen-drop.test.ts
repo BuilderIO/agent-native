@@ -256,6 +256,24 @@ describe("getCrossScreenSourceGeometry", () => {
       }),
     ).toBe("board-root");
   });
+
+  it("keeps the drag-start rotation when routing drops around a Screen", () => {
+    const dragStartGeometry = { ...persistedGeometry, rotation: 45 };
+    const sourceGeometry = getCrossScreenSourceGeometry({
+      dragStartGeometry,
+      renderedGeometry: persistedGeometry,
+      persistedGeometry,
+    });
+
+    expect(sourceGeometry).toEqual(dragStartGeometry);
+    expect(
+      getBoardDropRoute({
+        point: { x: 220, y: 20 },
+        viewportGeometry,
+        sourceScreenGeometry: sourceGeometry,
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("cross-screen preview path release ordering", () => {

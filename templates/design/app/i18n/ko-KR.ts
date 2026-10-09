@@ -1561,6 +1561,11 @@ export default {
       permissionPromptSettingsInstructions:
         "주소 표시줄 왼쪽의 사이트 제어 아이콘을 클릭하고 사이트 설정을 연 다음 로컬 네트워크를 허용으로 설정하세요.",
       permissionPromptRetry: "연결 재시도",
+      previewCredentialsUnavailableTitle:
+        "로컬 미리보기 자격 증명을 사용할 수 없습니다",
+      previewCredentialsUnavailableDescription:
+        "검사기에서 이 화면의 localhost 연결을 다시 연결한 후 다시 시도하세요.",
+      previewCredentialsRetry: "자격 증명 다시 시도",
     },
   },
   multiScreenCanvas: {
