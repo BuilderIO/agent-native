@@ -19,7 +19,7 @@ export interface ActionBatchItemResult {
   body?: unknown;
   /** Payload of a failed item, the body its single GET would have returned. */
   error?: unknown;
-  /** The response headers a single call reads: Retry-After, request id, Server-Timing. */
+  /** The response headers a single call reads: Retry-After, request id, Server-Timing, browser persist marker. */
   headers?: Record<string, string>;
 }
 

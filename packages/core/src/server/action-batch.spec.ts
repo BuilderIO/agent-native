@@ -222,6 +222,31 @@ describe("get-actions-batch dispatch", () => {
     expect(results).toEqual([{ status: 204, headers: {} }]);
   });
 
+  it("returns the browser persist header on a batched GET item", async () => {
+    bindActionBatch({
+      fetch: async () =>
+        jsonResponse(
+          { name: "list-designs" },
+          { headers: { "x-agent-native-browser-persist": "allow" } },
+        ),
+      actions,
+    });
+
+    const { results } = await withOrigin(() =>
+      runActionBatch({ requests: [{ action: "list-designs", query: "" }] }, {
+        caller: "http",
+      } as any),
+    );
+
+    expect(results).toEqual([
+      {
+        status: 200,
+        body: { name: "list-designs" },
+        headers: { "x-agent-native-browser-persist": "allow" },
+      },
+    ]);
+  });
+
   it("rejects a batch over the request limit before dispatching", async () => {
     const seen: Request[] = [];
     bindActionBatch({

@@ -21,10 +21,13 @@ const NOT_FORWARDED_HEADERS = new Set([
   "expect",
 ]);
 
+// A browser-side reader of a single GET's header only sees batched items for
+// headers listed here, so a new reader must be added to this list.
 const ITEM_RESPONSE_HEADERS = [
   "retry-after",
   "x-agent-native-request-id",
   "server-timing",
+  "x-agent-native-browser-persist",
 ] as const;
 
 export interface ActionBatchBinding {
