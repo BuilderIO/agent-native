@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { parseHTML } from "linkedom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionMcpAppResourceConfig } from "../action.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
@@ -88,7 +89,9 @@ describe("embedApp", () => {
     expect(html).not.toContain(
       "record.embedTargetPath,\n        record.deepLinkUrl,\n        record.deepLink,\n        metaUrl,",
     );
-    expect(html).toContain("let launchUrl = openStartUrl || openUrl");
+    expect(html).toContain(
+      "let launchUrl = (openStartUrl !== spentStartUrl && openStartUrl) || openUrl",
+    );
     expect(html).not.toContain("launchUrl = openUrl;");
     expect(html).toContain("if (openUrl || openStartUrl)");
     expect(html).toContain("shouldSelfNavigateToApp");
@@ -1270,6 +1273,7 @@ return { openDirectoryWidget, isOpen: () => directoryWidgetOpenRequested };`,
           `let directoryWidgetOpenRequested = false;
 let lastHostDisplayMode = "";
 let startedFor = "";
+let spentStartUrl = "";
 let appFrame = null;
 ${functionSource(html, "updateDirectoryWidgetLayout")}
 ${functionSource(html, "isCompactDirectoryWidget")}
@@ -1750,6 +1754,222 @@ return requestFullscreenOnFirstInteraction;`;
     expect(
       html.indexOf("notSubmitted: true", methodNotFoundStart),
     ).toBeGreaterThan(methodNotFoundStart);
+  });
+});
+
+const WIDGET_APP_ORIGIN = "https://slides.agent-native.com";
+const WIDGET_SPENT_START = `${WIDGET_APP_ORIGIN}/_agent-native/embed/start?ticket=spent-ticket`;
+const WIDGET_RENEWED_START = `${WIDGET_APP_ORIGIN}/_agent-native/embed/start?ticket=renewed-ticket`;
+const WIDGET_CHAT_BRIDGE = "__an_mcp_chat_bridge=1";
+
+/**
+ * Runs the real directory shell script against a linkedom document and a
+ * ChatGPT-style `window.openai` bridge that replays a persisted tool result.
+ */
+async function mountRestoredDirectoryWidget(
+  callTool: (name: string, args: Record<string, unknown>) => Promise<unknown>,
+) {
+  const resource = embedApp({ title: "Slides" });
+  const html =
+    typeof resource.html === "function"
+      ? resource.html({
+          actionName: "create-deck",
+          appId: "slides",
+          catalogMode: "directory",
+          startToolName: "create_embed_session",
+        })
+      : resource.html;
+  const { document } = parseHTML(html);
+  const script = document.querySelector("script")?.textContent ?? "";
+
+  const createElement = document.createElement.bind(document);
+  document.createElement = ((tag: string) => {
+    const element = createElement(tag);
+    if (tag === "iframe") {
+      Object.defineProperty(element, "contentWindow", {
+        value: { postMessage: vi.fn() },
+      });
+    }
+    return element;
+  }) as typeof document.createElement;
+
+  const listeners = new Map<string, Array<(event: unknown) => void>>();
+  const bridge = {
+    toolInput: {},
+    toolOutput: { id: "deck-1" },
+    toolResponseMetadata: {
+      "agent-native/embedStart": { startUrl: WIDGET_SPENT_START },
+      "agent-native/openLink": {
+        label: "Deck",
+        webUrl: `${WIDGET_APP_ORIGIN}/deck/deck-1`,
+      },
+      "agent-native/widgetSource": {
+        toolName: "create-deck",
+        sourceTicket: "spent-ticket",
+      },
+    },
+    displayMode: "fullscreen",
+    theme: "light",
+    locale: "en-US",
+    maxHeight: 800,
+    callTool: vi.fn(callTool),
+    notifyIntrinsicHeight: vi.fn(),
+    requestDisplayMode: vi.fn(),
+    setOpenInAppUrl: vi.fn(),
+  };
+  const host = "slides-agent-native-com.web-sandbox.oaiusercontent.com";
+  const win = {
+    openai: bridge,
+    parent: { postMessage: vi.fn() },
+    location: { href: `https://${host}/`, hostname: host, search: "" },
+    screen: { availHeight: 900 },
+    addEventListener: (type: string, listener: (event: unknown) => void) => {
+      listeners.set(type, [...(listeners.get(type) ?? []), listener]);
+    },
+    removeEventListener: vi.fn(),
+    setTimeout,
+    clearTimeout,
+    requestAnimationFrame: (run: () => void) => setTimeout(run, 0),
+    visualViewport: null,
+  };
+  const dispatch = (type: string, event: Record<string, unknown> = {}) => {
+    for (const listener of listeners.get(type) ?? []) listener(event);
+  };
+  const flush = async () => {
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(0);
+  };
+
+  new Function(
+    "window",
+    "document",
+    "navigator",
+    "fetch",
+    "setTimeout",
+    "clearTimeout",
+    "requestAnimationFrame",
+    script,
+  )(
+    win,
+    document,
+    { userAgent: "ChatGPT" },
+    vi.fn(async () => ({ ok: true })),
+    setTimeout,
+    clearTimeout,
+    win.requestAnimationFrame,
+  );
+  await flush();
+
+  const stage = document.querySelector("[data-stage]")!;
+  return {
+    bridge,
+    stageText: () => stage.textContent ?? "",
+    frame: () =>
+      stage.querySelector("iframe") as
+        | (HTMLIFrameElement & { src: string })
+        | null,
+    // What the server's expiry page does from inside the mounted app frame.
+    postExpiredFrom: async (origin: string) => {
+      const frame = stage.querySelector("iframe") as HTMLIFrameElement & {
+        src: string;
+        contentWindow: unknown;
+      };
+      dispatch("message", {
+        data: {
+          type: "agentNative.embedSessionExpired",
+          embedStartUrl: frame.src,
+        },
+        origin,
+        source: frame.contentWindow,
+      });
+      await flush();
+    },
+    resync: async (displayMode: string) => {
+      bridge.displayMode = displayMode;
+      dispatch("openai:set_globals");
+      await flush();
+    },
+  };
+}
+
+describe("embedApp directory widget restored after a chat reload", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const renewed = async () => ({
+    structuredContent: {
+      startUrl: WIDGET_RENEWED_START,
+      targetPath: "/deck/deck-1",
+      expiresAt: Date.now() + 15 * 60 * 1000,
+    },
+  });
+
+  it.each([WIDGET_APP_ORIGIN, "null"])(
+    "renews from the persisted source ticket when the spent start URL answers with the expiry page (origin %s)",
+    async (origin) => {
+      const shell = await mountRestoredDirectoryWidget(renewed);
+
+      expect(shell.frame()?.src).toBe(
+        `${WIDGET_SPENT_START}&${WIDGET_CHAT_BRIDGE}`,
+      );
+      expect(shell.bridge.callTool).not.toHaveBeenCalled();
+
+      await shell.postExpiredFrom(origin);
+
+      expect(shell.bridge.callTool).toHaveBeenCalledTimes(1);
+      expect(shell.bridge.callTool).toHaveBeenCalledWith(
+        "create_embed_session",
+        { sourceTicket: "spent-ticket" },
+      );
+      expect(shell.frame()?.src).toBe(
+        `${WIDGET_RENEWED_START}&${WIDGET_CHAT_BRIDGE}`,
+      );
+    },
+  );
+
+  it("does not replay the spent start URL when the host re-syncs after recovery", async () => {
+    const shell = await mountRestoredDirectoryWidget(renewed);
+    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+
+    await shell.resync("pip");
+
+    expect(shell.bridge.callTool).toHaveBeenCalledTimes(1);
+    expect(shell.frame()?.src).toBe(
+      `${WIDGET_RENEWED_START}&${WIDGET_CHAT_BRIDGE}`,
+    );
+  });
+
+  it("stops at the refresh cap and says so when every renewed session also expires", async () => {
+    const shell = await mountRestoredDirectoryWidget(renewed);
+
+    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+
+    expect(shell.bridge.callTool).toHaveBeenCalledTimes(2);
+    expect(shell.stageText()).toContain("Reopen the app");
+  });
+
+  it("shows the server's refusal instead of a blank or stale frame", async () => {
+    const shell = await mountRestoredDirectoryWidget(async () => ({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "Error: Embed session ticket creation was revoked by logout.",
+        },
+      ],
+    }));
+
+    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+
+    expect(shell.stageText()).toContain("App did not load");
+    expect(shell.stageText()).toContain("revoked by logout");
+    expect(shell.frame()).toBeNull();
   });
 });
 

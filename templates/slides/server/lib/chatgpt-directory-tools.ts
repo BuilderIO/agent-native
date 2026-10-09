@@ -32,6 +32,24 @@ function id(...values: unknown[]): string | null {
   );
 }
 
+// share-resource, unshare-resource, and set-resource-visibility assert admin
+// access to the deck themselves, so an editor holds this grant without being
+// able to change sharing.
+const DECK_WIDGET_WRITE_ACTIONS = [
+  "patch-deck",
+  "share-resource",
+  "unshare-resource",
+  "set-resource-visibility",
+] as const;
+
+function deckWidgetTarget(deckId: string) {
+  return {
+    targetPath: `/deck/${encodeURIComponent(deckId)}`,
+    resourceIds: { deckId, resourceType: "deck" },
+    writeActions: DECK_WIDGET_WRITE_ACTIONS,
+  };
+}
+
 type WidgetWriteAuthorizationInput = {
   toolName: string;
   args: Record<string, unknown>;
@@ -71,28 +89,20 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   widgetTargets: {
     "create-deck": (args: Record<string, unknown>, result: unknown) => {
       const deckId = id(record(result).id, args.deckId);
-      return deckId
-        ? {
-            targetPath: `/deck/${encodeURIComponent(deckId)}`,
-            resourceIds: { deckId },
-            writeActions: ["patch-deck"],
-          }
-        : null;
+      return deckId ? deckWidgetTarget(deckId) : null;
     },
     "add-slide": (args: Record<string, unknown>, result: unknown) => {
       const deckId = id(args.deckId, record(result).deckId);
-      return deckId
-        ? {
-            targetPath: `/deck/${encodeURIComponent(deckId)}`,
-            resourceIds: { deckId },
-            writeActions: ["patch-deck"],
-          }
-        : null;
+      return deckId ? deckWidgetTarget(deckId) : null;
     },
   },
   widgetReadActionArguments: {
     // The ticketed get-deck path normalizes duplicate IDs in memory only.
     "get-deck": { id: "deckId", deckId: "deckId" },
+    "list-resource-shares": {
+      resourceType: "resourceType",
+      resourceId: "deckId",
+    },
   },
   widgetWriteActionArguments: {
     "patch-deck": {
@@ -100,8 +110,30 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       operations: { type: "actionSchema" as const },
       clientWrite: { type: "actionSchema" as const },
     },
+    "share-resource": {
+      resourceType: "resourceType",
+      resourceId: "deckId",
+      principalType: { type: "actionSchema" as const },
+      principalId: { type: "actionSchema" as const },
+      role: { type: "actionSchema" as const },
+      notify: { type: "actionSchema" as const },
+      resourceUrl: { type: "actionSchema" as const },
+      message: { type: "actionSchema" as const },
+    },
+    "unshare-resource": {
+      resourceType: "resourceType",
+      resourceId: "deckId",
+      principalType: { type: "actionSchema" as const },
+      principalId: { type: "actionSchema" as const },
+    },
+    "set-resource-visibility": {
+      resourceType: "resourceType",
+      resourceId: "deckId",
+      visibility: { type: "actionSchema" as const },
+    },
   },
   widgetReadOnlyActions: ["get-deck"],
+  widgetReadAuthenticatedActions: ["list-resource-shares"],
   keyToolNames: [
     "list-decks",
     "get-deck",

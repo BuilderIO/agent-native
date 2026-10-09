@@ -420,6 +420,33 @@ button[title="Open agent sidebar"] {
   }
 }
 
+/* A narrow widget pane keeps the New slide icon and drops its label. */
+@container deck-editor (max-width: 46rem) {
+  .deck-editor-shell[data-slides-widget="true"] [data-compact-label] {
+    display: none;
+  }
+}
+
+/* The widget's toolbars get touch-sized targets in a phone-width pane and on
+ * any touch screen, where the app's 28px desktop buttons are too small. */
+@container deck-editor (max-width: 46rem) {
+  .deck-editor-shell[data-slides-widget="true"]
+    :is(.deck-editor-toolbar, .slide-context-toolbar)
+    :is(button, input, [role="combobox"]) {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+  }
+}
+
+@media (pointer: coarse) {
+  .deck-editor-shell[data-slides-widget="true"]
+    :is(.deck-editor-toolbar, .slide-context-toolbar)
+    :is(button, input, [role="combobox"]) {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+  }
+}
+
 @container (max-width: 36rem) {
   .deck-grid {
     grid-template-columns: minmax(0, 1fr);

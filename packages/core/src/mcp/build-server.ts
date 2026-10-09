@@ -1465,11 +1465,10 @@ async function withServerMintedMcpAppEmbedStart(
       : typeof out.chrome === "string"
         ? out.chrome
         : null;
-    if (capability && !scope) {
-      throw new Error(
-        "Could not create a valid scoped capability for this MCP directory widget.",
-      );
-    }
+    // An oversize or invalid scope has no ticket; the caller degrades or
+    // returns the result without one. Throwing here would fail a tool call
+    // whose action already ran.
+    if (capability && !scope) return null;
     return createEmbedSessionTicket({
       ownerEmail,
       orgId: ctx?.orgId,
@@ -1483,16 +1482,22 @@ async function withServerMintedMcpAppEmbedStart(
     directoryWidget?.capability.mode === "write"
       ? directoryWidget.capability
       : undefined;
-  let ticket: Awaited<ReturnType<typeof mintTicket>>;
+  let ticket: Awaited<ReturnType<typeof mintTicket>> = null;
+  let writeMintError: unknown = new Error(
+    "Could not create a valid scoped capability for this MCP directory widget.",
+  );
   try {
     ticket = await mintTicket(directoryWidget?.capability);
   } catch (error) {
     if (!writeCapability) throw error;
+    writeMintError = error;
+  }
+  if (!ticket && writeCapability) {
     // The write grant is an upgrade over the read grant. Losing it must not
     // also lose the widget's session ticket, which the shell cannot start without.
     console.error(
       "[mcp:directory] Could not mint the widget write grant; issuing a read-only widget session instead.",
-      error,
+      writeMintError,
     );
     const { appId, resourceUri, resourceIds, readActionArguments } =
       writeCapability.value;
@@ -1505,6 +1510,13 @@ async function withServerMintedMcpAppEmbedStart(
         actionArguments: readActionArguments,
       },
     });
+  }
+  if (!ticket) {
+    console.error(
+      "[mcp:directory] Could not build a widget capability within the scope size limits; returning the result without a session ticket.",
+      { targetPath },
+    );
+    return resultWithoutExistingEmbedTicket;
   }
   const startPath = buildEmbedStartPath(ticket.ticket);
   const embedStartUrl = meta?.origin
