@@ -1514,6 +1514,8 @@ export default {
     replayLoading: "Cargando reproducción...",
     replayLoadingProgress:
       "{{loaded}} de {{total}} fragmentos de reproducción cargados",
+    replayTargetFallback:
+      "El desplazamiento solicitado ({{requested}}) no está disponible; se muestra el fotograma de reproducción más cercano en {{available}}.",
     replayUnavailable: "Esta sesión no tiene fragmentos de reproducción",
     replayUnavailableDescription:
       "La sesión tiene eventos de analítica, pero no se encontraron eventos de fragmentos rrweb.",

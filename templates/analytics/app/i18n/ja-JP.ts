@@ -1500,6 +1500,8 @@ export default {
     replayLoading: "リプレイを読み込み中...",
     replayLoadingProgress:
       "{{loaded}} / {{total}} 個のリプレイチャンクを読み込み済み",
+    replayTargetFallback:
+      "指定した録画位置（{{requested}}）は再生できないため、最も近い再生フレーム（{{available}}）を表示しています。",
     replayUnavailable: "このセッションにはリプレイチャンクがありません",
     replayUnavailableDescription:
       "このセッションには分析イベントがありますが、rrweb チャンクイベントは見つかりませんでした。",

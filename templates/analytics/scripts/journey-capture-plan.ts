@@ -223,6 +223,7 @@ export interface ManifestFailure {
 export interface CaptureManifest {
   generatedAt: string;
   appUrl: string;
+  remoteAssets: "not-fetched";
   frames: ManifestFrame[];
   failures: ManifestFailure[];
   skipped: SkippedExample[];
@@ -269,6 +270,7 @@ export function buildManifest(input: {
   return {
     generatedAt: input.generatedAt,
     appUrl: input.appUrl,
+    remoteAssets: "not-fetched",
     frames: [...input.frames]
       .map((frame) => ({
         ...frame,

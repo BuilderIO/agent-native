@@ -1421,6 +1421,8 @@ export default {
     replayPlayer: "回放播放器",
     replayLoading: "正在加载回放...",
     replayLoadingProgress: "已加载 {{loaded}} / {{total}} 个回放分块",
+    replayTargetFallback:
+      "无法显示请求的录制偏移 {{requested}}；当前显示的是 {{available}} 处最接近的回放帧。",
     replayUnavailable: "此会话没有回放分块",
     replayUnavailableDescription: "此会话有分析事件，但未找到 rrweb 分块事件。",
     unavailableChunks: "{{count}} replay segments could not be loaded.",

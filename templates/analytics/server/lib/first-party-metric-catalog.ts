@@ -1048,7 +1048,7 @@ const FUNNEL_EVENTS_CTE = `WITH auth_identity_bridge AS (
   JOIN signup_cohort c ON c.funnel_user_key = e.funnel_user_key
 )`;
 const ONBOARDING_EVENTS_CTE = `WITH auth_identity_bridge AS (
-  SELECT linked_email, MIN(auth_user_id) AS auth_user_id
+  SELECT linked_email, MIN(identities.auth_user_id) AS auth_user_id
   FROM (
     SELECT lower(COALESCE(
       CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
@@ -1061,9 +1061,9 @@ const ONBOARDING_EVENTS_CTE = `WITH auth_identity_bridge AS (
       AND ${FIRST_PARTY_TEMPLATE_FILTER}
   ) AS identities
   WHERE linked_email IS NOT NULL
-    AND auth_user_id IS NOT NULL
+    AND identities.auth_user_id IS NOT NULL
   GROUP BY linked_email
-  HAVING COUNT(DISTINCT auth_user_id) = 1
+  HAVING COUNT(DISTINCT identities.auth_user_id) = 1
 ), scoped_onboarding_events AS (
   SELECT e.*,
     COALESCE(
@@ -1367,7 +1367,7 @@ const ONBOARDING_JOURNEY_EVENTS_SQL = `${ONBOARDING_EVENTS_CTE}, identified_even
   JOIN scoped_onboarding_events c ON c.session_id = i.session_id
   WHERE c.event_name IN (${sqlNameList(JOURNEY_COHORT_EVENT_NAMES)})
 )
-SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
+SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
   NULLIF(e.properties::jsonb ->> 'step_id', '') AS step_id,
   NULLIF(e.properties::jsonb ->> 'method_id', '') AS method_id,
   NULLIF(e.properties::jsonb ->> 'outcome', '') AS outcome,
