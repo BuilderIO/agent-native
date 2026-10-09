@@ -123,9 +123,16 @@ async function postJson(
   options: AgentNativeBrowserSessionBridgeOptions,
   path: string,
   body: unknown,
+  signal?: AbortSignal,
 ): Promise<any> {
   const controller =
     typeof AbortController === "undefined" ? null : new AbortController();
+  const abortFromSignal = () => controller?.abort();
+  if (signal?.aborted) {
+    abortFromSignal();
+  } else {
+    signal?.addEventListener("abort", abortFromSignal, { once: true });
+  }
   const timeoutId = controller
     ? setTimeout(() => controller.abort(), requestAbortMs(options))
     : null;
@@ -138,11 +145,16 @@ async function postJson(
         "X-Agent-Native-CSRF": "1",
       },
       body: JSON.stringify(body ?? {}),
-      ...(controller ? { signal: controller.signal } : {}),
+      ...(controller
+        ? { signal: controller.signal }
+        : signal
+          ? { signal }
+          : {}),
     });
     return readJsonResponse(response);
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
+    signal?.removeEventListener("abort", abortFromSignal);
   }
 }
 
@@ -526,7 +538,9 @@ export function createAgentNativeBrowserSessionBridge(
   let onVisibility: (() => void) | undefined;
   let lastWebMcpTools: AgentNativeWebMcpTool[] | undefined;
 
-  async function refreshRegistration(): Promise<AgentNativeBrowserSessionRecord> {
+  async function refreshRegistration(
+    signal?: AbortSignal,
+  ): Promise<AgentNativeBrowserSessionRecord> {
     const direct = hasDirectHost(options);
     const hostOptions = hostRequestOptions(options);
     const [context, actions, webmcpTools] = direct
@@ -553,22 +567,29 @@ export function createAgentNativeBrowserSessionBridge(
       hostSession,
       context.url,
     );
-    const body = await postJson(options, "", {
-      session,
-      sessionId: currentSessionId,
-      context,
-      actions,
-      ...(lastWebMcpTools !== undefined
-        ? { webmcpTools: lastWebMcpTools }
-        : {}),
-      ttlMs: options.ttlMs,
-    });
+    const body = await postJson(
+      options,
+      "",
+      {
+        session,
+        sessionId: currentSessionId,
+        context,
+        actions,
+        ...(lastWebMcpTools !== undefined
+          ? { webmcpTools: lastWebMcpTools }
+          : {}),
+        ttlMs: options.ttlMs,
+      },
+      signal,
+    );
     return body.session as AgentNativeBrowserSessionRecord;
   }
 
-  async function claimOnce(): Promise<AgentNativeBrowserSessionRequest | null> {
+  async function claimOnce(
+    signal?: AbortSignal,
+  ): Promise<AgentNativeBrowserSessionRequest | null> {
     if (!currentSessionId) {
-      await refreshRegistration();
+      await refreshRegistration(signal);
     }
     if (!currentSessionId) return null;
 
@@ -576,6 +597,7 @@ export function createAgentNativeBrowserSessionBridge(
       options,
       `/${encodePathSegment(currentSessionId)}/requests/claim`,
       {},
+      signal,
     );
     const request = claim.request as AgentNativeBrowserSessionRequest | null;
     if (!request) return null;
@@ -603,7 +625,7 @@ export function createAgentNativeBrowserSessionBridge(
   }
 
   const heartbeatEngine = createPollEngine(
-    () => refreshRegistration().then(() => {}),
+    (signal) => refreshRegistration(signal).then(() => {}),
     {
       intervalMs: () => {
         const base = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
@@ -613,14 +635,17 @@ export function createAgentNativeBrowserSessionBridge(
       },
     },
   );
-  const pollEngine = createPollEngine(() => claimOnce().then(() => {}), {
-    intervalMs: () => {
-      const base = options.pollMs ?? DEFAULT_POLL_MS;
-      return isDocumentHidden()
-        ? Math.max(base, HIDDEN_INTERVAL_FLOOR_MS)
-        : base;
+  const pollEngine = createPollEngine(
+    (signal) => claimOnce(signal).then(() => {}),
+    {
+      intervalMs: () => {
+        const base = options.pollMs ?? DEFAULT_POLL_MS;
+        return isDocumentHidden()
+          ? Math.max(base, HIDDEN_INTERVAL_FLOOR_MS)
+          : base;
+      },
     },
-  });
+  );
 
   const bridge: AgentNativeBrowserSessionBridge = {
     get sessionId() {

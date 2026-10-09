@@ -231,6 +231,59 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("aborts an in-flight polling claim when stopped", async () => {
+    let claimSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (
+        url === "/_agent-native/browser-sessions/tab-1/requests/claim" &&
+        init?.method === "POST"
+      ) {
+        claimSignal = init.signal ?? undefined;
+        return new Promise<Response>((_resolve, reject) => {
+          claimSignal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      }
+      if (
+        url === "/_agent-native/browser-sessions" &&
+        init?.method === "POST"
+      ) {
+        const body = JSON.parse(String(init.body));
+        return Promise.resolve(
+          jsonResponse({
+            ok: true,
+            session: {
+              sessionId: body.sessionId,
+              session: body.session,
+              active: true,
+              actions: body.actions,
+            },
+          }),
+        );
+      }
+      if (
+        url === "/_agent-native/browser-sessions/tab-1" &&
+        init?.method === "DELETE"
+      ) {
+        return Promise.resolve(jsonResponse({ ok: true, deleted: true }));
+      }
+      throw new Error(`Unexpected fetch ${init?.method} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      session: { id: "tab-1" },
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    bridge.start();
+    await vi.waitFor(() => expect(claimSignal).toBeDefined());
+    bridge.stop();
+
+    expect(claimSignal?.aborted).toBe(true);
+  });
+
   it("registers direct embedded context and actions without postMessage", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe("/_agent-native/browser-sessions");
