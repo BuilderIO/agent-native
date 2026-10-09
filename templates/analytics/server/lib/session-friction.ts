@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   AGENT_SIGNALS_PAGEVIEW_PROPERTY,
   AGENT_SIGNALS_VERSION,
+  AGENT_TROUBLE_CAUSES,
   agentErrorCodeForTelemetry,
   agentTroubleCauseForCode,
   isAgentTroubleCause,
@@ -12,16 +13,19 @@ import { accessFilter } from "@agent-native/core/sharing";
 import {
   type AnyColumn,
   and,
+  asc,
+  desc,
   eq,
   gte,
   inArray,
   isNull,
   lt,
   lte,
+  or,
   sql,
   type SQL,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { alias, unionAll } from "drizzle-orm/pg-core";
 
 import {
   EVENT_FRICTION_SCORE_INPUTS,
@@ -1442,48 +1446,107 @@ export async function getSessionFrictionDetails(
     rows.push(row);
     eventRowsById.set(row.recordingId, rows);
   }
-  const coveredSessions = eventRows.filter(
-    (row: any) => row.covered === true && row.tenantKey && row.sessionId,
-  );
-  const troublesBySession = new Map<string, SessionTroubleGroup[]>();
-  if (coveredSessions.length) {
-    const troubleRows = await db
+  const troubleQueries = recordings.flatMap((recording) => {
+    const sessionRows = (eventRowsById.get(recording.id) ?? []).filter(
+      (row) => row.covered === true && row.tenantKey && row.sessionId,
+    );
+    if (
+      !sessionRows.length ||
+      sessionRows.length !== (eventRowsById.get(recording.id) ?? []).length
+    ) {
+      return [];
+    }
+    const sessions = new Map(
+      sessionRows.map((row) => [
+        JSON.stringify([row.tenantKey, row.sessionId]),
+        {
+          tenantKey: row.tenantKey as string,
+          sessionId: row.sessionId as string,
+        },
+      ]),
+    );
+    const matchingSession = or(
+      ...[...sessions.values()].map((session) =>
+        and(
+          eq(t.tenantKey, session.tenantKey),
+          eq(t.sessionId, session.sessionId),
+        ),
+      ),
+    );
+    if (!matchingSession) return [];
+    const matchedTroubles = db
       .select({
-        tenantKey: t.tenantKey,
-        sessionId: t.sessionId,
         kind: t.kind,
         label: t.label,
         status: t.status,
-        cause: t.cause,
+        cause: sql<
+          string | null
+        >`case when ${inArray(t.cause, [...AGENT_TROUBLE_CAUSES])}
+          then ${t.cause} else null end`.as("cause"),
         eventCount: t.eventCount,
       })
       .from(t)
-      .where(
-        and(
-          inArray(t.tenantKey, [
-            ...new Set<string>(
-              coveredSessions.map((row: any) => row.tenantKey),
-            ),
-          ]),
-          inArray(t.sessionId, [
-            ...new Set<string>(
-              coveredSessions.map((row: any) => row.sessionId),
-            ),
-          ]),
-        ),
-      );
-    for (const row of troubleRows) {
-      const key = JSON.stringify([row.tenantKey, row.sessionId]);
-      const groups = troublesBySession.get(key) ?? [];
-      groups.push({
-        kind: row.kind,
-        label: row.label,
-        status: row.status ?? null,
-        cause: isAgentTroubleCause(row.cause) ? row.cause : null,
-        count: Number(row.eventCount),
-      });
-      troublesBySession.set(key, groups);
+      .where(matchingSession)
+      .as("matched_troubles");
+    const count = sql<number>`sum(${matchedTroubles.eventCount})`;
+    return [
+      db
+        .select({
+          recordingId: sql<string>`${recording.id}`.as("recording_id"),
+          kind: matchedTroubles.kind,
+          label: matchedTroubles.label,
+          status: matchedTroubles.status,
+          cause: matchedTroubles.cause,
+          count: count.as("count"),
+        })
+        .from(matchedTroubles)
+        .groupBy(
+          matchedTroubles.kind,
+          matchedTroubles.label,
+          matchedTroubles.status,
+          matchedTroubles.cause,
+        )
+        .orderBy(
+          desc(count),
+          asc(matchedTroubles.label),
+          asc(matchedTroubles.kind),
+          asc(matchedTroubles.status),
+          asc(matchedTroubles.cause),
+        )
+        .limit(TROUBLE_GROUPS_PER_RECORDING),
+    ];
+  });
+  const troubleRows: Array<{
+    recordingId: string;
+    kind: string;
+    label: string;
+    status: string | null;
+    cause: string | null;
+    count: number | string;
+  }> =
+    troubleQueries.length > 1
+      ? await unionAll(
+          troubleQueries[0],
+          troubleQueries[1],
+          ...troubleQueries.slice(2),
+        )
+      : troubleQueries.length
+        ? await troubleQueries[0]
+        : [];
+  const troublesByRecording = new Map<string, SessionTroubleGroup[]>();
+  for (const row of troubleRows) {
+    if (row.kind !== "agent" && row.kind !== "action") {
+      throw new Error("Session trouble query returned an unknown kind");
     }
+    const groups = troublesByRecording.get(row.recordingId) ?? [];
+    groups.push({
+      kind: row.kind,
+      label: row.label,
+      status: row.status,
+      cause: isAgentTroubleCause(row.cause) ? row.cause : null,
+      count: Number(row.count),
+    });
+    troublesByRecording.set(row.recordingId, groups);
   }
 
   for (const recording of recordings) {
@@ -1516,29 +1579,9 @@ export async function getSessionFrictionDetails(
     };
     // The stored scores, computed at ingest, are what the friction sort used.
     const score = (replay ? Number(replayRow!.score) : 0) + eventScore;
-    const troubleGroups = new Map<string, SessionTroubleGroup>();
-    if (events) {
-      for (const row of sessionEventRows) {
-        const groups =
-          troublesBySession.get(
-            JSON.stringify([row.tenantKey, row.sessionId]),
-          ) ?? [];
-        for (const group of groups) {
-          const key = JSON.stringify([
-            group.kind,
-            group.label,
-            group.status,
-            group.cause,
-          ]);
-          const existing = troubleGroups.get(key);
-          if (existing) existing.count += group.count;
-          else troubleGroups.set(key, { ...group });
-        }
-      }
-    }
-    const troubles = [...troubleGroups.values()]
-      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
-      .slice(0, TROUBLE_GROUPS_PER_RECORDING);
+    const troubles = events
+      ? (troublesByRecording.get(recording.id) ?? [])
+      : [];
     result.set(recording.id, {
       score,
       replay,

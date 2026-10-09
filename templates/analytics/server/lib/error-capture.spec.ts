@@ -1274,6 +1274,82 @@ describe("listRecordingErrorIssues", () => {
       "issue-legacy",
     ]);
   });
+
+  it("returns unknown when an event-linked issue read hits its global cap", async () => {
+    const ownerEmail = "alice@example.com";
+    await client.query(
+      `INSERT INTO session_recordings
+        (id, client_recording_id, session_id, owner_email, org_id)
+       VALUES ('recording-capped-events', 'client-capped-events', 'session-capped-events', $1, NULL)`,
+      [ownerEmail],
+    );
+    await client.query(
+      `INSERT INTO error_issues
+        (id, fingerprint, title, first_seen_at, last_seen_at, owner_email)
+       SELECT 'issue-cap-' || n, 'fingerprint-cap-' || n, 'Issue ' || n,
+              '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z', $1
+       FROM generate_series(1, 501) AS n`,
+      [ownerEmail],
+    );
+    await client.query(
+      `INSERT INTO error_events
+        (id, issue_id, fingerprint, occurred_at, session_recording_id, owner_email)
+       SELECT 'event-cap-' || n, 'issue-cap-' || n, 'fingerprint-cap-' || n,
+              '2026-10-01T00:00:00.000Z', 'recording-capped-events', $1
+       FROM generate_series(1, 501) AS n`,
+      [ownerEmail],
+    );
+
+    const issues = await listRecordingErrorIssues(
+      { userEmail: ownerEmail, orgId: null },
+      [
+        {
+          id: "recording-capped-events",
+          clientRecordingId: "client-capped-events",
+          ownerEmail,
+          orgId: null,
+          errorCount: 501,
+        },
+      ],
+    );
+
+    expect(issues.get("recording-capped-events")).toBeNull();
+  });
+
+  it("returns unknown when a last-recording fallback read hits its global cap", async () => {
+    const ownerEmail = "alice@example.com";
+    await client.query(
+      `INSERT INTO session_recordings
+        (id, client_recording_id, session_id, owner_email, org_id)
+       VALUES ('recording-capped-fallback', 'client-capped-fallback', 'session-capped-fallback', $1, NULL)`,
+      [ownerEmail],
+    );
+    await client.query(
+      `INSERT INTO error_issues
+        (id, fingerprint, title, first_seen_at, last_seen_at,
+         last_session_recording_id, owner_email)
+       SELECT 'fallback-cap-' || n, 'fallback-fingerprint-' || n,
+              'Fallback ' || n, '2026-10-01T00:00:00.000Z',
+              '2026-10-01T00:00:00.000Z', 'recording-capped-fallback', $1
+       FROM generate_series(1, 501) AS n`,
+      [ownerEmail],
+    );
+
+    const issues = await listRecordingErrorIssues(
+      { userEmail: ownerEmail, orgId: null },
+      [
+        {
+          id: "recording-capped-fallback",
+          clientRecordingId: "client-capped-fallback",
+          ownerEmail,
+          orgId: null,
+          errorCount: 1,
+        },
+      ],
+    );
+
+    expect(issues.get("recording-capped-fallback")).toBeNull();
+  });
 });
 
 describe("matchErrorIssuesBySignatures", () => {

@@ -1770,6 +1770,10 @@ export async function listRecordingErrorIssues(
         });
     }
     if (issues.size) {
+      if (truncated) {
+        result.set(recording.id, null);
+        continue;
+      }
       result.set(
         recording.id,
         [...issues.values()]
@@ -1787,7 +1791,10 @@ export async function listRecordingErrorIssues(
       .slice(0, perRecording)
       .map((row) => ({ id: row.id, title: row.title, count: null }));
     if (lastRecordingIssues.length) {
-      result.set(recording.id, lastRecordingIssues);
+      result.set(
+        recording.id,
+        lastRecordingTruncated ? null : lastRecordingIssues,
+      );
       continue;
     }
     if ((recording.issueErrorCount ?? recording.errorCount) === 0) {
