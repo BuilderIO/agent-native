@@ -106,6 +106,7 @@ declare global {
       workspaceGatewayUrl?: string;
       workspaceOAuthOrigin?: string;
       workspaceRuntime?: boolean;
+      workspaceAppPath?: string;
       workspaceAppMountPaths?: string[];
       sentryDsn?: string;
       sentryEnvironment?: string;

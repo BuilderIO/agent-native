@@ -1924,7 +1924,8 @@ function getAppOriginClientConfigScript() {
         env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
       ),
     );
-  const workspaceAppMountPaths = (() => {
+  const appConfig = getAgentNativeAppConfig();
+  const workspaceAppMountConfig = (() => {
     const raw = firstNonEmpty(
       env.AGENT_NATIVE_WORKSPACE_APPS_JSON,
       env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
@@ -1938,34 +1939,39 @@ function getAppOriginClientConfigScript() {
           ? parsed.apps
           : null;
       if (!Array.isArray(entries)) return;
-      const paths = Array.from(
-        new Set(
-          entries
-            .map((entry) => {
-              if (!entry || typeof entry !== "object") return null;
-              const rawPath =
-                typeof entry.path === "string"
-                  ? entry.path
-                  : typeof entry.id === "string"
-                    ? "/" + entry.id
-                    : null;
-              if (!rawPath) return null;
-              const normalized = normalizeAppBasePath(rawPath);
-              return normalized || null;
-            })
-            .filter(Boolean),
-        ),
-      );
-      return paths.length ? paths : undefined;
+      const mounts = entries
+        .map((entry) => {
+          if (!entry || typeof entry !== "object") return null;
+          const id = typeof entry.id === "string" ? entry.id : undefined;
+          let rawPath = null;
+          if (typeof entry.path === "string") rawPath = entry.path;
+          else if (id) rawPath = "/" + id;
+          if (!rawPath) return null;
+          const normalized = normalizeAppBasePath(rawPath);
+          return normalized ? { id, path: normalized } : null;
+        })
+        .filter(Boolean);
+      const paths = Array.from(new Set(mounts.map((mount) => mount.path)));
+      const currentPath = mounts.find(
+        (mount) => mount.id === appConfig.app.workspaceId,
+      )?.path;
+      return paths.length || currentPath
+        ? {
+            ...(paths.length ? { paths } : {}),
+            ...(currentPath ? { currentPath } : {}),
+          }
+        : undefined;
     } catch {
       return;
     }
   })();
-  const appConfig = getAgentNativeAppConfig();
   const config = {
     ...(appConfig.app.id ? { appId: appConfig.app.id } : {}),
     ...(appConfig.app.workspaceId
       ? { workspaceAppId: appConfig.app.workspaceId }
+      : {}),
+    ...(workspaceAppMountConfig?.currentPath
+      ? { workspaceAppPath: workspaceAppMountConfig.currentPath }
       : {}),
     appHomePath: resolveAgentNativeAppHomePath(
       appConfig.app,
@@ -1975,7 +1981,9 @@ function getAppOriginClientConfigScript() {
     ...(workspaceGatewayUrl ? { workspaceGatewayUrl } : {}),
     ...(workspaceOAuthOrigin ? { workspaceOAuthOrigin } : {}),
     ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
-    ...(workspaceAppMountPaths ? { workspaceAppMountPaths } : {}),
+    ...(workspaceAppMountConfig?.paths
+      ? { workspaceAppMountPaths: workspaceAppMountConfig.paths }
+      : {}),
   };
   const toUnicodeEscape = (character) =>
     String.fromCharCode(92) +

@@ -1998,6 +1998,10 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     const dir = makeTempDir();
     const configPath = path.join(dir, "identity-config.mjs");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "workspace-calendar", path: "/recordings" }]),
+    );
     fs.writeFileSync(
       configPath,
       `import { defineAppConfig } from "@agent-native/core/server";
@@ -2016,6 +2020,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
       '"appId":"calendar\\u003c/script\\u003e\\u0026\\u2028"',
     );
     expect(html).toContain('"workspaceAppId":"workspace-calendar"');
+    expect(html).toContain('"workspaceAppPath":"/recordings"');
     expect(html).toContain('"workspaceRuntime":true');
   });
 

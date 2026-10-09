@@ -2,9 +2,10 @@ import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { safeJsonForHtml } from "../shared/agent-readable-resource.js";
 import { normalizeAppBasePath } from "./app-base-path.js";
 
-function workspaceAppMountPathsFromJson(
+function workspaceAppMountConfigFromJson(
   value: string | undefined,
-): string[] | undefined {
+  workspaceAppId: string | undefined,
+): { paths?: string[]; currentPath?: string } | undefined {
   if (!value?.trim()) return undefined;
 
   try {
@@ -16,21 +17,30 @@ function workspaceAppMountPathsFromJson(
         : null;
     if (!Array.isArray(entries)) return undefined;
 
-    const paths = entries
-      .map((entry) => {
-        if (!entry || typeof entry !== "object") return null;
-        const record = entry as Record<string, unknown>;
-        const rawPath =
-          typeof record.path === "string"
-            ? record.path
-            : typeof record.id === "string"
-              ? `/${record.id}`
-              : undefined;
-        const normalized = normalizeAppBasePath(rawPath);
-        return normalized || null;
-      })
-      .filter((path): path is string => Boolean(path));
-    return paths.length ? Array.from(new Set(paths)) : undefined;
+    const paths: string[] = [];
+    let currentPath: string | undefined;
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object") continue;
+      const record = entry as Record<string, unknown>;
+      const id = typeof record.id === "string" ? record.id : undefined;
+      const rawPath =
+        typeof record.path === "string"
+          ? record.path
+          : id
+            ? `/${id}`
+            : undefined;
+      const normalized = normalizeAppBasePath(rawPath);
+      if (!normalized) continue;
+      paths.push(normalized);
+      if (id === workspaceAppId) currentPath = normalized;
+    }
+    const uniquePaths = Array.from(new Set(paths));
+    return uniquePaths.length || currentPath
+      ? {
+          ...(uniquePaths.length ? { paths: uniquePaths } : {}),
+          ...(currentPath ? { currentPath } : {}),
+        }
+      : undefined;
   } catch {
     // coercion-ok: malformed manifests omit optional mount hints; the browser falls back to the live segment.
     return undefined;
@@ -40,6 +50,7 @@ function workspaceAppMountPathsFromJson(
 export function resolvePublicAppOriginConfig(): {
   appId?: string;
   workspaceAppId?: string;
+  workspaceAppPath?: string;
   appHomePath: string;
   appUrl?: string;
   workspaceGatewayUrl?: string;
@@ -51,13 +62,17 @@ export function resolvePublicAppOriginConfig(): {
   const workspaceRuntime =
     config.workspace.isWorkspace === true ||
     typeof config.workspace.appsJson === "string";
-  const workspaceAppMountPaths = workspaceAppMountPathsFromJson(
+  const workspaceAppMountConfig = workspaceAppMountConfigFromJson(
     config.workspace.appsJson,
+    config.app.workspaceId,
   );
   const resolved = {
     ...(config.app.id ? { appId: config.app.id } : {}),
     ...(config.app.workspaceId
       ? { workspaceAppId: config.app.workspaceId }
+      : {}),
+    ...(workspaceAppMountConfig?.currentPath
+      ? { workspaceAppPath: workspaceAppMountConfig.currentPath }
       : {}),
     appHomePath: resolveAppHomePath(config.app, config.workspace),
     ...(config.app.url ? { appUrl: config.app.url } : {}),
@@ -68,7 +83,9 @@ export function resolvePublicAppOriginConfig(): {
       ? { workspaceOAuthOrigin: config.workspace.oauthOrigin }
       : {}),
     ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
-    ...(workspaceAppMountPaths ? { workspaceAppMountPaths } : {}),
+    ...(workspaceAppMountConfig?.paths
+      ? { workspaceAppMountPaths: workspaceAppMountConfig.paths }
+      : {}),
   };
   return Object.keys(resolved).length > 0 ? resolved : null;
 }

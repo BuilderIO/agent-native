@@ -128,17 +128,39 @@ function routerContextBasePath(): string {
 
 function workspaceAppIdentityBasePath(): string {
   if (typeof window === "undefined") return "";
-  const injectedIdentity = (
+  const browserConfig = (
     window as Window & {
-      __AGENT_NATIVE_CONFIG__?: { workspaceAppId?: unknown };
+      __AGENT_NATIVE_CONFIG__?: {
+        workspaceAppId?: unknown;
+        workspaceAppPath?: unknown;
+      };
     }
-  ).__AGENT_NATIVE_CONFIG__?.workspaceAppId;
+  ).__AGENT_NATIVE_CONFIG__;
+  if (
+    typeof browserConfig?.workspaceAppPath === "string" &&
+    browserConfig.workspaceAppPath.trim()
+  ) {
+    return normalizeBasePath(browserConfig.workspaceAppPath);
+  }
+  const injectedIdentity = browserConfig?.workspaceAppId;
   const configuredIdentity = clientEnv()?.VITE_AGENT_NATIVE_WORKSPACE_APP_ID;
   const identity =
     typeof configuredIdentity === "string" && configuredIdentity.trim()
       ? configuredIdentity
       : injectedIdentity;
   return typeof identity === "string" ? normalizeBasePath(identity) : "";
+}
+
+function workspaceAppConfiguredPath(): string {
+  if (typeof window === "undefined") return "";
+  const configuredPath = (
+    window as Window & {
+      __AGENT_NATIVE_CONFIG__?: { workspaceAppPath?: unknown };
+    }
+  ).__AGENT_NATIVE_CONFIG__?.workspaceAppPath;
+  return typeof configuredPath === "string"
+    ? normalizeBasePath(configuredPath)
+    : "";
 }
 
 function isStaticRouteTemplate(template: string | null): boolean {
@@ -152,6 +174,10 @@ function isStaticRouteTemplate(template: string | null): boolean {
         (segment) => segment && segment !== "*" && !segment.startsWith(":"),
       ),
   );
+}
+
+function hasDynamicLeadingRouteSegment(template: string | null): boolean {
+  return Boolean(template?.split("/")[1]?.startsWith(":"));
 }
 
 export function isWorkspaceRuntime(): boolean {
@@ -179,6 +205,13 @@ function workspacePathBasePath(): string {
   if (routerBasePath && pathMatchesBasePath(pathname, routerBasePath)) {
     return routerBasePath;
   }
+  const configuredWorkspacePath = workspaceAppConfiguredPath();
+  if (
+    configuredWorkspacePath &&
+    pathMatchesBasePath(pathname, configuredWorkspacePath)
+  ) {
+    return configuredWorkspacePath;
+  }
   const segment = pathname.split("/").find(Boolean);
   if (!segment || isFrameworkSegment(segment) || segment === "api") return "";
   const basePath = normalizeBasePath(segment);
@@ -205,11 +238,15 @@ function workspacePathBasePath(): string {
       /^\/:[^/]+$/.test(routeForFullPath);
     const localStaticRouteMatchedByRootSplat =
       routeForFullPath === "/*" && isStaticRouteTemplate(routeForLocalPath);
+    const localStaticRouteMatchedByDynamicPrefix =
+      hasDynamicLeadingRouteSegment(routeForFullPath) &&
+      isStaticRouteTemplate(routeForLocalPath);
     if (
       routeForLocalPath &&
       (!routeForFullPath ||
         mountRootMatchedByRootParam ||
-        localStaticRouteMatchedByRootSplat) &&
+        localStaticRouteMatchedByRootSplat ||
+        localStaticRouteMatchedByDynamicPrefix) &&
       workspaceAppIdentityBasePath() === basePath
     ) {
       return basePath;
@@ -262,7 +299,19 @@ export function appBasePath(): string {
 
 function workspaceAppMountPaths(): Set<string> | null {
   const raw = clientEnv()?.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
-  if (typeof raw !== "string" || !raw.trim()) return null;
+  if (typeof raw !== "string" || !raw.trim()) {
+    const projected = (
+      window as Window & {
+        __AGENT_NATIVE_CONFIG__?: { workspaceAppMountPaths?: unknown };
+      }
+    ).__AGENT_NATIVE_CONFIG__?.workspaceAppMountPaths;
+    if (!Array.isArray(projected)) return null;
+    const paths = projected
+      .filter((value): value is string => typeof value === "string")
+      .map(normalizeBasePath)
+      .filter(Boolean);
+    return paths.length ? new Set(paths) : null;
+  }
 
   try {
     const parsed: unknown = JSON.parse(raw);

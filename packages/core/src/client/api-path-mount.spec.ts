@@ -208,6 +208,51 @@ describe("appMountPath", () => {
     expect(appBasePath()).toBe("/dispatch");
   });
 
+  it("uses the configured app mount when its id differs from its path", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubGlobal("window", {
+      location: { pathname: "/recordings/home" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceAppId: "clips",
+        workspaceAppPath: "/recordings",
+        workspaceAppMountPaths: ["/recordings", "/content"],
+      },
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "/" },
+          home: { id: "home", parentId: "root", path: "home" },
+        },
+      },
+    });
+
+    expect(appBasePath()).toBe("/recordings");
+  });
+
+  it("lets a concrete local route beat a dynamic full-path match for the app mount", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "content", path: "/content" }]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/dispatch/home" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "/" },
+          dynamic: {
+            id: "dynamic",
+            parentId: "root",
+            path: ":workspace/:page",
+          },
+          home: { id: "home", parentId: "root", path: "home" },
+        },
+      },
+    });
+
+    expect(appBasePath()).toBe("/dispatch");
+  });
+
   it.each(["/dispatch", "/dispatch/"])(
     "uses the workspace app identity when a root parameter route masks %s",
     (pathname) => {
