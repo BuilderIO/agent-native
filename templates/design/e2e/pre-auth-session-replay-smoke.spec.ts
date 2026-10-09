@@ -85,6 +85,11 @@ function watchPage(page: Page, baseURL: string) {
   };
 }
 
+test.skip(
+  process.env.E2E_DISABLE_AUTO_DEV_ACCOUNT !== "1",
+  "Requires the isolated signup and replay setup enabled by E2E_DISABLE_AUTO_DEV_ACCOUNT=1.",
+);
+
 test("pre-auth recording continues through signup and masks abandonment", async ({
   browser,
 }, testInfo) => {

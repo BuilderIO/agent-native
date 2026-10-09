@@ -1528,13 +1528,17 @@ export function mergeReplayMetadata(
   const hasPreAuthContext =
     existingCaptureContext === PRE_AUTH_CAPTURE_CONTEXT ||
     incomingCaptureContext === PRE_AUTH_CAPTURE_CONTEXT;
+  if (hasPreAuthContext) merged.capture_context = PRE_AUTH_CAPTURE_CONTEXT;
+  assertReplayMetadataCap(merged);
   // The cap bounds caller metadata; the server-owned viewport is a few bytes.
   const next = mergeReplayViewport(stored, viewport);
   const result = next === undefined ? merged : { ...merged, viewport: next };
   // The anonymous-session query matches this normalized suffix, so later
   // chunks must preserve it as the final metadata field.
-  if (hasPreAuthContext) result.capture_context = PRE_AUTH_CAPTURE_CONTEXT;
-  assertReplayMetadataCap(result);
+  if (hasPreAuthContext) {
+    delete result.capture_context;
+    result.capture_context = PRE_AUTH_CAPTURE_CONTEXT;
+  }
   return result;
 }
 

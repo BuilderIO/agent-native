@@ -2739,6 +2739,26 @@ describe("replay viewport", () => {
     expect(mergeReplayMetadata({}, { other: 1 })).toEqual({ other: 1 });
   });
 
+  it("keeps the server-owned viewport outside the caller metadata cap", () => {
+    const maxBytes = 16 * 1024;
+    const metadata = {
+      payload: "x".repeat(maxBytes - JSON.stringify({ payload: "" }).length),
+    };
+    expect(JSON.stringify(metadata)).toHaveLength(maxBytes);
+
+    const viewport = {
+      first: { width: 1440, height: 900 },
+      last: { width: 1440, height: 900 },
+    };
+    const merged = mergeReplayMetadata({}, metadata, viewport);
+
+    expect(merged).toMatchObject({ payload: metadata.payload, viewport });
+    expect(JSON.stringify(merged).length).toBeGreaterThan(maxBytes);
+    expect(() =>
+      mergeReplayMetadata({}, { payload: "x".repeat(maxBytes) }),
+    ).toThrow("Replay metadata must be 16384 bytes or smaller");
+  });
+
   it("drops a client-sent viewport at parse time", () => {
     const parsed = parseSessionReplayIngestPayload({
       publicKey: "anpk_test",
