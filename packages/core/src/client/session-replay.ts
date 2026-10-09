@@ -1478,11 +1478,34 @@ const REPLAY_IDENTITY_PROPERTY_KEYS = new Set([
   "auth_user_id",
   "identity",
 ]);
+const REPLAY_IDENTITY_PROPERTY_TOKENS = new Set([
+  "email",
+  "id",
+  "name",
+  "user",
+  "session",
+  "auth",
+  "org",
+  "organization",
+  "tenant",
+  "workspace",
+  "identity",
+  "customer",
+  "recipient",
+  "member",
+  "principal",
+]);
 
 function isSensitiveReplayPropertyKey(key: string): boolean {
-  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const tokens = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  const normalized = tokens.join("");
   return (
     REPLAY_IDENTITY_PROPERTY_KEYS.has(normalized) ||
+    tokens.some((token) => REPLAY_IDENTITY_PROPERTY_TOKENS.has(token)) ||
     /password|passwd|passphrase|token|secret|credential|authorization|authresponse|authcode|verificationcode|otp|nonce|verifier|callbackurl|redirecturl/.test(
       normalized,
     )

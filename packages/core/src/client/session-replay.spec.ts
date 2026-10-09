@@ -3962,6 +3962,9 @@ describe("session replay", () => {
         safeProperty: "retained",
         nested: {
           email: "qa+auth@example.test",
+          accountEmail: "account@example.test",
+          recipientEmail: "recipient@example.test",
+          customerId: "customer-123",
           password: "secret-password",
           accessToken: "secret-token",
           authResponse: { userId: "auth-user-1" },
@@ -4003,11 +4006,14 @@ describe("session replay", () => {
     expect(secondBody.properties).not.toHaveProperty("userEmail");
     expect(secondBody.properties).not.toHaveProperty("userName");
     expect(secondBody.properties).not.toHaveProperty("orgId");
+    expect(secondBody.properties?.nested).not.toHaveProperty("accountEmail");
+    expect(secondBody.properties?.nested).not.toHaveProperty("recipientEmail");
+    expect(secondBody.properties?.nested).not.toHaveProperty("customerId");
     expect(secondBody.properties).toMatchObject({
       nested: { arrayOfArrays: [[{ retained: "safe" }]] },
     });
     expect(JSON.stringify(secondBody.properties)).not.toMatch(
-      /qa\+auth@example\.test|secret-password|secret-token|auth-user-1|one-time-code|opaque-nonce/,
+      /qa\+auth@example\.test|account@example\.test|recipient@example\.test|customer-123|secret-password|secret-token|auth-user-1|one-time-code|opaque-nonce/,
     );
     await second.stopSessionReplay();
   });

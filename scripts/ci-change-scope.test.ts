@@ -1249,6 +1249,7 @@ test("selects the pre-auth replay browser smoke for its runtime paths", () => {
     "templates/analytics/server/lib/session-replay.ts",
     "templates/clips/server/plugins/config.ts",
     "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+    "templates/design/playwright.config.ts",
     "templates/design/server/plugins/config.ts",
     "templates/slides/server/plugins/config.ts",
   ]) {
