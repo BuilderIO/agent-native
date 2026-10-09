@@ -373,7 +373,7 @@ function MultiSelectOption({
       <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer truncate">
         {label}
       </label>
-      <span className="inline-flex [@media(hover:hover)_and_(pointer:fine)]:hidden group-hover/option:inline-flex group-focus-within/option:inline-flex">
+      <span className="inline-flex">
         <Button
           type="button"
           variant="ghost"
