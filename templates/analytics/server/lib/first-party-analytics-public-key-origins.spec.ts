@@ -144,4 +144,24 @@ describe("updateAnalyticsPublicKeyOrigins", () => {
     ).rejects.toMatchObject({ statusCode: 409 });
     expect(state.set).not.toHaveBeenCalled();
   });
+
+  it("restricts an unrestricted key to the origins supplied on the first update", async () => {
+    state.row.replayAllowedOrigins = JSON.stringify([]);
+    Object.assign(state.updatedRow, state.row);
+
+    const result = await updateAnalyticsPublicKeyOrigins(
+      { userEmail: "member@example.com", orgId: "org-1" },
+      "apk-1",
+      ["https://beta.clips.agent-native.com"],
+    );
+
+    expect(state.set).toHaveBeenCalledWith({
+      replayAllowedOrigins: JSON.stringify([
+        "https://beta.clips.agent-native.com",
+      ]),
+    });
+    expect(result?.replayAllowedOrigins).toEqual([
+      "https://beta.clips.agent-native.com",
+    ]);
+  });
 });

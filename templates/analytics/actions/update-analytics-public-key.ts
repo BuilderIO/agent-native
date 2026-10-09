@@ -20,7 +20,7 @@ const exactHttpsOrigin = z.string().refine((value) => {
 
 export default defineAction({
   description:
-    "Add exact HTTPS origins to a first-party Analytics public key's replay allowlist. Returns the key id and prefix, updated allowlist, newly added origins, and whether it changed. Existing origins and key settings are preserved; the key must belong to the active organization or current user.",
+    "Add exact HTTPS origins to a first-party Analytics public key's replay allowlist. If no origins are listed, any origin is currently allowed; adding the first origin restricts replay to the allowlist, so include every app that needs replay. Returns the key id and prefix, updated allowlist, newly added origins, and whether it changed. Existing origins and key settings are preserved; the key must belong to the active organization or current user.",
   schema: z.object({
     id: z.string().min(1).max(200).describe("Public key row id to update."),
     addReplayAllowedOrigins: z
@@ -28,7 +28,7 @@ export default defineAction({
       .min(1)
       .max(24)
       .describe(
-        "Exact HTTPS origins to append, up to 24 per call. Use origins such as https://app.example.com, with no path, query, or fragment.",
+        "Exact HTTPS origins to append, up to 24 per call. When the key has no origins, it accepts any origin; adding the first restricts replay to the listed origins, so include every app that needs replay. Use origins such as https://app.example.com, with no path, query, or fragment.",
       ),
   }),
   http: { method: "PUT" },
