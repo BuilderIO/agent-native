@@ -16,6 +16,7 @@ import { getFirstPartyAnalyticsBackend } from "../lib/first-party-analytics-back
 let running = false;
 let listRulesFailureLogged = false;
 const DEFAULT_MAX_RULES_PER_SWEEP = 100;
+const MAX_BIGQUERY_RULES_PER_BATCH = 3;
 
 function maxRulesPerSweep(input?: number): number {
   if (input) return Math.max(1, Math.min(500, Math.floor(input)));
@@ -90,7 +91,7 @@ export async function runAnalyticsAlertsOnce(
 
     async function claimRule(rule: AnalyticsAlertRule): Promise<boolean> {
       try {
-        const claimed = await claimAnalyticsAlertRuleEvaluation(rule, now);
+        const claimed = await claimAnalyticsAlertRuleEvaluation(rule);
         if (claimed) processed++;
         return claimed;
       } catch (err) {
@@ -148,32 +149,42 @@ export async function runAnalyticsAlertsOnce(
       }
     }
 
-    for (const plannedBatch of batches.values()) {
-      const batch: AnalyticsAlertRule[] = [];
-      for (const rule of plannedBatch) {
-        if (await claimRule(rule)) batch.push(rule);
-      }
-      if (!batch.length) continue;
-      let evaluations: Awaited<
-        ReturnType<typeof evaluateBigQueryAnalyticsAlertBatch>
-      >;
-      try {
-        evaluations = await evaluateBigQueryAnalyticsAlertBatch(batch, now);
-      } catch (err) {
-        for (const rule of batch) await failRule(rule, err);
-        continue;
-      }
-      for (const rule of batch) {
-        const result = evaluations.get(rule.id);
-        if (!result) {
-          await failRule(
-            rule,
-            new Error(`Missing analytics alert batch result: ${rule.id}`),
-          );
-        } else if ("error" in result) {
-          await failRule(rule, result.error);
-        } else {
-          await notifyRule(rule, result.evaluation);
+    for (const scopedRules of batches.values()) {
+      for (
+        let offset = 0;
+        offset < scopedRules.length;
+        offset += MAX_BIGQUERY_RULES_PER_BATCH
+      ) {
+        const plannedBatch = scopedRules.slice(
+          offset,
+          offset + MAX_BIGQUERY_RULES_PER_BATCH,
+        );
+        const batch: AnalyticsAlertRule[] = [];
+        for (const rule of plannedBatch) {
+          if (await claimRule(rule)) batch.push(rule);
+        }
+        if (!batch.length) continue;
+        let evaluations: Awaited<
+          ReturnType<typeof evaluateBigQueryAnalyticsAlertBatch>
+        >;
+        try {
+          evaluations = await evaluateBigQueryAnalyticsAlertBatch(batch, now);
+        } catch (err) {
+          for (const rule of batch) await failRule(rule, err);
+          continue;
+        }
+        for (const rule of batch) {
+          const result = evaluations.get(rule.id);
+          if (!result) {
+            await failRule(
+              rule,
+              new Error(`Missing analytics alert batch result: ${rule.id}`),
+            );
+          } else if ("error" in result) {
+            await failRule(rule, result.error);
+          } else {
+            await notifyRule(rule, result.evaluation);
+          }
         }
       }
     }

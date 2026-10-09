@@ -120,9 +120,11 @@ afterEach(() => {
 });
 
 describe("analytics alert sweep batching", () => {
-  it("claims all three before one query and uses one frozen now throughout", async () => {
-    mocks.claim.mockImplementation(async () => {
+  it("claims all three before one query with fresh leases and one frozen evaluation window", async () => {
+    const claimedAt: Date[] = [];
+    mocks.claim.mockImplementation(async (_rule, time = new Date()) => {
       expect(mocks.query).not.toHaveBeenCalled();
+      claimedAt.push(time);
       vi.advanceTimersByTime(1000);
       return true;
     });
@@ -134,8 +136,12 @@ describe("analytics alert sweep batching", () => {
     });
     expect(mocks.query).toHaveBeenCalledTimes(1);
     expect(mocks.notify).toHaveBeenCalledTimes(3);
-    for (const call of [...mocks.claim.mock.calls, ...mocks.notify.mock.calls])
-      expect(call[1]).toEqual(now);
+    expect(claimedAt.map((time) => time.toISOString())).toEqual([
+      "2026-10-09T12:00:00.000Z",
+      "2026-10-09T12:00:01.000Z",
+      "2026-10-09T12:00:02.000Z",
+    ]);
+    for (const call of mocks.notify.mock.calls) expect(call[1]).toEqual(now);
     expect(mocks.query.mock.calls[0][0]).toContain("2026-10-09T12:00:00.000Z");
     for (const call of mocks.notify.mock.calls)
       expect(call[2]).toEqual({
@@ -165,6 +171,11 @@ describe("analytics alert sweep batching", () => {
   });
 
   it("leaves later batches and individual rules unclaimed while a query is pending", async () => {
+    const claimedAt = new Map<string, Date>();
+    mocks.claim.mockImplementation(async (rule, time = new Date()) => {
+      claimedAt.set(rule.id, time);
+      return true;
+    });
     mocks.list.mockResolvedValue([
       ...targetRules(),
       rule("other", { ownerEmail: "other@example.test" }),
@@ -190,6 +201,7 @@ describe("analytics alert sweep batching", () => {
       targetRules().map((rule) => rule.id),
     );
     expect(mocks.notify).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(16 * 60 * 1000);
     release();
     expect((await sweep).processed).toBe(5);
     expect(mocks.claim.mock.calls.map((call) => call[0].id)).toEqual([
@@ -197,6 +209,38 @@ describe("analytics alert sweep batching", () => {
       "other",
       "individual",
     ]);
+    for (const id of ["other", "individual"])
+      expect(claimedAt.get(id)).toEqual(new Date("2026-10-09T12:16:00.000Z"));
+    for (const call of mocks.notify.mock.calls) expect(call[1]).toEqual(now);
+    for (const call of mocks.query.mock.calls)
+      expect(call[0]).toContain("2026-10-09T12:00:00.000Z");
+  });
+
+  it("splits a large scope into batches of three and claims only the current chunk", async () => {
+    mocks.list.mockResolvedValue([
+      ...targetRules(),
+      rule("a"),
+      rule("b"),
+      rule("c"),
+      rule("d"),
+    ]);
+    const query = mocks.query.getMockImplementation()!;
+    const claimsAtQuery: number[] = [];
+    mocks.query.mockImplementation(async (...args) => {
+      claimsAtQuery.push(mocks.claim.mock.calls.length);
+      return query(...args);
+    });
+    expect((await runAnalyticsAlertsOnce()).processed).toBe(7);
+    expect(mocks.query).toHaveBeenCalledTimes(3);
+    expect(claimsAtQuery).toEqual([3, 6, 7]);
+    expect(
+      mocks.query.mock.calls.map(
+        (call) => [...call[0].matchAll(/AS count_\d+/g)].length,
+      ),
+    ).toEqual([3, 3, 1]);
+    for (const target of targetRules())
+      expect(mocks.query.mock.calls[0][0]).toContain(`'${target.eventName}'`);
+    expect(mocks.notify).toHaveBeenCalledTimes(7);
   });
 
   it("keeps JSON IN rules on the individual path beside the three-rule batch", async () => {
