@@ -342,6 +342,9 @@ describe("space-aware document writers", () => {
     expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledTimes(
       2,
     );
+    expect(actionEffects.recordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({ onlyIfMissing: true }),
+    );
     expect(actionEffects.generationContexts.has(input.id)).toBe(true);
     expect(actionEffects.track).toHaveBeenCalledTimes(1);
     await expect(

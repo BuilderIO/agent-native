@@ -607,6 +607,40 @@ describe("creative context access and revocation", () => {
     ).rejects.toThrow(/verified by the host application/i);
   });
 
+  it("records one generation context for concurrent create retries", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const input = {
+      appId: "content",
+      artifactType: "document",
+      artifactId: "concurrent-create-retry",
+      contextMode: "off" as const,
+      contextPackId: null,
+      reuseLabels: [],
+      elementProvenance: [
+        {
+          elementId: "concurrent-create-retry",
+          influence: "generated" as const,
+        },
+      ],
+      onlyIfMissing: true,
+    };
+    const record = () =>
+      runWithRequestContext({ userEmail: "alice@example.test" }, () =>
+        store.recordGenerationCreativeContext(input),
+      );
+
+    const records = await Promise.all([record(), record(), record()]);
+    expect(new Set(records.map((entry) => entry.id)).size).toBe(1);
+    const stored = await exec.execute({
+      sql: `SELECT id FROM creative_context_generation_records
+        WHERE app_id = ? AND artifact_type = ? AND artifact_id = ?
+          AND owner_email = ? AND org_id IS NULL`,
+      args: ["content", "document", input.artifactId, "alice@example.test"],
+    });
+    expect(stored.rows).toHaveLength(1);
+    expect(stored.rows[0]?.id).toBe(records[0]?.id);
+  });
+
   it("appends media enrichment while preserving version-pinned pack evidence", async () => {
     const { exec, runWithRequestContext, store } = await setup();
     await exec.execute({

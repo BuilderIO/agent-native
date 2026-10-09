@@ -656,5 +656,6 @@ export async function getGenerationCreativeContext(
     : undefined;
   return getGenerationCreativeContextLocal(input, {
     artifactAccess,
+    db: options.db,
   });
 }

@@ -56,6 +56,7 @@ const generationRecordInputSchema = generationIdentitySchema
     contextPackId: boundedId.nullable(),
     reuseLabels: z.array(reuseLabelSchema).max(100),
     elementProvenance: z.array(elementProvenanceSchema).max(500).optional(),
+    onlyIfMissing: z.boolean().optional(),
   })
   .strict();
 const artifactAccessCapabilitySchema = z.string().min(1).max(8_192);
@@ -412,5 +413,6 @@ export type IsolatedRecordPayload = {
   contextPackId: string | null;
   reuseLabels: CreativeContextReuseLabel[];
   elementProvenance?: CreativeContextElementProvenance[];
+  onlyIfMissing?: boolean;
   artifactAccessCapability?: string;
 };

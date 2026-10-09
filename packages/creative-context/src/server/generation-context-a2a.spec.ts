@@ -124,6 +124,7 @@ describe("generation context isolated A2A routing", () => {
       contextMode: "auto",
       contextPackId: null,
       reuseLabels: [],
+      onlyIfMissing: true,
     });
 
     expect(mocks.callA2A).toHaveBeenNthCalledWith(1, "resolve", {
@@ -147,14 +148,16 @@ describe("generation context isolated A2A routing", () => {
       },
       artifactAccessCapability: "cap-read",
     });
-    expect(mocks.callA2A).toHaveBeenNthCalledWith(
-      4,
-      "record",
-      expect.objectContaining({
-        artifactId: "deck-1",
-        artifactAccessCapability: "cap-record",
-      }),
-    );
+    expect(mocks.callA2A).toHaveBeenNthCalledWith(4, "record", {
+      appId: "slides",
+      artifactType: "deck",
+      artifactId: "deck-1",
+      contextMode: "auto",
+      contextPackId: null,
+      reuseLabels: [],
+      onlyIfMissing: true,
+      artifactAccessCapability: "cap-record",
+    });
     expect(mocks.recordLocal).not.toHaveBeenCalled();
     expect(mocks.getLocal).not.toHaveBeenCalled();
   });

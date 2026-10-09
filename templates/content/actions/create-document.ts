@@ -131,25 +131,6 @@ function canCommentRole(role: DocumentAccessRole): boolean {
   return role === "owner" || roleSatisfies(role, "commenter");
 }
 
-const generationRecordLocks = new Map<string, Promise<unknown>>();
-
-function withGenerationRecordLock<T>(
-  artifactId: string,
-  record: () => Promise<T>,
-): Promise<T> {
-  const previous = generationRecordLocks.get(artifactId) ?? Promise.resolve();
-  const next = previous.then(record, record);
-  generationRecordLocks.set(artifactId, next);
-  next
-    .finally(() => {
-      if (generationRecordLocks.get(artifactId) === next) {
-        generationRecordLocks.delete(artifactId);
-      }
-    })
-    .catch(() => {});
-  return next;
-}
-
 type DocumentCreationProvenance = {
   contextMode: "off" | "auto" | "pinned";
   contextPackId: string | null;
@@ -163,23 +144,22 @@ async function recordDocumentCreationContextIfMissing(input: {
   reuseLabels: DocumentCreationProvenance["reuseLabels"];
   elementProvenance: CreativeContextElementProvenance[];
 }): Promise<void> {
-  await withGenerationRecordLock(input.artifactId, async () => {
-    const existing = await getGenerationCreativeContext({
-      appId: "content",
-      artifactType: "document",
-      artifactId: input.artifactId,
-    });
-    if (existing) return;
+  const existing = await getGenerationCreativeContext({
+    appId: "content",
+    artifactType: "document",
+    artifactId: input.artifactId,
+  });
+  if (existing) return;
 
-    await recordGenerationCreativeContext({
-      appId: "content",
-      artifactType: "document",
-      artifactId: input.artifactId,
-      contextMode: input.contextMode,
-      contextPackId: input.contextPackId,
-      reuseLabels: input.reuseLabels,
-      elementProvenance: input.elementProvenance,
-    });
+  await recordGenerationCreativeContext({
+    appId: "content",
+    artifactType: "document",
+    artifactId: input.artifactId,
+    contextMode: input.contextMode,
+    contextPackId: input.contextPackId,
+    reuseLabels: input.reuseLabels,
+    elementProvenance: input.elementProvenance,
+    onlyIfMissing: true,
   });
 }
 
