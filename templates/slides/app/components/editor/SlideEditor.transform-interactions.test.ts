@@ -46,7 +46,9 @@ describe("SlideEditor transformed-object interactions", () => {
     expect(rotateSource).toContain(
       "readSlideObjectTransformSnapshot(member.element)",
     );
-    expect(rotateSource).toContain("member.element.style.setProperty(");
+    expect(rotateSource).toContain(
+      "restoreSlideObjectTransformSnapshots(transforms)",
+    );
     expect(rotateSource).toContain('"transform"');
     expect(rotateSource).toContain("next.transform");
     expect(rotateSource).toContain(

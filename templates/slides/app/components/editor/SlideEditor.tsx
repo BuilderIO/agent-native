@@ -8821,6 +8821,14 @@ export default function SlideEditor({
       );
       frame.style.clipPath = "none";
       frame.style.borderRadius = "0";
+      const restoreOriginalImageStyleAttribute = () => {
+        if (!originalImageAttributes) return;
+        const originalStyle = originalImageAttributes.find(
+          ([name]) => name === "style",
+        );
+        if (originalStyle) image.setAttribute("style", originalStyle[1]);
+        else image.removeAttribute("style");
+      };
       const activeCrop: ActiveImageCrop = {
         slideId: slide.id,
         content: slide.content,
@@ -8873,6 +8881,7 @@ export default function SlideEditor({
             }
             frozen.restoreMarkdownTree();
             restoreCropTransitions();
+            restoreOriginalImageStyleAttribute();
             activeCrop.restoreAnimations();
             return frameIsPersistedImage ? originalFrame : image;
           }
@@ -8891,6 +8900,7 @@ export default function SlideEditor({
             }
           }
           restoreCropTransitions();
+          restoreOriginalImageStyleAttribute();
           activeCrop.restoreAnimations();
           return image;
         },
