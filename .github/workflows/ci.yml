@@ -425,7 +425,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 9
+    timeout-minutes: ${{ matrix.shard == 'ai-sidebar-loopback' && 20 || 9 }}
     strategy:
       fail-fast: false
       matrix:
@@ -450,6 +450,7 @@ jobs:
             screen-history-1,
             screen-history-2,
             screen-history-3,
+            ai-sidebar-loopback,
           ]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -497,8 +498,17 @@ jobs:
             --grep "$grep" \
             --workers=1
 
+      - name: Run AI sidebar loopback image regressions
+        if: matrix.shard == 'ai-sidebar-loopback'
+        working-directory: templates/design
+        timeout-minutes: 18
+        env:
+          E2E_RUN_ID: design-ai-sidebar-${{ github.run_id }}-${{ github.run_attempt }}
+          E2E_AI_SIDEBAR_LOOPBACK: "1"
+        run: pnpm exec playwright test e2e/ai-sidebar-reporter-path.spec.ts --workers=1 --retries=0
+
       - name: Run focused Design regression cases
-        if: ${{ !startsWith(matrix.shard, 'screen-history-') }}
+        if: ${{ !startsWith(matrix.shard, 'screen-history-') && matrix.shard != 'ai-sidebar-loopback' }}
         working-directory: templates/design
         timeout-minutes: 4
         env:

@@ -6680,6 +6680,47 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("shows a queued prompt before setup and durable queue writes finish", async () => {
+    const readiness = Promise.withResolvers<void>();
+    const readinessStarted = Promise.withResolvers<void>();
+    const persistence = Promise.withResolvers<{
+      message: AgentQueuedMessage;
+    }>();
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      () => persistence.promise,
+    );
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      capabilities: { messageQueue: true },
+      async assertAiSetupReady() {
+        readinessStarted.resolve();
+        await readiness.promise;
+      },
+      queueMessage,
+    };
+    const client = new AgentKitClient({ transport });
+    const onLocalSubmit = vi.fn();
+    const submission = client.queueMessage({
+      threadId: "thread-1",
+      text: "Queue this follow-up immediately",
+      onLocalSubmit,
+    });
+
+    const optimistic = client.getThread("thread-1").queuedMessages[0];
+    expect(optimistic).toMatchObject({
+      text: "Queue this follow-up immediately",
+    });
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
+    await readinessStarted.promise;
+    expect(queueMessage).not.toHaveBeenCalled();
+
+    readiness.resolve();
+    await vi.waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
+    persistence.resolve({ message: optimistic! });
+    await expect(submission).resolves.toEqual(optimistic);
+    await client.shutdown();
+  });
+
   it("cancels a queued send without cancelling the active run", async () => {
     const queued: AgentQueuedMessage = {
       id: "queued-cancel-send",

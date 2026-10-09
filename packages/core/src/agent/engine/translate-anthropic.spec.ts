@@ -250,7 +250,9 @@ describe("engineMessagesToAnthropic", () => {
     expect(replay[0]).toMatchObject({
       type: "tool_result",
       tool_use_id: "tc-1",
-      content: "Interrupted before this tool returned a result.",
+      content:
+        "Interrupted before this tool returned a result; its outcome is unknown.",
+      is_error: true,
     });
   });
 
@@ -426,13 +428,18 @@ describe("engineMessagesToAnthropic", () => {
 
     const anthropic = engineMessagesToBuilderGatewayAnthropic(messages);
     const replay = anthropic[2].content as any[];
+    const backfilled = backfillEngineMessagesToolResults(messages);
+
+    expect(backfilled[2]?.content[0]).toMatchObject({ isError: true });
 
     expect(replay[0]).toMatchObject({
       type: "tool_result",
       tool_use_id: "history_tc_1",
       tool_name: "chat-history",
       tool_input: '{"action":"search"}',
-      content: "Interrupted before this tool returned a result.",
+      content:
+        "Interrupted before this tool returned a result; its outcome is unknown.",
+      is_error: true,
     });
     expect(replay[1]).toMatchObject({
       type: "text",

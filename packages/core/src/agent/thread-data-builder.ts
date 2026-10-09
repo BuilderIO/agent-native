@@ -74,6 +74,62 @@ export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
 
 const MAX_STORED_ATTACHMENT_CHARS = 60_000;
 
+export function containsInlineAttachmentPayload(value: unknown): boolean {
+  const seen = new WeakSet<object>();
+  const isBase64Payload = (entry: string) =>
+    entry.length >= 64 && /^[A-Za-z0-9+/]+={0,2}$/.test(entry.trim());
+  const visit = (
+    entry: unknown,
+    attachmentContext = false,
+    fieldName?: string,
+  ): boolean => {
+    if (typeof entry === "string") {
+      const dataUrlPayload = entry.match(
+        /\bdata:[^\s,]+;base64,([A-Za-z0-9+/=]+)/i,
+      )?.[1];
+      const isAttachmentField =
+        attachmentContext &&
+        (fieldName === "url" ||
+          fieldName === "referenceUrl" ||
+          fieldName === "image" ||
+          fieldName === "data");
+      if (
+        (isAttachmentField && /\bdata:[^\s,]+,/i.test(entry)) ||
+        (dataUrlPayload?.length ?? 0) >= 64
+      ) {
+        return true;
+      }
+      return (
+        (fieldName === "data" ||
+          (attachmentContext && fieldName === "image")) &&
+        isBase64Payload(entry)
+      );
+    }
+    if (!entry || typeof entry !== "object") return false;
+    if (seen.has(entry)) return false;
+    seen.add(entry);
+    if (Array.isArray(entry)) {
+      return entry.some((item) => visit(item, attachmentContext));
+    }
+
+    const record = entry as Record<string, unknown>;
+    const isAttachment =
+      attachmentContext ||
+      record.type === "image" ||
+      record.type === "file" ||
+      record.type === "document";
+    if (isAttachment && typeof record.data === "string" && record.data.trim()) {
+      return true;
+    }
+
+    return Object.entries(record).some(([key, child]) =>
+      visit(child, isAttachment, key),
+    );
+  };
+
+  return visit(value);
+}
+
 function isInternalContinuationError(event: {
   error: string;
   errorCode?: string;
@@ -3234,7 +3290,9 @@ function buildStoredAttachments(
         };
       }
       const uploadedUrl = (att as any).url as string | undefined;
-      if (uploadedUrl) {
+      const inlineDataUrl =
+        typeof uploadedUrl === "string" && /^\s*data:/i.test(uploadedUrl);
+      if (uploadedUrl && !inlineDataUrl) {
         const referenceOnly = (att as any).referenceOnly === true;
         const storedAsImage = att.type === "image" && !referenceOnly;
         return {
@@ -3279,7 +3337,11 @@ function buildStoredAttachments(
         };
       }
 
-      if (att.storageRequired === true || typeof att.data === "string") {
+      if (
+        inlineDataUrl ||
+        att.storageRequired === true ||
+        typeof att.data === "string"
+      ) {
         const uploadFailed = att.storageUploadFailed === true;
         return {
           id,
@@ -3290,9 +3352,11 @@ function buildStoredAttachments(
           content: [
             {
               type: "text",
-              text: uploadFailed
-                ? "Attachment not retained: the configured object-storage upload failed. Retry the upload to keep files available throughout this thread."
-                : "Attachment not retained: connect object storage to keep files available throughout this thread.",
+              text: inlineDataUrl
+                ? "Attachment not retained: inline data URLs cannot be stored in thread history. Attach the file using durable storage to keep it available throughout this thread."
+                : uploadFailed
+                  ? "Attachment not retained: the configured object-storage upload failed. Retry the upload to keep files available throughout this thread."
+                  : "Attachment not retained: connect object storage to keep files available throughout this thread.",
             },
           ],
           metadata: {

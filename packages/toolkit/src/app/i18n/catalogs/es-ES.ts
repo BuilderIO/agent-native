@@ -816,6 +816,9 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "Error al copiar",
   "recovery.continueUnavailable":
     "Esta ejecución ya no se puede continuar. Envía un mensaje para seguir.",
+  "errorMessages.invalidAttachmentNamed":
+    "El proveedor del modelo rechazó {{name}} porque su formato o tamaño no es compatible. Para imágenes, exporta un PNG, JPEG, GIF o WebP más pequeño; para documentos, usa un formato compatible o pega el texto relevante y vuelve a intentarlo.",
+  "recovery.retryWithoutAttachment": "Reintentar sin el archivo adjunto",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitud incluía un archivo que no se puede volver a enviar. Vuelve a adjuntarlo en el cuadro de mensaje y vuelve a intentarlo.",
   "recovery.deferredSubmissionFailed":

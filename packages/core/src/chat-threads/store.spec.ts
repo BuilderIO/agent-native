@@ -22,6 +22,7 @@ import {
   buildUserMessage,
 } from "../agent/thread-data-builder.js";
 import {
+  InlineAttachmentDataNotPersistableError,
   adoptThreadScopeIfUnscoped,
   createThreadShareLink,
   forkThread,
@@ -270,6 +271,42 @@ describe("chat thread store", () => {
 
     expect(shareRows).toHaveLength(1);
     expect(shareRows[0].role).toBe("editor");
+  });
+
+  it("rejects inline image payloads at the shared thread persistence boundary", async () => {
+    const originalThreadData = row!.thread_data;
+    const incoming = JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "inline-image-save",
+            role: "user",
+            content: [{ type: "text", text: "Inspect this" }],
+            attachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                data: "A".repeat(128),
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    await expect(
+      updateThreadData("thread-1", incoming, "Thread", "Inspect this", 1),
+    ).rejects.toBeInstanceOf(InlineAttachmentDataNotPersistableError);
+
+    expect(row!.thread_data).toBe(originalThreadData);
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        /UPDATE chat_threads SET thread_data/i.test(
+          typeof query === "string" ? query : query.sql,
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("retries cross-process thread-data conflicts and preserves server-only messages", async () => {
@@ -1705,6 +1742,36 @@ describe("chat thread store", () => {
         },
       }),
     ).rejects.toThrow("queuedMessage.requestAttachments[0].url");
+
+    expect(row!.thread_data).toBe(originalThreadData);
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        /UPDATE chat_threads SET thread_data/i.test(
+          typeof query === "string" ? query : query.sql,
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects a data URL in a queued file part before any SQL update", async () => {
+    const originalThreadData = row!.thread_data;
+
+    await expect(
+      mutateThreadQueuedMessages("thread-1", {
+        type: "append",
+        message: {
+          id: "queued-inline-file-url",
+          text: "Use this image",
+          attachments: [
+            {
+              type: "file",
+              name: "screen.png",
+              url: "data:image/png;base64,aGVsbG8=",
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow("queuedMessage.attachments[0].url");
 
     expect(row!.thread_data).toBe(originalThreadData);
     expect(

@@ -120,6 +120,7 @@ import {
   buildAssistantMessage,
   buildUserMessage,
   applySubmittedUserMessage,
+  containsInlineAttachmentPayload,
   foldAgentChatRunCompletion,
   extractThreadMeta,
   foldUnstartedTurnFailure,
@@ -139,6 +140,7 @@ import { getAppConfig } from "../app-config/index.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
 import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
+  InlineAttachmentDataNotPersistableError,
   adoptThreadScopeIfUnscoped,
   createThread,
   forkThread,
@@ -7111,6 +7113,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     setResponseStatus(event, 400);
                     return { error: "Invalid threadData JSON" };
                   }
+                  if (containsInlineAttachmentPayload(incoming)) {
+                    setResponseStatus(event, 400);
+                    return {
+                      error: "Invalid threadData JSON",
+                      code: "inline_attachment_data_not_persistable",
+                      retryable: false,
+                    };
+                  }
                   const incomingAgentKit = (incoming as Record<string, unknown>)
                     .agentKit;
                   isSnapshotDelta =
@@ -7135,18 +7145,33 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 } else {
                   preserveTitleOverride(existing);
                 }
-                const updated = await updateThreadData(
-                  threadId,
-                  newThreadData,
-                  nextTitle,
-                  nextPreview,
-                  newMessageCount,
-                  {
-                    preserveCurrentTitleAndPreview: isSnapshotDelta,
-                    onAnnotationConflict: (conflict) =>
-                      annotationConflicts.push(conflict),
-                  },
-                );
+                let updated: boolean;
+                try {
+                  updated = await updateThreadData(
+                    threadId,
+                    newThreadData,
+                    nextTitle,
+                    nextPreview,
+                    newMessageCount,
+                    {
+                      preserveCurrentTitleAndPreview: isSnapshotDelta,
+                      onAnnotationConflict: (conflict) =>
+                        annotationConflicts.push(conflict),
+                    },
+                  );
+                } catch (error) {
+                  if (
+                    !(error instanceof InlineAttachmentDataNotPersistableError)
+                  ) {
+                    throw error;
+                  }
+                  setResponseStatus(event, 400);
+                  return {
+                    error: "Invalid threadData JSON",
+                    code: error.code,
+                    retryable: false,
+                  };
+                }
                 if (!updated) {
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
@@ -7391,9 +7416,31 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return { error: "Thread not found" };
               }
               const body = await readBody(event);
+              const sourceSnapshot = parseForkSourceFromBody(body?.source);
+              if (sourceSnapshot) {
+                let parsedSource: unknown;
+                try {
+                  parsedSource = JSON.parse(sourceSnapshot.threadData);
+                } catch {
+                  setResponseStatus(event, 400);
+                  return {
+                    error: "Invalid threadData JSON",
+                    code: "invalid_thread_data",
+                    retryable: false,
+                  };
+                }
+                if (containsInlineAttachmentPayload(parsedSource)) {
+                  setResponseStatus(event, 400);
+                  return {
+                    error: "Invalid threadData JSON",
+                    code: "inline_attachment_data_not_persistable",
+                    retryable: false,
+                  };
+                }
+              }
               const forked = await forkThread(threadId, owner, {
                 id: body?.id,
-                source: parseForkSourceFromBody(body?.source),
+                source: sourceSnapshot,
                 sourceAccessGranted: true,
               });
               if (!forked) {

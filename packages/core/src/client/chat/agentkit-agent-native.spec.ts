@@ -3056,7 +3056,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     }
 
     // A server that applies the same merge a client thread PUT goes through.
-    function threadServer(initial: unknown) {
+    function threadServer(initial: unknown, threadId = "thread-refused") {
       let repo = initial;
       const transport = createAgentNativeAgentKitTransport({
         fetch: vi.fn(
@@ -3071,7 +3071,7 @@ describe("createAgentNativeAgentKitTransport", () => {
               return json({ ok: true });
             }
             return json({
-              id: "thread-refused",
+              id: threadId,
               createdAt: "2026-10-01T00:00:00.000Z",
               updatedAt: "2026-10-01T00:00:01.000Z",
               threadData: JSON.stringify(repo),
@@ -3103,6 +3103,63 @@ describe("createAgentNativeAgentKitTransport", () => {
         submittedTurnId: "turn-1",
       },
     };
+
+    it("restores the selected model and request mode needed by Continue", async () => {
+      const threadId = "thread-continue-selection";
+      const transport = threadServer({}, threadId);
+      const selected = {
+        id: "user-selected-model",
+        role: "user" as const,
+        parts: [{ type: "text" as const, text: "Continue the design" }],
+        metadata: {
+          model: "provider/model-v2",
+          engine: "openai",
+          effort: "high",
+          requestMode: "plan",
+          opaqueValue: "drop this unrelated metadata",
+          custom: {
+            agentNativeRecoveryOfRunId: "run-needing-continue",
+            opaqueValue: "drop this custom metadata",
+          },
+        },
+      };
+      const dataUrlSelection = {
+        id: "user-invalid-selection",
+        role: "user" as const,
+        parts: [{ type: "text" as const, text: "Invalid selection" }],
+        metadata: {
+          model: "data:image/png;base64,not-model-metadata",
+          engine: "x".repeat(257),
+          effort: "invalid",
+          requestMode: "continue",
+        },
+      };
+
+      await transport.persistThreadSnapshot?.({
+        threadId,
+        snapshot: {
+          id: threadId,
+          createdAt: "2026-10-01T00:00:00.000Z",
+          updatedAt: "2026-10-01T00:00:01.000Z",
+          messages: [selected, dataUrlSelection],
+        },
+      });
+      const reloaded = await transport.getThreadSnapshot?.({ threadId });
+
+      expect(reloaded?.messages.map((message) => message.id)).toEqual([
+        "user-selected-model",
+        "user-invalid-selection",
+      ]);
+      expect(reloaded?.messages[0]?.metadata).toEqual({
+        model: "provider/model-v2",
+        engine: "openai",
+        effort: "high",
+        requestMode: "plan",
+        custom: { agentNativeRecoveryOfRunId: "run-needing-continue" },
+      });
+      expect(reloaded?.messages[1]?.metadata).toBeUndefined();
+      await transport.dispose();
+    });
 
     it("keeps its marker and retry context when the client saves the loaded thread and reloads", async () => {
       const transport = threadServer(serverRefusal());

@@ -163,6 +163,38 @@ function breakpointSetForDevices(devices: readonly GenerationViewport[]) {
     });
 }
 
+function requestedDeviceVariants(
+  prompt: string,
+  devices: readonly GenerationViewport[],
+): GenerationViewport[] {
+  const requested = new Set<GenerationViewport>();
+  const deviceGroup =
+    /\b(?:desktop|mobile|tablet)(?:\s*(?:[,/&]|\band\b)\s*(?:desktop|mobile|tablet))+\b/gi;
+  const namedVariant =
+    /\b(desktop|mobile|tablet)\s+(?:versions?|variants?|layouts?|breakpoints?)\b/gi;
+
+  for (const match of prompt.matchAll(deviceGroup)) {
+    for (const deviceMatch of match[0].matchAll(
+      /\b(desktop|mobile|tablet)\b/gi,
+    )) {
+      requested.add(deviceMatch[1]!.toLowerCase() as GenerationViewport);
+    }
+  }
+  for (const match of prompt.matchAll(namedVariant)) {
+    requested.add(match[1]!.toLowerCase() as GenerationViewport);
+  }
+
+  return devices.filter((device) => requested.has(device));
+}
+
+function isFixedArtworkCopyFollowUp(prompt: string): boolean {
+  return (
+    /^\s*(?:please\s+)?(?:update|edit|revise|rewrite|adjust|refine|tweak)\b/i.test(
+      prompt,
+    ) && /\b(?:copy|text|caption|headline|tagline|wording)\b/i.test(prompt)
+  );
+}
+
 const reuseLabelSchema = z
   .object({
     itemId: z.string().min(1).optional(),
@@ -963,12 +995,29 @@ const generateDesignAction = defineAction({
       type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
     }));
     const fixedCanvasOutput = canvasIntent.kind === "fixed";
+    const exactFixedCanvasOutput =
+      canvasIntent.kind === "fixed" &&
+      (canvasIntent.source === "explicit-dimensions" ||
+        canvasIntent.source === "preset");
+    const fixedArtworkFollowUp =
+      fixedCanvasOutput &&
+      promptCanvasDimensions === undefined &&
+      existingFiles.some((existingFile) =>
+        files.some((file) => file.filename === existingFile.filename),
+      ) &&
+      isFixedArtworkCopyFollowUp(prompt);
+    const selectedDevices = exactFixedCanvasOutput
+      ? []
+      : devices !== undefined && fixedArtworkFollowUp
+        ? requestedDeviceVariants(prompt, devices)
+        : devices;
     const resolvedDevices =
-      devices ??
+      selectedDevices ??
       (fixedCanvasOutput ? [] : devicesForPrimaryViewport(primaryViewport));
-    const explicitDeviceSelection = devices !== undefined && devices.length > 0;
+    const explicitDeviceSelection =
+      selectedDevices !== undefined && selectedDevices.length > 0;
     const explicitlyEmptyDeviceSelection =
-      devices !== undefined && devices.length === 0;
+      selectedDevices !== undefined && selectedDevices.length === 0;
     const resolvedPrimaryViewport = widestGenerationDevice(resolvedDevices);
     const generatedBreakpointSet = breakpointSetForDevices(resolvedDevices);
     await mutateDesignData({
@@ -1105,19 +1154,25 @@ const generateDesignAction = defineAction({
                 : typeof frame?.height === "number" && frame.height > 0
                   ? frame.height
                   : viewport.height);
+          const existingBreakpointWidths =
+            Array.isArray(metadata.breakpointWidths) &&
+            metadata.breakpointWidths.every(
+              (value): value is number =>
+                typeof value === "number" && Number.isFinite(value),
+            )
+              ? metadata.breakpointWidths
+              : undefined;
           const breakpointWidths = explicitDeviceSelection
             ? undefined
-            : fixedCanvasOutput || explicitlyEmptyDeviceSelection
-              ? []
-              : Array.isArray(metadata.breakpointWidths) &&
-                  metadata.breakpointWidths.every(
-                    (value): value is number =>
-                      typeof value === "number" && Number.isFinite(value),
-                  )
-                ? metadata.breakpointWidths
-                : generatedBreakpointSet.length === 0
-                  ? []
-                  : undefined;
+            : fixedArtworkFollowUp
+              ? (existingBreakpointWidths ?? [])
+              : fixedCanvasOutput || explicitlyEmptyDeviceSelection
+                ? []
+                : existingBreakpointWidths !== undefined
+                  ? existingBreakpointWidths
+                  : generatedBreakpointSet.length === 0
+                    ? []
+                    : undefined;
           const nextMetadata: Record<string, unknown> = {
             ...metadata,
             width,

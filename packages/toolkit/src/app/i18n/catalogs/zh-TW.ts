@@ -1079,6 +1079,9 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyDebug": "複製偵錯資訊",
   "recovery.copyFailed": "複製失敗",
   "recovery.continueUnavailable": "此執行已無法繼續。傳送訊息以繼續。",
+  "errorMessages.invalidAttachmentNamed":
+    "模型供應商拒絕了 {{name}}，因為其格式或大小不受支援。圖片請匯出為較小的 PNG、JPEG、GIF 或 WebP；文件請使用支援的格式，或貼上相關文字後重試。",
+  "recovery.retryWithoutAttachment": "不附帶附件重試",
   "recovery.retryAttachmentUnavailable":
     "此要求包含無法重試的檔案。請在訊息輸入框中重新附加檔案，然後再試一次。",
   "recovery.deferredSubmissionFailed":

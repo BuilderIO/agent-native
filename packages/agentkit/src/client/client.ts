@@ -2683,22 +2683,7 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
   ): Promise<AgentRunHandle> {
     this.assertActive();
-    await this.assertAiSetupReady(
-      { engine: selectedEngineForDispatch(input), threadId: input.threadId },
-      context,
-    );
     const requestContext = this.createRequestContext(context);
-    await this.ensureCapabilities(requestContext);
-    if (input.attachments?.length || input.requestAttachments?.length) {
-      await this.requireCapability("attachments", requestContext);
-    }
-    if (input.options?.model) {
-      await this.requireCapability("modelSelection", requestContext);
-    }
-    if (input.options?.toolChoice) {
-      await this.requireCapability("toolSelection", requestContext);
-    }
-    this.assertActive();
     const current = this.getThread(input.threadId);
     const activeRunId = current.activeRunIds.at(-1);
     if (
@@ -2731,6 +2716,22 @@ export class AgentKitClient implements AgentKitController {
           this.removeQueuedMessage(input.threadId, queued.id, requestContext),
       };
     }
+    await this.assertAiSetupReady(
+      { engine: selectedEngineForDispatch(input), threadId: input.threadId },
+      requestContext,
+    );
+    await this.ensureCapabilities(requestContext);
+    if (input.attachments?.length || input.requestAttachments?.length) {
+      await this.requireCapability("attachments", requestContext);
+    }
+    if (input.options?.model) {
+      await this.requireCapability("modelSelection", requestContext);
+    }
+    if (input.options?.toolChoice) {
+      await this.requireCapability("toolSelection", requestContext);
+    }
+    this.assertActive();
+    const currentAfterReadiness = this.getThread(input.threadId);
     const message: AgentMessage = {
       id: this.createId("message"),
       role: "user",
@@ -2740,8 +2741,8 @@ export class AgentKitClient implements AgentKitController {
       metadata: input.metadata,
     };
     this.setThread(input.threadId, {
-      ...current,
-      messages: [...current.messages, message],
+      ...currentAfterReadiness,
+      messages: [...currentAfterReadiness.messages, message],
       suggestions: [],
       suggestionsPendingTurn: true,
     });
@@ -2750,8 +2751,8 @@ export class AgentKitClient implements AgentKitController {
     try {
       input.onLocalSubmit?.();
       const messages = messagesWithToolCallHistory(
-        [...current.messages, message],
-        orderedThreadToolCalls(current),
+        [...currentAfterReadiness.messages, message],
+        orderedThreadToolCalls(currentAfterReadiness),
       );
       const result = await this.invokeRequest(requestContext, (context) =>
         this.transport.startRun(
@@ -3237,23 +3238,12 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
   ): Promise<AgentQueuedMessage> {
     this.assertActive();
-    await this.assertAiSetupReady(
-      { engine: selectedEngineForDispatch(input), threadId: input.threadId },
-      context,
-    );
     const threadAtSubmit = this.getThread(input.threadId);
     const runWasActive =
       input.queuedWhileRunActive || hasActiveAgentRuns(threadAtSubmit);
     const runIdsBeforeWrite = new Set(Object.keys(threadAtSubmit.runs));
     const requestContext = this.createRequestContext(context);
     const queueMessage = this.transport.queueMessage;
-    if (!queueMessage) {
-      throw new AgentKitCapabilityError("messageQueue");
-    }
-    await this.requireCapability("messageQueue", requestContext);
-    if (input.attachments?.length || input.requestAttachments?.length) {
-      await this.requireCapability("attachments", requestContext);
-    }
     const optimisticMessage: AgentQueuedMessage = {
       id: this.createId("queued-message"),
       threadId: input.threadId,
@@ -3279,6 +3269,17 @@ export class AgentKitClient implements AgentKitController {
     });
     try {
       input.onLocalSubmit?.();
+      await this.assertAiSetupReady(
+        { engine: selectedEngineForDispatch(input), threadId: input.threadId },
+        requestContext,
+      );
+      if (!queueMessage) {
+        throw new AgentKitCapabilityError("messageQueue");
+      }
+      await this.requireCapability("messageQueue", requestContext);
+      if (input.attachments?.length || input.requestAttachments?.length) {
+        await this.requireCapability("attachments", requestContext);
+      }
       return await this.enqueueQueueMutation(input.threadId, async () => {
         this.assertActive();
         const requestAttachments = await this.queueSafeRequestAttachments(

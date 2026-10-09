@@ -2250,7 +2250,7 @@ describe("createAgentNativeChatRuntime", () => {
     });
   });
 
-  it("includes copied prior text and reasoning in the structured history byte cap", async () => {
+  it("keeps the initial prompt in history and excludes assistant reasoning", async () => {
     const largeUserText = "u".repeat(140 * 1024);
     const largeAssistantReasoning = "r".repeat(140 * 1024);
     const fetchMock = vi
@@ -2300,7 +2300,7 @@ describe("createAgentNativeChatRuntime", () => {
     await drain(turn.events);
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
-    const history = body.structuredHistory as Array<{
+    const structuredHistory = body.structuredHistory as Array<{
       role: "user" | "assistant";
       content: Array<{
         type: string;
@@ -2309,12 +2309,17 @@ describe("createAgentNativeChatRuntime", () => {
         toolCallId?: string;
       }>;
     }>;
-    const parts = history.flatMap((message) => message.content);
+    const parts = structuredHistory.flatMap((message) => message.content);
     const historyBytes = new TextEncoder().encode(
       JSON.stringify(body.structuredHistory),
     ).byteLength;
 
     expect(historyBytes).toBeLessThanOrEqual(256 * 1024);
+    expect(JSON.stringify(body.history)).toContain(largeUserText);
+    expect(JSON.stringify(body.history)).not.toContain(largeAssistantReasoning);
+    expect(JSON.stringify(body.structuredHistory)).not.toContain(
+      largeAssistantReasoning,
+    );
     expect(parts).toContainEqual(
       expect.objectContaining({ type: "tool-call", id: "call-latest" }),
     );
@@ -2324,22 +2329,309 @@ describe("createAgentNativeChatRuntime", () => {
         toolCallId: "call-latest",
       }),
     );
-    expect(parts).toContainEqual({
-      type: "text",
-      text: "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+    expect(parts).toContainEqual({ type: "text", text: largeUserText });
+  });
+
+  it("resends attachments when the user explicitly continues a stopped run", async () => {
+    const requestAttachment = {
+      type: "image/png",
+      name: "reference.png",
+      mediaType: "image/png",
+      data: "data:image/png;base64,RESIZED_IMAGE_BYTES",
+      url: "https://files.example.test/reference-resized.png",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse(
+          [
+            {
+              type: "tool_start",
+              id: "call-continue-image",
+              tool: "inspect-image",
+              input: {},
+            },
+            {
+              type: "approval_required",
+              id: "call-continue-image",
+              tool: "inspect-image",
+              input: {},
+              approvalKey: "inspect-image:{}",
+              toolCallId: "call-continue-image",
+            },
+            {
+              type: "tool_done",
+              id: "call-continue-image",
+              tool: "inspect-image",
+              result: "Awaiting approval.",
+            },
+            { type: "done" },
+          ],
+          "run-continue-attachment",
+        ),
+      )
+      .mockResolvedValueOnce(
+        sseResponse(
+          [
+            { type: "text", text: "I finished reviewing the image." },
+            { type: "done" },
+          ],
+          "run-continue-attachment-next",
+        ),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-continue-attachment",
+      fetch: fetchMock as typeof fetch,
     });
-    expect(history.at(-1)).toEqual({
-      role: "assistant",
-      content: [
+    const session = await runtime.createSession({
+      id: "thread-continue-attachment",
+      threadId: "thread-continue-attachment",
+    });
+    const first = await session.startTurn({
+      prompt: "Review this image",
+      attachments: [requestAttachment],
+    });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      prompt: "Continue reviewing the same image",
+    });
+    expect(continuation).toBeDefined();
+    await drain(continuation!.events);
+
+    const firstBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const continuationBody = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(firstBody.attachments).toEqual([requestAttachment]);
+    expect(continuationBody.attachments).toEqual([requestAttachment]);
+    expect(continuationBody.message).toBe("Continue reviewing the same image");
+  });
+
+  it("pins initial and attachment-bearing prompts as bounded history stubs", async () => {
+    const initialPrompt = "Build the launch page from this brief.";
+    const attachmentPrompt = "Use these references and keep the layout calm.";
+    const privateImageBytes = "PRIVATE_HISTORY_IMAGE_BYTES";
+    const laterText = "Later note. ".repeat(6_000);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-pinned-attachment-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue",
+      messages: [
         {
-          type: "text",
-          text: "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+          id: "user-initial",
+          role: "user",
+          content: [{ type: "text", text: initialPrompt }],
+        },
+        {
+          id: "user-with-attachments",
+          role: "user",
+          content: [
+            { type: "text", text: attachmentPrompt },
+            {
+              type: "image",
+              alt: "reference.png",
+              mediaType: "image/png",
+              data: `data:image/png;base64,${privateImageBytes}`,
+              url: `data:image/png;base64,${privateImageBytes}`,
+            },
+            {
+              type: "file",
+              filename: "requirements.pdf",
+              mediaType: "application/pdf",
+              url: "https://files.example.test/requirements.pdf?token=private#download",
+            },
+          ],
+        },
+        {
+          id: "assistant-tool-call",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-history-stub",
+              toolName: "read_brief",
+              input: {},
+            },
+          ],
+        },
+        {
+          id: "user-tool-result",
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call-history-stub",
+              toolName: "read_brief",
+              result: "Brief read.",
+            },
+          ],
+        },
+        ...Array.from({ length: 5 }, (_, index) => ({
+          id: `user-later-${index}`,
+          role: "user" as const,
+          content: [{ type: "text" as const, text: `${index}: ${laterText}` }],
+        })),
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "Continue" }],
         },
       ],
     });
-    expect(parts).not.toContainEqual(
-      expect.objectContaining({ text: largeUserText }),
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const parts = structuredHistory.flatMap((message) => message.content);
+    const serializedHistory = JSON.stringify(body.structuredHistory);
+    const plainHistoryText = (body.history as Array<{ content: string }>)
+      .map((message) => message.content)
+      .join("\n");
+
+    expect(serializedHistory).toContain(initialPrompt);
+    expect(serializedHistory).toContain(attachmentPrompt);
+    expect(serializedHistory).toContain(
+      "[attached: reference.png image/png no durable URL available]",
     );
+    expect(serializedHistory).toContain(
+      "[attached: requirements.pdf application/pdf https://files.example.test/requirements.pdf]",
+    );
+    expect(serializedHistory).not.toContain("data:image/");
+    expect(serializedHistory).not.toContain(privateImageBytes);
+    expect(serializedHistory).not.toContain("private");
+    expect(serializedHistory).toContain(
+      "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+    );
+    expect(
+      parts.some((part) => part.type === "text" && part.text === "Continue"),
+    ).toBe(false);
+    expect(plainHistoryText).toContain(
+      "[attached: reference.png image/png no durable URL available]",
+    );
+    expect(plainHistoryText).not.toContain(privateImageBytes);
+  });
+
+  it("pins every attachment-bearing prompt across 45 prior user turns", async () => {
+    const initialAsk =
+      "Create a LinkedIn ad at exactly 1200x627 and keep one fixed canvas.";
+    const privateImageBytes = "PRIVATE_45_TURN_IMAGE_BYTES";
+    const messages = Array.from({ length: 45 }, (_, index) => ({
+      id: `user-turn-${index}`,
+      role: "user" as const,
+      content: [
+        {
+          type: "text" as const,
+          text:
+            index === 0 ? initialAsk : `Update ${index} using this reference.`,
+        },
+        {
+          type: "image" as const,
+          alt: `reference-${index}.png`,
+          mediaType: "image/png",
+          data: `data:image/png;base64,${privateImageBytes}-${index}`,
+          url:
+            index === 17
+              ? `data:image/png;base64,${privateImageBytes}-17`
+              : index === 18
+                ? "not-a-valid-url"
+                : `https://files.example.test/reference-${index}.png?token=secret-${index}`,
+        },
+        ...(index % 5 === 0
+          ? [
+              {
+                type: "file" as const,
+                filename: `brief-${index}.pdf`,
+                mediaType: "application/pdf",
+                url: `https://files.example.test/brief-${index}.pdf?token=secret-${index}`,
+              },
+            ]
+          : []),
+      ],
+    }));
+    messages.push(
+      {
+        id: "assistant-history-tool-call",
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool-call" as const,
+            toolCallId: "call-45-turn-history",
+            toolName: "read_brief",
+            input: {},
+          },
+        ],
+      },
+      {
+        id: "user-history-tool-result",
+        role: "user" as const,
+        content: [
+          {
+            type: "tool-result" as const,
+            toolCallId: "call-45-turn-history",
+            toolName: "read_brief",
+            result: "Brief read.",
+          },
+        ],
+      },
+    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-45-turn-attachments",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue from the original format brief.",
+      messages,
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const serializedHistory = JSON.stringify(structuredHistory);
+    const historyText = structuredHistory
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n");
+
+    expect(historyText).toContain(initialAsk);
+    for (let index = 0; index < 45; index++) {
+      const imageUrl =
+        index === 17 || index === 18
+          ? "no durable URL available"
+          : `https://files.example.test/reference-${index}.png`;
+      expect(historyText).toContain(
+        `[attached: reference-${index}.png image/png ${imageUrl}]`,
+      );
+      if (index % 5 === 0) {
+        expect(historyText).toContain(
+          `[attached: brief-${index}.pdf application/pdf https://files.example.test/brief-${index}.pdf]`,
+        );
+      }
+    }
+    expect(serializedHistory).not.toContain("data:image/");
+    expect(serializedHistory).not.toContain(privateImageBytes);
+    expect(serializedHistory).not.toContain("token=secret-");
   });
 
   it("omits oversized tool-call and result identifiers and names", async () => {
@@ -3538,7 +3830,7 @@ describe("createAgentNativeChatRuntime", () => {
     );
   });
 
-  it("preserves the original user brief through the bounded text history window", async () => {
+  it("preserves the original brief in plain history without assistant reasoning", async () => {
     const originalBrief =
       "Create a LinkedIn ad at exactly 1200x627. Keep it on one static canvas.";
     const laterContext = Array.from({ length: 140 }, (_, index) => ({
@@ -3581,34 +3873,21 @@ describe("createAgentNativeChatRuntime", () => {
     await drain(turn.events);
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
-    const history = body.structuredHistory as Array<{
+    const history = body.history as Array<{
       role: "user" | "assistant";
-      content: Array<{ type: string; text?: string }>;
+      content: string;
     }>;
-    const parts = history.flatMap((message) => message.content);
-    const visibleText = parts
-      .filter(
-        (part) =>
-          part.type === "text" &&
-          part.text !==
-            "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
-      )
-      .map((part) => part.text);
-    const historyBytes = new TextEncoder().encode(
-      JSON.stringify(body.structuredHistory),
-    ).byteLength;
+    const visibleText = history.map((message) => message.content);
 
     expect(visibleText).toEqual([
       originalBrief,
-      ...laterContext.slice(-127).map((message) => message.content[0]!.text),
+      ...laterContext
+        .filter((message) => message.content[0]!.type === "text")
+        .map((message) => message.content[0]!.text),
     ]);
-    expect(visibleText).toHaveLength(128);
     expect(visibleText).not.toContain(currentFollowUp);
-    expect(historyBytes).toBeLessThanOrEqual(256 * 1024);
-    expect(parts).toContainEqual({
-      type: "text",
-      text: "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
-    });
+    expect(visibleText).not.toContain("Prior design context 1.");
+    expect(body.structuredHistory).toBeUndefined();
   });
 
   it("keeps the pending approval pair ahead of oversized continuation history", async () => {

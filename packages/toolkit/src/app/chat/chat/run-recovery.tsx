@@ -666,6 +666,7 @@ export function RunErrorRecoveryCard({
   info,
   onContinue,
   onRetry,
+  onRetryWithoutAttachment,
   retryHasUnavailableAttachment = false,
   onFork,
   onDismiss,
@@ -677,6 +678,7 @@ export function RunErrorRecoveryCard({
   onContinue?: () => void;
   continueError?: string | null;
   onRetry: () => void;
+  onRetryWithoutAttachment?: () => void;
   retryHasUnavailableAttachment?: boolean;
   onFork?: () => void | boolean | Promise<void | boolean>;
   onDismiss: () => void;
@@ -1050,6 +1052,15 @@ export function RunErrorRecoveryCard({
           </button>
         </div>
       </div>
+      {info.errorCode === "invalid_attachment" && onRetryWithoutAttachment ? (
+        <button
+          type="button"
+          onClick={onRetryWithoutAttachment}
+          className="mt-2 inline-flex h-7 items-center rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-background/80 hover:text-foreground"
+        >
+          {t("agentChat.recovery.retryWithoutAttachment")}
+        </button>
+      ) : null}
       {shouldShowBuilderReconnect && builderReconnect.error && (
         <p
           {...SESSION_REPLAY_MASK_PROPS}

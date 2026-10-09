@@ -26,6 +26,7 @@ const routeHarness = vi.hoisted(() => ({
 }));
 
 const threadStoreMocks = vi.hoisted(() => ({
+  forkThread: vi.fn(),
   mutateThreadQueuedMessages: vi.fn(),
   resolveThreadAccess: vi.fn(),
   updateThreadData: vi.fn(),
@@ -124,6 +125,7 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => {
     await importOriginal<typeof import("../chat-threads/store.js")>();
   return {
     ...actual,
+    forkThread: (...args: any[]) => threadStoreMocks.forkThread(...args),
     mutateThreadQueuedMessages: (...args: any[]) =>
       threadStoreMocks.mutateThreadQueuedMessages(...args),
     resolveThreadAccess: (...args: any[]) =>
@@ -560,6 +562,77 @@ describe("agent chat thread save route", () => {
       error: "Invalid threadData JSON",
     });
     expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+  });
+
+  it("rejects inline image bytes in a client snapshot before saving", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    const threadData = JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "inline-image-message",
+            role: "user",
+            content: [{ type: "text", text: "Inspect this" }],
+            attachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                data: "data:image/png;base64,INLINE_THREAD_SNAPSHOT_BYTES",
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}`,
+      { userEmail: "user@example.test" },
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadData, messageCount: 1 }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid threadData JSON",
+      code: "inline_attachment_data_not_persistable",
+      retryable: false,
+    });
+    expect(threadStoreMocks.updateThreadData).not.toHaveBeenCalled();
+  });
+
+  it("returns a typed error for an invalid fork snapshot", async () => {
+    const h3App = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${thread.id}/fork`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          source: { threadData: "{invalid", messageCount: 1 },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid threadData JSON",
+      code: "invalid_thread_data",
+      retryable: false,
+    });
+    expect(threadStoreMocks.forkThread).not.toHaveBeenCalled();
   });
 
   it.each([

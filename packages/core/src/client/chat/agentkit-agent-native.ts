@@ -1504,11 +1504,7 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
 }
 
 /**
- * Only the markers a reloaded or second tab needs: a hidden recovery message,
- * which failed run a recovery message already answered, so the same failure is
- * never sent again from another tab or after a reload, and, for a prompt the
- * server refused before a run started, its refusal marker and retry context,
- * so the setup card and Retry still resend the original request.
+ * Keep only fields needed to resume a failed or continued request after reload.
  */
 function persistedMessageMetadata(
   value: unknown,
@@ -1530,9 +1526,45 @@ function persistedMessageMetadata(
       ? { agentNativeRecoveryOfRunId: answeredRunId }
       : {}),
   };
+  const selectionValue = (candidate: unknown): string | undefined => {
+    if (
+      typeof candidate !== "string" ||
+      candidate.length === 0 ||
+      candidate.length > 256 ||
+      /[\u0000-\u001f]/.test(candidate) ||
+      /^data:/i.test(candidate.trim())
+    ) {
+      return undefined;
+    }
+    return candidate;
+  };
+  const model = selectionValue(metadata?.model);
+  const engine = selectionValue(metadata?.engine);
+  const effort =
+    typeof metadata?.effort === "string" &&
+    [
+      "auto",
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ].includes(metadata.effort)
+      ? metadata.effort
+      : undefined;
+  const requestMode =
+    metadata?.requestMode === "act" || metadata?.requestMode === "plan"
+      ? metadata.requestMode
+      : undefined;
   const kept = {
     ...(refused ? refusedTurnRetryContext(metadata) : {}),
     ...(metadata?.hideUserMessage === true ? { hideUserMessage: true } : {}),
+    ...(model ? { model } : {}),
+    ...(engine ? { engine } : {}),
+    ...(effort ? { effort } : {}),
+    ...(requestMode ? { requestMode } : {}),
     ...(Object.keys(keptCustom).length > 0 ? { custom: keptCustom } : {}),
   };
   return Object.keys(kept).length > 0 ? { metadata: kept } : {};

@@ -128,6 +128,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "agentChat.usage.inviteLinkCopied": "Invite link copied",
         "agentChat.recovery.copyDebug": "Copy debug info",
         "agentChat.recovery.copyFailed": "Copy failed",
+        "agentChat.recovery.retryWithoutAttachment": "Retry without attachment",
         "agentChat.recovery.retryAttachmentUnavailable":
           "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
         "agentChat.recovery.credentialRejected":
@@ -630,6 +631,41 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("export a smaller PNG");
     expect(container.querySelector('button[aria-label="Retry"]')).toBeNull();
     expect(onRetry).not.toHaveBeenCalled();
+  });
+
+  it("offers a non-retrying recovery that resends without attachments", async () => {
+    const onRetryWithoutAttachment = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message:
+                "The model provider rejected this attachment's format or size.",
+              errorCode: "invalid_attachment",
+              recoverable: false,
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onRetryWithoutAttachment={onRetryWithoutAttachment}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (candidate) =>
+        candidate.textContent?.trim() === "Retry without attachment",
+    );
+    expect(button).toBeTruthy();
+    await act(async () => button?.click());
+    expect(onRetryWithoutAttachment).toHaveBeenCalledOnce();
   });
 
   it("gives Continue vertical padding and leaves icon actions unframed", async () => {

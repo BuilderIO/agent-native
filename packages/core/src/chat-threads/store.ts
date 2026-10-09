@@ -6,6 +6,7 @@ import {
 } from "@agent-native/agentkit/protocol";
 
 import {
+  containsInlineAttachmentPayload,
   extractThreadMeta,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
@@ -396,6 +397,7 @@ function normalizeForkSourceSnapshot(
   } catch {
     return null;
   }
+  if (containsInlineAttachmentPayload(parsed)) return null;
 
   const messageCount = countThreadMessages(parsed, 0);
   if (messageCount <= 0) return null;
@@ -1039,6 +1041,7 @@ export async function forkThread(
     id,
     snapshot?.fromMessageId,
   );
+  if (containsInlineAttachmentPayload(JSON.parse(threadData))) return null;
   const now = Date.now();
   const title = source.title ? `${source.title} (fork)` : "";
   const client = getDbExec();
@@ -1405,6 +1408,15 @@ export interface UpdateThreadDataOptions {
   ignoreConflicts?: boolean;
 }
 
+export class InlineAttachmentDataNotPersistableError extends Error {
+  readonly code = "inline_attachment_data_not_persistable";
+
+  constructor() {
+    super("Inline attachment data cannot be stored in chat history.");
+    this.name = "InlineAttachmentDataNotPersistableError";
+  }
+}
+
 function parseThreadData(value: string): any {
   try {
     return JSON.parse(value || "{}");
@@ -1458,6 +1470,9 @@ export async function updateThreadData(
         },
       );
       nextThreadData = JSON.stringify(merged);
+      if (containsInlineAttachmentPayload(merged)) {
+        throw new InlineAttachmentDataNotPersistableError();
+      }
       nextMessageCount = countThreadMessages(merged, messageCount);
 
       const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
@@ -1513,6 +1528,9 @@ export async function updateThreadData(
 
       lastConflict = true;
     } catch (error) {
+      if (error instanceof InlineAttachmentDataNotPersistableError) {
+        throw error;
+      }
       // Completion saves happen after a long model/tool turn, when a
       // transient connection or serverless DB failure is especially costly.
       // Retry the whole read/merge/write attempt like a CAS conflict, while

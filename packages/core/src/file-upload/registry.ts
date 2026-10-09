@@ -36,11 +36,16 @@ export async function findFileUploadProviderOwningUrl(
   if (!candidates.includes(builderFileUploadProvider)) {
     candidates.push(builderFileUploadProvider);
   }
+  let ownershipCheckError: unknown;
   for (const provider of candidates) {
-    if (provider.isOwnedUrl && (await provider.isOwnedUrl(url))) {
-      return provider;
+    if (!provider.isOwnedUrl) continue;
+    try {
+      if (await provider.isOwnedUrl(url)) return provider;
+    } catch (error) {
+      ownershipCheckError ??= error;
     }
   }
+  if (ownershipCheckError) throw ownershipCheckError;
   return null;
 }
 

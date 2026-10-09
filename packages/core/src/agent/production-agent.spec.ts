@@ -89,6 +89,7 @@ import {
   markBackgroundContinuationChunkTerminal,
   resolveAgentModelSelection,
   resolveAgentExperimentModelOverride,
+  resolveAgentExperimentSelection,
   resolveAgentOwnerEmail,
   resolveOwnerEngineApiKey,
   resolveBackgroundDispatchOutcome,
@@ -488,6 +489,27 @@ describe("resolveAgentExperimentModelOverride", () => {
       }),
     ).toBe("gpt-5-6-luna");
   });
+
+  it("records assignments only when the experiment supplies the selected model", () => {
+    const assignments = [
+      { experimentId: "experiment-1", variantId: "variant-b" },
+    ];
+
+    expect(
+      resolveAgentExperimentSelection({
+        requestModel: "gpt-5-6-terra",
+        experimentModel: "gpt-5-6-luna",
+        assignments,
+      }),
+    ).toEqual({ assignments: [] });
+    expect(
+      resolveAgentExperimentSelection({
+        requestModel: "auto",
+        experimentModel: "gpt-5-6-luna",
+        assignments,
+      }),
+    ).toEqual({ model: "gpt-5-6-luna", assignments });
+  });
 });
 
 describe("createConnectedAgentReferenceEventRelay", () => {
@@ -874,6 +896,7 @@ describe("serializeDurableDispatchPayload", () => {
           type: "image",
           name: "reference.png",
           data: "data:image/png;base64,INLINE_PROTOCOL_IMAGE_BYTES",
+          url: "https://files.example.test/reference-resized.png",
           referenceUrl: "https://files.example.test/reference.png",
         },
       ],
@@ -901,6 +924,7 @@ describe("serializeDurableDispatchPayload", () => {
     expect(parsed.requestAttachments[0]).toEqual({
       type: "image",
       name: "reference.png",
+      url: "https://files.example.test/reference-resized.png",
       referenceUrl: "https://files.example.test/reference.png",
     });
     expect(parsed.structuredHistory[0].parts[0]).toEqual({
@@ -917,6 +941,21 @@ describe("serializeDurableDispatchPayload", () => {
             type: "image",
             name: "local-only.png",
             data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+          },
+        ],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+
+  it("requires a durable vision URL when an inline request image has only its original reference", () => {
+    expect(() =>
+      serializeDurableDispatchPayload({
+        requestAttachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+            referenceUrl: "https://files.example.test/reference-original.png",
           },
         ],
       }),
@@ -1074,6 +1113,32 @@ describe("buildUserContentWithAttachments", () => {
         .map((part) => part.text)
         .join("\n"),
     ).not.toContain("<chat-attachment-processing-error");
+  });
+
+  it("does not send image blocks to engines without vision support", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Describe this image",
+      vision: false,
+      attachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    });
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+
+    expect(content.some((part) => part.type === "image")).toBe(false);
+    expect(text).toContain(
+      '<chat-attachment-capability-note code="vision-not-supported" name="reference.png"',
+    );
+    expect(text).toContain("Describe this image");
+    expect(text).not.toContain(PNG_BASE64);
   });
 
   it("surfaces attachments that arrive without a payload or reference", () => {
@@ -1377,6 +1442,7 @@ describe("buildUserContentWithAttachments", () => {
       .join("\n");
     expect(text).toContain("https://cdn.example.com/url-only.png");
     expect(text).toContain("not sent as a vision image");
+    expect(text).not.toContain("<chat-attachment-processing-error");
   });
 
   it("includes text and file attachments in the text sent to the engine", () => {
@@ -1459,6 +1525,7 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain('name="report.pdf"');
     expect(text).toContain("no readable contents were included");
     expect(text).not.toContain('code="unsupported-or-malformed-payload"');
+    expect(text).not.toContain("<chat-attachment-processing-error");
   });
 
   it("reports malformed inline payloads as unreadable even when a URL exists", () => {
@@ -1505,6 +1572,28 @@ describe("buildUserContentWithAttachments", () => {
     );
     expect(text).not.toContain("<attachment name=transcript.txt>");
     expect(text).toContain("Summarize the transcript");
+  });
+
+  it("keeps long pasted text readable when it also has a storage URL", () => {
+    const longBody = "A".repeat(60_010);
+    const content = buildUserContentWithAttachments({
+      text: "Summarize the pasted text",
+      attachments: [
+        {
+          type: "file",
+          name: "pasted-text-1718000000000-ab12cd.txt",
+          contentType: "text/plain",
+          text: `<attachment name=pasted-text.txt>\n${longBody}\n</attachment>`,
+          url: "https://files.example.test/pasted-text.txt",
+        },
+      ],
+    });
+
+    const text = content[0]?.type === "text" ? content[0].text : "";
+    expect(text).toContain("A".repeat(60_000));
+    expect(text).toContain("Attachment truncated after 60,000 characters");
+    expect(text).toContain("Summarize the pasted text");
+    expect(text).not.toContain("<chat-attachment-processing-error");
   });
 
   it("caps the aggregate text from multiple attachments", () => {
@@ -1836,7 +1925,9 @@ describe("buildUserContentWithAttachments", () => {
             toolCallId: "history_tc_1",
             toolName: "chat-history",
             toolInput: '{"action":"search"}',
-            content: "Interrupted before this tool returned a result.",
+            isError: true,
+            content:
+              "Interrupted before this tool returned a result; its outcome is unknown.",
           },
         ],
       },
@@ -2458,6 +2549,40 @@ describe("appendRequestAttachmentContextToResumedHistory", () => {
     expect(
       messages[0]?.content.filter((part) => part.type === "image"),
     ).toHaveLength(1);
+  });
+
+  it("keeps unsupported images as named notes when resuming on a model without vision", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Describe this" }],
+      },
+    ];
+
+    appendRequestAttachmentContextToResumedHistory(
+      messages,
+      [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+      { vision: false },
+    );
+
+    expect(messages[0]?.content.some((part) => part.type === "image")).toBe(
+      false,
+    );
+    expect(messages[0]?.content).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining(
+          'code="vision-not-supported" name="reference.png"',
+        ),
+      }),
+    );
   });
 });
 
@@ -3194,7 +3319,7 @@ describe("createProductionAgentHandler", () => {
       capabilities: {
         thinking: false,
         promptCaching: false,
-        vision: false,
+        vision: true,
         computerUse: false,
         parallelToolCalls: false,
       },
@@ -3713,7 +3838,7 @@ describe("createProductionAgentHandler", () => {
     expect(stream).not.toHaveBeenCalled();
   });
 
-  it("passes a typed attachment-processing failure into the model request", async () => {
+  it("keeps inline image pixels readable when pre-upload fails", async () => {
     const preUploadFailure = vi
       .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
       .mockRejectedValueOnce(
@@ -3728,7 +3853,7 @@ describe("createProductionAgentHandler", () => {
       capabilities: {
         thinking: false,
         promptCaching: false,
-        vision: false,
+        vision: true,
         computerUse: false,
         parallelToolCalls: false,
       },
@@ -3751,13 +3876,13 @@ describe("createProductionAgentHandler", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          message: "Describe this file",
+          message: "Describe this image",
           attachments: [
             {
-              type: "file",
-              name: "reference.pdf",
-              contentType: "application/pdf",
-              data: "data:application/pdf;base64,UEsDBA==",
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              data: `data:image/png;base64,${PNG_BASE64}`,
             },
           ],
         }),
@@ -3785,9 +3910,105 @@ describe("createProductionAgentHandler", () => {
       .filter((part) => part.type === "text")
       .map((part) => part.text)
       .join("\n");
-    expect(userText).toContain('code="pre-upload-failed"');
-    expect(userText).toContain("attachment processing failed");
+    expect(userText).toContain(
+      '<chat-attachment-preparation-warning code="pre-upload-failed">',
+    );
+    expect(userText).not.toContain("<chat-attachment-processing-error");
     expect(userText).not.toContain("private storage implementation detail");
+    expect(
+      streamedMessages
+        .flatMap((messages) => messages)
+        .filter((message) => message.role === "user")
+        .flatMap((message) => message.content)
+        .some((part) => part.type === "image" && part.data === PNG_BASE64),
+    ).toBe(true);
+  });
+
+  it("sends a named capability note instead of image pixels to engines without vision", async () => {
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementationOnce(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Choose a vision model." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe this image",
+          attachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              data: `data:image/png;base64,${PNG_BASE64}`,
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+    } finally {
+      preUpload.mockRestore();
+    }
+
+    const userContent = streamedMessages
+      .flatMap((messages) => messages)
+      .filter((message) => message.role === "user")
+      .flatMap((message) => message.content);
+    expect(userContent.some((part) => part.type === "image")).toBe(false);
+    expect(userContent).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining(
+          '<chat-attachment-capability-note code="vision-not-supported" name="reference.png"',
+        ),
+      }),
+    );
+    expect(JSON.stringify(userContent)).not.toContain(PNG_BASE64);
   });
 
   it("does not treat an undefined system prompt rejection as a valid empty prompt", async () => {

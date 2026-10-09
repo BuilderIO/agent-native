@@ -125,7 +125,9 @@ function interruptedToolResultPart(part: {
     toolCallId: part.id,
     toolName: part.name,
     toolInput: stringifyToolUseInputForGateway(part.input),
-    content: "Interrupted before this tool returned a result.",
+    content:
+      "Interrupted before this tool returned a result; its outcome is unknown.",
+    isError: true,
   };
 }
 

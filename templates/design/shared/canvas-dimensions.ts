@@ -171,8 +171,8 @@ const OUTPUT_VERB =
   /\b(?:create|make|design|generate|build|produce|draft|render|draw|prepare|compose|crea(?:r)?|diseñ(?:a|ar)|disegna(?:re)?|erstelle|erstellen|gestalte(?:n)?|crée(?:z|r)?|concevoir|produire|dessiner|faire)\b/i;
 const OUTPUT_RELATION_BOUNDARY =
   /\b(?:for|with|using|including|featuring|showing|based\s+on|inspired\s+by|announcing|promoting|about|on|that|which)\b/i;
-const PRODUCT_SURFACE_OUTPUT =
-  /\b(?:(?:[\w-]+\s+){0,5}(?:tools?|editors?|makers?|generators?|builders?|creators?|apps?|pages?)|dashboard|dashboards|manager|management\s+(?:tool|app|platform)|(?:web|mobile|desktop)\s+apps?|applications?|website|web\s+site|landing\s+page|pricing\s+page|settings\s+page|login\s+screen|web\s+page|product\s+interface|portal|platform|crm|workspace|admin\s+(?:panel|dashboard)|prototype|site|form)\b/i;
+const PRODUCT_SURFACE_HEAD =
+  /(?:^|\s)(?:tools?|editors?|makers?|generators?|builders?|creators?|apps?|pages?|screens?|views?|reports?|dashboards?|trackers?|analytics|lists?|managers?|forms?|libraries|galleries|schedulers?|leaderboards?|websites?|sites?|interfaces?|portals?|platforms?|crms?|workspaces?|prototypes?|panels?)\s*$/i;
 const FIXED_ARTWORK_OUTPUT =
   /\b(?:ads?|advertisements?|banners?|leaderboards?|skyscrapers?|billboards?|anzeige(?:n)?|annonce(?:s)?|publicit[ée]|an[uú]ncio(?:s)?|publicidade|social(?:\s+media)?\s+(?:posts?|stor(?:y|ies))|instagram\s+(?:posts?|stor(?:y|ies))|email\s+headers?|newsletter\s+(?:headers?|graphics?)|flyers?|posters?|brochures?|infographics?|cover\s+art|favicons?|logos?|avatars?|thumbnails?|promo(?:tional)?\s+(?:graphics?|images?|posts?)|open\s+graph\s+(?:preview\s+)?images?|og\s+images?)\b/i;
 
@@ -200,6 +200,11 @@ function presetDimensions(name: string): CanvasDimensions | undefined {
   return preset ? { width: preset.width, height: preset.height } : undefined;
 }
 
+function hasProductSurfaceHead(output: string): boolean {
+  if (!PRODUCT_SURFACE_HEAD.test(output)) return false;
+  return !/\b(?:display|mobile)\s+leaderboards?\s*$/i.test(output);
+}
+
 export function resolveCanvasIntent(prompt?: string): CanvasIntent {
   const value = prompt?.trim();
   if (!value) return { kind: "responsive" };
@@ -222,7 +227,7 @@ export function resolveCanvasIntent(prompt?: string): CanvasIntent {
   }
 
   const output = requestedOutputPhrase(value);
-  if (PRODUCT_SURFACE_OUTPUT.test(output)) return { kind: "responsive" };
+  if (hasProductSurfaceHead(output)) return { kind: "responsive" };
 
   const outputAlias = CANVAS_PRESET_ALIASES.find((alias) =>
     alias.pattern.test(output),

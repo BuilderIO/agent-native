@@ -2021,11 +2021,12 @@ function sanitizeDurableAttachment(
   }
 
   const hasInlineData = isAttachment && item.data !== undefined;
-  if (
-    hasInlineData &&
-    !hasDurableAttachmentUrl(item.url) &&
-    !hasDurableAttachmentUrl(item.referenceUrl)
-  ) {
+  const hasDurableReference =
+    item.type === "image"
+      ? hasDurableAttachmentUrl(item.url)
+      : hasDurableAttachmentUrl(item.url) ||
+        hasDurableAttachmentUrl(item.referenceUrl);
+  if (hasInlineData && !hasDurableReference) {
     throw new DurableAttachmentReferenceRequiredError();
   }
 
@@ -2300,8 +2301,8 @@ function describeReferenceOnlyAttachment(att: AgentChatAttachment): string {
   return `<chat-attachment-reference-note code="reference-only-unavailable" name="${name}"${contentType} url="${url}">The attachment has a stored reference URL, but no readable contents were included in this request. Do not claim to have read or describe its contents. Use the URL only with an authorized tool or target that can retrieve it, or tell the user its contents were unavailable.</chat-attachment-reference-note>`;
 }
 
-function describeAttachmentPreUploadFailure(): string {
-  return '<chat-attachment-processing-error code="pre-upload-failed">One or more attachments could not be prepared for this request. Their contents may be missing from the model context. Do not claim to have read or seen them; tell the user attachment processing failed and ask them to retry or provide the relevant content in text.</chat-attachment-processing-error>';
+function describeAttachmentPreUploadWarning(): string {
+  return '<chat-attachment-preparation-warning code="pre-upload-failed">The attachment pre-upload step failed. This may affect its durable URL, but it does not prove the contents are unreadable in this request. Inspect any inline payload or reference normally, and only report an attachment as unreadable if the actual payload is missing or invalid.</chat-attachment-preparation-warning>';
 }
 
 function describeMissingAttachmentPayload(att: AgentChatAttachment): string {
@@ -2312,9 +2313,18 @@ function describeMissingAttachmentPayload(att: AgentChatAttachment): string {
   return `<chat-attachment-processing-error code="missing-payload" name="${name}"${contentType}>The attachment arrived without readable file contents or a reference. Do not infer or describe its contents. Tell the user it could not be read and ask them to attach it again.</chat-attachment-processing-error>`;
 }
 
+function describeUnsupportedVisionAttachment(att: AgentChatAttachment): string {
+  const name = escapeAttachmentAttribute(att.name || "attachment");
+  const contentType = att.contentType
+    ? ` contentType="${escapeAttachmentAttribute(att.contentType)}"`
+    : "";
+  return `<chat-attachment-capability-note code="vision-not-supported" name="${name}"${contentType}>This request's selected model does not support vision, so the image pixels were not sent. Do not describe the image contents. Tell the user that ${name} could not be visually analyzed with the selected model and ask them to choose a vision-capable model.</chat-attachment-capability-note>`;
+}
+
 export function buildUserContentWithAttachments(opts: {
   text: string;
   attachments?: AgentChatAttachment[];
+  vision?: boolean;
 }): EngineContentPart[] {
   const userContent: EngineContentPart[] = [];
   const textAttachments: string[] = [];
@@ -2333,6 +2343,10 @@ export function buildUserContentWithAttachments(opts: {
     }
 
     if (att.type === "image") {
+      if (opts.vision === false) {
+        textAttachments.push(describeUnsupportedVisionAttachment(att));
+        continue;
+      }
       if (!att.data) {
         if (uploadedUrl) {
           const label = att.name ? `"${att.name}"` : "An image";
@@ -2501,11 +2515,13 @@ export function buildUserContentWithAttachments(opts: {
 export function appendRequestAttachmentContextToResumedHistory(
   messages: EngineMessage[],
   attachments: AgentChatAttachment[] | undefined,
+  options: { vision?: boolean } = {},
 ): void {
   if (!attachments?.length) return;
   const attachmentContent = buildUserContentWithAttachments({
     text: "",
     attachments,
+    vision: options.vision,
   }).filter((part) => part.type !== "text" || part.text.trim());
   if (!attachmentContent.length) return;
 
@@ -9399,6 +9415,21 @@ export function resolveAgentExperimentModelOverride(options: {
     : undefined;
 }
 
+export function resolveAgentExperimentSelection(options: {
+  requestModel?: string | null;
+  experimentModel?: string | null;
+  assignments: readonly { experimentId: string; variantId: string }[];
+}): {
+  model?: string;
+  assignments: Array<{ experimentId: string; variantId: string }>;
+} {
+  const model = resolveAgentExperimentModelOverride(options);
+  return {
+    ...(model ? { model } : {}),
+    assignments: model ? [...options.assignments] : [],
+  };
+}
+
 export function resolveAgentModelSelection(options: {
   requestModel?: string | null;
   configuredModel?: string | null;
@@ -10103,8 +10134,8 @@ export function createProductionAgentHandler(
           err instanceof Error ? err.message : String(err),
         );
         requestMessage = requestMessage
-          ? `${requestMessage}\n\n${describeAttachmentPreUploadFailure()}`
-          : describeAttachmentPreUploadFailure();
+          ? `${requestMessage}\n\n${describeAttachmentPreUploadWarning()}`
+          : describeAttachmentPreUploadWarning();
       }
     }
 
@@ -10191,17 +10222,21 @@ export function createProductionAgentHandler(
           await import("../observability/experiments.js");
         const expConfig = await resolveActiveExperimentConfig(ownerEmail);
         if (expConfig) {
-          experimentAssignments = [...expConfig.assignments];
-          const experimentModel = resolveAgentExperimentModelOverride({
+          const experimentSelection = resolveAgentExperimentSelection({
             requestModel,
             experimentModel:
               typeof expConfig.configs.model === "string"
                 ? expConfig.configs.model
                 : undefined,
+            assignments: expConfig.assignments,
           });
-          if (experimentModel) {
-            effectiveModel = normalizeModelForEngine(engine, experimentModel);
+          if (experimentSelection.model) {
+            effectiveModel = normalizeModelForEngine(
+              engine,
+              experimentSelection.model,
+            );
             modelSelectionSource = "experiment";
+            experimentAssignments = experimentSelection.assignments;
           }
         }
       }
@@ -10879,6 +10914,7 @@ export function createProductionAgentHandler(
         filesContext +
         planModeAgentNote,
       attachments: requestAttachments,
+      vision: engine.capabilities.vision === true,
     });
 
     const historyMessages =
@@ -11144,6 +11180,7 @@ export function createProductionAgentHandler(
           appendRequestAttachmentContextToResumedHistory(
             resumed,
             requestAttachments,
+            { vision: engine.capabilities.vision === true },
           );
           appendAgentLoopContinuation(resumed, continuationReason, {
             ...(actionPreparationTool ? { actionPreparationTool } : {}),

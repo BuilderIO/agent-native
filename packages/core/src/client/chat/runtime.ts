@@ -1674,11 +1674,49 @@ export function createHttpAgentChatRuntime<
 
 function runtimeMessageText(message: AgentChatRuntimeMessage): string {
   return message.content
-    .map((part) =>
-      part.type === "text" || part.type === "reasoning" ? part.text : "",
-    )
+    .map((part) => {
+      if (part.type === "text") return part.text;
+      if (part.type === "image" || part.type === "file") {
+        return attachmentHistoryStub(part);
+      }
+      return "";
+    })
     .filter(Boolean)
     .join("\n");
+}
+
+function attachmentHistoryStub(
+  part: AgentChatRuntimeImagePart | AgentChatRuntimeFilePart,
+): string {
+  const kind = part.type === "image" ? "image" : "file";
+  const rawName = part.type === "image" ? part.alt : part.filename;
+  const name = rawName
+    ?.replace(/[\u0000-\u001f\u007f\[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+  const mediaType = part.mediaType
+    ?.replace(/[\u0000-\u001f\u007f\[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+  const url = durableHistoryAttachmentUrl(part.url);
+  return `[attached: ${name || kind} ${mediaType || "unknown"} ${url || "no durable URL available"}]`;
+}
+
+function durableHistoryAttachmentUrl(
+  value: string | undefined,
+): string | undefined {
+  if (!value) return undefined;
+  if (!URL.canParse(value)) return undefined;
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.username || url.password) {
+    return undefined;
+  }
+  url.search = "";
+  url.hash = "";
+  const sanitized = url.toString();
+  return sanitized.length <= 2_048 ? sanitized : undefined;
 }
 
 function isSyntheticToolHistoryOmissionMessage(
@@ -2423,7 +2461,7 @@ function runtimeMessageTextMatches(
       return { matches: true, complete: false };
     }
     scannedParts++;
-    if (part.type !== "text" && part.type !== "reasoning") continue;
+    if (part.type !== "text") continue;
     if (!part.text) continue;
     if (hasText) {
       if (expected[offset] !== "\n") return { matches: false, complete: true };
@@ -2476,23 +2514,20 @@ function boundedStructuredHistorySources(
   }
 
   let firstUserPromptMessageIndex: number | undefined;
-  const historyWindowStart = Math.max(
-    0,
-    historyMessages.length - MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES,
+  const historyWindowEnd = Math.min(
+    historyMessages.length,
+    MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES,
   );
-  for (
-    let index = historyWindowStart;
-    index < historyMessages.length;
-    index++
-  ) {
+  for (let index = 0; index < historyWindowEnd; index++) {
     if (index === currentPromptMessageIndex) continue;
     const message = historyMessages[index]!;
     if (
       message.role === "user" &&
       message.content.some(
         (part) =>
-          (part.type === "text" || part.type === "reasoning") &&
-          part.text.trim(),
+          (part.type === "text" && part.text.trim()) ||
+          part.type === "image" ||
+          part.type === "file",
       )
     ) {
       firstUserPromptMessageIndex = index;
@@ -2509,8 +2544,9 @@ function boundedStructuredHistorySources(
         message.role === "user" &&
         message.content.some(
           (part) =>
-            (part.type === "text" || part.type === "reasoning") &&
-            part.text.trim(),
+            (part.type === "text" && part.text.trim()) ||
+            part.type === "image" ||
+            part.type === "file",
         )
       ) {
         previousUserPromptMessageIndex = index;
@@ -2518,20 +2554,39 @@ function boundedStructuredHistorySources(
       }
     }
   }
+  const attachmentBearingUserPromptMessageIndices = new Set<number>();
+  for (let index = 0; index < historyMessages.length; index++) {
+    if (index === currentPromptMessageIndex) continue;
+    const message = historyMessages[index]!;
+    if (
+      message.role === "user" &&
+      message.content.some(
+        (part) => part.type === "image" || part.type === "file",
+      )
+    ) {
+      attachmentBearingUserPromptMessageIndices.add(index);
+    }
+  }
   const protectedUserPromptMessageIndices = new Set(
     [firstUserPromptMessageIndex, previousUserPromptMessageIndex].filter(
       (index): index is number => index !== undefined,
     ),
   );
-  const regularTextPartLimit =
+  for (const index of attachmentBearingUserPromptMessageIndices) {
+    protectedUserPromptMessageIndices.add(index);
+  }
+  const regularTextPartLimit = Math.max(
+    0,
     MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS -
-    protectedUserPromptMessageIndices.size;
+      protectedUserPromptMessageIndices.size,
+  );
 
   const selectedReversed: StructuredHistorySourceMessage[] = [];
   let selectedToolPartCount = 0;
   let selectedTextPartCount = 0;
   let scannedPartCount = 0;
   let visitedMessageCount = 0;
+  const visitedHistoryMessageIndexes = new Set<number>();
   let toolBoundary: StructuredHistorySourceBoundary | undefined;
   let stop = false;
   const visitMessage = (
@@ -2539,7 +2594,13 @@ function boundedStructuredHistorySources(
     list: StructuredHistorySourceBoundary["list"],
     messageIndex: number,
   ): void => {
-    if (visitedMessageCount >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
+    const isPinnedPrompt =
+      list === "messages" &&
+      protectedUserPromptMessageIndices.has(messageIndex);
+    if (
+      visitedMessageCount >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES &&
+      !isPinnedPrompt
+    ) {
       omitted = true;
       toolHistoryOmitted = true;
       toolBoundary ??= {
@@ -2551,12 +2612,15 @@ function boundedStructuredHistorySources(
       return;
     }
     visitedMessageCount++;
+    if (list === "messages") visitedHistoryMessageIndexes.add(messageIndex);
     if (message.role !== "user" && message.role !== "assistant") return;
     const isFirstUserPrompt =
       list === "messages" && messageIndex === firstUserPromptMessageIndex;
     const isPreviousUserPrompt =
       list === "messages" && messageIndex === previousUserPromptMessageIndex;
-    const isProtectedUserPrompt = isFirstUserPrompt || isPreviousUserPrompt;
+    const isProtectedUserPrompt =
+      list === "messages" &&
+      protectedUserPromptMessageIndices.has(messageIndex);
     const partsReversed: StructuredHistorySourcePart[] = [];
     let protectedPromptTextAdded = false;
     for (
@@ -2576,21 +2640,21 @@ function boundedStructuredHistorySources(
       const isToolPart =
         (part.type === "tool-call" && message.role === "assistant") ||
         part.type === "tool-result";
-      const isTextPart = part.type === "text" || part.type === "reasoning";
+      const isAttachmentStubPart =
+        message.role === "user" &&
+        (part.type === "image" || part.type === "file");
+      const isTextPart = part.type === "text" || isAttachmentStubPart;
       if (!isToolPart && !isTextPart) continue;
       if (isProtectedUserPrompt && isTextPart) {
         if (!protectedPromptTextAdded) {
-          const text = message.content
-            .filter(
-              (candidate) =>
-                candidate.type === "text" || candidate.type === "reasoning",
-            )
-            .map((candidate) =>
-              candidate.type === "text" || candidate.type === "reasoning"
-                ? candidate.text
-                : "",
-            )
-            .join("\n");
+          const promptParts = message.content.flatMap((candidate) => {
+            if (candidate.type === "text") return [candidate.text];
+            if (candidate.type === "image" || candidate.type === "file") {
+              return [attachmentHistoryStub(candidate)];
+            }
+            return [];
+          });
+          const text = promptParts.join("\n");
           if (text.trim()) {
             if (
               selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS
@@ -2630,7 +2694,11 @@ function boundedStructuredHistorySources(
         }
         selectedTextPartCount++;
       }
-      partsReversed.push(part);
+      partsReversed.push(
+        isAttachmentStubPart
+          ? { type: "text", text: attachmentHistoryStub(part) }
+          : part,
+      );
     }
     if (partsReversed.length) {
       selectedReversed.push({
@@ -2638,10 +2706,13 @@ function boundedStructuredHistorySources(
         parts: partsReversed.reverse(),
         priority: list === "supplemental",
         textPriority: isPreviousUserPrompt
-          ? 2
-          : list === "supplemental"
-            ? 1
-            : 0,
+          ? 4
+          : isFirstUserPrompt ||
+              attachmentBearingUserPromptMessageIndices.has(messageIndex)
+            ? 3
+            : list === "supplemental"
+              ? 1
+              : 0,
       });
     }
   };
@@ -2657,6 +2728,16 @@ function boundedStructuredHistorySources(
   for (let index = historyMessages.length - 1; index >= 0 && !stop; index--) {
     if (index === currentPromptMessageIndex) continue;
     visitMessage(historyMessages[index]!, "messages", index);
+  }
+  for (const messageIndex of [...protectedUserPromptMessageIndices].sort(
+    (a, b) => b - a,
+  )) {
+    if (
+      messageIndex !== undefined &&
+      !visitedHistoryMessageIndexes.has(messageIndex)
+    ) {
+      visitMessage(historyMessages[messageIndex]!, "messages", messageIndex);
+    }
   }
 
   return {

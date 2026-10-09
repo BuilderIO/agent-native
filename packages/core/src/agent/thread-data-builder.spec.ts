@@ -8,6 +8,7 @@ import {
   buildAssistantMessage,
   buildRepositoryFromCodeAgentTranscript,
   buildUserMessage,
+  containsInlineAttachmentPayload,
   applySubmittedUserMessage,
   extractThreadMeta,
   foldAssistantTurn,
@@ -4294,6 +4295,57 @@ describe("buildRepositoryFromCodeAgentTranscript", () => {
 });
 
 describe("upsertUserMessage", () => {
+  it("flags inline image data in attachments but allows plain chat examples", () => {
+    expect(
+      containsInlineAttachmentPayload({
+        messages: [
+          {
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "A short example: data:image/png;base64,AA==",
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      containsInlineAttachmentPayload({
+        messages: [
+          {
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: `Full image payload: data:image/png;base64,${"A".repeat(128)}`,
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        data: "A".repeat(128),
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        url: "data:image/png;base64,INLINE_BYTES",
+      }),
+    ).toBe(true);
+  });
+
   it("reconciles an already persisted queue submission without duplicating it", () => {
     const user = buildUserMessage({
       text: "Run once",
@@ -4546,6 +4598,46 @@ describe("upsertUserMessage", () => {
       uploadUrl: "https://cdn.example.com/screenshot.png",
       uploadProvider: "builder",
     });
+  });
+
+  it.each([
+    {
+      name: "data and a data URL",
+      attachment: {
+        type: "image",
+        name: "image.png",
+        contentType: "image/png",
+        data: "data:image/png;base64,INLINE_THREAD_SQL_IMAGE_BYTES",
+        url: "data:image/png;base64,INLINE_THREAD_SQL_IMAGE_BYTES",
+      },
+    },
+    {
+      name: "a reference-only data URL",
+      attachment: {
+        type: "image",
+        name: "reference.png",
+        contentType: "image/png",
+        referenceOnly: true,
+        url: "data:image/png;base64,INLINE_THREAD_SQL_IMAGE_BYTES",
+      },
+    },
+  ])("never persists an inline URL for $name", ({ attachment }) => {
+    const message = buildUserMessage({
+      text: "Keep the attachment visible without storing its bytes",
+      runId: "run-inline-image-url",
+      attachments: [attachment as any],
+    });
+
+    const storedAttachment = message.attachments?.[0];
+    expect(storedAttachment).toBeDefined();
+    expect(storedAttachment.content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("inline data URLs cannot be stored"),
+    });
+    expect(JSON.stringify(message)).not.toContain("data:image/");
+    expect(JSON.stringify(message)).not.toContain(
+      "INLINE_THREAD_SQL_IMAGE_BYTES",
+    );
   });
 
   it("stores file attachments as URL references when a hosted URL exists", () => {

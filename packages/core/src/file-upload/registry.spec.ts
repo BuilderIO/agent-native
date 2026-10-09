@@ -4,6 +4,7 @@ import { builderFileUploadProvider } from "./builder.js";
 import {
   getActiveFileUploadProvider,
   getActiveFileUploadProviderForRequest,
+  findFileUploadProviderOwningUrl,
   listFileUploadProviderStatusesForRequest,
   listFileUploadProviders,
   registerFileUploadProvider,
@@ -72,6 +73,36 @@ describe("file-upload registry", () => {
       const matches = listFileUploadProviders().filter((p) => p.id === "dup");
       expect(matches).toHaveLength(1);
       expect(matches[0]).toBe(second);
+    });
+
+    it("continues ownership checks after one provider fails", async () => {
+      const failure = new Error("credential store unavailable");
+      registerFileUploadProvider({
+        ...makeProvider("s3", true),
+        isOwnedUrl: vi.fn(async () => {
+          throw failure;
+        }),
+      });
+
+      await expect(
+        findFileUploadProviderOwningUrl("https://cdn.builder.io/image.png"),
+      ).resolves.toBe(builderFileUploadProvider);
+    });
+
+    it("preserves an ownership check failure when no provider can verify the URL", async () => {
+      const failure = new Error("credential store unavailable");
+      registerFileUploadProvider({
+        ...makeProvider("s3", true),
+        isOwnedUrl: vi.fn(async () => {
+          throw failure;
+        }),
+      });
+
+      await expect(
+        findFileUploadProviderOwningUrl(
+          "https://storage.example.test/image.png",
+        ),
+      ).rejects.toBe(failure);
     });
   });
 

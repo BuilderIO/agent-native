@@ -6,6 +6,7 @@ import type {
   AgentMessage,
   AgentTransport,
 } from "@agent-native/agentkit/protocol";
+import { compareAndSetClientAppState } from "@agent-native/core/client/application-state";
 import React, { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -57,6 +58,7 @@ const chatMocks = vi.hoisted(() => ({
   chatProps: null as any,
   composerProps: null as any,
   resumeProps: null as any,
+  stuckBannerProps: null as any,
   failureProps: null as any,
   failurePropsHistory: [] as unknown[],
   failureError: { code: "test-error", message: "Run failed" } as any,
@@ -623,10 +625,17 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: Record<string, unknown>) =>
     key === "agentChat.composer.previewAttachment"
       ? `Preview ${String(options?.name ?? "{{name}}")}`
-      : key,
+      : key === "agentChat.errorMessages.invalidAttachmentNamed"
+        ? `${key}:${String(options?.name ?? "{{name}}")}`
+        : key,
 }));
 
-vi.mock("./RunStuckBanner.js", () => ({ RunStuckBanner: () => null }));
+vi.mock("./RunStuckBanner.js", () => ({
+  RunStuckBanner: (props: unknown) => {
+    chatMocks.stuckBannerProps = props;
+    return null;
+  },
+}));
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
   const actual =
@@ -713,6 +722,7 @@ import { AgentKitActionWidget } from "./agentkit-chat/action-widget.js";
 import {
   AgentKitAssistantChat,
   agentMessageTextFromParts,
+  updateDeferredProviderSubmissions,
   type AgentKitAssistantChatProps,
 } from "./AgentKitAssistantChat.js";
 import type {
@@ -820,6 +830,7 @@ beforeEach(() => {
   chatMocks.chatProps = null;
   chatMocks.composerProps = null;
   chatMocks.resumeProps = null;
+  chatMocks.stuckBannerProps = null;
   chatMocks.failureProps = null;
   chatMocks.failurePropsHistory = [];
   chatMocks.failureError = { code: "test-error", message: "Run failed" };
@@ -2770,15 +2781,24 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
   });
 
-  it("uses the data URL MIME for image parts sent through AgentKit", async () => {
+  it("uploads data URL image parts to durable URLs before sending", async () => {
     const ref = createRef<AssistantChatHandle>();
     await mount(baseProps(), ref);
     const imageUrl = "data:image/png;base64,aGVsbG8=";
+    chatMocks.control.uploadFiles.mockResolvedValueOnce([
+      {
+        type: "file",
+        name: "image",
+        mediaType: "image/png",
+        url: "https://files.example.test/image.png",
+      },
+    ]);
 
     await act(async () => {
       await ref.current?.sendMessage("Use this image", [imageUrl]);
     });
 
+    expect(chatMocks.control.uploadFiles).toHaveBeenCalledOnce();
     expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         text: "Use this image",
@@ -2787,7 +2807,7 @@ describe("AgentKitAssistantChat host behavior", () => {
             type: "file",
             name: "image",
             mediaType: "image/png",
-            url: imageUrl,
+            url: "https://files.example.test/image.png",
           },
         ],
       }),
@@ -3435,6 +3455,84 @@ describe("AgentKitAssistantChat host behavior", () => {
     },
   );
 
+  it("rejects a file over the server upload limit before storage or upload", async () => {
+    await mount(baseProps());
+    const oversized = new File(
+      [new Uint8Array(25 * 1024 * 1024 + 1)],
+      "oversized-brief.pdf",
+      { type: "application/pdf" },
+    );
+
+    await expect(
+      chatMocks.composerProps.onSubmit(
+        "Summarize this brief",
+        [oversized],
+        [],
+        { intent: "immediate" },
+      ),
+    ).rejects.toMatchObject({
+      message: "agentChat.composer.fileTooLarge",
+      code: "upload_too_large",
+      status: 413,
+      retryable: false,
+    });
+
+    expect(chatMocks.control.uploadFiles).not.toHaveBeenCalled();
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("rechecks only submission scope after upload and reports its reason", async () => {
+    const uploading = Promise.withResolvers<FilePart[]>();
+    chatMocks.control.uploadFiles.mockReturnValueOnce(uploading.promise);
+    const ref = createRef<AssistantChatHandle>();
+    const firstScope = { type: "design", id: "first" };
+    await mount(baseProps({ contextScope: firstScope }), ref);
+    chatMocks.fetchProviderState.mockClear();
+
+    let submission!: Promise<void>;
+    await act(async () => {
+      submission = chatMocks.composerProps.onSubmit(
+        "Analyze these notes",
+        [
+          new File(["Read the attached notes."], "notes.txt", {
+            type: "text/plain",
+          }),
+        ],
+        [],
+        { intent: "immediate" },
+      );
+      await vi.waitFor(() =>
+        expect(chatMocks.control.uploadFiles).toHaveBeenCalledOnce(),
+      );
+    });
+    expect(chatMocks.fetchProviderState).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ contextScope: { type: "design", id: "second" } })}
+          ref={ref}
+        />,
+      );
+    });
+    await act(async () => {
+      uploading.resolve([
+        {
+          type: "file",
+          name: "notes.txt",
+          mediaType: "text/plain",
+          url: "https://files.example.test/notes.txt",
+        },
+      ]);
+      await expect(submission).rejects.toMatchObject({
+        code: "AGENT_CHAT_SUBMISSION_SCOPE_CHANGED",
+      });
+    });
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.fetchProviderState).toHaveBeenCalledOnce();
+  });
+
   it("does not clear persisted selection when hydration fails", async () => {
     chatMocks.appState.set("pending-selection-context", {
       text: "selection to preserve",
@@ -3631,6 +3729,142 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toBe(false);
     window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
   });
+
+  it("uploads data URL image references before persisting a deferred send", async () => {
+    const threadId = chatMocks.threadId;
+    const encodedThreadId = Array.from(threadId, (character) =>
+      character.codePointAt(0)!.toString(16),
+    ).join("-");
+    const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+    const inlineImageUrl = "data:image/png;base64,aGVsbG8=";
+    chatMocks.history = { isRestoring: true };
+    chatMocks.control.uploadFiles.mockResolvedValueOnce([
+      {
+        type: "file",
+        name: "reference.png",
+        mediaType: "image/png",
+        url: "https://files.example.test/reference.png",
+      },
+    ]);
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+
+    await act(async () => {
+      await ref.current!.sendMessage("Describe this image", undefined, {
+        attachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            contentType: "image/png",
+            url: inlineImageUrl,
+          },
+        ],
+      });
+    });
+
+    const persisted = chatMocks.appState.get(stateKey) as any;
+    expect(chatMocks.control.uploadFiles).toHaveBeenCalledOnce();
+    expect(persisted.submissions[0].fileParts).toEqual([
+      expect.objectContaining({
+        type: "file",
+        url: "https://files.example.test/reference.png",
+      }),
+    ]);
+    expect(JSON.stringify(persisted)).not.toContain("data:image/");
+    expect(JSON.stringify(persisted)).not.toContain("aGVsbG8=");
+  });
+
+  it("rejects an inline URL in a deferred recovery file part before persistence", async () => {
+    chatMocks.history = { isRestoring: true };
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+
+    await act(async () => {
+      await expect(
+        ref.current!.sendRecoveryMessage(
+          "Continue with this image",
+          "continue",
+          ["data:image/png;base64,INLINE_RECOVERY_BYTES"],
+        ),
+      ).rejects.toThrow("durable references");
+    });
+
+    expect(
+      [...chatMocks.appState.keys()].some((key) =>
+        key.startsWith("agentkit-deferred-provider-submissions:"),
+      ),
+    ).toBe(false);
+    expect(JSON.stringify([...chatMocks.appState.values()])).not.toContain(
+      "INLINE_RECOVERY_BYTES",
+    );
+  });
+
+  it.each(["references", "composerOptions", "options"] as const)(
+    "rejects nested inline image payloads in deferred %s before the app-state CAS",
+    async (location) => {
+      const threadId = `thread-deferred-${location}`;
+      const encodedThreadId = Array.from(threadId, (character) =>
+        character.codePointAt(0)!.toString(16),
+      ).join("-");
+      const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+      vi.mocked(compareAndSetClientAppState).mockClear();
+
+      const inlineImageUrl = "data:image/png;base64,DEFERRED_SQL_IMAGE_BYTES";
+      const rawImageBytesBase64 = "A".repeat(128);
+      const submission: any = {
+        id: `deferred-${location}`,
+        threadId,
+        text: "Use this reference",
+        fileParts: [],
+        references: [],
+        composerOptions: {},
+        options: {},
+      };
+      if (location === "references") {
+        submission.references = [
+          {
+            type: "file",
+            path: "/reference.png",
+            name: "reference.png",
+            source: "resource",
+            metadata: { preview: inlineImageUrl },
+          },
+        ];
+      } else if (location === "composerOptions") {
+        submission.composerOptions = {
+          contextItems: [
+            {
+              key: "reference",
+              title: "Reference",
+              context: "Selected reference",
+              preview: inlineImageUrl,
+            },
+          ],
+        };
+      } else {
+        submission.options = {
+          image: { base64: rawImageBytesBase64 },
+        };
+      }
+
+      await expect(
+        updateDeferredProviderSubmissions(threadId, () => [submission]),
+      ).rejects.toThrow(
+        location === "options"
+          ? "inline image bytes cannot be persisted"
+          : "inline attachment data cannot be persisted",
+      );
+
+      expect(compareAndSetClientAppState).not.toHaveBeenCalled();
+      expect(chatMocks.appState.has(stateKey)).toBe(false);
+      expect(JSON.stringify([...chatMocks.appState.values()])).not.toContain(
+        "DEFERRED_SQL_IMAGE_BYTES",
+      );
+      expect(JSON.stringify([...chatMocks.appState.values()])).not.toContain(
+        rawImageBytesBase64,
+      );
+    },
+  );
 
   it("keeps a failed deferred send visible until the user retries or dismisses it", async () => {
     const threadId = chatMocks.threadId;
@@ -3965,6 +4199,12 @@ describe("AgentKitAssistantChat host behavior", () => {
       missing: true,
       state: "missing",
     };
+    chatMocks.control.queueMessage.mockRejectedValueOnce(
+      Object.assign(new Error("AI setup is required before sending."), {
+        code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+        state: "missing",
+      }),
+    );
     const ref = createRef<AssistantChatHandle>();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -4014,6 +4254,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       },
     ]);
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
 
     chatMocks.readiness = {
       canChat: false,
@@ -4756,6 +4997,36 @@ describe("AgentKitAssistantChat host behavior", () => {
   });
 
   it("keeps Continue hidden as a protocol continuation", async () => {
+    const referenceUrl = "https://files.example.test/reference.png";
+    chatMocks.thread.messages = [
+      {
+        id: "user-continue",
+        role: "user",
+        createdAt: new Date().toISOString(),
+        parts: [
+          { type: "text", text: "Design from this reference" },
+          {
+            type: "file",
+            name: "reference.png",
+            mediaType: "image/png",
+            url: referenceUrl,
+          },
+        ],
+        metadata: {
+          custom: {
+            agentNativeRetryRequestAttachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                contentType: "image/png",
+                url: referenceUrl,
+                referenceUrl,
+              },
+            ],
+          },
+        },
+      },
+    ];
     await mount(baseProps());
 
     await act(async () => {
@@ -4772,6 +5043,78 @@ describe("AgentKitAssistantChat host behavior", () => {
       hideUserMessage: true,
       agentNativeInternalContinuation: true,
       custom: { agentNativeRecoveryAction: "continue" },
+    });
+    expect(request.attachments).toContainEqual({
+      type: "file",
+      name: "reference.png",
+      mediaType: "image/png",
+      url: referenceUrl,
+    });
+    expect(request.requestAttachments).toContainEqual({
+      type: "image",
+      name: "reference.png",
+      contentType: "image/png",
+      url: referenceUrl,
+      referenceUrl,
+    });
+  });
+
+  it("replays attachments and run identity when the stuck banner continues", async () => {
+    const referenceUrl = "https://files.example.test/stuck-reference.png";
+    chatMocks.thread.messages = [
+      {
+        id: "user-stuck-continue",
+        role: "user",
+        createdAt: new Date().toISOString(),
+        parts: [
+          { type: "text", text: "Design from this reference" },
+          {
+            type: "file",
+            name: "stuck-reference.png",
+            mediaType: "image/png",
+            url: referenceUrl,
+          },
+        ],
+        metadata: {
+          custom: {
+            agentNativeRetryRequestAttachments: [
+              {
+                type: "image",
+                name: "stuck-reference.png",
+                contentType: "image/png",
+                url: referenceUrl,
+                referenceUrl,
+              },
+            ],
+          },
+        },
+      },
+    ];
+    await mount(baseProps());
+
+    await act(async () => {
+      chatMocks.stuckBannerProps.onRetry("stuck-run-1");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+    expect(request.attachments).toContainEqual({
+      type: "file",
+      name: "stuck-reference.png",
+      mediaType: "image/png",
+      url: referenceUrl,
+    });
+    expect(request.requestAttachments).toContainEqual({
+      type: "image",
+      name: "stuck-reference.png",
+      contentType: "image/png",
+      url: referenceUrl,
+      referenceUrl,
+    });
+    expect(request.metadata.custom).toMatchObject({
+      agentNativeRecoveryAction: "continue",
+      agentNativeRecoveryOfRunId: "stuck-run-1",
     });
   });
 
@@ -4927,6 +5270,99 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(request.requestAttachments[0]?.data).toBeUndefined();
   });
 
+  it("shows a named invalid-attachment error and retries the original request without files", async () => {
+    const reference = { id: "reference-1", type: "document" };
+    chatMocks.failureError = {
+      code: "invalid_attachment",
+      message: "The provider rejected this image.",
+    };
+    chatMocks.thread.messages = [
+      {
+        id: "user-invalid-attachment",
+        role: "user",
+        parts: [
+          {
+            type: "text",
+            text: appendAgentChatContextToMessage(
+              "Use this reference",
+              "Private selected rows",
+            ),
+          },
+          {
+            type: "file",
+            name: "reference.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/reference.png",
+          },
+        ],
+        metadata: {
+          model: "model-original",
+          engine: "engine-original",
+          effort: "high",
+          requestMode: "plan",
+          references: [reference],
+          custom: {
+            agentNativeRetryRequestAttachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                contentType: "image/jpeg",
+                url: "https://files.example.test/reference-resized.jpg",
+                referenceUrl: "https://files.example.test/reference.png",
+              },
+            ],
+          },
+        },
+      },
+    ];
+    await mount(baseProps({ execMode: "build" }));
+
+    expect(chatMocks.failureProps.info.message).toBe(
+      "agentChat.errorMessages.invalidAttachmentNamed:reference.png",
+    );
+    expect(chatMocks.failureProps.onRetryWithoutAttachment).toEqual(
+      expect.any(Function),
+    );
+
+    await act(async () => {
+      chatMocks.failureProps.onRetryWithoutAttachment();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+    expect(request.text).toBe("Use this reference");
+    expect(request.attachments).toEqual([]);
+    expect(request.requestAttachments).toBeUndefined();
+    expect(request.metadata).toMatchObject({
+      hideUserMessage: true,
+      model: "model-original",
+      engine: "engine-original",
+      effort: "high",
+      requestMode: "plan",
+      references: [reference],
+      custom: {
+        agentNativeRecoveryAction: "retry",
+        agentNativeRecoveryOfRunId: "run-1",
+      },
+    });
+    expect(request.options).toMatchObject({
+      model: "model-original",
+      mode: "plan",
+      reasoningEffort: "high",
+    });
+  });
+
+  it("does not offer attachment-free retry for errors without attachments", async () => {
+    chatMocks.failureError = {
+      code: "invalid_attachment",
+      message: "The provider rejected an attachment.",
+    };
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.onRetryWithoutAttachment).toBeUndefined();
+  });
+
   it("disables retry when a resized image has no durable vision reference", async () => {
     chatMocks.thread.messages = [
       {
@@ -4997,6 +5433,71 @@ describe("AgentKitAssistantChat host behavior", () => {
       ),
     ).toBe(false);
     expect(chatMocks.control.uploadFiles).not.toHaveBeenCalled();
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("shows the optimistic queue entry while AI setup is pending and rolls it back on refusal", async () => {
+    const setup = Promise.withResolvers<void>();
+    chatMocks.control.queueMessage.mockImplementation(async (input: any) => {
+      const optimistic = {
+        id: "queued-pending-setup",
+        threadId: chatMocks.threadId,
+        text: input.text,
+        createdAt: "2026-10-09T00:00:00.000Z",
+      };
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        queuedMessages: [...chatMocks.thread.queuedMessages, optimistic],
+      };
+      try {
+        await setup.promise;
+        return optimistic;
+      } catch (error) {
+        chatMocks.thread = {
+          ...chatMocks.thread,
+          queuedMessages: chatMocks.thread.queuedMessages.filter(
+            (message: any) => message.id !== optimistic.id,
+          ),
+        };
+        throw error;
+      }
+    });
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+
+    let submission:
+      | Promise<Awaited<ReturnType<AssistantChatHandle["queueMessage"]>>>
+      | undefined;
+    await act(async () => {
+      submission = ref.current?.queueMessage("Send this after setup");
+      await Promise.resolve();
+    });
+    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.thread.queuedMessages).toEqual([
+      expect.objectContaining({
+        text: "Send this after setup",
+        id: "queued-pending-setup",
+      }),
+    ]);
+
+    setup.reject(
+      Object.assign(new Error("AI setup is required before sending."), {
+        code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+        state: "missing",
+      }),
+    );
+    let result:
+      | Awaited<ReturnType<AssistantChatHandle["queueMessage"]>>
+      | undefined;
+    await act(async () => {
+      result = await submission;
+    });
+
+    expect(result).toEqual({
+      status: "rejected",
+      reason: "engine-not-configured",
+    });
+    expect(chatMocks.thread.queuedMessages).toEqual([]);
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
   });
 
@@ -5652,6 +6153,107 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect.objectContaining({ id: "custom-user-message" }),
     ]);
     expect(onSaveThread).toHaveBeenCalledOnce();
+  });
+
+  it("removes inline image bodies from every persisted thread snapshot path", async () => {
+    const createTransport = () => chatMocks.transport;
+    const onSaveThread = vi.fn();
+    const inlineImageUrl = "data:image/png;base64,INLINE_SQL_IMAGE_BYTES";
+    const message = {
+      id: "user-with-inline-image",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-10-07T12:00:00.000Z",
+      parts: [
+        { type: "text", text: "Describe this" },
+        {
+          type: "file",
+          name: "reference.png",
+          mediaType: "image/png",
+          url: inlineImageUrl,
+          data: inlineImageUrl,
+        },
+        {
+          type: "image",
+          name: "reference.png",
+          data: inlineImageUrl,
+        },
+      ],
+      metadata: {
+        custom: {
+          agentNativeRetryRequestAttachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              data: inlineImageUrl,
+              url: inlineImageUrl,
+              referenceUrl: inlineImageUrl,
+            },
+          ],
+        },
+      },
+    };
+    const queuedMessage = {
+      id: "queued-with-inline-image",
+      threadId: "thread-1",
+      text: "Describe this next",
+      createdAt: "2026-10-07T12:01:00.000Z",
+      attachments: [
+        {
+          type: "file",
+          name: "reference.png",
+          mediaType: "image/png",
+          url: inlineImageUrl,
+        },
+      ],
+      requestAttachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          data: inlineImageUrl,
+          url: inlineImageUrl,
+          referenceUrl: inlineImageUrl,
+        },
+      ],
+    };
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      messages: [message],
+      queuedMessages: [queuedMessage],
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ createTransport, onSaveThread })}
+        />,
+      );
+    });
+    await flush();
+
+    expect(onSaveThread).toHaveBeenCalledOnce();
+    const snapshot = onSaveThread.mock.calls[0]?.[1];
+    expect(JSON.stringify(snapshot)).not.toContain("data:image/");
+    expect(JSON.stringify(snapshot)).not.toContain("INLINE_SQL_IMAGE_BYTES");
+    const repository = JSON.parse(snapshot.threadData);
+    expect(repository.queuedMessages[0].attachments[0]).not.toHaveProperty(
+      "url",
+    );
+    expect(
+      repository.queuedMessages[0].requestAttachments[0],
+    ).not.toHaveProperty("data");
+    expect(
+      repository.queuedMessages[0].requestAttachments[0],
+    ).not.toHaveProperty("url");
+    expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledWith("thread-1", [
+      expect.objectContaining({ id: "user-with-inline-image" }),
+    ]);
+    const persistedMessages = JSON.stringify(
+      chatMocks.persistThreadSnapshot.mock.calls[0]?.[1],
+    );
+    expect(persistedMessages).not.toContain("data:image/");
+    expect(persistedMessages).not.toContain("INLINE_SQL_IMAGE_BYTES");
   });
 
   it("shows an expired-session card and emits the session-expired event", async () => {

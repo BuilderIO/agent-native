@@ -364,10 +364,90 @@ function deferredProviderSubmissionsStateKey(threadId: string): string {
   return `${DEFERRED_PROVIDER_SUBMISSIONS_KEY_PREFIX}${encodedThreadId}`;
 }
 
+function isBase64Payload(value: string): boolean {
+  const normalized = value.trim();
+  return (
+    normalized.length > 0 &&
+    normalized.length % 4 === 0 &&
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      normalized,
+    )
+  );
+}
+
+function assertNoInlineAttachmentPayload(
+  value: unknown,
+  path: string,
+  imageContext = false,
+  active = new WeakSet<object>(),
+): void {
+  if (typeof value === "string") {
+    if (isInlineDataUrl(value)) {
+      throw new TypeError(
+        `${path}: inline attachment data cannot be persisted in application state.`,
+      );
+    }
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  if (active.has(value)) {
+    throw new TypeError(`${path}: deferred submissions must be JSON data.`);
+  }
+
+  active.add(value);
+  try {
+    if (Array.isArray(value)) {
+      value.forEach((entry, index) =>
+        assertNoInlineAttachmentPayload(
+          entry,
+          `${path}[${index}]`,
+          imageContext,
+          active,
+        ),
+      );
+      return;
+    }
+
+    const record = value as Record<string, unknown>;
+    const imageRecord =
+      imageContext ||
+      record.type === "image" ||
+      [record.contentType, record.mediaType, record.mimeType].some(
+        (mimeType) =>
+          typeof mimeType === "string" && /^image\//i.test(mimeType),
+      );
+    for (const [key, entry] of Object.entries(record)) {
+      const imagePayloadField =
+        /^(?:base64|(?:image|screenshot|photo|picture)(?:data|base64|bytes|payload)?)$/i.test(
+          key,
+        ) ||
+        (imageRecord && /^(?:data|bytes|payload|body|content|src)$/i.test(key));
+      if (
+        imagePayloadField &&
+        typeof entry === "string" &&
+        isBase64Payload(entry)
+      ) {
+        throw new TypeError(
+          `${path}.${key}: inline image bytes cannot be persisted in application state.`,
+        );
+      }
+      assertNoInlineAttachmentPayload(
+        entry,
+        `${path}.${key}`,
+        imageRecord || /image|screenshot|photo|picture/i.test(key),
+        active,
+      );
+    }
+  } finally {
+    active.delete(value);
+  }
+}
+
 function parseDeferredProviderSubmissions(
   value: unknown,
   threadId: string,
 ): PendingProviderSubmission[] {
+  assertNoInlineAttachmentPayload(value, "deferredSubmissions");
   if (value === null) return [];
   const state = asRecord(value);
   if (
@@ -387,6 +467,8 @@ function parseDeferredProviderSubmissions(
     const composerOptions = asRecord(submission?.composerOptions);
     const options = asRecord(submission?.options);
     const claim = asRecord(submission?.claim);
+    const deferredFileParts = options?.deferredFileParts;
+    const deferredRequestAttachments = options?.deferredRequestAttachments;
     if (
       typeof submission?.id !== "string" ||
       submission.threadId !== threadId ||
@@ -397,8 +479,12 @@ function parseDeferredProviderSubmissions(
         return (
           filePart?.type === "file" &&
           typeof filePart.name === "string" &&
-          (typeof filePart.url === "string" ||
-            typeof filePart.fileId === "string")
+          !isInlineDataUrl(filePart.url) &&
+          filePart.data === undefined &&
+          (isDurableAttachmentUrl(filePart.url) ||
+            (typeof filePart.fileId === "string" &&
+              filePart.fileId.trim().length > 0 &&
+              !isInlineDataUrl(filePart.fileId)))
         );
       }) ||
       (requestAttachments !== undefined &&
@@ -408,7 +494,37 @@ function parseDeferredProviderSubmissions(
             return (
               requestAttachment?.type === "image" &&
               typeof requestAttachment.name === "string" &&
-              typeof requestAttachment.url === "string" &&
+              isDurableAttachmentUrl(requestAttachment.url) &&
+              !isInlineDataUrl(requestAttachment.url) &&
+              !isInlineDataUrl(requestAttachment.referenceUrl) &&
+              requestAttachment.data === undefined
+            );
+          }))) ||
+      (deferredFileParts !== undefined &&
+        (!Array.isArray(deferredFileParts) ||
+          !deferredFileParts.every((part) => {
+            const filePart = asRecord(part);
+            return (
+              filePart?.type === "file" &&
+              typeof filePart.name === "string" &&
+              !isInlineDataUrl(filePart.url) &&
+              filePart.data === undefined &&
+              (isDurableAttachmentUrl(filePart.url) ||
+                (typeof filePart.fileId === "string" &&
+                  filePart.fileId.trim().length > 0 &&
+                  !isInlineDataUrl(filePart.fileId)))
+            );
+          }))) ||
+      (deferredRequestAttachments !== undefined &&
+        (!Array.isArray(deferredRequestAttachments) ||
+          !deferredRequestAttachments.every((attachment) => {
+            const requestAttachment = asRecord(attachment);
+            return (
+              requestAttachment?.type === "image" &&
+              typeof requestAttachment.name === "string" &&
+              isDurableAttachmentUrl(requestAttachment.url) &&
+              !isInlineDataUrl(requestAttachment.url) &&
+              !isInlineDataUrl(requestAttachment.referenceUrl) &&
               requestAttachment.data === undefined
             );
           }))) ||
@@ -489,7 +605,7 @@ function readDeferredProviderSubmissions(
   );
 }
 
-function updateDeferredProviderSubmissions(
+export function updateDeferredProviderSubmissions(
   threadId: string,
   update: (
     submissions: PendingProviderSubmission[],
@@ -502,6 +618,16 @@ function updateDeferredProviderSubmissions(
         const persisted = await readClientAppState<unknown>(stateKey);
         const current = parseDeferredProviderSubmissions(persisted, threadId);
         const submissions = update(current);
+        parseDeferredProviderSubmissions(
+          submissions.length > 0
+            ? {
+                version: DEFERRED_PROVIDER_SUBMISSIONS_VERSION,
+                threadId,
+                submissions,
+              }
+            : null,
+          threadId,
+        );
         if (JSON.stringify(submissions) === JSON.stringify(current)) {
           return current;
         }
@@ -563,6 +689,7 @@ type AgentKitComposerSubmit = (
 type AgentKitSuggestionSubmitOptions = PromptComposerSubmitOptions & {
   suggestion?: Exclude<AgentSuggestionInput, string>;
   validateSubmission?: () => void;
+  validateSubmissionScope?: () => void;
   queuedWhileRunActive?: boolean;
 };
 
@@ -965,6 +1092,11 @@ export const AgentKitAssistantChat = forwardRef<
   const uploadedFilesRef = useRef(new Map<string, FilePart>());
   const upload: AgentKitUploadDriver = useCallback(
     async (target, file, context) => {
+      if (file.size > AGENT_CHAT_MAX_UPLOAD_FILE_BYTES) {
+        throw attachmentTooLargeError(
+          translatorRef.current("agentChat.composer.fileTooLarge"),
+        );
+      }
       const form = new FormData();
       for (const [key, value] of Object.entries(target.fields ?? {})) {
         form.set(key, value);
@@ -2132,6 +2264,11 @@ const AgentKitAssistantChatBody = forwardRef<
         attachments,
         files,
       );
+      assertAttachmentSizesWithinLimit(
+        attachments,
+        files,
+        t("agentChat.composer.fileTooLarge"),
+      );
       composerOptions.validateSubmission?.();
       if (needsFileStorage && !fileStorageConfigured) {
         throw new Error(t("onboarding.fileStorage.title"));
@@ -2144,13 +2281,19 @@ const AgentKitAssistantChatBody = forwardRef<
         : await uploadAgentChatAttachments(control, attachments, files, {
             storageConfigured: fileStorageConfigured,
             storageUnavailableMessage: t("onboarding.fileStorage.title"),
+            fileTooLargeMessage: t("agentChat.composer.fileTooLarge"),
           });
       const fileParts = uploadedAttachments.fileParts;
-      let requestAttachments =
+      if (fileParts.some((part) => !hasDurableFilePart(part))) {
+        throw new TypeError("Attachments require durable references.");
+      }
+      let requestAttachments = normalizeRequestAttachmentReferences(
         options.deferredRequestAttachments ??
-        uploadedAttachments.requestAttachments;
+          uploadedAttachments.requestAttachments,
+      );
       let retryRequestAttachments = requestAttachments.filter(
-        (attachment) => !attachment.data && attachment.url,
+        (attachment) =>
+          !attachment.data && isDurableAttachmentUrl(attachment.url),
       );
       let retryAttachmentsUnavailable = false;
       if (requestAttachments.some((attachment) => attachment.data)) {
@@ -2176,7 +2319,8 @@ const AgentKitAssistantChatBody = forwardRef<
                       : attachment;
                   });
             retryRequestAttachments = durableAttachments.filter(
-              (attachment) => !attachment.data && attachment.url,
+              (attachment) =>
+                !attachment.data && isDurableAttachmentUrl(attachment.url),
             );
             retryAttachmentsUnavailable =
               retryRequestAttachments.length !== requestAttachments.length;
@@ -2192,7 +2336,7 @@ const AgentKitAssistantChatBody = forwardRef<
       if (inlineImageDataChars > MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS) {
         throw new Error(t("agentChat.composer.requestTooLarge"));
       }
-      composerOptions.validateSubmission?.();
+      validateSubmissionScope(composerOptions);
       const selectionChangedDuringSubmission =
         selectionRevision !== selectionRevisionRef.current ||
         (options.pendingSelectionCapturedAt !== undefined &&
@@ -2379,6 +2523,11 @@ const AgentKitAssistantChatBody = forwardRef<
             const needsFileStorage =
               !options.deferredFileParts &&
               requiresDurableAttachmentUpload(attachments, files);
+            assertAttachmentSizesWithinLimit(
+              attachments,
+              files,
+              t("agentChat.composer.fileTooLarge"),
+            );
             submittedComposerOptions.validateSubmission?.();
             if (needsFileStorage && !fileStorageConfigured) {
               throw new Error(t("onboarding.fileStorage.title"));
@@ -2393,8 +2542,14 @@ const AgentKitAssistantChatBody = forwardRef<
               : await uploadAgentChatAttachments(control, attachments, files, {
                   storageConfigured: fileStorageConfigured,
                   storageUnavailableMessage: t("onboarding.fileStorage.title"),
+                  fileTooLargeMessage: t("agentChat.composer.fileTooLarge"),
                 });
             const fileParts = uploadedAttachments.fileParts;
+            if (fileParts.some((part) => !hasDurableFilePart(part))) {
+              throw new TypeError(
+                "Deferred attachments require durable references.",
+              );
+            }
             if (
               !fileStorageConfigured &&
               uploadedAttachments.requestAttachments.some(
@@ -2403,12 +2558,14 @@ const AgentKitAssistantChatBody = forwardRef<
             ) {
               throw new Error(t("onboarding.fileStorage.title"));
             }
-            const requestAttachments =
+            const requestAttachments = normalizeRequestAttachmentReferences(
               options.deferredRequestAttachments ??
-              (await uploadRequestAttachments(
-                control,
-                uploadedAttachments.requestAttachments,
-              ));
+                (await uploadRequestAttachments(
+                  control,
+                  uploadedAttachments.requestAttachments,
+                )),
+            );
+            validateSubmissionScope(submittedComposerOptions);
             const selectionChangedDuringUpload =
               selectionRevision !== selectionRevisionRef.current;
             const context = options.recoveryAction
@@ -2567,6 +2724,194 @@ const AgentKitAssistantChatBody = forwardRef<
       props.composerDisabled,
       props.composerSubmissionDisabled,
       props.tabId,
+      t,
+      threadId,
+    ],
+  );
+
+  const queueImperativeMessage = useCallback(
+    async (
+      text: string,
+      images: string[] = [],
+    ): Promise<AssistantChatSubmitResult> => {
+      if (
+        isRestoring ||
+        props.composerDisabled ||
+        props.composerSubmissionDisabled
+      ) {
+        return { status: "rejected", reason: "submission-unavailable" };
+      }
+
+      if (
+        images.some(
+          (url) => !parseBase64DataUrl(url) && !isDurableAttachmentUrl(url),
+        )
+      ) {
+        throw Object.assign(
+          new TypeError("Images need a data URL or durable reference."),
+          { code: ATTACHMENT_UNREADABLE_SUBMIT_REASON },
+        );
+      }
+      const inlineImageDataChars = images.reduce(
+        (total, url) => total + (parseBase64DataUrl(url) ? url.length : 0),
+        0,
+      );
+      if (inlineImageDataChars > MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS) {
+        throw attachmentTooLargeError(t("agentChat.composer.fileTooLarge"));
+      }
+
+      const selectionHydration = pendingSelectionHydrationRef.current;
+      const currentPendingSelection = pendingSelectionRef.current;
+      const selectionRevision = selectionRevisionRef.current;
+      const context = [
+        formatAgentChatContextItemsForPrompt(contextItems),
+        pendingSelectionPromptContext(currentPendingSelection),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const message = appendAgentChatContextToMessage(text, context);
+      const requestAttachments: AgentRequestAttachment[] = images.map(
+        (url, index) => {
+          const parsed = parseBase64DataUrl(url);
+          if (parsed) {
+            return {
+              type: "image" as const,
+              name: `image-${index + 1}`,
+              contentType: parsed.mediaType,
+              data: url,
+            };
+          }
+          return {
+            type: "image" as const,
+            name: `image-${index + 1}`,
+            url,
+          };
+        },
+      );
+      const attachments: FilePart[] = requestAttachments.flatMap((attachment) =>
+        !attachment.data && attachment.url
+          ? [
+              {
+                type: "file" as const,
+                name: attachment.name,
+                ...(attachment.contentType
+                  ? { mediaType: attachment.contentType }
+                  : {}),
+                url: attachment.url,
+              },
+            ]
+          : [],
+      );
+      const retryRequestAttachments = requestAttachments.filter(
+        (attachment) =>
+          !attachment.data && isDurableAttachmentUrl(attachment.url),
+      );
+      const requestMode = props.execMode === "plan" ? "plan" : "act";
+      const model = props.selectedModel;
+      const engine = props.selectedEngine;
+      const effort = props.selectedEffort;
+      const customMetadata = {
+        ...(retryRequestAttachments.length
+          ? { agentNativeRetryRequestAttachments: retryRequestAttachments }
+          : {}),
+      };
+      const skipAmbientSelectionContext =
+        selectionHydration?.status === "pending" ||
+        isClientAppStateMutationPending("pending-selection-context") ||
+        selectionRevision !== selectionRevisionRef.current ||
+        Boolean(pendingSelectionPromptContext(currentPendingSelection));
+      const metadata = {
+        ...(skipAmbientSelectionContext
+          ? { agentNativeSkipPendingSelectionContext: true }
+          : {}),
+        ...(props.contextScope
+          ? { actionScope: props.contextScope, chatScope: props.contextScope }
+          : {}),
+        ...(props.selectedAgent ? { agentId: props.selectedAgent } : {}),
+        ...(Object.keys(customMetadata).length
+          ? { custom: customMetadata }
+          : {}),
+        ...(model ? { model } : {}),
+        ...(engine ? { engine } : {}),
+        ...(effort ? { effort } : {}),
+        requestMode,
+      };
+      try {
+        assertAttachmentSizesWithinLimit(
+          requestAttachments.map((attachment) => ({
+            type: "image",
+            name: attachment.name,
+            ...(attachment.contentType
+              ? { contentType: attachment.contentType }
+              : {}),
+            ...(attachment.data ? { data: attachment.data } : {}),
+            ...(attachment.url ? { url: attachment.url } : {}),
+          })),
+          [],
+          t("agentChat.composer.fileTooLarge"),
+        );
+        await control.queueMessage({
+          text: message,
+          attachments,
+          ...(requestAttachments.length ? { requestAttachments } : {}),
+          queuedWhileRunActive: true,
+          options: {
+            model,
+            mode: requestMode,
+            agentId: props.selectedAgent,
+            reasoningEffort:
+              effort && effort !== "auto" && effort !== "max"
+                ? (effort as "low" | "medium" | "high" | "xhigh")
+                : undefined,
+            metadata,
+          },
+          metadata,
+        });
+        const selectionChangedDuringSubmission =
+          selectionRevision !== selectionRevisionRef.current;
+        if (
+          !selectionChangedDuringSubmission &&
+          Boolean(pendingSelectionPromptContext(currentPendingSelection))
+        ) {
+          requestPendingSelectionClear();
+        }
+        const usedKeys = new Set(contextItems.map((item) => item.key));
+        publishAgentChatContextItems(
+          getAgentChatContextState().items.filter(
+            (item) => !usedKeys.has(item.key),
+          ),
+        );
+        setContextItems((items) =>
+          items.filter((item) => !usedKeys.has(item.key)),
+        );
+        return { status: "submitted" };
+      } catch (error) {
+        const reason = submitFailureReason(error);
+        const rejected = setupSubmissionResult(error);
+        reportAgentChatSubmitResult(
+          undefined,
+          false,
+          rejected?.status === "rejected" ? rejected.reason : reason,
+        );
+        dispatchSetupRequiredEvent(error, props.tabId, threadId);
+        if (rejected) return rejected;
+        throw error;
+      }
+    },
+    [
+      contextItems,
+      control,
+      isRestoring,
+      props.composerDisabled,
+      props.composerSubmissionDisabled,
+      props.contextScope,
+      props.execMode,
+      props.selectedAgent,
+      props.selectedEffort,
+      props.selectedEngine,
+      props.selectedModel,
+      props.tabId,
+      requestPendingSelectionClear,
       t,
       threadId,
     ],
@@ -3007,28 +3352,7 @@ const AgentKitAssistantChatBody = forwardRef<
       },
       sendRecoveryMessage: (text, recoveryAction, images) =>
         sendRecoveryMessage(text, recoveryAction, images),
-      queueMessage: (text, images) =>
-        (async () => {
-          try {
-            return await submit(
-              text,
-              [],
-              [],
-              { intent: "queued" },
-              {
-                attachments: (images ?? []).map((url) => ({
-                  type: "image",
-                  name: "image",
-                  url,
-                })),
-              },
-            );
-          } catch (error) {
-            const rejected = setupSubmissionResult(error);
-            if (rejected) return rejected;
-            throw error;
-          }
-        })(),
+      queueMessage: (text, images) => queueImperativeMessage(text, images),
       isRunning: isThreadRunning,
       hasInFlightWork: () =>
         Object.values(thread.tools).some((tool) => tool.status === "running") ||
@@ -3071,8 +3395,8 @@ const AgentKitAssistantChatBody = forwardRef<
       requestComposerFocus,
       send,
       sendRecoveryMessage,
+      queueImperativeMessage,
       setContextItem,
-      submit,
       thread,
       threadId,
     ],
@@ -3164,9 +3488,16 @@ const AgentKitAssistantChatBody = forwardRef<
         }
         isAwaitingResponse={() => isRunning}
         onServerSettled={reconcileServerSettled}
-        onRetry={() =>
-          void sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue")
-        }
+        onRetry={(runId) => {
+          const lastUserMessage = [...thread.messages]
+            .reverse()
+            .find((message) => message.role === "user");
+          void sendContinueRequest(
+            surfaceContext,
+            retryRequestFrom(lastUserMessage),
+            runId,
+          );
+        }}
       />
       {history?.historyLoadFailed ? (
         <div
@@ -3916,14 +4247,18 @@ function AgentKitComposerSurface({
         : {}),
     };
     setComposerError(null);
-    const assertCurrentSubmission = () => {
-      if (
-        !submissionAllowed.current ||
-        !mounted.current ||
-        currentSubmissionScope.current !== submissionScope
-      ) {
+    const assertCurrentSubmissionScope = () => {
+      if (currentSubmissionScope.current !== submissionScope) {
+        throw Object.assign(new Error(t("agentChat.error.failed")), {
+          code: "AGENT_CHAT_SUBMISSION_SCOPE_CHANGED",
+        });
+      }
+      if (!submissionAllowed.current || !mounted.current) {
         throw new Error(t("agentChat.error.failed"));
       }
+    };
+    const assertCurrentSubmission = () => {
+      assertCurrentSubmissionScope();
       const latest = controller.getThread(threadId);
       if (
         options.suggestion &&
@@ -3933,7 +4268,11 @@ function AgentKitComposerSurface({
         throw new Error(t("agentChat.error.failed"));
     };
     assertCurrentSubmission();
-    options = { ...options, validateSubmission: assertCurrentSubmission };
+    options = {
+      ...options,
+      validateSubmission: assertCurrentSubmission,
+      validateSubmissionScope: assertCurrentSubmissionScope,
+    };
     const captured = snapshotComposerContextItems(
       options.contextItems ?? visibleContextItems,
     );
@@ -4721,6 +5060,9 @@ function AgentKitRunFailure({
     .find((message) => message.role === "user");
   const failedPrompt = userMessageForRun(thread.messages, runId);
   const retryRequest = retryRequestFrom(failedPrompt ?? lastUserMessage);
+  const failedAttachmentNames = retryAttachmentNames(retryRequest);
+  const canRetryWithoutAttachment =
+    error.code === "invalid_attachment" && failedAttachmentNames.length > 0;
   const alreadyRetried = wasRetried(
     thread.messages,
     runId,
@@ -4768,7 +5110,7 @@ function AgentKitRunFailure({
             : {}),
         }}
         onContinue={() =>
-          void surface.sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue")
+          void sendContinueRequest(surface, retryRequest, runId)
         }
       />
     );
@@ -4785,10 +5127,13 @@ function AgentKitRunFailure({
             await control.continueRun(runId);
           })().catch(() => setContinueFailed(true));
         }
-    : () =>
-        void surface.sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue");
+    : () => void sendContinueRequest(surface, retryRequest, runId);
   const info: RunErrorInfo = {
-    message: formatAgentKitErrorText(error, t),
+    message: canRetryWithoutAttachment
+      ? t("agentChat.errorMessages.invalidAttachmentNamed", {
+          name: failedAttachmentNames.join(", "),
+        })
+      : formatAgentKitErrorText(error, t),
     errorCode: error.code,
     details: formatErrorDetails(error.details),
     runId,
@@ -4803,6 +5148,16 @@ function AgentKitRunFailure({
       }
       onRetry={() => void retryFailedTurn()}
       retryHasUnavailableAttachment={retryRequest.hasUnavailableAttachment}
+      onRetryWithoutAttachment={
+        canRetryWithoutAttachment
+          ? () =>
+              void sendRetryRequestWithoutAttachments(
+                surface,
+                retryRequest,
+                runId,
+              )
+          : undefined
+      }
       onFork={async () => {
         if (!lastUserMessage) return surface.props.onForkChat?.();
         const fork = await control.fork(lastUserMessage.id);
@@ -4913,6 +5268,70 @@ function sendRetryRequest(
         : {}),
     },
   );
+}
+
+function sendContinueRequest(
+  surface: AgentKitSurfaceContextValue,
+  request: ReturnType<typeof retryRequestFrom>,
+  recoveryOfRunId?: string,
+) {
+  return surface.sendRecoveryMessage(
+    RECOVERY_CONTINUE_PROMPT,
+    "continue",
+    undefined,
+    request.fileParts,
+    request.references,
+    {
+      recoveryModel: request.model,
+      recoveryEngine: request.engine,
+      recoveryEffort: request.effort,
+      ...(recoveryOfRunId ? { recoveryOfRunId } : {}),
+      ...(request.requestAttachments.length
+        ? { deferredRequestAttachments: request.requestAttachments }
+        : {}),
+      ...(request.requestMode
+        ? { recoveryRequestMode: request.requestMode }
+        : {}),
+    },
+  );
+}
+
+function sendRetryRequestWithoutAttachments(
+  surface: AgentKitSurfaceContextValue,
+  request: ReturnType<typeof retryRequestFrom>,
+  recoveryOfRunId: string,
+) {
+  return surface.sendRecoveryMessage(
+    request.text || "Please retry the last request.",
+    "retry",
+    undefined,
+    [],
+    request.references,
+    {
+      recoveryModel: request.model,
+      recoveryEngine: request.engine,
+      recoveryEffort: request.effort,
+      recoveryOfRunId,
+      ...(request.requestMode
+        ? { recoveryRequestMode: request.requestMode }
+        : {}),
+    },
+  );
+}
+
+function retryAttachmentNames(
+  request: ReturnType<typeof retryRequestFrom>,
+): string[] {
+  return [
+    ...new Set(
+      [
+        ...request.fileParts.map((part) => part.name),
+        ...request.requestAttachments.map((attachment) => attachment.name),
+      ]
+        .map((name) => name.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 function retryRequestAttachmentsFrom(value: unknown): AgentRequestAttachment[] {
@@ -5304,6 +5723,31 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+function isInlineDataUrl(value: unknown): value is string {
+  return typeof value === "string" && /^data:/i.test(value.trim());
+}
+
+function isDurableAttachmentUrl(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    !isInlineDataUrl(value)
+  );
+}
+
+function hasDurableFilePart(value: unknown): value is FilePart {
+  const filePart = asRecord(value);
+  return (
+    filePart?.type === "file" &&
+    typeof filePart.name === "string" &&
+    filePart.data === undefined &&
+    (isDurableAttachmentUrl(filePart.url) ||
+      (typeof filePart.fileId === "string" &&
+        filePart.fileId.trim().length > 0 &&
+        !isInlineDataUrl(filePart.fileId)))
+  );
+}
+
 function formatErrorDetails(details: unknown): string | undefined {
   if (details == null) return undefined;
   if (typeof details === "string") return details;
@@ -5384,6 +5828,19 @@ function submitFailureReason(error: unknown): string {
   if (record?.code === ATTACHMENT_UNREADABLE_SUBMIT_REASON) {
     return ATTACHMENT_UNREADABLE_SUBMIT_REASON;
   }
+  if (record?.code === "AGENT_CHAT_SUBMISSION_SCOPE_CHANGED") {
+    return "submission-scope-changed";
+  }
+  if (record?.code === "upload_too_large") {
+    return "attachment-too-large";
+  }
+  if (
+    typeof record?.code === "string" &&
+    (record.code.startsWith("upload_") ||
+      record.code.startsWith("upload_http_"))
+  ) {
+    return "attachment-upload-failed";
+  }
   if (record?.code === "AGENT_CHAT_AI_SETUP_REQUIRED") {
     return record.state === "missing"
       ? "engine-not-configured"
@@ -5409,6 +5866,62 @@ function setupSubmissionResult(
 interface UploadedAgentChatAttachments {
   fileParts: FilePart[];
   requestAttachments: AgentRequestAttachment[];
+}
+
+const AGENT_CHAT_MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
+
+function attachmentTooLargeError(message: string): Error {
+  return Object.assign(new Error(message), {
+    code: "upload_too_large",
+    status: 413,
+    retryable: false,
+  });
+}
+
+function assertAttachmentSizesWithinLimit(
+  attachments: readonly AgentChatAttachment[],
+  files: readonly PromptComposerFile[],
+  message: string,
+): void {
+  const hasOversizedFile = files.some(
+    (file) => file.size > AGENT_CHAT_MAX_UPLOAD_FILE_BYTES,
+  );
+  const hasOversizedAttachment = attachments.some((attachment) => {
+    if (attachment.displayOnly || attachment.url) return false;
+    if (attachment.data) {
+      const parsed = parseBase64DataUrl(attachment.data);
+      const base64 = parsed?.data ?? attachment.data;
+      if (/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+        const padding = base64.endsWith("==")
+          ? 2
+          : base64.endsWith("=")
+            ? 1
+            : 0;
+        return (
+          Math.max(0, Math.floor((base64.length * 3) / 4) - padding) >
+          AGENT_CHAT_MAX_UPLOAD_FILE_BYTES
+        );
+      }
+    }
+    return (
+      attachment.text !== undefined &&
+      new TextEncoder().encode(attachment.text).byteLength >
+        AGENT_CHAT_MAX_UPLOAD_FILE_BYTES
+    );
+  });
+  if (hasOversizedFile || hasOversizedAttachment) {
+    throw attachmentTooLargeError(message);
+  }
+}
+
+function validateSubmissionScope(
+  options: AgentKitSuggestionSubmitOptions,
+): void {
+  if (options.validateSubmissionScope) {
+    options.validateSubmissionScope();
+  } else {
+    options.validateSubmission?.();
+  }
 }
 
 const OPTIMIZABLE_RASTER_IMAGE_TYPES = new Set([
@@ -5459,7 +5972,7 @@ function requiresDurableAttachmentUpload(
     attachments.some(
       (attachment) =>
         !attachment.displayOnly &&
-        !attachment.url &&
+        !isDurableAttachmentUrl(attachment.url) &&
         !isPotentiallyDownscalableAttachment(attachment),
     )
   );
@@ -5472,22 +5985,27 @@ async function uploadAgentChatAttachments(
   options: {
     storageConfigured: boolean;
     storageUnavailableMessage: string;
+    fileTooLargeMessage: string;
   },
 ): Promise<UploadedAgentChatAttachments> {
   const entries: Array<FilePart | File> = [];
   for (const attachment of attachments) {
     if (attachment.displayOnly) continue;
-    if (attachment.url) {
-      const dataUrlMediaType = parseBase64DataUrl(attachment.url)?.mediaType;
+    if (isDurableAttachmentUrl(attachment.url)) {
       entries.push({
         type: "file",
         name: attachment.name,
-        mediaType:
-          dataUrlMediaType ?? attachment.contentType ?? attachment.type,
+        mediaType: attachment.contentType ?? attachment.type,
         url: attachment.url,
       });
     } else {
-      const file = await attachmentToFile(attachment);
+      const file = await attachmentToFile({
+        ...attachment,
+        url: undefined,
+        ...(isInlineDataUrl(attachment.url)
+          ? { data: attachment.data ?? attachment.url }
+          : {}),
+      });
       if (file) entries.push(file);
     }
   }
@@ -5495,6 +6013,9 @@ async function uploadAgentChatAttachments(
   const pending = entries.filter(
     (entry): entry is File => entry instanceof File,
   );
+  if (pending.some((file) => file.size > AGENT_CHAT_MAX_UPLOAD_FILE_BYTES)) {
+    throw attachmentTooLargeError(options.fileTooLargeMessage);
+  }
   const optimizedImages = new Map<
     File,
     { data: string; contentType: string }
@@ -5534,7 +6055,7 @@ async function uploadAgentChatAttachments(
     );
     filesToUploadNormally.forEach((file, index) => {
       const part = uploaded[index];
-      if (!part) {
+      if (!part || !hasDurableFilePart(part)) {
         throw new TypeError("File upload did not return every uploaded file.");
       }
       uploadedByFile.set(file, part);
@@ -5551,7 +6072,7 @@ async function uploadAgentChatAttachments(
           body: file,
         },
       ]);
-      if (part) uploadedByFile.set(file, part);
+      if (part && hasDurableFilePart(part)) uploadedByFile.set(file, part);
     } catch {
       // coercion-ok: the resized inline pixels are sent; this upload only adds a reusable URL.
     }
@@ -5571,7 +6092,9 @@ async function uploadAgentChatAttachments(
         name: file.name,
         contentType: optimized.contentType,
         data: optimized.data,
-        ...(part?.url ? { referenceUrl: part.url } : {}),
+        ...(part?.url && isDurableAttachmentUrl(part.url)
+          ? { referenceUrl: part.url }
+          : {}),
       },
     ];
   });
@@ -5608,13 +6131,39 @@ async function uploadRequestAttachments(
   return attachments.map((attachment) => {
     if (!attachment.data) return attachment;
     const part = uploaded[uploadIndex++];
-    if (!part?.url) {
+    if (!part?.url || !isDurableAttachmentUrl(part.url)) {
       throw new TypeError(
         `The optimized image ${attachment.name} did not receive a durable URL.`,
       );
     }
     const { data: _data, ...reference } = attachment;
     return { ...reference, url: part.url };
+  });
+}
+
+function normalizeRequestAttachmentReferences(
+  attachments: readonly AgentRequestAttachment[],
+): AgentRequestAttachment[] {
+  return attachments.map((attachment) => {
+    if (isInlineDataUrl(attachment.url) && !attachment.data) {
+      throw new TypeError(
+        `The image ${attachment.name} has inline bytes in its URL instead of a durable reference.`,
+      );
+    }
+    const {
+      url: _inlineUrl,
+      referenceUrl: _inlineReferenceUrl,
+      ...rest
+    } = attachment;
+    return {
+      ...rest,
+      ...(isDurableAttachmentUrl(attachment.url)
+        ? { url: attachment.url }
+        : {}),
+      ...(isDurableAttachmentUrl(attachment.referenceUrl)
+        ? { referenceUrl: attachment.referenceUrl }
+        : {}),
+    };
   });
 }
 
@@ -5639,22 +6188,31 @@ function agentMessageText(message: AgentMessage): string {
   return agentMessageTextFromParts(message.parts);
 }
 
+function persistedAgentSnapshotValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => {
+      const persisted = persistedAgentSnapshotValue(entry);
+      return persisted === undefined ? [] : [persisted];
+    });
+  }
+  if (typeof value === "string") {
+    return isInlineDataUrl(value) ? undefined : value;
+  }
+  const record = asRecord(value);
+  if (!record) return value;
+
+  const isAttachment = record.type === "file" || record.type === "image";
+  const persisted: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(record)) {
+    if (isAttachment && key === "data") continue;
+    const saved = persistedAgentSnapshotValue(entry);
+    if (saved !== undefined) persisted[key] = saved;
+  }
+  return persisted;
+}
+
 function persistedAgentMessage(message: AgentMessage): AgentMessage {
-  return {
-    ...message,
-    parts: message.parts.map((part) => {
-      const record = asRecord(part);
-      if (
-        (record?.type === "file" || record?.type === "image") &&
-        typeof record.data === "string" &&
-        record.data.startsWith("data:")
-      ) {
-        const { data: _data, ...withoutInlineBody } = record;
-        return withoutInlineBody as unknown as AgentMessage["parts"][number];
-      }
-      return part;
-    }),
-  };
+  return persistedAgentSnapshotValue(message) as AgentMessage;
 }
 
 function createAgentKitThreadSnapshot(thread: AgentThreadState) {
@@ -5683,6 +6241,7 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
       ? "fallback"
       : undefined;
   const title = savedTitle || fallbackChatTitle(firstUserText ?? "");
+  const persistedTitle = persistedAgentSnapshotValue(title);
   const runs = Object.entries(thread.runs).map(([id, run]) => ({
     ...run,
     id,
@@ -5696,16 +6255,20 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
     toolCalls: Object.values(thread.tools),
     activities: Object.values(thread.activities),
   };
+  const repositorySnapshot = persistedAgentSnapshotValue({
+    headId: messages.at(-1)?.id ?? null,
+    messages: repositoryMessages,
+    queuedMessages: thread.queuedMessages,
+    agentKit,
+  });
   return {
-    threadData: JSON.stringify({
-      headId: messages.at(-1)?.id ?? null,
-      messages: repositoryMessages,
-      queuedMessages: thread.queuedMessages,
-      agentKit,
-    }),
-    title,
+    threadData: JSON.stringify(repositorySnapshot),
+    title: typeof persistedTitle === "string" ? persistedTitle : "",
     ...(titleSource ? { titleSource } : {}),
-    preview: (latestUserText ?? "").slice(0, 280),
+    preview:
+      (persistedAgentSnapshotValue((latestUserText ?? "").slice(0, 280)) as
+        | string
+        | undefined) ?? "",
     messageCount: messages.length,
   };
 }
@@ -5762,7 +6325,7 @@ function storeAgentKitThreadHandoffSnapshot(
   if (!messages.length) return;
 
   const now = new Date().toISOString();
-  const handoff: AgentKitHandoffThreadSnapshot = {
+  const handoff = persistedAgentSnapshotValue({
     ...(thread.thread ?? {}),
     id: thread.id,
     title: snapshot.title || thread.thread?.title,
@@ -5813,7 +6376,7 @@ function storeAgentKitThreadHandoffSnapshot(
     interactions: thread.agentInteractions,
     artifacts: thread.artifacts,
     suggestions: thread.suggestions,
-  };
+  }) as AgentKitHandoffThreadSnapshot;
 
   const timestamp = Date.now();
   for (const [existingKey, entry] of threadHandoffSnapshots) {
@@ -5956,21 +6519,28 @@ function appendVoiceTranscriptsToThreadSnapshot(
   const latestUser = [...messages]
     .reverse()
     .find((message) => message.role === "user");
+  const title =
+    snapshot.title ||
+    (firstUser ? fallbackChatTitle(rawAgentMessageText(firstUser)) : "");
+  const persistedTitle = persistedAgentSnapshotValue(title);
+  const persistedPreview = persistedAgentSnapshotValue(
+    latestUser ? agentMessageText(latestUser).slice(0, 280) : "",
+  );
   return {
     ...snapshot,
-    threadData: JSON.stringify({
-      ...parsedRepository,
-      headId: messages.at(-1)?.id ?? null,
-      messages: repositoryMessages,
-      agentKit: {
-        ...agentKit,
-        messages,
-      },
-    }),
-    title:
-      snapshot.title ||
-      (firstUser ? fallbackChatTitle(rawAgentMessageText(firstUser)) : ""),
-    preview: latestUser ? agentMessageText(latestUser).slice(0, 280) : "",
+    threadData: JSON.stringify(
+      persistedAgentSnapshotValue({
+        ...parsedRepository,
+        headId: messages.at(-1)?.id ?? null,
+        messages: repositoryMessages,
+        agentKit: {
+          ...agentKit,
+          messages,
+        },
+      }),
+    ),
+    title: typeof persistedTitle === "string" ? persistedTitle : "",
+    preview: typeof persistedPreview === "string" ? persistedPreview : "",
     messageCount: messages.length,
   };
 }

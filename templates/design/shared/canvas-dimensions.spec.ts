@@ -355,6 +355,7 @@ describe("resolveCanvasIntent", () => {
     ["Create a display ad", "Medium Rectangle", 300, 250],
     ["Create a display leaderboard", "Leaderboard", 728, 90],
     ["Create a mobile leaderboard ad", "Mobile Leaderboard", 320, 50],
+    ["Create a mobile leaderboard", "Mobile Leaderboard", 320, 50],
     ["Create an email header", "Email Header", 600, 200],
   ])("resolves %s to %s", (prompt, preset, width, height) => {
     expect(resolveCanvasIntent(prompt)).toEqual({
@@ -399,7 +400,16 @@ describe("resolveCanvasIntent", () => {
     "Build a Google Ads dashboard",
     "Build a Google Ads reporting tool",
     "Design an ad campaign manager",
+    "Create a sales leaderboard",
+    "Create a mobile leaderboard app",
+    "Create a display leaderboard editor",
+    "Design a Facebook ads reporting screen",
+    "Design an ad performance report screen",
+    "Design an ads manager",
+    "Build a social media scheduler",
     "Create a leaderboard page for our game",
+    "Create a leaderboard screen for our game",
+    "Create a LinkedIn ad editor",
     "Create a social post scheduler app",
     "Create a settings page with an avatar upload",
     "Create a login screen with a logo",
@@ -417,11 +427,37 @@ describe("resolveCanvasIntent", () => {
     "Twitter/X promo graphic",
     "YouTube thumbnail",
     "OG image",
-    "LinkedIn ad",
     "Make a flyer for the conference",
     "Design a social post announcing our new landing page",
   ])("recognizes fixed artwork in %s", (prompt) => {
     expect(resolveCanvasIntent(prompt).kind).toBe("fixed");
+  });
+
+  it.each([
+    [
+      "Create a LinkedIn ad",
+      {
+        kind: "fixed",
+        source: "preset",
+        preset: "LinkedIn Single Image Ad",
+        dimensions: { width: 1200, height: 627 },
+      },
+    ],
+    [
+      "Design a poster for our event",
+      { kind: "fixed", source: "fixed-output" },
+    ],
+    [
+      "Make a Twitter/X promo graphic",
+      {
+        kind: "fixed",
+        source: "preset",
+        preset: "X Promo Graphic",
+        dimensions: { width: 1200, height: 675 },
+      },
+    ],
+  ])("keeps artwork outputs fixed in %s", (prompt, intent) => {
+    expect(resolveCanvasIntent(prompt)).toMatchObject(intent);
   });
 
   it("uses exact pixels before a platform preset", () => {
