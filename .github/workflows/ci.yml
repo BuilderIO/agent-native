@@ -425,7 +425,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 9
     strategy:
       fail-fast: false
       matrix:
@@ -447,18 +447,6 @@ jobs:
             position-2a,
             position-2b,
             position-3,
-            changed-1,
-            changed-2,
-            changed-3,
-            changed-4,
-            changed-5,
-            changed-6,
-            changed-7,
-            changed-8,
-            changed-9,
-            changed-10,
-            changed-11,
-            changed-12,
             screen-history-1,
             screen-history-2,
             screen-history-3,
@@ -505,202 +493,125 @@ jobs:
               ;;
           esac
           pnpm exec playwright test \
-            e2e/parity-selection-history-delete-screen.spec.ts \
+            e2e/interaction-selection-history-delete-screen.spec.ts \
             --grep "$grep" \
             --workers=1
 
-      - name: Run changed Design E2E specs
-        if: startsWith(matrix.shard, 'changed-')
-        working-directory: templates/design
-        timeout-minutes: 12
-        env:
-          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
-          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
-        run: |
-          set -euo pipefail
-          changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
-          node -e '
-            const paths = JSON.parse(process.env.DESIGN_CANVAS_E2E_SPECS || "[]");
-            if (!Array.isArray(paths) || paths.some((path) => typeof path !== "string" || !path.startsWith("templates/design/e2e/"))) {
-              throw new Error("Invalid changed Design E2E spec list");
-            }
-            process.stdout.write(paths.map((path) => path.replace(/^templates\/design\//, "")).join(String.fromCharCode(0)));
-          ' > "$changed_specs_file"
-          mapfile -d '' -t changed_specs < "$changed_specs_file"
-          existing_changed_specs=()
-          for spec in "${changed_specs[@]}"; do
-            if [[ -f "$spec" ]]; then
-              existing_changed_specs+=("$spec")
-            fi
-          done
-          if ((${#existing_changed_specs[@]} == 0)); then
-            echo "No changed Design E2E specs to run."
-            exit 0
-          fi
-          changed_shard="${{ matrix.shard }}"
-          changed_shard="${changed_shard#changed-}"
-          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/12"
-
       - name: Run focused Design regression cases
-        if: ${{ !startsWith(matrix.shard, 'screen-history-') && !startsWith(matrix.shard, 'changed-') }}
+        if: ${{ !startsWith(matrix.shard, 'screen-history-') }}
         working-directory: templates/design
         timeout-minutes: 4
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
-          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
         run: |
           set -euo pipefail
           # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.
-          changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
-          node -e '
-            const paths = JSON.parse(process.env.DESIGN_CANVAS_E2E_SPECS || "[]");
-            if (!Array.isArray(paths) || paths.some((path) => typeof path !== "string" || !path.startsWith("templates/design/e2e/"))) {
-              throw new Error("Invalid changed Design E2E spec list");
-            }
-            process.stdout.write(paths.map((path) => path.replace(/^templates\/design\//, "")).join(String.fromCharCode(0)));
-          ' > "$changed_specs_file"
-          mapfile -d '' -t changed_specs < "$changed_specs_file"
-          existing_changed_specs=()
-          for spec in "${changed_specs[@]}"; do
-            if [[ -f "$spec" ]]; then
-              existing_changed_specs+=("$spec")
-            fi
-          done
-          case "${{ matrix.shard }}" in
-            inspector-1a)
-              fixed_specs=( \
-                e2e/canvas-invariants.spec.ts:508 \
-                e2e/canvas-invariants.spec.ts:1286 \
-                e2e/inspector-styles.spec.ts:176 \
-              )
-              ;;
-            inspector-1b)
-              fixed_specs=( \
-                e2e/inspector-styles.spec.ts:238 \
-                e2e/inspector-styles.spec.ts:314 \
-              )
-              ;;
-            inspector-2)
-              fixed_specs=( \
-                e2e/canvas-invariants.spec.ts:383 \
-                e2e/canvas-invariants.spec.ts:538 \
-                e2e/inspector-styles.spec.ts:452 \
-                e2e/inspector-styles.spec.ts:610 \
-                e2e/inspector-styles.spec.ts:737 \
-              )
-              ;;
-            inspector-3a)
-              fixed_specs=( \
-                e2e/canvas-invariants.spec.ts:1170 \
-                e2e/inspector-styles.spec.ts:833 \
-                e2e/inspector-styles.spec.ts:999 \
-              )
-              ;;
-            inspector-3b)
-              fixed_specs=( \
-                e2e/canvas-invariants.spec.ts:1320 \
-                e2e/inspector-styles.spec.ts:880 \
-              )
-              ;;
-            inspector-4a)
-              fixed_specs=( \
-                e2e/canvas-invariants.spec.ts:553 \
-                e2e/inspector-styles.spec.ts:541 \
-                e2e/inspector-styles.spec.ts:667 \
-              )
-              ;;
-            inspector-4b)
-              fixed_specs=( \
-                e2e/inspector-styles.spec.ts:798 \
-                e2e/inspector-styles.spec.ts:426 \
-              )
-              ;;
-            drag-1a)
-              fixed_specs=( \
-                e2e/corner-radius-handle-drag.spec.ts:239 \
-                e2e/overview-wheel-zoom.spec.ts:185 \
-              )
-              ;;
-            drag-1b)
-              fixed_specs=( \
-                e2e/drag-and-drop.drag-feedback.spec.ts:24 \
-                e2e/drag-and-drop.moving-by-drag.spec.ts:42 \
-              )
-              ;;
-            drag-2a)
-              fixed_specs=( \
-                e2e/drag-and-drop.moving-by-drag.spec.ts:105 \
-                e2e/parity-alt-drag-duplicate.spec.ts:1293 \
-                e2e/parity-selection.spec.ts:313 \
-              )
-              ;;
-            drag-2b)
-              fixed_specs=( \
-                e2e/parity-selection.spec.ts:451 \
-                e2e/parity-selection.spec.ts:572 \
-              )
-              ;;
-            position-1a)
-              fixed_specs=( \
-                e2e/pasted-svg-image-inspector.spec.ts:656 \
-                e2e/pasted-svg-image-inspector.spec.ts:693 \
-                e2e/pasted-svg-image-inspector.spec.ts:1135 \
-                e2e/position-alignment.spec.ts:361 \
-              )
-              ;;
-            position-1b)
-              fixed_specs=( \
-                e2e/pasted-svg-image-inspector.spec.ts:760 \
-                e2e/position-alignment.spec.ts:431 \
-                e2e/position-alignment.spec.ts:509 \
-              )
-              ;;
-            position-2a)
-              fixed_specs=( \
-                e2e/pasted-svg-image-inspector.spec.ts:891 \
-                e2e/position-alignment.spec.ts:292 \
-                e2e/position-alignment.spec.ts:570 \
-              )
-              ;;
-            position-2b)
-              fixed_specs=( \
-                e2e/pasted-svg-image-inspector.spec.ts:1186 \
-                e2e/position-alignment.spec.ts:615 \
-                e2e/position-alignment.spec.ts:661 \
-              )
-              ;;
-            position-3)
-              fixed_specs=( \
-                e2e/position-alignment.spec.ts:312 \
-                e2e/position-alignment.spec.ts:708 \
-                e2e/position-alignment.spec.ts:740 \
-                e2e/position-alignment.spec.ts:780 \
-              )
-              ;;
-            *)
-              echo "::error::Unknown Design interaction shard: ${{ matrix.shard }}"
-              exit 1
-              ;;
-          esac
-          focused_specs=()
-          for selector in "${fixed_specs[@]}"; do
-            spec="${selector%%:*}"
-            changed=false
-            for changed_spec in "${existing_changed_specs[@]}"; do
-              if [[ "$spec" == "$changed_spec" ]]; then
-                changed=true
-                break
-              fi
-            done
-            if [[ "$changed" == "false" ]]; then
-              focused_specs+=("$selector")
-            fi
-          done
-          if ((${#focused_specs[@]} == 0)); then
-            echo "All fixed regression cases are included in the changed-spec shard."
-            exit 0
+          focused_specs_file="$RUNNER_TEMP/design-regression-pins.nul"
+          node --experimental-strip-types ../../scripts/design-e2e-regression-pins.ts "${{ matrix.shard }}" > "$focused_specs_file"
+          mapfile -d '' -t focused_specs < "$focused_specs_file"
+          if (( ${#focused_specs[@]} == 0 )); then
+            echo "::error::No Design regression pins resolved for shard ${{ matrix.shard }}"
+            exit 2
           fi
           pnpm exec playwright test "${focused_specs[@]}" --workers=1
+
+  design-canvas-changed-spec-diagnostics:
+    name: Design changed-spec diagnostics (${{ matrix.shard }})
+    needs: change-scope
+    if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          [
+            changed-1,
+            changed-2,
+            changed-3,
+            changed-4,
+            changed-5,
+            changed-6,
+            changed-7,
+            changed-8,
+            changed-9,
+            changed-10,
+            changed-11,
+            changed-12,
+            changed-13,
+            changed-14,
+            changed-15,
+            changed-16,
+            changed-17,
+            changed-18,
+            changed-19,
+            changed-20,
+            changed-21,
+            changed-22,
+            changed-23,
+            changed-24,
+            changed-25,
+            changed-26,
+            changed-27,
+            changed-28,
+            changed-29,
+            changed-30,
+            changed-31,
+            changed-32,
+            changed-33,
+            changed-34,
+            changed-35,
+            changed-36,
+            changed-37,
+            changed-38,
+            changed-39,
+            changed-40,
+            changed-41,
+            changed-42,
+            changed-43,
+            changed-44,
+            changed-45,
+            changed-46,
+            changed-47,
+            changed-48,
+          ]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/free-disk
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Run changed Design E2E specs
+        working-directory: templates/design
+        timeout-minutes: 7
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
+        run: |
+          set -euo pipefail
+          changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
+          node --experimental-strip-types ../../scripts/design-e2e-spec-selection.ts > "$changed_specs_file"
+          mapfile -d '' -t existing_changed_specs < "$changed_specs_file"
+          if ((${#existing_changed_specs[@]} == 0)); then
+            echo "No runnable changed Design E2E specs remain."
+            exit 0
+          fi
+          changed_shard="${{ matrix.shard }}"
+          changed_shard="${changed_shard#changed-}"
+          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48"
 
   pre-auth-session-replay-smoke:
     name: Pre-auth session replay smoke

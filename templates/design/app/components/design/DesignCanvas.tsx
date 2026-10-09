@@ -1539,8 +1539,8 @@ export function DesignCanvas({
   // visual, OUTER scale the bridge running INSIDE the iframe has no way to
   // observe. `editorChromeScaleX/Y` is the only channel that tells the bridge
   // what scale its own chrome (selection borders, resize handles, spacing
-  // overlays) must counter-scale by to stay a constant on-screen size, Figma-
-  // style, instead of visually shrinking/growing with content as the user
+  // overlays) must counter-scale by to stay a constant on-screen size instead
+  // of visually shrinking/growing with content as the user
   // zooms. The overview caller already folds its own zoom into the
   // editorChromeScaleX/Y it passes down for exactly this reason; this
   // component must do the same with its OWN `zoom` prop for single-view,

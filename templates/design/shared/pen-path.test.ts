@@ -686,7 +686,7 @@ describe("pen path helpers", () => {
   });
 
   describe("movePenAnchor", () => {
-    it("translates handleIn/handleOut with the anchor by default (Figma default)", () => {
+    it("translates handleIn/handleOut with the anchor by default", () => {
       const path = appendPenNode(
         null,
         createSmoothNode({ x: 50, y: 50 }, { x: 70, y: 60 }),

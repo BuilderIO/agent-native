@@ -37,7 +37,7 @@ export interface GradientValue {
 
 /**
  * Contract for "a gradient editing session is active for element X with
- * value V" (Figma-parity on-canvas handles, IP21 follow-up). This popover
+ * value V" (On-canvas handles, IP21 follow-up). This popover
  * component stays the source of truth for parsing/serializing the CSS string
  * (`parseGradientCss`/`gradientToCss` below) and for the ramp-bar UI; a
  * canvas-side overlay (see `MultiScreenCanvas`'s `gradientEditTarget` prop)

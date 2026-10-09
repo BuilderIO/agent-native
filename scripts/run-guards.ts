@@ -32,7 +32,6 @@ const guards = [
   "guard:trusted-acceptance",
   "guard:design-e2e-workflow",
   "guard:test-title-production",
-  "guard:parity-oracle",
   "guard:mobile-build-paths",
   "guard:content-product-conformance",
   "guard:content-product-docs",

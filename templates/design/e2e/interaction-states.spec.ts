@@ -178,7 +178,6 @@ test.describe("element interaction states", () => {
     expect(persistedButtonTag).not.toContain("data-an-state-preview=");
   });
 
-  // oracle: none — verifies pseudo-rule behavior against Chromium, not a design reference.
   test("persisted pseudo rules obey Chromium mouse, keyboard, pressed, and disabled semantics", async ({
     page,
   }) => {

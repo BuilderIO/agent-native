@@ -157,7 +157,7 @@ describe("resolveFigmaPasteImportCall", () => {
     });
   });
 
-  it("strips Figma's large private binary buffer for exact-id imports while preserving figmeta and visible fallback HTML", () => {
+  it("strips the large private clipboard buffer for exact-id imports while preserving metadata and visible fallback HTML", () => {
     const metadata = `(figmeta)${base64Json({
       fileKey: "abcDEF12345",
       selectedNodeData: "40:45|4|0",

@@ -10,7 +10,6 @@ Read `.agents/skills/<name>/SKILL.md` before deeper work:
 - `design-templates` — reusing existing Design work.
 - `responsive-breakpoints` — breakpoint editing.
 - `design-systems` — tokens, brand extraction, or Figma.
-- `design-figma-parity` — measured Figma behavior evidence.
 - `creative-context` — cross-app sources and governed context.
 - `design-review-feedback` — persisted review comments.
 - `export-handoff` — exports and coding handoffs.
@@ -81,3 +80,5 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI. Editor behavior lives in `app/pages/design-editor/commands/*.ts`; read `design-editor-architecture` before changing it.
 
 Search with `rg --hidden --follow`; read the exact linked guide before deeper work.
+
+Find and read relevant guides with `rg --hidden --follow`.
