@@ -16,6 +16,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { getDeckUrl } from "./_app-url.js";
+import { trackDeckCreated } from "./_deck-tracking.js";
 
 export default defineAction({
   description:
@@ -28,7 +29,7 @@ export default defineAction({
     title: z.string().optional(),
   }),
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const reference = await resolveNativeContextCloneReference({
       appId: "slides",
       resourceType: "deck",
@@ -85,6 +86,15 @@ export default defineAction({
       .from(schema.decks)
       .where(eq(schema.decks.id, id));
     if (!saved) throw new Error("Deck clone did not persist.");
+    trackDeckCreated(
+      saved.id,
+      {
+        creationMethod: "duplicate",
+        purpose: "direct",
+        slideCount: deck.slides.length,
+      },
+      ctx,
+    );
     return {
       id: saved.id,
       title: saved.title,

@@ -31,6 +31,7 @@ import {
   HYGIENE_ACTION_DESCRIPTION,
   slideHygieneResult,
 } from "../server/lib/slide-hygiene.js";
+import { trackSlides } from "../server/lib/slides-tracking.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
 import { generationTimingFields } from "../shared/generation-timing.js";
 import {
@@ -579,11 +580,9 @@ export default defineAction({
         });
       }
 
-      track(
+      trackSlides(
         "deck_edited",
         {
-          app_name: "slides",
-          template_name: "slides",
           output_id: deckId,
           output_type: "deck",
           slide_id: newSlideId,
