@@ -76,6 +76,7 @@ const {
   STALE_RUN_TERMINAL_REASON,
   __resetNoRunningRunsProbeForTests,
 } = await import("./run-store.js");
+const { assertNoInlineImageBytes } = await import("../shared/inline-bytes.js");
 
 beforeEach(async () => {
   __resetNoRunningRunsProbeForTests();
@@ -317,6 +318,36 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     const reapedAgain = await reapIfStale(runId);
     expect(reapedAgain).toBe(false);
     expect(await rowsForTurn(turn)).toHaveLength(2);
+  });
+
+  it("does not copy a legacy payload's inline image bytes into the successor", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({
+        message: "look",
+        attachments: [
+          {
+            type: "image",
+            name: "shot.png",
+            data: "data:image/png;base64,iVBORw0KGgo=",
+          },
+        ],
+      }),
+    });
+    expect(await claimBackgroundRun(runId)).toBe(true);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+
+    expect(await reapIfStale(runId)).toBe(true);
+
+    const successor = (await rowsForTurn(turn)).find((r) => r.id !== runId);
+    const payload = (await readRow(successor!.id))?.dispatch_payload;
+    assertNoInlineImageBytes(payload, "dispatch_payload");
+    expect(JSON.parse(payload!).attachments[0]).toMatchObject({
+      name: "shot.png",
+      omitted: "inline-bytes",
+    });
   });
 
   it("stops recovering after 3 consecutive stale_run reaps that made near-zero progress (deterministic dead-on-arrival loop)", async () => {

@@ -478,9 +478,14 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "上传技能文件",
   "composer.upload": "上传",
   "composer.uploadFailed": "无法上传所选文件。",
-  "composer.fileTooLarge": "此文件超出上传大小限制。",
-  "composer.sessionExpired": "会话已过期。请刷新页面后重试。",
+  "composer.fileTooLarge": "此文件超过 {{size}} MB 的上传大小限制。",
+  "composer.sessionExpired": "会话已过期。请重新登录，然后再发送消息。",
   "composer.unsupportedFileType": "不支持此文件类型。",
+  "composer.uploadUnavailable": "文件上传暂不可用。请稍后重试。",
+  "composer.uploadOffline": "上传未能连接到服务器。请检查网络连接后重试。",
+  "composer.submissionNotReady": "聊天尚未准备好发送。请稍等片刻后再发送。",
+  "composer.submissionScopeChanged": "此聊天在消息发送前已更改。请重新发送。",
+  "composer.attachmentNotSaved": "未随此聊天保存",
   "composer.useAttachedContext": "使用附加的上下文。",
   "mentions.commands": "命令",
   "mentions.learnMore": "了解更多",
@@ -1077,6 +1082,7 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.continueUnavailable": "此运行已无法继续。发送消息以继续。",
   "recovery.retryAttachmentUnavailable":
     "此请求包含一个无法重试的文件。请在消息输入框中重新附加该文件，然后重试。",
+  "recovery.retryWithoutAttachment": "不带附件重试",
   "recovery.deferredSubmissionFailed":
     "此消息未能发送。请检查网络连接或聊天设置，然后重试。",
   "recovery.credentialRejected":

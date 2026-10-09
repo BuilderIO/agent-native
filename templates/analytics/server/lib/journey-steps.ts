@@ -17,6 +17,7 @@ export interface JourneyEventRow {
   eventName: string;
   authUserId?: string | null;
   app?: string | null;
+  templateName: string | null;
   path: string | null;
   flow: string | null;
   source: string | null;
@@ -26,6 +27,7 @@ export interface JourneyEventRow {
   outcome: string | null;
   action: string | null;
   aliasId?: string | null;
+  attemptId?: string | null;
 }
 
 export interface JourneyStep {
@@ -144,6 +146,17 @@ export const JOURNEY_INTEGRATION_EVENT_NAMES: readonly string[] = [
   "integration_method_outcome",
 ];
 
+/** Slides reports request and attempt outcomes separately from saved outputs. */
+export const SLIDES_GENERATION_ATTEMPT_EVENT_NAMES: readonly string[] = [
+  "generation_started",
+  "generation_request_accepted",
+  "generation_outcome_unresolved",
+  "generation_failed",
+  "generation_stuck",
+  "generation_cancelled",
+  "generation_abandoned",
+];
+
 /** Every event name that can become a step; the SQL selects exactly these. */
 export const JOURNEY_STEP_EVENT_NAMES: readonly string[] = [
   "pageview",
@@ -163,7 +176,7 @@ export const JOURNEY_STEP_EVENT_NAMES: readonly string[] = [
   "onboarding_app_entered",
   "app_entered",
   "app.first_action",
-  "generation_started",
+  ...SLIDES_GENERATION_ATTEMPT_EVENT_NAMES,
   "generation_completed",
   "design_output_created",
   "recording_started",
@@ -204,7 +217,13 @@ const TIE_RANK: Record<string, number> = {
   integration_method_outcome: 20,
   generation_started: 21,
   recording_started: 21,
-  generation_completed: 22,
+  generation_request_accepted: 22,
+  generation_outcome_unresolved: 23,
+  generation_failed: 23,
+  generation_stuck: 23,
+  generation_cancelled: 23,
+  generation_abandoned: 23,
+  generation_completed: 24,
   recording_ready: 22,
   design_output_created: 23,
 };
@@ -406,30 +425,77 @@ export function deriveJourneyStep(
       };
     }
     case "generation_started":
-      return { key: "output:generation_started", label: "Generation started" };
+      return {
+        key: "attempt:generation_started",
+        label: "Generation attempt started",
+      };
+    case "generation_request_accepted":
+      if (row.templateName !== "slides") return null;
+      return {
+        key: "attempt:generation_request_accepted",
+        label: "Generation request accepted",
+      };
+    case "generation_outcome_unresolved":
+      if (row.templateName !== "slides") return null;
+      return {
+        key: "attempt:generation_outcome_unresolved",
+        label: "Generation outcome unresolved",
+      };
+    case "generation_failed":
+      if (row.templateName !== "slides") return null;
+      return {
+        key: "attempt:generation_failed",
+        label: "Generation attempt failed",
+      };
+    case "generation_stuck":
+      if (row.templateName !== "slides") return null;
+      return {
+        key: "attempt:generation_stuck",
+        label: "Generation attempt stalled",
+      };
+    case "generation_cancelled":
+      if (row.templateName !== "slides") return null;
+      return {
+        key: "attempt:generation_cancelled",
+        label: "Generation attempt cancelled",
+      };
+    case "generation_abandoned":
+      if (row.templateName !== "slides") return null;
+      return {
+        key: "attempt:generation_abandoned",
+        label: "Generation attempt abandoned",
+      };
     case "generation_completed":
+      if (!(row.templateName === "slides" || row.templateName === "design")) {
+        return null;
+      }
       return {
         key: "output:generation_completed",
         label: "Generation completed",
       };
     case "design_output_created":
+      if (row.templateName !== "design") return null;
       return {
         key: "output:design_output_created",
         label: "Design output created",
       };
     case "recording_started":
-      return { key: "output:recording_started", label: "Recording started" };
+      if (row.templateName !== "clips") return null;
+      return {
+        key: "attempt:recording_started",
+        label: "Recording attempt started",
+      };
     case "recording_ready":
-      return { key: "output:recording_ready", label: "Recording ready" };
+      if (row.templateName !== "clips") return null;
+      return { key: "output:recording_ready", label: "Clip saved" };
     default:
       return null;
   }
 }
 
 /**
- * One session's rows as ordered steps. Rows with no step meaning are skipped
- * and consecutive repeats of the same step collapse into the first, which
- * keeps that first occurrence's timestamp.
+ * One session's rows as ordered steps. Rows with no step meaning are skipped;
+ * consecutive repeats without an attempt ID collapse into the first step.
  */
 export function projectSessionSteps(
   rows: readonly JourneyEventRow[],
@@ -474,6 +540,8 @@ export function projectSessionSteps(
   });
   const steps: JourneyStep[] = [];
   const seenAliases = new Set<string>();
+  const seenAttemptSteps = new Map<string, Set<string>>();
+  const attemptOccurrences = new Map<string, number>();
   for (const row of ordered) {
     const step = deriveJourneyStep(row);
     if (!step) continue;
@@ -483,6 +551,23 @@ export function projectSessionSteps(
       const aliasStep = `${row.sessionId}\u0000${row.aliasId}\u0000${step.key}`;
       if (seenAliases.has(aliasStep)) continue;
       seenAliases.add(aliasStep);
+    }
+    const attemptId = row.attemptId?.trim();
+    if (attemptId) {
+      // Keep raw attempt IDs in this local dedup set; tree keys use ordinals.
+      const seenForStep = seenAttemptSteps.get(step.key) ?? new Set<string>();
+      if (seenForStep.has(attemptId)) continue;
+      seenForStep.add(attemptId);
+      seenAttemptSteps.set(step.key, seenForStep);
+
+      const occurrence = (attemptOccurrences.get(step.key) ?? 0) + 1;
+      attemptOccurrences.set(step.key, occurrence);
+      steps.push({
+        ...step,
+        key: occurrence === 1 ? step.key : `${step.key}:${occurrence}`,
+        tsMs: row.tsMs,
+      });
+      continue;
     }
     if (steps[steps.length - 1]?.key === step.key) continue;
     steps.push({

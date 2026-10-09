@@ -73,7 +73,7 @@ describe("onboarding journey events SQL", () => {
   }
 
   async function insert(
-    sessionId: string,
+    sessionId: string | null,
     eventName: string,
     second: number,
     options: {
@@ -94,7 +94,7 @@ describe("onboarding journey events SQL", () => {
         `ev-${nextId++}`,
         eventName,
         options.email ?? null,
-        `anon-${sessionId}`,
+        `anon-${sessionId ?? "missing"}`,
         sessionId,
         stamp,
         date,
@@ -464,6 +464,295 @@ describe("onboarding journey events SQL", () => {
     ]);
   });
 
+  it("links a sessionless saved Clip only through one exact cohort output and attempt pair", async () => {
+    await setup();
+    const exactLink = {
+      output_id: "clip-exact",
+      recording_attempt_id: "attempt-exact",
+    };
+    await insert("exact-session", "signup", 1, {
+      email: "alice@example.com",
+    });
+    await insert("exact-session", "recording_started", 2, {
+      properties: exactLink,
+    });
+    await insert("exact-session", "recording_started", 3, {
+      properties: exactLink,
+    });
+    await insert(null, "recording_ready", 4, {
+      properties: {
+        ...exactLink,
+        output_type: "clip",
+      },
+    });
+
+    const ambiguousLink = {
+      output_id: "clip-ambiguous",
+      recording_attempt_id: "attempt-ambiguous",
+    };
+    for (const sessionId of ["ambiguous-a", "ambiguous-b"]) {
+      await insert(sessionId, "signup", 5, {
+        email: `${sessionId}@example.com`,
+      });
+      await insert(sessionId, "recording_started", 6, {
+        properties: ambiguousLink,
+      });
+    }
+    await insert(null, "recording_ready", 7, {
+      properties: {
+        ...ambiguousLink,
+        output_type: "clip",
+      },
+    });
+    await insert(null, "recording_ready", 8, {
+      properties: {
+        output_id: "clip-unmatched",
+        recording_attempt_id: "attempt-unmatched",
+        output_type: "clip",
+      },
+    });
+    await insert("wrong-attempt", "signup", 9, {
+      email: "wrong@example.com",
+    });
+    await insert("wrong-attempt", "recording_started", 10, {
+      properties: {
+        output_id: "clip-same-output",
+        recording_attempt_id: "attempt-one",
+      },
+    });
+    await insert(null, "recording_ready", 11, {
+      properties: {
+        output_id: "clip-same-output",
+        recording_attempt_id: "attempt-two",
+        output_type: "clip",
+      },
+    });
+
+    const rows = await run({ app: "clips" });
+    const readyRows = rows.filter(
+      (row) => row.event_name === "recording_ready",
+    );
+
+    expect(readyRows.map((row) => row.session_id)).toEqual(["exact-session"]);
+    expect(readyRows[0]).toMatchObject({ attempt_id: "attempt-exact" });
+    expect(readyRows[0]).not.toHaveProperty("output_id");
+    expect(readyRows[0]).not.toHaveProperty("recording_attempt_id");
+  });
+
+  it("links a sessionless Slide completion through its exact viewed output and attempt", async () => {
+    await setup();
+    await insert("slides-session", "signup", 1, {
+      email: "slides@example.com",
+      template: "slides",
+    });
+    await insert("slides-session", "output_viewed", 2, {
+      template: "slides",
+      properties: {
+        output_id: "deck-1",
+        output_type: "deck",
+        generation_attempt_id: "attempt-1",
+      },
+    });
+    await insert(null, "generation_completed", 3, {
+      template: "slides",
+      properties: {
+        output_id: "deck-1",
+        output_type: "deck",
+        generation_attempt_id: "attempt-1",
+      },
+    });
+    await insert(null, "generation_failed", 4, {
+      template: "slides",
+      properties: {
+        output_id: "deck-2",
+        output_type: "deck",
+        generation_attempt_id: "attempt-2",
+      },
+    });
+    await insert(null, "generation_outcome_unresolved", 5, {
+      template: "slides",
+      properties: {
+        output_id: "deck-3",
+        output_type: "deck",
+        generation_attempt_id: "attempt-3",
+      },
+    });
+    await insert("slides-session", "deck_edited", 6, {
+      template: "slides",
+      properties: { output_id: "deck-2", output_type: "deck" },
+    });
+
+    const rows = await run({ app: "slides" });
+
+    expect(rows.map((row) => [row.event_name, row.session_id])).toEqual([
+      ["signup", "slides-session"],
+      ["generation_completed", "slides-session"],
+    ]);
+    expect(rows.some((row) => row.event_name === "output_viewed")).toBe(false);
+    expect(rows.some((row) => row.event_name === "deck_edited")).toBe(false);
+    expect(rows.some((row) => row.event_name === "generation_failed")).toBe(
+      false,
+    );
+    expect(
+      rows.some((row) => row.event_name === "generation_outcome_unresolved"),
+    ).toBe(false);
+    expect(rows[1]).toMatchObject({ attempt_id: "attempt-1" });
+    expect(rows.some((row) => row.generation_attempt_id)).toBe(false);
+    expect(rows.some((row) => row.output_id)).toBe(false);
+  });
+
+  it("links a new sessionless Slide completion from its accepted attempt", async () => {
+    await setup();
+    const attempt = {
+      generation_attempt_id: "initial-attempt",
+    };
+    await insert("initial-deck", "signup", 1, {
+      email: "initial@example.com",
+      template: "Slides",
+    });
+    await insert("initial-deck", "generation_started", 2, {
+      template: "Slides",
+      properties: attempt,
+    });
+    await insert("initial-deck", "generation_request_accepted", 3, {
+      template: "SLIDES",
+      properties: { ...attempt, output_id: "new-deck" },
+    });
+    await insert(null, "generation_completed", 4, {
+      template: "sLiDeS",
+      properties: {
+        ...attempt,
+        output_id: "new-deck",
+        output_type: "deck",
+      },
+    });
+
+    const rows = await run({ app: "slides" });
+
+    expect(rows.map((row) => [row.event_name, row.session_id])).toEqual([
+      ["signup", "initial-deck"],
+      ["generation_started", "initial-deck"],
+      ["generation_request_accepted", "initial-deck"],
+      ["generation_completed", "initial-deck"],
+    ]);
+    expect(rows.every((row) => row.template_name === "slides")).toBe(true);
+    expect(rows.some((row) => row.output_id)).toBe(false);
+    expect(rows.some((row) => row.generation_attempt_id)).toBe(false);
+  });
+
+  it("preserves sessionless Slides attempt outcomes by exact output and attempt", async () => {
+    await setup();
+    await insert("slides-retry", "signup", 1, {
+      email: "retry@example.com",
+      template: "slides",
+    });
+    const exactAttempts = [
+      ["retry-deck", "failed-attempt"],
+      ["retry-deck", "retry-attempt"],
+      ["unresolved-deck", "unresolved-attempt"],
+      ["accepted-deck", "accepted-attempt"],
+      ["stuck-deck", "stuck-attempt"],
+      ["cancelled-deck", "cancelled-attempt"],
+      ["abandoned-deck", "abandoned-attempt"],
+      ["complete-deck", "complete-attempt"],
+      ["absent-deck", "absent-attempt"],
+    ] as const;
+    for (const [outputId, attemptId] of exactAttempts) {
+      await insert("slides-retry", "generation_started", 2, {
+        template: "slides",
+        properties: {
+          output_id: outputId,
+          output_type: "deck",
+          generation_attempt_id: attemptId,
+        },
+      });
+    }
+
+    const sessionlessEvents = [
+      ["generation_failed", "retry-deck", "failed-attempt", {}],
+      [
+        "generation_outcome_unresolved",
+        "unresolved-deck",
+        "unresolved-attempt",
+        { persisted_output: true },
+      ],
+      ["generation_request_accepted", "accepted-deck", "accepted-attempt", {}],
+      ["generation_stuck", "stuck-deck", "stuck-attempt", {}],
+      ["generation_cancelled", "cancelled-deck", "cancelled-attempt", {}],
+      ["generation_abandoned", "abandoned-deck", "abandoned-attempt", {}],
+      ["generation_completed", "retry-deck", "retry-attempt", {}],
+      ["generation_completed", "complete-deck", "complete-attempt", {}],
+      // A retry reuses the deck ID, so its exact attempt ID must also match.
+      ["generation_completed", "retry-deck", "missing-attempt", {}],
+    ] as const;
+    for (const [eventName, outputId, attemptId, extra] of sessionlessEvents) {
+      await insert(null, eventName, 3, {
+        template: "slides",
+        properties: {
+          output_id: outputId,
+          output_type: "deck",
+          generation_attempt_id: attemptId,
+          ...extra,
+        },
+      });
+    }
+
+    for (const sessionId of ["ambiguous-a", "ambiguous-b"]) {
+      await insert(sessionId, "signup", 4, {
+        email: `${sessionId}@example.com`,
+        template: "slides",
+      });
+      await insert(sessionId, "generation_started", 5, {
+        template: "slides",
+        properties: {
+          output_id: "ambiguous-deck",
+          output_type: "deck",
+          generation_attempt_id: "ambiguous-attempt",
+        },
+      });
+    }
+    await insert(null, "generation_completed", 6, {
+      template: "slides",
+      properties: {
+        output_id: "ambiguous-deck",
+        output_type: "deck",
+        generation_attempt_id: "ambiguous-attempt",
+      },
+    });
+
+    const rows = await run({ app: "slides" });
+    const linked = rows
+      .filter((row) => row.session_id === "slides-retry")
+      .map((row) => row.event_name);
+
+    expect(linked).toContain("generation_failed");
+    expect(linked).toContain("generation_outcome_unresolved");
+    expect(linked).toContain("generation_request_accepted");
+    expect(linked).toContain("generation_stuck");
+    expect(linked).toContain("generation_cancelled");
+    expect(linked).toContain("generation_abandoned");
+    expect(linked).toContain("generation_completed");
+    expect(
+      rows.filter((row) => row.event_name === "generation_completed"),
+    ).toHaveLength(2);
+    expect(
+      rows.some(
+        (row) =>
+          row.session_id === "ambiguous-a" &&
+          row.event_name === "generation_completed",
+      ),
+    ).toBe(false);
+    expect(
+      rows.some(
+        (row) =>
+          row.session_id === "ambiguous-b" &&
+          row.event_name === "generation_completed",
+      ),
+    ).toBe(false);
+    expect(rows.some((row) => row.output_id)).toBe(false);
+    expect(rows.some((row) => row.generation_attempt_id)).toBe(false);
+  });
+
   it("returns standalone chat setup sessions outside onboarding denominators", async () => {
     await setup();
     await insert("home-chat", "pageview", 1, { path: "/home" });
@@ -522,6 +811,28 @@ describe("onboarding journey events SQL", () => {
     ]);
     expect(normal[0]).toMatchObject({ path: "/sign-in" });
     expect(normal[3]).toMatchObject({ step_id: "role", method_id: null });
+  });
+
+  it("selects attempt ids only as an internal journey field", async () => {
+    await setup();
+    await insert("slides", "signup", 1, {
+      email: "person@example.com",
+      template: "slides",
+    });
+    await insert("slides", "generation_started", 2, {
+      template: "slides",
+      properties: { generation_attempt_id: "private-generation-attempt" },
+    });
+
+    const rows = await run({ app: "slides" });
+    const started = rows.find((row) => row.event_name === "generation_started");
+
+    expect(started).toMatchObject({
+      session_id: "slides",
+      attempt_id: "private-generation-attempt",
+    });
+    expect(started).not.toHaveProperty("generation_attempt_id");
+    expect(started).not.toHaveProperty("properties");
   });
 
   it("selects Builder aliases and custom-key outcomes without returning raw properties", async () => {
@@ -631,6 +942,7 @@ describe("onboarding journey events SQL", () => {
       "action",
       "alias_id",
       "app",
+      "attempt_id",
       "auth_user_id",
       "event_name",
       "flow",
@@ -643,6 +955,7 @@ describe("onboarding journey events SQL", () => {
       "source",
       "step_id",
       "step_index",
+      "template_name",
       "timestamp",
     ]);
     expect(builderRows[2]).not.toHaveProperty("ignored");

@@ -825,6 +825,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Cette exécution ne peut plus être poursuivie. Envoyez un message pour continuer.",
   "recovery.retryAttachmentUnavailable":
     "Cette demande incluait un fichier qui ne peut pas être réessayé. Joignez-le de nouveau dans le champ de message, puis réessayez.",
+  "recovery.retryWithoutAttachment": "Réessayer sans la pièce jointe",
   "recovery.deferredSubmissionFailed":
     "Impossible d’envoyer ce message. Vérifiez votre connexion ou la configuration du chat, puis réessayez.",
   "recovery.credentialRejected":
@@ -1153,11 +1154,20 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Télécharger",
   "composer.uploadFailed": "Impossible de télécharger le fichier sélectionné.",
   "composer.fileTooLarge":
-    "Ce fichier dépasse la taille maximale autorisée pour l’envoi.",
+    "Ce fichier dépasse la limite d’envoi de {{size}} Mo.",
   "composer.sessionExpired":
-    "Votre session a expiré. Actualisez la page et réessayez.",
+    "Votre session a expiré. Reconnectez-vous, puis renvoyez votre message.",
   "composer.unsupportedFileType":
     "Ce type de fichier n'est pas pris en charge.",
+  "composer.uploadUnavailable":
+    "L’envoi de fichiers est indisponible pour le moment. Réessayez dans un instant.",
+  "composer.uploadOffline":
+    "L’envoi n’a pas pu joindre le serveur. Vérifiez votre connexion et réessayez.",
+  "composer.submissionNotReady":
+    "Le chat n’est pas encore prêt à envoyer. Patientez un instant, puis renvoyez.",
+  "composer.submissionScopeChanged":
+    "Ce chat a changé avant l’envoi de votre message. Renvoyez-le.",
+  "composer.attachmentNotSaved": "Non enregistré avec ce chat",
   "composer.useAttachedContext": "Utilisez le contexte ci-joint.",
   "mentions.commands": "Commandes",
   "mentions.learnMore": "En savoir plus",
