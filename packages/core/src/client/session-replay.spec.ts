@@ -1923,6 +1923,167 @@ describe("session replay", () => {
     expect(childWindow.postMessage).not.toHaveBeenCalled();
   });
 
+  it("starts and stops marked iframe recorders as their marker changes", async () => {
+    const { fireWindowEvent } = installBrowser();
+    const childWindow = { postMessage: vi.fn() };
+    let marked = false;
+    const iframe = {
+      localName: "iframe",
+      nodeType: 1,
+      hasAttribute: (name: string) =>
+        name === SESSION_REPLAY_IFRAME_ATTRIBUTE && marked,
+      contentWindow: childWindow,
+      querySelectorAll: vi.fn(() => []),
+    } as unknown as HTMLIFrameElement;
+    let onMutation: MutationCallback | undefined;
+    const disconnect = vi.fn();
+    class FakeMutationObserver {
+      constructor(callback: MutationCallback) {
+        onMutation = callback;
+      }
+      observe = vi.fn();
+      disconnect = disconnect;
+    }
+    vi.stubGlobal("MutationObserver", FakeMutationObserver);
+    Object.assign(document, {
+      documentElement: {},
+      querySelectorAll: vi.fn(() => (marked ? [iframe] : [])),
+    });
+    const replay = await freshSessionReplay();
+
+    expect(typeof MutationObserver).toBe("function");
+    expect(document.documentElement).toBeDefined();
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+
+    const result = await replay.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+
+    expect(result.started).toBe(true);
+    expect(recordOptions.recordCrossOriginIframes).toBe(true);
+    expect(onMutation).toBeTypeOf("function");
+    expect(childWindow.postMessage).not.toHaveBeenCalled();
+    marked = true;
+    onMutation?.(
+      [
+        {
+          type: "attributes",
+          target: iframe,
+          attributeName: SESSION_REPLAY_IFRAME_ATTRIBUTE,
+        } as MutationRecord,
+      ],
+      {} as MutationObserver,
+    );
+    expect(childWindow.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: SESSION_REPLAY_IFRAME_START }),
+      "*",
+    );
+
+    childWindow.postMessage.mockClear();
+    marked = false;
+    onMutation?.(
+      [
+        {
+          type: "attributes",
+          target: iframe,
+          attributeName: SESSION_REPLAY_IFRAME_ATTRIBUTE,
+        } as MutationRecord,
+      ],
+      {} as MutationObserver,
+    );
+    expect(childWindow.postMessage).toHaveBeenCalledWith(
+      { type: SESSION_REPLAY_IFRAME_STOP },
+      "*",
+    );
+
+    await replay.stopSessionReplay();
+    expect(disconnect).toHaveBeenCalledOnce();
+    fireWindowEvent("message", {
+      data: { type: SESSION_REPLAY_IFRAME_PROBE },
+      source: childWindow,
+    });
+    expect(childWindow.postMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops a tracked iframe removed after its marker is cleared", async () => {
+    installBrowser();
+    const childWindow = { postMessage: vi.fn() };
+    let marked = false;
+    const iframe = {
+      localName: "iframe",
+      nodeType: 1,
+      hasAttribute: (name: string) =>
+        name === SESSION_REPLAY_IFRAME_ATTRIBUTE && marked,
+      contentWindow: childWindow,
+      querySelectorAll: vi.fn(() => []),
+    } as unknown as HTMLIFrameElement;
+    const wrapper = {
+      localName: "div",
+      nodeType: 1,
+      querySelectorAll: vi.fn(() => [iframe]),
+    } as unknown as Element;
+    let onMutation: MutationCallback | undefined;
+    class FakeMutationObserver {
+      constructor(callback: MutationCallback) {
+        onMutation = callback;
+      }
+      observe = vi.fn();
+      disconnect = vi.fn();
+    }
+    vi.stubGlobal("MutationObserver", FakeMutationObserver);
+    Object.assign(document, {
+      documentElement: {},
+      querySelectorAll: vi.fn(() => (marked ? [iframe] : [])),
+    });
+    recordMock.mockImplementation(() => vi.fn());
+    const replay = await freshSessionReplay();
+
+    await replay.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+    marked = true;
+    onMutation?.(
+      [
+        {
+          type: "attributes",
+          target: iframe,
+          attributeName: SESSION_REPLAY_IFRAME_ATTRIBUTE,
+        } as MutationRecord,
+      ],
+      {} as MutationObserver,
+    );
+    expect(childWindow.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: SESSION_REPLAY_IFRAME_START }),
+      "*",
+    );
+
+    childWindow.postMessage.mockClear();
+    marked = false;
+    onMutation?.(
+      [
+        {
+          type: "childList",
+          target: document.documentElement,
+          removedNodes: [wrapper] as unknown as NodeList,
+          addedNodes: [] as unknown as NodeList,
+        } as MutationRecord,
+      ],
+      {} as MutationObserver,
+    );
+    expect(childWindow.postMessage).toHaveBeenCalledWith(
+      { type: SESSION_REPLAY_IFRAME_STOP },
+      "*",
+    );
+
+    await replay.stopSessionReplay();
+  });
+
   it("preserves signed DOM resources without leaking navigation secrets", async () => {
     const { fetchMock } = installBrowser();
     let recordOptions: any;
@@ -3911,6 +4072,247 @@ describe("session replay", () => {
     await second.stopSessionReplay();
   });
 
+  it("starts a separate signed-in replay when the same tab resumes after sign-in", async () => {
+    const { fetchMock, location, storage } = installBrowser(
+      "https://app.agent-native.com/signup",
+    );
+    const recordOptions: any[] = [];
+    recordMock.mockImplementation((options) => {
+      recordOptions.push(options);
+      return vi.fn();
+    });
+
+    const first = await freshSessionReplay();
+    const firstResult = await first.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      extraProperties: {
+        capture_context: "pre_auth",
+        pre_auth_base_path: "/app",
+        userId: "qa+auth@example.test",
+        userEmail: "qa+auth@example.test",
+        userName: "QA User",
+        orgId: "org-123",
+        safeProperty: "retained",
+        nested: {
+          email: "qa+auth@example.test",
+          accountEmail: "account@example.test",
+          recipientEmail: "recipient@example.test",
+          customerId: "customer-123",
+          password: "secret-password",
+          accessToken: "secret-token",
+          authResponse: { userId: "auth-user-1" },
+          verificationCode: "one-time-code",
+          callbackUrl: "https://app.example.test?code=one-time-code",
+          nonce: "opaque-nonce",
+          retained: "safe",
+          arrayOfArrays: [
+            [
+              {
+                userEmail: "qa+auth@example.test",
+                accessToken: "secret-token",
+                retained: "safe",
+              },
+            ],
+          ],
+        },
+      },
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    expect(firstResult.started).toBe(true);
+    recordOptions[0].emit({ type: 3, data: { href: "/signup" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const firstBody = await parseReplayUpload(
+      fetchMock.mock.calls[0]?.[1] as RequestInit,
+    );
+    expect(firstBody).toMatchObject({
+      properties: {
+        safeProperty: "retained",
+        nested: {
+          retained: "safe",
+          arrayOfArrays: [[{ retained: "safe" }]],
+        },
+      },
+    });
+    expect(firstBody.properties).not.toHaveProperty("capture_context");
+    expect(firstBody.properties).not.toHaveProperty("pre_auth_base_path");
+    expect(firstBody).not.toHaveProperty("userId");
+    expect(firstBody).not.toHaveProperty("userEmail");
+    expect(JSON.stringify(firstBody)).not.toMatch(
+      /qa\+auth@example\.test|QA User|org-123|account@example\.test|recipient@example\.test|customer-123|secret-password|secret-token|auth-user-1|one-time-code|opaque-nonce/,
+    );
+    await first.stopSessionReplay();
+
+    const storedSession = JSON.parse(
+      storage.get("agent-native.session_replay_id") ?? "{}",
+    );
+    expect(storedSession).toMatchObject({
+      replayId: firstResult.replayId,
+      captureContext: "pre_auth",
+      suppressIdentityInProperties: true,
+    });
+
+    delete (globalThis as any)[replayStateKey];
+    setLocation(location, "https://app.agent-native.com/inbox");
+    const second = await freshSessionReplay();
+    const secondResult = await second.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      requireSignedInUser: true,
+      extraProperties: {
+        userId: "qa+auth@example.test",
+        userEmail: "qa+auth@example.test",
+        safeProperty: "retained",
+      },
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+
+    expect(secondResult.started).toBe(true);
+    expect(secondResult.replayId).not.toBe(firstResult.replayId);
+    recordOptions[1].emit({ type: 3, data: { href: "/inbox" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const secondBody = await parseReplayUpload(
+      fetchMock.mock.calls[1]?.[1] as RequestInit,
+    );
+
+    expect(secondBody).toMatchObject({
+      userId: "qa+auth@example.test",
+      userEmail: "qa+auth@example.test",
+      properties: {
+        safeProperty: "retained",
+      },
+    });
+    expect(secondBody.properties).not.toHaveProperty("capture_context");
+    expect(JSON.stringify(secondBody.properties)).toContain(
+      "qa+auth@example.test",
+    );
+    expect(
+      JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}"),
+    ).not.toHaveProperty("captureContext");
+    expect(
+      JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}"),
+    ).not.toHaveProperty("suppressIdentityInProperties");
+    await second.stopSessionReplay();
+  });
+
+  it("starts a separate pre-auth replay when the same tab enters auth", async () => {
+    const { fetchMock, location, storage } = installBrowser(
+      "https://app.agent-native.com/inbox",
+    );
+    const recordOptions: any[] = [];
+    recordMock.mockImplementation((options) => {
+      recordOptions.push(options);
+      return vi.fn();
+    });
+
+    const first = await freshSessionReplay();
+    const firstResult = await first.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      requireSignedInUser: true,
+      extraProperties: { userEmail: "qa+auth@example.test" },
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    expect(firstResult.started).toBe(true);
+    recordOptions[0].emit({ type: 3, data: { href: "/inbox" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await first.stopSessionReplay();
+
+    delete (globalThis as any)[replayStateKey];
+    setLocation(location, "https://app.agent-native.com/signup");
+    const second = await freshSessionReplay();
+    const secondResult = await second.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      extraProperties: { capture_context: "pre_auth" },
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+
+    expect(secondResult.started).toBe(true);
+    expect(secondResult.replayId).not.toBe(firstResult.replayId);
+    expect(secondResult.sessionId).toBe(firstResult.sessionId);
+    expect(
+      JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}"),
+    ).toMatchObject({
+      replayId: secondResult.replayId,
+      captureContext: "pre_auth",
+      suppressIdentityInProperties: true,
+    });
+    recordOptions[1].emit({ type: 3, data: { href: "/signup" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const resumedBody = await parseReplayUpload(
+      fetchMock.mock.calls[1]?.[1] as RequestInit,
+    );
+    expect(resumedBody.properties).not.toHaveProperty("capture_context");
+    expect(resumedBody.properties).not.toHaveProperty("pre_auth_base_path");
+    expect(resumedBody.userId).toBeUndefined();
+    expect(resumedBody.userEmail).toBeUndefined();
+    await second.stopSessionReplay();
+  });
+
+  it("keeps the recorder's auth boundary when a stale pre-auth page flushes after bfcache restore", async () => {
+    const { fetchMock, location, storage, fireWindowEvent } = installBrowser(
+      "https://app.agent-native.com/signup",
+    );
+    const recordOptions: any[] = [];
+    recordMock.mockImplementation((options) => {
+      recordOptions.push(options);
+      return vi.fn();
+    });
+
+    const stalePage = await freshSessionReplay();
+    const anonymous = await stalePage.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      extraProperties: { capture_context: "pre_auth" },
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    expect(anonymous.started).toBe(true);
+    recordOptions[0].emit({ type: 3, data: { href: "/signup" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    storage.set(
+      "agent-native.session_replay_id",
+      JSON.stringify({
+        sessionId: anonymous.sessionId,
+        replayId: "newer-signed-in-replay",
+        startedAtMs: Date.now(),
+        sequence: 0,
+      }),
+    );
+    setLocation(location, "https://app.agent-native.com/inbox");
+    fireWindowEvent("pageshow", { persisted: true });
+    recordOptions[0].emit({ type: 3, data: { href: "/signup-restored" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    expect(
+      JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}"),
+    ).toMatchObject({
+      replayId: "newer-signed-in-replay",
+    });
+
+    delete (globalThis as any)[replayStateKey];
+    const signedInPage = await freshSessionReplay();
+    const signedIn = await signedInPage.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      requireSignedInUser: true,
+      extraProperties: { userEmail: "qa+auth@example.test" },
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+
+    expect(signedIn.started).toBe(true);
+    expect(signedIn.replayId).toBe("newer-signed-in-replay");
+    await signedInPage.stopSessionReplay();
+    await stalePage.stopSessionReplay();
+  });
+
   it("retries a transient 503 response", async () => {
     const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
     fetchMock
@@ -4374,12 +4776,15 @@ describe("session replay", () => {
   });
 
   it("flushes queued auth-required replay events when auth is cleared", async () => {
-    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
-      email: "dev@example.com",
-      userId: "auth-user-1",
-      name: "Dev User",
-      orgId: "org_123",
-    });
+    const { fetchMock, storage } = installBrowser(
+      "https://app.agent-native.com/inbox",
+      {
+        email: "dev@example.com",
+        userId: "auth-user-1",
+        name: "Dev User",
+        orgId: "org_123",
+      },
+    );
     let recordOptions: any;
     const stop = vi.fn();
     recordMock.mockImplementation((options) => {
@@ -4400,6 +4805,9 @@ describe("session replay", () => {
       },
     });
     await waitForAssertion(() => expect(recordOptions).toBeDefined());
+    const previousReplayId = JSON.parse(
+      storage.get("agent-native.session_replay_id") ?? "{}",
+    ).replayId;
 
     recordOptions.emit({ type: 3, data: { href: "/inbox" } });
     setSentryUser(null);
@@ -4410,6 +4818,9 @@ describe("session replay", () => {
           String(url).includes("/api/analytics/replay"),
         ),
       ).toHaveLength(1),
+    );
+    await waitForAssertion(() =>
+      expect(storage.has("agent-native.session_replay_id")).toBe(false),
     );
 
     expect(stop).toHaveBeenCalledTimes(1);
@@ -4432,6 +4843,24 @@ describe("session replay", () => {
       },
     });
     expect(body.events[0].data.href).toBe("/inbox");
+
+    const replay = await import("./session-replay.js");
+    const restarted = await replay.startSessionReplay({
+      publicKey: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/replay",
+      requireSignedInUser: false,
+      extraProperties: { capture_context: "pre_auth" },
+      flushIntervalMs: 100_000,
+    });
+    expect(restarted.started).toBe(true);
+    expect(restarted.replayId).not.toBe(previousReplayId);
+    expect(
+      JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}"),
+    ).toMatchObject({
+      replayId: restarted.replayId,
+      captureContext: "pre_auth",
+    });
+    await replay.stopSessionReplay();
   });
 
   it("uses deterministic per-session sampling", async () => {

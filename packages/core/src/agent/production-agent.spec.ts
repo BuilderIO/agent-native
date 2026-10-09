@@ -18,6 +18,10 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
 } from "../app-config/run-lifecycle-invariants.js";
+import * as chatThreadStore from "../chat-threads/store.js";
+import * as dbClient from "../db/client.js";
+import * as preUploadAttachmentsModule from "../file-upload/pre-upload-attachments.js";
+import * as fileUploadRegistry from "../file-upload/registry.js";
 import {
   JPEG_BASE64,
   PDF_BASE64,
@@ -52,11 +56,14 @@ import {
   BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
   buildUserContentWithAttachments,
+  DurableAttachmentReferenceRequiredError,
+  serializeDurableDispatchPayload,
   callConnectedAgentReference,
   claimBackgroundWorkerRunEarly,
   createConnectedAgentReferenceEventRelay,
   createPlanModeActionRegistry,
-  createProductionAgentHandler,
+  createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
+  appendRequestAttachmentContextToResumedHistory,
   preloadPlanModeEngineTools,
   normalizeAgentActionSurfaceResolution,
   readPersistedActionSurface,
@@ -81,6 +88,7 @@ import {
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
   resolveAgentModelSelection,
+  resolveAgentExperimentModelOverride,
   resolveAgentOwnerEmail,
   resolveOwnerEngineApiKey,
   resolveBackgroundDispatchOutcome,
@@ -94,6 +102,7 @@ import {
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
   runCompletionCallbackWithDatabaseRetry,
+  resolveChatEngine,
   shouldChainBackgroundContinuation,
   toolCallCacheKey,
   MAX_IDENTICAL_TOOL_CALLS,
@@ -105,10 +114,21 @@ import {
   type AgentActionSurfaceDetails,
   type AgentLoopFinalResponseGuardContext,
   type AgentLoopOutcome,
+  type ProductionAgentOptions,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatEvent, RunEvent } from "./types.js";
+
+function createProductionAgentHandler(
+  options: Omit<ProductionAgentOptions, "assertAiSetupReady"> &
+    Partial<Pick<ProductionAgentOptions, "assertAiSetupReady">>,
+) {
+  return createProductionAgentHandlerWithSetupGate({
+    ...options,
+    assertAiSetupReady: options.assertAiSetupReady ?? (async () => {}),
+  });
+}
 
 const mockTryClaimRunSlot = vi.hoisted(() =>
   vi.fn(async () => ({ claimed: true, activeRunId: null })),
@@ -116,6 +136,8 @@ const mockTryClaimRunSlot = vi.hoisted(() =>
 const mockGetSlotHoldingRunId = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
+const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
+const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
@@ -165,6 +187,16 @@ vi.mock("./run-manager.js", async () => ({
   getSlotHoldingRunId: mockGetSlotHoldingRunId,
 }));
 
+vi.mock("./run-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./run-store.js")>()),
+  insertRun: (...args: any[]) => mockInsertRun(...args),
+}));
+
+vi.mock("../server/self-dispatch.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/self-dispatch.js")>()),
+  fireInternalDispatch: (...args: any[]) => mockFireInternalDispatch(...args),
+}));
+
 describe("runCompletionCallbackWithDatabaseRetry", () => {
   it("retries transient database failures before giving up the completion boundary", async () => {
     const callback = vi
@@ -202,6 +234,20 @@ describe("resolveOwnerEngineApiKey", () => {
     } finally {
       getSetting.mockRestore();
     }
+  });
+});
+
+describe("resolveChatEngine", () => {
+  it("preserves an explicit engine selection error instead of falling back", async () => {
+    await expect(
+      resolveChatEngine({
+        engineOption: "unregistered-requested-engine",
+        ownerKey: { apiKey: undefined, apiKeyEnvVar: undefined },
+        credentialIdentity: undefined,
+      }),
+    ).rejects.toThrow(
+      '[agent-engine] Unknown engine: "unregistered-requested-engine"',
+    );
   });
 });
 
@@ -252,6 +298,22 @@ function actionEntry(opts: {
   };
 }
 
+function engineWithUncalledStream(): AgentEngine {
+  return {
+    name: "test",
+    label: "Test",
+    defaultModel: "test-model",
+    supportedModels: ["test-model"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    stream: vi.fn(),
+  };
+}
 function isLoopBreakerCloseout(options: EngineStreamOptions): boolean {
   return options.messages.some(
     (message) =>
@@ -405,6 +467,26 @@ describe("resolveAgentModelSelection", () => {
         defaultModel,
       }),
     ).toEqual({ model: defaultModel, source: "default" });
+  });
+});
+
+describe("resolveAgentExperimentModelOverride", () => {
+  it("keeps an explicitly selected model ahead of an experiment", () => {
+    expect(
+      resolveAgentExperimentModelOverride({
+        requestModel: "gpt-5-6-terra",
+        experimentModel: "gpt-5-6-luna",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("applies an experiment when the request leaves model selection automatic", () => {
+    expect(
+      resolveAgentExperimentModelOverride({
+        requestModel: "auto",
+        experimentModel: "gpt-5-6-luna",
+      }),
+    ).toBe("gpt-5-6-luna");
   });
 });
 
@@ -753,7 +835,177 @@ describe("resolveSkillReferenceContent", () => {
   });
 });
 
+describe("serializeDurableDispatchPayload", () => {
+  it("keeps the resized vision URL and original reference when stripping inline pixels", () => {
+    const payload = serializeDurableDispatchPayload({
+      attachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          data: "data:image/png;base64,INLINE_RESIZED_PIXELS",
+          url: "https://files.example.test/reference-resized.png",
+          referenceUrl: "https://files.example.test/reference-original.png",
+        },
+      ],
+    });
+
+    expect(JSON.parse(payload).attachments[0]).toEqual({
+      type: "image",
+      name: "reference.png",
+      url: "https://files.example.test/reference-resized.png",
+      referenceUrl: "https://files.example.test/reference-original.png",
+    });
+    expect(payload).not.toContain("INLINE_RESIZED_PIXELS");
+  });
+
+  it("removes inline bytes from attachment arrays and nested image parts", () => {
+    const payload = serializeDurableDispatchPayload({
+      message: "Inspect these files",
+      attachments: [
+        {
+          type: "image",
+          name: "screen.png",
+          data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+          url: "https://files.example.test/screen.png",
+        },
+      ],
+      requestAttachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          data: "data:image/png;base64,INLINE_PROTOCOL_IMAGE_BYTES",
+          referenceUrl: "https://files.example.test/reference.png",
+        },
+      ],
+      structuredHistory: [
+        {
+          role: "user",
+          parts: [
+            {
+              type: "image",
+              data: "INLINE_HISTORY_IMAGE_BYTES",
+              url: "https://files.example.test/history.png",
+            },
+          ],
+        },
+      ],
+    });
+    const parsed = JSON.parse(payload);
+
+    expect(payload).not.toContain("INLINE_");
+    expect(parsed.attachments[0]).toEqual({
+      type: "image",
+      name: "screen.png",
+      url: "https://files.example.test/screen.png",
+    });
+    expect(parsed.requestAttachments[0]).toEqual({
+      type: "image",
+      name: "reference.png",
+      referenceUrl: "https://files.example.test/reference.png",
+    });
+    expect(parsed.structuredHistory[0].parts[0]).toEqual({
+      type: "image",
+      url: "https://files.example.test/history.png",
+    });
+  });
+
+  it("fails closed when attachment bytes have no durable reference", () => {
+    expect(() =>
+      serializeDurableDispatchPayload({
+        attachments: [
+          {
+            type: "image",
+            name: "local-only.png",
+            data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+          },
+        ],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+
+  it("rejects a data URL masquerading as a durable attachment reference", () => {
+    expect(() =>
+      serializeDurableDispatchPayload({
+        attachments: [
+          {
+            type: "image",
+            name: "inline-url.png",
+            url: "data:image/png;base64,INLINE_IMAGE_BYTES",
+          },
+        ],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+});
+
 describe("buildUserContentWithAttachments", () => {
+  it("rehydrates a durable PDF reference into a provider file block", async () => {
+    const url = "https://storage.example.test/uploads/reference.pdf";
+    const inlinePdf = `data:application/pdf;base64,${PDF_BASE64}`;
+    const durablePayload = serializeDurableDispatchPayload({
+      message: "Summarize this report",
+      attachments: [
+        {
+          type: "file",
+          name: "reference.pdf",
+          contentType: "application/pdf",
+          data: inlinePdf,
+          url,
+        },
+      ],
+    });
+    const durableAttachments = JSON.parse(durablePayload).attachments;
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(Buffer.from(PDF_BASE64, "base64"), {
+          status: 200,
+          headers: { "content-type": "application/pdf" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      expect(durablePayload).not.toContain(PDF_BASE64);
+      expect(durableAttachments[0]).toEqual({
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        url,
+      });
+
+      const prepared = await preUploadAttachmentsModule.preUploadAttachments({
+        attachments: durableAttachments,
+        ownerEmail: "alice@example.com",
+        includeFiles: true,
+      });
+      const content = buildUserContentWithAttachments({
+        text: "Summarize this report",
+        attachments: prepared.attachments,
+      });
+
+      expect(content).toContainEqual({
+        type: "file",
+        data: PDF_BASE64,
+        mediaType: "application/pdf",
+        filename: "reference.pdf",
+      });
+      expect(
+        content
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n"),
+      ).not.toContain("<chat-attachment-processing-error");
+      expect(findProvider).toHaveBeenCalledWith(url);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("does not send display-only chat attachments to the model", () => {
     expect(
       buildUserContentWithAttachments({
@@ -800,6 +1052,51 @@ describe("buildUserContentWithAttachments", () => {
       { type: "image", mediaType: "image/png", data: PNG_BASE64 },
       { type: "text", text: "Describe this" },
     ]);
+  });
+
+  it("does not add an attachment-processing error for a readable image", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Describe this",
+      attachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    });
+
+    expect(content.filter((part) => part.type === "image")).toHaveLength(1);
+    expect(
+      content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n"),
+    ).not.toContain("<chat-attachment-processing-error");
+  });
+
+  it("surfaces attachments that arrive without a payload or reference", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Inspect these references",
+      attachments: [
+        {
+          type: "image",
+          name: "missing-image.png",
+          contentType: "image/png",
+        },
+        { name: "missing-file.bin" } as any,
+      ],
+    });
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+
+    expect(text.match(/code="missing-payload"/g)).toHaveLength(2);
+    expect(text).toContain('name="missing-image.png"');
+    expect(text).toContain('name="missing-file.bin"');
+    expect(text).toContain("Inspect these references");
   });
 
   it("normalizes image/jpg before sending the image to vision", () => {
@@ -906,6 +1203,30 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain("huge.pdf");
     expect(text).toContain("per-file limit");
     expect(text).toContain("not a storage-configuration problem");
+  });
+
+  it("explains when malformed or untyped payloads cannot become model attachments", () => {
+    const parts = buildUserContentWithAttachments({
+      text: "Inspect this attachment",
+      attachments: [
+        {
+          type: "custom-file",
+          name: "reference.bin",
+          contentType: "application/x-custom",
+          data: "not a data URL",
+          url: "https://files.example.test/reference.bin",
+        },
+      ] as any,
+    });
+    const text = parts.map((part: any) => part.text ?? "").join("\n");
+
+    expect(parts.some((part: any) => part.type === "file")).toBe(false);
+    expect(parts.some((part: any) => part.type === "image")).toBe(false);
+    expect(text).toContain(
+      'code="unsupported-or-malformed-payload" name="reference.bin"',
+    );
+    expect(text).toContain("could not be converted to a supported attachment");
+    expect(text).toContain("Inspect this attachment");
   });
 
   it("keeps hosted image URLs in text context instead of sending malformed URL image parts", () => {
@@ -1085,6 +1406,82 @@ describe("buildUserContentWithAttachments", () => {
         "</attachment>\n\n" +
         "Summarize the attachment",
     );
+  });
+
+  it("does not mark a storage-backed attachment unreadable when decoded text is included", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Summarize the attachment",
+      attachments: [
+        {
+          type: "file",
+          name: "decoded-notes.txt",
+          contentType: "text/plain",
+          text: "Readable decoded content",
+          url: "https://files.example.test/decoded-notes.txt",
+        },
+      ],
+    });
+
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(text).toContain("Readable decoded content");
+    expect(text).toContain("Summarize the attachment");
+    expect(text).not.toContain("<chat-attachment-processing-error");
+  });
+
+  it("marks URL-only text and PDF attachments as references without readable content", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Summarize the attachment",
+      attachments: [
+        {
+          type: "file",
+          name: "notes.txt",
+          contentType: "text/plain",
+          url: "https://files.example.test/notes.txt",
+        },
+        {
+          type: "file",
+          name: "report.pdf",
+          contentType: "application/pdf",
+          url: "https://files.example.test/report.pdf",
+        },
+      ],
+    });
+
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(text).toContain('code="reference-only-unavailable"');
+    expect(text).toContain('name="notes.txt"');
+    expect(text).toContain('name="report.pdf"');
+    expect(text).toContain("no readable contents were included");
+    expect(text).not.toContain('code="unsupported-or-malformed-payload"');
+  });
+
+  it("reports malformed inline payloads as unreadable even when a URL exists", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Summarize the attachment",
+      attachments: [
+        {
+          type: "file",
+          name: "broken.pdf",
+          contentType: "application/pdf",
+          data: "not a data URL",
+          url: "https://files.example.test/broken.pdf",
+        },
+      ],
+    });
+
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(text).toContain('code="unsupported-or-malformed-payload"');
+    expect(text).toContain('name="broken.pdf"');
+    expect(text).not.toContain('code="reference-only-unavailable"');
   });
 
   it("unwraps and truncates oversized text attachments before model input", () => {
@@ -1997,6 +2394,73 @@ describe("buildUserContentWithAttachments", () => {
   });
 });
 
+describe("appendRequestAttachmentContextToResumedHistory", () => {
+  it("restores image pixels and visible attachment failures on durable continuation", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Create a 1200x627 ad" }],
+      },
+    ];
+
+    appendRequestAttachmentContextToResumedHistory(messages, [
+      {
+        type: "image",
+        name: "reference.png",
+        contentType: "image/png",
+        data: `data:image/png;base64,${PNG_BASE64}`,
+      },
+      {
+        type: "image",
+        name: "unreadable.png",
+        contentType: "image/png",
+        url: "https://files.example.test/unreadable.png",
+      } as any,
+    ]);
+
+    expect(messages[0]?.content).toContainEqual({
+      type: "image",
+      data: PNG_BASE64,
+      mediaType: "image/png",
+    });
+    expect(messages[0]?.content).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("was not sent as a vision image"),
+      }),
+    );
+    appendAgentLoopContinuation(messages, "run_timeout");
+    expect(messages.at(-1)?.content).not.toContainEqual(
+      expect.objectContaining({ type: "image" }),
+    );
+  });
+
+  it("does not duplicate image blocks already present in resumed history", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Describe this" },
+          { type: "image", data: PNG_BASE64, mediaType: "image/png" },
+        ],
+      },
+    ];
+
+    appendRequestAttachmentContextToResumedHistory(messages, [
+      {
+        type: "image",
+        name: "reference.png",
+        contentType: "image/png",
+        data: `data:image/png;base64,${PNG_BASE64}`,
+      },
+    ]);
+
+    expect(
+      messages[0]?.content.filter((part) => part.type === "image"),
+    ).toHaveLength(1);
+  });
+});
+
 describe("resolveAgentOwnerEmail", () => {
   it("uses the explicit owner resolver when provided", async () => {
     const owner = await runWithRequestContext(
@@ -2054,6 +2518,765 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("runs the required AI setup gate before a user turn even with a local engine selection", async () => {
+    const setupRequired = Object.assign(new Error("AI setup is required"), {
+      statusMessage: "Use Builder.io before chatting.",
+      data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+    });
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const onRunNotStarted = vi.fn(async () => undefined);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+      onRunNotStarted,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A new prompt",
+          threadId: "thread-setup-gate",
+          turnId: "turn-setup-gate",
+          engine: "codex-cli",
+        }),
+      }),
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      ),
+    ).rejects.toBe(setupRequired);
+
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
+    expect(onRunNotStarted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "turn-setup-gate",
+        turnId: "turn-setup-gate",
+        threadId: "thread-setup-gate",
+        message: "A new prompt",
+        failure: {
+          code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+          message: "Use Builder.io before chatting.",
+        },
+      }),
+    );
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  it("does not trust a client continuation flag and reused turn ID", async () => {
+    mockTryClaimRunSlot.mockClear();
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const readTurnStartedAt = vi.fn(async () => ({
+      rows: [{ turn_started_at: Date.now() - 60_000 }],
+      rowsAffected: 0,
+    }));
+    const getDbExec = vi
+      .spyOn(dbClient, "getDbExec")
+      .mockReturnValue({ execute: readTurnStartedAt } as never);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A fresh prompt reusing an old turn ID",
+          threadId: "thread-setup-gate",
+          turnId: "turn-already-started",
+          internalContinuation: true,
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(setupRequired);
+
+      expect(assertAiSetupReady).toHaveBeenCalledOnce();
+      expect(getDbExec).not.toHaveBeenCalled();
+      expect(readTurnStartedAt).not.toHaveBeenCalled();
+      expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      getDbExec.mockRestore();
+    }
+  });
+
+  it("requires current AI setup before a manual Continue claims a run slot", async () => {
+    mockTryClaimRunSlot.mockClear();
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Continue this turn",
+          threadId: "thread-manual-continue",
+          turnId: "turn-manual-continue",
+          internalContinuation: true,
+          continueOfRunId: "stopped-run",
+        }),
+      }),
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      ),
+    ).rejects.toBe(setupRequired);
+
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
+    expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
+    expect(engine.stream).not.toHaveBeenCalled();
+    mockTryClaimRunSlot.mockClear();
+  });
+
+  it("does not treat client queue markers as persisted admission", async () => {
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue(null);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A forged queue prompt",
+          threadId: "thread-setup-gate",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "claim-1",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(setupRequired);
+
+      expect(resolveThreadAccess).toHaveBeenCalledWith(
+        "alice@example.com",
+        "thread-setup-gate",
+        "editor",
+        { orgId: "acme" },
+      );
+      expect(assertAiSetupReady).toHaveBeenCalledOnce();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+    }
+  });
+
+  it("allows only the matching live persisted queue claim to continue", async () => {
+    const assertAiSetupReady = vi.fn(async () => {});
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-setup-gate",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-1",
+              text: "A queued prompt",
+              promotionClaim: {
+                id: "claim-1",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+        }),
+      } as never);
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-active",
+    });
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A queued prompt",
+          threadId: "thread-setup-gate",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "claim-1",
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(event.res.status).toBe(409);
+      expect(result).toEqual({
+        error: "Run already in progress for this thread",
+        code: "run_slot_busy",
+        retryable: true,
+        activeRunId: "run-active",
+      });
+      expect(assertAiSetupReady).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+    }
+  });
+
+  it("builds an admitted queue promotion from its persisted payload", async () => {
+    const assertAiSetupReady = vi.fn(async () => {});
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-setup-gate",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-1",
+              text: "A queued prompt",
+              attachments: [
+                {
+                  type: "file",
+                  name: "notes.txt",
+                  fileId: "file-1",
+                  mediaType: "text/plain",
+                  url: "https://files.example/notes.txt",
+                },
+              ],
+              metadata: { queuedContext: "persisted" },
+              options: {
+                model: "queued-model",
+                reasoningEffort: "high",
+                mode: "plan",
+                metadata: { queuedOption: "persisted" },
+              },
+              promotionClaim: {
+                id: "claim-1",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+        }),
+      } as never);
+    const captured = Object.assign(
+      new Error("stop after request preparation"),
+      {
+        request: undefined as unknown,
+      },
+    );
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+      prepareRequest: vi.fn(async (request) => {
+        captured.request = request;
+        throw captured;
+      }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A queued prompt",
+          displayMessage: "Forged display text",
+          attachments: [{ name: "forged.txt", data: "forged attachment" }],
+          references: [
+            { type: "skill", name: "Injected skill", path: "skill.md" },
+          ],
+          history: [{ role: "user", content: "Injected history" }],
+          structuredHistory: [{ role: "user", content: "Injected history" }],
+          metadata: { queuedContext: "forged", injected: true },
+          model: "forged-model",
+          engine: "forged-engine",
+          effort: "low",
+          mode: "act",
+          harness: { runtime: "codex" },
+          skipPendingSelectionContext: true,
+          threadId: "thread-setup-gate",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "claim-1",
+          turnId: "forged-turn-id",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(captured);
+
+      expect(assertAiSetupReady).not.toHaveBeenCalled();
+      expect(captured.request).toMatchObject({
+        message: "A queued prompt",
+        displayMessage: "A queued prompt",
+        attachments: [
+          {
+            type: "file",
+            name: "notes.txt",
+            id: "file-1",
+            mediaType: "text/plain",
+            contentType: "text/plain",
+            url: "https://files.example/notes.txt",
+          },
+        ],
+        references: [],
+        mode: "plan",
+      });
+      expect(
+        JSON.stringify(
+          (captured.request as { requestContext?: unknown }).requestContext,
+        ),
+      ).not.toContain("Injected history");
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+    }
+  });
+
+  it("uses the persisted engine when promoting a queued message", async () => {
+    const { registerAgentEngine, unregisterAgentEngine } =
+      await import("./engine/registry.js");
+    const selectedEngineName = "queue-promotion-test-engine";
+    const selectedEngine = {
+      ...engineWithUncalledStream(),
+      name: selectedEngineName,
+      label: "Queue promotion test",
+      defaultModel: "queued-model",
+      supportedModels: ["queued-model"],
+    };
+    const defaultEngine = {
+      ...engineWithUncalledStream(),
+      name: "default-test-engine",
+      label: "Default test engine",
+    };
+    registerAgentEngine({
+      name: selectedEngineName,
+      label: selectedEngine.label,
+      description: "Queue promotion test engine",
+      capabilities: selectedEngine.capabilities,
+      defaultModel: selectedEngine.defaultModel,
+      supportedModels: selectedEngine.supportedModels,
+      requiredEnvVars: [],
+      create: () => selectedEngine,
+    });
+
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-queue-engine",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-engine-message",
+              text: "Use the saved engine",
+              metadata: { engine: selectedEngineName },
+              options: {
+                model: "queued-model",
+                metadata: { engine: selectedEngineName },
+              },
+              promotionClaim: {
+                id: "queue-engine-claim",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+        }),
+      } as never);
+    const stopAfterEngineResolution = new Error("stop after engine resolution");
+    const onEngineResolved = vi.fn(() => {
+      throw stopAfterEngineResolution;
+    });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: defaultEngine,
+      actions: {},
+      onEngineResolved,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Use the saved engine",
+          threadId: "thread-queue-engine",
+          queuedMessageId: "queued-engine-message",
+          queuedMessageClaimId: "queue-engine-claim",
+          engine: "forged-engine",
+          model: "forged-model",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(stopAfterEngineResolution);
+
+      expect(onEngineResolved).toHaveBeenCalledWith(
+        selectedEngine,
+        "queued-model",
+      );
+      expect(selectedEngine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+      unregisterAgentEngine(selectedEngineName);
+    }
+  });
+
+  it.each([
+    {
+      name: "a mismatched claim ID",
+      queuedText: "A queued prompt",
+      submittedText: "A queued prompt",
+      storedClaimId: "another-claim",
+      expiresAt: Date.now() + 60_000,
+    },
+    {
+      name: "an expired claim",
+      queuedText: "A queued prompt",
+      submittedText: "A queued prompt",
+      storedClaimId: "claim-1",
+      expiresAt: Date.now() - 1,
+    },
+    {
+      name: "a different prompt",
+      queuedText: "The original queued prompt",
+      submittedText: "A different prompt",
+      storedClaimId: "claim-1",
+      expiresAt: Date.now() + 60_000,
+    },
+  ])("does not let $name bypass the setup gate", async (testCase) => {
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-setup-gate",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-1",
+              text: testCase.queuedText,
+              promotionClaim: {
+                id: testCase.storedClaimId,
+                expiresAt: testCase.expiresAt,
+              },
+            },
+          ],
+        }),
+      } as never);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: testCase.submittedText,
+          threadId: "thread-setup-gate",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "claim-1",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(setupRequired);
+
+      expect(assertAiSetupReady).toHaveBeenCalledOnce();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+    }
+  });
+
+  it("persists the initial background slot payload without inline image bytes", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementationOnce(async ({ attachments }) => {
+        const prepared = attachments ?? [];
+        prepared[0]!.url = "https://files.example.test/screen.png";
+        return {
+          attachments: prepared,
+          uploaded: [],
+          uploadedFiles: [],
+          readFailures: [],
+          providerMissing: false,
+          uploadFailed: false,
+          readableWithoutStorage: [],
+          injectedText: null,
+        };
+      });
+    mockTryClaimRunSlot.mockClear();
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-existing",
+    });
+
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Inspect this image",
+          threadId: "thread-image-payload",
+          attachments: [
+            {
+              type: "image",
+              name: "screen.png",
+              contentType: "image/png",
+              data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+
+      expect(result).toMatchObject({ code: "run_slot_busy" });
+      expect(preUpload).toHaveBeenCalledOnce();
+      const dispatchPayload = (mockTryClaimRunSlot.mock.calls[0] as any)[3]
+        .dispatchPayload as string;
+      expect(dispatchPayload).toBeTruthy();
+      expect(dispatchPayload).not.toContain("INLINE_IMAGE_BYTES");
+      expect(JSON.parse(dispatchPayload).attachments[0]).toEqual({
+        type: "image",
+        name: "screen.png",
+        contentType: "image/png",
+        url: "https://files.example.test/screen.png",
+      });
+    } finally {
+      preUpload.mockRestore();
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("uses a data-free payload when the background insert falls back inline", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementationOnce(async ({ attachments }) => {
+        const prepared = attachments ?? [];
+        prepared[0]!.url = "https://files.example.test/fallback.png";
+        return {
+          attachments: prepared,
+          uploaded: [],
+          uploadedFiles: [],
+          readFailures: [],
+          providerMissing: false,
+          uploadFailed: false,
+          readableWithoutStorage: [],
+          injectedText: null,
+        };
+      });
+    mockInsertRun.mockClear();
+    mockFireInternalDispatch.mockClear();
+    mockInsertRun.mockRejectedValueOnce(new Error("fixture insert failure"));
+    mockFireInternalDispatch.mockRejectedValueOnce(
+      new Error("fixture dispatch failure"),
+    );
+    const modelMessageInputs: EngineMessage[][] = [];
+
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream({ messages }): AsyncIterable<EngineEvent> {
+        modelMessageInputs.push(messages);
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Inspect this image",
+          attachments: [
+            {
+              type: "image",
+              name: "screen.png",
+              contentType: "image/png",
+              data: `data:image/png;base64,${PNG_BASE64}`,
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      expect(response).toBeInstanceOf(ReadableStream);
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+
+      expect(preUpload).toHaveBeenCalledOnce();
+      const durableInsert = (mockInsertRun.mock.calls as any[]).find(
+        (call) => (call[3] as any)?.dispatchPayload,
+      );
+      expect(durableInsert).toBeTruthy();
+      const dispatchPayload = (durableInsert![3] as any)
+        .dispatchPayload as string;
+      expect(dispatchPayload).toBeTruthy();
+      expect(dispatchPayload).not.toContain(PNG_BASE64);
+      expect(JSON.parse(dispatchPayload).attachments[0]).toMatchObject({
+        type: "image",
+        name: "screen.png",
+        url: "https://files.example.test/fallback.png",
+      });
+      expect(
+        modelMessageInputs.flatMap((messages) =>
+          messages.flatMap((message) => message.content),
+        ),
+      ).toContainEqual({
+        type: "image",
+        data: PNG_BASE64,
+        mediaType: "image/png",
+      });
+      expect(mockFireInternalDispatch).toHaveBeenCalledOnce();
+    } finally {
+      preUpload.mockRestore();
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
   it("returns a typed conflict when another run owns the thread slot", async () => {
     mockTryClaimRunSlot.mockResolvedValueOnce({
       claimed: false,
@@ -2488,6 +3711,83 @@ describe("createProductionAgentHandler", () => {
     expect(mockGetSlotHoldingRunId).toHaveBeenCalledWith("thread-busy");
     expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
     expect(stream).not.toHaveBeenCalled();
+  });
+
+  it("passes a typed attachment-processing failure into the model request", async () => {
+    const preUploadFailure = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockRejectedValueOnce(
+        new Error("private storage implementation detail"),
+      );
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "I could not read the attachment." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe this file",
+          attachments: [
+            {
+              type: "file",
+              name: "reference.pdf",
+              contentType: "application/pdf",
+              data: "data:application/pdf;base64,UEsDBA==",
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+      expect(preUploadFailure).toHaveBeenCalledOnce();
+    } finally {
+      preUploadFailure.mockRestore();
+    }
+
+    const userText = streamedMessages
+      .flatMap((messages) => messages)
+      .filter((message) => message.role === "user")
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(userText).toContain('code="pre-upload-failed"');
+    expect(userText).toContain("attachment processing failed");
+    expect(userText).not.toContain("private storage implementation detail");
   });
 
   it("does not treat an undefined system prompt rejection as a valid empty prompt", async () => {
@@ -3206,6 +4506,7 @@ describe("createProductionAgentHandler", () => {
 
   it("preserves request tracking identity through delayed run completion", async () => {
     const onRunComplete = vi.fn();
+    const assertAiSetupReady = vi.fn(async () => {});
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -3230,6 +4531,7 @@ describe("createProductionAgentHandler", () => {
       systemPrompt: "Test",
       engine,
       onRunComplete,
+      assertAiSetupReady,
     });
 
     const startRun = async (
@@ -3266,10 +4568,12 @@ describe("createProductionAgentHandler", () => {
       }
     };
 
+    await startRun("visitor-1", undefined, "session-anonymous", true);
+    expect(assertAiSetupReady).not.toHaveBeenCalled();
+
     await Promise.all([
       startRun("alice@example.com", "auth-user-1", "session-1"),
       startRun("bob@example.com", "auth-user-2", "session-2"),
-      startRun("visitor-1", undefined, "session-anonymous", true),
       startRun(
         "synthetic@example.com",
         "auth-synthetic",
@@ -3280,6 +4584,7 @@ describe("createProductionAgentHandler", () => {
     ]);
 
     await vi.waitFor(() => expect(onRunComplete).toHaveBeenCalledTimes(4));
+    expect(assertAiSetupReady).toHaveBeenCalledTimes(3);
     const sources = onRunComplete.mock.calls.map(([, , source]) => source);
     expect(sources).toContainEqual({
       userId: "alice@example.com",

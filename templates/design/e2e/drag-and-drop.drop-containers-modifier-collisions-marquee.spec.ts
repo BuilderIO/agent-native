@@ -156,9 +156,9 @@ test.describe("modifier collisions", () => {
     ).toBeGreaterThan(85);
     expect(
       Math.abs(plain - modified),
-      `the primary modifier is Figma's snap bypass, not a selection change — ` +
+      `the modifier should not change the drag distance — ` +
         `plain drag moved ${plain}, modified moved ${modified}. A large gap ` +
-        `means the chord (additive-select / deep-select) consumed the gesture.`,
+        `means a selection shortcut consumed the gesture.`,
     ).toBeLessThanOrEqual(8);
   });
 });

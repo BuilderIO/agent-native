@@ -15,11 +15,21 @@ import type {
   EngineMessage,
 } from "./engine/types.js";
 import {
-  createProductionAgentHandler,
+  createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
   type ActionEntry,
   type ProductionAgentOptions,
 } from "./production-agent.js";
 import { insertRun } from "./run-store.js";
+
+function createProductionAgentHandler(
+  options: Omit<ProductionAgentOptions, "assertAiSetupReady"> &
+    Partial<Pick<ProductionAgentOptions, "assertAiSetupReady">>,
+) {
+  return createProductionAgentHandlerWithSetupGate({
+    ...options,
+    assertAiSetupReady: options.assertAiSetupReady ?? (async () => {}),
+  });
+}
 
 const mockReadAppState = vi.hoisted(() =>
   vi.fn(async (_key: string): Promise<unknown> => null),

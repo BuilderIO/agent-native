@@ -325,7 +325,6 @@ describe("runEditorPaste", () => {
     );
   });
 
-  // oracle: none — checks that a plain-text paste raises no error toast, not measured Figma behavior.
   it("keeps a plain non-Figma canvas paste silent", () => {
     const h = harness();
     runEditorPaste(h.args, pasteEvent({ "text/plain": "just some text" }));

@@ -13,6 +13,7 @@ import {
   type ChatFirstOpenAppDetail,
 } from "@agent-native/core/client/chat-first-state";
 import { usePollLoop } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { createPollEngine } from "@agent-native/core/shared";
 import type { AppConfig } from "@agent-native/shared-app-config";
 import {
@@ -44,6 +45,7 @@ import {
   resolvePreferredAgentModel,
   type ComposerTerminalModeControl,
   type PromptComposerFile,
+  type PromptComposerProps,
   type SlashCommand,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/app/chat/composer";
@@ -105,6 +107,8 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
+
+import { createCodeAgentAiReadinessGate } from "./ai-readiness.js";
 
 const SCHEDULED_CHAT_PROMPT_EVENT = "agent-native:scheduled-chat-prompt";
 
@@ -848,6 +852,7 @@ export default function CodeAgentsApp({
   onRunsChange,
   onSelectedRunChange,
 }: CodeAgentsAppProps) {
+  const t = useT();
   const [selectedGoalId, setSelectedGoalId] = useState<CodeAgentGoalId>("task");
   const selectedGoal =
     getCodeAgentGoal(selectedGoalId) ?? getDefaultCodeAgentGoal();
@@ -2328,10 +2333,17 @@ export default function CodeAgentsApp({
       return;
     }
     if (providerGate.blocked && !activeNewSessionExtension) {
-      toast("Connect a model provider first", {
-        description: providerGate.description,
-        duration: 3600,
-      });
+      toast(
+        t("agentChat.setup.connectToStart", {
+          defaultValue: "Connect a model provider first",
+        }),
+        {
+          description: t("agentChat.setup.builderOrOwnKeys", {
+            defaultValue: providerGate.description,
+          }),
+          duration: 3600,
+        },
+      );
       return;
     }
     const typedGoal =
@@ -3141,6 +3153,7 @@ export default function CodeAgentsApp({
                                   : newSessionExtensionComposerState.showModelSelector
                               }
                               onPromptChange={setNewPrompt}
+                              getHostMetadata={host.getHostMetadata}
                               onPermissionModeChange={setNewRunPermissionMode}
                               onModelSelectionChange={setModelSelection}
                               onSlashCommand={
@@ -3890,6 +3903,7 @@ function NewSessionComposer({
   onConnectProvider,
   onConnectLocalRuntime,
   onDisabledClick,
+  getHostMetadata,
 }: {
   prompt: string;
   promptSeed: number;
@@ -3916,6 +3930,7 @@ function NewSessionComposer({
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
   onDisabledClick?: () => void;
+  getHostMetadata?: CodeAgentsHost["getHostMetadata"];
 }) {
   return (
     <CodeAgentComposer
@@ -3943,6 +3958,7 @@ function NewSessionComposer({
       onConnectProvider={onConnectProvider}
       onConnectLocalRuntime={onConnectLocalRuntime}
       onDisabledClick={onDisabledClick}
+      getHostMetadata={getHostMetadata}
     />
   );
 }
@@ -3970,6 +3986,7 @@ function CodeAgentComposer({
   onConnectProvider,
   onConnectLocalRuntime,
   onDisabledClick,
+  getHostMetadata,
   modeControl: modeControlOverride,
   useDefaultModeControl = true,
   showModelSelector = true,
@@ -4004,12 +4021,14 @@ function CodeAgentComposer({
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
   onDisabledClick?: () => void;
+  getHostMetadata?: CodeAgentsHost["getHostMetadata"];
   modeControl?: React.ReactNode;
   useDefaultModeControl?: boolean;
   showModelSelector?: boolean;
   plusMenuModeOverride?: "full" | "upload-only";
   draftScopeOverride?: string;
 }) {
+  const t = useT();
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const availableModels = groupCodeAgentModelOptions(modelOptions);
   const availableAgents = terminalAgent
@@ -4057,8 +4076,36 @@ function CodeAgentComposer({
       </button>
     ) : undefined;
 
+  const onBeforeSubmit = useMemo<
+    NonNullable<PromptComposerProps["onBeforeSubmit"]>
+  >(
+    () =>
+      createCodeAgentAiReadinessGate(
+        getHostMetadata,
+        normalizedModel.engine,
+        (readiness) => {
+          if (readiness === "missing") onDisabledClick?.();
+          toast(
+            readiness === "missing"
+              ? t("agentChat.setup.connectToChat", {
+                  defaultValue: "Connect AI before sending.",
+                })
+              : t("agentChat.composer.submitFailed", {
+                  defaultValue:
+                    "Could not verify the AI connection. Try again.",
+                }),
+            { duration: 3200 },
+          );
+        },
+      ),
+    [getHostMetadata, normalizedModel.engine, onDisabledClick],
+  );
+
   return (
     <PromptComposer
+      // Desktop renders from file://; its host metadata IPC is the readiness
+      // source, while the main-process dispatch still enforces provider setup.
+      onBeforeSubmit={onBeforeSubmit}
       className="code-agents-standard-composer code-agents-composer-shell"
       style={codeAgentComposerAreaStyle}
       rootStyle={codeAgentComposerRootStyle}
@@ -4248,21 +4295,34 @@ function ProviderGateNotice({
   }>;
   onConnectLocalRuntime?: (engine: string) => void;
 }) {
+  const t = useT();
   return (
     <CodeProviderNotice
       className="code-agents-provider-gate"
-      title="Connect AI"
-      description={message ?? builderConnectFlow.error ?? description}
+      title={t("agentChat.setup.connectAi", { defaultValue: "Connect AI" })}
+      description={
+        message ??
+        builderConnectFlow.error ??
+        t("agentChat.setup.builderOrOwnKeys", { defaultValue: description })
+      }
       builderConnectFlow={builderConnectFlow}
       primaryActionLabel={
-        connecting ? "Signing in to Builder.io…" : "Use Builder.io"
+        connecting
+          ? t("agentChat.composer.connectingBuilder", {
+              defaultValue: "Signing in to Builder.io…",
+            })
+          : t("agentChat.composer.connectBuilder", {
+              defaultValue: "Use Builder.io",
+            })
       }
       primaryDisabled={connecting || builderConnectFlow.connecting}
       onPrimaryAction={onConnectBuilder}
       bouncePulse={bouncePulse}
       localRuntimeOptions={localRuntimeOptions}
       onConnectLocalRuntime={onConnectLocalRuntime}
-      secondaryActionLabel="Custom keys"
+      secondaryActionLabel={t("agentChat.composer.addOwnKeys", {
+        defaultValue: "Custom keys",
+      })}
       onOpenSettings={onOpenSettings}
     />
   );
@@ -5670,6 +5730,7 @@ function TranscriptPanel({
       onForkChat,
       chatBlocked,
       onDisabledClick,
+      getHostMetadata: host.getHostMetadata,
     }),
     [
       modelOptions,
@@ -5683,6 +5744,7 @@ function TranscriptPanel({
       onStop,
       permissionMode,
       chatBlocked,
+      host.getHostMetadata,
       runIsActive,
     ],
   );
@@ -5709,6 +5771,8 @@ function TranscriptPanel({
               clientOptions={{
                 transportOwnership: "owned",
                 retainActiveRunsOnThreadRelease: true,
+                // CodeAgentAgentKitRuntime checks this host's provider gate before dispatch.
+                aiSetupReadiness: "not-applicable",
               }}
               slots={CODE_AGENTKIT_CHAT_SLOTS}
             >
@@ -5822,6 +5886,7 @@ interface CodeAgentChatContextValue {
   onConnectLocalRuntime?: (engine: string) => void;
   chatBlocked: boolean;
   onDisabledClick?: () => void;
+  getHostMetadata?: CodeAgentsHost["getHostMetadata"];
   onForkChat?: () => void;
 }
 
@@ -5859,6 +5924,7 @@ function CodeAgentKitComposerSlot({ threadId }: { threadId: string }) {
       stopActive={chat.runIsActive}
       disabled={chat.chatBlocked}
       onPromptChange={() => undefined}
+      getHostMetadata={chat.getHostMetadata}
       onPermissionModeChange={chat.onPermissionModeChange}
       onModelSelectionChange={chat.onModelSelectionChange}
       onSubmit={async (prompt, attachments, followUpMode) => {

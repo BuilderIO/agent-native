@@ -213,6 +213,7 @@ export function renderSingleScreenCanvas({
     handleRuntimeStructureDeleteApplied,
     handleRuntimeStructureDeleteRejected,
     commentsHidden,
+    viewSettings: { pixelGrid, multiplayerCursors },
   } = editorLayoutAndStructure;
   const {
     runtimeStructureMoveRequest,
@@ -240,6 +241,10 @@ export function renderSingleScreenCanvas({
   } = editorLayerActions;
   const { handleIframeHotkey, handleKScaleStyleBatchChange } =
     editorScreenRendering;
+
+  const visibleCursorOthers = multiplayerCursors
+    ? othersWithAgentCursor
+    : othersWithAgentCursor.filter((other) => other.isAgent);
 
   return (
     <>
@@ -323,6 +328,7 @@ export function renderSingleScreenCanvas({
             : null
         }
         zoom={responsiveInteractActive ? interactZoom : zoom}
+        pixelGridEnabled={pixelGrid}
         onZoomChange={responsiveInteractActive ? undefined : setZoom}
         deviceFrame={deviceFrame}
         sourceType={activeCanvasSourceType}
@@ -562,9 +568,9 @@ export function renderSingleScreenCanvas({
       {/* Presence: live cursor overlay for remote participants.
                           The AI gets a synthesized cursor derived from its
                           current edit target (see othersWithAgentCursor). */}
-      {othersWithAgentCursor.length > 0 && (
+      {visibleCursorOthers.length > 0 && (
         <LiveCursorOverlay
-          others={othersWithAgentCursor}
+          others={visibleCursorOthers}
           containerRef={canvasContainerRef}
         />
       )}

@@ -6,6 +6,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetAgentEngineReadinessForTests } from "../../../../core/src/client/agent-engine-readiness.js";
+
 const useSessionMock = vi.fn();
 vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
   ...(await importOriginal<
@@ -45,6 +47,7 @@ let originalDocumentTitle: string;
 let replaceMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  resetAgentEngineReadinessForTests();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -78,6 +81,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetAgentEngineReadinessForTests();
   act(() => root.unmount());
   container.remove();
   Object.defineProperty(window, "location", {
@@ -232,6 +236,29 @@ describe("AppProviders session gate", () => {
       container.querySelector('script[data-agent-native-beta-redirect="1"]'),
     ).toBeNull();
     expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("starts the shared AI readiness probe at private app boot", async () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ chatEligible: true }), { status: 200 }),
+    );
+    Object.defineProperty(window, "fetch", {
+      configurable: true,
+      value: fetchMock,
+    });
+
+    renderProviders({ disableWebMcp: true });
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/_agent-native/agent-engine/status",
+        expect.objectContaining({ credentials: "same-origin" }),
+      );
+    });
+    expect(container.textContent).toContain("content");
+    expect(container.textContent).not.toMatch(/checking ai/i);
   });
 
   it("emits the session bootstrap on private SSR paths only", () => {

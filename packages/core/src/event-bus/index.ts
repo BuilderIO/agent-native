@@ -3,6 +3,7 @@ export {
   emit,
   emitAsync,
   subscribe,
+  subscribeAll,
   unsubscribe,
   listSubscriptions,
 } from "./bus.js";

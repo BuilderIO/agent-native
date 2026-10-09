@@ -136,6 +136,165 @@ describe("client status requests", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("preserves a custom status transport when a read is superseded", async () => {
+    let resolvePassive!: (response: Response) => void;
+    const statusUrl =
+      "https://chat.example.test/_agent-native/agent-engine/status";
+    const transportFetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolvePassive = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ chatEligible: false }));
+    const globalFetch = vi.fn(async () => jsonResponse({ chatEligible: true }));
+    vi.stubGlobal("fetch", globalFetch);
+    const options = {
+      url: statusUrl,
+      fetch: transportFetch as typeof fetch,
+      headers: { Authorization: "Bearer test-token" },
+      credentials: "include" as const,
+    };
+
+    const passive = fetchAgentEngineStatus<{ chatEligible: boolean }>(options);
+    const fresh = fetchAgentEngineStatus<{ chatEligible: boolean }>({
+      ...options,
+      fresh: true,
+    });
+    await expect(fresh).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: false },
+    });
+    resolvePassive(jsonResponse({ chatEligible: true }));
+
+    await expect(passive).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: false },
+    });
+    expect(transportFetch).toHaveBeenCalledTimes(2);
+    expect(globalFetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps status caches and in-flight reads separate by transport and auth headers", async () => {
+    const statusUrl =
+      "https://shared.example.test/_agent-native/agent-engine/status";
+    const firstFetch = vi.fn(async () => jsonResponse({ chatEligible: true }));
+    const secondFetch = vi.fn(async () =>
+      jsonResponse({ chatEligible: false }),
+    );
+
+    await expect(
+      fetchAgentEngineStatus({
+        url: statusUrl,
+        fetch: firstFetch as typeof fetch,
+      }),
+    ).resolves.toEqual({ state: "available", value: { chatEligible: true } });
+    await expect(
+      fetchAgentEngineStatus({
+        url: statusUrl,
+        fetch: secondFetch as typeof fetch,
+      }),
+    ).resolves.toEqual({ state: "available", value: { chatEligible: false } });
+    expect(firstFetch).toHaveBeenCalledOnce();
+    expect(secondFetch).toHaveBeenCalledOnce();
+
+    let resolveFirst!: (response: Response) => void;
+    let resolveSecond!: (response: Response) => void;
+    const sharedFetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () => new Promise<Response>((resolve) => (resolveFirst = resolve)),
+      )
+      .mockImplementationOnce(
+        () => new Promise<Response>((resolve) => (resolveSecond = resolve)),
+      );
+    const firstScope = fetchAgentEngineStatus({
+      url: statusUrl,
+      fetch: sharedFetch as typeof fetch,
+      headers: { Authorization: "Bearer user-a" },
+      credentials: "include",
+    });
+    const secondScope = fetchAgentEngineStatus({
+      url: statusUrl,
+      fetch: sharedFetch as typeof fetch,
+      headers: { Authorization: "Bearer user-b" },
+      credentials: "include",
+    });
+
+    expect(sharedFetch).toHaveBeenCalledTimes(2);
+    resolveFirst(jsonResponse({ chatEligible: true }));
+    resolveSecond(jsonResponse({ chatEligible: false }));
+    await expect(firstScope).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: true },
+    });
+    await expect(secondScope).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: false },
+    });
+  });
+
+  it("deduplicates equivalent status request scopes and invalidates every URL scope", async () => {
+    const statusUrl =
+      "https://shared.example.test/_agent-native/agent-engine/status";
+    const fetch = vi.fn(async () => jsonResponse({ chatEligible: true }));
+    const first = fetchAgentEngineStatus({
+      url: statusUrl,
+      fetch: fetch as typeof globalThis.fetch,
+      headers: { Authorization: "Bearer same-user" },
+      credentials: "include",
+    });
+    const joined = fetchAgentEngineStatus({
+      url: statusUrl,
+      fetch: fetch as typeof globalThis.fetch,
+      headers: { authorization: "Bearer same-user" },
+      credentials: "include",
+    });
+
+    await expect(Promise.all([first, joined])).resolves.toEqual([
+      { state: "available", value: { chatEligible: true } },
+      { state: "available", value: { chatEligible: true } },
+    ]);
+    expect(fetch).toHaveBeenCalledOnce();
+
+    await fetchAgentEngineStatus({
+      url: statusUrl,
+      fetch: fetch as typeof globalThis.fetch,
+      headers: { Authorization: "Bearer other-user" },
+      credentials: "include",
+    });
+    await fetchAgentEngineStatus({
+      url: statusUrl,
+      fetch: fetch as typeof globalThis.fetch,
+      headers: { Authorization: "Bearer same-user" },
+      credentials: "omit",
+    });
+    expect(fetch).toHaveBeenCalledTimes(3);
+
+    invalidateClientStatusRequest(statusUrl);
+    await fetchAgentEngineStatus({
+      url: statusUrl,
+      fetch: fetch as typeof globalThis.fetch,
+      headers: { Authorization: "Bearer same-user" },
+      credentials: "include",
+    });
+    await fetchAgentEngineStatus({
+      url: statusUrl,
+      fetch: fetch as typeof globalThis.fetch,
+      headers: { Authorization: "Bearer other-user" },
+      credentials: "include",
+    });
+    await fetchAgentEngineStatus({
+      url: statusUrl,
+      fetch: fetch as typeof globalThis.fetch,
+      headers: { Authorization: "Bearer same-user" },
+      credentials: "omit",
+    });
+    expect(fetch).toHaveBeenCalledTimes(6);
+  });
+
   it("coalesces concurrent fresh status reads", async () => {
     let resolveFresh!: (response: Response) => void;
     const fetch = vi.fn(

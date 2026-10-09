@@ -39,6 +39,10 @@ import {
 } from "../shared/replay-playback.js";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "../shared/session-replay-agent-access.js";
 import {
+  auditReplayIframeContent,
+  type ReplayIframeAudit,
+} from "./journey-capture-iframe-audit";
+import {
   aspectInRange,
   buildManifest,
   codexBearerForApp,
@@ -49,6 +53,8 @@ import {
   normalizeAppUrl,
   parseTree,
   planCapture,
+  replayAtFromRecordingStart,
+  replayIframeParentIdsAt,
   reasonFromError,
   stripBearer,
   TreeFormatError,
@@ -92,9 +98,10 @@ Needs Playwright with Chromium (npx playwright install chromium) and the local
 @rrweb/replay package included by the Analytics workspace.
 
 manifest.json: { generatedAt, appUrl, frames: [{ nodeKey, exampleIndex, recordingId,
-offsetMs, width, height, localPath, capturedAt, route?, attachmentRef? }],
-remoteAssets: "not-fetched", failures: [{ nodeKey, exampleIndex, recordingId,
-offsetMs, reason }], skipped: [...] }.
+offsetMs, sourceEventAt, replayAt, width, height, localPath, capturedAt,
+route?, attachmentRef? }], remoteAssets: "not-fetched", failures: [{ nodeKey,
+exampleIndex, recordingId, offsetMs, sourceEventAt, replayAt, reason, code?,
+diagnostics? }], skipped: [...] }.
 Exit code is 1 when no frame was captured, 2 when authentication is missing or rejected.`;
 
 class AuthError extends Error {}
@@ -778,15 +785,27 @@ export async function loadReplayEvents(
 }
 
 async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
-  const failAll = (reason: string) => {
+  const failureFor = (
+    item: RecordingPlan["items"][number],
+    reason: string,
+    recordingStartedAtMs?: number,
+    extra: Pick<ManifestFailure, "code" | "diagnostics"> = {},
+  ): ManifestFailure => ({
+    nodeKey: item.nodeKey,
+    exampleIndex: item.exampleIndex,
+    recordingId: plan.recordingId,
+    offsetMs: item.offsetMs,
+    reason,
+    sourceEventAt: item.sourceEventAt,
+    replayAt:
+      recordingStartedAtMs === undefined
+        ? null
+        : replayAtFromRecordingStart(recordingStartedAtMs, item.offsetMs),
+    ...extra,
+  });
+  const failAll = (reason: string, recordingStartedAtMs?: number) => {
     for (const item of plan.items) {
-      ctx.failures.push({
-        nodeKey: item.nodeKey,
-        exampleIndex: item.exampleIndex,
-        recordingId: plan.recordingId,
-        offsetMs: item.offsetMs,
-        reason,
-      });
+      ctx.failures.push(failureFor(item, reason, recordingStartedAtMs));
     }
   };
 
@@ -828,19 +847,19 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
   const initial = replayInitialViewportDimensions(events);
   const timeline = buildReplayViewportTimeline(events);
   if (!initial || timeline.length === 0) {
-    return failAll("replay_viewport_unavailable");
+    return failAll("replay_viewport_unavailable", recordingStartedAtMs);
   }
   if (
     !timeline.every((change) => isScreenshotSize(change.width, change.height))
   ) {
-    return failAll("viewport_out_of_range");
+    return failAll("viewport_out_of_range", recordingStartedAtMs);
   }
 
   let assets: { scriptPath: string; stylePath: string };
   try {
     assets = localReplayAssets();
   } catch {
-    return failAll("replay_renderer_unavailable");
+    return failAll("replay_renderer_unavailable", recordingStartedAtMs);
   }
   let context: BrowserContext;
   try {
@@ -853,7 +872,10 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
       serviceWorkers: "block",
     });
   } catch (error) {
-    return failAll(`render_failed: ${reasonFromError(error)}`);
+    return failAll(
+      `render_failed: ${reasonFromError(error)}`,
+      recordingStartedAtMs,
+    );
   }
   let page: BrowserPage | undefined;
   try {
@@ -914,18 +936,17 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
       ctx.timeoutMs,
     );
     if (!Number.isFinite(replayInfo.totalTimeMs)) {
-      return failAll("replay_duration_unavailable");
+      return failAll("replay_duration_unavailable", recordingStartedAtMs);
     }
 
     for (const [index, item] of plan.items.entries()) {
-      const fail = (reason: string) =>
-        ctx.failures.push({
-          nodeKey: item.nodeKey,
-          exampleIndex: item.exampleIndex,
-          recordingId: plan.recordingId,
-          offsetMs: item.offsetMs,
-          reason,
-        });
+      const fail = (
+        reason: string,
+        extra: Pick<ManifestFailure, "code" | "diagnostics"> = {},
+      ) =>
+        ctx.failures.push(
+          failureFor(item, reason, recordingStartedAtMs, extra),
+        );
       try {
         const offsetResolution = resolveReplayOffsetFromRecordingStart(
           events,
@@ -1003,6 +1024,34 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
           ),
           ctx.timeoutMs,
         );
+        const recordedIframeParentIds = replayIframeParentIdsAt(
+          events,
+          recordingStartedAtMs + item.offsetMs,
+        );
+        const iframeAudit = await withTimeout(
+          page.evaluate<ReplayIframeAudit>(auditReplayIframeContent, {
+            dimensions,
+            recordedIframeParentIds: [...recordedIframeParentIds],
+          }),
+          ctx.timeoutMs,
+        );
+        if ((iframeAudit.unverifiableIframeCount ?? 0) > 0) {
+          fail(
+            "Iframe visibility could not be verified because projection, clipping, masks, or filters could hide it.",
+            {
+              code: "replay_iframe_visibility_unverifiable",
+              diagnostics: iframeAudit,
+            },
+          );
+          continue;
+        }
+        if (iframeAudit.unavailableIframeCount > 0) {
+          fail("Visible iframe content is missing from the recorded replay.", {
+            code: "replay_iframe_content_unavailable",
+            diagnostics: iframeAudit,
+          });
+          continue;
+        }
         const bytes = Buffer.from(
           await withTimeout(
             page.screenshot({
@@ -1077,6 +1126,11 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
           height: dimensions.height,
           localPath: fileName,
           capturedAt,
+          sourceEventAt: item.sourceEventAt,
+          replayAt: replayAtFromRecordingStart(
+            recordingStartedAtMs,
+            item.offsetMs,
+          ),
           ...(route ? { route } : {}),
           ...(attachmentRef ? { attachmentRef } : {}),
         });
@@ -1087,13 +1141,13 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
           // The page has one playhead and it is stuck, so no later frame of
           // this recording can be captured.
           for (const later of plan.items.slice(index + 1)) {
-            ctx.failures.push({
-              nodeKey: later.nodeKey,
-              exampleIndex: later.exampleIndex,
-              recordingId: plan.recordingId,
-              offsetMs: later.offsetMs,
-              reason: "capture_timeout: an earlier frame did not finish",
-            });
+            ctx.failures.push(
+              failureFor(
+                later,
+                "capture_timeout: an earlier frame did not finish",
+                recordingStartedAtMs,
+              ),
+            );
           }
           break;
         }
@@ -1101,7 +1155,7 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
     }
   } catch (error) {
     if (error instanceof AuthError) throw error;
-    failAll(`render_failed: ${reasonFromError(error)}`);
+    failAll(`render_failed: ${reasonFromError(error)}`, recordingStartedAtMs);
   } finally {
     if (page) {
       await page

@@ -194,6 +194,49 @@ describe("onboarding journey events SQL", () => {
     ]);
   });
 
+  it("returns standalone chat setup sessions outside onboarding denominators", async () => {
+    await setup();
+    await insert("home-chat", "pageview", 1, { path: "/home" });
+    await insert("home-chat", "app_entered", 2);
+    await insert("home-chat", "integration_setup_exposed", 3, {
+      properties: { flow: "chat_setup", method_id: "setup_card" },
+    });
+    await insert("home-chat", "integration_method_clicked", 4, {
+      properties: { flow: "chat_setup", method_id: "custom_keys" },
+    });
+    await insert("home-chat", "integration_method_outcome", 5, {
+      properties: {
+        flow: "chat_setup",
+        method_id: "custom_keys",
+        outcome: "credential_saved",
+      },
+    });
+    await insert("cohort-chat", "signup", 1);
+    await insert("cohort-chat", "integration_setup_exposed", 2, {
+      properties: { flow: "chat_setup", method_id: "setup_card" },
+    });
+
+    const rows = await run();
+    const standalone = rows.filter((row) => row.session_id === "home-chat");
+    const cohort = rows.filter((row) => row.session_id === "cohort-chat");
+
+    expect(standalone.map((row) => row.event_name)).toEqual([
+      "pageview",
+      "app_entered",
+      "integration_setup_exposed",
+      "integration_method_clicked",
+      "integration_method_outcome",
+    ]);
+    expect(standalone.map((row) => row.journey_kind)).toEqual(
+      Array(standalone.length).fill("standalone_setup"),
+    );
+    expect(cohort.map((row) => row.journey_kind)).toEqual([
+      "onboarding",
+      "onboarding",
+    ]);
+    expect(rows.filter((row) => row.session_id === "returning")).toEqual([]);
+  });
+
   it("returns only step events of onboarding sessions, in window, with their properties", async () => {
     await setup();
     await seedSessions();
@@ -209,6 +252,131 @@ describe("onboarding journey events SQL", () => {
     ]);
     expect(normal[0]).toMatchObject({ path: "/sign-in" });
     expect(normal[3]).toMatchObject({ step_id: "role", method_id: null });
+  });
+
+  it("selects Builder aliases and custom-key outcomes without returning raw properties", async () => {
+    await setup();
+    await insert("setup-flow", "signup", 1, {
+      email: "person@example.com",
+    });
+    await insert("setup-flow", "onboarding_method_clicked", 2, {
+      email: "person@example.com",
+      properties: {
+        flow: "first_run",
+        step_id: "choice",
+        method_id: "builder_create_account",
+      },
+    });
+    await insert("setup-flow", "builder_connect_clicked", 3, {
+      properties: {
+        agent_native_flow: "first_run",
+        agent_native_connect_source: "first_run_onboarding",
+        event_alias_id: "builder-click-alias-1",
+        ignored: "not-selected",
+      },
+    });
+    await insert("setup-flow", "builder connect clicked", 4);
+    await insert("setup-flow", "integration_key_validation_outcome", 5, {
+      properties: {
+        flow: "settings",
+        outcome: "accepted",
+        ignored: "not-selected",
+      },
+    });
+    await insert("setup-flow", "integration_key_save_outcome", 6, {
+      properties: {
+        flow: "settings",
+        outcome: "saved",
+        ignored: "not-selected",
+      },
+    });
+    await insert("custom-key-flow", "signup", 1, {
+      email: "other@example.com",
+    });
+    await insert("custom-key-flow", "onboarding_method_clicked", 2, {
+      email: "other@example.com",
+      properties: {
+        flow: "first_run",
+        step_id: "choice",
+        method_id: "custom_keys",
+      },
+    });
+    await insert("custom-key-flow", "onboarding_method_started", 3, {
+      properties: {
+        flow: "first_run",
+        step_id: "choice",
+        method_id: "custom_keys",
+      },
+    });
+    await insert("custom-key-flow", "onboarding_method_outcome", 4, {
+      properties: {
+        flow: "first_run",
+        step_id: "choice",
+        method_id: "custom_keys",
+        outcome: "credential_validated",
+      },
+    });
+    await insert("custom-key-flow", "onboarding_method_outcome", 5, {
+      properties: {
+        flow: "first_run",
+        step_id: "choice",
+        method_id: "custom_keys",
+        outcome: "credential_saved",
+      },
+    });
+
+    const rows = await run({ app: "clips" });
+    const builderRows = rows.filter((row) => row.session_id === "setup-flow");
+    const customKeyRows = rows.filter(
+      (row) => row.session_id === "custom-key-flow",
+    );
+    expect(builderRows.map((row) => row.event_name)).toEqual([
+      "signup",
+      "onboarding_method_clicked",
+      "builder_connect_clicked",
+      "builder connect clicked",
+      "integration_key_validation_outcome",
+      "integration_key_save_outcome",
+    ]);
+    expect(builderRows[2]).toMatchObject({
+      flow: "first_run",
+      source: "first_run_onboarding",
+    });
+    expect(builderRows[4]).toMatchObject({
+      flow: "settings",
+      outcome: "accepted",
+    });
+    expect(builderRows[5]).toMatchObject({
+      flow: "settings",
+      outcome: "saved",
+    });
+    expect(customKeyRows.map((row) => [row.event_name, row.outcome])).toEqual([
+      ["signup", null],
+      ["onboarding_method_clicked", null],
+      ["onboarding_method_started", null],
+      ["onboarding_method_outcome", "credential_validated"],
+      ["onboarding_method_outcome", "credential_saved"],
+    ]);
+    expect(Object.keys(builderRows[2]!).sort()).toEqual([
+      "action",
+      "alias_id",
+      "event_name",
+      "flow",
+      "id",
+      "journey_kind",
+      "method_id",
+      "outcome",
+      "path",
+      "session_id",
+      "source",
+      "step_id",
+      "step_index",
+      "timestamp",
+    ]);
+    expect(builderRows[2]).not.toHaveProperty("ignored");
+    expect(builderRows[2]?.alias_id).toBe("builder-click-alias-1");
+    expect(builderRows[2]).not.toHaveProperty("user_id");
+    expect(builderRows[2]?.journey_kind).toBe("onboarding");
   });
 
   it("drops a Builder employee's whole session, including its anonymous events", async () => {

@@ -949,6 +949,7 @@ The job will run automatically on the schedule. Make the instructions specific â
               </p>
               <PromptComposer
                 autoFocus
+                requireAgentEngine
                 placeholder="e.g. A skill that reviews PRs for security issues and OWASP top 10 vulnerabilities"
                 draftScope="resources:create-skill"
                 onSubmit={(text) => submitSkill(text)}
@@ -1023,6 +1024,7 @@ The job will run automatically on the schedule. Make the instructions specific â
               </p>
               <PromptComposer
                 autoFocus
+                requireAgentEngine
                 placeholder="e.g. Every weekday at 9am, check for overdue scorecards and send a Slack update"
                 draftScope="resources:create-job"
                 onSubmit={(text) => submitJob(text)}
@@ -1083,6 +1085,7 @@ The job will run automatically on the schedule. Make the instructions specific â
               </p>
               <PromptComposer
                 autoFocus
+                requireAgentEngine
                 placeholder="e.g. A design agent that critiques layouts, suggests UI direction, and prefers concise product reasoning"
                 draftScope="resources:create-agent"
                 onSubmit={(text) => submitAgentPrompt(text)}

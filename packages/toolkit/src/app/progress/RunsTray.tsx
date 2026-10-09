@@ -353,7 +353,7 @@ export function RunsTray({
       open={open}
       onOpenChange={setOpen}
       trigger={
-        <span className="contents">
+        <span className="inline-flex shrink-0">
           <DesignSystemTooltip
             trigger={trigger}
             content={triggerLabel}

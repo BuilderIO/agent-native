@@ -4,7 +4,7 @@ import {
   resolveEngine,
 } from "@agent-native/core/agent/engine";
 import { resolveCredential } from "@agent-native/core/credentials";
-import { emitAsync, listSubscriptions } from "@agent-native/core/event-bus";
+import { emitAsync } from "@agent-native/core/event-bus";
 import {
   listOAuthAccounts,
   listOAuthAccountsByOwner,
@@ -24,7 +24,7 @@ import {
   mutateUserSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
-import { refreshEventSubscriptions } from "@agent-native/core/triggers";
+import { hasEventAutomation } from "@agent-native/core/triggers";
 import {
   AI_FILTER_MIN_LEARNED_EXAMPLES,
   AI_FILTER_RULE_NAME,
@@ -1831,13 +1831,7 @@ async function runAutomationsForAccount(
   };
 
   try {
-    if (
-      listSubscriptions("mail.message.received").length === 0 &&
-      !(await refreshEventSubscriptions())
-    ) {
-      throw new Error("Could not refresh Mail event automation subscriptions.");
-    }
-    if (listSubscriptions("mail.message.received").length > 0) {
+    if (await hasEventAutomation("mail.message.received")) {
       await emitNewReceivedEvents(
         ownerEmail,
         accountEmail,
