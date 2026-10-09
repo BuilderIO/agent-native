@@ -47,7 +47,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         ? {
             targetPath: `/design/${encodeURIComponent(designId)}`,
             resourceIds: { designId },
-            writeActions: ["update-design", "update-file"],
+            writeActions: ["update-design", "update-file", "create-file"],
           }
         : null;
     },
@@ -64,7 +64,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         ? {
             targetPath: `/design/${encodeURIComponent(designId)}`,
             resourceIds: { designId },
-            writeActions: ["update-design", "update-file"],
+            writeActions: ["update-design", "update-file", "create-file"],
           }
         : null;
     },
@@ -79,7 +79,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
                 : ""
             }`,
             resourceIds: { designId },
-            writeActions: ["update-design", "update-file"],
+            writeActions: ["update-design", "update-file", "create-file"],
           }
         : null;
     },
@@ -92,7 +92,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         ? {
             targetPath: `/design/${encodeURIComponent(designId)}`,
             resourceIds: { designId },
-            writeActions: ["update-design", "update-file"],
+            writeActions: ["update-design", "update-file", "create-file"],
           }
         : null;
     },
@@ -102,6 +102,15 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     "get-design": { id: "designId" },
   },
   widgetWriteActionArguments: {
+    "create-file": {
+      designId: {
+        type: "actionSchemaResourceBound" as const,
+        resourceKey: "designId",
+      },
+      filename: { type: "actionSchema" as const },
+      content: { type: "actionSchema" as const },
+      fileType: { type: "actionSchema" as const },
+    },
     "update-design": {
       id: "designId",
       title: { type: "actionSchema" as const },

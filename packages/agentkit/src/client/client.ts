@@ -84,6 +84,12 @@ interface TerminalRunCatchUp {
 export interface AgentKitClientOptions {
   transport: AgentTransport;
   /**
+   * Defaults to required so user-started dispatches fail closed when a
+   * transport cannot validate provider readiness. Use `not-applicable` only
+   * for transports whose readiness is owned elsewhere or has no shared setup.
+   */
+  aiSetupReadiness?: "required" | "not-applicable";
+  /**
    * Borrowed transports are never disposed by the client and are the safe
    * default for shared application services. Choose `owned` only when this
    * client created the transport exclusively for its own lifecycle.
@@ -217,6 +223,14 @@ function metadataRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+function selectedEngineForDispatch(input: {
+  metadata?: Record<string, unknown>;
+  options?: AgentRunOptions;
+}): string | undefined {
+  const engine = input.metadata?.engine ?? input.options?.metadata?.engine;
+  return typeof engine === "string" ? engine : undefined;
+}
+
 function sameQueuedMessageIds(
   first: AgentQueuedMessage[],
   second: AgentQueuedMessage[],
@@ -342,6 +356,11 @@ export interface AgentKitController {
     input?: ListThreadsInput,
     context?: AgentRequestContext,
   ): Promise<ListThreadsResult>;
+  /** Checks provider readiness before a user-initiated fork-and-resend. */
+  assertAiSetupReady(
+    input?: { engine?: string },
+    context?: AgentRequestContext,
+  ): Promise<void>;
   sendMessage(
     input: SendMessageInput,
     context?: AgentRequestContext,
@@ -2067,6 +2086,9 @@ export class AgentKitClient implements AgentKitController {
     report: AgentStreamIntegrityReport,
   ) => void;
   private readonly upload: AgentKitUploadDriver;
+  private readonly aiSetupReadiness: NonNullable<
+    AgentKitClientOptions["aiSetupReadiness"]
+  >;
   private readonly ownsTransport: boolean;
   private readonly retainActiveRunsOnThreadRelease: boolean;
   private readonly listeners = new Set<AgentKitListener>();
@@ -2107,6 +2129,7 @@ export class AgentKitClient implements AgentKitController {
 
   public constructor(options: AgentKitClientOptions) {
     this.transport = options.transport;
+    this.aiSetupReadiness = options.aiSetupReadiness ?? "required";
     this.ownsTransport = options.transportOwnership === "owned";
     this.retainActiveRunsOnThreadRelease =
       options.retainActiveRunsOnThreadRelease ?? false;
@@ -2638,11 +2661,32 @@ export class AgentKitClient implements AgentKitController {
     return result;
   }
 
+  public async assertAiSetupReady(
+    input?: { engine?: string; threadId?: ThreadId },
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const assertReady = this.transport.assertAiSetupReady;
+    if (!assertReady) {
+      if (this.aiSetupReadiness === "not-applicable") return;
+      throw new AgentKitOperationError("AI setup readiness validation");
+    }
+    const requestContext = this.createRequestContext(context);
+    await this.invokeRequest(requestContext, (request) =>
+      assertReady(input ?? {}, request),
+    );
+    this.assertActive();
+  }
+
   public async sendMessage(
     input: SendMessageInput,
     context?: AgentRequestContext,
   ): Promise<AgentRunHandle> {
     this.assertActive();
+    await this.assertAiSetupReady(
+      { engine: selectedEngineForDispatch(input), threadId: input.threadId },
+      context,
+    );
     const requestContext = this.createRequestContext(context);
     await this.ensureCapabilities(requestContext);
     if (input.attachments?.length || input.requestAttachments?.length) {
@@ -3193,6 +3237,10 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
   ): Promise<AgentQueuedMessage> {
     this.assertActive();
+    await this.assertAiSetupReady(
+      { engine: selectedEngineForDispatch(input), threadId: input.threadId },
+      context,
+    );
     const threadAtSubmit = this.getThread(input.threadId);
     const runWasActive =
       input.queuedWhileRunActive || hasActiveAgentRuns(threadAtSubmit);
@@ -3398,6 +3446,9 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
   ): Promise<void> {
     this.assertActive();
+    await this.assertAiSetupReady({ threadId }, context);
+    // A user-initiated continuation starts work, so it follows the same setup
+    // gate as a new prompt. Automatic run continuations use the transport path.
     const continueRun = this.transport.continueRun;
     if (!continueRun) throw new AgentKitOperationError("run continuation");
     const result = await this.invokeRequest(

@@ -13,6 +13,7 @@ import {
   parseEmbeddedThemeUpdate,
 } from "@agent-native/core/client/theme";
 import { scheduleAfterPaint } from "@agent-native/core/client/use-after-paint";
+import { useAgentEngineConfigured } from "@agent-native/core/client/use-agent-engine-configured";
 import { useSession } from "@agent-native/core/client/use-session";
 import { SettingsShortcut } from "@agent-native/core/client/use-settings-shortcut";
 import {
@@ -369,6 +370,11 @@ function DocumentTitleGuard({ fallbackTitle }: { fallbackTitle?: string }) {
   return null;
 }
 
+function AgentEngineReadinessBootstrap() {
+  useAgentEngineConfigured();
+  return null;
+}
+
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
@@ -524,12 +530,15 @@ export function AppProviders({
             {sessionBypass ? (
               children
             ) : (
-              <FirstRunOnboardingStartupGate
-                suppressSurface={skipFirstRunOnboarding}
-                fallback={fallback}
-              >
-                {children}
-              </FirstRunOnboardingStartupGate>
+              <>
+                <AgentEngineReadinessBootstrap />
+                <FirstRunOnboardingStartupGate
+                  suppressSurface={skipFirstRunOnboarding}
+                  fallback={fallback}
+                >
+                  {children}
+                </FirstRunOnboardingStartupGate>
+              </>
             )}
           </RequireSession>
         </ProvidersInner>

@@ -9,6 +9,7 @@ import type {
   AgentObjectReference,
   AgentRunSnapshot,
   AgentQueuedMessage,
+  AgentRequestContext,
   AgentToolCall,
   AgentThreadSnapshot,
   AgentWidgetSnapshot,
@@ -26,6 +27,10 @@ import {
   RUN_NOT_STARTED_METADATA_KEY,
   retryContextFromRequest,
 } from "../../shared/agent-chat-run-not-started.js";
+import {
+  agentEngineStatusUrlForChatApi,
+  requireAgentEngineConfiguredForDispatch,
+} from "../agent-engine-readiness.js";
 import { agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
@@ -87,6 +92,7 @@ interface SnapshotAnnotationConflict {
 
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
+const MAX_READINESS_SOURCES = 128;
 const MAX_THREAD_SNAPSHOT_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_THREAD_SNAPSHOT_RETRIES = 2;
 const MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES = 64 * 1024;
@@ -1933,6 +1939,14 @@ export function createAgentNativeAgentKitTransport(
   const promotionClaimIds = new Map<string, string>();
   const durableAssistantMessageIdsByRun = new Map<string, string | null>();
   const assistantHistoryMessageIdsByRun = new Map<string, string>();
+  const readinessSourcesBySession = new Map<
+    string,
+    {
+      statusUrl: string;
+      fetch: typeof fetch;
+      headers: () => Promise<Headers>;
+    }
+  >();
   let transport: AgentKitProtocolAdapter;
 
   function promotionClaimId(threadId: string, messageId: string): string {
@@ -1951,6 +1965,33 @@ export function createAgentNativeAgentKitTransport(
 
   function clearPromotionClaimId(threadId: string, messageId: string): void {
     promotionClaimIds.delete(JSON.stringify([threadId, messageId]));
+  }
+
+  async function assertAiSetupReady(
+    input: { engine?: string; threadId?: string },
+    _context?: AgentRequestContext,
+  ): Promise<void> {
+    const sessionId = input.threadId ?? options.threadId;
+    const sessionKey = sessionId ?? "";
+    let source = readinessSourcesBySession.get(sessionKey);
+    if (!source) {
+      if (readinessSourcesBySession.size >= MAX_READINESS_SOURCES) {
+        const oldestSession = readinessSourcesBySession.keys().next().value;
+        if (oldestSession !== undefined) {
+          readinessSourcesBySession.delete(oldestSession);
+        }
+      }
+      source = {
+        statusUrl: agentEngineStatusUrlForChatApi(apiUrl),
+        fetch: fetcher,
+        headers: () => headers({ sessionId }),
+      };
+      readinessSourcesBySession.set(sessionKey, source);
+    }
+    return requireAgentEngineConfiguredForDispatch({
+      engine: input.engine ?? options.engine,
+      source,
+    });
   }
 
   async function headers(input: { sessionId?: string } = {}): Promise<Headers> {
@@ -3715,6 +3756,7 @@ export function createAgentNativeAgentKitTransport(
     protocolTransport.subscribeToRun.bind(protocolTransport);
   transport = {
     ...protocolTransport,
+    assertAiSetupReady,
     startRun: (input, context) => startRunTrackingRunningState(input, context),
     async *subscribeToRun(input) {
       dispatchAgentChatRunning({

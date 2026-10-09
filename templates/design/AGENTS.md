@@ -43,9 +43,9 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 | `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Read/set collaboration opt-in |
 | `add-localhost-screens` / `update-screen-source` | Add screens; change source mode |
 | `add-session-replay-screenshots-to-board` | Add private Analytics replay screenshots to a Design board |
-| `stage-journey-canvas-frames` | Stage PNGs in resumable Design-owned private-blob batches |
-| `discard-journey-canvas-frame-import` | Discard staged imports and queue private-blob cleanup |
-| `create-journey-canvas` | Draw replay-backed storyboards and reference chains (no cohort metrics) |
+| `stage-journey-canvas-frames` | Stage native PNGs in Design-owned private blob storage in batches |
+| `discard-journey-canvas-frame-import` | Discard staged import; queue its private blobs for cleanup |
+| `create-journey-canvas` | Create provenance-backed storyboard with stubs/reference chains; no cohort metrics |
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames |
 | `edit-design` | Adapt a design/screen |
 | `apply-visual-edit` | Apply deterministic layer edits |
