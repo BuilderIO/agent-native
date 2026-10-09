@@ -2307,9 +2307,9 @@ const FEEDBACK_REPLY_DETAIL_NEGATION = [
     "\\b",
 ].join("|");
 const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
-  "(?:^|[.!?;])\\s*(?![^.!?;]*(?:" +
+  "(?:^|[.!?;,]|\\bbut\\b)\\s*(?![^.!?;,]*(?:" +
     FEEDBACK_REPLY_DETAIL_NEGATION +
-    "))[^.!?;]*?(?:" +
+    "))[^.!?;,]*?(?:" +
     [
       "\\b" +
         FEEDBACK_REPLY_CONTEXT +
@@ -2381,6 +2381,14 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [
     true,
     "Replies are not too technical. But don't include commit hashes in replies.",
+  ],
+  [
+    true,
+    "Replies are not too technical, but don't include commit hashes in replies.",
+  ],
+  [
+    true,
+    "Replies are not too technical but don't include commit hashes in replies.",
   ],
   [false, "Reply once there are no CI results yet."],
   [false, "Reply once there are\nno CI results yet."],
