@@ -111,9 +111,10 @@ describe("app origin client config", () => {
     );
   });
 
-  it("projects only public configured app identity into the client shell", () => {
+  it("uses the first matching workspace id when projecting its mount path", () => {
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
       { id: "workspace-calendar", path: "/recordings" },
+      { id: "workspace-calendar", path: "/clips" },
     ]);
     defineAppConfig({
       app: { id: "calendar", workspaceId: "workspace-calendar" },
@@ -125,7 +126,7 @@ describe("app origin client config", () => {
       workspaceAppPath: "/recordings",
       appHomePath: "/home",
       workspaceRuntime: true,
-      workspaceAppMountPaths: ["/recordings"],
+      workspaceAppMountPaths: ["/recordings", "/clips"],
     });
     expect(getAppOriginClientConfigScript()).toContain(
       '"appId":"calendar","workspaceAppId":"workspace-calendar"',

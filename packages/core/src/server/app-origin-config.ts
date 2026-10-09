@@ -32,7 +32,9 @@ function workspaceAppMountConfigFromJson(
       const normalized = normalizeAppBasePath(rawPath);
       if (!normalized) continue;
       paths.push(normalized);
-      if (id === workspaceAppId) currentPath = normalized;
+      if (id === workspaceAppId && currentPath === undefined) {
+        currentPath = normalized;
+      }
     }
     const uniquePaths = Array.from(new Set(paths));
     return uniquePaths.length || currentPath

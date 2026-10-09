@@ -2000,7 +2000,10 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
     vi.stubEnv(
       "AGENT_NATIVE_WORKSPACE_APPS_JSON",
-      JSON.stringify([{ id: "workspace-calendar", path: "/recordings" }]),
+      JSON.stringify([
+        { id: "workspace-calendar", path: "/recordings" },
+        { id: "workspace-calendar", path: "/clips" },
+      ]),
     );
     fs.writeFileSync(
       configPath,
@@ -2021,6 +2024,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     );
     expect(html).toContain('"workspaceAppId":"workspace-calendar"');
     expect(html).toContain('"workspaceAppPath":"/recordings"');
+    expect(html).toContain('"workspaceAppMountPaths":["/recordings","/clips"]');
     expect(html).toContain('"workspaceRuntime":true');
   });
 
