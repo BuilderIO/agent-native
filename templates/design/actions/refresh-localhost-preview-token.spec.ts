@@ -50,6 +50,7 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 import {
+  deriveDesignScopedReadOnlyPreviewToken,
   deriveLiveEditCapability,
   deriveLiveEditRegistrationCapability,
 } from "./connect-localhost.js";
@@ -85,14 +86,25 @@ beforeEach(() => {
 
 describe("refresh-localhost-preview-token", () => {
   it("binds public preview reads to a connection used by the design", async () => {
+    mocks.connections = [
+      {
+        id: "conn_2",
+        previewToken: "legacy-random-preview",
+        bridgeToken: "owner-bridge-token",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+    ];
     await expect(
       action.run({
         designId: "design_1",
         connectionId: "conn_2",
         publicVisualEdit: true,
       }),
-    ).resolves.toEqual({
-      previewToken: "preview",
+    ).resolves.toMatchObject({
+      previewToken: deriveDesignScopedReadOnlyPreviewToken(
+        "owner-bridge-token",
+        "design_1",
+      ),
       bridgeUrl: "http://127.0.0.1:7331",
     });
     expect(mocks.resolveScope).toHaveBeenCalledWith({
@@ -175,7 +187,9 @@ describe("refresh-localhost-preview-token", () => {
       publicVisualEdit: true,
     });
 
-    expect(result.previewToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.previewToken).toBe(
+      deriveDesignScopedReadOnlyPreviewToken("stored-bridge-token", "design_1"),
+    );
     expect(result.liveEditRegistrationCapability).toBe(
       deriveLiveEditRegistrationCapability("stored-bridge-token", "design_1"),
     );
@@ -212,7 +226,9 @@ describe("refresh-localhost-preview-token", () => {
       publicVisualEdit: true,
     });
 
-    expect(result.previewToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.previewToken).toBe(
+      deriveDesignScopedReadOnlyPreviewToken("stored-bridge-token", "design_1"),
+    );
     expect(result.liveEditRegistrationCapability).toBe(
       deriveLiveEditRegistrationCapability("stored-bridge-token", "design_1"),
     );
@@ -518,6 +534,7 @@ describe("refresh-localhost-preview-token", () => {
       {
         id: "conn_1",
         previewToken: "preview-1",
+        bridgeToken: "bridge-token-1",
         bridgeUrl: "http://127.0.0.1:7331",
       },
     ];
@@ -538,7 +555,12 @@ describe("refresh-localhost-preview-token", () => {
         connectionId: "conn_1",
         publicVisualEdit: true,
       }),
-    ).resolves.toMatchObject({ previewToken: "preview-1" });
+    ).resolves.toMatchObject({
+      previewToken: deriveDesignScopedReadOnlyPreviewToken(
+        "bridge-token-1",
+        "design_1",
+      ),
+    });
   });
 
   it("returns every bound connection for the public canvas", async () => {
@@ -546,11 +568,13 @@ describe("refresh-localhost-preview-token", () => {
       {
         id: "conn_1",
         previewToken: "preview-1",
+        bridgeToken: "bridge-token-1",
         bridgeUrl: "http://127.0.0.1:7331",
       },
       {
         id: "conn_2",
         previewToken: "preview-2",
+        bridgeToken: "bridge-token-2",
         bridgeUrl: "http://127.0.0.1:7332",
       },
     ];
@@ -562,9 +586,32 @@ describe("refresh-localhost-preview-token", () => {
       }),
     ).resolves.toMatchObject({
       connections: {
-        conn_1: { previewToken: "preview-1" },
-        conn_2: { previewToken: "preview-2" },
+        conn_1: {
+          previewToken: deriveDesignScopedReadOnlyPreviewToken(
+            "bridge-token-1",
+            "design_1",
+          ),
+        },
+        conn_2: {
+          previewToken: deriveDesignScopedReadOnlyPreviewToken(
+            "bridge-token-2",
+            "design_1",
+          ),
+        },
       },
+    });
+  });
+
+  it("does not expose a connection-wide token to public viewers without a bridge token", async () => {
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionId: "conn_2",
+        publicVisualEdit: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "localhost_preview_credentials_unavailable",
+      statusCode: 424,
     });
   });
 });

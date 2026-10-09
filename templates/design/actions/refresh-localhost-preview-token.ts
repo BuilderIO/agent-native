@@ -9,12 +9,13 @@ import { designConnectionIdsFromData } from "../shared/source-mode.js";
 import {
   deriveLiveEditCapability,
   deriveLiveEditRegistrationCapability,
+  deriveDesignScopedReadOnlyPreviewToken,
   derivePreviewToken,
 } from "./connect-localhost.js";
 
 export default defineAction({
   description:
-    "Refresh localhost preview credentials. Public visual-edit viewers and commenters receive only a design-scoped registration capability for ephemeral DOM editing; the publicVisualEdit flag grants no pending-edit read, write, or agent handoff access.",
+    "Refresh localhost preview credentials. Public visual-edit viewers and commenters receive a design-scoped read-only preview token and registration capability for ephemeral DOM editing; the publicVisualEdit flag grants no pending-edit read, write, or agent handoff access.",
   schema: z.object({
     designId: z.string().describe("Design project ID."),
     connectionId: z
@@ -91,6 +92,9 @@ export default defineAction({
       access.role === "editor";
     const canIssueRegistrationCapability =
       canIssueLiveEditCapability || publicVisualEdit === true;
+    const needsDesignScopedReadOnlyPreviewToken =
+      publicVisualEdit === true &&
+      (access.role === "viewer" || access.role === "commenter");
     const connectionScope =
       publicVisualEdit === true &&
       (access.role === "viewer" || access.role === "commenter")
@@ -131,38 +135,60 @@ export default defineAction({
         ? derivePreviewToken(connection.bridgeToken)
         : connection.previewToken;
 
-    const credentialsFor = (connection: (typeof connections)[number]) => ({
-      previewToken: previewTokenFor(connection)!,
-      ...(connection.bridgeToken
-        ? {
-            ...(canIssueLiveEditCapability
-              ? {
-                  liveEditCapability: deriveLiveEditCapability(
-                    connection.bridgeToken,
-                    designId,
-                  ),
-                }
-              : {}),
-            ...(canIssueRegistrationCapability
-              ? {
-                  liveEditRegistrationCapability:
-                    deriveLiveEditRegistrationCapability(
+    const previewTokenForRequest = (connection: {
+      bridgeToken?: string | null;
+      previewToken?: string | null;
+    }) =>
+      needsDesignScopedReadOnlyPreviewToken
+        ? connection.bridgeToken
+          ? deriveDesignScopedReadOnlyPreviewToken(
+              connection.bridgeToken,
+              designId,
+            )
+          : null
+        : previewTokenFor(connection);
+
+    const credentialsFor = (connection: (typeof connections)[number]) => {
+      const previewToken = previewTokenForRequest(connection);
+      if (!previewToken) {
+        fail(
+          "Read-only public preview credentials are unavailable. Reconnect this Screen, then retry.",
+          {
+            errorCode: "localhost_preview_credentials_unavailable",
+            statusCode: 424,
+          },
+        );
+      }
+      return {
+        previewToken,
+        ...(connection.bridgeToken
+          ? {
+              ...(canIssueLiveEditCapability
+                ? {
+                    liveEditCapability: deriveLiveEditCapability(
                       connection.bridgeToken,
                       designId,
                     ),
-                }
-              : {}),
-          }
-        : {}),
-      bridgeUrl: connection.bridgeUrl,
-    });
+                  }
+                : {}),
+              ...(canIssueRegistrationCapability
+                ? {
+                    liveEditRegistrationCapability:
+                      deriveLiveEditRegistrationCapability(
+                        connection.bridgeToken,
+                        designId,
+                      ),
+                  }
+                : {}),
+            }
+          : {}),
+        bridgeUrl: connection.bridgeUrl,
+      };
+    };
 
     if (connectionId) {
       const connection = connectionById.get(connectionId);
-      if (
-        !connection ||
-        (!connection.previewToken && !connection.bridgeToken)
-      ) {
+      if (!connection || !previewTokenForRequest(connection)) {
         fail(
           "Preview credentials are unavailable for this connection. Reconnect this Screen, then retry.",
           {
@@ -178,10 +204,7 @@ export default defineAction({
       connections: Object.fromEntries(
         requestedConnectionIds.map((requestedId) => {
           const connection = connectionById.get(requestedId);
-          if (
-            !connection ||
-            (!connection.previewToken && !connection.bridgeToken)
-          ) {
+          if (!connection || !previewTokenForRequest(connection)) {
             return [
               requestedId,
               {
