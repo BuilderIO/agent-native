@@ -2397,6 +2397,9 @@ const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
         FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION +
         "))",
       FEEDBACK_REPLY_DETAIL_HIGH_LEVEL_REQUEST,
+      "\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b[^.!?;]{0,80}\\b(?:should|could|must)\\s+be\\s+(?:at\\s+(?:a\\s+)?)?high[- ]level\\b",
       "\\b(?:keep|make|write|use)\\b[^.!?;]{0,100}\\b" +
         FEEDBACK_REPLY_CONTEXT +
         "\\b[^.!?;]{0,100}\\b(?:concise|brief|short|non[- ]?technical|plain\\s+english|plain[- ]language)\\b",
@@ -2742,6 +2745,11 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "Replies are good; they should be concise."],
   [true, "Replies are not too long, but they are too technical."],
   [true, "Replies are too technical, but they are not too long."],
+  [true, "Replies should be high-level."],
+  [true, "Replies should be at a high level."],
+  [true, "Replies could be high-level."],
+  [true, "Replies must be at a high level."],
+  [false, "Replies should not be high-level."],
   [false, "Replies are great. They are not too wordy."],
   [false, "Replies are good. They are shorter now."],
   [false, "Replies were nice, but they are not too technical."],
@@ -2869,7 +2877,9 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [false, "Nice work. Keep the replies high-level like this one."],
   [false, "Replies are too technical, but don't make them less technical."],
   [false, "Do not make replies, or responses, less technical."],
-  [false, "Don’t skip technical details in your reply."],
+  [false, "Don't skip technical details in your reply."],
+  [false, "Replies are great; don't omit technical details in your reply."],
+  [false, "Replies are great; don’t omit technical details in your reply."],
   [false, "Replies are not too technical."],
   [false, "Replies are not too long."],
   [false, "Replies aren't too technical."],
