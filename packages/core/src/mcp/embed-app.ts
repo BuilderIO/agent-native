@@ -164,6 +164,7 @@ export function embedApp(
     let appFrameReadyTimer = null;
     let appFrameLoadTimer = null;
     let lastFrameSrc = "";
+    const appFrameDocumentState = { loadGeneration: 0 };
     let embedSessionRefreshAttempts = 0;
     let reportedContentHeight = 0;
     let directoryWidgetOpenRequested = false;
@@ -466,8 +467,31 @@ export function embedApp(
       };
     }
 
+    function appFrameTargetOrigin() {
+      if (body.dataset.catalogMode !== "directory") return "*";
+      const candidates = [openStartUrl, openUrl];
+      for (const candidate of candidates) {
+        if (!candidate) continue;
+        try {
+          const origin = new URL(candidate, window.location.href).origin;
+          if (origin && origin !== "null") return origin;
+        // coercion-ok: skip a malformed optional URL so the next host URL can be tried.
+        } catch {}
+      }
+      return "";
+    }
+
+    function isTrustedAppFrameOrigin(origin) {
+      return (
+        body.dataset.catalogMode !== "directory" ||
+        origin === "null" ||
+        (!!origin && origin === appFrameTargetOrigin())
+      );
+    }
+
     function sendToAppFrame(message) {
       if (!appFrame || !appFrame.contentWindow) return;
+      // ChatGPT sandboxes nested app frames to opaque origins. Only non-secret bridge data is sent here.
       try { appFrame.contentWindow.postMessage(message, "*"); } catch {}
     }
 
@@ -542,7 +566,7 @@ export function embedApp(
       const originPayload = { type: "agentNative.frameOrigin", origin: window.location.origin };
       frameReadyMessageDelays.forEach((delay) => {
         setTimeout(() => {
-          try { frame.contentWindow && frame.contentWindow.postMessage(originPayload, "*"); } catch {}
+          if (frame.contentWindow) frame.contentWindow.postMessage(originPayload, "*");
           sendHostContext();
         }, delay);
       });
@@ -570,7 +594,7 @@ export function embedApp(
         : null;
     }
 
-    function embedSessionArgsFor(value) {
+    function embedSessionArgsFor(value, renewInPlace = false) {
       if (body.dataset.catalogMode === "directory") {
         const widgetSource = objectValue(
           toolResponseMetadata["agent-native/widgetSource"],
@@ -585,6 +609,7 @@ export function embedApp(
         }
         return {
           sourceTicket,
+          ...(renewInPlace ? { renewInPlace: true } : {}),
         };
       }
       const chrome = typeof toolInput.chrome === "string" ? toolInput.chrome : "full";
@@ -1451,8 +1476,10 @@ export function embedApp(
       appFrame = frame;
       appFrameReady = false;
       lastFrameSrc = src;
+      appFrameDocumentState.loadGeneration += 1;
       frame.addEventListener("load", () => {
         if (appFrame !== frame) return;
+        appFrameDocumentState.loadGeneration += 1;
         clearFrameLoadTimer();
         notifyOuterMcpAppReady();
         sendFrameReadyMessages(frame);
@@ -1491,17 +1518,30 @@ export function embedApp(
       void launchEmbed();
     }
 
-    async function renewExpiredEmbedSession(requestId, frame) {
-      if (!requestId || !frame || frame !== appFrame) return;
+    async function renewExpiredEmbedSession(
+      requestId,
+      frame,
+      frameLoadGeneration,
+    ) {
+      const directoryMode = body.dataset.catalogMode === "directory";
+      const canDeliverRenewal = () =>
+        frame === appFrame &&
+        (!directoryMode ||
+          appFrameDocumentState.loadGeneration === frameLoadGeneration);
+      const sendRenewalResult = (message) => {
+        if (!canDeliverRenewal()) return;
+        sendToAppFrame(message);
+      };
+      if (!requestId || !frame || !canDeliverRenewal()) return;
       if (!openUrl) {
-        sendToAppFrame({
+        sendRenewalResult({
           type: "agentNative.embedSessionRenewed",
           data: { requestId, ok: false },
         });
         return;
       }
       if (embedSessionRefreshAttempts >= maxEmbedSessionRefreshAttempts) {
-        sendToAppFrame({
+        sendRenewalResult({
           type: "agentNative.embedSessionRenewed",
           data: { requestId, ok: false },
         });
@@ -1512,21 +1552,33 @@ export function embedApp(
       try {
         const result = await callEmbedSessionTool(
           embedSessionArgsFor(
-            body.dataset.catalogMode === "directory"
-              ? openStartUrl || openUrl
-              : openUrl,
+            directoryMode ? openStartUrl || openUrl : openUrl,
+            directoryMode,
           ),
         );
         const data = parseToolResult(result);
+        if (directoryMode) {
+          if (data.renewed !== true) {
+            sendRenewalResult({
+              type: "agentNative.embedSessionRenewed",
+              data: { requestId, ok: false },
+            });
+            return;
+          }
+          sendRenewalResult({
+            type: "agentNative.embedSessionRenewed",
+            data: { requestId, ok: true },
+          });
+          return;
+        }
         if (typeof data.startUrl !== "string" || !data.startUrl) {
-          sendToAppFrame({
+          sendRenewalResult({
             type: "agentNative.embedSessionRenewed",
             data: { requestId, ok: false },
           });
           return;
         }
-        if (appFrame !== frame) return;
-        sendToAppFrame({
+        sendRenewalResult({
           type: "agentNative.embedSessionRenewed",
           data: {
             requestId,
@@ -1535,8 +1587,7 @@ export function embedApp(
           },
         });
       } catch {
-        if (appFrame !== frame) return;
-        sendToAppFrame({
+        sendRenewalResult({
           type: "agentNative.embedSessionRenewed",
           data: { requestId, ok: false },
         });
@@ -1692,8 +1743,9 @@ export function embedApp(
 
     function notifyHostHeight() {
       updateDirectoryWidgetLayout();
-      if (applyHostFillMode()) return;
-      const height = isCompactDirectoryWidget()
+      const compactInline = isCompactDirectoryWidget();
+      if (applyHostFillMode() && !compactInline) return;
+      const height = compactInline
         ? ${MCP_APP_INLINE_LAUNCHER_HEIGHT}
         : fillsPane
         ? paneFillHeight(hostState().context || {})
@@ -1929,6 +1981,7 @@ export function embedApp(
         event.source === null &&
         (message.embedStartUrl === appFrame?.src ||
           message.embedStartUrl === lastFrameSrc);
+      if (!isTrustedAppFrameOrigin(event.origin)) return;
       if (
         !appFrame ||
         (!expiredSessionMessage && event.source !== appFrame.contentWindow)
@@ -1957,8 +2010,12 @@ export function embedApp(
         if (expiredSessionMessage) {
           refreshExpiredEmbedSession();
         } else if (typeof data.requestId === "string") {
-          void renewExpiredEmbedSession(data.requestId, appFrame);
-        } else {
+          void renewExpiredEmbedSession(
+            data.requestId,
+            appFrame,
+            appFrameDocumentState.loadGeneration,
+          );
+        } else if (body.dataset.catalogMode !== "directory") {
           // Older app frames do not include a renewal id, so preserve their
           // existing full-refresh fallback until they load the renewal client.
           refreshExpiredEmbedSession();

@@ -5,6 +5,7 @@ export function assertDesignWidgetFileWriteScope(
   designId: string,
   context: ActionRunContext | undefined,
   write?: {
+    actionName?: string;
     content?: string;
     expectedVersionHash?: string;
     syncCollab?: boolean;
@@ -16,6 +17,12 @@ export function assertDesignWidgetFileWriteScope(
     throw new ActionContractError(
       "This widget write capability is scoped to a different design.",
       { errorCode: "mcp_widget_resource_mismatch", statusCode: 403 },
+    );
+  }
+  if (!grant.actionNames.includes(write?.actionName ?? "update-file")) {
+    throw new ActionContractError(
+      "This widget write capability does not permit this design file action.",
+      { errorCode: "mcp_widget_action_not_allowed", statusCode: 403 },
     );
   }
   if (write?.content !== undefined && !write.expectedVersionHash?.trim()) {

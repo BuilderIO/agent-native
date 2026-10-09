@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbExec = vi.hoisted(() => {
@@ -33,6 +35,7 @@ import {
   createEmbedSessionTicket,
   hasExplicitEmbedSessionCredential,
   readMcpDirectoryWidgetRenewalTicket,
+  renewMcpDirectoryWidgetSession,
   revokeEmbedSessionsForOwner,
   revokeEmbedSessionsForOwners,
   resolveEmbedSessionCookieOwners,
@@ -44,6 +47,38 @@ import {
 import { getRequestContext, runWithRequestContext } from "./request-context.js";
 
 const ORIGINAL_ENV = { ...process.env };
+
+function contentWidgetWriteScope({
+  userEmail = "owner@example.com",
+  orgId,
+  expiresAtMs = Date.now() + 15 * 60 * 1000,
+  resourceId = "doc_123",
+}: {
+  userEmail?: string;
+  orgId?: string;
+  expiresAtMs?: number;
+  resourceId?: string;
+} = {}): string {
+  const scope = createMcpDirectoryWidgetWriteCapability({
+    appId: "content",
+    resourceUri: "ui://content/shell-v66",
+    resourceIds: { documentId: resourceId },
+    userEmail,
+    ...(orgId ? { orgId } : {}),
+    expiresAtMs,
+    readActionArguments: {
+      "get-document": { documentId: resourceId },
+    },
+    writeActionArguments: {
+      "update-document": {
+        documentId: resourceId,
+        content: { type: "actionSchema" },
+      },
+    },
+  });
+  if (!scope) throw new Error("Could not build widget write scope fixture.");
+  return scope;
+}
 
 describe("embed session tokens", () => {
   beforeEach(() => {
@@ -130,29 +165,37 @@ describe("embed session tokens", () => {
   it("rejects revoked write-widget tickets", async () => {
     const ticketCreatedAtMs = Date.now() - 1000;
     const revokedBefore = Date.now() - 500;
-    dbExec.execute.mockImplementation(async ({ sql }: any) =>
-      sql.includes("SELECT revoked_before")
-        ? { rows: [{ revoked_before: revokedBefore }] }
-        : { rows: [], rowsAffected: 1 },
-    );
-    const scope = createMcpDirectoryWidgetWriteCapability({
-      appId: "content",
-      resourceUri: "ui://content/shell",
-      resourceIds: { documentId: "doc_123" },
-      userEmail: "owner@example.com",
+    const scope = contentWidgetWriteScope({
       expiresAtMs: Date.now() + 60_000,
-      readActionArguments: {},
-      writeActionArguments: {
-        "update-document": { documentId: "doc_123" },
-      },
     });
-    expect(scope).toBeDefined();
+    dbExec.execute.mockImplementation(async ({ sql }: any) => {
+      if (sql.includes("FROM agent_native_embed_tickets")) {
+        return {
+          rows: [
+            {
+              ticket_hash: "a".repeat(64),
+              owner_email: "owner@example.com",
+              target_path: "/page/doc_123",
+              scope,
+              created_at: ticketCreatedAtMs,
+              consumed_at: ticketCreatedAtMs,
+              renewal_expires_at: ticketCreatedAtMs + 30 * 24 * 60 * 60 * 1000,
+              session_active_until: Date.now() + 60_000,
+            },
+          ],
+        };
+      }
+      return sql.includes("SELECT revoked_before")
+        ? { rows: [{ revoked_before: revokedBefore }] }
+        : { rows: [], rowsAffected: 1 };
+    });
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       audienceHost: "content.example.test",
       targetPath: "/page/doc_123",
-      scope: scope!,
+      scope,
       ticketCreatedAtMs,
+      sessionId: "a".repeat(64),
     });
 
     await expect(
@@ -176,7 +219,7 @@ describe("embed session tokens", () => {
             {
               owner_email: "owner@example.com",
               target_path: "/page/doc_123",
-              scope: "capability:mcp-directory-widget-write:example",
+              scope: contentWidgetWriteScope(),
               created_at: createdAt,
               expires_at: Date.now() + 60_000,
               consumed_at: null,
@@ -251,9 +294,10 @@ describe("embed session tokens", () => {
         ? {
             rows: [
               {
+                ticket_hash: "a".repeat(64),
                 owner_email: "owner@example.com",
                 target_path: "/page/doc_123",
-                scope: "capability:mcp-directory-widget-write:example",
+                scope: contentWidgetWriteScope(),
                 created_at: createdAt,
                 expires_at: Date.now() + 60_000,
                 consumed_at: null,
@@ -364,7 +408,8 @@ describe("embed session tickets", () => {
     expect(inserted[0].args[6]).toBe(Date.now() + 15 * 60 * 1000);
     expect(inserted[0].args[7]).toBeNull();
     expect(inserted[0].args[8]).toBe(Date.now() + 30 * 24 * 60 * 60 * 1000);
-    expect(inserted[0].args).toHaveLength(9);
+    expect(inserted[0].args[9]).toBeNull();
+    expect(inserted[0].args).toHaveLength(10);
   });
 
   it("rejects an initial write-widget ticket authenticated before owner logout", async () => {
@@ -392,7 +437,7 @@ describe("embed session tickets", () => {
           createEmbedSessionTicket({
             ownerEmail: "owner@example.com",
             targetPath: "/page/doc_123",
-            scope: "capability:mcp-directory-widget-write:example",
+            scope: contentWidgetWriteScope(),
             revocationAnchorCreatedAtMs:
               getRequestContext()?.mcpCredentialIssuedAtMs,
           }),
@@ -413,7 +458,7 @@ describe("embed session tickets", () => {
       createEmbedSessionTicket({
         ownerEmail: "owner@example.com",
         targetPath: "/page/doc_123",
-        scope: "capability:mcp-directory-widget-write:example",
+        scope: contentWidgetWriteScope(),
       }),
     ).rejects.toThrow(
       "Directory widget ticket requires a trusted revocation anchor.",
@@ -469,7 +514,7 @@ describe("embed session tickets", () => {
         createEmbedSessionTicket({
           ownerEmail: "owner@example.com",
           targetPath: "/page/doc_123",
-          scope: "capability:mcp-directory-widget-write:example",
+          scope: contentWidgetWriteScope(),
           revocationAnchorCreatedAtMs:
             getRequestContext()?.mcpCredentialIssuedAtMs,
         }),
@@ -499,7 +544,7 @@ describe("embed session tickets", () => {
     await createEmbedSessionTicket({
       ownerEmail: "owner@example.com",
       targetPath: "/page/doc_123",
-      scope: "capability:mcp-directory-widget-write:example",
+      scope: contentWidgetWriteScope(),
       ttlSeconds: 15 * 60,
       renewalExpiresAtMs,
       revocationAnchorCreatedAtMs,
@@ -507,7 +552,8 @@ describe("embed session tickets", () => {
 
     expect(inserted).toHaveLength(1);
     expect(inserted[0].args[8]).toBe(renewalExpiresAtMs);
-    expect(inserted[0].args).toHaveLength(9);
+    expect(inserted[0].args[9]).toBe(Date.now() + 15 * 60 * 1000);
+    expect(inserted[0].args).toHaveLength(10);
   });
 
   it("rejects renewing a widget ticket created before owner logout", async () => {
@@ -527,7 +573,7 @@ describe("embed session tickets", () => {
       createEmbedSessionTicket({
         ownerEmail: "owner@example.com",
         targetPath: "/page/doc_123",
-        scope: "capability:mcp-directory-widget-write:example",
+        scope: contentWidgetWriteScope(),
         ttlSeconds: 15 * 60,
         revocationAnchorCreatedAtMs: createdAtMs,
       }),
@@ -605,7 +651,7 @@ describe("embed session tickets", () => {
     const pendingRenewal = createEmbedSessionTicket({
       ownerEmail: "owner@example.com",
       targetPath: "/page/doc_123",
-      scope: "capability:mcp-directory-widget-write:example",
+      scope: contentWidgetWriteScope(),
       ttlSeconds: 15 * 60,
       revocationAnchorCreatedAtMs: createdAtMs,
     });
@@ -629,6 +675,7 @@ describe("embed session tickets", () => {
         ? {
             rows: [
               {
+                ticket_hash: "b".repeat(64),
                 owner_email: "owner@example.com",
                 target_path: "/page/doc_123",
                 scope: "capability:mcp-directory-widget-write:example",
@@ -659,6 +706,7 @@ describe("embed session tickets", () => {
         ? {
             rows: [
               {
+                ticket_hash: "c".repeat(64),
                 owner_email: "owner@example.com",
                 target_path: "/page/doc_123",
                 scope: "capability:mcp-directory-widget-read:example",
@@ -689,6 +737,7 @@ describe("embed session tickets", () => {
         ? {
             rows: [
               {
+                ticket_hash: "d".repeat(64),
                 owner_email: "owner@example.com",
                 target_path: "/page/doc_123",
                 scope: "capability:mcp-directory-widget-read:example",
@@ -1450,6 +1499,51 @@ describe("requestMatchesEmbedTarget", () => {
     );
   });
 
+  it("initializes the active lease when consuming a legacy widget write ticket", async () => {
+    const ticket = "legacy-widget-ticket";
+    const ticketHash = createHash("sha256").update(ticket).digest("hex");
+    const createdAt = Date.now() - 1000;
+    const expiresAt = Date.now() + 60_000;
+    const scope = contentWidgetWriteScope({
+      expiresAtMs: Date.now() + 15 * 60 * 1000,
+    });
+    dbExec.execute.mockImplementation(async ({ sql }: any) => {
+      if (sql.includes("FROM agent_native_embed_tickets")) {
+        return {
+          rows: [
+            {
+              ticket_hash: ticketHash,
+              owner_email: "owner@example.com",
+              target_path: "/page/doc_123",
+              scope,
+              created_at: createdAt,
+              expires_at: expiresAt,
+              consumed_at: null,
+              renewal_expires_at: null,
+            },
+          ],
+        };
+      }
+      if (sql.includes("SELECT revoked_before")) return { rows: [] };
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await expect(
+      consumeEmbedSessionTicket(ticket, {
+        expectedOwnerEmail: "owner@example.com",
+      }),
+    ).resolves.toMatchObject({
+      ownerEmail: "owner@example.com",
+      targetPath: "/page/doc_123",
+      sessionId: ticketHash,
+      scope,
+    });
+    const leaseUpdate = dbExec.execute.mock.calls.find(([query]) =>
+      query.sql.includes("SET consumed_at = ?, session_active_until = ?"),
+    );
+    expect(leaseUpdate?.[0].args).toEqual([Date.now(), expiresAt, ticketHash]);
+  });
+
   it("serializes identity ticket claims and logout with the same owner lock", async () => {
     dbExec.transaction.mockClear();
     const createdAt = Date.now() - 1000;
@@ -1750,5 +1844,223 @@ describe("requestMatchesEmbedTarget", () => {
         }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("directory widget write session renewal", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-20T12:00:00Z"));
+    dbExec.execute.mockReset().mockResolvedValue({ rows: [], rowsAffected: 1 });
+    dbExec.transaction
+      .mockReset()
+      .mockImplementation(async (run) => run(dbExec));
+    process.env = { ...ORIGINAL_ENV, OAUTH_STATE_SECRET: "embed-test-secret" };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    process.env = ORIGINAL_ENV;
+  });
+
+  function sessionRow(overrides: Record<string, unknown> = {}) {
+    const createdAtMs = Date.now() - 60_000;
+    return {
+      owner_email: "owner@example.com",
+      org_id: "org_123",
+      target_path: "/page/doc_123",
+      scope: contentWidgetWriteScope({ orgId: "org_123" }),
+      created_at: createdAtMs,
+      consumed_at: createdAtMs + 1,
+      renewal_expires_at: createdAtMs + 30 * 24 * 60 * 60 * 1000,
+      session_active_until: Date.now() - 1,
+      ...overrides,
+    };
+  }
+
+  it("renews only the consumed user's original artifact and action scope", async () => {
+    const currentScope = contentWidgetWriteScope({
+      orgId: "org_123",
+      expiresAtMs: Date.now() + 5 * 60 * 1000,
+    });
+    const renewedScope = contentWidgetWriteScope({ orgId: "org_123" });
+    const updates: unknown[][] = [];
+    dbExec.execute.mockImplementation(async ({ sql, args }: any) => {
+      if (sql.includes("FROM agent_native_embed_tickets")) {
+        return { rows: [sessionRow({ scope: currentScope })] };
+      }
+      if (sql.startsWith("UPDATE agent_native_embed_tickets")) {
+        updates.push(args);
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await expect(
+      renewMcpDirectoryWidgetSession({
+        sourceTicket: "source-ticket",
+        ownerEmail: "owner@example.com",
+        orgId: "org_123",
+        expectedScope: currentScope,
+        renewedScope,
+      }),
+    ).resolves.toBe(Date.now() + 15 * 60 * 1000);
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0][0]).toBe(renewedScope);
+    expect(updates[0][3]).toBe(currentScope);
+  });
+
+  it("rejects renewal into a different artifact scope", async () => {
+    const currentScope = contentWidgetWriteScope({ orgId: "org_123" });
+    const escapedScope = contentWidgetWriteScope({
+      orgId: "org_123",
+      resourceId: "another-document",
+    });
+    dbExec.execute.mockImplementation(async ({ sql }: any) =>
+      sql.includes("FROM agent_native_embed_tickets")
+        ? { rows: [sessionRow({ scope: currentScope })] }
+        : { rows: [], rowsAffected: 1 },
+    );
+
+    await expect(
+      renewMcpDirectoryWidgetSession({
+        sourceTicket: "source-ticket",
+        ownerEmail: "owner@example.com",
+        orgId: "org_123",
+        expectedScope: currentScope,
+        renewedScope: escapedScope,
+      }),
+    ).resolves.toBeNull();
+    expect(dbExec.execute).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("UPDATE agent_native_embed_tickets"),
+      }),
+    );
+  });
+
+  it("rejects renewal after the hard 30-day cutoff", async () => {
+    const currentScope = contentWidgetWriteScope({ orgId: "org_123" });
+    const createdAtMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    dbExec.execute.mockImplementation(async ({ sql }: any) =>
+      sql.includes("FROM agent_native_embed_tickets")
+        ? {
+            rows: [
+              sessionRow({
+                scope: currentScope,
+                created_at: createdAtMs,
+                consumed_at: createdAtMs + 1,
+                renewal_expires_at: createdAtMs + 30 * 24 * 60 * 60 * 1000,
+              }),
+            ],
+          }
+        : { rows: [], rowsAffected: 1 },
+    );
+
+    await expect(
+      renewMcpDirectoryWidgetSession({
+        sourceTicket: "source-ticket",
+        ownerEmail: "owner@example.com",
+        orgId: "org_123",
+        expectedScope: currentScope,
+        renewedScope: currentScope,
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("does not renew a ticket for another user", async () => {
+    const currentScope = contentWidgetWriteScope({ orgId: "org_123" });
+    dbExec.execute.mockImplementation(async ({ sql }: any) =>
+      sql.includes("FROM agent_native_embed_tickets")
+        ? { rows: [sessionRow({ scope: currentScope })] }
+        : { rows: [], rowsAffected: 1 },
+    );
+
+    await expect(
+      renewMcpDirectoryWidgetSession({
+        sourceTicket: "source-ticket",
+        ownerEmail: "attacker@example.com",
+        orgId: "org_123",
+        expectedScope: currentScope,
+        renewedScope: currentScope,
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("accepts an expired token only while its exact widget session lease is active", async () => {
+    const createdAtMs = Date.now() - 60_000;
+    const scope = contentWidgetWriteScope({ orgId: "org_123" });
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      orgId: "org_123",
+      audienceHost: "content.example.test",
+      targetPath: "/page/doc_123",
+      scope,
+      ticketCreatedAtMs: createdAtMs,
+      sessionId: "b".repeat(64),
+      ttlSeconds: 1,
+    });
+    const row = sessionRow({
+      scope,
+      created_at: createdAtMs,
+      consumed_at: createdAtMs + 1,
+      session_active_until: Date.now() + 60_000,
+    });
+    dbExec.execute.mockImplementation(async ({ sql }: any) =>
+      sql.includes("FROM agent_native_embed_tickets")
+        ? { rows: [row] }
+        : { rows: [], rowsAffected: 1 },
+    );
+    vi.advanceTimersByTime(2_000);
+
+    await expect(
+      resolveEmbedSessionTokenForHost(token, "content.example.test"),
+    ).resolves.toMatchObject({ ownerEmail: "owner@example.com", scope });
+
+    dbExec.execute.mockImplementation(async ({ sql }: any) =>
+      sql.includes("FROM agent_native_embed_tickets")
+        ? {
+            rows: [
+              sessionRow({ ...row, session_active_until: Date.now() - 1 }),
+            ],
+          }
+        : { rows: [], rowsAffected: 1 },
+    );
+    await expect(
+      resolveEmbedSessionTokenForHost(token, "content.example.test"),
+    ).resolves.toBeNull();
+  });
+
+  it("does not let another user use a session id from a widget token", async () => {
+    const createdAtMs = Date.now() - 60_000;
+    const token = signEmbedSessionToken({
+      ownerEmail: "attacker@example.com",
+      orgId: "org_123",
+      audienceHost: "content.example.test",
+      targetPath: "/page/doc_123",
+      scope: contentWidgetWriteScope({
+        userEmail: "attacker@example.com",
+        orgId: "org_123",
+      }),
+      ticketCreatedAtMs: createdAtMs,
+      sessionId: "c".repeat(64),
+      ttlSeconds: 1,
+    });
+    dbExec.execute.mockImplementation(async ({ sql }: any) =>
+      sql.includes("FROM agent_native_embed_tickets")
+        ? {
+            rows: [
+              sessionRow({
+                created_at: createdAtMs,
+                consumed_at: createdAtMs + 1,
+                session_active_until: Date.now() + 60_000,
+              }),
+            ],
+          }
+        : { rows: [], rowsAffected: 1 },
+    );
+
+    await expect(
+      resolveEmbedSessionTokenForHost(token, "content.example.test"),
+    ).resolves.toBeNull();
   });
 });

@@ -50,6 +50,7 @@ import {
   EMBED_TARGET_HEADER,
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
+  MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER,
   allowsMcpDirectoryWidgetReadAction,
   getMcpDirectoryWidgetWriteCapabilityGrant,
   isExpiredMcpDirectoryWidgetWriteCapability,
@@ -86,6 +87,7 @@ import {
 } from "./cors-origins.js";
 import {
   hasExplicitEmbedSessionCredential,
+  isExpiredMcpDirectoryWidgetSessionRequest,
   resolveEmbedSessionFromRequest,
   resolvedEmbedCapabilityScope,
   type ResolvedEmbedSession,
@@ -576,6 +578,13 @@ async function resolveRequestAuthCapability(
 ): Promise<string | undefined> {
   const session = await resolveEmbedSessionFromRequest(event);
   if (!session && hasExplicitEmbedSessionCredential(event)) {
+    if (await isExpiredMcpDirectoryWidgetSessionRequest(event)) {
+      setResponseHeader(
+        event,
+        MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER,
+        "1",
+      );
+    }
     throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
   }
   return resolvedEmbedCapabilityScope(session);
@@ -648,7 +657,7 @@ function mountActionRoutesInternal(
         setResponseHeader(
           event,
           "Access-Control-Expose-Headers",
-          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After",
+          `X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,${MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER}`,
         );
 
         const isFrontendMutation =
@@ -1175,6 +1184,13 @@ function mountActionRoutesInternal(
                       orgId: embedSession?.orgId,
                     },
                   );
+                  if (expired) {
+                    setResponseHeader(
+                      event,
+                      MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER,
+                      "1",
+                    );
+                  }
                   throw createError({
                     statusCode: expired ? 401 : 403,
                     statusMessage: expired

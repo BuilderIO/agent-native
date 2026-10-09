@@ -1,11 +1,11 @@
 import {
   EMBED_MODE_QUERY_PARAM,
-  EMBED_SESSION_RENEWAL_QUERY_PARAM,
   EMBED_START_PATH,
   EMBED_TARGET_HEADER,
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+  MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER,
 } from "../shared/embed-auth.js";
 import {
   isMcpDirectoryWidgetReadCapabilityScope,
@@ -212,34 +212,6 @@ export function getEmbedAuthToken(): string | null {
     return fromUrl;
   }
   return memoryToken ?? storedToken(win);
-}
-
-function storeRenewedEmbedAuthToken(token: string, win: Window): void {
-  // Opaque frames keep the original URL token for reloads; retain that anchor
-  // across renewals so a later read cannot replace a newer token with the URL one.
-  let renewalAnchor = readTokenFromUrl(win) ?? renewedFromUrlToken;
-  if (!renewalAnchor) {
-    try {
-      renewalAnchor =
-        win.sessionStorage?.getItem(EMBED_TOKEN_RENEWED_FROM_STORAGE_KEY) ??
-        null;
-    } catch {
-      renewalAnchor = null;
-    }
-  }
-  renewalAnchor ??= getEmbedAuthToken();
-  storeToken(token, win);
-  renewedFromUrlToken = renewalAnchor;
-  try {
-    if (renewalAnchor) {
-      win.sessionStorage?.setItem(
-        EMBED_TOKEN_RENEWED_FROM_STORAGE_KEY,
-        renewalAnchor,
-      );
-    }
-  } catch {
-    // coercion-ok: the fresh token is already active in memory when opaque host storage is unavailable.
-  }
 }
 
 function readEmbedTokenScope(token: string): string | undefined {
@@ -724,24 +696,20 @@ function requestUrlAndKey(
   };
 }
 
-function requestWidgetSessionRenewal(
-  win: Window,
-  originalFetch: typeof fetch,
-): Promise<boolean> {
+function requestWidgetSessionRenewal(win: Window): Promise<boolean> {
   if (pendingWidgetSessionRenewal) return pendingWidgetSessionRenewal;
+  if (!win.parent || win.parent === win) return Promise.resolve(false);
 
   widgetSessionRenewalRequestId += 1;
   const requestId = `embed-renewal-${Date.now()}-${widgetSessionRenewalRequestId}`;
   const renewal = new Promise<boolean>((resolve) => {
     let settled = false;
     let timeoutId: number | null = null;
-    const controller = new AbortController();
     const finish = (succeeded: boolean) => {
       if (settled) return;
       settled = true;
       if (timeoutId !== null) win.clearTimeout(timeoutId);
       win.removeEventListener("message", onMessage);
-      if (!succeeded) controller.abort();
       resolve(succeeded);
     };
     const onMessage = (event: MessageEvent) => {
@@ -754,71 +722,22 @@ function requestWidgetSessionRenewal(
       ) {
         return;
       }
-      if (data.ok === false || typeof data.startUrl !== "string") {
+      if (data.ok !== true) {
         finish(false);
         return;
       }
-
-      void (async () => {
-        try {
-          const startUrl = new URL(data.startUrl, win.location.href);
-          const appOrigin = currentAppOrigin(win);
-          if (
-            !appOrigin ||
-            startUrl.origin !== appOrigin ||
-            !startUrl.pathname.endsWith(EMBED_START_PATH)
-          ) {
-            finish(false);
-            return;
-          }
-          startUrl.searchParams.set(EMBED_SESSION_RENEWAL_QUERY_PARAM, "1");
-          const response = await originalFetch(startUrl.toString(), {
-            method: "GET",
-            headers: { Accept: "application/json" },
-            cache: "no-store",
-            credentials: "omit",
-            referrerPolicy: "no-referrer",
-            signal: controller.signal,
-          });
-          if (!response.ok) {
-            finish(false);
-            return;
-          }
-          const payload = (await response.json()) as { location?: unknown };
-          if (typeof payload.location !== "string") {
-            finish(false);
-            return;
-          }
-          const location = new URL(payload.location, startUrl);
-          const token = location.searchParams.get(EMBED_TOKEN_QUERY_PARAM);
-          if (
-            location.origin !== appOrigin ||
-            !token ||
-            !isMcpDirectoryWidgetWriteCapabilityScope(
-              readEmbedTokenScope(token),
-            )
-          ) {
-            finish(false);
-            return;
-          }
-
-          storeRenewedEmbedAuthToken(token, win);
-          try {
-            win.parent?.postMessage(
-              { type: "agentNative.embedSessionRenewalApplied", requestId },
-              "*",
-            );
-          } catch (error) {
-            console.warn(
-              "[agent-native] could not acknowledge embedded session renewal",
-              error,
-            );
-          }
-          finish(true);
-        } catch {
-          finish(false);
-        }
-      })();
+      try {
+        win.parent.postMessage(
+          { type: "agentNative.embedSessionRenewalApplied", requestId },
+          "*",
+        );
+      } catch (error) {
+        console.warn(
+          "[agent-native] could not acknowledge embedded session renewal",
+          error,
+        );
+      }
+      finish(true);
     };
 
     win.addEventListener("message", onMessage);
@@ -827,7 +746,7 @@ function requestWidgetSessionRenewal(
       EMBED_SESSION_RENEWAL_TIMEOUT_MS,
     );
     try {
-      win.parent?.postMessage(
+      win.parent.postMessage(
         {
           type: "agentNative.embedSessionExpired",
           data: { requestId },
@@ -885,7 +804,10 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     }
 
     const canRenewWidgetSession =
-      isMcpDirectoryWidgetWriteEmbed() && request && sameOrigin(input, win);
+      Boolean(token) &&
+      isMcpDirectoryWidgetWriteEmbed() &&
+      request &&
+      sameOrigin(input, win);
     let replayRequest: Request | null = null;
     let firstRequest: Request | null = null;
     if (canRenewWidgetSession) {
@@ -901,21 +823,16 @@ export function ensureEmbedAuthFetchInterceptor(): void {
       ? await originalFetch(firstRequest)
       : await originalFetch(fetchInput as any, fetchInit as any);
     if (response.status === 401 && canRenewWidgetSession) {
-      const renewed = await requestWidgetSessionRenewal(win, originalFetch);
-      if (renewed && replayRequest) {
-        const refreshedToken = getEmbedAuthToken();
-        if (refreshedToken) {
-          const retryHeaders = new Headers(replayRequest.headers);
-          if (retryHeaders.get("Authorization") === `Bearer ${token}`) {
-            retryHeaders.set("Authorization", `Bearer ${refreshedToken}`);
-          }
-          const replayWithFreshAuthorization = new Request(replayRequest, {
-            headers: retryHeaders,
-          });
+      const sessionExpired =
+        response.headers.get(MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER) ===
+        "1";
+      if (sessionExpired && replayRequest && token) {
+        const renewed = await requestWidgetSessionRenewal(win);
+        if (renewed) {
           const [retryInput, retryInit] = withEmbedAuthHeaders(
-            replayWithFreshAuthorization,
+            replayRequest,
             undefined,
-            refreshedToken,
+            token,
             win,
           );
           response = await originalFetch(retryInput as any, retryInit as any);

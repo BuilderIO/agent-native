@@ -196,6 +196,7 @@ const embedSessionMocks = vi.hoisted(() => {
       const stored = renewalTickets.get(ticket);
       return stored?.scope ? stored : null;
     }),
+    renewMcpDirectoryWidgetSession: vi.fn(async () => Date.now() + 60_000),
     normalizeEmbedTargetPath: vi.fn(
       (raw: string | undefined | null, requestOrigin?: string) => {
         const value = String(raw ?? "").trim();
@@ -220,6 +221,8 @@ vi.mock("../server/embed-session.js", () => ({
   createEmbedSessionTicket: embedSessionMocks.createEmbedSessionTicket,
   readMcpDirectoryWidgetRenewalTicket:
     embedSessionMocks.readMcpDirectoryWidgetRenewalTicket,
+  renewMcpDirectoryWidgetSession:
+    embedSessionMocks.renewMcpDirectoryWidgetSession,
   normalizeEmbedTargetPath: embedSessionMocks.normalizeEmbedTargetPath,
 }));
 
@@ -2796,6 +2799,42 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         ?.ttlSeconds,
     ).toBeLessThanOrEqual(60);
 
+    embedSessionMocks.renewalTickets.set(sourceTicket, originalTicket);
+    const inPlaceRenewed = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 147,
+        method: "tools/call",
+        params: {
+          name: "create_embed_session",
+          arguments: { sourceTicket, renewInPlace: true },
+        },
+      },
+      {
+        headers,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(inPlaceRenewed.result.isError).not.toBe(true);
+    expect(inPlaceRenewed.result.structuredContent).toMatchObject({
+      renewed: true,
+      expiresAt: expect.any(Number),
+    });
+    expect(inPlaceRenewed.result.structuredContent).not.toHaveProperty(
+      "startUrl",
+    );
+    expect(
+      embedSessionMocks.renewMcpDirectoryWidgetSession,
+    ).toHaveBeenLastCalledWith({
+      sourceTicket,
+      ownerEmail: "oauth@example.com",
+      orgId: undefined,
+      expectedScope: originalTicket.scope,
+      renewedScope: expect.stringContaining("shell-v69"),
+    });
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledTimes(2);
+
     const readOnlyHeaders = await mcpAppsAuthHeaders({
       scope: "mcp:read mcp:apps",
       resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
@@ -3255,7 +3294,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ]);
     expect(
       Object.keys(tools.create_embed_session.inputSchema.properties),
-    ).toEqual(["sourceTicket"]);
+    ).toEqual(["sourceTicket", "renewInPlace"]);
 
     const resources = await rpc(171, "resources/list", {});
     expect(

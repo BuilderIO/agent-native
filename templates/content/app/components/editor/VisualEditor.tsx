@@ -89,6 +89,7 @@ import { Awareness } from "y-protocols/awareness";
 import { encodeStateAsUpdate, type Doc as YDoc } from "yjs";
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
+import { DirectoryWidgetFormattingToolbar } from "@/components/editor/DirectoryWidgetFormattingToolbar";
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import type { CommentThread } from "@/hooks/use-comments";
@@ -4610,6 +4611,9 @@ export function VisualEditor({
         containerRef={wrapperRef}
         ttlMs={CONTENT_RECENT_EDIT_TTL_MS}
       />
+      {editable && directoryWidgetEditing ? (
+        <DirectoryWidgetFormattingToolbar editor={editor} />
+      ) : null}
       {editable ? (
         <BubbleToolbar editor={editor} onComment={onComment} />
       ) : null}

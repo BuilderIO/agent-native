@@ -1690,6 +1690,11 @@ function mcpDirectoryWidgetSessionTool(config: MCPConfig): Tool | null {
           type: "string",
           description: "Original server-issued widget ticket from this result.",
         },
+        renewInPlace: {
+          type: "boolean",
+          description:
+            "Extend the active scoped widget session without replacing its mounted app frame.",
+        },
       },
       required: ["sourceTicket"],
     },
@@ -1701,7 +1706,10 @@ async function renewMcpDirectoryWidgetEmbedSession(
   config: MCPConfig,
   args: Record<string, unknown>,
   identity: MCPCallerIdentity | undefined,
-): Promise<{ startUrl: string; targetPath: string; expiresAt: number }> {
+): Promise<
+  | { startUrl: string; targetPath: string; expiresAt: number }
+  | { renewed: true; expiresAt: number }
+> {
   const profile = config.directoryProfile;
   if (!profile || config.catalogMode !== "directory") {
     throw new Error("Directory widget session renewal is not enabled.");
@@ -1717,8 +1725,11 @@ async function renewMcpDirectoryWidgetEmbedSession(
     );
   }
 
-  const { createEmbedSessionTicket, readMcpDirectoryWidgetRenewalTicket } =
-    await import("../server/embed-session.js");
+  const {
+    createEmbedSessionTicket,
+    readMcpDirectoryWidgetRenewalTicket,
+    renewMcpDirectoryWidgetSession,
+  } = await import("../server/embed-session.js");
   const originalTicket =
     await readMcpDirectoryWidgetRenewalTicket(sourceTicket);
   const callerOrgId = getRequestContext()?.orgId;
@@ -1752,6 +1763,30 @@ async function renewMcpDirectoryWidgetEmbedSession(
     throw new Error(
       "The original widget ticket has an invalid app capability.",
     );
+  }
+
+  if (args.renewInPlace === true) {
+    if (
+      originalTicket.consumedAtMs === null ||
+      originalTicket.sessionActiveUntilMs === null
+    ) {
+      throw new Error(
+        "The original widget session cannot be renewed in place.",
+      );
+    }
+    const expiresAt = await renewMcpDirectoryWidgetSession({
+      sourceTicket,
+      ownerEmail: identity.userEmail,
+      orgId: callerOrgId,
+      expectedScope: originalTicket.scope,
+      renewedScope: scope,
+    });
+    if (!expiresAt) {
+      throw new Error(
+        "The original widget session can no longer be renewed in place.",
+      );
+    }
+    return { renewed: true, expiresAt };
   }
 
   const appOrigin = profile.widgetDomain ?? config.widgetDomain;

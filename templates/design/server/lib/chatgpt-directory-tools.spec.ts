@@ -16,6 +16,7 @@ describe("Design ChatGPT directory widget targets", () => {
       targetPath:
         "/design/design-1?editorView=overview&screen=screen%2Fdesktop",
       resourceIds: { designId: "design-1" },
+      writeActions: ["create-file", "update-design", "update-file"],
     });
   });
 

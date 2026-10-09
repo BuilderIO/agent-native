@@ -6,6 +6,7 @@ import { resolveFrameGeometrySync } from "@/components/design/multi-screen/frame
 import type { ElementInfo } from "@/components/design/types";
 import type { DesignEditorCommand } from "@/hooks/use-navigation-state";
 import {
+  clearOverviewInteractTarget,
   getCreatedScreenNavigationPlan,
   type CreatedScreenNavigationPlan,
 } from "@/pages/design-editor/created-screen-navigation";
@@ -46,6 +47,8 @@ export interface ApplyDesignEditorCommandArgs {
   setMode: Dispatch<SetStateAction<EditorMode>>;
   setPinMode: Dispatch<SetStateAction<boolean>>;
   setOverviewSelectedScreenIds: Dispatch<SetStateAction<string[]>>;
+  setOverviewInteractScreenId?: Dispatch<SetStateAction<string | null>>;
+  overviewInteractScreenIdRef?: RefObject<string | null>;
   setScreenZoom: Dispatch<SetStateAction<number>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
@@ -76,6 +79,8 @@ export function runApplyDesignEditorCommand(
     setMode,
     setOverviewSelectedScreenIds,
     setPinMode,
+    setOverviewInteractScreenId,
+    overviewInteractScreenIdRef,
     setSelectedElement,
     setSelectedLayerIdsState,
     setViewMode,
@@ -202,6 +207,12 @@ export function runApplyDesignEditorCommand(
   if (editorView === "overview") {
     viewModeRef.current = "overview";
     if (!selectionId) setSelectedElement(null);
+    if (setOverviewInteractScreenId && overviewInteractScreenIdRef) {
+      clearOverviewInteractTarget({
+        setOverviewInteractScreenId,
+        overviewInteractScreenIdRef,
+      });
+    }
     setMode("edit");
     setDrawMode(false);
     setPinMode(false);

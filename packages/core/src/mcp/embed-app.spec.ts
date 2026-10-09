@@ -357,7 +357,9 @@ describe("embedApp", () => {
     expect(html).not.toContain("const buttonUrl = openUrl || openStartUrl");
     expect(html).toContain("appFrameLoadTimer");
     expect(html).toContain("startFrameReadyTimer(frame)");
-    expect(html).toContain("function embedSessionArgsFor(value)");
+    expect(html).toContain(
+      "function embedSessionArgsFor(value, renewInPlace = false)",
+    );
     expect(html).toContain("? { path: value, chrome }");
     expect(html).toContain(
       "callEmbedSessionTool(embedSessionArgsFor(embedUrl))",
@@ -489,7 +491,7 @@ describe("embedApp", () => {
     });
 
     const functions = html.match(
-      /(function embedTicketFromStartUrl\(value\) \{[\s\S]*?\n    \})\n\n    (function embedSessionArgsFor\(value\) \{[\s\S]*?\n    \})/,
+      /(function embedTicketFromStartUrl\(value\) \{[\s\S]*?\n    \})\n\n    (function embedSessionArgsFor\(value, renewInPlace = false\) \{[\s\S]*?\n    \})/,
     );
     expect(functions).toBeDefined();
     const { embedSessionArgsFor } = new Function(
@@ -510,7 +512,12 @@ describe("embedApp", () => {
           ? value
           : {},
       "",
-    ) as { embedSessionArgsFor: (value: string) => Record<string, unknown> };
+    ) as {
+      embedSessionArgsFor: (
+        value: string,
+        renewInPlace?: boolean,
+      ) => Record<string, unknown>;
+    };
 
     expect(embedSessionArgsFor("/page/document-1")).toEqual({
       sourceTicket: "saved-ticket",
@@ -518,6 +525,10 @@ describe("embedApp", () => {
     expect(embedSessionArgsFor("/page/document-1")).not.toHaveProperty(
       "toolOutput",
     );
+    expect(embedSessionArgsFor("/page/document-1", true)).toEqual({
+      sourceTicket: "saved-ticket",
+      renewInPlace: true,
+    });
 
     expect(html).toContain('data-start-tool="create_embed_session"');
     expect(html).toContain('data-catalog-mode="directory"');
@@ -588,7 +599,9 @@ describe("embedApp", () => {
       expect(html).toContain("height: 100vh; height: 100dvh;");
       expect(html).toContain(`${attribute} .bar { display: none; }`);
       expect(html).toContain("height: 100% !important");
-      expect(html).toContain("if (applyHostFillMode()) return;");
+      expect(html).toContain(
+        "if (applyHostFillMode() && !compactInline) return;",
+      );
       expect(html).toContain('appFrame.style.height = "";');
     });
 
@@ -656,15 +669,15 @@ describe("embedApp", () => {
         containerDimensions: { maxHeight: 360, maxWidth: 568 },
       };
 
-      it("renews a write session without replacing its live app frame", async () => {
+      const renewalHarness = (options: {
+        frame: { contentWindow: object; src?: string };
+        documentState: { loadGeneration: number };
+        callEmbedSessionTool: ReturnType<typeof vi.fn>;
+        sendToAppFrame: ReturnType<typeof vi.fn>;
+      }) => {
         const html = htmlFor("directory");
-        const frame = { contentWindow: {} };
-        const sendToAppFrame = vi.fn();
-        const callEmbedSessionTool = vi.fn(async () => ({
-          startUrl:
-            "https://app.example/_agent-native/embed/start?ticket=fresh",
-        }));
-        const renew = new Function(
+        const source = functionSource(html, "renewExpiredEmbedSession");
+        return new Function(
           "appFrame",
           "body",
           "openUrl",
@@ -675,38 +688,214 @@ describe("embedApp", () => {
           "embedSessionArgsFor",
           "parseToolResult",
           "sendToAppFrame",
+          "appFrameTargetOrigin",
           "withChatBridgeParam",
-          `${functionSource(html, "renewExpiredEmbedSession")}; return renewExpiredEmbedSession;`,
+          "appFrameDocumentState",
+          "window",
+          "isEmbedStartUrl",
+          "clearFrameReadyTimer",
+          "clearFrameLoadTimer",
+          "frameLoadTimeoutMs",
+          "setTimeout",
+          "renderFrameFallback",
+          "appFrameReady",
+          "appFrameLoadTimer",
+          "lastFrameSrc",
+          `${source}; return { renewExpiredEmbedSession, state: () => ({ openStartUrl, appFrameReady, appFrameLoadTimer, lastFrameSrc }) };`,
         )(
-          frame,
+          options.frame,
           { dataset: { catalogMode: "directory" } },
-          "/slides/deck-1",
-          "/_agent-native/embed/start?ticket=old",
+          "https://app.example/slides/deck-1",
+          "https://app.example/_agent-native/embed/start?ticket=old",
           0,
           2,
-          callEmbedSessionTool,
-          (url: string) => ({
+          options.callEmbedSessionTool,
+          (url: string, renewInPlace = false) => ({
             sourceTicket: url.endsWith("ticket=old") ? "old-source" : "source",
+            ...(renewInPlace ? { renewInPlace: true } : {}),
           }),
           (result: unknown) => result,
-          sendToAppFrame,
+          options.sendToAppFrame,
+          () => "https://app.example",
           (url: string) => url,
-        ) as (requestId: string, currentFrame: unknown) => Promise<void>;
+          options.documentState,
+          { location: { href: "https://wrapper.example/" } },
+          (url: string) =>
+            new URL(url).pathname === "/_agent-native/embed/start",
+          vi.fn(),
+          vi.fn(),
+          45_000,
+          vi.fn(() => 123),
+          vi.fn(),
+          true,
+          null,
+          "https://app.example/_agent-native/embed/start?ticket=old",
+        ) as {
+          renewExpiredEmbedSession: (
+            requestId: string,
+            currentFrame: unknown,
+            loadGeneration: number,
+          ) => Promise<void>;
+          state: () => Record<string, unknown>;
+        };
+      };
 
-        await renew("renew-1", frame);
+      it("renews a write session in place to preserve pending editor state", async () => {
+        const frame = {
+          contentWindow: {},
+          src: "https://app.example/design/d1",
+        };
+        const documentState = { loadGeneration: 3 };
+        const sendToAppFrame = vi.fn();
+        const callEmbedSessionTool = vi.fn(async () => ({
+          renewed: true,
+          expiresAt: Date.now() + 60_000,
+        }));
+        const harness = renewalHarness({
+          frame,
+          documentState,
+          callEmbedSessionTool,
+          sendToAppFrame,
+        });
+
+        await harness.renewExpiredEmbedSession("renew-1", frame, 3);
 
         expect(callEmbedSessionTool).toHaveBeenCalledWith({
           sourceTicket: "old-source",
+          renewInPlace: true,
         });
+        expect(frame.src).toBe("https://app.example/design/d1");
         expect(sendToAppFrame).toHaveBeenCalledWith({
           type: "agentNative.embedSessionRenewed",
           data: {
             requestId: "renew-1",
             ok: true,
-            startUrl:
-              "https://app.example/_agent-native/embed/start?ticket=fresh",
           },
         });
+        expect(JSON.stringify(sendToAppFrame.mock.calls)).not.toContain(
+          "startUrl",
+        );
+        expect(JSON.stringify(sendToAppFrame.mock.calls)).not.toContain(
+          "ticket=",
+        );
+        expect(harness.state()).toMatchObject({
+          openStartUrl:
+            "https://app.example/_agent-native/embed/start?ticket=old",
+          appFrameReady: true,
+        });
+      });
+
+      it("does not acknowledge a renewal after the app document navigates", async () => {
+        const frame = {
+          contentWindow: {},
+          src: "https://app.example/design/d1",
+        };
+        const documentState = { loadGeneration: 3 };
+        const sendToAppFrame = vi.fn();
+        let finishMint!: (result: { renewed: true; expiresAt: number }) => void;
+        const callEmbedSessionTool = vi.fn(
+          () =>
+            new Promise<{ renewed: true; expiresAt: number }>((resolve) => {
+              finishMint = resolve;
+            }),
+        );
+        const harness = renewalHarness({
+          frame,
+          documentState,
+          callEmbedSessionTool,
+          sendToAppFrame,
+        });
+        const pendingRenewal = harness.renewExpiredEmbedSession(
+          "renew-1",
+          frame,
+          documentState.loadGeneration,
+        );
+        documentState.loadGeneration += 1;
+        finishMint({ renewed: true, expiresAt: Date.now() + 60_000 });
+        await pendingRenewal;
+
+        expect(frame.src).toBe("https://app.example/design/d1");
+        expect(sendToAppFrame).not.toHaveBeenCalled();
+      });
+
+      it("does not acknowledge an in-place renewal unless the server confirms it", async () => {
+        const frame = {
+          contentWindow: {},
+          src: "https://app.example/design/d1",
+        };
+        const documentState = { loadGeneration: 3 };
+        const sendToAppFrame = vi.fn();
+        const callEmbedSessionTool = vi.fn(async () => ({
+          startUrl:
+            "https://attacker.example/_agent-native/embed/start?ticket=secret",
+        }));
+        const harness = renewalHarness({
+          frame,
+          documentState,
+          callEmbedSessionTool,
+          sendToAppFrame,
+        });
+
+        await harness.renewExpiredEmbedSession("renew-1", frame, 3);
+
+        expect(frame.src).toBe("https://app.example/design/d1");
+        expect(sendToAppFrame).toHaveBeenCalledWith({
+          type: "agentNative.embedSessionRenewed",
+          data: { requestId: "renew-1", ok: false },
+        });
+      });
+
+      it("targets opaque directory frames with non-secret bridge messages", () => {
+        const html = htmlFor("directory");
+        const frame = {
+          contentWindow: { postMessage: vi.fn() },
+          src: "https://attacker.example/changed-document",
+        };
+        const sendToAppFrame = new Function(
+          "body",
+          "appFrame",
+          "openStartUrl",
+          "openUrl",
+          "window",
+          `${functionSource(html, "appFrameTargetOrigin")}
+${functionSource(html, "sendToAppFrame")}
+return sendToAppFrame;`,
+        )(
+          { dataset: { catalogMode: "directory" } },
+          frame,
+          "https://app.example/_agent-native/embed/start?ticket=source",
+          "https://app.example/design/d1",
+          { location: { href: "https://wrapper.example/" } },
+        ) as (message: unknown) => void;
+
+        sendToAppFrame({ type: "agentNative.embedSessionRenewed" });
+
+        expect(frame.contentWindow.postMessage).toHaveBeenCalledWith(
+          { type: "agentNative.embedSessionRenewed" },
+          "*",
+        );
+      });
+
+      it("accepts opaque and configured app frame origins", () => {
+        const html = htmlFor("directory");
+        const isTrustedAppFrameOrigin = new Function(
+          "body",
+          "openStartUrl",
+          "openUrl",
+          "window",
+          `${functionSource(html, "appFrameTargetOrigin")}
+${functionSource(html, "isTrustedAppFrameOrigin")}
+return isTrustedAppFrameOrigin;`,
+        )(
+          { dataset: { catalogMode: "directory" } },
+          "https://app.example/_agent-native/embed/start?ticket=source",
+          "https://app.example/design/d1",
+          { location: { href: "https://wrapper.example/" } },
+        ) as (origin: string) => boolean;
+
+        expect(isTrustedAppFrameOrigin("https://app.example")).toBe(true);
+        expect(isTrustedAppFrameOrigin("https://attacker.example")).toBe(false);
+        expect(isTrustedAppFrameOrigin("null")).toBe(true);
       });
 
       function paneFillHeightFor(
@@ -852,16 +1041,46 @@ return paneFillHeight;`,
         expect(reported).toEqual([{ height: 56 }]);
       });
 
+      it("keeps the compact inline row at 56px when the host reports a fixed height", () => {
+        const reported: Array<{ height: number }> = [];
+        const notifyHostHeight = new Function(
+          "fillsPane",
+          "updateDirectoryWidgetLayout",
+          "isCompactDirectoryWidget",
+          "applyHostFillMode",
+          "openAiBridge",
+          "app",
+          "console",
+          `${functionSource(htmlFor("directory"), "notifyHostHeight")}; return notifyHostHeight;`,
+        )(
+          true,
+          () => true,
+          () => true,
+          () => true,
+          null,
+          {
+            sendSizeChanged: (size: { height: number }) => reported.push(size),
+          },
+          { warn: () => {} },
+        ) as () => void;
+
+        notifyHostHeight();
+
+        expect(reported).toEqual([{ height: 56 }]);
+      });
+
       it("never reports a height while the host owns the frame", () => {
         const reported: unknown[] = [];
         const notifyHostHeight = new Function(
           "fillsPane",
           "updateDirectoryWidgetLayout",
+          "isCompactDirectoryWidget",
           "applyHostFillMode",
           "app",
           `${functionSource(htmlFor("directory"), "notifyHostHeight")}; return notifyHostHeight;`,
         )(
           true,
+          () => false,
           () => false,
           () => true,
           {

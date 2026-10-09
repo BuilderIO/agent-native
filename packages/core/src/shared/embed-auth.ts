@@ -7,6 +7,8 @@ export const MCP_APP_CHAT_BRIDGE_QUERY_PARAM = "__an_mcp_chat_bridge";
 export const MCP_DIRECTORY_WIDGET_QUERY_PARAM = "__an_mcp_directory_widget";
 export const EMBED_SESSION_COOKIE = "an_embed_session";
 export const EMBED_TARGET_HEADER = "x-agent-native-embed-target";
+export const MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER =
+  "x-agent-native-widget-session-expired";
 
 export const MCP_DIRECTORY_WIDGET_READ_CAPABILITY_PREFIX =
   "capability:mcp-directory-widget-read:";
@@ -531,6 +533,91 @@ export function renewMcpDirectoryWidgetCapabilityScope(
         resourceUri: input.resourceUri,
       })
     : undefined;
+}
+
+function sameWidgetActionArguments(
+  left: Record<string, Record<string, McpDirectoryWidgetReadArgument>>,
+  right: Record<string, Record<string, McpDirectoryWidgetReadArgument>>,
+): boolean {
+  const normalize = (
+    value: Record<string, Record<string, McpDirectoryWidgetReadArgument>>,
+  ) =>
+    Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([actionName, args]) => [
+          actionName,
+          Object.fromEntries(
+            Object.entries(args).sort(([a], [b]) => a.localeCompare(b)),
+          ),
+        ]),
+    );
+  return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
+}
+
+export function canRenewMcpDirectoryWidgetCapabilityScope(
+  previousScope: string,
+  renewedScope: string,
+  identity: { userEmail: string; orgId?: string | null },
+): boolean {
+  if (!identity.userEmail.trim()) return false;
+  const previousWrite = isMcpDirectoryWidgetWriteCapabilityScope(previousScope);
+  const renewedWrite = isMcpDirectoryWidgetWriteCapabilityScope(renewedScope);
+  if (renewedWrite && !previousWrite) return false;
+
+  const identityMatches = (capability: McpDirectoryWidgetWriteCapability) =>
+    capability.userEmail === identity.userEmail.trim().toLowerCase() &&
+    capability.orgId === (identity.orgId ?? undefined);
+
+  if (previousWrite) {
+    const previous = decodeMcpDirectoryWidgetWriteCapability(previousScope);
+    if (!previous || !identityMatches(previous)) return false;
+    if (renewedWrite) {
+      const renewed = decodeMcpDirectoryWidgetWriteCapability(renewedScope);
+      return Boolean(
+        renewed &&
+        identityMatches(renewed) &&
+        renewed.appId === previous.appId &&
+        sameWidgetActionArguments(
+          renewed.readActionArguments,
+          previous.readActionArguments,
+        ) &&
+        sameWidgetActionArguments(
+          renewed.writeActionArguments,
+          previous.writeActionArguments,
+        ) &&
+        JSON.stringify(renewed.resourceIds) ===
+          JSON.stringify(previous.resourceIds),
+      );
+    }
+
+    const renewed = decodeMcpDirectoryWidgetReadCapability(renewedScope);
+    return Boolean(
+      renewed.ok &&
+      renewed.capability.appId === previous.appId &&
+      sameWidgetActionArguments(
+        renewed.capability.actionArguments,
+        previous.readActionArguments,
+      ) &&
+      JSON.stringify(renewed.capability.resourceIds) ===
+        JSON.stringify(previous.resourceIds),
+    );
+  }
+
+  const previous = decodeMcpDirectoryWidgetReadCapability(previousScope);
+  const renewed = decodeMcpDirectoryWidgetReadCapability(renewedScope);
+  return Boolean(
+    !renewedWrite &&
+    previous.ok &&
+    renewed.ok &&
+    renewed.capability.appId === previous.capability.appId &&
+    sameWidgetActionArguments(
+      renewed.capability.actionArguments,
+      previous.capability.actionArguments,
+    ) &&
+    JSON.stringify(renewed.capability.resourceIds) ===
+      JSON.stringify(previous.capability.resourceIds),
+  );
 }
 
 export function isMcpDirectoryWidgetReadCapabilityScope(

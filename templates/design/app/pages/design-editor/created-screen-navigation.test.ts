@@ -1,9 +1,31 @@
+import type { SetStateAction } from "react";
 import { describe, expect, it } from "vitest";
 
 import {
+  clearOverviewInteractTarget,
   getCreatedScreenNavigationPlan,
   getFocusedScreenNavigationPlan,
 } from "./created-screen-navigation";
+
+describe("clearOverviewInteractTarget", () => {
+  it("clears the state and synchronous ref before focusing a screen", () => {
+    let state: string | null = "screen-old";
+    const overviewInteractScreenIdRef = { current: "screen-old" };
+    const setOverviewInteractScreenId = (
+      next: SetStateAction<string | null>,
+    ) => {
+      state = typeof next === "function" ? next(state) : next;
+    };
+
+    clearOverviewInteractTarget({
+      setOverviewInteractScreenId,
+      overviewInteractScreenIdRef,
+    });
+
+    expect(state).toBeNull();
+    expect(overviewInteractScreenIdRef.current).toBeNull();
+  });
+});
 
 describe("getCreatedScreenNavigationPlan", () => {
   it("selects, activates, and fits the new screen in one overview transition", () => {

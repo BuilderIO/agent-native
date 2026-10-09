@@ -56,7 +56,10 @@ import { runPrimitiveCreated } from "../commands/primitive-created";
 import { runScaleSelection } from "../commands/scale-selection";
 import { runSendOverviewAnnotations } from "../commands/send-overview-annotations";
 import { runTweakPromptSubmit } from "../commands/tweak-prompt-submit";
-import { getCreatedScreenNavigationPlan } from "../created-screen-navigation";
+import {
+  clearOverviewInteractTarget,
+  getCreatedScreenNavigationPlan,
+} from "../created-screen-navigation";
 import {
   EMPTY_TEXT_CLEANUP_MAX_ATTEMPTS,
   EMPTY_TEXT_CLEANUP_RETRY_MS,
@@ -127,6 +130,8 @@ export function useEditorToolsAndVectors({
     viewMode,
     setViewMode,
     viewModeRef,
+    overviewInteractScreenIdRef,
+    setOverviewInteractScreenId,
     selectedElement,
     setSelectedElement,
     setRuntimeStructureInsertRequest,
@@ -1454,6 +1459,10 @@ export function useEditorToolsAndVectors({
       setActiveFileId(pickedId);
       setActiveTool(resolveToolAfterSelection);
       setMode("edit");
+      clearOverviewInteractTarget({
+        setOverviewInteractScreenId,
+        overviewInteractScreenIdRef,
+      });
       if (fitCamera) {
         const geometry = exportCanvasFrameGeometryById[pickedId];
         if (
@@ -1487,6 +1496,8 @@ export function useEditorToolsAndVectors({
       clearPendingOverviewLayerSelectionTimer,
       exportCanvasFrameGeometryById,
       handleBreakpointBarSelect,
+      overviewInteractScreenIdRef,
+      setOverviewInteractScreenId,
       setCameraCommand,
     ],
   );

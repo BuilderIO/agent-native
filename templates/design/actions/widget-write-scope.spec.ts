@@ -8,7 +8,7 @@ describe("Design widget file write scope", () => {
     mcpDirectoryWidgetWrite: {
       appId: "design",
       resourceIds: { designId: "design-123" },
-      actionNames: ["update-design"],
+      actionNames: ["create-file", "update-design", "update-file"],
     },
   };
 
@@ -34,6 +34,24 @@ describe("Design widget file write scope", () => {
         },
       }),
     ).toThrow("This widget write capability is scoped to a different design.");
+  });
+
+  it("rejects a file action that is not in the widget grant", () => {
+    expect(() =>
+      assertDesignWidgetFileWriteScope(
+        "design-123",
+        {
+          ...context,
+          mcpDirectoryWidgetWrite: {
+            ...context.mcpDirectoryWidgetWrite,
+            actionNames: ["update-design"],
+          },
+        },
+        { actionName: "create-file" },
+      ),
+    ).toThrow(
+      "This widget write capability does not permit this design file action.",
+    );
   });
 
   it("keeps ordinary editor requests on their existing authorization path", () => {

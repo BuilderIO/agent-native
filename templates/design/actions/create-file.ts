@@ -26,6 +26,7 @@ import {
 } from "../shared/html-integrity.js";
 import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import { assertDesignWidgetFileWriteScope } from "./widget-write-scope.js";
 
 const CREATED_SCREEN_WIDTH = 1440;
 const CREATED_SCREEN_HEIGHT = 1024;
@@ -46,6 +47,9 @@ export default defineAction({
       .describe("Type of file"),
   }),
   run: async ({ designId, filename, content, fileType }, context) => {
+    assertDesignWidgetFileWriteScope(designId, context, {
+      actionName: "create-file",
+    });
     if (
       filename.includes("..") ||
       filename.includes("/") ||

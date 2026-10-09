@@ -214,6 +214,7 @@ export default defineAction({
     }
 
     assertDesignWidgetFileWriteScope(file.designId, context, {
+      actionName: "update-file",
       content,
       expectedVersionHash,
       syncCollab,

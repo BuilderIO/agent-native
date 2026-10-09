@@ -22,6 +22,9 @@ const mockConsumeOneTimeJti = vi.hoisted(() => vi.fn(async () => false));
 const mockResolveEmbedSessionFromRequest = vi.hoisted(() =>
   vi.fn(async () => null),
 );
+const mockIsExpiredMcpDirectoryWidgetSessionRequest = vi.hoisted(() =>
+  vi.fn(async (..._args: unknown[]) => false),
+);
 const mockRegisterAuthPublicPaths = vi.hoisted(() => vi.fn());
 const mockHasUiActionCapability = vi.hoisted(() => vi.fn(() => false));
 const mockCountActionFailure = vi.hoisted(() => vi.fn());
@@ -94,6 +97,8 @@ vi.mock("./auth.js", () => ({
   isLoopbackRequest: () => false,
 }));
 vi.mock("./embed-session.js", () => ({
+  isExpiredMcpDirectoryWidgetSessionRequest: (...args: unknown[]) =>
+    mockIsExpiredMcpDirectoryWidgetSessionRequest(...args),
   hasExplicitEmbedSessionCredential: (event: any) =>
     event._hasExplicitEmbedSessionCredential ??
     Boolean(
@@ -142,6 +147,8 @@ describe("mountActionRoutes", () => {
     mockConsumeOneTimeJti.mockResolvedValue(false);
     mockResolveEmbedSessionFromRequest.mockReset();
     mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
+    mockIsExpiredMcpDirectoryWidgetSessionRequest.mockReset();
+    mockIsExpiredMcpDirectoryWidgetSessionRequest.mockResolvedValue(false);
     mockHasUiActionCapability.mockReset();
     mockHasUiActionCapability.mockReturnValue(false);
     vi.restoreAllMocks();
@@ -185,11 +192,57 @@ describe("mountActionRoutes", () => {
       _responseHeaders: {
         "cache-control": "no-store",
         "access-control-expose-headers":
-          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After",
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,x-agent-native-widget-session-expired",
         "x-agent-native-client-mismatch": "1",
       },
     });
     expect(event.req.json).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("marks only an expired, renewable widget session as a typed 401", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      { update: { http: { method: "POST" }, requiresAuth: true, run } as any },
+    );
+
+    mockIsExpiredMcpDirectoryWidgetSessionRequest.mockResolvedValueOnce(true);
+    const event: any = {
+      _method: "POST",
+      _hasExplicitEmbedSessionCredential: true,
+      _headers: { authorization: "Bearer expired-token" },
+      req: {
+        url: "http://app.test/_agent-native/actions/update",
+        json: async () => ({}),
+      },
+    };
+    await expect(mounted[0]!.handler(event)).rejects.toMatchObject({
+      statusCode: 401,
+    });
+    expect(event._responseHeaders).toMatchObject({
+      "x-agent-native-widget-session-expired": "1",
+    });
+    expect(mockIsExpiredMcpDirectoryWidgetSessionRequest).toHaveBeenCalledWith(
+      event,
+    );
+
+    const invalidEvent = {
+      ...event,
+      _responseHeaders: undefined,
+    };
+    await expect(mounted[0]!.handler(invalidEvent)).rejects.toMatchObject({
+      statusCode: 401,
+    });
+    expect(invalidEvent._responseHeaders).not.toHaveProperty(
+      "x-agent-native-widget-session-expired",
+    );
     expect(run).not.toHaveBeenCalled();
   });
 
@@ -2378,6 +2431,9 @@ describe("mountActionRoutes", () => {
         error: "Unauthorized",
       });
       expect(expiredOwnerRequest._status).toBe(401);
+      expect(expiredOwnerRequest._responseHeaders).toMatchObject({
+        "x-agent-native-widget-session-expired": "1",
+      });
 
       mockResolveEmbedSessionFromRequest.mockResolvedValue({
         email: "other@example.com",

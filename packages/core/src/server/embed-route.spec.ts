@@ -577,6 +577,8 @@ describe("createEmbedStartRouteHandler", () => {
       targetPath: "/design/d1",
       scope: "capability:mcp-directory-widget-write:%7B%22version%22%3A1%7D",
       expiresAt: Date.now() + 60_000,
+      ticketCreatedAtMs: Date.now(),
+      sessionId: "a".repeat(64),
     });
 
     const handler = createEmbedStartRouteHandler();
@@ -694,6 +696,7 @@ describe("createEmbedStartRouteHandler", () => {
       scope,
       expiresAt: Date.now() + 60_000,
       ticketCreatedAtMs,
+      sessionId: "b".repeat(64),
     });
 
     const handler = createEmbedStartRouteHandler();

@@ -26,6 +26,8 @@ function makeArgs(
     setInteractDeviceSize: vi.fn(),
     setMode: vi.fn(),
     setOverviewSelectedScreenIds: vi.fn(),
+    setOverviewInteractScreenId: vi.fn(),
+    overviewInteractScreenIdRef: { current: "screen-old" },
     setPinMode: vi.fn(),
     setScreenZoom: vi.fn(),
     setSelectedElement: vi.fn(),
@@ -72,6 +74,8 @@ describe("runApplyDesignEditorCommand: overview camera fit", () => {
     expect(args.setActiveFileId).toHaveBeenCalledWith("file-1");
     expect(args.setOverviewSelectedScreenIds).toHaveBeenCalledWith(["file-1"]);
     expect(args.setSelectedLayerIdsState).toHaveBeenCalledWith(["file-1"]);
+    expect(args.setOverviewInteractScreenId).toHaveBeenCalledWith(null);
+    expect(args.overviewInteractScreenIdRef?.current).toBeNull();
     expect(requestCameraFit).toHaveBeenCalledTimes(1);
     const camera = requestCameraFit.mock.calls[0]![0];
     expect(camera.fitBounds).toMatchObject({

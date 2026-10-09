@@ -151,6 +151,24 @@ describe("SlideEditor inside an MCP App widget", () => {
     },
   );
 
+  it.each([320, 524, 768, 1004])(
+    "keeps the writable editor and formatting toolbar available at %s px",
+    (width) => {
+      widget.embed = true;
+      stubViewport(width, 860);
+      const { container } = renderEditor();
+
+      const toolbar = container.querySelector<HTMLElement>(
+        "[data-slide-context-toolbar='true']",
+      );
+      expect(canvasWidth(container)).toBe(`${width}px`);
+      expect(container.querySelector("[data-editable='true']")).not.toBeNull();
+      expect(toolbar).not.toBeNull();
+      expect(toolbar?.className).toContain("overflow-x-auto");
+      expect(toolbar?.className).toContain("whitespace-nowrap");
+    },
+  );
+
   it("stacks the slides after the current one below it at the same width", () => {
     widget.embed = true;
     stubViewport(524, 860);

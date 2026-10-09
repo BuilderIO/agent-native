@@ -26,7 +26,10 @@ import {
 } from "../commands/enter-single-screen";
 import { runEscapeHotkey } from "../commands/escape-hotkey";
 import { runModeChange } from "../commands/mode-change";
-import { getFocusedScreenNavigationPlan } from "../created-screen-navigation";
+import {
+  clearOverviewInteractTarget,
+  getFocusedScreenNavigationPlan,
+} from "../created-screen-navigation";
 import { isRadixOverlayOpen } from "../dom-guards";
 import { OVERVIEW_ZOOM_THRESHOLD } from "../editor-constants";
 import {
@@ -303,8 +306,10 @@ export function useEditorModes({
       setMode(plan?.editorMode ?? "edit");
       setDrawMode(plan?.drawMode ?? false);
       setPinMode(plan?.pinMode ?? false);
-      setOverviewInteractScreenId(null);
-      overviewInteractScreenIdRef.current = null;
+      clearOverviewInteractTarget({
+        setOverviewInteractScreenId,
+        overviewInteractScreenIdRef,
+      });
       viewModeRef.current = "overview";
       setViewMode("overview");
       if (activeBreakpointWidthStateRef.current !== undefined) {
@@ -353,6 +358,10 @@ export function useEditorModes({
     (nextMode?: EditorMode) => {
       if (viewModeRef.current === "overview") return;
       viewModeRef.current = "overview";
+      clearOverviewInteractTarget({
+        setOverviewInteractScreenId,
+        overviewInteractScreenIdRef,
+      });
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
@@ -376,7 +385,9 @@ export function useEditorModes({
     [
       clearPendingOverviewLayerSelectionTimer,
       getRestoredOverviewSelection,
+      overviewInteractScreenIdRef,
       runEditorViewTransition,
+      setOverviewInteractScreenId,
     ],
   );
 

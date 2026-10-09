@@ -383,6 +383,7 @@ export function createEmbedStartRouteHandler(
         isMcpDirectoryWidgetCapabilityScope(consumed.scope))
         ? { ticketCreatedAtMs: consumed.ticketCreatedAtMs }
         : {}),
+      ...(consumed.sessionId ? { sessionId: consumed.sessionId } : {}),
       ...(isEmbedCapabilityScope(consumed.scope)
         ? {
             ttlSeconds: Math.max(

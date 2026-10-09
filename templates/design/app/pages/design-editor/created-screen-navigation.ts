@@ -1,4 +1,13 @@
 import type { FrameBounds } from "@shared/canvas-math";
+import type { Dispatch, SetStateAction } from "react";
+
+export function clearOverviewInteractTarget(args: {
+  setOverviewInteractScreenId: Dispatch<SetStateAction<string | null>>;
+  overviewInteractScreenIdRef: { current: string | null };
+}): void {
+  args.setOverviewInteractScreenId(null);
+  args.overviewInteractScreenIdRef.current = null;
+}
 
 export interface CreatedScreenGeometry {
   x: number;

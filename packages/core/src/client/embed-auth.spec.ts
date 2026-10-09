@@ -7,6 +7,7 @@ import {
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+  MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER,
 } from "../shared/embed-auth.js";
 
 const STORAGE_KEY = "agent-native:embed-auth-token";
@@ -359,6 +360,15 @@ describe("embed auth client", () => {
         statusText: "Unauthorized",
         headers: { "Content-Type": "application/json" },
       });
+    const expiredWidgetSessionRefusal = () =>
+      new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        statusText: "Unauthorized",
+        headers: {
+          "Content-Type": "application/json",
+          [MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER]: "1",
+        },
+      });
 
     async function interceptedFetch(
       scope: string | undefined,
@@ -424,49 +434,23 @@ describe("embed auth client", () => {
       expect(originalFetch).toHaveBeenCalledOnce();
     });
 
-    it("keeps an opaque frame's renewal anchor across successive write expiries", async () => {
+    it("renews a write capability in place so pending editor state survives", async () => {
       const writeCapability =
         "capability:mcp-directory-widget-write:" +
         encodeURIComponent(JSON.stringify({ version: 1 }));
       const oldToken = `${tokenWithScope(writeCapability).split(".")[0]}.old`;
-      const freshToken = `${tokenWithScope(writeCapability).split(".")[0]}.fresh`;
-      const secondFreshToken = `${tokenWithScope(writeCapability).split(".")[0]}.fresh-2`;
-      const startUrl = new URL(
-        "/_agent-native/embed/start?ticket=renewed-ticket",
-        window.location.href,
-      ).toString();
       let writeAttempts = 0;
-      let renewals = 0;
       const originalFetch = vi.fn(async (input: RequestInfo | URL) => {
         const request =
           input instanceof Request ? input : new Request(input.toString());
-        const url = new URL(request.url);
-        if (url.pathname.endsWith("/_agent-native/embed/start")) {
-          expect(url.searchParams.get("__an_embed_renewal")).toBe("1");
-          const renewedToken = renewals++ === 0 ? freshToken : secondFreshToken;
-          return new Response(
-            JSON.stringify({
-              location: `/design/d1?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=${encodeURIComponent(renewedToken)}&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1`,
-            }),
-            { headers: { "Content-Type": "application/json" } },
-          );
-        }
         writeAttempts += 1;
         if (writeAttempts === 1) {
           expect(request.headers.get("Authorization")).toBe(
             `Bearer ${oldToken}`,
           );
-          return serverRefusal();
+          return expiredWidgetSessionRefusal();
         }
-        if (writeAttempts === 3) {
-          expect(request.headers.get("Authorization")).toBe(
-            `Bearer ${freshToken}`,
-          );
-          return serverRefusal();
-        }
-        expect(request.headers.get("Authorization")).toBe(
-          `Bearer ${writeAttempts === 2 ? freshToken : secondFreshToken}`,
-        );
+        expect(request.headers.get("Authorization")).toBe(`Bearer ${oldToken}`);
         return new Response("saved");
       });
       Object.defineProperty(window, "fetch", {
@@ -479,18 +463,16 @@ describe("embed auth client", () => {
         "",
         `/design/d1?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=${encodeURIComponent(oldToken)}`,
       );
-      const originalOrigin = Object.getOwnPropertyDescriptor(
-        window.location,
-        "origin",
-      );
-      Object.defineProperty(window.location, "origin", {
+      const originalParent = Object.getOwnPropertyDescriptor(window, "parent");
+      const parentWindow = { postMessage: vi.fn() } as unknown as Window;
+      Object.defineProperty(window, "parent", {
         configurable: true,
-        get: () => "null",
+        value: parentWindow,
       });
       const module = await loadEmbedAuth();
       module.ensureEmbedAuthFetchInterceptor();
       const postMessage = vi
-        .spyOn(window.parent, "postMessage")
+        .spyOn(parentWindow, "postMessage")
         .mockImplementation((message) => {
           const renewal = message as {
             type?: string;
@@ -499,13 +481,12 @@ describe("embed auth client", () => {
           if (renewal.type !== "agentNative.embedSessionExpired") return;
           window.dispatchEvent(
             new MessageEvent("message", {
-              source: window.parent,
+              source: parentWindow,
               data: {
                 type: "agentNative.embedSessionRenewed",
                 data: {
                   requestId: renewal.data?.requestId,
                   ok: true,
-                  startUrl,
                 },
               },
             }),
@@ -517,47 +498,72 @@ describe("embed auth client", () => {
           "/_agent-native/actions/update-document",
           { method: "POST", body: "{}" },
         );
-
         expect(response.status).toBe(200);
         expect(writeAttempts).toBe(2);
-        expect(renewals).toBe(1);
-        expect(module.getEmbedAuthToken()).toBe(freshToken);
-
-        const nextResponse = await window.fetch(
-          "/_agent-native/actions/update-document",
-          { method: "POST", body: "{}" },
-        );
-
-        expect(nextResponse.status).toBe(200);
-        expect(writeAttempts).toBe(4);
-        expect(renewals).toBe(2);
-        expect(window.location.search).toContain(
-          `${EMBED_TOKEN_QUERY_PARAM}=${encodeURIComponent(oldToken)}`,
-        );
+        expect(module.getEmbedAuthToken()).toBe(oldToken);
         expect(postMessage).toHaveBeenCalledWith(
           expect.objectContaining({
             type: "agentNative.embedSessionExpired",
-            data: expect.objectContaining({ requestId: expect.any(String) }),
+            data: { requestId: expect.any(String) },
           }),
           "*",
         );
-        expect(
-          postMessage.mock.calls.filter(
-            ([message]) =>
-              (message as { type?: string }).type ===
-              "agentNative.embedSessionExpired",
-          ),
-        ).toHaveLength(2);
-        expect(originalFetch).toHaveBeenCalledTimes(6);
-        expect(module.getEmbedAuthToken()).toBe(secondFreshToken);
-
-        const reloadedModule = await loadEmbedAuth();
-        expect(reloadedModule.getEmbedAuthToken()).toBe(secondFreshToken);
       } finally {
-        if (originalOrigin) {
-          Object.defineProperty(window.location, "origin", originalOrigin);
+        if (originalParent) {
+          Object.defineProperty(window, "parent", originalParent);
         } else {
-          delete (window.location as unknown as { origin?: string }).origin;
+          delete (window as unknown as { parent?: Window }).parent;
+        }
+      }
+    });
+
+    it("does not renew or replay an untyped 401", async () => {
+      const writeCapability =
+        "capability:mcp-directory-widget-write:" +
+        encodeURIComponent(JSON.stringify({ version: 1 }));
+      const oldToken = `${tokenWithScope(writeCapability).split(".")[0]}.old`;
+      const originalFetch = vi.fn(
+        async () => new Response("Unauthorized", { status: 401 }),
+      );
+      Object.defineProperty(window, "fetch", {
+        configurable: true,
+        writable: true,
+        value: originalFetch,
+      });
+      window.history.replaceState(
+        null,
+        "",
+        `/design/d1?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=${encodeURIComponent(oldToken)}`,
+      );
+      const originalParent = Object.getOwnPropertyDescriptor(window, "parent");
+      const parentWindow = { postMessage: vi.fn() } as unknown as Window;
+      Object.defineProperty(window, "parent", {
+        configurable: true,
+        value: parentWindow,
+      });
+      const module = await loadEmbedAuth();
+      module.ensureEmbedAuthFetchInterceptor();
+      vi.spyOn(parentWindow, "postMessage").mockImplementation((message) => {
+        void message;
+      });
+      try {
+        const response = await window.fetch(
+          "/_agent-native/actions/update-document",
+          { method: "POST", body: "{}" },
+        );
+        expect(response.status).toBe(401);
+        expect(originalFetch).toHaveBeenCalledOnce();
+        expect(module.getEmbedAuthToken()).toBe(oldToken);
+        expect(
+          parentWindow.postMessage.mock.calls.map(([message]) => message),
+        ).not.toContainEqual(
+          expect.objectContaining({ type: "agentNative.embedSessionExpired" }),
+        );
+      } finally {
+        if (originalParent) {
+          Object.defineProperty(window, "parent", originalParent);
+        } else {
+          delete (window as unknown as { parent?: Window }).parent;
         }
       }
     });
