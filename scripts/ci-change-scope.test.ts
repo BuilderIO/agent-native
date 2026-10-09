@@ -202,13 +202,14 @@ test("retains Slides parity and corpus gates while keeping the full soak manual"
   assert.match(soakWorkflow, /^name: Slides authoring fuzz soak$/mu);
   assert.match(soakWorkflow, /workflow_dispatch:/u);
   assert.doesNotMatch(soakWorkflow, /^\s+pull_request:/mu);
+  assert.match(soakWorkflow, /browser:\s*\[chromium, webkit, firefox\]/u);
   assert.match(
     soakWorkflow,
-    /seed_start:\s*\[1, 3, 5, 7, 9, 11, 13, 15, 17, 19\]/u,
+    /seed:\s*\[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20\]/u,
   );
   assert.match(
     soakWorkflow,
-    /--seed\s+\$\{\{ matrix\.seed_start \}\}[\s\S]*--seeds 2 --steps 500/u,
+    /--seed\s+\$\{\{ matrix\.seed \}\}[\s\S]*--seeds 1 --steps 500/u,
   );
 });
 

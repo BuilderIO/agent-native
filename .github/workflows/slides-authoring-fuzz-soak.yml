@@ -12,16 +12,16 @@ concurrency:
 
 jobs:
   authoring-fuzz-soak:
-    name: Slides authoring soak (${{ matrix.browser }}, batch from seed ${{ matrix.seed_start }})
+    name: Slides authoring soak (${{ matrix.browser }}, seed ${{ matrix.seed }})
     runs-on: ubuntu-latest
-    # Keep slow WebKit and Firefox batches inside the job timeout.
+    # Two-seed WebKit batches exceeded the job timeout, so isolate each seed.
     timeout-minutes: 120
     strategy:
       fail-fast: false
       max-parallel: 4
       matrix:
         browser: [chromium, webkit, firefox]
-        seed_start: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]
+        seed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -43,5 +43,5 @@ jobs:
         working-directory: templates/slides
         run: >-
           pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
-          --seed ${{ matrix.seed_start }} --seeds 2 --steps 500
+          --seed ${{ matrix.seed }} --seeds 1 --steps 500
           --browser ${{ matrix.browser }}
