@@ -284,12 +284,15 @@ export function ToolbarBreadcrumb({
   ariaLabel,
   untitledLabel,
   onOpen,
+  fillCurrent = false,
 }: {
   items: ToolbarBreadcrumbItem[];
   currentDocumentId: string;
   ariaLabel: string;
   untitledLabel: string;
   onOpen: ToolbarBreadcrumbOpen;
+  /** Lets the current page's title use the room the bar has instead of capping it. */
+  fillCurrent?: boolean;
 }) {
   const navRef = useRef<HTMLElement>(null);
   const foldWidth = useElementWidthValue<number | undefined>(
@@ -312,6 +315,7 @@ export function ToolbarBreadcrumb({
           currentDocumentId={currentDocumentId}
           untitledLabel={untitledLabel}
           onOpen={onOpen}
+          fillCurrent={fillCurrent}
         />
       ))}
     </nav>
@@ -324,6 +328,7 @@ type ToolbarBreadcrumbSegmentProps = {
   currentDocumentId: string;
   untitledLabel: string;
   onOpen: ToolbarBreadcrumbOpen;
+  fillCurrent: boolean;
 };
 
 function ToolbarBreadcrumbSegment(props: ToolbarBreadcrumbSegmentProps) {
@@ -357,6 +362,7 @@ function ToolbarBreadcrumbSegmentView({
   untitledLabel,
   onOpen,
   hasMenu,
+  fillCurrent,
 }: ToolbarBreadcrumbSegmentProps & { hasMenu: boolean }) {
   const label = item.title.trim() || untitledLabel;
   const content = (
@@ -412,7 +418,8 @@ function ToolbarBreadcrumbSegmentView({
       ) : (
         <span
           className={cn(
-            "flex min-w-0 max-w-56 items-center gap-1 truncate px-1.5 py-1",
+            "flex min-w-0 items-center gap-1 truncate px-1.5 py-1",
+            !(isLast && fillCurrent) && "max-w-56",
             isLast ? "text-foreground" : "text-muted-foreground",
           )}
         >
@@ -1611,6 +1618,7 @@ export function DocumentToolbar({
             currentDocumentId={documentId}
             ariaLabel={t("editor.toolbar.pageBreadcrumb")}
             untitledLabel={t("sidebar.untitled")}
+            fillCurrent={inWidget}
             onOpen={(id, filesDatabaseId) => {
               if (onOpenBreadcrumbItem) {
                 onOpenBreadcrumbItem(id, filesDatabaseId);

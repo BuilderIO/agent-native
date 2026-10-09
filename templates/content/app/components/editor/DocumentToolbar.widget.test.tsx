@@ -201,6 +201,24 @@ describe("DocumentToolbar in an MCP App widget", () => {
     },
   );
 
+  it("lets the page title use the room the bar has, which the app caps at 14rem", async () => {
+    await renderToolbar(1040);
+    const widgetTitle = byLabel("editor.toolbar.pageBreadcrumb")?.querySelector(
+      "span.truncate",
+    );
+    expect(widgetTitle?.textContent).toBe("Roadmap");
+    expect(widgetTitle?.className).not.toContain("max-w-56");
+
+    mocks.widget.inWidget = false;
+    mocks.widget.write = false;
+    await renderToolbar(1040);
+    const appTitle = byLabel("editor.toolbar.pageBreadcrumb")?.querySelector(
+      "span.truncate",
+    );
+    expect(appTitle?.textContent).toBe("Roadmap");
+    expect(appTitle?.className).toContain("max-w-56");
+  });
+
   it("shows Open inline from 480px and in the page-actions menu under it", async () => {
     for (const width of [1040, 620, 480]) {
       await renderToolbar(width);
