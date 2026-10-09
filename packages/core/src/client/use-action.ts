@@ -5,10 +5,15 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import type {
+  Query,
   UseQueryOptions,
   UseMutationOptions,
 } from "@tanstack/react-query";
 
+import {
+  ACTION_BROWSER_PERSIST_ALLOW,
+  ACTION_BROWSER_PERSIST_HEADER,
+} from "../shared/action-browser-persist.js";
 import { SLOW_ACTION_RESPONSE_MS } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
 import {
@@ -629,7 +634,7 @@ async function actionFetch<T>(
   name: string,
   method: string,
   params?: Record<string, any>,
-  options?: ActionFetchOptions,
+  options?: InternalActionFetchOptions,
 ): Promise<T> {
   assertAgentNativeApiEnabled(`${method} ${name}`);
   const startedAt = actionTelemetryNow();
@@ -648,6 +653,7 @@ async function actionFetch<T>(
       onResponse: (nextResponse) => {
         response = nextResponse;
         responseAt = actionTelemetryNow();
+        options?.onResponse?.(nextResponse);
       },
     });
   } catch (caught) {
@@ -1035,6 +1041,18 @@ function trackActionCircuitTrip(
   }
 }
 
+// ponytail: one entry per action query this page has fetched; prune on query removal if this ever grows.
+const browserPersistableActionQueryHashes = new Set<string>();
+
+/** @internal read by the persisted query cache; keys are `hashKey` values. */
+export function isBrowserPersistableActionQuery(query: Query): boolean {
+  return (
+    query.queryKey[0] === "action" &&
+    query.state.status === "success" &&
+    browserPersistableActionQueryHashes.has(query.queryHash)
+  );
+}
+
 export function useActionQuery<
   TResult = undefined,
   TName extends ActionName = ActionName,
@@ -1055,10 +1073,18 @@ export function useActionQuery<
     queryFn: async ({ signal }) => {
       const key = circuitKey();
       assertActionCircuitClosed(key);
+      let browserPersist = false;
       const result = await actionFetch<R>(actionName, "GET", params, {
         signal,
+        onResponse: (response) => {
+          browserPersist =
+            response.headers.get(ACTION_BROWSER_PERSIST_HEADER) ===
+            ACTION_BROWSER_PERSIST_ALLOW;
+        },
       });
       resetActionFailureCircuit(key);
+      if (browserPersist) browserPersistableActionQueryHashes.add(key);
+      else browserPersistableActionQueryHashes.delete(key);
       return result;
     },
     // The failure circuit counts fetch cycles, so a cycle is recorded where

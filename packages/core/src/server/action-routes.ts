@@ -44,6 +44,10 @@ import {
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
 } from "../org/workspace-app-access.js";
 import {
+  ACTION_BROWSER_PERSIST_ALLOW,
+  ACTION_BROWSER_PERSIST_HEADER,
+} from "../shared/action-browser-persist.js";
+import {
   LLM_PROVIDER_MISSING_ERROR_CODE,
   LLM_PROVIDER_MISSING_STATUS,
 } from "../shared/action-error-codes.js";
@@ -699,10 +703,19 @@ function mountActionRoutesInternal(
         }
 
         setResponseHeader(event, "Cache-Control", "no-store");
+        // The browser decides what to persist from this header, not from
+        // Cache-Control, which is `no-store` on every action response.
+        if (effectiveMethod === "GET" && entry.persistInBrowser !== false) {
+          setResponseHeader(
+            event,
+            ACTION_BROWSER_PERSIST_HEADER,
+            ACTION_BROWSER_PERSIST_ALLOW,
+          );
+        }
         setResponseHeader(
           event,
           "Access-Control-Expose-Headers",
-          `X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,${MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER}`,
+          `X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,${ACTION_BROWSER_PERSIST_HEADER},${MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER}`,
         );
 
         const isFrontendMutation =

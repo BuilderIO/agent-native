@@ -192,7 +192,7 @@ describe("mountActionRoutes", () => {
       _responseHeaders: {
         "cache-control": "no-store",
         "access-control-expose-headers":
-          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,x-agent-native-widget-session-expired",
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,X-Agent-Native-Browser-Persist,x-agent-native-widget-session-expired",
         "x-agent-native-client-mismatch": "1",
       },
     });
@@ -492,6 +492,48 @@ describe("mountActionRoutes", () => {
 
     expect(result).toEqual({ source: "package" });
     expect(packageRun).toHaveBeenCalledOnce();
+  });
+
+  it("marks GET results for browser persistence unless the action opts out", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
+    const definition = (extra: Record<string, unknown>) =>
+      ({
+        tool: { description: "Read", parameters: {} },
+        http: { method: "GET" },
+        readOnly: true,
+        requiresAuth: false,
+        run,
+        ...extra,
+      }) as any;
+    mountActionRoutes(nitroApp, {
+      "list-things": definition({}),
+      "reveal-secret": definition({ persistInBrowser: false }),
+    });
+    const responseFor = async (name: string) => {
+      const event: any = {
+        _method: "GET",
+        req: { url: `http://app.test/_agent-native/actions/${name}` },
+      };
+      await mounted
+        .find((entry) => entry.path.endsWith(`/${name}`))!
+        .handler(event);
+      return event._responseHeaders ?? {};
+    };
+
+    expect(await responseFor("list-things")).toMatchObject({
+      "x-agent-native-browser-persist": "allow",
+      "cache-control": "no-store",
+    });
+    expect(await responseFor("reveal-secret")).not.toHaveProperty(
+      "x-agent-native-browser-persist",
+    );
   });
 
   it("uses action error statusCode for HTTP responses", async () => {

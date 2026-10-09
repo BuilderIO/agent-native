@@ -1,3 +1,4 @@
+import { ActionQueryCacheGate } from "@agent-native/core/client/action-query-cache";
 import {
   agentNativePath,
   frameworkRoutePrefix,
@@ -530,7 +531,7 @@ export function AppProviders({
             {sessionBypass ? (
               children
             ) : (
-              <>
+              <ActionQueryCacheGate>
                 <AgentEngineReadinessBootstrap />
                 <FirstRunOnboardingStartupGate
                   suppressSurface={skipFirstRunOnboarding}
@@ -538,7 +539,7 @@ export function AppProviders({
                 >
                   {children}
                 </FirstRunOnboardingStartupGate>
-              </>
+              </ActionQueryCacheGate>
             )}
           </RequireSession>
         </ProvidersInner>

@@ -2632,6 +2632,9 @@ importers:
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
+      '@tanstack/query-persist-client-core':
+        specifier: 5.101.2
+        version: 5.101.2
       ai-sdk-ollama:
         specifier: '>=3'
         version: 3.8.8(ai@6.0.209(zod@4.4.3))(zod@4.4.3)
@@ -2668,6 +2671,9 @@ importers:
       i18next:
         specifier: 26.3.1
         version: 26.3.1(typescript@6.0.3)
+      idb-keyval:
+        specifier: 6.3.0
+        version: 6.3.0
       ink:
         specifier: 6.8.0
         version: 6.8.0(@types/react@19.2.17)(react-devtools-core@6.1.5)(react@19.2.7)
@@ -15682,6 +15688,9 @@ packages:
 
   '@tanstack/query-core@5.101.2':
     resolution: {integrity: sha512-hH5MLoJhF7KaIGd7q3xTXGXvslI+GYlM1Z/35aSHHWaCJWB7XvTSHYuV3eM7tw+aE0mT/xMro4M4Q9rCGHT0lw==}
+
+  '@tanstack/query-persist-client-core@5.101.2':
+    resolution: {integrity: sha512-rgMsbvBVpSPDUsprC9FYxojdG0Q1LH6yq1i3DXz2aps4VEqv2l4Msj3YDqIifU3xkl/DrYe9YWntZAJLrM6xTg==}
 
   '@tanstack/react-query@5.101.2':
     resolution: {integrity: sha512-seDkr6kzGzX1okaaTtZPtgA688CDPlXUz1C6xSg0ESqn04Vuc8tlrYms1s3de+znBqhPVxFRfpAfUf+6XvfPWg==}
@@ -32383,6 +32392,10 @@ snapshots:
       vite: 8.1.0(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)
 
   '@tanstack/query-core@5.101.2': {}
+
+  '@tanstack/query-persist-client-core@5.101.2':
+    dependencies:
+      '@tanstack/query-core': 5.101.2
 
   '@tanstack/react-query@5.101.2(react@19.2.7)':
     dependencies:
