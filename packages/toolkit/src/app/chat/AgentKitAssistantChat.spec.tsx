@@ -3884,22 +3884,25 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).resolves.toEqual([submission]);
   });
 
-  it("rejects raw image bytes under a deferred dataURL field", async () => {
-    const threadId = "thread-deferred-dataurl";
-    const submission = {
-      id: "deferred-dataurl",
-      threadId,
-      text: "Describe this image",
-      fileParts: [],
-      references: [],
-      composerOptions: {},
-      options: { image: { dataURL: "A".repeat(128) } },
-    };
+  it.each(["dataURL", "body"] as const)(
+    "rejects raw image bytes under a deferred %s field",
+    async (fieldName) => {
+      const threadId = `thread-deferred-${fieldName}`;
+      const submission = {
+        id: `deferred-${fieldName}`,
+        threadId,
+        text: "Describe this image",
+        fileParts: [],
+        references: [],
+        composerOptions: {},
+        options: { image: { [fieldName]: "A".repeat(128) } },
+      };
 
-    await expect(
-      updateDeferredProviderSubmissions(threadId, () => [submission]),
-    ).rejects.toThrow("inline image bytes cannot be persisted");
-  });
+      await expect(
+        updateDeferredProviderSubmissions(threadId, () => [submission]),
+      ).rejects.toThrow("inline image bytes cannot be persisted");
+    },
+  );
 
   it("cleans legacy deferred image bytes and surfaces a reattach action", async () => {
     const threadId = chatMocks.threadId;

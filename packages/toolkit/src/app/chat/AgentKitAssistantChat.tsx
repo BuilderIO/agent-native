@@ -385,9 +385,8 @@ function assertNoInlineAttachmentPayload(
   fieldName = "",
 ): void {
   if (typeof value === "string") {
-    const payloadField = /^(?:base64|bytes|data|dataurl|image|payload)$/i.test(
-      fieldName,
-    );
+    const payloadField =
+      /^(?:base64|bytes|body|data|dataurl|image|payload)$/i.test(fieldName);
     const referenceField = /^(?:preview|referenceUrl|src|thumbnail|url)$/i.test(
       fieldName,
     );
