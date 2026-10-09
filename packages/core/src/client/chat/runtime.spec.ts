@@ -12,6 +12,7 @@ import {
 import {
   AgentChatAiSetupRequiredError,
   agentEngineStatusUrlForChatApi,
+  requireAgentEngineConfiguredForDispatch,
   resetAgentEngineReadinessForTests,
 } from "../agent-engine-readiness.js";
 import {
@@ -884,6 +885,37 @@ describe("createAgentNativeChatRuntime", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
       "/_agent-native/agent-engine/status",
     );
+  });
+
+  it("bounds asynchronous auth-header resolution and permits a later retry", async () => {
+    let resolveHeaders = false;
+    const headers = vi.fn(async () => {
+      if (!resolveHeaders) {
+        return new Promise<HeadersInit>(() => {});
+      }
+      return { Authorization: "Bearer test" };
+    });
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ configured: true, chatEligible: true }),
+    );
+    const source = {
+      statusUrl: "/_agent-native/agent-engine/status",
+      fetch: fetchMock as typeof fetch,
+      headers,
+    };
+
+    await expect(
+      requireAgentEngineConfiguredForDispatch({ source, timeoutMs: 20 }),
+    ).rejects.toMatchObject({
+      name: "AgentChatAiSetupRequiredError",
+      state: "unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    resolveHeaders = true;
+    await requireAgentEngineConfiguredForDispatch({ source, timeoutMs: 100 });
+    expect(headers).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("sends prior tool activity as structured history without duplicating the current prompt", async () => {
