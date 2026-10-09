@@ -2212,7 +2212,6 @@ test.describe("multi-selection", () => {
         `by ${Math.round(measured!.chromeWidth)}px of chrome`,
     ).toBeCloseTo(measured!.contentWidth, -1);
   });
-
 });
 
 test.describe("frames versus groups", () => {

@@ -402,10 +402,7 @@ test.describe("interaction: in-screen button component", () => {
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "In-screen icon frame",
-    );
+    currentDesignId = await createFixtureDesign(page, "In-screen icon frame");
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -461,10 +458,7 @@ test.describe("interaction: in-screen button component", () => {
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "Rectangle in frame",
-    );
+    currentDesignId = await createFixtureDesign(page, "Rectangle in frame");
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -563,10 +557,7 @@ test.describe("interaction: in-screen button component", () => {
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "Vector edit",
-    );
+    currentDesignId = await createFixtureDesign(page, "Vector edit");
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -589,10 +580,7 @@ test.describe("interaction: in-screen button component", () => {
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "Frame component",
-    );
+    currentDesignId = await createFixtureDesign(page, "Frame component");
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -704,10 +692,7 @@ test.describe("interaction: in-screen button component", () => {
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "Alt-drag icon frame",
-    );
+    currentDesignId = await createFixtureDesign(page, "Alt-drag icon frame");
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -918,10 +903,7 @@ test.describe("interaction: overview canvas and cross-boundary", () => {
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "Overview board frame",
-    );
+    currentDesignId = await createFixtureDesign(page, "Overview board frame");
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 

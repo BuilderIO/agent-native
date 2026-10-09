@@ -375,9 +375,7 @@ test.describe("interaction: layers panel", () => {
     );
   });
 
-  test("Cmd+R opens the rename editor for the selection", async ({
-    page,
-  }) => {
+  test("Cmd+R opens the rename editor for the selection", async ({ page }) => {
     await clickLayerRow(page, "Loose Card");
     await expect(layerRow(page, "Loose Card")).toHaveAttribute(
       "aria-selected",

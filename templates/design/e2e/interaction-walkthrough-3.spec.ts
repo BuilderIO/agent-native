@@ -338,7 +338,8 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
         },
         {
           timeout: 10_000,
-          message: "drawing a Screen on the empty board must create a new screen file.",
+          message:
+            "drawing a Screen on the empty board must create a new screen file.",
         },
       )
       .toBe(before.length + 1);
@@ -571,8 +572,7 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
         },
         {
           timeout: 15_000,
-          message:
-            "Cmd+D must persist the fourth Link before order is checked",
+          message: "Cmd+D must persist the fourth Link before order is checked",
         },
       )
       .toBe(4);
@@ -591,9 +591,7 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
     ]);
   });
 
-  test("step 5: Cmd+G groups the selected Link texts", async ({
-    page,
-  }) => {
+  test("step 5: Cmd+G groups the selected Link texts", async ({ page }) => {
     await openEditorAndExpandLayers(page, designId);
     const navFileId = await fileIdByName(page, designId, navFilename);
     const html = await fileContentByName(page, designId, navFilename);
@@ -624,8 +622,8 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
     expect(
       groupExists,
       `Cmd+G must wrap the 3 selected Link texts in a group. ${JSON.stringify(
-          await dump(page),
-        ).slice(0, 400)}`,
+        await dump(page),
+      ).slice(0, 400)}`,
     ).toBe(true);
 
     const groupRow = layerRow(page, "Group");
@@ -822,5 +820,4 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
         `not merely copied`,
     ).toBe(false);
   });
-
 });

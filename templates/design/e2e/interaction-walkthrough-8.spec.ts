@@ -772,8 +772,7 @@ test.describe("assemble portfolio pages", () => {
     await expect
       .poll(async () => (await selectionContext(request)).selectedScreenIds, {
         timeout: 10_000,
-        message:
-          "the second Cmd+D should select its own copy too",
+        message: "the second Cmd+D should select its own copy too",
       })
       .toEqual([dup2Id]);
     const dup2Content = await fileContent(request, designId, dup2!);

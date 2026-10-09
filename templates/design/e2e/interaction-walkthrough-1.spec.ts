@@ -361,7 +361,10 @@ test.describe("interaction: button component", () => {
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(page, "Auto-layout text resize");
+    currentDesignId = await createFixtureDesign(
+      page,
+      "Auto-layout text resize",
+    );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -457,10 +460,7 @@ test.describe("interaction: button component", () => {
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "Button styles",
-    );
+    currentDesignId = await createFixtureDesign(page, "Button styles");
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -631,10 +631,7 @@ test.describe("interaction: button component", () => {
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "Create component",
-    );
+    currentDesignId = await createFixtureDesign(page, "Create component");
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 

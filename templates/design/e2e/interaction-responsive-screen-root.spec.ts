@@ -413,10 +413,7 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
     await page
       .locator('input[type="file"][accept="image/*"]')
       .setInputFiles(
-        path.resolve(
-          import.meta.dirname,
-          "fixtures/card-art-photo.png",
-        ),
+        path.resolve(import.meta.dirname, "fixtures/card-art-photo.png"),
       );
     await page.keyboard.press("Escape");
     const fillDialog = page.getByRole("dialog");

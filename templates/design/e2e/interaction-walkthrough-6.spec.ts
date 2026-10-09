@@ -666,6 +666,4 @@ test.describe("interaction: guided walkthrough - reusable icon grid", () => {
       expect([restored.x, restored.y]).toEqual([preDrag.x, preDrag.y]);
     }
   });
-
-
 });

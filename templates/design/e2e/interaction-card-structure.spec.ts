@@ -428,10 +428,7 @@ test.describe("overview canvas: multi-select, marquee enclosure, pan/zoom", () =
       if (selectedCount > 0) {
         expect(selectedCount).toBe(3);
       } else {
-        test.skip(
-          true,
-          "no discoverable per-label selected attribute",
-        );
+        test.skip(true, "no discoverable per-label selected attribute");
       }
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
