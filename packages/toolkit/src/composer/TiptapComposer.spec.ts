@@ -3170,7 +3170,7 @@ describe("TiptapComposer references", () => {
           null,
           React.createElement(TiptapComposer, {
             disabled,
-            reportReferenceReadiness: true,
+            isReferenceTarget: true,
             includeDefaultSlashSkills: false,
             plusMenuMode: "hidden",
             voiceEnabled: false,

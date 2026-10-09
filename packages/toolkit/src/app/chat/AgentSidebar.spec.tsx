@@ -446,7 +446,7 @@ describe("AgentSidebar panel", () => {
           <TooltipProvider>
             <TiptapComposer
               disabled={disabled}
-              reportReferenceReadiness
+              isReferenceTarget
               includeDefaultSlashSkills={false}
               plusMenuMode="hidden"
               voiceEnabled={false}
@@ -630,6 +630,74 @@ describe("AgentSidebar panel", () => {
     },
   );
 
+  it("restores real composer readiness after panel ownership returns", async () => {
+    mockPanel.resolveImport();
+    let disabled = true;
+    function Composer() {
+      const runtime = useLocalRuntime({ async *run() {} });
+      return (
+        <AssistantRuntimeProvider runtime={runtime}>
+          <TooltipProvider>
+            <TiptapComposer
+              disabled={disabled}
+              isReferenceTarget
+              includeDefaultSlashSkills={false}
+              plusMenuMode="hidden"
+              voiceEnabled={false}
+            />
+          </TooltipProvider>
+        </AssistantRuntimeProvider>
+      );
+    }
+    mockPanel.composer = <Composer />;
+    const render = renderSidebar(true);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const submissions: string[] = [];
+    const record = (event: MessageEvent) => {
+      if (event.data?.type === "agentNative.submitChat")
+        submissions.push(container!.textContent!);
+    };
+    window.addEventListener("message", record);
+    try {
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+            detail: {
+              label: "Restored document",
+              refType: "file",
+              refId: "/restored.md",
+              slotKey: "document",
+              insertMessageId: "ownership-reference",
+            },
+          }),
+        );
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            origin: window.location.origin,
+            data: {
+              type: "agentNative.submitChat",
+              data: { message: "Use the retained document", submit: false },
+            },
+          }),
+        );
+      });
+      expect(submissions).toEqual([]);
+      await act(async () => render(false));
+      disabled = false;
+      await act(async () => render(true));
+      expect(
+        container!.querySelector(".tiptap")?.getAttribute("contenteditable"),
+      ).toBe("true");
+      expect(submissions).toEqual([
+        expect.stringContaining("Restored document"),
+      ]);
+    } finally {
+      window.removeEventListener("message", record);
+    }
+  });
+
   it("retains accepted work while panel ownership is temporarily disabled", async () => {
     const render = renderSidebar(false);
     await act(async () => {
@@ -666,7 +734,7 @@ describe("AgentSidebar panel", () => {
           <TooltipProvider>
             <TiptapComposer
               ariaLabel="Chat editor"
-              reportReferenceReadiness
+              isReferenceTarget
               includeDefaultSlashSkills={false}
               plusMenuMode="hidden"
               voiceEnabled={false}
@@ -726,7 +794,7 @@ describe("AgentSidebar panel", () => {
             <div data-testid="chat-composer">
               <TiptapComposer
                 ariaLabel="Chat editor"
-                reportReferenceReadiness
+                isReferenceTarget
                 disabled={disabled}
                 includeDefaultSlashSkills={false}
                 plusMenuMode="hidden"
@@ -788,7 +856,7 @@ describe("AgentSidebar panel", () => {
           <TooltipProvider>
             <TiptapComposer
               ariaLabel="First editor"
-              reportReferenceReadiness={selected === "first"}
+              isReferenceTarget={selected === "first"}
               includeDefaultSlashSkills={false}
               plusMenuMode="hidden"
               voiceEnabled={false}
@@ -796,7 +864,7 @@ describe("AgentSidebar panel", () => {
             <div data-testid="second-composer">
               <TiptapComposer
                 ariaLabel="Second editor"
-                reportReferenceReadiness={selected === "second"}
+                isReferenceTarget={selected === "second"}
                 disabled={secondDisabled}
                 includeDefaultSlashSkills={false}
                 plusMenuMode="hidden"

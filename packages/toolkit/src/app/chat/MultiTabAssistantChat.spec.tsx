@@ -33,7 +33,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AGENT_CHAT_INSERT_REFERENCE_EVENT } from "../../composer/runtime-adapters.js";
+import {
+  AGENT_CHAT_INSERT_REFERENCE_EVENT,
+  AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+  ComposerRuntimeAdaptersProvider,
+} from "../../composer/runtime-adapters.js";
 import { TiptapComposer } from "../../composer/TiptapComposer.js";
 import { TooltipProvider } from "../../ui/tooltip.js";
 import { AgentSidebar } from "./AgentSidebar.js";
@@ -388,15 +392,19 @@ function ReferenceProbe({
   return (
     <div data-reference-thread={threadId}>
       <AssistantRuntimeProvider runtime={runtime}>
-        <TooltipProvider>
-          <TiptapComposer
-            disabled={assistantChatMockState.referenceDisabled}
-            reportReferenceReadiness={selected}
-            includeDefaultSlashSkills={false}
-            plusMenuMode="hidden"
-            voiceEnabled={false}
-          />
-        </TooltipProvider>
+        <ComposerRuntimeAdaptersProvider
+          adapters={{ builder: { isTrustedFrameMessage: () => true } }}
+        >
+          <TooltipProvider>
+            <TiptapComposer
+              disabled={assistantChatMockState.referenceDisabled}
+              isReferenceTarget={selected}
+              includeDefaultSlashSkills={false}
+              plusMenuMode="hidden"
+              voiceEnabled={false}
+            />
+          </TooltipProvider>
+        </ComposerRuntimeAdaptersProvider>
       </AssistantRuntimeProvider>
     </div>
   );
@@ -626,6 +634,72 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
+
+  it.each(["custom", "message"])(
+    "inserts %s references only into the selected mounted chat tab",
+    async (transport) => {
+      assistantChatMockState.referenceProbe = true;
+      assistantChatMockState.referenceDisabled = false;
+      threadMocks.threads.push({
+        ...threadMocks.threads[0],
+        id: "thread-2",
+        title: "Other thread",
+      });
+      window.localStorage.setItem(
+        openTabsStorageKey("bridge-test"),
+        JSON.stringify(["thread-1", "thread-2"]),
+      );
+      const render = (id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+      };
+      threadMocks.switchThread.mockImplementation(render);
+      await act(async () => render("thread-2"));
+      await act(async () => render("thread-1"));
+      expect(
+        container.querySelectorAll("[data-reference-thread]"),
+      ).toHaveLength(2);
+      const reference = (label: string) => {
+        const detail = {
+          label,
+          refType: "file",
+          refId: "/selected.md",
+          slotKey: "document",
+          insertMessageId: `selected-${transport}`,
+        };
+        window.dispatchEvent(
+          transport === "custom"
+            ? new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, { detail })
+            : new MessageEvent("message", {
+                origin: window.location.origin,
+                data: {
+                  type: AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+                  data: detail,
+                },
+              }),
+        );
+      };
+      await act(async () => reference("First selected document"));
+      const first = container.querySelector(
+        '[data-reference-thread="thread-1"]',
+      )!;
+      const second = container.querySelector(
+        '[data-reference-thread="thread-2"]',
+      )!;
+      expect(first.textContent).toContain("First selected document");
+      expect(second.textContent).not.toContain("First selected document");
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-2" },
+          }),
+        ),
+      );
+      await act(async () => reference("Second selected document"));
+      expect(second.textContent).toContain("Second selected document");
+      expect(first.textContent).not.toContain("Second selected document");
+    },
+  );
 
   it.each(["agent-chat:open-thread", "agent-task-open"])(
     "preserves the actual destination when %s follows blocked conversation work",

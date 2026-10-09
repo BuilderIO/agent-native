@@ -1040,8 +1040,8 @@ export interface TiptapComposerProps {
   /** Accessible name for the editable prompt surface. */
   ariaLabel?: string;
   disabled?: boolean;
-  /** Only the selected chat receiver reports readiness to the lazy sidebar. */
-  reportReferenceReadiness?: boolean;
+  /** Unset preserves generic references; false excludes inactive chats; true reports sidebar readiness. */
+  isReferenceTarget?: boolean;
   /** Disable the + and @ launchers while the editor stays editable. */
   contextControlsDisabled?: boolean;
   /** Prevent submission without making the editable surface lose focus. */
@@ -2752,7 +2752,7 @@ export function TiptapComposer({
   placeholder,
   ariaLabel,
   disabled = false,
-  reportReferenceReadiness = false,
+  isReferenceTarget,
   contextControlsDisabled = false,
   submissionDisabled = false,
   sendButtonDisabled = false,
@@ -3901,7 +3901,7 @@ export function TiptapComposer({
   );
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || isReferenceTarget === false) return;
     const handleEvent = (event: Event) => {
       const payload = (event as CustomEvent).detail;
       const normalized = adapters.agentChat!.normalizeReference!(
@@ -3943,15 +3943,15 @@ export function TiptapComposer({
     window.addEventListener("message", handleMessage);
     const element = isComposerEditorUsable(editor) ? editor.view.dom : null;
     const reportUnavailable = () => {
-      if (reportReferenceReadiness && element)
+      if (isReferenceTarget === true && element)
         window.dispatchEvent(
           new CustomEvent("agentNative:composer-reference-unavailable", {
             detail: element,
           }),
         );
     };
-    if (reportReferenceReadiness) editor?.on("destroy", reportUnavailable);
-    if (reportReferenceReadiness && element && !disabled) {
+    if (isReferenceTarget === true) editor?.on("destroy", reportUnavailable);
+    if (isReferenceTarget === true && element && !disabled) {
       window.dispatchEvent(
         new CustomEvent("agentNative:composer-reference-ready", {
           detail: element,
@@ -3967,7 +3967,7 @@ export function TiptapComposer({
       );
       window.removeEventListener("message", handleMessage);
     };
-  }, [adapters, insertReferenceIfEmpty, reportReferenceReadiness]);
+  }, [adapters, insertReferenceIfEmpty, isReferenceTarget]);
 
   useImperativeHandle(focusRef, () => ({
     focus() {

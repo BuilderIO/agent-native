@@ -899,17 +899,17 @@ describe("AgentKitAssistantChat host behavior", () => {
   it("reports reference readiness for the selected conversation even while hidden", async () => {
     const props = baseProps({ isActiveComposer: false });
     await mount(props);
-    expect(chatMocks.composerProps.reportReferenceReadiness).toBe(true);
+    expect(chatMocks.composerProps.isReferenceTarget).toBe(true);
     await act(async () => {
       root.render(
         <AgentKitAssistantChat {...props} isReferenceTarget={false} />,
       );
     });
-    expect(chatMocks.composerProps.reportReferenceReadiness).toBe(false);
+    expect(chatMocks.composerProps.isReferenceTarget).toBe(false);
     await act(async () => {
       root.render(<AgentKitAssistantChat {...props} isReferenceTarget />);
     });
-    expect(chatMocks.composerProps.reportReferenceReadiness).toBe(true);
+    expect(chatMocks.composerProps.isReferenceTarget).toBe(true);
   });
 
   it("uses the action widget renderer for action chat UI output", async () => {

@@ -55,6 +55,7 @@ import { IconLayoutSidebarRight } from "@tabler/icons-react";
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -759,7 +760,8 @@ export function AgentSidebar({
     };
   }, [enabled, isPerAppChatHosted, openOnChatRunning, setOpenPersisted]);
 
-  useEffect(() => {
+  // Child composers announce readiness in passive effects, including ownership remounts.
+  useLayoutEffect(() => {
     if (!ownsPanel) {
       panelReadyRef.current = false;
       composerReadyRef.current = false;

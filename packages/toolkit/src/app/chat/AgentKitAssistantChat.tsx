@@ -4163,7 +4163,7 @@ function AgentKitComposerSurface({
       <div className="relative">
         <AgentKitComposer
           threadId={threadId}
-          reportReferenceReadiness={props.isReferenceTarget !== false}
+          isReferenceTarget={props.isReferenceTarget !== false}
           requireAgentEngine
           disabled={
             (!canChat && !providerSubmissionPending) ||
