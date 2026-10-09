@@ -495,8 +495,7 @@ describe("useAgentEngineConfigured", () => {
       jsonResponse({ configured: true, chatEligible: true }),
     );
     const source: AgentEngineReadinessSource = {
-      statusUrl:
-        "https://clips.example.test/_agent-native/agent-engine/status",
+      statusUrl: "https://clips.example.test/_agent-native/agent-engine/status",
       fetch: fetch as typeof globalThis.fetch,
       credentials: "include",
     };
@@ -990,11 +989,19 @@ describe("useAgentEngineConfigured", () => {
       timeoutMs: 100,
     });
 
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    const flushUntilFetchCount = async (count: number) => {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        if (fetch.mock.calls.length === count) return;
+        await Promise.resolve();
+      }
+    };
+    await flushUntilFetchCount(1);
+    expect(fetch).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(10);
     invalidateAgentEngineReadiness(source);
     resolveOldProbe(jsonResponse({ configured: false, chatEligible: false }));
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await flushUntilFetchCount(2);
+    expect(fetch).toHaveBeenCalledTimes(2);
 
     let longCallerSettled = false;
     void longCaller.then(() => {
@@ -1007,6 +1014,7 @@ describe("useAgentEngineConfigured", () => {
     resolveReplacementProbe(
       jsonResponse({ configured: true, chatEligible: true }),
     );
+    await vi.advanceTimersByTimeAsync(0);
     await expect(longCaller).resolves.toBe("configured");
     expect(fetch).toHaveBeenCalledTimes(2);
   });

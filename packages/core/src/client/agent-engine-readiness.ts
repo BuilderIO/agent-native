@@ -507,9 +507,7 @@ async function ensureStoreReadiness(
     .then((nextState) => {
       if (requestRevision !== store.revision) {
         if (store.inFlight === request) store.inFlight = null;
-        return ensureStoreReadiness(store, {
-          ...(fresh ? { fresh: true } : {}),
-        });
+        return ensureStoreReadiness(store);
       }
       store.resolvedAt = Date.now();
       publish(store, nextState);
