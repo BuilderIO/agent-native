@@ -2162,8 +2162,10 @@ describe("browser analytics pageviews", () => {
     });
   });
 
-  it("waits for replay startup before sending the initial pageview", async () => {
-    installBrowser();
+  it("keeps scheduled routes on pageviews while replay starts", async () => {
+    const { history } = installBrowser(
+      "https://design.agent-native.com/design/output-first?generation_attempt_id=attempt_1234567890abcdef",
+    );
     const { analyticsCalls } = installFetch({
       session: {
         email: "user@example.com",
@@ -2190,6 +2192,15 @@ describe("browser analytics pageviews", () => {
       authSessionRefresh: false,
       errorCapture: false,
       webVitals: false,
+      getDefaultProps: (name, properties) => ({
+        ...properties,
+        ...(name === "pageview"
+          ? {
+              observedRoute: properties.path,
+              observedSearch: properties.search,
+            }
+          : {}),
+      }),
     });
     await tick();
     expect(replayMock.startSessionReplay).toHaveBeenCalled();
@@ -2200,6 +2211,13 @@ describe("browser analytics pageviews", () => {
         .filter((body) => body.event === "pageview");
     expect(readPageviews()).toHaveLength(0);
 
+    history.pushState(
+      {},
+      "",
+      "/design/output-second?generation_attempt_id=attempt_2234567890abcdef",
+    );
+    await tick();
+
     replayMock.getSessionReplayContext.mockReturnValue({
       active: true,
       replayId: "replay-test",
@@ -2207,9 +2225,33 @@ describe("browser analytics pageviews", () => {
     });
     finishReplayStart?.();
     await tick();
-    expect(readPageviews()[0]?.properties).toMatchObject({
-      sessionReplayId: "replay-test",
-      sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
+    expect(readPageviews()).toHaveLength(2);
+    expect(readPageviews().map((event) => event.properties)).toMatchObject([
+      {
+        path: "/design/output-first",
+        search: "?generation_attempt_id=attempt_1234567890abcdef",
+        observedRoute: "/design/output-first",
+        observedSearch: "?generation_attempt_id=attempt_1234567890abcdef",
+        navigation_type: "load",
+        sessionReplayId: "replay-test",
+        sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
+      },
+      {
+        path: "/design/output-second",
+        search: "?generation_attempt_id=attempt_2234567890abcdef",
+        observedRoute: "/design/output-second",
+        observedSearch: "?generation_attempt_id=attempt_2234567890abcdef",
+        navigation_type: "pushState",
+        sessionReplayId: "replay-test",
+        sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
+      },
+    ]);
+    expect(
+      analyticsCalls
+        .map(([, init]) => JSON.parse(String(init.body)))
+        .find((event) => event.event === "app_entered")?.properties,
+    ).toMatchObject({
+      entry_path: "/design/output-first",
     });
   });
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DESIGN_GENERATION_ATTEMPT_QUERY_PARAM,
   getDesignGenerationPageviewProvenance,
+  getDesignGenerationPageviewProvenanceFromProperties,
   isDesignGenerationAttemptId,
 } from "./generation-provenance.js";
 
@@ -38,6 +39,21 @@ describe("Design generation pageview provenance", () => {
         `?${DESIGN_GENERATION_ATTEMPT_QUERY_PARAM}=attempt_1234567890abcdef`,
         "/mounted/",
       ),
+    ).toEqual({
+      kind: "design-output",
+      properties: {
+        output_id: "design-1",
+        generation_attempt_id: "attempt_1234567890abcdef",
+      },
+    });
+  });
+
+  it("uses the route captured on the pageview event", () => {
+    expect(
+      getDesignGenerationPageviewProvenanceFromProperties({
+        path: "/design/design-1",
+        search: `?${DESIGN_GENERATION_ATTEMPT_QUERY_PARAM}=attempt_1234567890abcdef`,
+      }),
     ).toEqual({
       kind: "design-output",
       properties: {

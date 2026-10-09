@@ -48,7 +48,7 @@ import {
 } from "@/lib/design-ui-events";
 
 import changelog from "../CHANGELOG.md?raw";
-import { getDesignGenerationPageviewProvenance } from "../shared/generation-provenance.js";
+import { getDesignGenerationPageviewProvenanceFromProperties } from "../shared/generation-provenance.js";
 import { i18nCatalog } from "./i18n";
 import { OpenVisualEditWebMcp } from "./OpenVisualEditWebMcp";
 import { isPublicDesignAppPath } from "./public-routes";
@@ -64,9 +64,8 @@ configureTracking({
   getDefaultProps: (name, properties) => {
     const provenance =
       name === "pageview"
-        ? getDesignGenerationPageviewProvenance(
-            window.location.pathname,
-            window.location.search,
+        ? getDesignGenerationPageviewProvenanceFromProperties(
+            properties,
             appBasePath(),
           )
         : null;

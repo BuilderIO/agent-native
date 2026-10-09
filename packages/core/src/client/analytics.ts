@@ -2054,25 +2054,28 @@ function sessionReplayTrackingProperties(): Record<string, unknown> {
   };
 }
 
-function pageviewKey(): string {
-  return window.location.href;
-}
+type PageviewSnapshot = {
+  key: string;
+  pathname: string;
+  hostname: string;
+  properties: Record<string, unknown>;
+};
 
-function pageviewProperties(reason: string): Record<string, unknown> {
+function snapshotPageview(reason: string): PageviewSnapshot {
+  const { href, origin, pathname, hostname, search } = window.location;
+  const contentCaptureEnabled = _trackingContentCaptureEnabled;
   const properties: Record<string, unknown> = {
-    url: !_trackingContentCaptureEnabled
-      ? window.location.origin + window.location.pathname
-      : scrubUrl(window.location.href),
-    path: window.location.pathname,
-    hostname: window.location.hostname,
+    url: !contentCaptureEnabled ? origin + pathname : scrubUrl(href),
+    path: pathname,
+    hostname,
     navigation_type: reason,
     [AGENT_SIGNALS_PAGEVIEW_PROPERTY]: AGENT_SIGNALS_VERSION,
     [PAGE_LOAD_PAGEVIEW_PROPERTY]: getAnalyticsPageLoadId(),
   };
-  if (_trackingContentCaptureEnabled && window.location.search) {
-    properties.search = scrubUrl(window.location.search);
+  if (contentCaptureEnabled && search) {
+    properties.search = scrubUrl(search);
   }
-  if (_trackingContentCaptureEnabled && typeof document !== "undefined") {
+  if (contentCaptureEnabled && typeof document !== "undefined") {
     if (document.referrer) {
       properties.referrer = scrubUrl(document.referrer);
     }
@@ -2080,7 +2083,7 @@ function pageviewProperties(reason: string): Record<string, unknown> {
       properties.title = document.title;
     }
   }
-  return properties;
+  return { key: href, pathname, hostname, properties };
 }
 
 function readAppEntryKeys(): string[] {
@@ -2128,7 +2131,7 @@ function rememberLastAppEntry(appName: string, now: number): number | null {
 
 let _appEntryAuthRetry: Promise<void> | null = null;
 
-function waitForTrackingIdentityBeforeAppEntry(): boolean {
+function waitForTrackingIdentityBeforeAppEntry(entryPath: string): boolean {
   const pending = _trackingSessionRefresh;
   if (!pending || _trackingIdentityResolved) return false;
   if (!_appEntryAuthRetry) {
@@ -2136,17 +2139,18 @@ function waitForTrackingIdentityBeforeAppEntry(): boolean {
       .catch(() => {})
       .then(() => {
         _appEntryAuthRetry = null;
-        emitAppEntered();
+        emitAppEntered(entryPath);
       });
   }
   return true;
 }
 
-function emitAppEntered(): void {
+function emitAppEntered(entryPath?: string): void {
   if (typeof window === "undefined" || !_getDefaultProps) return;
-  if (waitForTrackingIdentityBeforeAppEntry()) return;
+  const scheduledEntryPath = entryPath ?? window.location.pathname;
+  if (waitForTrackingIdentityBeforeAppEntry(scheduledEntryPath)) return;
   const properties = resolveProps(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
-    entry_path: window.location.pathname,
+    entry_path: scheduledEntryPath,
   });
   const appName = normalizeTrackingDimension(
     properties.app_name ?? properties.app,
@@ -2163,7 +2167,7 @@ function emitAppEntered(): void {
   const attribution = getFirstTouchAttribution();
   trackEvent(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
     app_name: appName,
-    entry_path: window.location.pathname,
+    entry_path: scheduledEntryPath,
     ...(attribution?.ref ? { source: attribution.ref } : {}),
     ...(attribution?.landing_referrer
       ? { referrer: attribution.landing_referrer }
@@ -2180,22 +2184,22 @@ function emitAppEntered(): void {
   }
 }
 
-function emitPageview(reason: string): void {
+function emitPageview(snapshot: PageviewSnapshot): void {
   if (typeof window === "undefined") return;
-  if (isLocalAnalyticsHostname(window.location.hostname)) return;
+  if (isLocalAnalyticsHostname(snapshot.hostname)) return;
   const state = getPageviewTrackingState();
-  const key = pageviewKey();
-  if (state.lastPageviewKey === key) return;
-  state.lastPageviewKey = key;
-  trackEvent("pageview", pageviewProperties(reason));
-  emitAppEntered();
+  if (state.lastPageviewKey === snapshot.key) return;
+  state.lastPageviewKey = snapshot.key;
+  trackEvent("pageview", snapshot.properties);
+  emitAppEntered(snapshot.pathname);
 }
 
 function schedulePageview(reason: string): void {
   if (!_trackingContentCaptureEnabled) {
     void stopSessionReplay("local-plan-privacy");
   }
-  const run = () => emitPageview(reason);
+  const snapshot = snapshotPageview(reason);
+  const run = () => emitPageview(snapshot);
   const deferredBootRefresh =
     _llmConnectionBootRefresh && !_llmConnectionStatus
       ? _llmConnectionBootRefresh

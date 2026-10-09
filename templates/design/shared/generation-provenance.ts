@@ -53,3 +53,14 @@ export function getDesignGenerationPageviewProvenance(
   }
   return { kind: "design-output", properties };
 }
+
+export function getDesignGenerationPageviewProvenanceFromProperties(
+  properties: Record<string, unknown>,
+  basePath = "",
+): DesignGenerationPageviewProvenance {
+  return getDesignGenerationPageviewProvenance(
+    typeof properties.path === "string" ? properties.path : "",
+    typeof properties.search === "string" ? properties.search : "",
+    basePath,
+  );
+}
