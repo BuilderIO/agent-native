@@ -7,7 +7,6 @@ import {
 } from "../action-change-marker.js";
 import { appStatePut } from "../application-state/store.js";
 import { runAfterWriteDrains } from "../resource-changes/store.js";
-import { platformWaitUntil, runInBackground } from "./background-work.js";
 import {
   getRequestOrgId,
   getRequestRunContext,
@@ -61,21 +60,16 @@ export async function writeActionChangeMarker(
 }
 
 /**
- * Writes the marker for a write response: the response goes out once the write
- * is with the platform (or after BACKGROUND_DEADLINE_MS without waitUntil), not
- * after the database answers. The fast-path publish inside still runs first.
+ * Awaited in full, even when the platform has waitUntil: polling clients read
+ * the marker right after the response, so it must be durable before it goes out.
  */
 export async function writeActionChangeMarkerForResponse(
   options: NotifyActionChangeOptions,
 ): Promise<void> {
-  const write = writeActionChangeMarker(options).catch((error: unknown) => {
+  await writeActionChangeMarker(options).catch((error: unknown) => {
     console.warn(
       "[action-change] durable marker write failed:",
       error instanceof Error ? error.message : String(error),
     );
   });
-  await runInBackground(
-    write,
-    getRequestRunContext()?.waitUntil ?? platformWaitUntil(),
-  );
 }

@@ -34,7 +34,8 @@ export function platformWaitUntil(req?: unknown): WaitUntil | undefined {
  * Keeps work alive past the response without holding it: handed to the
  * platform when it has waitUntil, otherwise awaited for at most
  * BACKGROUND_DEADLINE_MS. Work still running after the deadline keeps running
- * in this process, but a freeze can cut it short.
+ * in this process, but a freeze can cut it short, so only best-effort work
+ * belongs here. Writes that a polling client reads back are awaited instead.
  */
 export async function runInBackground(
   work: Promise<unknown>,

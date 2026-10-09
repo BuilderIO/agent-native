@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { BACKGROUND_DEADLINE_MS } from "./background-work.js";
+
 const mockAppStatePut = vi.hoisted(() => vi.fn());
 const mockRecordChange = vi.hoisted(() => vi.fn());
 const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
@@ -190,39 +192,67 @@ describe("notifyActionChange", () => {
     expect(mockAppStatePut).not.toHaveBeenCalled();
   });
 
-  it("does not hold a write response on the marker write when waitUntil keeps it alive", async () => {
-    mockAppStatePut.mockImplementation(() => new Promise<void>(() => {}));
-    const handedOff: Promise<unknown>[] = [];
+  it("holds the write response on the marker write even when a waitUntil exists", async () => {
+    let releaseMarker!: () => void;
+    mockAppStatePut.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseMarker = resolve;
+        }),
+    );
     mockGetRequestRunContext.mockReturnValue({
-      waitUntil: (promise: Promise<unknown>) => handedOff.push(promise),
+      waitUntil: () => {},
     });
     const { notifyActionChangeForResponse } =
       await import("./action-change.js");
 
-    await notifyActionChangeForResponse({
+    let responded = false;
+    const response = notifyActionChangeForResponse({
       actionName: "update-project",
       owner: "owner@example.com",
+    }).then(() => {
+      responded = true;
     });
 
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mockRecordChange).toHaveBeenCalledWith(
       expect.objectContaining({ key: "update-project" }),
     );
     expect(mockAppStatePut).toHaveBeenCalled();
-    expect(handedOff).toHaveLength(1);
+    expect(responded).toBe(false);
+
+    releaseMarker();
+    await response;
+    expect(responded).toBe(true);
   });
 
-  it("bounds the marker wait to the background deadline when no waitUntil exists", async () => {
-    mockAppStatePut.mockImplementation(() => new Promise<void>(() => {}));
+  it("awaits the marker write past the background deadline when no waitUntil exists", async () => {
+    let releaseMarker!: () => void;
+    mockAppStatePut.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseMarker = resolve;
+        }),
+    );
     const { notifyActionChangeForResponse } =
       await import("./action-change.js");
 
-    const startedAt = Date.now();
-    await notifyActionChangeForResponse({
+    let responded = false;
+    const response = notifyActionChangeForResponse({
       actionName: "update-project",
       owner: "owner@example.com",
+    }).then(() => {
+      responded = true;
     });
 
-    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    await new Promise((resolve) =>
+      setTimeout(resolve, BACKGROUND_DEADLINE_MS + 50),
+    );
+    expect(responded).toBe(false);
+
+    releaseMarker();
+    await response;
+    expect(responded).toBe(true);
   });
 
   it("finishes a fast marker write before the response goes out when no waitUntil exists", async () => {
