@@ -495,8 +495,7 @@ describe("useAgentEngineConfigured", () => {
       jsonResponse({ configured: true, chatEligible: true }),
     );
     const source: AgentEngineReadinessSource = {
-      statusUrl:
-        "https://clips.example.test/_agent-native/agent-engine/status",
+      statusUrl: "https://clips.example.test/_agent-native/agent-engine/status",
       fetch: fetch as typeof globalThis.fetch,
       credentials: "include",
     };

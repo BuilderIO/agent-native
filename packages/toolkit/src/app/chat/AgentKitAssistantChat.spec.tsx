@@ -901,7 +901,9 @@ describe("AgentKitAssistantChat host behavior", () => {
 
   it("checks readiness on the configured chat API server", async () => {
     await mount(
-      baseProps({ apiUrl: "https://clips.example.test/_agent-native/agent-chat" }),
+      baseProps({
+        apiUrl: "https://clips.example.test/_agent-native/agent-chat",
+      }),
     );
 
     expect(chatMocks.readinessOptions).toMatchObject({
