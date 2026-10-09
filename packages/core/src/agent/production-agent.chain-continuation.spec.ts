@@ -10,6 +10,7 @@ import {
 } from "./durable-background.js";
 import {
   chainServerDrivenContinuation,
+  DurableAttachmentReferenceRequiredError,
   isLoopProtectionDispatchError,
   MAX_NESTED_SELF_DISPATCH_DEPTH,
   AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD,
@@ -524,6 +525,38 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       );
     },
   );
+
+  it("does not fall back to inline dispatch when a background image lacks a durable reference", async () => {
+    const h = makeHarness();
+    await runChain(h, {
+      requestBody: {
+        message: "continue the image design",
+        attachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+          },
+        ],
+      },
+    });
+
+    expect(h.deps.insertRun).not.toHaveBeenCalled();
+    expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-chunk0",
+      "errored",
+    );
+    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      new DurableAttachmentReferenceRequiredError().code,
+    );
+    expect(h.deps.setRunError).toHaveBeenCalledWith(
+      "run-chunk0",
+      new DurableAttachmentReferenceRequiredError().code,
+      expect.stringContaining("Configure file storage"),
+    );
+  });
 
   it("refuses to chain when the SQL per-turn run budget is exhausted (cross-chain loop killer)", async () => {
     const h = makeHarness({

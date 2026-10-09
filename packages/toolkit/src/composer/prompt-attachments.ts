@@ -42,6 +42,10 @@ export interface ReadAgentPromptAttachmentOptions {
   maxImageDimensionPx?: number;
 }
 
+const MAX_OPTIMIZABLE_IMAGE_INPUT_BYTES = 25 * 1024 * 1024;
+const MAX_OPTIMIZABLE_IMAGE_PIXELS = 40_000_000;
+const MAX_IMAGE_HEADER_BYTES = 1024 * 1024;
+
 export async function readAgentPromptAttachment(
   file: File,
   options: ReadAgentPromptAttachmentOptions = {},
@@ -122,9 +126,29 @@ async function optimizeAgentPromptImage(
 ): Promise<Blob | null> {
   if (typeof createImageBitmap !== "function") return null;
 
+  if (file.size > MAX_OPTIMIZABLE_IMAGE_INPUT_BYTES) return null;
+  const dimensions = await readRasterImageDimensions(file);
+  if (
+    !dimensions ||
+    dimensions.width * dimensions.height > MAX_OPTIMIZABLE_IMAGE_PIXELS
+  ) {
+    return null;
+  }
+
+  const scale = Math.min(
+    1,
+    options.maxDimensionPx / Math.max(dimensions.width, dimensions.height),
+  );
+  const resizeWidth = Math.max(1, Math.round(dimensions.width * scale));
+  const resizeHeight = Math.max(1, Math.round(dimensions.height * scale));
+
   let bitmap: ImageBitmap;
   try {
-    bitmap = await createImageBitmap(file);
+    bitmap = await createImageBitmap(file, {
+      resizeWidth,
+      resizeHeight,
+      resizeQuality: "high",
+    });
   } catch {
     // coercion-ok: failed resizing keeps the original upload for server hydration or a typed size-limit explanation.
     return null;
@@ -168,6 +192,99 @@ async function optimizeAgentPromptImage(
   } finally {
     bitmap.close();
   }
+}
+
+async function readRasterImageDimensions(
+  file: File,
+): Promise<{ width: number; height: number } | null> {
+  const bytes = new Uint8Array(
+    await file.slice(0, MAX_IMAGE_HEADER_BYTES).arrayBuffer(),
+  );
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const ascii = (offset: number, length: number) =>
+    String.fromCharCode(...bytes.subarray(offset, offset + length));
+  const dimensions = (width: number, height: number) =>
+    width > 0 && height > 0 ? { width, height } : null;
+
+  if (
+    bytes.length >= 24 &&
+    bytes[0] === 0x89 &&
+    ascii(1, 3) === "PNG" &&
+    ascii(12, 4) === "IHDR"
+  ) {
+    return dimensions(view.getUint32(16), view.getUint32(20));
+  }
+
+  if (
+    bytes.length >= 10 &&
+    (ascii(0, 6) === "GIF87a" || ascii(0, 6) === "GIF89a")
+  ) {
+    return dimensions(view.getUint16(6, true), view.getUint16(8, true));
+  }
+
+  if (bytes.length >= 30 && ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
+    const chunk = ascii(12, 4);
+    if (chunk === "VP8X") {
+      const width = 1 + bytes[24]! + (bytes[25]! << 8) + (bytes[26]! << 16);
+      const height = 1 + bytes[27]! + (bytes[28]! << 8) + (bytes[29]! << 16);
+      return dimensions(width, height);
+    }
+    if (chunk === "VP8L" && bytes[20] === 0x2f && bytes.length >= 25) {
+      const bits =
+        bytes[21]! +
+        (bytes[22]! << 8) +
+        (bytes[23]! << 16) +
+        (bytes[24]! << 24);
+      return dimensions((bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1);
+    }
+    if (
+      chunk === "VP8 " &&
+      bytes[23] === 0x9d &&
+      bytes[24] === 0x01 &&
+      bytes[25] === 0x2a &&
+      bytes.length >= 30
+    ) {
+      const width = (view.getUint16(26, true) & 0x3fff) + 0;
+      const height = (view.getUint16(28, true) & 0x3fff) + 0;
+      return dimensions(width, height);
+    }
+  }
+
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    const startOfFrameMarkers = new Set([
+      0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce,
+      0xcf,
+    ]);
+    let offset = 2;
+    while (offset + 3 < bytes.length) {
+      if (bytes[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      while (bytes[offset + 1] === 0xff) offset += 1;
+      const marker = bytes[offset + 1]!;
+      if (marker === 0xd9 || marker === 0xda) break;
+      if (
+        marker === 0xd8 ||
+        marker === 0x01 ||
+        (marker >= 0xd0 && marker <= 0xd7)
+      ) {
+        offset += 2;
+        continue;
+      }
+      const segmentLength = view.getUint16(offset + 2);
+      if (segmentLength < 2 || offset + 2 + segmentLength > bytes.length) break;
+      if (startOfFrameMarkers.has(marker) && segmentLength >= 7) {
+        return dimensions(
+          view.getUint16(offset + 7),
+          view.getUint16(offset + 5),
+        );
+      }
+      offset += 2 + segmentLength;
+    }
+  }
+
+  return null;
 }
 
 function canvasToBlob(

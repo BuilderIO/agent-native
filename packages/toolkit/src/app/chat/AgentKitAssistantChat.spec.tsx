@@ -12,6 +12,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
 
+function largePngBytes(
+  width = 2560,
+  height = 1440,
+  byteLength = 6_000_000,
+): Uint8Array {
+  const bytes = new Uint8Array(byteLength);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  bytes.set([0x49, 0x48, 0x44, 0x52], 12);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return bytes;
+}
+
 const chatMocks = vi.hoisted(() => ({
   history: undefined as any,
   session: {
@@ -3037,7 +3051,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       .mockResolvedValueOnce([original])
       .mockResolvedValueOnce([resized]);
     await mount(baseProps());
-    const file = new File([new Uint8Array(6_000_000)], "reference.png", {
+    const file = new File([largePngBytes()], "reference.png", {
       type: "image/png",
     });
 
@@ -3102,7 +3116,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         .mockRejectedValueOnce(new Error("Raw storage provider failure"))
         .mockResolvedValueOnce([resized]);
       await mount(baseProps());
-      const file = new File([new Uint8Array(6_000_000)], "reference.png", {
+      const file = new File([largePngBytes()], "reference.png", {
         type: "image/png",
       });
 
@@ -3173,7 +3187,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       refetch: vi.fn(),
     };
     await mount(baseProps());
-    const file = new File([new Uint8Array(6_000_000)], "reference.png", {
+    const file = new File([largePngBytes()], "reference.png", {
       type: "image/png",
     });
 

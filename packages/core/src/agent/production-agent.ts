@@ -837,6 +837,15 @@ export interface ResolvedOwnerApiKey {
   credentialProvenance?: CredentialProvenance;
 }
 
+export class OwnerAgentEngineSettingUnavailableError extends Error {
+  readonly errorCode = "agent_engine_settings_unavailable";
+
+  constructor(cause: unknown) {
+    super("Unable to read the active agent engine setting.", { cause });
+    this.name = "OwnerAgentEngineSettingUnavailableError";
+  }
+}
+
 const NO_OWNER_API_KEY: ResolvedOwnerApiKey = {
   apiKey: undefined,
   apiKeyEnvVar: undefined,
@@ -959,7 +968,9 @@ export async function resolveOwnerEngineApiKey(input: {
   const canUseFallback =
     fallback && canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY");
   if (activeEngineSetting?.status === "unavailable" && !canUseFallback) {
-    throw activeEngineSetting.error;
+    throw new OwnerAgentEngineSettingUnavailableError(
+      activeEngineSetting.error,
+    );
   }
   return fallback && canUseFallback
     ? {
@@ -8983,7 +8994,8 @@ export async function chainServerDrivenContinuation(opts: {
       if (
         insertErr instanceof AgentTurnInitiatorMismatchError ||
         insertErr instanceof AgentTurnInitiatorUnavailableError ||
-        insertErr instanceof ServicePrincipalRefusedError
+        insertErr instanceof ServicePrincipalRefusedError ||
+        insertErr instanceof DurableAttachmentReferenceRequiredError
       ) {
         throw insertErr;
       }
@@ -9149,6 +9161,10 @@ export async function chainServerDrivenContinuation(opts: {
       reason: continuationReason,
     };
   } catch (chainErr) {
+    const failureCode =
+      chainErr instanceof DurableAttachmentReferenceRequiredError
+        ? chainErr.code
+        : "background_continuation_dispatch_failed";
     await d
       .recordRunDiagnostic(
         runId,
@@ -9166,13 +9182,11 @@ export async function chainServerDrivenContinuation(opts: {
       .updateRunStatusIfRunning(runId, "errored")
       .catch(() => false);
     if (statusUpdated) {
-      await d
-        .setRunTerminalReason(runId, "background_continuation_dispatch_failed")
-        .catch(() => {});
+      await d.setRunTerminalReason(runId, failureCode).catch(() => {});
       await d
         .setRunError(
           runId,
-          "background_continuation_dispatch_failed",
+          failureCode,
           chainErr instanceof Error ? chainErr.message : String(chainErr),
         )
         .catch(() => {});

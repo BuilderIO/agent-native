@@ -5602,25 +5602,23 @@ async function uploadAgentChatAttachments(
     File,
     { data: string; contentType: string }
   >();
-  await Promise.all(
-    pending.map(async (file) => {
-      if (
-        !file.type.startsWith("image/") ||
-        file.size <= AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES
-      ) {
-        return;
-      }
-      const attachment = await readAgentPromptAttachment(file);
-      if (!attachment.dataUrl) return;
-      const mediaType = parseBase64DataUrl(attachment.dataUrl)?.mediaType;
-      if (mediaType) {
-        optimizedImages.set(file, {
-          data: attachment.dataUrl,
-          contentType: mediaType,
-        });
-      }
-    }),
-  );
+  for (const file of pending) {
+    if (
+      !file.type.startsWith("image/") ||
+      file.size <= AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES
+    ) {
+      continue;
+    }
+    const attachment = await readAgentPromptAttachment(file);
+    if (!attachment.dataUrl) continue;
+    const mediaType = parseBase64DataUrl(attachment.dataUrl)?.mediaType;
+    if (mediaType) {
+      optimizedImages.set(file, {
+        data: attachment.dataUrl,
+        contentType: mediaType,
+      });
+    }
+  }
   const uploadedByFile = new Map<File, FilePart>();
   const filesToUploadNormally = pending.filter(
     (file) => !optimizedImages.has(file),
