@@ -912,6 +912,229 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
     }
   });
 
+  it("uses the active keyframes when a later media rule reuses its name", async () => {
+    const css = `@keyframes turn { from { transform: rotate(0deg); } to { transform: rotate(120deg); } } @media (min-width: 10000px) { @keyframes turn { from { transform: rotate(0deg); } to { transform: rotate(270deg); } } } .ruled { animation: turn 4s linear infinite; }`;
+    const page = await openPage(css, imageHtml());
+    try {
+      const saved = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.getAnimations()[0].currentTime = 2000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return wrapped.frame.outerHTML;
+      });
+      const reopened = await openPage(css, saved);
+      const reference = await openPage(css, imageHtml());
+      try {
+        for (const time of [0, 1000, 2000, 3000]) {
+          expectSameHull(
+            await hullAt(reopened, "#frame", time),
+            await hullAt(reference, "#pic", time),
+            1,
+          );
+        }
+      } finally {
+        await reopened.close();
+        await reference.close();
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("ignores duplicate keyframes in a disabled stylesheet", async () => {
+    const css =
+      "@keyframes turn { from { transform: rotate(0deg); } to { transform: rotate(120deg); } } .ruled { animation: turn 4s linear infinite; }";
+    const page = await openPage(css, imageHtml());
+    try {
+      const saved = await page.evaluate(() => {
+        const disabled = document.createElement("style");
+        disabled.textContent =
+          "@keyframes turn { from { transform: rotate(0deg); } to { transform: rotate(270deg); } }";
+        document.head.append(disabled);
+        (disabled.sheet as CSSStyleSheet).disabled = true;
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.getAnimations()[0].currentTime = 2000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return wrapped.frame.outerHTML;
+      });
+      const reopened = await openPage(css, saved);
+      const reference = await openPage(css, imageHtml());
+      try {
+        for (const time of [0, 1000, 2000, 3000]) {
+          expectSameHull(
+            await hullAt(reopened, "#frame", time),
+            await hullAt(reference, "#pic", time),
+            1,
+          );
+        }
+      } finally {
+        await reopened.close();
+        await reference.close();
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("keeps local animation tokens when they equal the inherited value", async () => {
+    const css =
+      ".stage { --turn: 120deg; } .ruled { --turn: 120deg; animation: variable-turn 4s linear infinite; } @keyframes variable-turn { from { transform: rotate(0deg); } to { transform: rotate(var(--turn)); } }";
+    const page = await openPage(css, imageHtml());
+    try {
+      const saved = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.getAnimations()[0].currentTime = 2000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return {
+          markup: wrapped.frame.outerHTML,
+          inlineTurn: wrapped.frame.style.getPropertyValue("--turn"),
+        };
+      });
+      expect(saved.inlineTurn).toBe("120deg");
+
+      const changedTheme = css.replace(
+        ".stage { --turn: 120deg; }",
+        ".stage { --turn: 180deg; }",
+      );
+      const reopened = await openPage(changedTheme, saved.markup);
+      const reference = await openPage(changedTheme, imageHtml());
+      try {
+        for (const time of [0, 1000, 2000, 3000]) {
+          expectSameHull(
+            await hullAt(reopened, "#frame", time),
+            await hullAt(reference, "#pic", time),
+            1,
+          );
+        }
+      } finally {
+        await reopened.close();
+        await reference.close();
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("keeps the cascade-winning local token over later weaker rules", async () => {
+    const css =
+      ".stage { --turn: 120deg; } .stage .ruled { --turn: 270deg; } .ruled { --turn: 120deg; animation: variable-turn 4s linear infinite; } @keyframes variable-turn { from { transform: rotate(0deg); } to { transform: rotate(var(--turn)); } }";
+    const page = await openPage(css, imageHtml());
+    try {
+      const saved = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.getAnimations()[0].currentTime = 2000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return {
+          markup: wrapped.frame.outerHTML,
+          inlineTurn: wrapped.frame.style.getPropertyValue("--turn"),
+        };
+      });
+      expect(saved.inlineTurn).toBe("270deg");
+
+      const reopened = await openPage(css, saved.markup);
+      const reference = await openPage(css, imageHtml());
+      try {
+        for (const time of [0, 1000, 2000, 3000]) {
+          expectSameHull(
+            await hullAt(reopened, "#frame", time),
+            await hullAt(reference, "#pic", time),
+            1,
+          );
+        }
+      } finally {
+        await reopened.close();
+        await reference.close();
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("keeps registered local animation tokens equal to inherited values", async () => {
+    const css =
+      '@property --turn { syntax: "<angle>"; inherits: true; initial-value: 0deg; } .stage { --theme-turn: 120deg; --turn: 120deg; } .ruled { --turn: var(--theme-turn); animation: variable-turn 4s linear infinite; } @keyframes variable-turn { from { transform: rotate(0deg); } to { transform: rotate(var(--turn)); } }';
+    const page = await openPage(css, imageHtml());
+    try {
+      const saved = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.getAnimations()[0].currentTime = 2000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return wrapped.frame.outerHTML;
+      });
+      expect(saved).toContain("--turn: var(--theme-turn)");
+
+      const changedTheme = css.replace(
+        ".stage { --theme-turn: 120deg; --turn: 120deg; }",
+        ".stage { --theme-turn: 180deg; --turn: 190deg; }",
+      );
+      const reopened = await openPage(changedTheme, saved);
+      const reference = await openPage(changedTheme, imageHtml());
+      try {
+        for (const time of [0, 1000, 2000, 3000]) {
+          expectSameHull(
+            await hullAt(reopened, "#frame", time),
+            await hullAt(reference, "#pic", time),
+            1,
+          );
+        }
+      } finally {
+        await reopened.close();
+        await reference.close();
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("keeps out-of-order keyframes and missing properties intact", async () => {
+    const css =
+      "@keyframes out-of-order { to { transform: rotate(90deg); } from { opacity: 0; } } .ruled { animation: out-of-order 4s linear infinite; }";
+    const page = await openPage(css, imageHtml());
+    try {
+      const saved = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.getAnimations()[0].currentTime = 1000;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return wrapped.frame.outerHTML;
+      });
+      const reopened = await openPage(css, saved);
+      const reference = await openPage(css, imageHtml());
+      try {
+        for (const time of [0, 1000, 2000, 3000]) {
+          expectSameHull(
+            await hullAt(reopened, "#frame", time),
+            await hullAt(reference, "#pic", time),
+            1,
+          );
+          const opacity = (targetPage: Page, target: string, ms: number) =>
+            targetPage.evaluate(
+              ([selector, timeMs]) => {
+                const element = document.querySelector(selector as string)!;
+                for (const animation of element.getAnimations())
+                  animation.currentTime = timeMs as number;
+                return getComputedStyle(element).opacity;
+              },
+              [target, ms],
+            );
+          expect(await opacity(reopened, "#frame img", time)).toBe(
+            await opacity(reference, "#pic", time),
+          );
+        }
+      } finally {
+        await reopened.close();
+        await reference.close();
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
   it("restores the original animation time and play state when crop is cancelled", async () => {
     const css =
       "@keyframes move-and-fade { from { transform: rotate(0deg); opacity: 0.2; } to { transform: rotate(90deg); opacity: 0.8; } } .ruled { animation: move-and-fade 4s linear infinite; }";

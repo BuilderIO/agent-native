@@ -1613,6 +1613,108 @@ type AuthoredKeyframe = {
   style: CSSStyleDeclaration;
 };
 
+type CssRuleActivity = boolean | null;
+
+function combineCssRuleActivity(
+  parent: CssRuleActivity,
+  condition: CssRuleActivity,
+): CssRuleActivity {
+  if (parent === false || condition === false) return false;
+  if (parent === null || condition === null) return null;
+  return true;
+}
+
+function mediaActivity(mediaText: string): CssRuleActivity {
+  const query = mediaText.trim();
+  if (!query) return true;
+  return typeof window.matchMedia === "function"
+    ? window.matchMedia(query).matches
+    : null;
+}
+
+function supportsActivity(conditionText: string): CssRuleActivity {
+  return typeof CSS !== "undefined" && typeof CSS.supports === "function"
+    ? CSS.supports(conditionText)
+    : null;
+}
+
+function cssRuleActivity(rule: CSSRule): CssRuleActivity {
+  if (rule.type === CSSRule.MEDIA_RULE) {
+    return mediaActivity((rule as CSSMediaRule).media.mediaText);
+  }
+  if (rule.type === CSSRule.SUPPORTS_RULE) {
+    return supportsActivity((rule as CSSSupportsRule).conditionText);
+  }
+  // Container and other conditional rules need layout or browser-specific
+  // matching. Their keyframes use the computed fallback until we can tell.
+  if ("conditionText" in rule || ("start" in rule && "end" in rule))
+    return null;
+  return true;
+}
+
+function visitActiveCssRules(
+  document: Document,
+  visit: (rule: CSSRule, activity: CssRuleActivity) => void,
+  unreadable: () => void,
+): void {
+  const visitRules = (
+    rules: CSSRuleList,
+    parentActivity: CssRuleActivity,
+  ): void => {
+    if (parentActivity === false) return;
+    for (const rule of Array.from(rules)) {
+      const activity = combineCssRuleActivity(
+        parentActivity,
+        cssRuleActivity(rule),
+      );
+      if (activity === false) continue;
+      if (rule.type === CSSRule.IMPORT_RULE) {
+        const importRule = rule as CSSImportRule & { supportsText?: string };
+        let importActivity = combineCssRuleActivity(
+          activity,
+          mediaActivity(importRule.media.mediaText),
+        );
+        if (importRule.supportsText) {
+          importActivity = combineCssRuleActivity(
+            importActivity,
+            supportsActivity(importRule.supportsText),
+          );
+        }
+        const imported = importRule.styleSheet;
+        if (importActivity === false || !imported || imported.disabled) {
+          continue;
+        }
+        try {
+          visitRules(imported.cssRules, importActivity);
+        } catch {
+          unreadable();
+        }
+        continue;
+      }
+
+      visit(rule, activity);
+      if ("cssRules" in rule) {
+        try {
+          visitRules((rule as CSSGroupingRule).cssRules, activity);
+        } catch {
+          unreadable();
+        }
+      }
+    }
+  };
+
+  for (const sheet of Array.from(document.styleSheets)) {
+    if (sheet.disabled) continue;
+    const activity = mediaActivity(sheet.media.mediaText);
+    if (activity === false) continue;
+    try {
+      visitRules(sheet.cssRules, activity);
+    } catch {
+      unreadable();
+    }
+  }
+}
+
 function authoredKeyframes(animation: CSSAnimation): AuthoredKeyframe[] {
   const effect = animation.effect;
   const document =
@@ -1620,34 +1722,32 @@ function authoredKeyframes(animation: CSSAnimation): AuthoredKeyframe[] {
   if (!document) return [];
 
   let match: CSSKeyframesRule | null = null;
-  const visit = (rules: CSSRuleList) => {
-    for (const rule of Array.from(rules)) {
+  let matchIsKnown = false;
+  visitActiveCssRules(
+    document,
+    (rule, activity) => {
       if (
-        rule.type === CSSRule.KEYFRAMES_RULE &&
-        (rule as CSSKeyframesRule).name === animation.animationName
+        rule.type !== CSSRule.KEYFRAMES_RULE ||
+        (rule as CSSKeyframesRule).name !== animation.animationName
       ) {
-        match = rule as CSSKeyframesRule;
-      } else if ("cssRules" in rule) {
-        try {
-          visit((rule as CSSGroupingRule).cssRules);
-        } catch { // coercion-ok: inaccessible grouping rules fall back to computed keyframes.
-          // Cross-origin grouping rules cannot be inspected; use computed
-          // keyframes as a fallback if the authored declaration is hidden.
-        }
+        return;
       }
-    }
-  };
-
-  for (const sheet of Array.from(document.styleSheets)) {
-    try {
-      visit(sheet.cssRules);
-    } catch { // coercion-ok: unreadable stylesheets fall back to computed keyframes.
-      // Cross-origin stylesheets do not expose their rules.
-    }
-  }
+      if (activity === true) {
+        match = rule as CSSKeyframesRule;
+        matchIsKnown = true;
+      } else {
+        match = null;
+        matchIsKnown = false;
+      }
+    },
+    () => {
+      match = null;
+      matchIsKnown = false;
+    },
+  );
 
   const matchedRule = match as CSSKeyframesRule | null;
-  if (!matchedRule) return [];
+  if (!matchIsKnown || !matchedRule) return [];
   return Array.from(matchedRule.cssRules).flatMap((rule: CSSRule) =>
     rule.type === CSSRule.KEYFRAME_RULE
       ? [
@@ -1687,19 +1787,15 @@ function serializeKeyframes(
 ): string | null {
   const effect = animation.effect;
   if (!(effect instanceof KeyframeEffect) || properties.size === 0) return null;
-  const frames = effect.getKeyframes();
   if (authored.length > 0) {
-    const rules = authored.flatMap((authoredFrame, index) => {
-      const computedFrame = frames[index];
+    const rules = authored.flatMap((authoredFrame) => {
       const declarations = [...properties].flatMap((property) => {
-        const value =
-          authoredFrame.style.getPropertyValue(property) ||
-          (computedFrame ? keyframeValue(computedFrame, property) : null);
+        const value = authoredFrame.style.getPropertyValue(property);
         return value === null || value === "" ? [] : [`${property}: ${value};`];
       });
-      const easing =
-        authoredFrame.style.getPropertyValue("animation-timing-function") ||
-        computedFrame?.easing;
+      const easing = authoredFrame.style.getPropertyValue(
+        "animation-timing-function",
+      );
       if (easing && easing !== "linear") {
         declarations.push(`animation-timing-function: ${easing};`);
       }
@@ -1708,6 +1804,7 @@ function serializeKeyframes(
     });
     return rules.length ? `@keyframes ${name} { ${rules.join(" ")} }` : null;
   }
+  const frames = effect.getKeyframes();
   const rules = frames.flatMap((frame) => {
     const record = frame as Keyframe & { computedOffset?: number };
     const offset =
@@ -1829,14 +1926,167 @@ function copyAnimationEnvironment(
   const parentComputed = source.parentElement
     ? window.getComputedStyle(source.parentElement)
     : null;
+  const localValues = new Map<string, { value: string; priority: string }>();
+  const uncertainLocalProperties = new Set<string>();
+  const registeredPropertySyntax = new Map<string, string>();
+  let unreadableStylesheet = false;
+  let probeIndex = 0;
+  const probeValueForSyntax = (
+    syntax: string,
+    index: number,
+  ): string | null => {
+    const marker = `agent-native-crop-probe-${index}`;
+    for (const option of syntax.split("|")) {
+      const trimmed = option.trim();
+      const multiplier = trimmed.endsWith("#")
+        ? ", "
+        : trimmed.endsWith("+")
+          ? " "
+          : "";
+      const type = multiplier ? trimmed.slice(0, -1).trim() : trimmed;
+      const valueByType: Record<string, string> = {
+        "*": marker,
+        "<angle>": `${91357 + index}deg`,
+        "<basic-shape>": `inset(${91357 + index}px)`,
+        "<color>": `rgb(${index % 255} 1 2 / 0.5)`,
+        "<custom-ident>": marker,
+        "<image>": `linear-gradient(rgb(${index % 255} 1 2), rgb(3 4 5))`,
+        "<integer>": `${91357 + index}`,
+        "<length>": `${91357 + index}px`,
+        "<length-percentage>": `${91357 + index}px`,
+        "<number>": `${91357 + index}`,
+        "<percentage>": `${91357 + index}%`,
+        "<position>": `${91357 + index}px ${91358 + index}px`,
+        "<resolution>": `${91357 + index}dpi`,
+        "<string>": `"${marker}"`,
+        "<time>": `${91357 + index}s`,
+        "<transform-function>": `translateX(${91357 + index}px)`,
+        "<transform-list>": `translateX(${91357 + index}px)`,
+        "<url>": `url("${marker}")`,
+      };
+      const value = valueByType[type];
+      if (value) return multiplier ? `${value}${multiplier}${value}` : value;
+    }
+    return null;
+  };
+  visitActiveCssRules(
+    source.ownerDocument,
+    (rule, activity) => {
+      if (!("name" in rule) || !("syntax" in rule)) return;
+      const propertyRule = rule as CSSRule & { name: string; syntax: string };
+      if (!customProperties.has(propertyRule.name)) return;
+      if (activity !== true) {
+        uncertainLocalProperties.add(propertyRule.name);
+        return;
+      }
+      const previous = registeredPropertySyntax.get(propertyRule.name);
+      if (previous && previous !== propertyRule.syntax) {
+        uncertainLocalProperties.add(propertyRule.name);
+        registeredPropertySyntax.delete(propertyRule.name);
+      } else if (!uncertainLocalProperties.has(propertyRule.name)) {
+        registeredPropertySyntax.set(propertyRule.name, propertyRule.syntax);
+      }
+    },
+    () => {
+      unreadableStylesheet = true;
+    },
+  );
+  const winningLocalValue = (
+    property: string,
+    style: CSSStyleDeclaration,
+  ): { value: string; priority: string } | null => {
+    const value = style.getPropertyValue(property);
+    if (!value) return null;
+    const priority = style.getPropertyPriority(property);
+    const originalCssText = style.cssText;
+    const index = probeIndex++;
+    const syntax = registeredPropertySyntax.get(property);
+    const marker = syntax
+      ? probeValueForSyntax(syntax, index)
+      : `agent-native-crop-probe-${index}`;
+    if (!marker) {
+      uncertainLocalProperties.add(property);
+      return null;
+    }
+    try {
+      // Ask the browser which matching declaration wins the cascade instead
+      // of treating the last source-order rule as the effective value. For
+      // registered properties, normalize a valid probe through the browser
+      // because arbitrary marker text may be rejected by its declared syntax.
+      style.setProperty(property, marker, priority);
+      let expected = marker;
+      if (syntax) {
+        const sourceCssText = source.style.cssText;
+        source.style.setProperty(property, marker, "important");
+        expected = window
+          .getComputedStyle(source)
+          .getPropertyValue(property)
+          .trim();
+        source.style.cssText = sourceCssText;
+      }
+      return window
+        .getComputedStyle(source)
+        .getPropertyValue(property)
+        .trim() === expected
+        ? { value, priority }
+        : null;
+    } catch {
+      uncertainLocalProperties.add(property);
+      return null;
+    } finally {
+      try {
+        style.cssText = originalCssText;
+      } catch {
+        uncertainLocalProperties.add(property);
+      }
+    }
+  };
+  visitActiveCssRules(
+    source.ownerDocument,
+    (rule, activity) => {
+      if (rule.type !== CSSRule.STYLE_RULE) return;
+      const styleRule = rule as CSSStyleRule;
+      if (!source.matches(styleRule.selectorText)) return;
+      for (const property of customProperties) {
+        if (!property.startsWith("--")) continue;
+        if (!styleRule.style.getPropertyValue(property)) continue;
+        if (activity !== true) {
+          uncertainLocalProperties.add(property);
+          continue;
+        }
+        const local = winningLocalValue(property, styleRule.style);
+        if (local) localValues.set(property, local);
+      }
+    },
+    () => {
+      unreadableStylesheet = true;
+    },
+  );
+  for (const property of customProperties) {
+    if (!property.startsWith("--")) continue;
+    const local = winningLocalValue(property, source.style);
+    if (local) localValues.set(property, local);
+  }
   for (const property of customProperties) {
     if (!property.startsWith("--")) continue;
     const value = computed.getPropertyValue(property);
     const inheritedValue = parentComputed?.getPropertyValue(property) ?? "";
     // The frame becomes a sibling of the image. Let inherited tokens keep
     // flowing from their original ancestor instead of freezing them inline.
-    if (value && value !== inheritedValue)
+    const local = localValues.get(property);
+    const localInherits =
+      local &&
+      /^(inherit|unset|revert|revert-layer)$/i.test(local.value.trim());
+    if (local && !localInherits) {
+      frame.style.setProperty(property, local.value, local.priority);
+    } else if (
+      value &&
+      (value !== inheritedValue ||
+        unreadableStylesheet ||
+        uncertainLocalProperties.has(property))
+    ) {
       frame.style.setProperty(property, value);
+    }
   }
   for (const property of [
     "color",
@@ -4320,14 +4570,19 @@ export function setSlideObjectRotation(
   const priority = style.getPropertyPriority("transform");
   const before = element.getAttribute("style");
   const write = (value: string) => {
+    const finalStyle = element.ownerDocument.createElement("div").style;
+    if (before !== null) finalStyle.cssText = before;
+    finalStyle.setProperty("transform", value, priority);
+
     // Read back with transitions off: one would still paint the old rotation.
     style.setProperty("transition", "none", "important");
     style.setProperty("transform", value, priority);
     const paints = slideObjectPaintsRotation(element, target);
-    // Put back in one step with the transform unchanged since that read, so no
-    // transition starts from it.
-    restoreStyleAttribute(element, before);
-    if (paints) style.setProperty("transform", value, priority);
+    // Replace the probe declarations as one style update. The transform is
+    // already at its final value, so restoring the authored transitions cannot
+    // start a transition from the original rotation.
+    if (paints) element.setAttribute("style", finalStyle.cssText);
+    else restoreStyleAttribute(element, before);
     return paints;
   };
 
