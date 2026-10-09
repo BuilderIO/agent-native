@@ -68,7 +68,7 @@ import {
   type StyleDiff,
 } from "./lib/metrics.ts";
 import { isRetryableInfraError } from "./retry-infra.ts";
-import { readValueOption } from "./run-options.ts";
+import { authoringFilterError, readValueOption } from "./run-options.ts";
 import {
   ActionTransportError,
   ActionRequestTimeoutError,
@@ -193,6 +193,11 @@ const authoringSourceFilter = opt("--authoring-source");
 const authoringFlowFilter = opt("--authoring-flow");
 const authoringCaseFilter = opt("--authoring-case");
 const authoringFlows = ["slash", "shortcut", "list", "paste"] as const;
+const incompatibleAuthoringFilters = authoringFilterError(
+  authoringSourceFilter,
+  authoringFlowFilter,
+);
+if (incompatibleAuthoringFilters) fatal(incompatibleAuthoringFilters);
 if ((authoringSourceFilter || authoringFlowFilter) && !authoringCorpusOnly) {
   fatal("--authoring-source and --authoring-flow require --authoring-corpus");
 }
