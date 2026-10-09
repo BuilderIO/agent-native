@@ -1450,6 +1450,56 @@ describe("getOnboardingJourney", () => {
     expect(single).not.toHaveProperty("notes");
   });
 
+  it("stops large event reads after two bounded pages and nulls follow-up counts", async () => {
+    const pages = [
+      Array.from({ length: 4_000 }, (_, index) =>
+        eventRow(`budget-a-${index}`, "signup", index),
+      ),
+      Array.from({ length: 4_000 }, (_, index) =>
+        eventRow(`budget-b-${index}`, "signup", index + 4_000),
+      ),
+    ];
+    const now = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.parse("2026-10-09T12:00:00.000Z"));
+    mocks.queryFirstPartyAnalytics.mockImplementation(async () => ({
+      rows: pages.shift() ?? [],
+      schema: [],
+    }));
+    mocks.listJourneyRecordings.mockResolvedValue({
+      recordings: [],
+      complete: true,
+    });
+
+    try {
+      const tree = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        dateTo: "2026-10-09",
+        maxEventRows: 200_000,
+      })) as JourneyTree;
+
+      expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(2);
+      expect(tree.coverage.truncated).toBe(true);
+      expect(tree.notes?.join(" ")).toMatch(
+        /stopped after 2 BigQuery pages to bound query cost/,
+      );
+      expect(tree.followUp).toMatchObject({
+        status: "incomplete",
+        incompleteReason: "journey_event_read_truncated",
+        laterRecordedActivityWithinWindow: {
+          total: null,
+          byTerminalStepKey: null,
+        },
+        noLaterRecordedActivityWithinWindow: {
+          total: null,
+          byTerminalStepKey: null,
+        },
+      });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("counts rows it cannot read, and says so", async () => {
     mocks.queryFirstPartyAnalytics.mockResolvedValue({
       rows: [
@@ -1536,9 +1586,11 @@ describe("getOnboardingJourney", () => {
       name: "OnboardingJourneyReadError",
       stage: "journey_events",
       failureKind: "backend_error",
+      safeErrorType: "bigquery_backend",
       backendStatus: 400,
       backendReason: "invalid_query",
       backendOperation: "submit",
+      page: 1,
     });
   });
 

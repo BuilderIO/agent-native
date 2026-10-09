@@ -267,6 +267,37 @@ describe("onboarding journey events SQL", () => {
     }
   });
 
+  it("avoids an unused identity-bridge scan while keeping session email filters", async () => {
+    await setup();
+    await seedSessions();
+    const window = observation();
+    const journeySql = buildOnboardingJourneyEventsSql(
+      filters(),
+      { limit: 10, offset: 0 },
+      window,
+    );
+    const sessionFollowupSql = buildOnboardingJourneyFollowupSql(
+      filters(),
+      [
+        {
+          sessionId: "normal",
+          stepKey: "step:role",
+          tsMs: Date.parse(`${today}T12:00:04.000Z`),
+        },
+      ],
+      window,
+    );
+
+    for (const sql of [journeySql, sessionFollowupSql]) {
+      expect(sql).not.toContain("auth_identity_bridge");
+      expect(sql).not.toContain("funnel_user_key");
+      expect(sql).toContain("funnel_user_email");
+      expect(sql.match(/FROM analytics_events/g)).toHaveLength(1);
+    }
+
+    expect(sessionsOf(await run())).toEqual(["design", "normal"]);
+  });
+
   it("keeps template-like terminal values literal and aggregates activity once per session", async () => {
     await setup();
     const sql = buildOnboardingJourneyFollowupSql(

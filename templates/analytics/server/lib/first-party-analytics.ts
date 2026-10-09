@@ -52,6 +52,7 @@ import {
   queryOutcomeFromError,
   recordFirstPartyAnalyticsQueryPressure,
 } from "./first-party-analytics-health.js";
+import { firstPartyEventPushdownPredicates } from "./first-party-analytics-pushdown.js";
 import { upsertFirstPartyAnalyticsRollups } from "./first-party-analytics-rollups.js";
 import { validateAnalyticsSqlFunctions } from "./first-party-analytics-sql-policy.js";
 import { reserveFirstPartyPostgresEventVolume } from "./first-party-analytics-volume.js";
@@ -1068,6 +1069,7 @@ function scopedTableSource(
   today: string,
   parameterOffset: number,
   includeTestIdentities: boolean,
+  eventPushdownPredicates: string[] = [],
 ): {
   sql: string;
   args: Array<string | null>;
@@ -1076,6 +1078,10 @@ function scopedTableSource(
   const testIdentityFilter =
     identityColumn && !includeTestIdentities
       ? ` AND NOT ${testIdentitySql(identityColumn)}`
+      : "";
+  const eventPushdownFilter =
+    tableName === "analytics_events" && eventPushdownPredicates.length > 0
+      ? ` AND (${eventPushdownPredicates.map((predicate) => `(${predicate})`).join(" OR ")})`
       : "";
   if (FIRST_PARTY_ROLLUP_TABLES.has(tableName)) {
     if (scope.credentialScope === "org" && !scope.orgId) {
@@ -1118,13 +1124,13 @@ function scopedTableSource(
     const orgParameter = parameterOffset + 1;
     if (scope.credentialScope === "org") {
       return {
-        sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${testIdentityFilter})`,
+        sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${testIdentityFilter})`,
         args: [scope.orgId, today],
       };
     }
     const ownerParameter = parameterOffset + 3;
     return {
-      sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${testIdentityFilter} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)}${testIdentityFilter})`,
+      sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${testIdentityFilter} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)}${eventPushdownFilter}${testIdentityFilter})`,
       args: [scope.orgId, today, ownerEmail, today],
     };
   }
@@ -1132,7 +1138,7 @@ function scopedTableSource(
     return { sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`, args: [] };
   }
   return {
-    sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)}${testIdentityFilter})`,
+    sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)}${eventPushdownFilter}${testIdentityFilter})`,
     args: [ownerEmail, today],
   };
 }
@@ -1271,6 +1277,22 @@ export function scopedAnalyticsSql(
   ) {
     throw new Error("Query uses a reserved first-party analytics CTE name");
   }
+  const rawEventSources = query.sources.filter(
+    (source) => !source.cte && source.name === "analytics_events",
+  );
+  const sourcePredicates = rawEventSources.map((source) =>
+    firstPartyEventPushdownPredicates(configuredSql, source.start, {
+      allowDirectSource: true,
+    }),
+  );
+  const eventPushdownPredicates =
+    sourcePredicates.length > 0 &&
+    sourcePredicates.every((predicates) => predicates.length > 0)
+      ? sourcePredicates.map(
+          (predicates) =>
+            `(${predicates.map((predicate) => `(${predicate})`).join(" AND ")})`,
+        )
+      : [];
   const scopedEvents = hasRawEvents
     ? scopedTableSource(
         "analytics_events",
@@ -1278,6 +1300,7 @@ export function scopedAnalyticsSql(
         today,
         args.length,
         includeTestIdentities,
+        eventPushdownPredicates,
       )
     : null;
   if (scopedEvents) args.push(...scopedEvents.args);

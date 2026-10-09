@@ -1181,6 +1181,53 @@ describe("scopedAnalyticsSql", () => {
     ]);
   });
 
+  it("pushes each immutable event source predicate before BigQuery deduplication", async () => {
+    const { renderFirstPartyAnalyticsBigQuerySql } = await vi.importActual<
+      typeof import("./first-party-analytics-backend.js")
+    >("./first-party-analytics-backend.js");
+    const scoped = scopedAnalyticsSql(
+      "SELECT e.id FROM analytics_events e WHERE e.event_name = 'signup' UNION ALL SELECT e.id FROM analytics_events e WHERE e.event_name = 'onboarding_step_viewed'",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      "2026-07-01",
+    );
+
+    expect(scoped.sql.match(/event_name = '/g)).toHaveLength(6);
+    expect(scoped.sql.split("AND (((")).toHaveLength(3);
+
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      scoped.sql,
+      scoped.args,
+      {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      },
+    );
+    const sources = [
+      ...rendered.matchAll(
+        /FROM `builder-3b0a2\.analytics\.first_party_analytics_events_raw` WHERE ([\s\S]*?) QUALIFY ROW_NUMBER\(\)/g,
+      ),
+    ];
+    expect(sources).toHaveLength(2);
+    for (const source of sources) {
+      expect(source[1]).toContain("event_name = 'signup'");
+      expect(source[1]).toContain("event_name = 'onboarding_step_viewed'");
+    }
+  });
+
+  it("does not push predicates when any event source is unfiltered", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT a.id FROM analytics_events a WHERE a.event_name = 'signup' UNION ALL SELECT b.id FROM analytics_events b",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      "2026-07-01",
+    );
+
+    expect(scoped.sql.match(/event_name = '/g)).toHaveLength(1);
+    expect(scoped.sql).not.toContain("AND (((event_name =");
+  });
+
   it("keeps org-scoped reads off personal and legacy owner rows", () => {
     const scoped = scopedAnalyticsSql(
       "SELECT event_date, COUNT(*) AS count FROM analytics_events GROUP BY event_date",

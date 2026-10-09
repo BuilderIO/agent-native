@@ -1091,37 +1091,47 @@ export async function runQuery(
   let jobSubmissionResponseReceived = false;
   let token: string | null = null;
   let cancelJob = false;
-  let submissionTimeoutSignal: AbortSignal | null = null;
+  let submissionTimedOut = false;
   try {
-    token = await getAccessToken();
+    token = await getAccessToken(signal);
     throwIfAborted(signal);
     jobId = `agent_native_${randomUUID().replace(/-/g, "")}`;
     jobCreatedAfter = Date.now();
     const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
-    submissionTimeoutSignal = AbortSignal.timeout(JOB_SUBMISSION_TIMEOUT_MS);
+    const submissionTimeoutController = new AbortController();
+    const submissionTimeoutAbortSignal = submissionTimeoutController.signal;
+    const submissionTimeout = setTimeout(() => {
+      submissionTimedOut = true;
+      submissionTimeoutController.abort();
+    }, JOB_SUBMISSION_TIMEOUT_MS);
 
     // Keep submission alive long enough to read the job location for cancellation.
-    const res = await fetch(url, {
-      method: "POST",
-      signal: signal
-        ? AbortSignal.any([signal, submissionTimeoutSignal])
-        : submissionTimeoutSignal,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        jobReference: { projectId, jobId },
-        configuration: {
-          query: {
-            query: cacheableSql,
-            useLegacySql: false,
-            maximumBytesBilled: String(maxBytesBilled),
-            ...(forceRefresh ? { useQueryCache: false } : {}),
-          },
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        signal: signal
+          ? AbortSignal.any([signal, submissionTimeoutAbortSignal])
+          : submissionTimeoutAbortSignal,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
         },
-      }),
-    });
+        body: JSON.stringify({
+          jobReference: { projectId, jobId },
+          configuration: {
+            query: {
+              query: cacheableSql,
+              useLegacySql: false,
+              maximumBytesBilled: String(maxBytesBilled),
+              ...(forceRefresh ? { useQueryCache: false } : {}),
+            },
+          },
+        }),
+      });
+    } finally {
+      clearTimeout(submissionTimeout);
+    }
 
     if (!res.ok) {
       const text = await res.text();
@@ -1273,7 +1283,7 @@ export async function runQuery(
     if (cacheFence) {
       await releaseCacheQuery(cacheKey, cacheFence);
     }
-    if (submissionTimeoutSignal?.aborted && !signal?.aborted) {
+    if (submissionTimedOut && !signal?.aborted) {
       throw new BigQueryQueryTimeoutError();
     }
     throw error;

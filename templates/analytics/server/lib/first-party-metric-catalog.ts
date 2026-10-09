@@ -1055,17 +1055,20 @@ function buildOnboardingEventsCte(
     dateRangeFilter?: string;
     observationCutoffSql?: string;
     receivedAtCutoffSql?: string;
+    includeIdentityBridge?: boolean;
   } = {},
 ): string {
   const dateRangeFilter =
     options.dateRangeFilter ?? DASHBOARD_TIME_RANGE_FILTER;
+  const includeIdentityBridge = options.includeIdentityBridge !== false;
   const observationCutoffFilter = options.observationCutoffSql
     ? `\n      AND e.timestamp::timestamptz < ${options.observationCutoffSql}`
     : "";
   const receivedAtCutoffFilter = options.receivedAtCutoffSql
     ? `\n      AND e.received_at::timestamptz < ${options.receivedAtCutoffSql}`
     : "";
-  return `WITH auth_identity_bridge AS (
+  const identityBridgeCte = includeIdentityBridge
+    ? `auth_identity_bridge AS (
   SELECT linked_email, MIN(identities.auth_user_id) AS auth_user_id
   FROM (
     SELECT lower(COALESCE(
@@ -1082,25 +1085,33 @@ function buildOnboardingEventsCte(
     AND identities.auth_user_id IS NOT NULL
   GROUP BY linked_email
   HAVING COUNT(DISTINCT identities.auth_user_id) = 1
-), scoped_onboarding_events AS (
-  SELECT e.*,
-    COALESCE(
+), `
+    : "";
+  const identityKeyProjection = includeIdentityBridge
+    ? `COALESCE(
       NULLIF(e.properties::jsonb ->> 'auth_user_id', ''),
       auth_identity_bridge.auth_user_id,
       NULLIF(e.user_key, ''),
       NULLIF(e.user_id, ''),
       NULLIF(e.anonymous_id, '')
-    ) AS funnel_user_key,
+    ) AS funnel_user_key,`
+    : "";
+  const identityBridgeJoin = includeIdentityBridge
+    ? `LEFT JOIN auth_identity_bridge ON auth_identity_bridge.linked_email = lower(COALESCE(
+    CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
+    CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END
+  ))`
+    : "";
+  return `WITH ${identityBridgeCte}scoped_onboarding_events AS (
+  SELECT e.*,
+    ${identityKeyProjection}
     COALESCE(
       CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END,
       CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
       CASE WHEN NULLIF(e.properties::jsonb ->> 'auth_user_id', '') LIKE '%@%.%' THEN e.properties::jsonb ->> 'auth_user_id' END
     ) AS funnel_user_email
   FROM analytics_events e
-  LEFT JOIN auth_identity_bridge ON auth_identity_bridge.linked_email = lower(COALESCE(
-    CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
-    CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END
-  ))
+  ${identityBridgeJoin}
   WHERE ${dateRangeFilter}${observationCutoffFilter}${receivedAtCutoffFilter}
     AND ${DASHBOARD_APP_FILTER}
     AND ${FIRST_PARTY_TEMPLATE_FILTER}
@@ -1554,7 +1565,7 @@ FROM journey_events e
 ORDER BY e.journey_kind, e.session_id, e.timestamp, e.id
 LIMIT {{journeyLimit}} OFFSET {{journeyOffset}}`;
 
-const ONBOARDING_JOURNEY_EVENTS_SQL = `${ONBOARDING_EVENTS_CTE}${ONBOARDING_JOURNEY_SCOPE_CTES}${ONBOARDING_JOURNEY_EVENTS_SUFFIX}`;
+const ONBOARDING_JOURNEY_EVENTS_SQL = `${buildOnboardingEventsCte({ includeIdentityBridge: false })}${ONBOARDING_JOURNEY_SCOPE_CTES}${ONBOARDING_JOURNEY_EVENTS_SUFFIX}`;
 
 const ONBOARDING_JOURNEY_DATE_RANGE_FILTER =
   DASHBOARD_TIME_RANGE_FILTER.replace(
@@ -1703,6 +1714,7 @@ export function buildOnboardingJourneyEventsSql(
     const cte = buildOnboardingEventsCte({
       dateRangeFilter: ONBOARDING_JOURNEY_DATE_RANGE_FILTER,
       observationCutoffSql: "NULLIF('{{observationCutoff}}', '')::timestamptz",
+      includeIdentityBridge: false,
       ...(options.freezeReceivedAt
         ? {
             receivedAtCutoffSql:
@@ -1759,6 +1771,7 @@ export function buildOnboardingJourneyFollowupSql(
   const baseCte = buildOnboardingEventsCte({
     dateRangeFilter: ONBOARDING_JOURNEY_DATE_RANGE_FILTER,
     observationCutoffSql: "NULLIF('{{observationCutoff}}', '')::timestamptz",
+    includeIdentityBridge: false,
   });
   const query = `${baseCte}${ONBOARDING_JOURNEY_SCOPE_CTES}, cohort_sessions AS (
   SELECT DISTINCT i.session_id

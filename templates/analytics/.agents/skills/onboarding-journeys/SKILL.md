@@ -95,8 +95,8 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   step. `laterRecordedActivityWithinWindow` counts sessions with any later
   native Analytics event in the same session; `noLaterRecordedActivityWithinWindow`
   counts the remaining sessions. The read applies the same authenticated
-  user/org scope, date window, app, identity bridge, test exclusion, and
-  Builder.io email filter as the journey read. It uses one
+  user/org scope, date window, app, session-level email identity, test exclusion,
+  and Builder.io email filter as the journey read. It uses one
   frozen `observationCutoff` for every event page and the single aggregate
   query. `observationFollowupDurationMs`
   summarizes the time from each terminal selected step to that cutoff.
@@ -106,10 +106,12 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   session IDs or member identity keys used internally. The consistency field
   reports `may_have_shifted` when the event read uses multiple `OFFSET` pages;
   a late-arriving event can change page membership inside a historical window
-  too. If either read truncates, page boundaries may have shifted, or the
-  terminal cohort cannot be covered in one query under the 800,000-character
-  SQL limit or 50,000-token parser limit, `status` is `incomplete` and all new
-  cohort counts and follow-up duration are `null`; `incompleteReason`
+  too. The action caps event reads at two 4,000-row BigQuery pages to bound
+  total query cost. If either read truncates, page boundaries may have shifted,
+  or the terminal cohort cannot be covered in one query under the
+  800,000-character SQL limit or 50,000-token parser limit, `status` is
+  `incomplete` and all new cohort counts and follow-up duration are `null`;
+  `incompleteReason`
   identifies the limiting read. Do not report percentages from that partial
   result. Existing journey counts and denominators remain independent of this
   follow-up read.

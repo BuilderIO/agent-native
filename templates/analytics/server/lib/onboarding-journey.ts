@@ -48,6 +48,7 @@ import {
 // Both backends cap a query result at 5,000 rows; stay under it so a full page
 // is never mistaken for a cut one.
 const EVENT_PAGE_ROWS = 4_000;
+const MAX_ONBOARDING_EVENT_READ_PAGES = 2;
 const MAX_ONBOARDING_JOURNEY_FOLLOWUP_TERMINALS = 2_000;
 const MAX_FOLLOWUP_QUERY_CHARS = 800_000;
 const MAX_FOLLOWUP_QUERY_TOKENS = 50_000;
@@ -62,14 +63,37 @@ export type OnboardingJourneyReadFailureKind =
   | "cost_limited"
   | "query_error";
 
+type OnboardingJourneyReadErrorType =
+  | "bigquery_backend"
+  | "bigquery_cost_limit"
+  | "bigquery_timeout"
+  | "abort"
+  | "type_error"
+  | "error"
+  | "non_error";
+
+function onboardingJourneyReadErrorType(
+  error: unknown,
+): OnboardingJourneyReadErrorType {
+  if (error instanceof BigQueryMaximumBytesBilledError)
+    return "bigquery_cost_limit";
+  if (error instanceof BigQueryQueryTimeoutError) return "bigquery_timeout";
+  if (error instanceof BigQueryBackendError) return "bigquery_backend";
+  if (error instanceof Error && error.name === "AbortError") return "abort";
+  if (error instanceof TypeError) return "type_error";
+  return error instanceof Error ? "error" : "non_error";
+}
+
 export class OnboardingJourneyReadError extends Error {
   readonly stage = "journey_events" as const;
   readonly failureKind: OnboardingJourneyReadFailureKind;
   readonly backendStatus: number | null;
   readonly backendReason: BigQueryBackendReason | null;
   readonly backendOperation: BigQueryBackendError["operation"] | null;
+  readonly safeErrorType: OnboardingJourneyReadErrorType;
+  readonly page: number | null;
 
-  constructor(error: unknown) {
+  constructor(error: unknown, page: number | null = null) {
     const failure = onboardingJourneyFailureDetails(error);
     super("The scoped onboarding journey event query failed");
     this.name = "OnboardingJourneyReadError";
@@ -77,6 +101,8 @@ export class OnboardingJourneyReadError extends Error {
     this.backendStatus = failure.backendStatus;
     this.backendReason = failure.backendReason;
     this.backendOperation = failure.backendOperation;
+    this.safeErrorType = onboardingJourneyReadErrorType(error);
+    this.page = page;
   }
 }
 
@@ -412,6 +438,7 @@ interface EventRead {
   lastSessionDroppedFor: JourneyEventRow["journeyKind"] | null;
   pages: number;
   paginationConsistency: "stable" | "may_have_shifted";
+  truncationReason: "max_event_rows" | "backend_result" | "page_budget" | null;
 }
 
 async function readJourneyEvents(
@@ -423,6 +450,7 @@ async function readJourneyEvents(
 ): Promise<EventRead> {
   const raw: Record<string, unknown>[] = [];
   let truncated = false;
+  let truncationReason: EventRead["truncationReason"] = null;
   let truncatedAt: JourneyEventRow["journeyKind"] | null = null;
   let overflowSessionId: string | null = null;
   let pages = 0;
@@ -430,34 +458,41 @@ async function readJourneyEvents(
   for (;;) {
     // One row past the budget tells a full read from a cut one.
     const limit = Math.min(EVENT_PAGE_ROWS, maxEventRows + 1 - raw.length);
-    const page = await queryFirstPartyAnalytics(
-      buildOnboardingJourneyEventsSql(
-        filters,
+    let page: Awaited<ReturnType<typeof queryFirstPartyAnalytics>>;
+    try {
+      page = await queryFirstPartyAnalytics(
+        buildOnboardingJourneyEventsSql(
+          filters,
+          {
+            limit,
+            offset: raw.length,
+          },
+          observation,
+          { freezeReceivedAt },
+        ),
+        scope,
         {
-          limit,
-          offset: raw.length,
+          cache: true,
+          timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
+          maxBytesBilled: ONBOARDING_EVENTS_MAX_BYTES_BILLED,
+          eventDateRange: onboardingJourneyEventDateRange(filters, observation),
         },
-        observation,
-        { freezeReceivedAt },
-      ),
-      scope,
-      {
-        cache: true,
-        timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
-        maxBytesBilled: ONBOARDING_EVENTS_MAX_BYTES_BILLED,
-        eventDateRange: onboardingJourneyEventDateRange(filters, observation),
-      },
-    );
+      );
+    } catch (error) {
+      throw new OnboardingJourneyReadError(error, pages + 1);
+    }
     pages += 1;
     raw.push(...page.rows);
     rowsFetched += page.rows.length;
     if (page.truncated) {
       truncated = true;
+      truncationReason = "backend_result";
       break;
     }
     if (page.rows.length < limit) break;
     if (raw.length > maxEventRows) {
       truncated = true;
+      truncationReason = "max_event_rows";
       const overflowKind = raw[maxEventRows]?.journey_kind;
       truncatedAt =
         overflowKind === "onboarding" || overflowKind === "standalone_setup"
@@ -465,6 +500,11 @@ async function readJourneyEvents(
           : null;
       overflowSessionId = text(raw[maxEventRows]?.session_id);
       raw.length = maxEventRows;
+      break;
+    }
+    if (pages >= MAX_ONBOARDING_EVENT_READ_PAGES) {
+      truncated = true;
+      truncationReason = "page_budget";
       break;
     }
   }
@@ -510,6 +550,7 @@ async function readJourneyEvents(
     lastSessionDroppedFor,
     pages,
     paginationConsistency: pages > 1 ? "may_have_shifted" : "stable",
+    truncationReason,
   };
 }
 
@@ -1447,6 +1488,7 @@ export async function getOnboardingJourney(
       args.followUpMode === "person",
     );
   } catch (error) {
+    if (error instanceof OnboardingJourneyReadError) throw error;
     throw new OnboardingJourneyReadError(error);
   }
   const { sessions, terminalSteps, sessionsWithoutSteps } = groupSessions(
@@ -1557,14 +1599,20 @@ export async function getOnboardingJourney(
     : null;
 
   const notes: string[] = [];
+  const eventReadLimit =
+    read.truncationReason === "page_budget"
+      ? `Event read stopped after ${MAX_ONBOARDING_EVENT_READ_PAGES} BigQuery pages to bound query cost`
+      : read.truncationReason === "backend_result"
+        ? "BigQuery returned an incomplete event page"
+        : `Event read stopped at maxEventRows=${args.maxEventRows}`;
   if (read.onboardingTruncated) {
     notes.push(
-      `Event read stopped at maxEventRows=${args.maxEventRows} while reading onboarding events; onboarding counts are a partial sample${read.lastSessionDroppedFor === "onboarding" ? " and the last onboarding session read was left out" : ""}.`,
+      `${eventReadLimit} while reading onboarding events; onboarding counts are a partial sample${read.lastSessionDroppedFor === "onboarding" ? " and the last onboarding session read was left out" : ""}.`,
     );
   }
   if (read.standaloneSetupTruncated) {
     notes.push(
-      `The event read reached maxEventRows=${args.maxEventRows}; standalone setup results may be incomplete or absent${read.lastSessionDroppedFor === "standalone_setup" ? ", and the last standalone setup session read was left out" : ""}.`,
+      `${eventReadLimit}; standalone setup results may be incomplete or absent${read.lastSessionDroppedFor === "standalone_setup" ? ", and the last standalone setup session read was left out" : ""}.`,
     );
   }
   if (depthTruncated || standaloneDepthTruncated) {

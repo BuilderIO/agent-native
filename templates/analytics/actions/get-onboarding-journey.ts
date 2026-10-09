@@ -217,15 +217,18 @@ export default defineAction({
           error.backendOperation !== null
             ? ` BigQuery phase: ${error.backendOperation ?? "unavailable"}; status: ${error.backendStatus ?? "unavailable"}; reason: ${error.backendReason ?? "unavailable"}.`
             : "";
+        const failureContext = ` Event page: ${error.page ?? "unavailable"}; failure type: ${error.safeErrorType}.`;
         console.error("[get-onboarding-journey] failed", {
           stage: error.stage,
+          page: error.page,
           failureKind: error.failureKind,
+          failureType: error.safeErrorType,
           backendStatus: error.backendStatus,
           backendReason: error.backendReason,
           backendOperation: error.backendOperation,
         });
         fail(
-          `The scoped onboarding journey event read failed during ${error.stage}; no journey counts were returned.${backendDetail}`,
+          `The scoped onboarding journey event read failed during ${error.stage}; no journey counts were returned.${failureContext}${backendDetail}`,
           {
             errorCode: failureCode,
             statusCode: error.failureKind === "query_timeout" ? 504 : 502,

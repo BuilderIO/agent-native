@@ -327,6 +327,39 @@ describe("runQuery cancellation", () => {
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/cancel");
   });
 
+  it("keeps a delayed poll failure classified as a backend error", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/jobs")) {
+          const request = JSON.parse(
+            String(fetchMock.mock.calls[0]?.[1]?.body),
+          ) as { jobReference: { jobId: string; projectId: string } };
+          return jsonResponse({ jobReference: request.jobReference });
+        }
+        if (url.includes("/queries/agent_native_")) {
+          await vi.advanceTimersByTimeAsync(10_001);
+          return {
+            ok: false,
+            status: 403,
+            text: async () => JSON.stringify({ error: { message: "denied" } }),
+          } as Response;
+        }
+        return jsonResponse({});
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      runQuery("SELECT 1 AS delayed_poll_failure"),
+    ).rejects.toMatchObject({
+      name: "BigQueryBackendError",
+      operation: "poll",
+      backendStatus: 403,
+    });
+  });
+
   it("applies the caller's BigQuery billed-byte cap", async () => {
     const fetchMock = mockQueryJobs(
       jsonResponse({
@@ -494,13 +527,12 @@ describe("runQuery cancellation", () => {
   });
 
   it("bounds a stalled job submission and cancels a possibly accepted job", async () => {
+    vi.useFakeTimers();
     const cache = useCacheDatabase();
-    const submissionTimeoutController = new AbortController();
     const cancellationTimeoutController = new AbortController();
     const timeout = vi
       .spyOn(AbortSignal, "timeout")
       .mockImplementation((milliseconds) => {
-        if (milliseconds === 10_000) return submissionTimeoutController.signal;
         if (milliseconds === 5_000) return cancellationTimeoutController.signal;
         throw new Error(`Unexpected timeout: ${milliseconds}`);
       });
@@ -538,19 +570,21 @@ describe("runQuery cancellation", () => {
 
     const pending = runQuery("SELECT 1 AS stalled_job_submission_test");
     await submissionStarted;
+    const timeoutAssertion = expect(pending).rejects.toBeInstanceOf(
+      BigQueryQueryTimeoutError,
+    );
     const submissionSignal = fetchMock.mock.calls[0]?.[1]
       ?.signal as AbortSignal;
     expect(fetchMock).toHaveBeenLastCalledWith(
       expect.stringContaining("/jobs"),
       expect.objectContaining({ method: "POST" }),
     );
-    expect(submissionSignal).toBe(submissionTimeoutController.signal);
     expect(submissionSignal.aborted).toBe(false);
     expect([...cache.values()][0]?.refreshInProgress).toBe(true);
 
-    submissionTimeoutController.abort();
+    await vi.advanceTimersByTimeAsync(10_000);
     expect(submissionSignal.aborted).toBe(true);
-    await expect(pending).rejects.toBeInstanceOf(BigQueryQueryTimeoutError);
+    await timeoutAssertion;
 
     const cancellationRequest = fetchMock.mock.calls.find(([input]) =>
       String(input).includes("/cancel"),
@@ -563,7 +597,6 @@ describe("runQuery cancellation", () => {
       /\/projects\/test-project\/jobs\/agent_native_[a-f0-9]+\/cancel\?location=us-central1$/,
     );
     expect([...cache.values()][0]?.refreshInProgress).toBe(false);
-    expect(timeout).toHaveBeenCalledWith(10_000);
     expect(timeout).toHaveBeenCalledWith(5_000);
   });
 
