@@ -616,7 +616,7 @@ test.describe("landing page build", () => {
     }
   });
 
-  test("step 20/26: Shift+1 zooms to fit the whole Landing Page, Shift+2 zooms tighter to just the selected Navbar", async ({
+  test("Shift+1 zooms to fit the Landing Page, and Shift+2 zooms in on the selected Navbar", async ({
     page,
     request,
   }) => {

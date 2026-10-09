@@ -937,7 +937,7 @@ test.describe("marquee semantics", () => {
       .poll(() => selectedLayerNames(page), {
         timeout: 10_000,
         message:
-          "expected behavior Part 3: marquee selects every top-level object it " +
+          "marquee selects every top-level object it " +
           "INTERSECTS (touching counts), not only fully-enclosed ones.",
       })
       .toEqual(
