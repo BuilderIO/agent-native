@@ -2855,7 +2855,10 @@ export function AgentMessagePartView({
           <span>{part.name}</span>
         </a>
       ) : (
-        <span className="agentkit-file">
+        <span
+          className="agentkit-file"
+          title={part.omitted ? labels.attachmentNotSaved : undefined}
+        >
           <IconFile aria-hidden="true" className="agentkit-icon" />
           <span>{part.name}</span>
         </span>
@@ -3266,7 +3269,7 @@ export function AgentMessageActions({
       text: messageText(previousUserMessage),
       attachments: previousUserMessage.parts.filter(
         (part): part is Extract<AgentMessagePart, { type: "file" }> =>
-          part.type === "file",
+          part.type === "file" && !part.omitted,
       ),
       options: messageRunOptions(previousUserMessage),
       metadata: previousUserMessage.metadata,
@@ -4383,7 +4386,7 @@ export function AgentKitComposer({
         : [];
       const previousAttachments = editingMessage.parts.filter(
         (part): part is Extract<AgentMessagePart, { type: "file" }> =>
-          part.type === "file",
+          part.type === "file" && !part.omitted,
       );
       const draft = createAgentKitComposerSubmission({
         threadId: forkedThread.id,

@@ -57,6 +57,21 @@ vi.mock("../a2a/caller-auth.js", async (importOriginal) => ({
   }),
 }));
 
+const mockResolveActiveExperimentConfig = vi.hoisted(() =>
+  vi.fn(
+    async (
+      _userId: string,
+    ): Promise<{
+      configs: Record<string, unknown>;
+      assignments: Array<{ experimentId: string; variantId: string }>;
+    } | null> => null,
+  ),
+);
+vi.mock("../observability/experiments.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../observability/experiments.js")>()),
+  resolveActiveExperimentConfig: mockResolveActiveExperimentConfig,
+}));
+
 const instrumented = vi.hoisted(
   () => [] as Array<{ metadata?: Record<string, unknown> }>,
 );
@@ -516,5 +531,40 @@ describe("run trace metadata", () => {
       reasoningEffortRequested: "low",
     });
     expect(instrumented.at(-1)?.metadata).not.toHaveProperty("reasoningEffort");
+  });
+
+  describe("model experiments", () => {
+    const assignments = [{ experimentId: "exp-1", variantId: "terra" }];
+    beforeEach(() => {
+      mockResolveActiveExperimentConfig.mockReset();
+      mockResolveActiveExperimentConfig.mockResolvedValue({
+        configs: { model: "gpt-5-6-terra" },
+        assignments,
+      });
+    });
+
+    it("records the assignment when the experiment's model override runs", async () => {
+      await firstPrompt();
+
+      expect(mockResolveActiveExperimentConfig).toHaveBeenCalledWith(
+        "owner@example.com",
+      );
+      expect(instrumented.at(-1)?.metadata).toMatchObject({
+        modelSelectionSource: "experiment",
+        experimentAssignments: assignments,
+      });
+    });
+
+    it("does not assign or attribute a variant when the request pins a model", async () => {
+      await firstPrompt({}, { model: "gpt-6-luna" });
+
+      expect(mockResolveActiveExperimentConfig).not.toHaveBeenCalled();
+      expect(instrumented.at(-1)?.metadata).toMatchObject({
+        modelSelectionSource: "request",
+      });
+      expect(instrumented.at(-1)?.metadata).not.toHaveProperty(
+        "experimentAssignments",
+      );
+    });
   });
 });
