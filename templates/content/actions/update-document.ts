@@ -1661,7 +1661,7 @@ export default defineAction({
               }
             : {}),
         } satisfies BrowserDocumentUpdateResponse,
-        doc.ownerEmail as string,
+        ownerEmail,
       );
     } catch (error) {
       if (!writeCommitted) throw error;

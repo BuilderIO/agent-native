@@ -328,7 +328,11 @@ describe("update-document compare-and-swap", () => {
                         }
                       : {}),
                   },
-              { caller: "frontend", userEmail: EDITOR },
+              {
+                caller: "frontend",
+                actionName: "update-document",
+                userEmail: EDITOR,
+              },
             ),
           );
         if (
@@ -368,6 +372,24 @@ describe("update-document compare-and-swap", () => {
                   },
                 },
           );
+          if (responseKind === "saved") {
+            const { queryAuditEvents } =
+              await import("@agent-native/core/audit");
+            const events = await queryAuditEvents(
+              { userEmail: OWNER },
+              {
+                action: "update-document",
+                targetType: "document",
+                targetId: id,
+              },
+            );
+            expect(events).toHaveLength(1);
+            expect(events[0]).toMatchObject({
+              ownerEmail: OWNER,
+              actorEmail: EDITOR,
+              status: "success",
+            });
+          }
         }
         expect(race).toHaveBeenCalledOnce();
       } finally {
