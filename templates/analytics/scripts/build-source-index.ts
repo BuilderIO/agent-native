@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { fileURLToPath } from "node:url";
 
 import { sourceIndexBundleSchema } from "../server/lib/source-index-schema";
 import { buildSigmaSourceIndex } from "./sigma-source-index";

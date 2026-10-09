@@ -8,7 +8,6 @@ import {
   LOW_INFORMATION_TERMS,
   matchSearchFields as matchScore,
   paginateSearchResults,
-  relevanceTerms,
   semanticScopeCompatibility,
   semanticScopeForSearch,
   searchTerms,
