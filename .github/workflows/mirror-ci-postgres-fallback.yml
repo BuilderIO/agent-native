@@ -1,9 +1,10 @@
 name: Mirror CI Postgres images
 
 on:
+  # Seed the package from a branch before a PR switches service consumers.
   push:
     branches:
-      - main
+      - "**"
     paths:
       - ".github/workflows/mirror-ci-postgres-fallback.yml"
   schedule:
