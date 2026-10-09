@@ -868,7 +868,7 @@ export function repairKnownFirstPartyDashboardQueries(
   dashboardId: string,
   config: Record<string, unknown>,
 ): { config: Record<string, unknown>; changed: boolean } {
-  if (FIRST_PARTY_BIGQUERY_DASHBOARD_IDS.includes(dashboardId)) {
+  if (dashboardId === FIRST_PARTY_BIGQUERY_DASHBOARD_ID) {
     const historical = repairFingerprintedPanelQueries(
       config,
       ORIGIN_MAIN_PANEL_REPLACEMENTS.filter(
@@ -886,6 +886,16 @@ export function repairKnownFirstPartyDashboardQueries(
       changed:
         historical.changed || repaired.changed || defaultsRepaired.changed,
     };
+  }
+  if (FIRST_PARTY_BIGQUERY_DASHBOARD_IDS.includes(dashboardId)) {
+    return repairFingerprintedPanelQueries(config, [
+      {
+        id: "wau-over-time",
+        source: "bigquery",
+        sha256: fingerprintPanelSql(PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL),
+        sql: FIRST_PARTY_BIGQUERY_WAU_SQL,
+      },
+    ]);
   }
   if (dashboardId === FIRST_PARTY_DASHBOARD_ID) {
     return repairCanonicalFirstPartyDashboardQueries(config);

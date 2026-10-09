@@ -225,6 +225,59 @@ describe("get-sql-dashboard seed fallback", () => {
     },
   );
 
+  it.each([
+    ["historical", PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL],
+    ["empty", ""],
+  ])(
+    "preserves v3 defaults and non-WAU panels when reading %s WAU SQL",
+    async (_label, wauSql) => {
+      const id = "agent-native-templates-first-party-bigquery-v3";
+      const filters = [
+        { id: "timeRange", default: "all" },
+        { id: "emailFilter", default: "all" },
+      ];
+      const otherPanels = [
+        {
+          id: "dau-over-time",
+          source: "bigquery",
+          sql: "SELECT COUNT(*) FROM events WHERE event_name = 'session status'",
+        },
+        { id: "retention-over-time", source: "bigquery", sql: "" },
+      ];
+      mocks.getDashboard.mockResolvedValue({
+        id,
+        kind: "sql",
+        config: {
+          filters,
+          panels: [
+            { id: "wau-over-time", source: "bigquery", sql: wauSql },
+            ...otherPanels,
+          ],
+        },
+        ownerEmail: "alice@example.com",
+        orgId: null,
+        visibility: "org",
+        role: "owner",
+        canEdit: true,
+        canManage: true,
+      });
+
+      const result = (await getSqlDashboard.run({
+        id,
+        includeConfig: true,
+      })) as {
+        filters: typeof filters;
+        panels: Array<{ id: string; source: string; sql?: string }>;
+      };
+
+      expect(result.filters).toEqual(filters);
+      expect(result.panels[0]?.sql).toBe(
+        wauSql ? FIRST_PARTY_BIGQUERY_WAU_SQL : "",
+      );
+      expect(result.panels.slice(1)).toMatchObject(otherPanels);
+    },
+  );
+
   it("omits full panel SQL by default and returns it when includeConfig is true", async () => {
     mocks.getDashboard.mockResolvedValue({
       kind: "sql",
