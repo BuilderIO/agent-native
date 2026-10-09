@@ -155,7 +155,8 @@ async function fetchThreadById(
     const res = await fetch(
       `${apiUrl}/threads/${encodeURIComponent(id)}${query ? `?${query}` : ""}`,
     );
-    if (res.status === 403 || res.status === 404) return null;
+    if (res.status === 404) return null;
+    if (res.status === 403) return undefined;
     if (!res.ok) return undefined;
     return (await res.json()) as ChatThreadSummary;
   } catch {
@@ -325,6 +326,8 @@ export function useChatThreads(
     : null;
   const routeControlsActiveThread = options?.routeThreadId !== undefined;
   const routeThreadId = normalizeThreadId(options?.routeThreadId);
+  const routeThreadIdRef = useRef(routeThreadId);
+  routeThreadIdRef.current = routeThreadId;
   const activeThreadKey = useMemo(() => {
     return activeThreadStorageKey(storageKey, scope, browserTabId);
   }, [browserTabId, storageKey, scope?.type, scope?.id]);
@@ -842,7 +845,7 @@ export function useChatThreads(
       setRestoredThreadIdOnListFailure(null);
       const lookupRestored = Boolean(
         restoredId &&
-        !routeControlsActiveThread &&
+        (!routeControlsActiveThread || routeThreadId === restoredId) &&
         !newlyCreatedRef.current.has(restoredId) &&
         !hasClientDraftThreadMarker(restoredId),
       );
@@ -853,6 +856,13 @@ export function useChatThreads(
         lookupRestored && !restoredOnPage
           ? await fetchThreadById(apiUrl, restoredId!, historyScope)
           : restoredOnPage;
+      if (
+        routeControlsActiveThread &&
+        routeThreadIdRef.current !== routeThreadId
+      ) {
+        setIsLoading(false);
+        return;
+      }
       if (restoredThread) {
         serverConfirmedThreadIdsRef.current.add(restoredThread.id);
         knownThreadScopesRef.current.set(
@@ -866,7 +876,7 @@ export function useChatThreads(
         setIsLoading(false);
         return;
       }
-      const restoredIsUnavailable =
+      const restoredIsMissing =
         restoredThread === null && lookupRestored && !restoredOnPage;
       const restoredBelongsElsewhere = Boolean(
         restoredThread &&
@@ -878,7 +888,7 @@ export function useChatThreads(
       );
       const restoredNeedsReplacement =
         restoredBelongsElsewhere ||
-        (restoredIsUnavailable && autoCreate && !routeControlsActiveThread);
+        (restoredIsMissing && autoCreate && !routeControlsActiveThread);
       if (restoredNeedsReplacement) setActiveThreadId(null);
       const savedId = restoredNeedsReplacement ? null : restoredId;
       const loadedHasSavedId = Boolean(
@@ -897,12 +907,17 @@ export function useChatThreads(
       ) {
         addOptimisticThread(savedId, scopeRef.current ?? null);
       } else if (savedId && savedIdCameFromRoute && !loadedHasSavedId) {
+        if (restoredIsMissing || hasClientDraftThreadMarker(savedId)) {
+          newlyCreatedRef.current.add(savedId);
+          markClientDraftThread(savedId);
+          addOptimisticThread(savedId, scopeRef.current ?? null);
+        }
         setActiveThreadId(savedId);
       } else if (
         savedId &&
         !newlyCreatedRef.current.has(savedId) &&
         !loadedHasSavedId &&
-        !restoredIsUnavailable
+        !restoredIsMissing
       ) {
         newlyCreatedRef.current.add(savedId);
         let seenAt =
@@ -1254,13 +1269,14 @@ export function useChatThreads(
     ],
   );
 
-  const isNewThread = useCallback(
-    (id: string) => {
-      if (routeControlsActiveThread && routeThreadId === id) return false;
-      if (serverConfirmedThreadIdsRef.current.has(id)) return false;
-      return newlyCreatedRef.current.has(id) || hasClientDraftThreadMarker(id);
-    },
-    [routeControlsActiveThread, routeThreadId],
+  const isNewThread = useCallback((id: string) => {
+    if (serverConfirmedThreadIdsRef.current.has(id)) return false;
+    return newlyCreatedRef.current.has(id) || hasClientDraftThreadMarker(id);
+  }, []);
+
+  const isThreadPersisted = useCallback(
+    (id: string) => serverConfirmedThreadIdsRef.current.has(id),
+    [],
   );
 
   const switchThread = useCallback(
@@ -1738,5 +1754,6 @@ export function useChatThreads(
     restoredThreadIdOnListFailure,
     evictedThreadIds,
     isNewThread,
+    isThreadPersisted,
   };
 }

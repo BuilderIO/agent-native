@@ -1141,6 +1141,7 @@ export function MultiTabAssistantChat({
     restoredThreadIdOnListFailure,
     evictedThreadIds,
     isNewThread,
+    isThreadPersisted,
     pinThread,
     renameThread,
   } = useChatThreads(apiUrl, storageKey, scope, {
@@ -2852,6 +2853,7 @@ export function MultiTabAssistantChat({
     async (threadId: string, data: Parameters<typeof saveThreadData>[1]) => {
       const saved = await saveThreadData(threadId, data);
       if (saved) newThreadIds.current.delete(threadId);
+      return saved;
     },
     [saveThreadData],
   );
@@ -2886,18 +2888,21 @@ export function MultiTabAssistantChat({
         messageCount: number;
         titleSource?: "fallback";
       },
-    ) => {
-      void saveThreadDataForTab(threadId, {
+    ): Promise<boolean> => {
+      return saveThreadDataForTab(threadId, {
         ...data,
         threadData: "",
+      }).then((saved) => {
+        if (
+          saved &&
+          data.messageCount > 0 &&
+          threadId === activeThreadIdRef.current &&
+          urlThreadIdRef.current !== threadId
+        ) {
+          writeThreadUrl(threadId);
+        }
+        return saved;
       });
-      if (
-        data.messageCount > 0 &&
-        threadId === activeThreadIdRef.current &&
-        urlThreadIdRef.current !== threadId
-      ) {
-        writeThreadUrl(threadId);
-      }
     },
     [saveThreadDataForTab, writeThreadUrl],
   );
@@ -3075,7 +3080,8 @@ export function MultiTabAssistantChat({
     activeTabIsPersisted: Boolean(
       activeThreadId &&
       !newThreadIds.current.has(activeThreadId) &&
-      !isNewThread(activeThreadId),
+      !isNewThread(activeThreadId) &&
+      isThreadPersisted(activeThreadId),
     ),
     setActiveTabId: switchThread,
     addTab,

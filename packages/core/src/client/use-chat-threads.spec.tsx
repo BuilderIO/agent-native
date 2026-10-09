@@ -1290,6 +1290,108 @@ describe("useChatThreads", () => {
     ).toBe("route-thread");
   });
 
+  it("confirms a route thread that is outside the loaded history page", async () => {
+    const routeThread: ChatThreadSummary = {
+      id: "route-thread",
+      title: "Route",
+      preview: "route preview",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/route-thread" && !init) {
+        return jsonResponse(routeThread);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "route-page-test", null, {
+        routeThreadId: "route-thread",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("route-thread");
+    expect(hook!.isThreadPersisted("route-thread")).toBe(true);
+    expect(hook!.isNewThread("route-thread")).toBe(false);
+  });
+
+  it("classifies a missing route thread as a draft without exposing saved state", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/route-thread" && !init) {
+        return new Response(null, { status: 404 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "route-missing-test", null, {
+        routeThreadId: "route-thread",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("route-thread");
+    expect(hook!.isThreadPersisted("route-thread")).toBe(false);
+    expect(hook!.isNewThread("route-thread")).toBe(true);
+  });
+
+  it("keeps a route thread unconfirmed when its by-id lookup is forbidden", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/route-thread" && !init) {
+        return new Response(null, { status: 403 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "route-forbidden-test", null, {
+        routeThreadId: "route-thread",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("route-thread");
+    expect(hook!.isThreadPersisted("route-thread")).toBe(false);
+    expect(hook!.isNewThread("route-thread")).toBe(false);
+  });
+
   it("treats a route without a thread as create mode and clears saved active thread", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:route-create-test",

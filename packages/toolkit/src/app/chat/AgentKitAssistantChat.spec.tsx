@@ -6150,6 +6150,51 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(onSaveThread).toHaveBeenCalledOnce();
   });
 
+  it("retries an unchanged snapshot after the previous save fails", async () => {
+    const createTransport = () => chatMocks.transport;
+    const onSaveThread = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true);
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    vi.useFakeTimers();
+    try {
+      const message = {
+        id: "retry-user-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Retry this save" }],
+      };
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        activeRunIds: ["retry-run"],
+        messages: [message],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({ createTransport, onSaveThread })}
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      expect(onSaveThread).toHaveBeenCalledOnce();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      expect(onSaveThread).toHaveBeenCalledTimes(2);
+      expect(onSaveThread.mock.calls[1]?.[1].threadData).toBe(
+        onSaveThread.mock.calls[0]?.[1].threadData,
+      );
+    } finally {
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
   it("shows an expired-session card and emits the session-expired event", async () => {
     chatMocks.failureError = { code: "unauthorized", message: "HTTP 401" };
     vi.stubGlobal(

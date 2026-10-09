@@ -1535,6 +1535,9 @@ const AgentKitAssistantChatBody = forwardRef<
     ids: new Set<string>(),
   });
   const lastSavedThreadDataRef = useRef<string | null>(null);
+  const latestThreadDataRef = useRef<string | null>(null);
+  const savingThreadDataRef = useRef(new Set<string>());
+  const retryThreadSaveTimerRef = useRef<number | null>(null);
   const saveSnapshotRef = useRef<() => void>(() => undefined);
   const isUnmountingRef = useRef(false);
   const localSubmissionRef = useRef(false);
@@ -1544,6 +1547,73 @@ const AgentKitAssistantChatBody = forwardRef<
         .reverse()
         .find((message) => message.role === "assistant"),
     [thread.messages],
+  );
+
+  const saveThreadSnapshot = useCallback(
+    (snapshot: ReturnType<typeof createAgentKitThreadSnapshot>) => {
+      if (!props.onSaveThread) return;
+      latestThreadDataRef.current = snapshot.threadData;
+      if (snapshot.threadData === lastSavedThreadDataRef.current) {
+        if (retryThreadSaveTimerRef.current !== null) {
+          window.clearTimeout(retryThreadSaveTimerRef.current);
+          retryThreadSaveTimerRef.current = null;
+        }
+        return;
+      }
+      if (savingThreadDataRef.current.has(snapshot.threadData)) {
+        return;
+      }
+      savingThreadDataRef.current.add(snapshot.threadData);
+      if (props.createTransport) {
+        try {
+          void Promise.resolve(
+            controller.persistThreadSnapshot(
+              threadId,
+              agentKitMessagesFromThreadSnapshot(snapshot),
+            ),
+          ).catch(() => {
+            console.error("Failed to persist the chat transport snapshot.");
+          });
+        } catch {
+          console.error("Failed to persist the chat transport snapshot.");
+        }
+      }
+
+      const finish = (saved: boolean) => {
+        savingThreadDataRef.current.delete(snapshot.threadData);
+        if (saved && latestThreadDataRef.current === snapshot.threadData) {
+          lastSavedThreadDataRef.current = snapshot.threadData;
+          if (retryThreadSaveTimerRef.current !== null) {
+            window.clearTimeout(retryThreadSaveTimerRef.current);
+            retryThreadSaveTimerRef.current = null;
+          }
+        } else if (
+          !saved &&
+          !isUnmountingRef.current &&
+          latestThreadDataRef.current !== lastSavedThreadDataRef.current &&
+          retryThreadSaveTimerRef.current === null
+        ) {
+          retryThreadSaveTimerRef.current = window.setTimeout(() => {
+            retryThreadSaveTimerRef.current = null;
+            saveSnapshotRef.current();
+          }, 5000);
+        }
+      };
+      try {
+        const result = props.onSaveThread(threadId, snapshot);
+        void Promise.resolve(result).then(
+          (saved) => finish(saved !== false),
+          () => {
+            finish(false);
+            console.error("Failed to save the chat thread snapshot.");
+          },
+        );
+      } catch {
+        finish(false);
+        console.error("Failed to save the chat thread snapshot.");
+      }
+    },
+    [controller, props.createTransport, props.onSaveThread, threadId],
   );
   const isRunning = hasActiveAgentRuns(thread);
   const lastMessage = thread.messages.at(-1);
@@ -2004,22 +2074,17 @@ const AgentKitAssistantChatBody = forwardRef<
         snapshot,
       );
     }
-    if (!props.onSaveThread) return;
-    if (snapshot.threadData === lastSavedThreadDataRef.current) return;
-    lastSavedThreadDataRef.current = snapshot.threadData;
-    if (props.createTransport) {
-      void controller.persistThreadSnapshot(
-        threadId,
-        agentKitMessagesFromThreadSnapshot(snapshot),
-      );
-    }
-    props.onSaveThread(threadId, snapshot);
+    saveThreadSnapshot(snapshot);
   };
 
   useEffect(() => {
     isUnmountingRef.current = false;
     return () => {
       isUnmountingRef.current = true;
+      if (retryThreadSaveTimerRef.current !== null) {
+        window.clearTimeout(retryThreadSaveTimerRef.current);
+        retryThreadSaveTimerRef.current = null;
+      }
       saveSnapshotRef.current();
     };
   }, []);
@@ -2051,19 +2116,10 @@ const AgentKitAssistantChatBody = forwardRef<
         thread,
         transcripts,
       );
-      if (props.onSaveThread) {
-        lastSavedThreadDataRef.current = snapshot.threadData;
-        if (props.createTransport) {
-          void controller.persistThreadSnapshot(
-            threadId,
-            agentKitMessagesFromThreadSnapshot(snapshot),
-          );
-        }
-        props.onSaveThread(threadId, snapshot);
-      }
+      saveThreadSnapshot(snapshot);
       return true;
     },
-    [controller, isRestoring, isRunning, props, thread, threadId],
+    [isRestoring, isRunning, props, saveThreadSnapshot, thread, threadId],
   );
 
   useEffect(() => {

@@ -103,7 +103,7 @@ const assistantChatMockState = vi.hoisted(() => ({
           messageCount: number;
           titleSource?: "fallback";
         },
-      ) => void)
+      ) => boolean | void | Promise<boolean | void>)
     | undefined,
   branchNavigation: undefined as
     | {
@@ -142,6 +142,7 @@ const threadMocks = vi.hoisted(() => ({
   searchThreads: vi.fn(async () => []),
   refreshThreads: vi.fn(async () => undefined),
   isNewThread: vi.fn(() => false),
+  isThreadPersisted: vi.fn(() => true),
   pinThread: vi.fn(async () => true),
   renameThread: vi.fn(async () => true),
 }));
@@ -483,6 +484,10 @@ function resetThreadMocks() {
   threadMocks.switchThread.mockReset();
   threadMocks.isNewThread.mockReset();
   threadMocks.isNewThread.mockReturnValue(false);
+  threadMocks.isThreadPersisted.mockReset();
+  threadMocks.isThreadPersisted.mockReturnValue(true);
+  threadMocks.saveThreadData.mockReset();
+  threadMocks.saveThreadData.mockResolvedValue(true);
   threadMocks.pinThread.mockReset();
   threadMocks.pinThread.mockImplementation(async () => true);
   threadMocks.renameThread.mockReset();
@@ -579,7 +584,9 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       await Promise.resolve();
     });
 
-    act(() => assistantChatMockState.onSaveThread?.("thread-1", snapshot));
+    await act(async () => {
+      await assistantChatMockState.onSaveThread?.("thread-1", snapshot);
+    });
 
     expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith("thread-1", {
       ...snapshot,
@@ -601,7 +608,9 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       await Promise.resolve();
     });
 
-    act(() => assistantChatMockState.onSaveThread?.("thread-1", snapshot));
+    await act(async () => {
+      await assistantChatMockState.onSaveThread?.("thread-1", snapshot);
+    });
 
     expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith("thread-1", {
       ...snapshot,
@@ -621,11 +630,40 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       await Promise.resolve();
     });
 
-    act(() => assistantChatMockState.onSaveThread?.("thread-1", snapshot));
+    await act(async () => {
+      await assistantChatMockState.onSaveThread?.("thread-1", snapshot);
+    });
 
     expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith("thread-1", {
       ...snapshot,
       threadData: "",
+    });
+    expect(window.location.search).toBe("?thread=thread-1");
+  });
+
+  it("publishes a thread URL only after its first save succeeds", async () => {
+    window.history.replaceState(null, "", "/");
+    threadMocks.saveThreadData.mockResolvedValueOnce(false);
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat storageKey="bridge-test" threadUrlSync />,
+      );
+      await Promise.resolve();
+    });
+
+    const snapshot = {
+      threadData: "{}",
+      title: "Saved chat",
+      preview: "First message",
+      messageCount: 1,
+    };
+    await act(async () => {
+      await assistantChatMockState.onSaveThread?.("thread-1", snapshot);
+    });
+    expect(window.location.search).toBe("");
+
+    await act(async () => {
+      await assistantChatMockState.onSaveThread?.("thread-1", snapshot);
     });
     expect(window.location.search).toBe("?thread=thread-1");
   });
@@ -2138,6 +2176,40 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       await Promise.resolve();
     });
 
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+
+    expect(headerProps?.activeTabIsPersisted).toBe(true);
+  });
+
+  it("requires server confirmation before showing persisted-thread actions", async () => {
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    threadMocks.isThreadPersisted.mockReturnValue(false);
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+
+    expect(headerProps?.activeTabIsPersisted).toBe(false);
+
+    threadMocks.isThreadPersisted.mockReturnValue(true);
     await act(async () => {
       root.render(
         <MultiTabAssistantChat

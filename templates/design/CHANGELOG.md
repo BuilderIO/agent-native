@@ -11,7 +11,6 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
-- Left rail is now a 56px File, Agents and Tokens rail with labels, tooltips, an account avatar, a collapse button, and one shared panel header
 - Journey storyboards support up to 2,000 steps
 - Design widgets now support scoped edits and screen creation directly on the all-screens canvas.
 - Journey canvases place app cohorts side by side, lead with onboarding paths, and keep replay details expandable
@@ -20,7 +19,6 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
-- Ads and social posts keep their exact size with no extra mobile frame, and app screens that mention ads or leaderboards stay responsive.
 - Duplicated screens in ChatGPT widgets keep their safe layout settings.
 - Component property edits now persist for unlinked components
 - Design keeps quick-start suggestions available when model settings are temporarily unreadable.
