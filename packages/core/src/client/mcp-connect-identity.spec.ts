@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { fetchMcpConnectIdentity } from "./mcp-connect-identity.js";
 
-function serve(identity: Record<string, string>) {
+function serve(identity: Record<string, unknown>) {
   vi.stubGlobal(
     "fetch",
     vi.fn(
@@ -29,7 +29,7 @@ afterEach(() => {
 });
 
 describe("fetchMcpConnectIdentity", () => {
-  it("keeps the page's plain-HTTP scheme for its own host", async () => {
+  it("keeps the server's URLs when the page is plain HTTP on that host", async () => {
     vi.stubGlobal("window", {
       location: { protocol: "http:", host: "192.168.1.20:8080" },
     });
@@ -37,19 +37,13 @@ describe("fetchMcpConnectIdentity", () => {
 
     const identity = await fetchMcpConnectIdentity();
 
-    expect(identity.appUrl).toBe("http://192.168.1.20:8080");
-    expect(identity.mcpUrl).toBe("http://192.168.1.20:8080/mcp");
-    expect(identity.serverName).toBe("agent-native-mail");
+    expect(identity).toEqual(lanIdentity);
   });
 
-  it("leaves another host's URLs as the server sent them", async () => {
-    vi.stubGlobal("window", {
-      location: { protocol: "http:", host: "localhost:3000" },
-    });
-    serve(lanIdentity);
+  it("refuses a response without the connect flag", async () => {
+    const { connect: _connect, ...withoutConnect } = lanIdentity;
+    serve(withoutConnect);
 
-    const identity = await fetchMcpConnectIdentity();
-
-    expect(identity.mcpUrl).toBe("https://192.168.1.20:8080/mcp");
+    await expect(fetchMcpConnectIdentity()).rejects.toThrow("malformed");
   });
 });

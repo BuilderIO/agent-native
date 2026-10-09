@@ -24,30 +24,12 @@ function isMcpConnectIdentity(value: unknown): value is McpConnectIdentity {
 }
 
 /**
- * Without `x-forwarded-proto` the server guesses `https` for any host that
- * is not loopback, so a plain-HTTP LAN deployment advertises URLs it does not
- * answer on. This page reached the same host and knows its real scheme.
- */
-function withPageScheme(url: string): string {
-  if (typeof window === "undefined") return url;
-  const page = window.location;
-  if (page.protocol !== "http:" && page.protocol !== "https:") return url;
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return url;
-  }
-  if (parsed.host !== page.host || parsed.protocol === page.protocol) {
-    return url;
-  }
-  return page.protocol + url.slice(parsed.protocol.length);
-}
-
-/**
  * The server name and MCP URL this app hands to MCP clients, as the server
  * resolves them. Surfaces must not derive a name from the hostname: that is
  * how settings, the connect page and the CLI wrote three different names.
+ * Nor may they rewrite the URLs, even to the page's own scheme: they are the
+ * resource OAuth discovery advertises, and a client installed at any other
+ * URL fails resource matching when it signs in.
  */
 export async function fetchMcpConnectIdentity(): Promise<McpConnectIdentity> {
   const response = await fetch(appPath("/mcp/connect/identity"), {
@@ -60,11 +42,7 @@ export async function fetchMcpConnectIdentity(): Promise<McpConnectIdentity> {
   if (!isMcpConnectIdentity(body)) {
     throw new Error("MCP connect identity response was malformed");
   }
-  return {
-    ...body,
-    appUrl: withPageScheme(body.appUrl),
-    mcpUrl: withPageScheme(body.mcpUrl),
-  };
+  return body;
 }
 
 export function useMcpConnectIdentity(): McpConnectIdentityState & {

@@ -2552,6 +2552,14 @@ export async function runConnect(
       return;
     }
 
+    // Checked before the device flow, which would otherwise mint a token the
+    // person approved and then stop without writing it.
+    if (parsed.name !== undefined && !parsed.name.trim()) {
+      logErr("  --name needs a value: the name to save the MCP server under.");
+      process.exitCode = 1;
+      return;
+    }
+
     if (parsed.mode) {
       let ok: boolean;
       if (parsed.mode === "reconnect" || parsed.mode === "reauth") {

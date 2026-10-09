@@ -854,6 +854,23 @@ describe("runConnect", () => {
     }
   });
 
+  it("refuses an empty --name before starting the device flow", async () => {
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const fetchImpl = vi.fn();
+
+    await runConnect(
+      ["https://app.example.com", "--client", "codex", "--name", ""],
+      { fetchImpl, sleep: noopSleep, openBrowser: vi.fn() },
+    );
+
+    expect(process.exitCode).toBe(1);
+    const errors = err.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(errors).toContain("--name needs a value");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("refuses an approved grant whose server name is not a plain name", async () => {
     const root = tmpDir();
     const home = tmpDir();

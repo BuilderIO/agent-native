@@ -2902,8 +2902,8 @@ export function mountMcpConnectRoutes(
     // browser session itself and serves its own login form (like /open)
     // for the page + unauth device endpoints; the /token, /device/authorize,
     // /tokens, /tokens/revoke subpaths require a session and 401 without it.
-    // The auth guard bypasses ONLY the page + device/start + device/poll
-    // (see createAuthGuardFn in auth.ts).
+    // The auth guard bypasses ONLY the page + identity + device/start +
+    // device/poll (see createAuthGuardFn in auth.ts).
     for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
       app.use(
         `${mcpRoutePrefix}/connect`,
