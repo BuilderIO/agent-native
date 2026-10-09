@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/collab";
 import { getDbExec, type DbExec } from "@agent-native/core/db";
 import type {
+  ResourceSuggestion,
   SuggestionAdapter,
   SuggestionOperation,
 } from "@agent-native/core/review";
@@ -33,6 +34,7 @@ import {
   suggestionFrameShape,
   suggestionNodeRole,
 } from "../../app/components/editor/suggestions/model.js";
+import { reanchoredCommentQuote } from "../../shared/comment-reanchor.js";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
 import { nfmToDoc } from "../../shared/nfm.js";
@@ -532,6 +534,43 @@ function replacePreparedCollabContent(
   );
 }
 
+/**
+ * Accepting an AI suggestion leaves the comment that asked for it open, so its
+ * quote follows the rewritten text instead of losing its highlight.
+ */
+async function reanchorSourceComment(
+  tx: DbExec,
+  documentId: string,
+  suggestion: ResourceSuggestion,
+  before: string,
+  after: string,
+  now: string,
+) {
+  const threadId = suggestion.metadata?.sourceThreadId;
+  if (typeof threadId !== "string") return;
+  const root = (
+    await tx.execute({
+      sql: "SELECT id,quoted_text,anchor_prefix,anchor_suffix FROM document_comments WHERE document_id = ? AND thread_id = ? AND parent_id IS NULL ORDER BY created_at ASC LIMIT 1",
+      args: [documentId, threadId],
+    })
+  ).rows[0];
+  if (!root || root.quoted_text == null) return;
+  const next = reanchoredCommentQuote(
+    {
+      quotedText: String(root.quoted_text),
+      prefix: root.anchor_prefix == null ? null : String(root.anchor_prefix),
+      suffix: root.anchor_suffix == null ? null : String(root.anchor_suffix),
+    },
+    before,
+    after,
+  );
+  if (!next) return;
+  await tx.execute({
+    sql: "UPDATE document_comments SET quoted_text = ?, anchor_prefix = ?, anchor_suffix = ?, updated_at = ? WHERE id = ?",
+    args: [next.quotedText, next.prefix, next.suffix, now, String(root.id)],
+  });
+}
+
 export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
   kind: CONTENT_DOCUMENT_SUGGESTION_ADAPTER,
   version: 1,
@@ -939,6 +978,14 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
           canonicalChanged: true,
           now,
         });
+        await reanchorSourceComment(
+          tx,
+          context.resourceId,
+          context.suggestion,
+          currentContent,
+          nextContent,
+          now,
+        );
         if (coordination.deferPersistence) {
           coordination.finalContent = nextContent;
         } else {

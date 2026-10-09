@@ -102,6 +102,8 @@ import {
 } from "./ReviewDiscussionTools";
 import type { DraftSuggestion } from "./suggestions/draft-session";
 import { SuggestionText } from "./SuggestionText";
+import { receiptSuggestionId, suggestionsByThread } from "./thread-suggestions";
+import { ThreadSuggestionBody, ThreadSuggestionRow } from "./ThreadSuggestion";
 
 /** Where a thread card is shown; each surface shares the same rows. */
 export type CommentSurface = "rail" | "popover" | "panel";
@@ -888,6 +890,25 @@ export function CommentsSidebar({
     selectedThreadId,
     commentAi?.freshResolutions,
   ]);
+  // An AI suggestion asked for from a comment lives inside that thread, so it
+  // never gets a second card with its own Accept and Reject.
+  const threadSuggestions = useMemo(
+    () =>
+      suggestionsByThread(
+        suggestions,
+        new Set(threads.map((thread) => thread.threadId)),
+      ),
+    [suggestions, threads],
+  );
+  const embeddedSuggestionIds = useMemo(
+    () =>
+      new Set(
+        [...threadSuggestions.values()]
+          .flat()
+          .map((suggestion) => suggestion.id),
+      ),
+    [threadSuggestions],
+  );
   // A suggestion whose text is gone has nothing to point at in the margin; it
   // stays reviewable in the comments panel.
   const inlineSuggestions = useMemo(
@@ -895,12 +916,19 @@ export function CommentsSidebar({
       suggestions.filter(
         (suggestion) =>
           suggestion.status === "pending" &&
+          !embeddedSuggestionIds.has(suggestion.id) &&
           (alignToAnchors || suggestion.id === activeSuggestionId) &&
           (suggestion.id === activeSuggestionId ||
             !anchoredSuggestionIds ||
             anchoredSuggestionIds.includes(suggestion.id)),
       ),
-    [suggestions, alignToAnchors, activeSuggestionId, anchoredSuggestionIds],
+    [
+      suggestions,
+      alignToAnchors,
+      activeSuggestionId,
+      anchoredSuggestionIds,
+      embeddedSuggestionIds,
+    ],
   );
   const inlineDraftSuggestions = useMemo(
     () =>
@@ -996,6 +1024,8 @@ export function CommentsSidebar({
   const historySuggestions = useMemo(() => {
     if (historyKind === "comments") return [];
     return suggestions.filter((suggestion) => {
+      if (historyKind === "all" && embeddedSuggestionIds.has(suggestion.id))
+        return false;
       const unresolved =
         suggestion.status === "pending" || suggestion.status === "stale";
       if (historyStatus === "open" && !unresolved) {
@@ -1006,7 +1036,13 @@ export function CommentsSidebar({
       }
       return !historyAuthor || suggestion.authorEmail === historyAuthor;
     });
-  }, [historyAuthor, historyKind, historyStatus, suggestions]);
+  }, [
+    embeddedSuggestionIds,
+    historyAuthor,
+    historyKind,
+    historyStatus,
+    suggestions,
+  ]);
   const historyDraftSuggestions = useMemo(() => {
     if (historyKind === "comments") return [];
     if (historyStatus === "resolved") return [];
@@ -1172,19 +1208,21 @@ export function CommentsSidebar({
     if (pendingComment) onPendingDone(pendingComment.id);
   };
 
-  const handleReply = async (threadId: string) => {
+  const handleReply = async (
+    threadId: string,
+  ): Promise<{ id: string } | null> => {
     const { text: replyText, mentions: replyMentions } =
       replyDrafts.get(threadId);
-    if (!canComment) return;
+    if (!canComment) return null;
     if (
       !replyText.trim() ||
       draftStore.isSubmittingDraft(`reply:${documentId}:${threadId}`) ||
       isResolving(threadId) ||
       ambiguousCreate(threadId)
     )
-      return;
+      return null;
     const thread = threads?.find((t) => t.threadId === threadId);
-    if (!thread || thread.resolved) return;
+    if (!thread || thread.resolved) return null;
     const payload = JSON.stringify({
       documentId,
       threadId,
@@ -1196,7 +1234,7 @@ export function CommentsSidebar({
       replyDrafts.retryOperationId(threadId, payload) ?? crypto.randomUUID();
     replyDrafts.beginSubmission(threadId, clientOperationId);
     try {
-      await createComment.mutateAsync({
+      const created = await createComment.mutateAsync({
         clientOperationId,
         documentId,
         content: replyText.trim(),
@@ -1206,6 +1244,7 @@ export function CommentsSidebar({
       });
       replyDrafts.clearRetry(threadId, clientOperationId);
       replyDrafts.finishSubmission(clientOperationId);
+      return { id: created.id };
     } catch (error) {
       replyDrafts.restoreSubmittedDraft(threadId, clientOperationId);
       if (isAmbiguousCommentCreateError(error)) {
@@ -1217,6 +1256,7 @@ export function CommentsSidebar({
       toast.error(t("empty.genericError"), {
         description: error instanceof Error ? error.message : undefined,
       });
+      return null;
     }
   };
 
@@ -1471,6 +1511,29 @@ export function CommentsSidebar({
       : undefined;
     const freshResolution =
       thread.resolved && commentAi?.freshResolutions.has(thread.threadId);
+    const embedded = threadSuggestions.get(thread.threadId) ?? [];
+    const receipts = new Map<string, ResourceSuggestion>();
+    for (const comment of thread.comments) {
+      const id = receiptSuggestionId(comment.content);
+      const suggestion = id && embedded.find((entry) => entry.id === id);
+      if (suggestion) receipts.set(comment.id, suggestion);
+    }
+    const receiptless = embedded.filter(
+      (suggestion) => ![...receipts.values()].includes(suggestion),
+    );
+    const suggestionProps = (suggestion: ResourceSuggestion) => ({
+      suggestion,
+      canDecide: canDecideSuggestions,
+      deciding: decidingSuggestion(suggestion.id),
+      conflict: isUnplaceable(suggestion),
+      onDecide: (decision: SuggestionDecision) =>
+        onDecideSuggestion?.(suggestion, decision),
+    });
+    const showsRequestSuggestion =
+      aiRequest?.status === "suggested" &&
+      embedded.some(
+        (suggestion) => suggestion.id === aiRequest.result?.suggestionId,
+      );
     if (
       freshResolution &&
       presentation === "inline" &&
@@ -1509,15 +1572,19 @@ export function CommentsSidebar({
         });
       }
     };
+    // A reply that mentions AI is posted first, so "actually, make it X"
+    // stays in the thread the AI answers in.
     const submitAi = async (selection: CommentAiSubmitPayload) => {
       if (!commentAi || !thread.comments[0]) return;
       const instructions = replyDrafts.get(thread.threadId).text.trim();
       if (!instructions) return;
-      const submitted = replyDrafts.get(thread.threadId);
+      const rootCommentId = thread.comments[0].id;
+      const reply = await handleReply(thread.threadId);
+      if (!reply) return;
       try {
-        const outcome = await startCommentAiSubmission(commentAi, {
+        await startCommentAiSubmission(commentAi, {
           threadId: thread.threadId,
-          rootCommentId: thread.comments[0].id,
+          rootCommentId,
           submittedMode: selection.intent,
           instructions,
           provider: selection.provider,
@@ -1525,12 +1592,6 @@ export function CommentsSidebar({
           engine: selection.engine,
           priorRequest: aiRequest,
         });
-        if (outcome === "confirmed-start") {
-          draftStore.clearIfUnchanged(
-            `reply:${documentId}:${thread.threadId}`,
-            submitted,
-          );
-        }
       } catch (error) {
         toast.error(t("empty.genericError"), {
           description: error instanceof Error ? error.message : undefined,
@@ -1615,6 +1676,11 @@ export function CommentsSidebar({
             headerActions={slots.headerActions}
             revealActions={slots.revealActions}
             replyAction={slots.replyAction}
+            body={
+              receipts.has(id) ? (
+                <ThreadSuggestionBody {...suggestionProps(receipts.get(id)!)} />
+              ) : undefined
+            }
             onCreatedCommentConfirmed={(operationId) => {
               if (
                 pendingHandoff?.operationId === operationId &&
@@ -1635,36 +1701,46 @@ export function CommentsSidebar({
           />
         )}
         feedback={
-          aiRequest && commentAi ? (
+          (aiRequest && commentAi) || receiptless.length ? (
             <>
-              {continuation ||
-              aiRequest.status === "replied" ||
-              aiRequest.status === "suggested" ||
-              aiRequest.status === "resolved" ? (
+              {receiptless.map((suggestion) => (
+                <ThreadSuggestionRow
+                  key={suggestion.id}
+                  {...suggestionProps(suggestion)}
+                />
+              ))}
+              {!aiRequest || !commentAi ? null : continuation ||
+                aiRequest.status === "replied" ||
+                (aiRequest.status === "suggested" && !showsRequestSuggestion) ||
+                aiRequest.status === "resolved" ? (
                 <CommentAiConversation
                   request={aiRequest}
                   revision={commentAi.transcriptRevision}
                   continuation={continuation}
                 />
               ) : null}
-              <CommentAiRequestStatus
-                request={aiRequest}
-                continuation={continuation}
-                stopping={commentAi.stoppingRequestIds.has(
-                  aiRequest.operationId,
-                )}
-                onRetry={() => commentAi.retry(aiRequest)}
-                onStop={stopAi}
-                onUndo={canResolve ? undoAi : undefined}
-                onDone={
-                  freshResolution
-                    ? () => {
-                        commentAi.dismissResolution(thread.threadId);
-                        onSelectedThreadChange?.(null);
-                      }
-                    : undefined
-                }
-              />
+              {!aiRequest ||
+              !commentAi ||
+              (showsRequestSuggestion && !continuation) ? null : (
+                <CommentAiRequestStatus
+                  request={aiRequest}
+                  continuation={continuation}
+                  stopping={commentAi.stoppingRequestIds.has(
+                    aiRequest.operationId,
+                  )}
+                  onRetry={() => commentAi.retry(aiRequest)}
+                  onStop={stopAi}
+                  onUndo={canResolve ? undoAi : undefined}
+                  onDone={
+                    freshResolution
+                      ? () => {
+                          commentAi.dismissResolution(thread.threadId);
+                          onSelectedThreadChange?.(null);
+                        }
+                      : undefined
+                  }
+                />
+              )}
             </>
           ) : undefined
         }
@@ -3041,6 +3117,18 @@ function ThreadView({
 }) {
   const replyInputRef = useRef<TiptapComposerHandle>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const seenEntryCount = useRef(thread.comments.length);
+
+  // A capped card hides what arrives below the fold, such as the AI's revised
+  // suggestion after a follow-up, so bring new entries into view.
+  useEffect(() => {
+    const added = thread.comments.length > seenEntryCount.current;
+    seenEntryCount.current = thread.comments.length;
+    const body = bodyRef.current;
+    if (!added || !body || body.scrollHeight <= body.clientHeight) return;
+    body.scrollTo({ top: body.scrollHeight, behavior: "smooth" });
+  }, [thread.comments.length]);
 
   useEffect(() => {
     if (isExpanded && canComment && replyDrafts) {
@@ -3222,6 +3310,7 @@ function ThreadView({
     >
       {popoverHeader}
       <div
+        ref={bodyRef}
         className={cn(
           "relative grid grid-cols-1 gap-3.5",
           isPanel

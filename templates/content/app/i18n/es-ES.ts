@@ -1729,6 +1729,9 @@ const overrides = {
     aiUndo: "Deshacer",
     aiDone: "Listo",
     aiMoreChanges: "+{{count}} más",
+    suggestionReplaced: "Reemplazada",
+    suggestionWithdrawn: "Retirada",
+    suggestedChange: "Cambio sugerido",
     aiUndoUnavailable:
       "El texto eliminado no se puede restaurar automáticamente",
     aiUndoFailed: "No se pudo deshacer el cambio",
