@@ -243,6 +243,7 @@ vi.mock("../server/embed-route.js", () => ({
 const capabilityScopeOverride = vi.hoisted(() => ({
   unmintable: false,
   readUnmintable: false,
+  readCapabilityInputs: vi.fn(),
 }));
 vi.mock("../shared/embed-auth.js", async (importOriginal) => {
   const actual =
@@ -253,10 +254,12 @@ vi.mock("../shared/embed-auth.js", async (importOriginal) => {
       input: Parameters<
         typeof actual.createMcpDirectoryWidgetReadCapability
       >[0],
-    ) =>
-      capabilityScopeOverride.readUnmintable
+    ) => {
+      capabilityScopeOverride.readCapabilityInputs(input);
+      return capabilityScopeOverride.readUnmintable
         ? undefined
-        : actual.createMcpDirectoryWidgetReadCapability(input),
+        : actual.createMcpDirectoryWidgetReadCapability(input);
+    },
     createMcpDirectoryWidgetWriteCapability: (
       input: Parameters<
         typeof actual.createMcpDirectoryWidgetWriteCapability
@@ -2816,6 +2819,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     afterEach(() => {
       capabilityScopeOverride.unmintable = false;
       capabilityScopeOverride.readUnmintable = false;
+      capabilityScopeOverride.readCapabilityInputs.mockClear();
     });
 
     it("degrades to a read-only ticket when the write scope itself is unmintable", async () => {
@@ -2856,11 +2860,36 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       try {
         capabilityScopeOverride.unmintable = true;
         capabilityScopeOverride.readUnmintable = true;
+        capabilityScopeOverride.readCapabilityInputs.mockClear();
         embedSessionMocks.createEmbedSessionTicket.mockClear();
 
         const created = await callCreate(contentTemplate);
 
         expect(created.result.isError).not.toBe(true);
+        expect(
+          capabilityScopeOverride.readCapabilityInputs,
+        ).toHaveBeenCalledTimes(1);
+        expect(
+          capabilityScopeOverride.readCapabilityInputs.mock.calls[0]?.[0],
+        ).toMatchObject({
+          appId: "content",
+          resourceUri: "ui://content/shell-v69",
+          resourceIds: {
+            documentId: "page-1",
+            resourceType: "document",
+            spaceId: "space-1",
+          },
+          actionArguments: expect.objectContaining({
+            "get-document": { id: "page-1" },
+            "get-content-navigation-context": { id: "page-1" },
+          }),
+        });
+        expect(created.result.structuredContent).toMatchObject(
+          contentTemplate.result,
+        );
+        expect(created.result.content[0].text).toBe(
+          "create-document completed for page-1.",
+        );
         expect(
           embedSessionMocks.createEmbedSessionTicket,
         ).not.toHaveBeenCalled();
