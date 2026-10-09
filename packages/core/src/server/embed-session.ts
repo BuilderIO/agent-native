@@ -10,14 +10,19 @@ import {
 } from "h3";
 
 import { getDbExec, type DbExec } from "../db/client.js";
-import { ensureTableExists } from "../db/ddl-guard.js";
+import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_SESSION_COOKIE,
   EMBED_TARGET_HEADER,
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
-  MCP_DIRECTORY_WIDGET_READ_CAPABILITY_MAX_LENGTH,
+  MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
+  canRenewMcpDirectoryWidgetCapabilityScope,
+  isMcpDirectoryWidgetCapabilityScope,
+  isMcpDirectoryWidgetWriteCapabilityScope,
+  getMcpDirectoryWidgetWriteCapabilityExpiresAt,
+  MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH,
 } from "../shared/embed-auth.js";
 import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
@@ -30,6 +35,7 @@ import { getForwardedRequestHostname } from "./request-origin.js";
 const TOKEN_KIND = "agent-native-embed-session";
 const DEFAULT_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_TICKET_TTL_SECONDS = 5 * 60;
+const MCP_DIRECTORY_WIDGET_RENEWAL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const EMBED_CAPABILITY_SCOPE_PREFIX = "capability:";
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 const OPEN_ROUTE_PATH = "/_agent-native/open";
@@ -76,12 +82,27 @@ export interface EmbedSessionTicketInput {
   targetPath: string;
   scope?: string | null;
   ttlSeconds?: number;
+  renewalExpiresAtMs?: number;
+  revocationAnchorCreatedAtMs?: number;
 }
 
 export interface EmbedSessionTicket {
   ticket: string;
   ticketHash: string;
   expiresAt: number;
+}
+
+export interface McpDirectoryWidgetRenewalTicket {
+  sessionId: string;
+  ownerEmail: string;
+  orgId?: string;
+  targetPath: string;
+  scope: string;
+  createdAtMs: number;
+  expiresAtMs: number;
+  consumedAtMs: number | null;
+  renewalExpiresAtMs: number;
+  sessionActiveUntilMs: number | null;
 }
 
 export type EmbedSessionTicketConsumeOutcome =
@@ -122,6 +143,7 @@ export interface ConsumedEmbedSessionTicket {
   scope?: string;
   expiresAt: number;
   ticketCreatedAtMs: number;
+  sessionId?: string;
 }
 
 export interface EmbedSessionTokenClaims {
@@ -134,6 +156,7 @@ export interface EmbedSessionTokenClaims {
   iat: number;
   issuedAtMs?: number;
   ticketCreatedAtMs?: number;
+  sessionId?: string;
   exp: number;
 }
 
@@ -164,7 +187,7 @@ export function resolvedEmbedCapabilityScope(
   if (
     !isEmbedCapabilityScope(scope) ||
     !scope ||
-    scope.length > MCP_DIRECTORY_WIDGET_READ_CAPABILITY_MAX_LENGTH ||
+    scope.length > MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH ||
     CONTROL_CHARS.test(scope)
   ) {
     return undefined;
@@ -184,12 +207,24 @@ export async function ensureTable(): Promise<void> {
           scope TEXT,
           created_at BIGINT NOT NULL,
           expires_at BIGINT NOT NULL,
-          consumed_at BIGINT
+          consumed_at BIGINT,
+          renewal_expires_at BIGINT,
+          session_active_until BIGINT
         )
       `;
       await ensureTableExists(
         "agent_native_embed_tickets",
         embedTicketsCreateSql,
+      );
+      await ensureColumnExists(
+        "agent_native_embed_tickets",
+        "renewal_expires_at",
+        "ALTER TABLE agent_native_embed_tickets ADD COLUMN renewal_expires_at BIGINT",
+      );
+      await ensureColumnExists(
+        "agent_native_embed_tickets",
+        "session_active_until",
+        "ALTER TABLE agent_native_embed_tickets ADD COLUMN session_active_until BIGINT",
       );
       await ensureTableExists(
         "agent_native_embed_session_revocations",
@@ -786,17 +821,82 @@ export async function createEmbedSessionTicket(
   const createdAt = Date.now();
   const ttlSeconds = input.ttlSeconds ?? DEFAULT_TICKET_TTL_SECONDS;
   const expiresAt = createdAt + Math.max(1, ttlSeconds) * 1000;
+  const widgetCapability = isMcpDirectoryWidgetCapabilityScope(
+    input.scope ?? undefined,
+  );
+  if (
+    widgetCapability &&
+    (input.revocationAnchorCreatedAtMs === undefined ||
+      !Number.isSafeInteger(input.revocationAnchorCreatedAtMs))
+  ) {
+    throw new Error(
+      "Directory widget ticket requires a trusted revocation anchor.",
+    );
+  }
+  if (
+    isMcpDirectoryWidgetWriteCapabilityScope(input.scope ?? undefined) &&
+    !canRenewMcpDirectoryWidgetCapabilityScope(input.scope!, input.scope!, {
+      userEmail: ownerEmail,
+      orgId: input.orgId,
+    })
+  ) {
+    throw new Error(
+      "Directory widget write capability identity does not match its ticket owner.",
+    );
+  }
+  const checksOwnerRevocation =
+    !capabilityScope ||
+    widgetCapability ||
+    input.revocationAnchorCreatedAtMs !== undefined;
+  if (
+    input.revocationAnchorCreatedAtMs !== undefined &&
+    !Number.isSafeInteger(input.revocationAnchorCreatedAtMs)
+  ) {
+    throw new Error("Embed session ticket has an invalid revocation anchor.");
+  }
+  const renewalExpiryCap = createdAt + MCP_DIRECTORY_WIDGET_RENEWAL_TTL_MS;
+  const renewalExpiresAt = widgetCapability
+    ? Math.min(input.renewalExpiresAtMs ?? renewalExpiryCap, renewalExpiryCap)
+    : null;
+  if (
+    widgetCapability &&
+    (renewalExpiresAt === null ||
+      !Number.isSafeInteger(renewalExpiresAt) ||
+      renewalExpiresAt <= createdAt)
+  ) {
+    throw new Error("Embed session ticket has an invalid renewal deadline.");
+  }
+  const writeCapabilityExpiresAtMs = isMcpDirectoryWidgetWriteCapabilityScope(
+    input.scope ?? undefined,
+  )
+    ? getMcpDirectoryWidgetWriteCapabilityExpiresAt(input.scope ?? undefined)
+    : undefined;
+  if (
+    isMcpDirectoryWidgetWriteCapabilityScope(input.scope ?? undefined) &&
+    (writeCapabilityExpiresAtMs === undefined ||
+      !Number.isSafeInteger(writeCapabilityExpiresAtMs) ||
+      writeCapabilityExpiresAtMs <= createdAt)
+  ) {
+    throw new Error("Directory widget ticket has an invalid write capability.");
+  }
+  const sessionActiveUntil =
+    writeCapabilityExpiresAtMs === undefined
+      ? null
+      : Math.min(expiresAt, writeCapabilityExpiresAtMs, renewalExpiresAt!);
   const client = getDbExec();
   const insert = async (tx: DbExec) => {
-    if (!capabilityScope) {
+    if (checksOwnerRevocation) {
       const key = ownerHash(ownerEmail);
       if (!key) throw new Error("Embed session ticket requires ownerEmail.");
       await lockEmbedSessionsForOwner(tx, key);
       const revokedBefore = await embedSessionsRevokedBefore(ownerEmail, tx);
-      if (revokedBefore !== null && authenticatedAtMs <= revokedBefore) {
+      const revocationTime =
+        input.revocationAnchorCreatedAtMs ?? authenticatedAtMs;
+      if (revokedBefore !== null && revocationTime <= revokedBefore) {
         throw new Error("Embed session ticket creation was revoked by logout.");
       }
       if (
+        !capabilityScope &&
         contextSessionToken &&
         !(await sourceSessionBelongsToOwner(
           tx,
@@ -810,8 +910,8 @@ export async function createEmbedSessionTicket(
     await tx.execute({
       sql:
         "INSERT INTO agent_native_embed_tickets " +
-        "(ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "(ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at, renewal_expires_at, session_active_until) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       args: [
         ticketHash,
         ownerEmail,
@@ -821,43 +921,381 @@ export async function createEmbedSessionTicket(
         createdAt,
         expiresAt,
         null,
+        renewalExpiresAt,
+        sessionActiveUntil,
       ],
     });
   };
-  if (capabilityScope) {
-    await insert(client);
-  } else {
+  if (checksOwnerRevocation) {
     if (!client.transaction) {
       throw new Error(
         "Embed session ticket creation requires database transactions.",
       );
     }
     await client.transaction(insert);
+  } else {
+    await insert(client);
   }
   return { ticket, ticketHash, expiresAt };
+}
+
+export async function readMcpDirectoryWidgetRenewalTicket(
+  ticket: string,
+): Promise<McpDirectoryWidgetRenewalTicket | null> {
+  if (!ticket || ticket.length > 128 || CONTROL_CHARS.test(ticket)) {
+    return null;
+  }
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql:
+      "SELECT ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at, renewal_expires_at, session_active_until " +
+      "FROM agent_native_embed_tickets WHERE ticket_hash = ? LIMIT 1",
+    args: [hashTicket(ticket)],
+  });
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const ownerEmail = stringOrUndefined(row.owner_email ?? row.ownerEmail);
+  const targetPath = normalizeEmbedTargetPath(
+    stringOrUndefined(row.target_path ?? row.targetPath),
+  );
+  const scope = stringOrUndefined(row.scope);
+  const createdAtMs = numberOrNull(row.created_at ?? row.createdAt);
+  const expiresAtMs = numberOrNull(row.expires_at ?? row.expiresAt);
+  const storedRenewalExpiresAt = row.renewal_expires_at ?? row.renewalExpiresAt;
+  const consumedAtMs = numberOrNull(row.consumed_at ?? row.consumedAt);
+  const sessionActiveUntilMs = numberOrNull(
+    row.session_active_until ?? row.sessionActiveUntil,
+  );
+  const sessionId = stringOrUndefined(row.ticket_hash ?? row.ticketHash);
+  if (
+    !ownerEmail ||
+    !targetPath ||
+    !scope ||
+    !isMcpDirectoryWidgetCapabilityScope(scope) ||
+    !createdAtMs ||
+    expiresAtMs === null ||
+    !sessionId
+  ) {
+    return null;
+  }
+  const renewalExpiryCap = createdAtMs + MCP_DIRECTORY_WIDGET_RENEWAL_TTL_MS;
+  const renewalExpiresAtMs =
+    storedRenewalExpiresAt == null
+      ? renewalExpiryCap
+      : numberOrNull(storedRenewalExpiresAt);
+  if (renewalExpiresAtMs === null) return null;
+  const boundedRenewalExpiresAtMs = Math.min(
+    renewalExpiresAtMs,
+    renewalExpiryCap,
+  );
+  if (Date.now() >= boundedRenewalExpiresAtMs) return null;
+  const orgId = stringOrUndefined(row.org_id ?? row.orgId);
+  return {
+    sessionId,
+    ownerEmail,
+    ...(orgId ? { orgId } : {}),
+    targetPath,
+    scope,
+    createdAtMs,
+    expiresAtMs,
+    consumedAtMs,
+    renewalExpiresAtMs: boundedRenewalExpiresAtMs,
+    sessionActiveUntilMs,
+  };
+}
+
+export async function renewMcpDirectoryWidgetSession(input: {
+  sourceTicket: string;
+  ownerEmail: string;
+  orgId?: string | null;
+  expectedScope: string;
+  renewedScope: string;
+}): Promise<number | null> {
+  const ownerEmail = normalizedEmail(input.ownerEmail);
+  if (
+    !ownerEmail ||
+    !input.sourceTicket ||
+    input.sourceTicket.length > 128 ||
+    CONTROL_CHARS.test(input.sourceTicket)
+  ) {
+    return null;
+  }
+
+  await ensureTable();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Widget session renewal requires database transactions.");
+  }
+
+  return client.transaction(async (tx) => {
+    const ticketHash = hashTicket(input.sourceTicket);
+    const { rows } = await tx.execute({
+      sql:
+        "SELECT owner_email, org_id, target_path, scope, created_at, consumed_at, renewal_expires_at, session_active_until " +
+        "FROM agent_native_embed_tickets WHERE ticket_hash = ? FOR UPDATE",
+      args: [ticketHash],
+    });
+    const row = rows[0] as Record<string, unknown> | undefined;
+    if (!row) return null;
+
+    const currentOwner = stringOrUndefined(row.owner_email ?? row.ownerEmail);
+    const currentOrgId = stringOrUndefined(row.org_id ?? row.orgId);
+    const currentScope = stringOrUndefined(row.scope);
+    const createdAtMs = numberOrNull(row.created_at ?? row.createdAt);
+    const consumedAtMs = numberOrNull(row.consumed_at ?? row.consumedAt);
+    const storedRenewalExpiresAt = numberOrNull(
+      row.renewal_expires_at ?? row.renewalExpiresAt,
+    );
+    const sessionActiveUntilMs = numberOrNull(
+      row.session_active_until ?? row.sessionActiveUntil,
+    );
+    const renewalExpiryCap =
+      createdAtMs === null
+        ? null
+        : createdAtMs + MCP_DIRECTORY_WIDGET_RENEWAL_TTL_MS;
+    const renewalExpiresAtMs =
+      renewalExpiryCap === null
+        ? null
+        : Math.min(
+            storedRenewalExpiresAt ?? renewalExpiryCap,
+            renewalExpiryCap,
+          );
+
+    if (
+      !currentOwner ||
+      normalizedEmail(currentOwner) !== ownerEmail ||
+      (currentOrgId ?? undefined) !== (input.orgId ?? undefined) ||
+      !currentScope ||
+      currentScope !== input.expectedScope ||
+      !isMcpDirectoryWidgetCapabilityScope(currentScope) ||
+      !isMcpDirectoryWidgetCapabilityScope(input.renewedScope) ||
+      !canRenewMcpDirectoryWidgetCapabilityScope(
+        currentScope,
+        input.renewedScope,
+        { userEmail: ownerEmail, orgId: currentOrgId },
+      ) ||
+      createdAtMs === null ||
+      consumedAtMs === null ||
+      sessionActiveUntilMs === null ||
+      renewalExpiresAtMs === null ||
+      renewalExpiresAtMs <= Date.now()
+    ) {
+      return null;
+    }
+
+    const renewedWriteScope = isMcpDirectoryWidgetWriteCapabilityScope(
+      input.renewedScope,
+    );
+    const renewedScopeExpiresAt = renewedWriteScope
+      ? getMcpDirectoryWidgetWriteCapabilityExpiresAt(input.renewedScope)
+      : undefined;
+    if (
+      renewedWriteScope &&
+      (renewedScopeExpiresAt === undefined ||
+        renewedScopeExpiresAt <= Date.now() ||
+        renewedScopeExpiresAt >
+          Date.now() + MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS)
+    ) {
+      return null;
+    }
+
+    const key = ownerHash(ownerEmail);
+    if (!key) return null;
+    await lockEmbedSessionsForOwner(tx, key);
+    const revokedBefore = await embedSessionsRevokedBefore(ownerEmail, tx);
+    if (revokedBefore !== null && createdAtMs <= revokedBefore) return null;
+
+    const activeUntilMs = Math.min(
+      Date.now() + MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
+      renewalExpiresAtMs,
+      renewedScopeExpiresAt ?? Number.MAX_SAFE_INTEGER,
+    );
+    if (activeUntilMs <= Date.now()) return null;
+
+    const updated = await tx.execute({
+      sql:
+        "UPDATE agent_native_embed_tickets SET scope = ?, session_active_until = ? " +
+        "WHERE ticket_hash = ? AND consumed_at IS NOT NULL AND scope = ?",
+      args: [input.renewedScope, activeUntilMs, ticketHash, currentScope],
+    });
+    return updated.rowsAffected === 0 ? null : activeUntilMs;
+  });
+}
+
+interface McpDirectoryWidgetSessionState {
+  sessionId: string;
+  ownerEmail: string;
+  orgId?: string;
+  targetPath: string;
+  scope: string;
+  createdAtMs: number;
+  renewalExpiresAtMs: number;
+  sessionActiveUntilMs: number | null;
+}
+
+async function readMcpDirectoryWidgetSessionState(
+  sessionId: string,
+): Promise<McpDirectoryWidgetSessionState | null> {
+  if (!/^[a-f0-9]{64}$/.test(sessionId)) return null;
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql:
+      "SELECT ticket_hash, owner_email, org_id, target_path, scope, created_at, consumed_at, renewal_expires_at, session_active_until " +
+      "FROM agent_native_embed_tickets WHERE ticket_hash = ? LIMIT 1",
+    args: [sessionId],
+  });
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+
+  const ownerEmail = stringOrUndefined(row.owner_email ?? row.ownerEmail);
+  const targetPath = normalizeEmbedTargetPath(
+    stringOrUndefined(row.target_path ?? row.targetPath),
+  );
+  const scope = stringOrUndefined(row.scope);
+  const createdAtMs = numberOrNull(row.created_at ?? row.createdAt);
+  const consumedAtMs = numberOrNull(row.consumed_at ?? row.consumedAt);
+  const storedRenewalExpiresAt = numberOrNull(
+    row.renewal_expires_at ?? row.renewalExpiresAt,
+  );
+  const sessionActiveUntilMs = numberOrNull(
+    row.session_active_until ?? row.sessionActiveUntil,
+  );
+  if (
+    !ownerEmail ||
+    !targetPath ||
+    !scope ||
+    !isMcpDirectoryWidgetCapabilityScope(scope) ||
+    createdAtMs === null ||
+    consumedAtMs === null
+  ) {
+    return null;
+  }
+  const renewalExpiryCap = createdAtMs + MCP_DIRECTORY_WIDGET_RENEWAL_TTL_MS;
+  const renewalExpiresAtMs = Math.min(
+    storedRenewalExpiresAt ?? renewalExpiryCap,
+    renewalExpiryCap,
+  );
+  return {
+    sessionId,
+    ownerEmail,
+    ...(stringOrUndefined(row.org_id ?? row.orgId)
+      ? { orgId: stringOrUndefined(row.org_id ?? row.orgId) }
+      : {}),
+    targetPath,
+    scope,
+    createdAtMs,
+    renewalExpiresAtMs,
+    sessionActiveUntilMs,
+  };
 }
 
 export async function resolveEmbedSessionTokenForHost(
   token: string | undefined,
   hostname: string,
 ): Promise<EmbedSessionTokenClaims | null> {
-  const verified = verifyEmbedSessionToken(token);
+  const verified = verifyEmbedSessionToken(token, { allowExpired: true });
   if (!verified.ok || !embedTokenMatchesHostname(hostname, verified.claims)) {
     return null;
   }
+  const claims = verified.claims;
+  let scope = claims.scope;
+  const widgetCapability = isMcpDirectoryWidgetCapabilityScope(scope);
   if (
-    !isEmbedCapabilityScope(verified.claims.scope) &&
+    widgetCapability &&
+    (typeof claims.ticketCreatedAtMs !== "number" ||
+      !Number.isSafeInteger(claims.ticketCreatedAtMs))
+  ) {
+    return null;
+  }
+  if (claims.sessionId) {
+    if (!widgetCapability) return null;
+    const session = await readMcpDirectoryWidgetSessionState(claims.sessionId);
+    if (
+      !session ||
+      normalizedEmail(session.ownerEmail) !==
+        normalizedEmail(claims.ownerEmail) ||
+      session.orgId !== claims.orgId ||
+      session.targetPath !== claims.targetPath ||
+      session.createdAtMs !== claims.ticketCreatedAtMs ||
+      session.sessionActiveUntilMs === null ||
+      session.sessionActiveUntilMs <= Date.now() ||
+      session.renewalExpiresAtMs <= Date.now()
+    ) {
+      return null;
+    }
+    scope = session.scope;
+  } else if (claims.exp < Math.floor(Date.now() / 1000)) {
+    return null;
+  }
+  if (widgetCapability && !isMcpDirectoryWidgetCapabilityScope(scope)) {
+    return null;
+  }
+  const revokesWithOwner = !isEmbedCapabilityScope(scope) || widgetCapability;
+  if (
+    revokesWithOwner &&
     (await embedSessionIsRevoked(
-      verified.claims.ownerEmail,
+      claims.ownerEmail,
       Math.min(
-        verified.claims.issuedAtMs ?? verified.claims.iat * 1000,
-        verified.claims.ticketCreatedAtMs ?? Number.MAX_SAFE_INTEGER,
+        claims.issuedAtMs ?? claims.iat * 1000,
+        claims.ticketCreatedAtMs ?? Number.MAX_SAFE_INTEGER,
       ),
     ))
   ) {
     return null;
   }
-  return verified.claims;
+  return { ...claims, ...(scope ? { scope } : {}) };
+}
+
+export async function isExpiredMcpDirectoryWidgetSessionRequest(
+  event: H3Event,
+): Promise<boolean> {
+  const hostname = requestHostname(event) ?? "";
+  const tokens = [
+    queryToken(event),
+    bearerToken(event),
+    getCookie(event, EMBED_SESSION_COOKIE),
+  ];
+  for (const token of tokens) {
+    const verified = verifyEmbedSessionToken(token, { allowExpired: true });
+    if (
+      !verified.ok ||
+      !verified.claims.sessionId ||
+      !isMcpDirectoryWidgetCapabilityScope(verified.claims.scope) ||
+      !embedTokenMatchesHostname(hostname, verified.claims) ||
+      !requestMatchesEmbedTarget(event, verified.claims.targetPath)
+    ) {
+      continue;
+    }
+    const session = await readMcpDirectoryWidgetSessionState(
+      verified.claims.sessionId,
+    );
+    if (
+      !session ||
+      normalizedEmail(session.ownerEmail) !==
+        normalizedEmail(verified.claims.ownerEmail) ||
+      session.orgId !== verified.claims.orgId ||
+      session.targetPath !== verified.claims.targetPath ||
+      session.createdAtMs !== verified.claims.ticketCreatedAtMs ||
+      session.sessionActiveUntilMs === null ||
+      session.sessionActiveUntilMs > Date.now() ||
+      session.renewalExpiresAtMs <= Date.now()
+    ) {
+      continue;
+    }
+    if (
+      await embedSessionIsRevoked(
+        verified.claims.ownerEmail,
+        Math.min(
+          verified.claims.issuedAtMs ?? verified.claims.iat * 1000,
+          session.createdAtMs,
+        ),
+      )
+    ) {
+      continue;
+    }
+    return true;
+  }
+  return false;
 }
 
 export async function resolveEmbedSessionCookieOwners(
@@ -900,7 +1338,7 @@ export async function consumeEmbedSessionTicket(
   const ticketKey = ticketHash.slice(0, 12);
   const { rows } = await getDbExec().execute({
     sql:
-      "SELECT ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at " +
+      "SELECT ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at, renewal_expires_at " +
       "FROM agent_native_embed_tickets WHERE ticket_hash = ?",
     args: [ticketHash],
   });
@@ -921,12 +1359,18 @@ export async function consumeEmbedSessionTicket(
   const row: any = rows[0];
   const createdAt = numberOrNull(row.created_at ?? row.createdAt);
   const expiresAt = numberOrNull(row.expires_at ?? row.expiresAt);
+  const storedRenewalExpiresAt = numberOrNull(
+    row.renewal_expires_at ?? row.renewalExpiresAt,
+  );
   const consumedAt = numberOrNull(row.consumed_at ?? row.consumedAt);
   const ownerEmail = stringOrUndefined(row.owner_email ?? row.ownerEmail);
+  const scope = stringOrUndefined(row.scope);
   const ticketOwnerKey = redactedIdentifier(normalizedEmail(ownerEmail));
   const orgId = stringOrUndefined(row.org_id ?? row.orgId);
   const ticketOrgKey = redactedIdentifier(orgId);
-  const capabilityScope = isEmbedCapabilityScope(stringOrUndefined(row.scope));
+  const capabilityScope = isEmbedCapabilityScope(scope);
+  const widgetCapability = isMcpDirectoryWidgetCapabilityScope(scope);
+  const revokesWithOwner = !capabilityScope || widgetCapability;
   if (!ownerEmail || createdAt === null || expiresAt === null) {
     options.onResult?.({
       outcome: "invalid-row",
@@ -941,8 +1385,20 @@ export async function consumeEmbedSessionTicket(
     });
     return null;
   }
+  const renewalExpiryCap = createdAt + MCP_DIRECTORY_WIDGET_RENEWAL_TTL_MS;
+  const renewalExpiresAt = Math.min(
+    storedRenewalExpiresAt ?? renewalExpiryCap,
+    renewalExpiryCap,
+  );
+  const writeCapabilityExpiresAt =
+    getMcpDirectoryWidgetWriteCapabilityExpiresAt(scope);
+  const sessionActiveUntil = isMcpDirectoryWidgetWriteCapabilityScope(scope)
+    ? Math.min(expiresAt, writeCapabilityExpiresAt ?? 0, renewalExpiresAt)
+    : null;
   const identityMismatchAllowed =
-    options.allowCapabilityIdentityMismatch && capabilityScope;
+    options.allowCapabilityIdentityMismatch &&
+    capabilityScope &&
+    !isMcpDirectoryWidgetWriteCapabilityScope(scope);
   if (consumedAt != null) {
     options.onResult?.({
       outcome: "already-consumed",
@@ -1001,7 +1457,7 @@ export async function consumeEmbedSessionTicket(
   ): Promise<
     "consumed" | "revoked" | "expired" | "consumption-race" | "invalid-row"
   > => {
-    if (!capabilityScope) {
+    if (revokesWithOwner) {
       const key = ownerHash(ownerEmail);
       if (!key) return "invalid-row";
       await lockEmbedSessionsForOwner(tx, key);
@@ -1012,24 +1468,32 @@ export async function consumeEmbedSessionTicket(
     }
     const consumedAt = Date.now();
     if (expiresAt < consumedAt) return "expired";
+    if (
+      isMcpDirectoryWidgetWriteCapabilityScope(scope) &&
+      (!Number.isSafeInteger(sessionActiveUntil) ||
+        sessionActiveUntil === null ||
+        sessionActiveUntil <= consumedAt)
+    ) {
+      return "invalid-row";
+    }
     const result = await tx.execute({
       sql:
-        "UPDATE agent_native_embed_tickets SET consumed_at = ? " +
+        "UPDATE agent_native_embed_tickets SET consumed_at = ?, session_active_until = ? " +
         "WHERE ticket_hash = ? AND consumed_at IS NULL",
-      args: [consumedAt, ticketHash],
+      args: [consumedAt, sessionActiveUntil, ticketHash],
     });
     return result.rowsAffected === 0 ? "consumption-race" : "consumed";
   };
   let outcome: Awaited<ReturnType<typeof claim>>;
-  if (capabilityScope) {
-    outcome = await claim(client);
-  } else {
+  if (revokesWithOwner) {
     if (!client.transaction) {
       throw new Error(
         "Embed ticket consumption requires database transactions.",
       );
     }
     outcome = await client.transaction(claim);
+  } else {
+    outcome = await claim(client);
   }
   if (outcome !== "consumed") {
     options.onResult?.({
@@ -1085,6 +1549,9 @@ export async function consumeEmbedSessionTicket(
       : {}),
     expiresAt,
     ticketCreatedAtMs: createdAt,
+    ...(isMcpDirectoryWidgetWriteCapabilityScope(scope)
+      ? { sessionId: ticketHash }
+      : {}),
   };
 }
 
@@ -1095,9 +1562,26 @@ export function signEmbedSessionToken(input: {
   audienceHost?: string;
   scope?: string | null;
   ticketCreatedAtMs?: number;
+  sessionId?: string;
   ttlSeconds?: number;
 }): string {
   const targetPath = normalizeEmbedTargetPath(input.targetPath) ?? "/";
+  if (
+    isMcpDirectoryWidgetCapabilityScope(input.scope ?? undefined) &&
+    (input.ticketCreatedAtMs === undefined ||
+      !Number.isSafeInteger(input.ticketCreatedAtMs))
+  ) {
+    throw new Error(
+      "Directory widget token requires its ticket creation time.",
+    );
+  }
+  if (
+    isMcpDirectoryWidgetWriteCapabilityScope(input.scope ?? undefined) &&
+    (typeof input.sessionId !== "string" ||
+      !/^[a-f0-9]{64}$/.test(input.sessionId))
+  ) {
+    throw new Error("Directory widget write token requires its session id.");
+  }
   const issuedAtMs = Date.now();
   const now = Math.floor(issuedAtMs / 1000);
   const ttl = Math.max(1, input.ttlSeconds ?? DEFAULT_TOKEN_TTL_SECONDS);
@@ -1112,6 +1596,7 @@ export function signEmbedSessionToken(input: {
   if (input.ticketCreatedAtMs != null) {
     claims.ticketCreatedAtMs = input.ticketCreatedAtMs;
   }
+  if (input.sessionId) claims.sessionId = input.sessionId;
   if (input.orgId) claims.orgId = input.orgId;
   if (input.audienceHost) {
     claims.audienceHost = input.audienceHost.toLowerCase();
@@ -1123,6 +1608,7 @@ export function signEmbedSessionToken(input: {
 
 export function verifyEmbedSessionToken(
   token: string | undefined | null,
+  options: { allowExpired?: boolean } = {},
 ): VerifyEmbedSessionTokenResult {
   if (!token || typeof token !== "string") {
     return { ok: false, reason: "missing" };
@@ -1159,12 +1645,15 @@ export function verifyEmbedSessionToken(
     (claims.ticketCreatedAtMs !== undefined &&
       (typeof claims.ticketCreatedAtMs !== "number" ||
         !Number.isFinite(claims.ticketCreatedAtMs))) ||
+    (claims.sessionId !== undefined &&
+      (typeof claims.sessionId !== "string" ||
+        !/^[a-f0-9]{64}$/.test(claims.sessionId))) ||
     typeof claims.exp !== "number" ||
     !Number.isFinite(claims.exp)
   ) {
     return { ok: false, reason: "claims" };
   }
-  if (claims.exp < Math.floor(Date.now() / 1000)) {
+  if (!options.allowExpired && claims.exp < Math.floor(Date.now() / 1000)) {
     return { ok: false, reason: "expired" };
   }
   claims.targetPath = normalizeEmbedTargetPath(claims.targetPath) ?? "/";
@@ -1254,7 +1743,7 @@ export async function resolveEmbedSessionFromRequest(
     if (candidate.source === "query" && candidate.token) {
       try {
         setEmbedSessionCookie(event, candidate.token);
-        setResponseHeader(event, "Referrer-Policy", "same-origin");
+        setResponseHeader(event, "Referrer-Policy", "no-referrer");
       } catch {
         // Some tests and edge runtimes expose read-only request shims. The
         // query token itself is still valid for this request.
@@ -1269,6 +1758,30 @@ export async function resolveEmbedSessionFromRequest(
     };
   }
   return null;
+}
+
+export function hasExplicitEmbedSessionCredential(event: H3Event): boolean {
+  if (queryToken(event)) return true;
+
+  const targetHeader = getHeader(event, EMBED_TARGET_HEADER);
+  const targetQuery = getQuery(event)?.[EMBED_TARGET_QUERY_PARAM];
+  if (
+    bearerToken(event) &&
+    (typeof targetHeader === "string" ||
+      typeof targetQuery === "string" ||
+      (Array.isArray(targetQuery) && typeof targetQuery[0] === "string"))
+  ) {
+    return true;
+  }
+
+  const cookieClaims = verifyEmbedSessionToken(
+    getCookie(event, EMBED_SESSION_COOKIE),
+  );
+  return (
+    cookieClaims.ok &&
+    embedTokenMatchesRequestAudience(event, cookieClaims.claims) &&
+    requestMatchesEmbedTarget(event, cookieClaims.claims.targetPath)
+  );
 }
 
 export function requestHasEmbedAuthMarker(event: H3Event): boolean {

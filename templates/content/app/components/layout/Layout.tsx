@@ -29,6 +29,7 @@ import {
 import { useLocation, useNavigation } from "react-router";
 import { toast } from "sonner";
 
+import { DocumentEditor } from "@/components/editor/DocumentEditor";
 import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkeleton";
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,11 @@ import {
   applyRegisteredDocumentHistoryRestore,
   prepareRegisteredDocumentHistoryRestore,
 } from "@/lib/document-history-restore-controller";
+import { documentQueryFilter } from "@/lib/document-query";
+import {
+  isDocumentCreationConfirmed,
+  isDocumentCreationPending,
+} from "@/lib/optimistic-document";
 import { retirePageOpenReads } from "@/lib/page-open-reads";
 import {
   readPageIconRowHint,
@@ -83,6 +89,38 @@ export function documentPageIdFromPathname(pathname: string) {
   return pathname.match(/^\/page\/(.+)/)?.[1] ?? null;
 }
 
+function PendingDocumentTransition({
+  created,
+  documentId,
+  search,
+  title,
+}: {
+  created: boolean;
+  documentId: string;
+  search: string;
+  title: string | null | undefined;
+}) {
+  const params = new URLSearchParams(search);
+  const fallback = (
+    <DocumentEditorSkeleton
+      title={title}
+      iconRow={readPageIconRowHint(documentId)}
+      shape={readPageShapeHint(documentId)}
+    />
+  );
+  if (!created) return fallback;
+
+  return (
+    <DocumentEditor
+      documentId={documentId}
+      databaseId={params.get("databaseId")}
+      databaseDocumentId={params.get("databaseDocumentId")}
+      viewId={params.get("viewId")}
+      foreground
+    />
+  );
+}
+
 interface LayoutProps {
   children: ReactNode;
 }
@@ -109,6 +147,44 @@ export function Layout({ children }: LayoutProps) {
   });
   const queryClient = useQueryClient();
   const pendingSearch = navigation.location?.search ?? "";
+  const activeDocument = activeDocumentId
+    ? queryClient
+        .getQueriesData<Document>(documentQueryFilter(activeDocumentId))
+        .find(([, document]) => document?.id === activeDocumentId)?.[1]
+    : undefined;
+  const activeDocumentWasCreated = Boolean(
+    activeDocument &&
+    (isDocumentCreationPending(queryClient, activeDocument) ||
+      isDocumentCreationConfirmed(queryClient, activeDocument)),
+  );
+  const createdDocumentTransitionIdRef = useRef<string | null>(null);
+  if (activeDocumentWasCreated && activeDocumentId) {
+    createdDocumentTransitionIdRef.current = activeDocumentId;
+  } else if (
+    !showPendingDocumentSkeleton &&
+    createdDocumentTransitionIdRef.current !== currentDocumentId
+  ) {
+    createdDocumentTransitionIdRef.current = null;
+  }
+  const activeDocumentTransitionWasCreated = Boolean(
+    activeDocumentWasCreated ||
+    createdDocumentTransitionIdRef.current === activeDocumentId,
+  );
+  const showPendingDocumentTransition = Boolean(
+    showPendingDocumentSkeleton && pendingDocumentId,
+  );
+  const showCurrentCreatedDocumentEditor = Boolean(
+    currentDocumentId &&
+    !showPendingDocumentTransition &&
+    activeDocumentTransitionWasCreated &&
+    createdDocumentTransitionIdRef.current === currentDocumentId,
+  );
+  const showDocumentTransition =
+    showPendingDocumentTransition || showCurrentCreatedDocumentEditor;
+  const transitionDocumentTitle = showPendingDocumentTransition
+    ? pendingDocumentTitle
+    : activeDocument?.title;
+  const transitionSearch = navigation.location?.search ?? location.search;
   useEffect(() => {
     if (!showPendingDocumentSkeleton || !pendingDocumentId) return;
     const search = new URLSearchParams(pendingSearch);
@@ -331,11 +407,12 @@ export function Layout({ children }: LayoutProps) {
             style={{ "--content-sidebar-width": "0px" } as CSSProperties}
           >
             <SidebarTriggerContext.Provider value={null}>
-              {showPendingDocumentSkeleton && pendingDocumentId ? (
-                <DocumentEditorSkeleton
-                  title={pendingDocumentTitle}
-                  iconRow={readPageIconRowHint(pendingDocumentId)}
-                  shape={readPageShapeHint(pendingDocumentId)}
+              {showDocumentTransition && activeDocumentId ? (
+                <PendingDocumentTransition
+                  created={activeDocumentTransitionWasCreated}
+                  documentId={activeDocumentId}
+                  search={transitionSearch}
+                  title={transitionDocumentTitle}
                 />
               ) : (
                 children
@@ -419,11 +496,12 @@ export function Layout({ children }: LayoutProps) {
                   className={`${showHeader || fullWidthSettings || openAiWidget ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
                 />
                 <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
-                  {showPendingDocumentSkeleton && pendingDocumentId ? (
-                    <DocumentEditorSkeleton
-                      title={pendingDocumentTitle}
-                      iconRow={readPageIconRowHint(pendingDocumentId)}
-                      shape={readPageShapeHint(pendingDocumentId)}
+                  {showDocumentTransition && activeDocumentId ? (
+                    <PendingDocumentTransition
+                      created={activeDocumentTransitionWasCreated}
+                      documentId={activeDocumentId}
+                      search={transitionSearch}
+                      title={transitionDocumentTitle}
                     />
                   ) : (
                     children

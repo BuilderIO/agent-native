@@ -648,9 +648,8 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       frameActionStart,
       source.indexOf("  useEffect(() => {", frameActionStart),
     );
-    expect(frameAction).toContain(
-      'handleModeChange("interact", { targetFileId: screenId })',
-    );
+    expect(frameAction).toContain("focusOverviewScreen(screenId)");
+    expect(frameAction).not.toContain('handleModeChange("interact"');
   });
 
   it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {

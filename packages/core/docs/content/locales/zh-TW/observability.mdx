@@ -344,7 +344,7 @@ export default defineAppConfig({
 | `execute_tool {tool}` | 每次操作呼叫一次 | `gen_ai.tool.name`，加上成功/錯誤狀態                                                                     |
 | `chat {model}`        | 每個模型呼叫     | `gen_ai.provider.name`, 計時+正常/錯誤狀態                                                                |
 
-跨度以 OK/ERROR 狀態完成，並紀錄失敗時的錯誤訊息。零/哨兵屬性值被修剪，因此跨度不會因噪音而混亂。該 OTel 層純粹是對內部 `agent_trace_spans` / `agent_trace_summaries` 表的補充，這些表為上面的儀表板提供支援 - 兩者都是由相同的執行事件產生的。
+跨度以 OK/ERROR 狀態完成，並在失敗時紀錄由代碼產生的固定訊息。零/哨兵屬性值被修剪，因此跨度不會因噪音而混亂。該 OTel 層純粹是對內部 `agent_trace_spans` / `agent_trace_summaries` 表的補充，這些表為上面的儀表板提供支援 - 兩者都是由相同的執行事件產生的。
 
 ### 指標 {#otel-metrics}
 
@@ -551,3 +551,7 @@ CLI 的硬編碼 DSN 是有意為之的 - 發布的二進制檔案需要通知�
 - [**Tracking**](/docs/tracking) - 針對您的應用自身事件的產品分析（PostHog、Mixpanel、Amplitude）
 - [**Actions**](/docs/actions-overview) - 在跟蹤中顯示為工具呼叫的操作
 - [**Security**](/docs/security) — 資料範圍和憑證處理
+
+即使啟用了內容擷取，執行失敗訊息也不會傳送至 Analytics 或 Monitoring。`$ai_error` 包含終止代碼、具名原因、是否可重試，以及根據代碼產生的固定訊息。追蹤事件省略 `error_message`、`agent_run_terminal.error_detail` 和失敗工具結果的文字；終止事件保留 `error_code` 和 `error_cause`。`agent_runs.error_detail` 與 `agent_trace_spans.error_message` 仍保存在應用程式自身的資料庫中，供擁有者權限範圍內的除錯使用。
+
+執行與 Builder 閘道例外保留類型、代碼及堆疊框架，但使用固定訊息 `Internal Server Error`，不包含原始訊息或巢狀原因的文字。Monitoring 依應用程式、類型、堆疊框架、錯誤代碼與失敗類別分組，而非依訊息中的姓名分組。`$ai_trace_id` 仍用於連結到執行追蹤。由宿主管理的選用 OpenTelemetry 執行匯出也會省略失敗文字，並保留 `agent.error_code` 和 `agent.error_cause`。其他例外擷取維持原有行為。

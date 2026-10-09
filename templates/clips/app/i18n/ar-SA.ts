@@ -303,6 +303,8 @@ const messages = {
     silenceWorking: "جارٍ إزالة فترات الصمت…",
     silenceCompleted: "اكتملت إزالة فترات الصمت",
     silenceFailed: "فشلت إزالة فترات الصمت",
+    silenceEditsUnreadable:
+      "تعذرت قراءة التعديلات المحفوظة، لذلك لم تتم إزالة فترات الصمت.",
     generatePrSummary: "إنشاء ملخص للعلاقات العامة",
     generateSop: "توليد SOP",
     generateSopTooltip:

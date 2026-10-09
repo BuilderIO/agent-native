@@ -138,6 +138,11 @@ import {
 } from "./context.js";
 import { AgentStreamingText } from "./streaming-text.js";
 
+// AgentKit React installs without @agent-native/core, so it repeats core's
+// replay markers. Its specs assert core's attribute names.
+const SESSION_REPLAY_MASK_PROPS = { "data-an-mask": "" } as const;
+const SESSION_REPLAY_BLOCK_PROPS = { "data-an-block": "" } as const;
+
 export interface AgentKitErrorBoundaryProps {
   children: ReactNode;
   resetKey?: string | number;
@@ -920,7 +925,12 @@ export function AgentInteractionItem({
       {object ? (
         <ObjectRenderer value={object} threadId={threadId} />
       ) : detail ? (
-        <span className="agentkit-agent-interaction-detail" title={detail}>
+        <span
+          {...(interaction.kind === "failed"
+            ? SESSION_REPLAY_MASK_PROPS
+            : { title: detail })}
+          className="agentkit-agent-interaction-detail"
+        >
           {detail}
         </span>
       ) : null}
@@ -987,7 +997,13 @@ export function AgentActivityItem({
         </span>
         {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
         {detail ? (
-          <span className="agentkit-activity-detail" title={detail}>
+          // Replays mask text but record attributes, so failure text gets no title.
+          <span
+            {...(activity.status === "failed"
+              ? SESSION_REPLAY_MASK_PROPS
+              : { title: detail })}
+            className="agentkit-activity-detail"
+          >
             {detail}
           </span>
         ) : null}
@@ -1008,7 +1024,11 @@ export function AgentActivityItem({
         ) : null}
       </div>
       {open ? (
-        <div className="agentkit-activity-summary">
+        // Summary parts can render links, and replays keep their attributes.
+        <div
+          {...(activity.status === "failed" ? SESSION_REPLAY_BLOCK_PROPS : {})}
+          className="agentkit-activity-summary"
+        >
           {activity.summary?.map((part, index) => {
             const safePart =
               part.type === "text"
@@ -2331,7 +2351,11 @@ export function AgentApprovalPrompt({
         )}
       </div>
       {resolution.error ? (
-        <p className="agentkit-command-error" role="alert">
+        <p
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="agentkit-command-error"
+          role="alert"
+        >
           {resolution.error.message}
         </p>
       ) : null}
@@ -2452,7 +2476,7 @@ export function AgentConnectionRequestCard({
       {resolution.error ? (
         <div className="agentkit-command-error" role="alert">
           <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-          <span>{resolution.error.message}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{resolution.error.message}</span>
         </div>
       ) : null}
     </Surface>
@@ -2501,7 +2525,11 @@ function AgentWidgetActionButton({
         {action.label}
       </ActionButton>
       {invocation.error ? (
-        <span className="agentkit-command-error" role="alert">
+        <span
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="agentkit-command-error"
+          role="alert"
+        >
           {invocation.error.message}
         </span>
       ) : null}
@@ -3003,6 +3031,10 @@ async function forkAndResubmitMessage({
   if (previousMessage === null) {
     throw new Error(messageUnavailable);
   }
+  const engine = metadata?.engine ?? options?.metadata?.engine;
+  await controller.assertAiSetupReady({
+    engine: typeof engine === "string" ? engine : undefined,
+  });
   const forkedThread = await controller.forkThread(
     threadId,
     previousMessage?.id,
@@ -3724,7 +3756,11 @@ export function AgentMessageActions({
         </>
       )}
       {actionError ? (
-        <span className="agentkit-command-error" role="alert">
+        <span
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="agentkit-command-error"
+          role="alert"
+        >
           {actionError.message}
         </span>
       ) : null}
@@ -3880,7 +3916,7 @@ export function AgentRunFailure({
       <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
       <div className="agentkit-run-failure-copy">
         <strong>{labels.runFailed}</strong>
-        <span>{error.message}</span>
+        <span {...SESSION_REPLAY_MASK_PROPS}>{error.message}</span>
         {canContinue ? (
           <div className="agentkit-error-actions">
             <ActionButton
@@ -3919,7 +3955,7 @@ export function AgentConnectionErrorView({
       role="alert"
     >
       <strong>{labels.error}</strong>
-      <span>{error.message}</span>
+      <span {...SESSION_REPLAY_MASK_PROPS}>{error.message}</span>
       {error.retryable ? (
         <div className="agentkit-error-actions">
           <ActionButton
@@ -3933,7 +3969,9 @@ export function AgentConnectionErrorView({
         </div>
       ) : null}
       {recoveryError ? (
-        <span className="agentkit-command-error">{recoveryError.message}</span>
+        <span {...SESSION_REPLAY_MASK_PROPS} className="agentkit-command-error">
+          {recoveryError.message}
+        </span>
       ) : null}
     </div>
   );
@@ -3973,7 +4011,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onAgentChange"
     | "onModelSelectorOpenChange"
     | "modelStatusChecksEnabled"
-    | "requireAgentEngine"
+    | "showMissingApiKeySetup"
     | "attachmentsEnabled"
     | "onAttachmentRequest"
     | "contextButtonTooltipDisabled"
@@ -3987,7 +4025,6 @@ export interface AgentKitComposerProps extends Omit<
     | "inlineTextAttachments"
     | "extraActionButton"
     | "onSubmit"
-    | "onBeforeSubmit"
     | "onSubmissionPendingChange"
     | "onAttachmentError"
     | "interceptBuildRequestsForBuilder"
@@ -3999,6 +4036,8 @@ export interface AgentKitComposerProps extends Omit<
 > {
   /** Override the default AgentKit submit path when the host owns send options. */
   onSubmit?: PromptComposerProps["onSubmit"];
+  /** Opt in to Agent-Native provider UI when this host owns that setup flow. */
+  requireAgentEngine?: boolean;
   beforeSend?: (submission: AgentKitComposerSubmission) => void | Promise<void>;
   composerRef?: { current: TiptapComposerHandle | null };
   threadId?: string;
@@ -4062,7 +4101,8 @@ export function AgentKitComposer({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
-  requireAgentEngine,
+  requireAgentEngine = false,
+  showMissingApiKeySetup,
   attachmentsEnabled,
   onAttachmentRequest,
   contextButtonTooltipDisabled,
@@ -4072,7 +4112,6 @@ export function AgentKitComposer({
   onRemoveContextItem,
   extraActionButton,
   onSubmit: onSubmitOverride,
-  onBeforeSubmit,
   onSubmissionPendingChange,
   onAttachmentError,
   interceptBuildRequestsForBuilder,
@@ -4266,6 +4305,11 @@ export function AgentKitComposer({
       options.onLocalSubmit?.();
     };
     if (!editingMessage && onSubmitOverride) {
+      const readinessEngine = options.engine ?? selectedEngine;
+      await controller.assertAiSetupReady({
+        engine:
+          typeof readinessEngine === "string" ? readinessEngine : undefined,
+      });
       const submitOptions = {
         ...(suggestion ? { ...options, suggestion } : options),
         onLocalSubmit,
@@ -4324,6 +4368,10 @@ export function AgentKitComposer({
       if (previousMessage === null) {
         throw new Error(labels.messageUnavailable);
       }
+      const selectedEngine = metadata.engine ?? runOptions.metadata?.engine;
+      await controller.assertAiSetupReady({
+        engine: typeof selectedEngine === "string" ? selectedEngine : undefined,
+      });
       const forkedThread = await controller.forkThread(
         threadId,
         previousMessage?.id,
@@ -4420,14 +4468,13 @@ export function AgentKitComposer({
       queuedWhileRunActive: activeAtSubmit,
     });
   };
-  const prepareHostSubmit = async () => {
+  const prepareHostSubmit = () => {
     if (disabled) {
       onDisabledClick?.();
       return false;
     }
     if (submissionDisabled) return false;
-    if (editingMessage) return true;
-    return !onBeforeSubmit || (await onBeforeSubmit());
+    return true;
   };
   const steerQueued: AgentKitQueueRenderProps["onSteer"] =
     !disabled && !submissionDisabled
@@ -4635,6 +4682,7 @@ export function AgentKitComposer({
         onModelSelectorOpenChange={onModelSelectorOpenChange}
         modelStatusChecksEnabled={modelStatusChecksEnabled}
         requireAgentEngine={requireAgentEngine}
+        showMissingApiKeySetup={showMissingApiKeySetup}
         layoutVariant={layoutVariant}
         toolbarSlot={composerToolbarSlot}
         initialText={composerInitialText}
@@ -4642,7 +4690,6 @@ export function AgentKitComposer({
         onTextChange={onTextChange}
         extraActionButton={extraActionButton}
         sendButtonDisabled={submissionPending}
-        onBeforeSubmit={onBeforeSubmit}
         onSubmissionPendingChange={handleSubmissionPendingChange}
         getSubmitFailureDraftScope={getSubmitFailureDraftScope}
         clearOnSubmitImmediately
@@ -4691,13 +4738,13 @@ export function AgentKitComposer({
       {command.error ? (
         <div className="agentkit-composer-error" role="alert">
           <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-          <span>{command.error.message}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{command.error.message}</span>
         </div>
       ) : null}
       {attachmentError ? (
         <div className="agentkit-composer-error" role="alert">
           <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-          <span>{attachmentError}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{attachmentError}</span>
         </div>
       ) : null}
     </div>

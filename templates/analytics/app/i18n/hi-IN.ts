@@ -673,6 +673,18 @@ export default {
     copied: "कॉपी किया गया",
     copy: "प्रतिलिपि",
     keyActions: "{{name}} प्रमुख क्रियाएं",
+    manageReplayOrigins: "रीप्ले ऑरिजिन प्रबंधित करें",
+    replayOriginsDescription:
+      "सटीक HTTPS ऑरिजिन जोड़ें, हर पंक्ति में एक। मौजूदा ऑरिजिन बने रहेंगे।",
+    currentReplayOrigins: "मौजूदा अनुमत ऑरिजिन",
+    anyReplayOriginAllowed:
+      "अभी किसी भी ऑरिजिन की अनुमति है। ऑरिजिन जोड़ने पर रीप्ले केवल इस सूची तक सीमित होगा, इसलिए इस कुंजी का उपयोग करने वाले हर ऐप को शामिल करें।",
+    originsToAdd: "जोड़ने के ऑरिजिन",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "ऑरिजिन जोड़ें",
+    addingReplayOrigins: "ऑरिजिन जोड़े जा रहे हैं…",
+    replayOriginsUpdateFailed: "अनुमत ऑरिजिन अपडेट नहीं हो सके।",
+    cancel: "रद्द करें",
     lastUsed: "अंतिम बार {{date}} का उपयोग किया गया",
     neverUsed: "कभी भी इस्तेमाल नहीं किया",
     revoking: "निरस्त किया जा रहा है...",
@@ -1461,6 +1473,8 @@ export default {
     replayPlayer: "रीप्ले प्लेयर",
     replayLoading: "रीप्ले लोड हो रहा है...",
     replayLoadingProgress: "{{total}} में से {{loaded}} रीप्ले चंक लोड हुए",
+    replayTargetFallback:
+      "अनुरोधित रिकॉर्डिंग समय {{requested}} उपलब्ध नहीं है; {{available}} पर निकटतम रीप्ले फ़्रेम दिखाया जा रहा है।",
     replayUnavailable: "इस सत्र के लिए कोई रीप्ले चंक नहीं है",
     replayUnavailableDescription:
       "सत्र में analytics इवेंट हैं, लेकिन कोई rrweb चंक इवेंट नहीं मिला।",

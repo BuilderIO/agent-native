@@ -235,6 +235,93 @@ describe("browser analytics pageviews", () => {
     vi.restoreAllMocks();
   });
 
+  it("waits for the auth session before resolving the analytics identity", async () => {
+    installBrowser();
+    let resolveSession!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: unknown) => {
+        if (String(url).includes("/_agent-native/auth/session")) {
+          return new Promise<Response>((resolve) => {
+            resolveSession = resolve;
+          });
+        }
+        return Promise.resolve(new Response("{}"));
+      }),
+    );
+    const {
+      configureTracking,
+      getAnalyticsAnonymousId,
+      resolveAnalyticsIdentityKey,
+    } = await freshAnalytics();
+    configureTracking({
+      authSessionRefresh: false,
+      errorCapture: false,
+      llmConnectionStatus: false,
+      pageviewTracking: false,
+    });
+
+    const identity = resolveAnalyticsIdentityKey();
+    await tick();
+    let resolved = false;
+    void identity.then(() => {
+      resolved = true;
+    });
+    expect(resolveSession).toBeTypeOf("function");
+    expect(resolved).toBe(false);
+
+    resolveSession(
+      new Response(
+        JSON.stringify({
+          userId: "auth-user-1",
+          email: "person@example.com",
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await expect(identity).resolves.toBe("person@example.com");
+    expect(await identity).not.toBe(getAnalyticsAnonymousId());
+  });
+
+  it("uses anonymous identity only for a resolved signed-out session", async () => {
+    installBrowser();
+    installFetch({ session: { error: "not authenticated" } });
+    const {
+      configureTracking,
+      getAnalyticsAnonymousId,
+      resolveAnalyticsIdentityKey,
+    } = await freshAnalytics();
+    configureTracking({
+      authSessionRefresh: false,
+      errorCapture: false,
+      llmConnectionStatus: false,
+      pageviewTracking: false,
+    });
+
+    await expect(resolveAnalyticsIdentityKey()).resolves.toBe(
+      getAnalyticsAnonymousId(),
+    );
+  });
+
+  it("does not resolve an anonymous identity when auth status is unavailable", async () => {
+    installBrowser();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unavailable", { status: 503 })),
+    );
+    const { configureTracking, resolveAnalyticsIdentityKey } =
+      await freshAnalytics();
+    configureTracking({
+      authSessionRefresh: false,
+      errorCapture: false,
+      llmConnectionStatus: false,
+      pageviewTracking: false,
+    });
+
+    await expect(resolveAnalyticsIdentityKey()).resolves.toBeUndefined();
+  });
+
   it("keeps the pageview enrichment window open until the deferred boot refresh starts", async () => {
     installBrowser();
     const analyticsCalls: Array<[unknown, RequestInit]> = [];
@@ -1147,6 +1234,10 @@ describe("browser analytics pageviews", () => {
         legacy_event_name: legacyName,
       },
     });
+    expect(events[0]?.properties.event_alias_id).toEqual(
+      events[1]?.properties.event_alias_id,
+    );
+    expect(events[0]?.properties.event_alias_id).toEqual(expect.any(String));
     expect(gtag).toHaveBeenCalledWith(
       "event",
       "session_status",

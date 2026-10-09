@@ -4037,6 +4037,12 @@ async function main(): Promise<void> {
           })
           .catch(() => [] as string[])
       : [];
+    await page
+      ?.screenshot({
+        path: path.join(repoRoot, ".tmp/action-cards-gallery/failure.png"),
+        fullPage: true,
+      })
+      .catch(() => undefined);
     const historyBlock =
       historyDiagnostics.length > 0
         ? `\n\nBrowser history mutations:\n${historyDiagnostics.join("\n")}`

@@ -15,6 +15,7 @@ import {
 } from "../server/lib/onboarding-journey.js";
 
 const MAX_WINDOW_DAYS = 90;
+const MAX_DEPTH = 40;
 
 function resolveScope() {
   const userEmail = getRequestUserEmail();
@@ -33,7 +34,7 @@ const isoDate = z
 
 export default defineAction({
   description:
-    'Build the onboarding journey tree for a date window: per-session step sequences (signup, onboarding questions, setup method, app entry, first action, first output) folded into a prefix tree. format "tree" returns { window, app, rootN, coverage, nodes }: each node has n, pctOfRoot, pctOfParent, dropoffN/dropoffPct (sessions whose last observed step is that node, not a confirmed exit) and example sessions with recordingId, offsetMs to seek to, and the recording\'s viewport. format "summary" returns the same counts as an indented text outline with no examples. Check coverage.truncated first: true means counts are a partial sample or the node list was cut (see notes). Use it to plan onboarding storyboards or find where new users stop; feed the tree to the journey:capture CLI to render frames.',
+    'Build the onboarding journey tree for a date window: per-session step sequences (signup, onboarding questions, setup method, app entry, first action, first output) folded into a prefix tree. format "tree" returns { window, app, rootN, coverage, nodes } for sessions that entered onboarding, plus standaloneSetup for Home chat integration events in sessions without onboarding; its root and percentages have a separate denominator. Each node has n, pctOfRoot, pctOfParent, dropoffN/dropoffPct (last observed step, not a confirmed exit), deeperN (sessions with a later observed step omitted below this node), and example sessions with recordingId, a recording-start-relative offsetMs, and viewport. format "summary" returns the same counts as indented outlines with no examples. Check each tree\'s coverage.truncated first: true means its event sample, requested depth, or node list cut that tree; notes explain why. Use it to plan onboarding storyboards or find where users stop. For a standalone storyboard, pass standaloneSetup as the top-level tree to journey:capture.',
   schema: z.object({
     dateFrom: isoDate.describe(
       "Inclusive UTC start date, YYYY-MM-DD. Sessions that began earlier appear mid-journey, so start a day before the period you care about.",
@@ -70,17 +71,17 @@ export default defineAction({
       .optional()
       .default(60)
       .describe(
-        "Most nodes returned, largest first. When the tree has more, coverage.truncated is true and notes says how many were cut. Defaults to 60.",
+        "Most nodes in each independently counted tree, largest first. When a tree has more, coverage.truncated is true and notes says how many were cut. Defaults to 60.",
       ),
     maxDepth: z.coerce
       .number()
       .int()
       .min(1)
-      .max(20)
+      .max(MAX_DEPTH)
       .optional()
       .default(8)
       .describe(
-        "Steps kept per session before sessions are folded into the deeperN count of the node at this depth. Defaults to 8.",
+        `Steps kept per session, at most ${MAX_DEPTH}. Sessions that continue beyond the requested depth appear in node.deeperN and set coverage.truncated. Defaults to 8.`,
       ),
     minNodeSessions: z.coerce
       .number()

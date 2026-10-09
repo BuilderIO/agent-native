@@ -2,6 +2,7 @@ import { testIdentityEmailSql } from "@agent-native/core/shared";
 
 import {
   JOURNEY_COHORT_EVENT_NAMES,
+  JOURNEY_INTEGRATION_EVENT_NAMES,
   JOURNEY_STEP_EVENT_NAMES,
 } from "./journey-steps.js";
 
@@ -1048,7 +1049,7 @@ const FUNNEL_EVENTS_CTE = `WITH auth_identity_bridge AS (
   JOIN signup_cohort c ON c.funnel_user_key = e.funnel_user_key
 )`;
 const ONBOARDING_EVENTS_CTE = `WITH auth_identity_bridge AS (
-  SELECT linked_email, MIN(auth_user_id) AS auth_user_id
+  SELECT linked_email, MIN(identities.auth_user_id) AS auth_user_id
   FROM (
     SELECT lower(COALESCE(
       CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
@@ -1061,9 +1062,9 @@ const ONBOARDING_EVENTS_CTE = `WITH auth_identity_bridge AS (
       AND ${FIRST_PARTY_TEMPLATE_FILTER}
   ) AS identities
   WHERE linked_email IS NOT NULL
-    AND auth_user_id IS NOT NULL
+    AND identities.auth_user_id IS NOT NULL
   GROUP BY linked_email
-  HAVING COUNT(DISTINCT auth_user_id) = 1
+  HAVING COUNT(DISTINCT identities.auth_user_id) = 1
 ), scoped_onboarding_events AS (
   SELECT e.*,
     COALESCE(
@@ -1309,7 +1310,7 @@ const ONBOARDING_SETUP_CHOICE_SQL = `${ONBOARDING_EVENTS_CTE}, choice_viewers AS
   FROM attempts
   GROUP BY method_id
 ), method_list AS (
-  SELECT 'builder_create_account' AS method_id, 'Create Builder.io account' AS method_label
+  SELECT 'builder_create_account' AS method_id, 'Use Builder.io' AS method_label
   UNION ALL SELECT 'builder_sign_in', 'Sign in with Builder.io account'
   UNION ALL SELECT 'custom_keys', 'Configure custom keys'
 )
@@ -1336,7 +1337,8 @@ ORDER BY method_list.method_id`;
 const sqlNameList = (names: readonly string[]) =>
   names.map((name) => `'${name}'`).join(", ");
 /**
- * One row per journey step event of the sessions that entered onboarding.
+ * Onboarding sessions and standalone Home integration sessions are selected
+ * separately so chat setup never changes onboarding cohort denominators.
  * Same window, app scope, and identity predicates as the onboarding metrics
  * above (the test-identity matcher and the @builder.io rule), applied to the
  * whole session instead of per event: an employee's anonymous pre-signup
@@ -1366,16 +1368,45 @@ const ONBOARDING_JOURNEY_EVENTS_SQL = `${ONBOARDING_EVENTS_CTE}, identified_even
   FROM included_sessions i
   JOIN scoped_onboarding_events c ON c.session_id = i.session_id
   WHERE c.event_name IN (${sqlNameList(JOURNEY_COHORT_EVENT_NAMES)})
+), standalone_setup_sessions AS (
+  SELECT DISTINCT i.session_id
+  FROM included_sessions i
+  JOIN scoped_onboarding_events setup ON setup.session_id = i.session_id
+  WHERE setup.event_name IN (${sqlNameList(JOURNEY_INTEGRATION_EVENT_NAMES)})
+    AND NOT EXISTS (
+      SELECT 1 FROM cohort_sessions c WHERE c.session_id = i.session_id
+    )
+), journey_events AS (
+  SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
+    e.properties, 'onboarding' AS journey_kind
+  FROM scoped_onboarding_events e
+  JOIN cohort_sessions s ON s.session_id = e.session_id
+  WHERE e.event_name IN (${sqlNameList(JOURNEY_STEP_EVENT_NAMES)})
+  UNION ALL
+  SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
+    e.properties, 'standalone_setup' AS journey_kind
+  FROM scoped_onboarding_events e
+  JOIN standalone_setup_sessions s ON s.session_id = e.session_id
+  WHERE e.event_name IN (${sqlNameList(JOURNEY_STEP_EVENT_NAMES)})
 )
-SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
+SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
+  e.journey_kind,
+  COALESCE(
+    NULLIF(e.properties::jsonb ->> 'flow', ''),
+    NULLIF(e.properties::jsonb ->> 'agent_native_flow', '')
+  ) AS flow,
+  COALESCE(
+    NULLIF(e.properties::jsonb ->> 'source', ''),
+    NULLIF(e.properties::jsonb ->> 'agent_native_connect_source', '')
+  ) AS source,
   NULLIF(e.properties::jsonb ->> 'step_id', '') AS step_id,
+  NULLIF(e.properties::jsonb ->> 'step_index', '') AS step_index,
   NULLIF(e.properties::jsonb ->> 'method_id', '') AS method_id,
   NULLIF(e.properties::jsonb ->> 'outcome', '') AS outcome,
-  NULLIF(e.properties::jsonb ->> 'action', '') AS action
-FROM scoped_onboarding_events e
-JOIN cohort_sessions s ON s.session_id = e.session_id
-WHERE e.event_name IN (${sqlNameList(JOURNEY_STEP_EVENT_NAMES)})
-ORDER BY e.session_id, e.timestamp, e.id
+  NULLIF(e.properties::jsonb ->> 'action', '') AS action,
+  NULLIF(e.properties::jsonb ->> 'event_alias_id', '') AS alias_id
+FROM journey_events e
+ORDER BY e.journey_kind, e.session_id, e.timestamp, e.id
 LIMIT {{journeyLimit}} OFFSET {{journeyOffset}}`;
 
 export interface OnboardingJourneyEventsFilters {

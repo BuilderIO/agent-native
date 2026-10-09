@@ -295,6 +295,7 @@ const messages = {
     silenceWorking: "正在消除靜音…",
     silenceCompleted: "靜音消除完成",
     silenceFailed: "靜音消除失敗",
+    silenceEditsUnreadable: "無法讀取已儲存的編輯，因此未移除靜音片段。",
     generatePrSummary: "產生 PR 摘要",
     generateSop: "產生 SOP",
     generateSopTooltip:

@@ -584,11 +584,43 @@ function ManualSetupCard({
   );
 }
 
+const FRIENDLY_MODEL_NAMES: Record<string, string> = {
+  "z-ai/glm-5.2": "GLM 5.2",
+  "grok-code-fast": "Grok Code Fast",
+  "x-ai/grok-4.7": "Grok 4.7",
+  "x-ai/grok-build-0.1": "Grok Build 0.1",
+  "qwen3-coder": "Qwen3 Coder",
+  "qwen/qwen3-coder": "Qwen3 Coder",
+  "kimi-k2-5": "Kimi K2.5",
+  "moonshotai/kimi-k2.5": "Kimi K2.5",
+  "deepseek-v4-pro": "DeepSeek V4 Pro",
+  "deepseek-v4-1-flash": "DeepSeek V4.1 Flash",
+  "deepseek-v3-1": "DeepSeek v3.1",
+  "deepseek/deepseek-v4-pro": "DeepSeek V4 Pro",
+  "deepseek/deepseek-v4.1-flash": "DeepSeek V4.1 Flash",
+  "deepseek/deepseek-chat-v3.1": "DeepSeek v3.1",
+  "z-ai-glm-4-5": "Z-AI GLM 4.5",
+  "z-ai-glm-5-1": "Z-AI GLM 5.1",
+  "z-ai-glm-5-3-flash": "Z-AI GLM 5.3 Flash",
+  "z-ai/glm-4.5": "GLM 4.5",
+  "z-ai/glm-5.1": "GLM 5.1",
+  "z-ai/glm-5.3-flash": "GLM 5.3 Flash",
+  "anthropic/claude-haiku-5.5": "Claude Haiku 5.5",
+  "google/gemini-3.8-flash": "Gemini 3.8 Flash",
+  "google/gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+  "google/gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
+  "google/gemini-3.1-pro-preview": "Gemini 3.1 Pro",
+};
+
 export function friendlyModelName(model: string): string {
-  if (model === "z-ai/glm-5.2") return "GLM 5.2";
+  const friendlyName = Object.hasOwn(FRIENDLY_MODEL_NAMES, model)
+    ? FRIENDLY_MODEL_NAMES[model]
+    : undefined;
+  if (friendlyName !== undefined) return friendlyName;
   const normalizedModel = model.replace(/^(?:anthropic|openai)\//, "");
-  const claude = normalizedModel.match(
-    /^claude-(opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?(?:-\d{8,})?$/,
+  const undatedModel = normalizedModel.replace(/-\d{8,}$/, "");
+  const claude = undatedModel.match(
+    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);

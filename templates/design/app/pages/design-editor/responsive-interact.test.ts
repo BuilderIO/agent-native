@@ -156,9 +156,8 @@ describe("responsive Interact wiring", () => {
     expect(source).toContain(
       'className="pointer-events-none flex min-w-0 justify-center"',
     );
-    expect(source).toContain(
-      "isMobileViewport && minimalInspectorHasSelection",
-    );
+    expect(source).toContain("shouldAutoOpenMobileInspector");
+    expect(source).toContain("hasSelection: minimalInspectorHasSelection");
   });
 
   it("resets chrome mode when same-design navigation changes embed mode", () => {
@@ -238,12 +237,9 @@ describe("responsive Interact wiring", () => {
     expect(commandChannel).not.toContain("!id || !isSignedIn");
   });
 
-  it("routes every Interact request into the responsive view", () => {
-    expect(source).toContain(
-      'handleModeChange("interact", { targetFileId: screenId })',
-    );
-    expect(source).toContain('handleModeChange("interact");');
-    expect(source).toContain("enterSingleScreen(screenId, { mode });");
+  it("keeps screen focus on All screens and reserves Interact for explicit mode changes", () => {
+    expect(source).toContain('if (mode === "interact")');
+    expect(source).toContain("handleSidebarScreenSelect(match.id)");
     expect(source).not.toContain("enterSingleScreenInteract");
     expect(editorSurface).toContain("resolveModeChangeView({");
     expect(editorSurface).toContain('options?.mode ?? "interact"');

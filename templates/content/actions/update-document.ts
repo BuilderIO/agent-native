@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { ActionContractError } from "@agent-native/core";
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import {
@@ -205,6 +205,38 @@ function isFavoriteOnlyUpdate(args: {
   );
 }
 
+function isScopedWidgetDocumentWriter(
+  ctx: ActionRunContext | undefined,
+  documentId: string,
+) {
+  const grant = ctx?.mcpDirectoryWidgetWrite;
+  return (
+    ctx?.caller === "mcp-widget-write" &&
+    grant?.appId === "content" &&
+    Array.isArray(grant.actionNames) &&
+    grant.actionNames.includes("update-document") &&
+    grant.resourceIds?.documentId === documentId
+  );
+}
+
+function assertWidgetDocumentWriteScope(
+  ctx: ActionRunContext | undefined,
+  documentId: string,
+) {
+  if (
+    ctx?.caller === "mcp-widget-write" &&
+    !isScopedWidgetDocumentWriter(ctx, documentId)
+  ) {
+    throw new ActionContractError(
+      "This Content widget write capability is missing or scoped to a different document or action.",
+      {
+        errorCode: "mcp_widget_write_scope_mismatch",
+        statusCode: 403,
+      },
+    );
+  }
+}
+
 const reuseLabelSchema = z.object({
   itemId: z.string().min(1).optional(),
   itemVersionId: z.string().min(1).optional(),
@@ -389,7 +421,13 @@ export function isEffectivelyEmptyDocumentContent(
   content: string | null | undefined,
 ) {
   const normalized = (content ?? "").trim();
-  return normalized === "" || normalized === "<empty-block/>";
+  return (
+    normalized === "" ||
+    normalized.split(/\r?\n/).every((line) => {
+      const trimmed = line.trim();
+      return trimmed === "" || /^<empty-block\b[^>]*\/>$/.test(trimmed);
+    })
+  );
 }
 
 export function shouldRejectStaleEmptyBodySave(args: {
@@ -586,6 +624,7 @@ const updateDocumentAction = defineAction({
     measurement.record = !isFavoriteOnlyUpdate(args);
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    assertWidgetDocumentWriteScope(ctx, id);
     if (
       (args.editorSessionId === undefined) !==
       (args.editorEditGeneration === undefined)
@@ -664,7 +703,7 @@ const updateDocumentAction = defineAction({
       ctx?.caller === "a2a";
     if (
       args.browserSaveAttemptId !== undefined &&
-      (ctx?.caller !== "frontend" ||
+      ((ctx?.caller !== "frontend" && !isScopedWidgetDocumentWriter(ctx, id)) ||
         (args.title === undefined && args.content === undefined))
     ) {
       throw new ActionContractError(
@@ -1029,6 +1068,17 @@ const updateDocumentAction = defineAction({
           .where(eq(schema.documents.id, id))
           .limit(1);
         const bodyBaseStale = observeSaveBase(historyBefore);
+        if (
+          isScopedWidgetDocumentWriter(ctx, id) &&
+          args.content !== undefined &&
+          args.baseRevision === undefined &&
+          args.baseUpdatedAt === undefined &&
+          args.recoveryExpectedUpdatedAt === undefined &&
+          !authoredBase
+        ) {
+          contentCasConflict = true;
+          return;
+        }
         if (
           args.recoveryExpectedUpdatedAt !== undefined &&
           historyBefore.updatedAt !== args.recoveryExpectedUpdatedAt

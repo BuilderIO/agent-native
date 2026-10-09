@@ -13,10 +13,14 @@ import {
   setResponseHeader,
 } from "h3";
 
+import {
+  JOURNEY_STAGED_REPLAY_MAX_AGE_MS,
+  JOURNEY_STAGED_REPLAY_ROW_PREFIX,
+} from "../../../../shared/journey-canvas.js";
 import { getDb, schema } from "../../../db/index.js";
+import { isValidReplayScreenshotBlobHandle } from "../../../lib/replay-screenshot-private-blob.js";
 
 const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
-const PUBLIC_UPLOAD_HANDLE_PREFIX = "public-upload:v1:";
 
 function parsePrivateBlobHandle(value: string): PrivateBlobHandle {
   let parsed: unknown;
@@ -28,37 +32,13 @@ function parsePrivateBlobHandle(value: string): PrivateBlobHandle {
       statusMessage: "Screenshot not found",
     });
   }
-  if (
-    !parsed ||
-    typeof parsed !== "object" ||
-    !("id" in parsed) ||
-    typeof parsed.id !== "string" ||
-    !parsed.id ||
-    !("provider" in parsed) ||
-    typeof parsed.provider !== "string" ||
-    !parsed.provider ||
-    !("opaque" in parsed) ||
-    parsed.opaque !== true ||
-    !("encrypted" in parsed) ||
-    typeof parsed.encrypted !== "boolean"
-  ) {
+  if (!isValidReplayScreenshotBlobHandle(parsed)) {
     throw createError({
       statusCode: 404,
       statusMessage: "Screenshot not found",
     });
   }
-  const fallbackId = parsed.id.startsWith(PUBLIC_UPLOAD_HANDLE_PREFIX);
-  const fallbackProvider = parsed.provider.startsWith("public-upload:");
-  if (
-    (fallbackId || fallbackProvider) &&
-    !(fallbackId && fallbackProvider && parsed.encrypted === true)
-  ) {
-    throw createError({
-      statusCode: 404,
-      statusMessage: "Screenshot not found",
-    });
-  }
-  return parsed as PrivateBlobHandle;
+  return parsed;
 }
 
 export default defineEventHandler(async (event) => {
@@ -86,10 +66,12 @@ export default defineEventHandler(async (event) => {
     async () => {
       const [screenshot] = await getDb()
         .select({
+          id: schema.designBoardReplayScreenshots.id,
           designId: schema.designBoardReplayScreenshots.designId,
           blobHandle: schema.designBoardReplayScreenshots.blobHandle,
           mimeType: schema.designBoardReplayScreenshots.mimeType,
           sizeBytes: schema.designBoardReplayScreenshots.sizeBytes,
+          createdAt: schema.designBoardReplayScreenshots.createdAt,
         })
         .from(schema.designBoardReplayScreenshots)
         .where(eq(schema.designBoardReplayScreenshots.id, screenshotId))
@@ -101,7 +83,26 @@ export default defineEventHandler(async (event) => {
         });
       }
 
-      await assertAccess("design", screenshot.designId, "viewer");
+      const staged = screenshot.id.startsWith(JOURNEY_STAGED_REPLAY_ROW_PREFIX);
+      await assertAccess(
+        "design",
+        screenshot.designId,
+        staged ? "editor" : "viewer",
+      );
+      if (staged) {
+        const createdAtMs = screenshot.createdAt
+          ? Date.parse(screenshot.createdAt)
+          : Number.NaN;
+        if (
+          !Number.isFinite(createdAtMs) ||
+          Date.now() - createdAtMs >= JOURNEY_STAGED_REPLAY_MAX_AGE_MS
+        ) {
+          throw createError({
+            statusCode: 404,
+            statusMessage: "Screenshot not found",
+          });
+        }
+      }
       if (!IMAGE_MIME_TYPES.has(screenshot.mimeType)) {
         throw createError({
           statusCode: 404,

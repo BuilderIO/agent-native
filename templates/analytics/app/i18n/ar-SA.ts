@@ -679,6 +679,18 @@ export default {
     copied: "منقول",
     copy: "ينسخ",
     keyActions: "الإجراءات الرئيسية {{name}}",
+    manageReplayOrigins: "إدارة مصادر إعادة التشغيل",
+    replayOriginsDescription:
+      "أضف مصادر HTTPS دقيقة، مصدرًا واحدًا في كل سطر. سيتم الاحتفاظ بالمصادر الحالية.",
+    currentReplayOrigins: "المصادر المسموح بها حاليًا",
+    anyReplayOriginAllowed:
+      "أي مصدر مسموح به حاليًا. ستقيّد إضافة المصادر إعادة التشغيل بها، لذا أدرج كل تطبيق يستخدم هذا المفتاح.",
+    originsToAdd: "المصادر المراد إضافتها",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "إضافة المصادر",
+    addingReplayOrigins: "جارٍ إضافة المصادر…",
+    replayOriginsUpdateFailed: "تعذر تحديث المصادر المسموح بها.",
+    cancel: "إلغاء",
     lastUsed: "آخر استخدام {{date}}",
     neverUsed: "لم تستخدم قط",
     revoking: "جارٍ الإلغاء...",
@@ -1472,6 +1484,8 @@ export default {
     replayLoading: "جارٍ تحميل إعادة التشغيل...",
     replayLoadingProgress:
       "تم تحميل {{loaded}} من {{total}} مقاطع إعادة التشغيل",
+    replayTargetFallback:
+      "موضع التسجيل المطلوب {{requested}} غير متاح؛ يتم عرض أقرب إطار لإعادة التشغيل عند {{available}}.",
     replayUnavailable: "لا توجد مقاطع إعادة تشغيل لهذه الجلسة",
     replayUnavailableDescription:
       "تحتوي الجلسة على أحداث analytics، لكن لم يتم العثور على أحداث مقاطع rrweb.",

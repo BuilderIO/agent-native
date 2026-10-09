@@ -1,4 +1,7 @@
+import { enUSJourneyCanvasMessages } from "../../shared/journey-canvas-messages.js";
+
 export default {
+  journeyCanvas: enUSJourneyCanvasMessages,
   composer: { menu: { integrations: "Integrations" } },
   creativeContext: {
     title: "Library",
@@ -222,6 +225,18 @@ export default {
       exportSvg: "Export SVG",
       actionsPrefill: "Review, then send",
       retry: "Retry",
+      currentDesign: "the current Design",
+      chooseDesign: "a Design (ask me which Design to use if needed)",
+      importFramePrompt:
+        "Import this Figma frame into {{destination}} and identify any content the importer could not carry over: {{url}}",
+      importFilePrompt:
+        "Open this Figma file, list its top-level frames, and ask me which frame to import: {{url}}",
+      inspectFramePrompt:
+        "Inspect this Figma frame and summarize its structure, components, styles, and reusable tokens: {{url}}",
+      inspectFilePrompt:
+        "Inspect this Figma file and summarize its structure, components, styles, and reusable tokens: {{url}}",
+      exportSvgPrompt:
+        "Export the current Design screen as SVG for use in Figma and identify which parts become static SVG content.",
     },
   },
   common: {
@@ -848,6 +863,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} need Figma access to load.",
       figmaPasteImagesDontShowAgain: "Don't show again",
+      figmaPasteUploadImage: "Upload image",
+      figmaPasteUploadImageFor: "Upload “{{name}}”",
+      figmaPasteImageFallbackName: "Image {{index}}",
+      figmaPasteUploadImageSuccess: "Image filled in",
+      figmaPasteUploadImageInvalid:
+        "Choose an image file, like SVG, PNG, or JPG.",
+      figmaPasteUploadImageError: "Couldn't fill in that image",
       figmaHydrationDialogTitle: "Fill in the missing images",
       figmaHydrationDialogDescription:
         "{{count}} image{{plural}} in the imported screen{{screensPlural}} couldn't come through the paste — Figma's clipboard leaves image data out. Fill from the original .fig, or fetch the exact images from the copied frame.",
@@ -949,6 +971,8 @@ export default {
       "Generation stopped before creating files. Try again to continue from the same prompt.",
     generationStoppedCheckAgent:
       "Generation stopped before creating files. Check the agent message or try again.",
+    invalidCanvasDimensions:
+      "The requested canvas size isn't supported. Use positive pixel dimensions within the editor limits.",
     notFound: "Design not found",
     backToDesigns: "Back to designs",
     designNotFoundDescription:
@@ -1524,6 +1548,7 @@ export default {
     fork: "Fork",
     fullView: "Full view",
     preview: "Preview",
+    focusScreen: "Focus screen",
     openAndDuplicate: "Select {{display}}. Use Interact for focused scrolling.",
     openAndPreview: "Select {{display}}. Use Interact for focused scrolling.",
     doubleClickToEdit: "Use Interact for focused scrolling",

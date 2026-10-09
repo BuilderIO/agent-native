@@ -212,3 +212,21 @@ it("leaves Home and End available to focused media controls", async () => {
 
   await window.happyDOM.abort();
 });
+
+it("numbers each exported slide and ships the slide-number counter rules", () => {
+  const html = buildStandaloneHtml("Deck", [
+    {
+      id: "one",
+      content:
+        '<p><span data-slide-number="pad"></span> / <span data-slide-total="pad"></span></p>',
+    },
+    { id: "two", content: "<p>Second</p>" },
+  ]);
+
+  expect(html).toContain('data-slide-index="1" data-slide-count="2"');
+  expect(html).toContain('data-slide-index="2" data-slide-count="2"');
+  expect(html).toContain("--slide-index: 2; --slide-count: 2;");
+  expect(html).toContain("counter-set: slide-number var(--slide-index)");
+  expect(html).toContain("counter(slide-number, decimal-leading-zero)");
+  expect(html).toMatch(/<span data-slide-number="pad"><\/span>/);
+});

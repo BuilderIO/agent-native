@@ -17,6 +17,7 @@ import {
   markEmbedMcpChatBridgeActive,
   isEmbedMcpChatBridgeActive,
   isMcpDirectoryWidgetReadOnlyEmbed,
+  isMcpDirectoryWidgetWriteEmbed,
   readEmbedMcpChatBridgeFlagFromUrl,
 } from "./embed-auth.js";
 import { getFrameOrigin } from "./frame.js";
@@ -570,6 +571,14 @@ export function useIsMcpDirectoryWidgetReadOnlyEmbed(): boolean {
   return useSyncExternalStore(
     () => () => {},
     isMcpDirectoryWidgetReadOnlyEmbed,
+    () => false,
+  );
+}
+
+export function useIsMcpDirectoryWidgetWriteEmbed(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    isMcpDirectoryWidgetWriteEmbed,
     () => false,
   );
 }

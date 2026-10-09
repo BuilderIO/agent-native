@@ -505,7 +505,6 @@ test("canvas and Layers selection show parent-relative position after iframe scr
   );
 });
 
-// oracle: none — verifies CSS fixed-position viewport coordinates, not Figma parity.
 test("fixed Position stays viewport-relative after iframe scroll and reload", async ({
   page,
   request,
@@ -565,8 +564,7 @@ test("fixed Position stays viewport-relative after iframe scroll and reload", as
   );
 });
 
-// oracle: fig.canvas.position-relative-to-frame — Position skips Groups and
-// resets at the nearest Frame.
+// Position skips Groups and resets at the nearest Frame.
 test("Position stays Frame-relative through Groups and resets at nested Frames", async ({
   page,
   request,
@@ -657,7 +655,6 @@ test("Position edits use the CSS containing block through static wrappers and bo
     .toEqual({ x: 120, y: 140 });
 });
 
-// oracle: none — plain HTML wrappers have no Figma node equivalent.
 test("Position stays Frame-relative through a positioned plain wrapper", async ({
   page,
   request,
@@ -775,8 +772,7 @@ test("Position edits invert own and static-containing-block transforms and persi
     .toEqual({ x: 170, y: 50 });
 });
 
-// oracle: fig.inspector.align-left-within-group, fig.inspector.align-center-within-group —
-// alignment uses Group bounds; Position remains Frame-relative.
+// Alignment uses Group bounds; Position remains Frame-relative.
 test("Align uses a Group's bounds while Position stays Frame-relative", async ({
   page,
   request,

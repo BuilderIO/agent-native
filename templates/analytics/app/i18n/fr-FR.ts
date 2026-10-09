@@ -704,6 +704,19 @@ export default {
     copied: "Copié",
     copy: "Copie",
     keyActions: "Actions clés {{name}}",
+    manageReplayOrigins: "Gérer les origines de relecture",
+    replayOriginsDescription:
+      "Ajoutez des origines HTTPS exactes, une par ligne. Les origines existantes seront conservées.",
+    currentReplayOrigins: "Origines actuellement autorisées",
+    anyReplayOriginAllowed:
+      "Toutes les origines sont actuellement autorisées. L’ajout d’origines limitera la lecture à cette liste ; ajoutez chaque application qui utilise cette clé.",
+    originsToAdd: "Origines à ajouter",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "Ajouter les origines",
+    addingReplayOrigins: "Ajout des origines…",
+    replayOriginsUpdateFailed:
+      "Impossible de mettre à jour les origines autorisées.",
+    cancel: "Annuler",
     lastUsed: "dernière utilisation {{date}}",
     neverUsed: "jamais utilisé",
     revoking: "Révoquer...",
@@ -1529,6 +1542,8 @@ export default {
     replayLoading: "Chargement de la relecture...",
     replayLoadingProgress:
       "{{loaded}} sur {{total}} fragments de relecture chargés",
+    replayTargetFallback:
+      "Le décalage demandé ({{requested}}) n’est pas disponible ; l’image du replay la plus proche à {{available}} est affichée.",
     replayUnavailable:
       "Aucun fragment de relecture n'est disponible pour cette session",
     replayUnavailableDescription:

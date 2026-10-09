@@ -89,7 +89,7 @@ function harness(args: {
   };
   const pendingOverviewScreenSelectionRef = { current: args.pendingScreenId };
   const commandArgs = {
-    activeBreakpointWidthStateRef: { current: undefined },
+    activeBreakpointWidthStateRef: { current: undefined as number | undefined },
     applyFileContentUpdate: vi.fn(),
     clearPendingOverviewLayerSelectionTimer,
     createdOverviewLayerSelection: args.createdOverviewLayerSelection ?? null,
@@ -232,7 +232,7 @@ describe("Layers selection runtime-info echo", () => {
       setup.commandArgs,
       SCREEN_ID,
       bridgeInfo({ id: "button-a", tag: "button" }),
-      undefined,
+      { source: "pointer" },
       { breakpointWidthPx: 390 },
     );
 
@@ -240,6 +240,26 @@ describe("Layers selection runtime-info echo", () => {
     expect(setup.renderedElementInfo.has(`${SCREEN_ID}:${setup.node.id}`)).toBe(
       true,
     );
+  });
+
+  it("drops an intent-less selection echoed from a different responsive frame", () => {
+    const setup = harness({
+      pendingLayerId: "unrelated-pending-layer",
+      pendingScreenId: null,
+    });
+    setup.commandArgs.activeBreakpointWidthStateRef.current = 390;
+
+    const selected = runScreenElementSelect(
+      setup.commandArgs,
+      SCREEN_ID,
+      bridgeInfo({ id: "button-a", tag: "button" }),
+      undefined,
+      { breakpointWidthPx: 768 },
+    );
+
+    expect(selected).toBe(false);
+    expect(setup.handleBreakpointBarSelect).not.toHaveBeenCalled();
+    expect(setup.renderedElementInfo.size).toBe(0);
   });
 
   it("hydrates only the exact pending non-root layer and preserves selection state", () => {

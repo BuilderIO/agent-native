@@ -954,6 +954,208 @@ describe("update-document compare-and-swap", () => {
     });
   });
 
+  it("accepts idempotent browser saves only from the scoped document widget", async () => {
+    const id = await createDocument({ content: "Before" });
+    const before = await documentRow(id);
+    const args = {
+      id,
+      content: "After",
+      baseRevision: documentRevisionToken(before.bodyRevision, before.content),
+      authoredBaseRevision: documentRevisionToken(
+        before.bodyRevision,
+        before.content,
+      ),
+      authoredBaseContent: before.content,
+      authoredCandidateContent: "After",
+      editorSessionId: nextId("widget-save-session"),
+      editorEditGeneration: 1,
+      browserSaveAttemptId: nextId("widget-save"),
+    };
+    const widgetContext = {
+      caller: "mcp-widget-write" as const,
+      userEmail: OWNER,
+      mcpDirectoryWidgetWrite: {
+        appId: "content",
+        resourceIds: { documentId: id },
+        actionNames: ["update-document"],
+      },
+    };
+    const deliver = (
+      context: typeof widgetContext,
+      input: typeof args = args,
+    ) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(input, context),
+      );
+
+    const first = await deliver(widgetContext);
+    expect(first).toMatchObject({
+      content: "After",
+      browserSaveAttempt: {
+        attemptId: args.browserSaveAttemptId,
+        result: "applied",
+      },
+    });
+    const saved = await documentRow(id);
+    const replay = await deliver(widgetContext);
+    expect(replay).toMatchObject({
+      content: "After",
+      browserSaveAttempt: {
+        attemptId: args.browserSaveAttemptId,
+        result: "replayed",
+        revision: documentRevisionToken(saved.bodyRevision, saved.content),
+      },
+    });
+    await expect(
+      deliver(widgetContext, {
+        ...args,
+        content: "Different",
+        authoredCandidateContent: "Different",
+      }),
+    ).rejects.toMatchObject({ errorCode: "BROWSER_SAVE_ATTEMPT_REUSED" });
+
+    const wrongDocument = {
+      ...widgetContext,
+      mcpDirectoryWidgetWrite: {
+        ...widgetContext.mcpDirectoryWidgetWrite,
+        resourceIds: { documentId: "another-document" },
+      },
+    };
+    await expect(deliver(wrongDocument)).rejects.toMatchObject({
+      errorCode: "mcp_widget_write_scope_mismatch",
+    });
+    await expect(
+      deliver({
+        ...widgetContext,
+        mcpDirectoryWidgetWrite: {
+          ...widgetContext.mcpDirectoryWidgetWrite,
+          actionNames: [],
+        },
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_write_scope_mismatch",
+    });
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(args, {
+          caller: "mcp",
+          userEmail: OWNER,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "INVALID_BROWSER_SAVE_ATTEMPT" });
+  });
+
+  it.each([
+    "missing grant",
+    "wrong document",
+    "wrong app",
+    "wrong action",
+  ] as const)(
+    "rejects favorite-only widget writes with %s before provisioning",
+    async (reason) => {
+      const id = await createDocument({
+        title: "Widget favorite scope",
+        content: "Favorite writes need a document grant.",
+      });
+      const grantContext = {
+        caller: "mcp-widget-write" as const,
+        mcpDirectoryWidgetWrite: {
+          appId: "content",
+          resourceIds: { documentId: id },
+          actionNames: ["update-document"],
+        },
+      };
+      const context =
+        reason === "missing grant"
+          ? { caller: "mcp-widget-write" as const }
+          : reason === "wrong document"
+            ? {
+                ...grantContext,
+                mcpDirectoryWidgetWrite: {
+                  ...grantContext.mcpDirectoryWidgetWrite,
+                  resourceIds: { documentId: "another-document" },
+                },
+              }
+            : reason === "wrong app"
+              ? {
+                  ...grantContext,
+                  mcpDirectoryWidgetWrite: {
+                    ...grantContext.mcpDirectoryWidgetWrite,
+                    appId: "design",
+                  },
+                }
+              : {
+                  ...grantContext,
+                  mcpDirectoryWidgetWrite: {
+                    ...grantContext.mcpDirectoryWidgetWrite,
+                    actionNames: ["add-database-item"],
+                  },
+                };
+
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          updateDocumentAction.run({ id, isFavorite: true }, context),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "mcp_widget_write_scope_mismatch",
+        statusCode: 403,
+      });
+      expect(await documentRow(id)).toMatchObject({
+        title: "Widget favorite scope",
+      });
+    },
+  );
+
+  it("preserves newer body content when a widget save omits its base", async () => {
+    const id = await createDocument({ content: "Before" });
+    const initial = await documentRow(id);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run(
+        {
+          id,
+          baseRevision: documentRevisionToken(
+            initial.bodyRevision,
+            initial.content,
+          ),
+          idempotencyKey: nextId("widget-stale-agent-edit"),
+          find: "Before",
+          replace: "Agent current",
+        },
+        { caller: "mcp", userEmail: OWNER },
+      ),
+    );
+
+    const browserSaveAttemptId = nextId("widget-stale-save");
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run(
+        { id, content: "Stale browser body", browserSaveAttemptId },
+        {
+          caller: "mcp-widget-write",
+          userEmail: OWNER,
+          mcpDirectoryWidgetWrite: {
+            appId: "content",
+            resourceIds: { documentId: id },
+            actionNames: ["update-document"],
+          },
+        },
+      ),
+    );
+
+    expect(result).toMatchObject({
+      conflict: true,
+      document: { content: "Agent current" },
+    });
+    expect(await documentRow(id)).toMatchObject({
+      content: "Agent current",
+      bodyRevision: initial.bodyRevision + 1,
+    });
+    expect(
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        getDocumentSaveAttemptAction.run({ id, browserSaveAttemptId }),
+      ),
+    ).toEqual({ found: false });
+  });
+
   it("replays a lost title-only browser response without reverting a later rename", async () => {
     const id = await createDocument({ title: "Before", content: "Body" });
     const args = {

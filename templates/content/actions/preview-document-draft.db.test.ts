@@ -36,6 +36,10 @@ let updateDocument: typeof import("./update-document.js").default;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
+  const { registerLabs } = await import("@agent-native/core/labs/registry");
+  const { CREATIVE_CONTEXT_LIBRARY_LAB } =
+    await import("@agent-native/creative-context");
+  registerLabs([CREATIVE_CONTEXT_LIBRARY_LAB]);
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -1250,7 +1254,7 @@ describe("private preview document drafts", () => {
     ).toBe("Local recovery");
   });
 
-  it("counts a refused inner create separately from the winning recovery write", async () => {
+  it("counts an idempotent inner create replay separately from the winning recovery write", async () => {
     const documentId = await createDocument();
     await asUser(OWNER, () =>
       updateDraft.run({
@@ -1262,7 +1266,8 @@ describe("private preview document drafts", () => {
     );
     const createAction = (await import("./create-document.js")).default;
     const runCreate = createAction.run;
-    let insertFailure: unknown;
+    let replayError: unknown;
+
     const createSpy = vi
       .spyOn(createAction, "run")
       .mockImplementationOnce(async (args, ctx) => {
@@ -1270,7 +1275,7 @@ describe("private preview document drafts", () => {
         try {
           return await runCreate(args, ctx);
         } catch (error) {
-          insertFailure = error;
+          replayError = error;
           throw error;
         }
       });
@@ -1286,7 +1291,8 @@ describe("private preview document drafts", () => {
     try {
       const resolved = await asUser(OWNER, () => resolveDraft.run(request));
       expect(resolved).toMatchObject({ status: "resolved" });
-      expect(insertFailure).toMatchObject({ cause: { code: "23505" } });
+      expect(replayError).toBeUndefined();
+
       const [copy] = await getDb()
         .select()
         .from(schema.documents)
@@ -1317,7 +1323,7 @@ describe("private preview document drafts", () => {
         }),
         expect.objectContaining({
           operation: "create_document",
-          outcome: "refused",
+          outcome: "replayed",
           origin: "recovery",
           history_effect: "none",
         }),

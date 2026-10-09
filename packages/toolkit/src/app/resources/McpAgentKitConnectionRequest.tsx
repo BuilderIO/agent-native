@@ -25,7 +25,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { AgentConnectionRequestCard } from "../agentkit/react/components.js";
 import {
-  dispatchIntegrationsHref,
+  dispatchApiKeysHref,
   useOrgSwitcherAppLinks,
 } from "../org/workspace-app-links.js";
 import { McpConnectionSuggestion } from "./McpConnectionSuggestion.js";
@@ -115,9 +115,7 @@ export function McpAgentKitConnectionRequestCard({
             if (!setupWindow) return false;
             try {
               setupWindow.opener = null;
-              setupWindow.location.assign(
-                dispatchIntegrationsHref(workspaceApps),
-              );
+              setupWindow.location.assign(dispatchApiKeysHref(workspaceApps));
             } catch {
               setupWindow.close();
               return false;

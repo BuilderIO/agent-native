@@ -329,6 +329,87 @@ export async function listAnalyticsPublicKeys(
   }));
 }
 
+export async function updateAnalyticsPublicKeyOrigins(
+  scope: AnalyticsScope,
+  keyId: string,
+  originsToAdd: string[],
+): Promise<{
+  id: string;
+  publicKeyPrefix: string;
+  replayAllowedOrigins: string[];
+  addedOrigins: string[];
+  changed: boolean;
+} | null> {
+  const db = getDb() as any;
+  const keyScope = scope.orgId
+    ? or(
+        eq(schema.analyticsPublicKeys.orgId, scope.orgId),
+        and(
+          eq(schema.analyticsPublicKeys.ownerEmail, scope.userEmail),
+          isNull(schema.analyticsPublicKeys.orgId),
+        ),
+      )
+    : and(
+        eq(schema.analyticsPublicKeys.ownerEmail, scope.userEmail),
+        isNull(schema.analyticsPublicKeys.orgId),
+      );
+  const where = and(eq(schema.analyticsPublicKeys.id, keyId), keyScope);
+
+  return db.transaction(async (tx: any) => {
+    const [row] = await tx
+      .select({
+        id: schema.analyticsPublicKeys.id,
+        publicKeyPrefix: schema.analyticsPublicKeys.publicKeyPrefix,
+        replayAllowedOrigins: schema.analyticsPublicKeys.replayAllowedOrigins,
+      })
+      .from(schema.analyticsPublicKeys)
+      .where(where)
+      .for("update");
+    if (!row) return null;
+
+    const currentOrigins = parseReplayAllowedOriginsForUpdate(
+      row.replayAllowedOrigins,
+    );
+    const currentSet = new Set(currentOrigins);
+    const addedOrigins = originsToAdd.filter((origin) => {
+      if (currentSet.has(origin)) return false;
+      currentSet.add(origin);
+      return true;
+    });
+    if (addedOrigins.length === 0) {
+      return {
+        id: row.id,
+        publicKeyPrefix: row.publicKeyPrefix,
+        replayAllowedOrigins: currentOrigins,
+        addedOrigins,
+        changed: false,
+      };
+    }
+
+    const nextOrigins = [...currentOrigins, ...addedOrigins];
+    const [updated] = await tx
+      .update(schema.analyticsPublicKeys)
+      .set({ replayAllowedOrigins: JSON.stringify(nextOrigins) })
+      .where(where)
+      .returning({
+        id: schema.analyticsPublicKeys.id,
+        publicKeyPrefix: schema.analyticsPublicKeys.publicKeyPrefix,
+        replayAllowedOrigins: schema.analyticsPublicKeys.replayAllowedOrigins,
+      });
+    if (!updated) return null;
+
+    return {
+      id: updated.id,
+      publicKeyPrefix: updated.publicKeyPrefix,
+      replayAllowedOrigins: parseReplayAllowedOriginsForUpdate(
+        updated.replayAllowedOrigins,
+      ),
+      addedOrigins,
+      changed: true,
+    };
+  });
+}
+
 const LAST_USED_AT_REFRESH_MS = 60_000;
 
 export async function touchPublicKeyLastUsedAt(
@@ -383,6 +464,32 @@ function parseReplayAllowedOrigins(value: unknown): string[] {
       .filter(Boolean);
   }
   return [];
+}
+
+function parseReplayAllowedOriginsForUpdate(value: unknown): string[] {
+  if (typeof value !== "string") {
+    throw invalidStoredReplayOriginsError();
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw invalidStoredReplayOriginsError();
+  }
+  if (
+    Array.isArray(parsed) &&
+    parsed.every((origin) => typeof origin === "string")
+  ) {
+    return parsed;
+  }
+  throw invalidStoredReplayOriginsError();
+}
+
+function invalidStoredReplayOriginsError() {
+  return Object.assign(
+    new Error("Stored replay origins cannot be read safely."),
+    { errorCode: "invalid_origin_allowlist", statusCode: 409 },
+  );
 }
 
 export async function revokeAnalyticsPublicKey(

@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 let steps: OnboardingStepStatus[] = [];
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  createOnboardingCorrelationId: () => "test-onboarding-correlation-id",
   trackOnboardingEvent: vi.fn(),
   useOnboarding: () => ({
     steps,

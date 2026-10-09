@@ -38,6 +38,21 @@ describe("update document", () => {
     expect(isEffectivelyEmptyDocumentContent("Real content")).toBe(false);
   });
 
+  it("rejects a stale save containing multiple empty-block sentinels", () => {
+    const incomingContent = "<empty-block/>\n<empty-block/>";
+
+    expect(isEffectivelyEmptyDocumentContent(incomingContent)).toBe(true);
+    expect(
+      shouldRejectStaleEmptyBodySave({
+        incomingContent,
+        currentContent: "Hydrated peer body",
+        loadedUpdatedAt: "2026-07-02T12:00:00.000Z",
+        currentUpdatedAt: "2026-07-02T12:00:02.000Z",
+        loadedContentWasEmpty: true,
+      }),
+    ).toBe(true);
+  });
+
   it("rejects equal-timestamp empty saves when the client attests it loaded empty content", () => {
     expect(
       shouldRejectStaleEmptyBodySave({

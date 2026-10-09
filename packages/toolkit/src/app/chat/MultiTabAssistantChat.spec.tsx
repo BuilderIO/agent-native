@@ -18,6 +18,7 @@ import {
   sendToAgentChat,
 } from "@agent-native/core/client/agent-chat";
 import { CHAT_MODEL_SELECTION_CHANGED_EVENT } from "@agent-native/core/client/agent-chat";
+import { chatModelSelectionStorageKey } from "@agent-native/core/client/agent-chat";
 import type {
   ChatThreadScope,
   ChatThreadSummary,
@@ -116,6 +117,7 @@ const assistantChatMockState = vi.hoisted(() => ({
 
 const threadMocks = vi.hoisted(() => ({
   activeThreadId: "thread-1" as string | null,
+  isLoading: false,
   evictedThreadIds: [] as string[],
   threads: [
     {
@@ -216,12 +218,14 @@ const ANTHROPIC_ENGINES = [
   {
     name: "anthropic",
     label: "Claude",
+    defaultModel: "claude-sonnet-5-5",
     supportedModels: ["claude-sonnet-5"],
     requiredEnvVars: ["ANTHROPIC_API_KEY"],
   },
   {
     name: "ai-sdk:openai",
     label: "OpenAI",
+    defaultModel: "gpt-5.6-luna",
     supportedModels: ["gpt-5.6-luna"],
     requiredEnvVars: ["OPENAI_API_KEY"],
   },
@@ -246,6 +250,28 @@ function stubCatalog(
   builderConfigured = false,
 ) {
   invalidateClientStatusRequests();
+  const modelEngines = Object.fromEntries(
+    (
+      engines as Array<{
+        name: string;
+        label: string;
+        defaultModel?: string;
+        supportedModels?: string[];
+        acceptsCustomModels?: boolean;
+        preserveCustomModels?: boolean;
+      }>
+    ).map((engine) => [
+      engine.name,
+      {
+        name: engine.name,
+        label: engine.label,
+        defaultModel: engine.defaultModel ?? engine.supportedModels?.[0] ?? "",
+        supportedModels: engine.supportedModels ?? [],
+        ...(engine.acceptsCustomModels ? { acceptsCustomModels: true } : {}),
+        ...(engine.preserveCustomModels ? { preserveCustomModels: true } : {}),
+      },
+    ]),
+  );
   modelCatalogMocks.load = async () => ({
     state: "available",
     groups: buildChatModelGroups({
@@ -253,6 +279,8 @@ function stubCatalog(
       configuredKeys,
       builderConnected: builderConfigured,
     }),
+    modelEngines,
+    currentModelEngine: null,
     defaultModel: "gpt-5-6-luna",
     loadLiveGroups: async () => null,
   });
@@ -353,6 +381,8 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         composerDisabled?: boolean;
         composerDisabledPlaceholder?: string;
         isActiveComposer?: boolean;
+        isNewThread?: boolean;
+        isThreadStateLoading?: boolean;
         contextScope?: ChatThreadScope | null;
         contextNamespace?: string;
         onThreadRestoreNotFound?: () => void;
@@ -403,6 +433,10 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
           }
           data-disabled-placeholder={props.composerDisabledPlaceholder}
           data-composer-active={props.isActiveComposer ? "true" : "false"}
+          data-new-thread={props.isNewThread ? "true" : "false"}
+          data-thread-state-loading={
+            props.isThreadStateLoading ? "true" : "false"
+          }
           data-context-scope={
             props.contextScope
               ? `${props.contextScope.type}:${props.contextScope.id}`
@@ -427,6 +461,7 @@ function resetThreadMocks() {
   assistantChatMockState.onSaveThread = undefined;
   assistantChatMockState.branchNavigation = undefined;
   threadMocks.activeThreadId = "thread-1";
+  threadMocks.isLoading = false;
   threadMocks.evictedThreadIds = [];
   threadMocks.threads = [
     {
@@ -1024,6 +1059,51 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     await view.cleanup();
   });
 
+  it("reports the active thread's exact engine to its resource panel", async () => {
+    const storageKey = "resources-engine-context";
+    const engines = [
+      {
+        name: "anthropic",
+        label: "Anthropic",
+        defaultModel: "claude-sonnet-5-5",
+        supportedModels: ["claude-sonnet-5-5", "claude-fable-5"],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+      },
+    ];
+    stubCatalog(engines, ["ANTHROPIC_API_KEY"]);
+    window.localStorage.setItem(
+      chatModelSelectionStorageKey(storageKey),
+      JSON.stringify({ model: "claude-sonnet-5-5", engine: "anthropic" }),
+    );
+
+    let selectedEngine: {
+      name: string;
+      supportedModels: readonly string[];
+    } | null = null;
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const localRoot = createRoot(el);
+    await act(async () => {
+      localRoot.render(
+        <MultiTabAssistantChat
+          storageKey={storageKey}
+          onActiveModelEngineChange={(engine) => {
+            selectedEngine = engine;
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(selectedEngine).toMatchObject({
+      name: "anthropic",
+      supportedModels: ["claude-sonnet-5-5", "claude-fable-5"],
+    });
+    await act(async () => localRoot.unmount());
+    el.remove();
+  });
+
   it("keeps the last model readiness when status refresh is unavailable", async () => {
     const view = await mountWithCatalog(ANTHROPIC_ENGINES, [
       "ANTHROPIC_API_KEY",
@@ -1049,25 +1129,58 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
   it("keeps a host-supplied model catalog instead of the discovered one", async () => {
     stubCatalog(ANTHROPIC_ENGINES, ["ANTHROPIC_API_KEY"]);
+    const storageKey = "host-catalog-test";
+    window.localStorage.setItem(
+      chatModelSelectionStorageKey(storageKey),
+      JSON.stringify({ model: "host-model", engine: "anthropic" }),
+    );
+    let activeEngine: {
+      name: string;
+      defaultModel: string;
+      supportedModels: readonly string[];
+      selectableModels?: readonly string[];
+    } | null = null;
     const el = document.createElement("div");
     document.body.appendChild(el);
     const localRoot = createRoot(el);
     await act(async () => {
       localRoot.render(
         <MultiTabAssistantChat
-          storageKey="host-catalog-test"
+          storageKey={storageKey}
+          onActiveModelEngineChange={(engine) => {
+            activeEngine = engine;
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(activeEngine).toMatchObject({
+      name: "anthropic",
+      supportedModels: ["claude-sonnet-5"],
+    });
+
+    await act(async () => {
+      localRoot.render(
+        <MultiTabAssistantChat
+          storageKey={storageKey}
           availableModels={[
             {
-              engine: "host",
-              label: "Host",
-              models: ["host-model"],
+              engine: "anthropic",
+              label: "Host Anthropic",
+              models: ["host-model", "host-model-2"],
               configured: true,
             },
           ]}
+          onActiveModelEngineChange={(engine) => {
+            activeEngine = engine;
+          }}
         />,
       );
-    });
-    await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -1076,7 +1189,13 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       el
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-model-catalog"),
-    ).toBe("host:true");
+    ).toBe("anthropic:true");
+    expect(activeEngine).toMatchObject({
+      name: "anthropic",
+      defaultModel: "host-model",
+      supportedModels: ["host-model", "host-model-2"],
+      selectableModels: ["host-model", "host-model-2"],
+    });
 
     await act(async () => localRoot.unmount());
     el.remove();
@@ -1467,6 +1586,32 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       tabId: "thread-1",
     });
     window.removeEventListener("agentNative.chatSubmitTarget", onTarget);
+  });
+
+  it("shows a known-new chat while the separate thread list is loading", () => {
+    threadMocks.isLoading = true;
+    threadMocks.isNewThread.mockReturnValue(true);
+
+    act(() => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+    });
+
+    const chat = container.querySelector("[data-testid='assistant-chat']");
+    expect(chat?.getAttribute("data-new-thread")).toBe("true");
+    expect(chat?.getAttribute("data-thread-state-loading")).toBe("false");
+  });
+
+  it("keeps existing thread restoration loading while the thread list loads", () => {
+    threadMocks.isLoading = true;
+    threadMocks.isNewThread.mockReturnValue(false);
+
+    act(() => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+    });
+
+    const chat = container.querySelector("[data-testid='assistant-chat']");
+    expect(chat?.getAttribute("data-new-thread")).toBe("false");
+    expect(chat?.getAttribute("data-thread-state-loading")).toBe("true");
   });
 
   it("creates a foreground tab when the active chat has messages", async () => {
