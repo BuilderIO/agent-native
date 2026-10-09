@@ -173,31 +173,55 @@ export function isBrowserSessionPath(pathname: string) {
   return pathname === basePath || pathname.startsWith(`${basePath}/`);
 }
 
-export function isExpectedSaveReloadActionAbort(
+type SaveReloadRequestAbortRule = {
+  path: string | RegExp;
+  method?: string;
+  errorTexts: readonly string[];
+};
+
+const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
+
+const saveReloadRequestAbortRules: readonly SaveReloadRequestAbortRule[] = [
+  {
+    path: "/_agent-native/actions/get-lab-states",
+    errorTexts: navigationAbortErrors,
+  },
+  {
+    path: "/_agent-native/actions/get-deck-access-status",
+    errorTexts: navigationAbortErrors,
+  },
+  {
+    path: "/_agent-native/browser-sessions",
+    method: "POST",
+    errorTexts: ["Load request cancelled", ...navigationAbortErrors],
+  },
+  {
+    path: /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/,
+    method: "POST",
+    errorTexts: ["Load request cancelled", ...navigationAbortErrors],
+  },
+];
+
+export function isExpectedSaveReloadWatchedRequestAbort(
   pathname: string,
   errorText: string,
   activePhase: string,
   method?: string,
 ) {
-  const isKnownAction = [
-    "/_agent-native/actions/get-lab-states",
-    "/_agent-native/actions/get-deck-access-status",
-  ].includes(pathname);
-  const isBrowserSessionClaim =
-    method === "POST" &&
-    /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
-      pathname,
-    );
-  const isExpectedAbort = isKnownAction
-    ? errorText === "NS_BINDING_ABORTED" || errorText === "net::ERR_ABORTED"
-    : isBrowserSessionClaim &&
-      [
-        "Load request cancelled",
-        "NS_BINDING_ABORTED",
-        "net::ERR_ABORTED",
-      ].includes(errorText);
-
-  return isExpectedAbort && activePhase === "save/reload";
+  return (
+    activePhase === "save/reload" &&
+    saveReloadRequestAbortRules.some((rule) => {
+      const matchesPath =
+        typeof rule.path === "string"
+          ? rule.path === pathname
+          : rule.path.test(pathname);
+      return (
+        matchesPath &&
+        (!rule.method || rule.method === method) &&
+        rule.errorTexts.includes(errorText)
+      );
+    })
+  );
 }
 
 export function isConflictResourceConsoleError(message: string) {
@@ -834,7 +858,7 @@ export async function runAuthoringFuzz(
       );
     }
     if (
-      isExpectedSaveReloadActionAbort(
+      isExpectedSaveReloadWatchedRequestAbort(
         pathname,
         errorText,
         activePhase,
@@ -850,7 +874,9 @@ export async function runAuthoringFuzz(
       ].includes(pathname) ||
       isBrowserSessionPath(pathname)
     ) {
-      pageErrors.push(`watched request failed: ${url} (${errorText})`);
+      pageErrors.push(
+        `watched request failed: ${request.method()} ${url} (${errorText})`,
+      );
     }
   };
   const onRequest = (request: any) => {
