@@ -12,7 +12,7 @@ import { z } from "zod";
 // every generation call.
 const BUILDER_MODEL: (typeof BUILDER_MODEL_CONFIG.supportedModels)[number] =
   "gpt-6-luna";
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = "gemini-3.6-flash";
 
 export default defineAction({
   mcpTool: false,
