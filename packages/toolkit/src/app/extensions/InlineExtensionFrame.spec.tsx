@@ -11,8 +11,20 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@agent-native/core/extensions/html-shell", () => ({
-  buildExtensionHtml: (content: string) =>
-    `<!doctype html><html><body>${content}</body></html>`,
+  buildExtensionHtml: (
+    content: string,
+    _themeVars: string,
+    _isDark: boolean,
+    _extensionId?: string,
+    _binding?: unknown,
+    metaCsp?: string,
+  ) =>
+    `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${metaCsp ?? ""}" /></head><body>${content}</body></html>`,
+}));
+
+vi.mock("./iframe-display-sources.js", () => ({
+  useExtensionIframeMetaCsp: (enabled = true) =>
+    enabled ? "img-src 'self' https://cdn.example.com;" : undefined,
 }));
 
 describe("InlineExtensionFrame", () => {
@@ -54,6 +66,9 @@ describe("InlineExtensionFrame", () => {
       "allow-scripts allow-forms allow-popups allow-downloads",
     );
     expect(iframe?.getAttribute("srcdoc")).toContain("Send choice");
+    expect(iframe?.getAttribute("srcdoc")).toContain(
+      `content="img-src 'self' https://cdn.example.com;"`,
+    );
 
     await act(async () => {
       window.dispatchEvent(

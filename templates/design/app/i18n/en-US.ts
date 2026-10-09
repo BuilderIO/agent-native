@@ -863,6 +863,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} need Figma access to load.",
       figmaPasteImagesDontShowAgain: "Don't show again",
+      figmaPasteUploadImage: "Upload image",
+      figmaPasteUploadImageFor: "Upload “{{name}}”",
+      figmaPasteImageFallbackName: "Image {{index}}",
+      figmaPasteUploadImageSuccess: "Image filled in",
+      figmaPasteUploadImageInvalid:
+        "Choose an image file, like SVG, PNG, or JPG.",
+      figmaPasteUploadImageError: "Couldn't fill in that image",
       figmaHydrationDialogTitle: "Fill in the missing images",
       figmaHydrationDialogDescription:
         "{{count}} image{{plural}} in the imported screen{{screensPlural}} couldn't come through the paste — Figma's clipboard leaves image data out. Fill from the original .fig, or fetch the exact images from the copied frame.",

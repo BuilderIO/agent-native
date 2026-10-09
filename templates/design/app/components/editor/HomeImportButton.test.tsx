@@ -6,6 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   readPendingDesignImport,
   clearPendingDesignImport,
+  claimFigImportToast,
+  claimPendingDesignImport,
+  dismissFigImportToast,
+  FIG_IMPORT_TOAST_ID,
+  setPendingDesignImport,
 } from "@/lib/pending-import";
 
 import { HomeImportButton } from "./HomeImportButton";
@@ -18,6 +23,8 @@ const mocks = vi.hoisted(() => ({
   success: vi.fn(),
   warning: vi.fn(),
   error: vi.fn(),
+  loading: vi.fn(),
+  dismiss: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: (name: string) => ({
@@ -34,10 +41,17 @@ vi.mock("@agent-native/toolkit/app/shared", () => ({
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+  useFormatters: () => ({ formatNumber: String }),
 }));
 vi.mock("react-router", () => ({ useNavigate: () => mocks.navigate }));
 vi.mock("sonner", () => ({
-  toast: { success: mocks.success, warning: mocks.warning, error: mocks.error },
+  toast: {
+    success: mocks.success,
+    warning: mocks.warning,
+    error: mocks.error,
+    loading: mocks.loading,
+    dismiss: mocks.dismiss,
+  },
 }));
 vi.mock("@/lib/figma-connection", () => ({
   FIGMA_ACCESS_TOKEN_SECRET_KEY: "FIGMA_ACCESS_TOKEN",
@@ -130,6 +144,43 @@ afterEach(async () => {
 });
 
 describe("home Figma import", () => {
+  it("drops abandoned handoffs on return home but leaves a running import's toast alone", async () => {
+    const file = new File(["fig"], "Stale.fig");
+    async function remountHome() {
+      await act(async () => root.unmount());
+      root = createRoot(container);
+      mocks.dismiss.mockClear();
+      await act(async () => root.render(<HomeImportButton />));
+    }
+
+    claimFigImportToast(true);
+    setPendingDesignImport("file-design", { kind: "file", file });
+    await remountHome();
+    expect(mocks.dismiss).toHaveBeenCalledWith(FIG_IMPORT_TOAST_ID);
+    expect(readPendingDesignImport("file-design")).toBeUndefined();
+
+    claimFigImportToast(true);
+    setPendingDesignImport("file-design", { kind: "file", file });
+    claimPendingDesignImport("file-design");
+    const running = claimFigImportToast();
+    await remountHome();
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+    expect(readPendingDesignImport("file-design")).toBeUndefined();
+    dismissFigImportToast(running);
+    expect(mocks.dismiss).toHaveBeenCalledWith(FIG_IMPORT_TOAST_ID);
+  });
+
+  it("rejects files over the browser limit with the translated size message", async () => {
+    const huge = new File(["fig"], "Huge.fig");
+    Object.defineProperty(huge, "size", { value: 3 * 1024 ** 3 });
+    await chooseFile(huge);
+    expect(mocks.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.figFileTooLarge",
+    );
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.loading).not.toHaveBeenCalled();
+  });
+
   it("opens import options from the whole button before launching the .fig picker", async () => {
     const input =
       document.querySelector<HTMLInputElement>('input[type="file"]')!;
@@ -238,6 +289,10 @@ describe("home Figma import", () => {
   it("hands the exact selected file directly to a new design's existing import panel", async () => {
     const file = new File(["test fixture"], "example.fig");
     await chooseFile(file);
+    expect(mocks.loading).toHaveBeenCalledExactlyOnceWith(
+      "designEditor.import.figImportAnalyzing",
+      { id: "design-fig-import-progress", description: "example.fig" },
+    );
     expect(mocks.create).toHaveBeenCalledExactlyOnceWith({
       title: "example",
       projectType: "prototype",
@@ -263,6 +318,9 @@ describe("home Figma import", () => {
     await chooseFile(file);
     expect(mocks.navigate).not.toHaveBeenCalled();
     expect(readPendingDesignImport("file-design")).toBeUndefined();
+    expect(mocks.error.mock.lastCall?.[1]).toMatchObject({
+      id: "design-fig-import-progress",
+    });
     const retry = mocks.error.mock.lastCall?.[1]?.action.onClick;
     expect(retry).toBeTypeOf("function");
     await act(async () => retry());

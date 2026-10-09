@@ -1,7 +1,38 @@
+// Import-free on purpose: this shell is also built in the browser
+// (ExtensionViewer, InlineExtensionFrame), so it must not import the
+// app-config store. Configured sources are resolved server-side in
+// ./iframe-csp.ts: the render route passes them in, and the client renderers
+// fetch them from EXTENSION_IFRAME_DISPLAY_SOURCES_PATH.
+import {
+  DEFAULT_EXTENSION_DISPLAY_SOURCES,
+  extensionDisplaySourcesError,
+} from "../app-config/extension-display-sources.js";
 import { buildSessionReplayIframeBootstrap } from "./session-replay-iframe.js";
 
-const EXTENSION_IFRAME_CSP_BASE =
-  "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';";
+/**
+ * Builds the iframe CSP from the img-src / media-src lists.
+ *
+ * SECURITY: both lists are validated again here, at the point they are
+ * interpolated, rather than trusted because they came from app config. The
+ * resolved config is a cached, mutable object, and the client renderers pass
+ * lists fetched from the server, so neither is guaranteed to still be what the
+ * schema accepted. A list that fails validation throws instead of producing a
+ * policy with an injected directive.
+ */
+export function extensionIframeCspBase(
+  imageSources: readonly string[],
+  mediaSources: readonly string[],
+): string {
+  const imageError = extensionDisplaySourcesError(imageSources);
+  if (imageError) {
+    throw new TypeError(`Invalid extension iframe img-src: ${imageError}`);
+  }
+  const mediaError = extensionDisplaySourcesError(mediaSources);
+  if (mediaError) {
+    throw new TypeError(`Invalid extension iframe media-src: ${mediaError}`);
+  }
+  return `default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src ${imageSources.join(" ")}; media-src ${mediaSources.join(" ")}; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';`;
+}
 
 export const EXTENSION_FRAME_ANCESTORS = [
   "'self'",
@@ -14,9 +45,50 @@ export const EXTENSION_FRAME_ANCESTORS = [
   "https://*.web-sandbox.oaiusercontent.com",
 ].join(" ");
 
-export const EXTENSION_IFRAME_CSP = `${EXTENSION_IFRAME_CSP_BASE} frame-ancestors ${EXTENSION_FRAME_ANCESTORS};`;
+// The two constants below are the policy an app gets before it configures
+// anything. `buildExtensionIframeCsp()` (server-only, ./iframe-csp.ts) resolves `extensions.iframeImageSources`
+// and `extensions.iframeMediaSources` and is what the render route sets, so a
+// deployment that widens img-src / media-src still gets the same
+// `connect-src 'self'` as one that does not. A remote image or media
+// origin is its own egress permission: the browser requests that URL.
+export const EXTENSION_IFRAME_CSP = `${extensionIframeCspBase(DEFAULT_EXTENSION_DISPLAY_SOURCES, DEFAULT_EXTENSION_DISPLAY_SOURCES)} frame-ancestors ${EXTENSION_FRAME_ANCESTORS};`;
 
-export const EXTENSION_IFRAME_META_CSP = EXTENSION_IFRAME_CSP_BASE;
+export const EXTENSION_IFRAME_META_CSP = extensionIframeCspBase(
+  DEFAULT_EXTENSION_DISPLAY_SOURCES,
+  DEFAULT_EXTENSION_DISPLAY_SOURCES,
+);
+
+/**
+ * Authenticated endpoint that returns the deployment's validated
+ * `{ imageSources, mediaSources }`, so the client-rendered `srcDoc` frames
+ * (`ExtensionViewer`, `InlineExtensionFrame`) can apply the same img-src /
+ * media-src policy as the server render route without importing app config.
+ */
+export const EXTENSION_IFRAME_DISPLAY_SOURCES_PATH =
+  "/_agent-native/extensions/iframe/display-sources";
+
+/**
+ * Builds the meta CSP for a client-rendered frame from the
+ * `EXTENSION_IFRAME_DISPLAY_SOURCES_PATH` response. Anything that is not a
+ * valid pair of source lists falls back to the default policy, which blocks
+ * every remote image and media source (fail closed).
+ */
+export function extensionIframeMetaCspFromDisplaySources(
+  value: unknown,
+): string {
+  if (typeof value !== "object" || value === null) {
+    return EXTENSION_IFRAME_META_CSP;
+  }
+  const { imageSources, mediaSources } = value as Record<string, unknown>;
+  try {
+    return extensionIframeCspBase(
+      imageSources as readonly string[],
+      mediaSources as readonly string[],
+    );
+  } catch {
+    return EXTENSION_IFRAME_META_CSP;
+  }
+}
 
 /**
  * SECURITY — EXTENSION CONTENT IS UNTRUSTED.
@@ -37,6 +109,14 @@ export const EXTENSION_IFRAME_META_CSP = EXTENSION_IFRAME_CSP_BASE;
  *      hostile. The bridge in `iframe-bridge.ts` enforces a path allowlist,
  *      header sanitization, and method allowlist; do not relax those gates
  *      for "convenience" in this file or any caller.
+ *
+ *   3. `connect-src` stays `'self'` and stays out of app config. Remote
+ *      images and media are `extensions.iframeImageSources` /
+ *      `iframeMediaSources`, which reach only `img-src` / `media-src`.
+ *      Each allowed remote origin is an explicit egress permission: the
+ *      browser sends the URL, and extension script can encode data into
+ *      it. API calls stay on the permission-gated host bridge. Token
+ *      validation still stops a value from appending another directive.
  *
  * For the trust model rationale, see audit 05-tools-sandbox.md (C1) and the
  * `extensions` skill. When in doubt, fail closed.
@@ -83,6 +163,7 @@ export function buildExtensionHtml(
   isDark: boolean,
   extensionId?: string,
   binding?: ExtensionRenderBinding,
+  metaCsp: string = EXTENSION_IFRAME_META_CSP,
 ): string {
   const extensionIdJson = JSON.stringify(extensionId ?? "");
   const extensionIdAttr = escapeHtmlAttribute(extensionId ?? "");
@@ -100,7 +181,7 @@ export function buildExtensionHtml(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="Content-Security-Policy" content="${EXTENSION_IFRAME_META_CSP}" />
+  <meta http-equiv="Content-Security-Policy" content="${metaCsp}" />
   ${binding && !binding.isAuthor ? `<meta name="agent-native-extension-author" content="${escapeHtmlAttribute(binding.authorEmail)}" />` : ""}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
