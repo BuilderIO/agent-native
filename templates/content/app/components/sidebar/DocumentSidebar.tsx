@@ -91,7 +91,6 @@ import {
   contentDatabaseByIdQueryKey,
   contentDatabaseNavigationQueryFilter,
   isContentDatabaseUnavailable,
-  removeOptimisticItemFromContentDatabase,
   useContentDatabaseById,
   useContentDatabasePersonalView,
   useUpdateContentDatabasePersonalView,
