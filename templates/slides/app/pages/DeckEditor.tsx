@@ -639,6 +639,9 @@ export default function DeckEditor() {
   const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
     useAgentGenerating();
   const retryEmptyGenerationInFlightRef = useRef(false);
+  const refetchPendingQuestionRef = useRef<
+    ReturnType<typeof useGuidedQuestionFlow>["refetchPendingQuestion"] | null
+  >(null);
   const emptyGenerationRecoveryRef = useRef<string | null>(null);
   const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
     useState(false);
@@ -1335,6 +1338,37 @@ export default function DeckEditor() {
     }
     retryEmptyGenerationInFlightRef.current = true;
     setRetryEmptyGenerationPending(true);
+    const refetchPendingQuestion = refetchPendingQuestionRef.current;
+    if (!refetchPendingQuestion) {
+      retryEmptyGenerationInFlightRef.current = false;
+      setRetryEmptyGenerationPending(false);
+      toast.error(t("deckEditor.generationOutcomeUnresolved"));
+      return;
+    }
+    let pendingQuestionCheck: Awaited<
+      ReturnType<typeof refetchPendingQuestion>
+    >;
+    try {
+      pendingQuestionCheck = await refetchPendingQuestion();
+    } catch (error) {
+      console.error("Failed to check guided questions before retrying.", error);
+      retryEmptyGenerationInFlightRef.current = false;
+      setRetryEmptyGenerationPending(false);
+      toast.error(t("deckEditor.generationOutcomeUnresolved"));
+      return;
+    }
+    if (
+      pendingQuestionCheck.status !== "none" ||
+      generationLifecyclePauseRef.current.waitingOnQuestions ||
+      generationLifecyclePauseRef.current.generating
+    ) {
+      retryEmptyGenerationInFlightRef.current = false;
+      setRetryEmptyGenerationPending(false);
+      if (pendingQuestionCheck.status === "error") {
+        toast.error(t("deckEditor.generationOutcomeUnresolved"));
+      }
+      return;
+    }
     const retryStartedAt = Date.now();
     const originalSearchParams = new URLSearchParams(searchParams);
     const retryAttemptId = nanoid();
@@ -1768,6 +1802,7 @@ export default function DeckEditor() {
     onSubmitMessage: submitQuestionContinuation,
     onSkipMessage: submitQuestionContinuation,
   });
+  refetchPendingQuestionRef.current = refetchPendingQuestion;
   questionFlowTargetTabIdRef.current = newDeckGenerationTabId;
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
@@ -1847,6 +1882,28 @@ export default function DeckEditor() {
         ) {
           return;
         }
+        if (pendingQuestionCheck.status === "error") {
+          trackEvent("generation_outcome_unresolved", {
+            app_name: "slides",
+            template_name: "slides",
+            generation_attempt_id: generationAttemptId,
+            output_id: id,
+            output_type: "deck",
+            ...(targetSlideCount !== null
+              ? { target_slide_count: targetSlideCount }
+              : {}),
+            ...generationTimingFields(
+              generationStartedAtRef.current ?? undefined,
+              generationEndedAt,
+            ),
+            source: "new_deck_prompt",
+            outcome: "unresolved",
+            reason: "guided_question_refetch_failed",
+          });
+          pausedForQuestionOrRun = true;
+          generationSettlingAttemptRef.current = null;
+          return;
+        }
         if (
           pendingQuestionCheck.status === "pending" ||
           generationLifecyclePauseRef.current.waitingOnQuestions ||
@@ -1895,24 +1952,16 @@ export default function DeckEditor() {
           ...generationTimingFields(startedAt ?? undefined, generationEndedAt),
           source: "new_deck_prompt",
         };
-        if (
-          pendingQuestionCheck.status === "error" ||
-          outcomeRefreshResult.status !== "ready"
-        ) {
+        if (outcomeRefreshResult.status !== "ready") {
           trackEvent("generation_outcome_unresolved", {
             ...properties,
             outcome: "unresolved",
             reason:
-              pendingQuestionCheck.status === "error"
-                ? "guided_question_refetch_failed"
-                : outcomeRefreshResult.status === "failed"
-                  ? "deck_refresh_failed"
-                  : "deck_not_visible_after_refresh",
+              outcomeRefreshResult.status === "failed"
+                ? "deck_refresh_failed"
+                : "deck_not_visible_after_refresh",
           });
-          const emptyDeckConfirmed =
-            outcomeRefreshResult.status === "ready"
-              ? outcomeRefreshResult.deck.slides.length === 0
-              : slideCountRef.current === 0;
+          const emptyDeckConfirmed = slideCountRef.current === 0;
           if (emptyDeckConfirmed && generationContext) {
             const failureCode = "outcome_unresolved";
             updateDeck(id, {

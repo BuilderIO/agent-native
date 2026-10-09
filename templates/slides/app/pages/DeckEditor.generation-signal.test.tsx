@@ -742,11 +742,11 @@ describe("DeckEditor generation signal wiring", () => {
     ).toBeNull();
   });
 
-  it("stores an unresolved recovery state when the guided-question check fails", async () => {
-    mocks.guidedQuestionRefetchPending.mockResolvedValueOnce({
+  it("keeps generation unsettled when the guided-question check fails", async () => {
+    mocks.guidedQuestionRefetchPending.mockImplementation(async () => ({
       status: "error",
       error: new Error("question check failed"),
-    });
+    }));
     mocks.attemptGenerating = true;
     mocks.attemptObservedRun = true;
     router = createMemoryRouter(
@@ -774,15 +774,19 @@ describe("DeckEditor generation signal wiring", () => {
     act(publishAgentGeneratingChange);
 
     await waitFor(() =>
-      expect(mocks.deck.generationContext).toMatchObject({
-        generationFailureCode: "outcome_unresolved",
-        generationFailureAttemptId: "attempt-1",
-      }),
+      expect(trackEvent).toHaveBeenCalledWith(
+        "generation_outcome_unresolved",
+        expect.objectContaining({ reason: "guided_question_refetch_failed" }),
+      ),
     );
-    expect(trackEvent).toHaveBeenCalledWith(
-      "generation_outcome_unresolved",
-      expect.objectContaining({ reason: "guided_question_refetch_failed" }),
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
     );
+    expect(
+      window.localStorage.getItem(
+        "slides:empty-generation-retry-recovery:deck-1",
+      ),
+    ).toBeNull();
     expect(trackEvent).not.toHaveBeenCalledWith(
       "generation_failed",
       expect.anything(),
@@ -790,6 +794,17 @@ describe("DeckEditor generation signal wiring", () => {
     expect(
       screen.getByRole("button", { name: "deckEditor.tryAgain" }),
     ).toBeTruthy();
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+    expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(2);
+    expect(mocks.submitAndConfirm).not.toHaveBeenCalled();
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
+    );
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "deckEditor.generationOutcomeUnresolved",
+    );
   });
 
   it("rechecks guided questions that arrive while generation refresh is pending", async () => {
