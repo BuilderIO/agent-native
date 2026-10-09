@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -154,4 +155,85 @@ test("missing, duplicate, and unknown regression pins fail closed", () => {
     () => resolveDesignE2ERegressionPinsForShard("unknown-shard"),
     /Unknown Design regression shard/,
   );
+});
+
+test("fixed regression pins reject skipped, expected-failure, and focused declarations", () => {
+  for (const modifier of ["skip", "fixme", "fail", "only"]) {
+    assert.throws(
+      () =>
+        findDesignE2ETestLine(
+          `test.${modifier}("pinned behavior", () => {});`,
+          "pinned behavior",
+        ),
+      /must run without test modifiers/,
+    );
+  }
+});
+
+test("modifier text inside an ordinary pinned title does not disable it", () => {
+  assert.equal(
+    findDesignE2ETestLine(
+      'test("test.skip in a title", () => {});',
+      "test.skip in a title",
+    ),
+    1,
+  );
+});
+
+test("the resolver CLI distinguishes disabled pins from unreadable sources", () => {
+  const root = mkdtempSync(join(tmpdir(), "design-disabled-pin-"));
+  try {
+    const scripts = join(root, "scripts");
+    const specs = join(root, "templates/design/e2e");
+    mkdirSync(scripts, { recursive: true });
+    mkdirSync(specs, { recursive: true });
+    copyFileSync(
+      fileURLToPath(
+        new URL("./design-e2e-regression-pins.ts", import.meta.url),
+      ),
+      join(scripts, "design-e2e-regression-pins.ts"),
+    );
+    const pins = DESIGN_E2E_REGRESSION_PINS.filter(
+      ({ shard }) => shard === "inspector-1a",
+    );
+    for (const file of new Set(pins.map((pin) => pin.file))) {
+      writeFileSync(
+        join(specs, file),
+        pins
+          .filter((pin) => pin.file === file)
+          .map(
+            (pin) =>
+              `test${pin === pins[0] ? ".skip" : ""}(${JSON.stringify(pin.title)}, () => {});`,
+          )
+          .join("\n"),
+      );
+    }
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        realpathSync(join(scripts, "design-e2e-regression-pins.ts")),
+        "inspector-1a",
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /must run without test modifiers/);
+    assert.equal(result.stdout, "");
+    rmSync(join(specs, pins[0]!.file));
+    const unavailable = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        realpathSync(join(scripts, "design-e2e-regression-pins.ts")),
+        "inspector-1a",
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(unavailable.status, 2, unavailable.stderr);
+    assert.match(unavailable.stderr, /ENOENT/);
+    assert.equal(unavailable.stdout, "");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

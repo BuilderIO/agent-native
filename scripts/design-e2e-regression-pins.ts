@@ -435,6 +435,8 @@ function maskNonCode(source: string): string {
   return masked.join("");
 }
 
+class DisabledRegressionPinError extends Error {}
+
 export function findDesignE2ETestLine(source: string, title: string): number {
   const code = maskNonCode(source);
   const literals = ['"', "'", "`"]
@@ -448,6 +450,11 @@ export function findDesignE2ETestLine(source: string, title: string): number {
   for (const match of source.matchAll(testCall)) {
     const testOffset = match.index + match[0].search(/\S/);
     if (code[testOffset] !== "t") continue;
+    if (/^test[\t ]*\./.test(match[0])) {
+      throw new DisabledRegressionPinError(
+        `Design E2E pin title ${JSON.stringify(title)} must run without test modifiers`,
+      );
+    }
     lines.push(source.slice(0, testOffset).split("\n").length);
   }
 
@@ -541,7 +548,7 @@ function runCli(): void {
     process.stderr.write(
       `::error::Unable to resolve Design regression pins: ${message}\n`,
     );
-    process.exitCode = 2;
+    process.exitCode = error instanceof DisabledRegressionPinError ? 1 : 2;
   }
 }
 
