@@ -474,7 +474,7 @@ export function isMcpWidgetPatchAllowed(
           operation.baseFields,
         ) &&
         (operation.fields.layoutWarningDismissed === undefined ||
-          operation.fields.layoutWarningDismissed === true) &&
+          typeof operation.fields.layoutWarningDismissed === "boolean") &&
         (hasContent
           ? typeof operation.fields.content === "string" &&
             typeof operation.baseContentHash === "string" &&

@@ -3975,6 +3975,8 @@ type IssuedMcpCredential = {
   oauthScopes?: string[];
   oauthClientId?: string;
   catalogScope?: "full";
+  /** Immutable server-recorded OAuth grant creation time, in milliseconds. */
+  grantCreatedAtMs?: number;
   /** `iat`, in seconds. */
   issuedAt: number | undefined;
 };
@@ -4055,6 +4057,9 @@ async function verifyIssuedMcpCredential(
     oauthScopes: oauth.scopes,
     oauthClientId: oauth.clientId,
     ...(oauth.catalogScope ? { catalogScope: oauth.catalogScope } : {}),
+    ...(oauth.grantCreatedAtMs !== undefined
+      ? { grantCreatedAtMs: oauth.grantCreatedAtMs }
+      : {}),
     issuedAt: oauth.issuedAt,
   };
 }
@@ -4096,10 +4101,12 @@ async function admitIssuedMcpCredential(
   const orgId =
     credential.orgId !== undefined ? credential.orgId : stored?.orgId;
   const credentialIssuedAtMs =
-    typeof credential.issuedAt === "number" &&
-    Number.isSafeInteger(credential.issuedAt)
-      ? credential.issuedAt * 1000
-      : undefined;
+    credential.oauthClientId !== undefined
+      ? credential.grantCreatedAtMs
+      : typeof credential.issuedAt === "number" &&
+          Number.isSafeInteger(credential.issuedAt)
+        ? credential.issuedAt * 1000
+        : undefined;
   const mcpCredentialIssuedAtMs =
     credentialIssuedAtMs !== undefined &&
     Number.isSafeInteger(credentialIssuedAtMs)

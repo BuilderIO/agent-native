@@ -1257,6 +1257,7 @@ describe("MCP OAuth issuance-owner cutover", () => {
       orgId: ORG,
       scope: "mcp:read",
       resource: getMcpOAuthResource(appEvent("/mcp"))!,
+      grantCreatedAtMs: Date.now(),
     });
     await getDbExec().execute(
       "ALTER TABLE mcp_oauth_refresh_tokens ADD COLUMN IF NOT EXISTS issued_for_email TEXT",

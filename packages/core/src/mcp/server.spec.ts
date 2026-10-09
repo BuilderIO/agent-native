@@ -639,6 +639,7 @@ async function mcpAppsAuthHeaders(
     scope?: string;
     resource?: string;
     issuer?: string;
+    grantCreatedAtMs?: number | null;
   } = {},
 ) {
   process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
@@ -650,6 +651,7 @@ async function mcpAppsAuthHeaders(
     resource:
       options.resource ?? "https://mail.agent-native.com/_agent-native/mcp",
     issuer: options.issuer ?? "https://mail.agent-native.com",
+    grantCreatedAtMs: options.grantCreatedAtMs ?? Date.now(),
   });
   return { authorization: `Bearer ${token}` };
 }
@@ -2158,7 +2160,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(wrongAudience).toMatchObject({ error: "Unauthorized" });
   });
 
-  it("includes resource-bound-only mutations in a directory widget grant", async () => {
+  it("anchors directory widget grants at the original OAuth grant time", async () => {
     const createDesign = defineAction({
       description: "Create one editable design.",
       parameters: {},
@@ -2221,13 +2223,20 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       actions: { "create-design": createDesign },
       widgetWriteActions: { "update-file": updateFile },
     };
+    const grantCreatedAtMs = Date.now() - 120_000;
     const headers = await mcpAppsAuthHeaders({
       resource: `https://design.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
       issuer: "https://design.agent-native.com",
+      grantCreatedAtMs,
     });
-    const credentialIssuedAtMs =
-      (jose.decodeJwt(headers.authorization.slice("Bearer ".length))
-        .iat as number) * 1000;
+    const credential = jose.decodeJwt(
+      headers.authorization.slice("Bearer ".length),
+    );
+    const credentialIssuedAtMs = credential.grant_created_at_ms as number;
+    expect(credentialIssuedAtMs).toBe(grantCreatedAtMs);
+    expect((credential.iat as number) * 1000).toBeGreaterThan(
+      credentialIssuedAtMs,
+    );
 
     const created = await callWeb(
       {
@@ -2395,7 +2404,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
   });
 
-  it("fails closed when a directory widget credential has no signed issue time", async () => {
+  it("fails closed when a directory OAuth credential has no signed grant time", async () => {
     process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
     const resource = `https://design.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`;
     const issuer = "https://design.agent-native.com";
@@ -2411,11 +2420,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       .setIssuer(issuer)
       .setAudience(resource)
       .setJti("missing-issued-at")
+      .setIssuedAt()
       .setExpirationTime("30d")
       .sign(
         new TextEncoder().encode("oauth-secret-at-least-32-characters-long"),
       );
-    expect(jose.decodeJwt(token).iat).toBeUndefined();
+    expect(typeof jose.decodeJwt(token).iat).toBe("number");
+    expect(jose.decodeJwt(token).grant_created_at_ms).toBeUndefined();
 
     const getDesign = defineAction({
       description: "Read one design.",
@@ -2462,6 +2473,21 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       actions: { "get-design": getDesign },
     };
+
+    const listed = await callWeb(
+      { jsonrpc: "2.0", id: 147, method: "tools/list", params: {} },
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          host: "design.agent-native.com",
+        },
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(
+      listed.result.tools.map((tool: { name: string }) => tool.name),
+    ).toContain("get-design");
 
     const called = await callWeb(
       {
@@ -3002,9 +3028,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       resource: `https://design.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
       issuer: "https://design.agent-native.com",
     });
-    const credentialIssuedAtMs =
-      (jose.decodeJwt(headers.authorization.slice("Bearer ".length))
-        .iat as number) * 1000;
+    const credentialIssuedAtMs = jose.decodeJwt(
+      headers.authorization.slice("Bearer ".length),
+    ).grant_created_at_ms as number;
     const requestHeaders = { ...headers, host: "design.agent-native.com" };
     const listed = await callWeb(
       { jsonrpc: "2.0", id: 145, method: "tools/list", params: {} },

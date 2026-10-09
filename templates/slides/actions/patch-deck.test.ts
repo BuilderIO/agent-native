@@ -1955,7 +1955,11 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(isMcpWidgetPatchAllowed("mcp-widget-write", [dismissal])).toBe(true);
     expect(
       isMcpWidgetPatchAllowed("mcp-widget-write", [
-        { ...dismissal, fields: { layoutWarningDismissed: false } },
+        {
+          ...dismissal,
+          fields: { layoutWarningDismissed: false },
+          baseFields: undefined,
+        },
       ]),
     ).toBe(false);
     expect(
@@ -1991,6 +1995,93 @@ describe("run() — asynchronous layout fit metadata", () => {
 
     const savedDeck = JSON.parse(String(mockDeckRow?.data));
     expect(savedDeck.slides[0].layoutWarningDismissed).toBe(true);
+  });
+
+  it("restores a dismissed widget overflow warning from its exact baseline", async () => {
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            layoutWarningDismissed: true,
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+    const restoration: Operation = {
+      op: "patch-slide",
+      slideId: "slide-1",
+      fields: { layoutWarningDismissed: false },
+      baseFields: { layoutWarningDismissed: { present: true, value: true } },
+    };
+
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [restoration])).toBe(
+      true,
+    );
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [restoration],
+      },
+      { caller: "mcp-widget-write" },
+    );
+
+    const savedDeck = JSON.parse(String(mockDeckRow?.data));
+    expect(savedDeck.slides[0].layoutWarningDismissed).toBe(false);
+  });
+
+  it("rejects a widget warning restoration with a stale baseline", async () => {
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            layoutWarningDismissed: true,
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { layoutWarningDismissed: false },
+            baseFields: { layoutWarningDismissed: { present: false } },
+          },
+        ],
+      },
+      { caller: "mcp-widget-write" },
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ errorCode: "slide_field_stale" });
+    expect(
+      JSON.parse(String(mockDeckRow?.data)).slides[0].layoutWarningDismissed,
+    ).toBe(true);
   });
 
   it("rejects extra widget operation metadata", () => {

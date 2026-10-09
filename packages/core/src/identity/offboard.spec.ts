@@ -234,6 +234,7 @@ describe("offboardMember", () => {
                 orgId: "org-1",
                 scope: "mcp",
                 resource: "https://app.example.test/mcp",
+                grantCreatedAtMs: Date.now(),
               };
               oauthCode = (
                 await createOAuthCode(
