@@ -340,7 +340,6 @@ describe("ProviderDialog", () => {
           outcome: "accepted",
         }),
       );
-      // Validation telemetry fires before React commits the enabled button.
       expect(button("Add provider").disabled).toBe(false);
     });
 
