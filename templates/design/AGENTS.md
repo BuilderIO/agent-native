@@ -5,7 +5,7 @@ actions against shared SQL state.
 
 ## Skills
 
-Read the relevant guide before deeper work:
+Read relevant guides before deeper work:
 - `.agents/skills/design-generation/SKILL.md` — for generation, adaptation, and readiness checks.
 - `.agents/skills/design-templates/SKILL.md` — when reusing existing Design work.
 - `.agents/skills/responsive-breakpoints/SKILL.md` — for breakpoint editing.
@@ -73,4 +73,4 @@ Use local docs only: `pnpm action docs-search --query "<topic>"` and `pnpm actio
 
 Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI. Editor commands are in `app/pages/design-editor/commands/*.ts`; read `design-editor-architecture` before edits.
 
-Find additional guides with `rg --hidden --follow`.
+Find and read relevant guides with `rg --hidden --follow`.
