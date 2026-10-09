@@ -1006,9 +1006,9 @@ const generateDesignAction = defineAction({
       fixedCanvasIntent &&
       promptCanvasDimensions === undefined &&
       existingFiles.some((existingFile) =>
-      files.some((file) => file.filename === existingFile.filename),
-    ) &&
-    isFixedArtworkCopyFollowUp(prompt);
+        files.some((file) => file.filename === existingFile.filename),
+      ) &&
+      isFixedArtworkCopyFollowUp(prompt);
     const requestedDevices = exactFixedCanvasOutput
       ? []
       : devices !== undefined && fixedArtworkFollowUp
