@@ -87,7 +87,7 @@ Options:
   --app-url <url>        Deployed Analytics app (default ${DEFAULT_APP_URL}, or AGENT_NATIVE_ANALYTICS_URL)
   --token <bearer>       Bearer for that app (default AGENT_NATIVE_TOKEN, then Codex's config.toml)
   --upload               Store each PNG in the app's private storage and put an attachmentRef in the manifest (a frame that fails to upload is a failure, not a frame)
-  --capture-mode <mode>  offline (default) or browser, which checks recorded assets with the replay frame capture
+  --capture-mode <mode>  offline (default) or browser, which checks recorded assets with the replay frame capture and blocks private-network requests
   --extract-prompts      Browser mode only: save bounded user-role text locally; redact credentials and omit SQL/base64 payloads
   --timeout-ms <ms>      Per recording load / per frame limit (default 60000)
   --dry-run              Print the plan (recordings, offsets, viewports) and render nothing
@@ -110,9 +110,14 @@ promptProvenancePath? }.
 Browser captures use the recording-scoped frame URL in an empty browser context.
 Each recording loads once and seeks all requested offsets. Assets that cannot
 pass the frame's bounded same-origin/CORS preflight fail that frame explicitly.
+Browser interception blocks private destinations and WebSockets, including
+redirect targets before Chromium follows them. It limits cross-origin requests
+to GET/HEAD and removes auth, cookie, origin, and referrer headers before
+allowing public recorded-origin requests.
 --extract-prompts writes only bounded, redacted user-role text to
 prompt-provenance.json, omitting SQL and base64 payloads; that sidecar is
-local-only and is never uploaded.
+local-only and is never uploaded. It records screenshot/upload success or
+failure alongside each observed prompt snapshot.
 The output directory is created with mode 0700 and each output file with mode
 0600.
 Exit code is 1 when no frame was captured, 2 when authentication is missing or rejected.`;
@@ -133,13 +138,42 @@ export interface BrowserPage {
   ): Promise<unknown>;
   evaluate<T>(fn: (arg: any) => unknown, arg?: unknown): Promise<T>;
 }
+export interface BrowserCDPSession {
+  on(event: string, handler: (params: BrowserFetchRequestPaused) => void): void;
+  send(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  detach(): Promise<void>;
+}
+export interface BrowserFetchRequestPaused {
+  requestId: string;
+  request: {
+    url: string;
+    method: string;
+    headers: Record<string, string>;
+  };
+  responseStatusCode?: number;
+  responseErrorReason?: string;
+  responseHeaders?: Array<{ name: string; value: string }>;
+}
+export interface BrowserWebSocketRoute {
+  close(): void;
+}
 export interface BrowserContext {
   newPage(): Promise<BrowserPage>;
+  newCDPSession(page: BrowserPage): Promise<BrowserCDPSession>;
+  routeWebSocket(
+    url: string,
+    handler: (route: BrowserWebSocketRoute) => void,
+  ): Promise<void>;
   clearCookies(): Promise<void>;
   close(): Promise<void>;
 }
 export interface Browser {
   newContext(options: Record<string, unknown>): Promise<BrowserContext>;
+  close(): Promise<void>;
+}
+
+export interface ReplayNetworkPolicy {
+  assertHealthy(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -190,6 +224,7 @@ async function callAppAction(
   token: string | undefined,
   action: string,
   input: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<Record<string, any>> {
   const response = await requestAppResponse(
     `${appUrl}/_agent-native/actions/${action}`,
@@ -202,6 +237,7 @@ async function callAppAction(
       body: JSON.stringify(input),
       timeoutMs: 60_000,
       maxBytes: MAX_APP_ACTION_RESPONSE_BYTES,
+      signal,
     },
   );
   if (response.status === 401 || response.status === 403) {
@@ -230,6 +266,7 @@ async function callAppAction(
 export interface RunContext {
   appUrl: string;
   token: string | undefined;
+  signal: AbortSignal;
   browser: Browser;
   outDir: string;
   timeoutMs: number;
@@ -258,6 +295,7 @@ export interface PromptProvenanceSnapshot {
     playheadOffsetMs: number;
     observedAt: string;
   };
+  captureOutcome: { status: "captured" } | { status: "failed"; reason: string };
   messages: ReturnType<typeof sanitizePromptProvenanceCandidates>["messages"];
   truncation: ReturnType<
     typeof sanitizePromptProvenanceCandidates
@@ -271,6 +309,7 @@ export interface PromptProvenanceFailure {
   treeSourceEventAt: string | null;
   requestedOffsetMs: number;
   observedAt: string;
+  captureOutcome: { status: "captured" } | { status: "failed"; reason: string };
   reason: string;
 }
 
@@ -331,6 +370,13 @@ async function removePrivateOutputFile(filePath: string): Promise<void> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
+}
+
+export async function removeStaleRunMetadata(outDir: string): Promise<void> {
+  await Promise.all([
+    removePrivateOutputFile(path.join(outDir, "manifest.json")),
+    removePrivateOutputFile(path.join(outDir, PROMPT_PROVENANCE_FILE)),
+  ]);
 }
 
 async function writePrivateOutputFile(
@@ -451,6 +497,55 @@ function isLoopbackAddress(address: string): boolean {
   );
 }
 
+export async function isReplayRequestAllowed(
+  requestUrl: string,
+  appUrl: string,
+): Promise<boolean> {
+  let url: URL;
+  let app: URL;
+  try {
+    url = new URL(requestUrl);
+    app = new URL(appUrl);
+    // coercion-ok: malformed request URLs are denied by the replay network policy.
+  } catch {
+    return false;
+  }
+  if (url.username || url.password || app.username || app.password) {
+    return false;
+  }
+  if (url.origin === app.origin) return true;
+  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+
+  const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const normalizedHost = hostname.replace(/\.$/, "");
+  if (
+    normalizedHost.endsWith(".localhost") ||
+    normalizedHost.endsWith(".local") ||
+    normalizedHost.endsWith(".internal") ||
+    normalizedHost.endsWith(".test") ||
+    normalizedHost.endsWith(".invalid") ||
+    normalizedHost.endsWith(".example")
+  ) {
+    return false;
+  }
+  const family = isIP(normalizedHost);
+  if (family) return isPublicIpAddress(normalizedHost);
+
+  try {
+    const addresses = await dnsLookup(normalizedHost, {
+      all: true,
+      verbatim: true,
+    });
+    return (
+      addresses.length > 0 &&
+      addresses.every(({ address }) => isPublicIpAddress(address))
+    );
+    // coercion-ok: a DNS failure denies the external replay request.
+  } catch {
+    return false;
+  }
+}
+
 async function resolvePinnedAddresses(
   url: URL,
 ): Promise<Array<{ address: string; family: number }>> {
@@ -503,6 +598,14 @@ async function resolvePinnedAddresses(
   return addresses;
 }
 
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error(
+        typeof signal.reason === "string" ? signal.reason : "run_aborted",
+      );
+}
+
 function headerValue(
   headers: IncomingHttpHeaders,
   name: string,
@@ -519,12 +622,14 @@ export async function requestAppResponse(
     body?: string;
     timeoutMs: number;
     maxBytes: number;
+    signal?: AbortSignal;
   },
 ): Promise<{
   status: number;
   headers: IncomingHttpHeaders;
   bodyText: string;
 }> {
+  if (options.signal?.aborted) throw abortReason(options.signal);
   let url: URL;
   try {
     url = new URL(urlValue);
@@ -541,11 +646,22 @@ export async function requestAppResponse(
       reject(new Error("app_request_timeout"));
     }, options.timeoutMs);
   });
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    if (!options.signal) return;
+    onAbort = () => {
+      request?.destroy();
+      reject(abortReason(options.signal!));
+    };
+    options.signal.addEventListener("abort", onAbort, { once: true });
+    if (options.signal.aborted) onAbort();
+  });
 
   try {
     const response = (async () => {
       const pinnedAddresses = await resolvePinnedAddresses(url);
       if (timedOut) throw new Error("app_request_timeout");
+      if (options.signal?.aborted) throw abortReason(options.signal);
       const transport = url.protocol === "https:" ? httpsRequest : httpRequest;
       const pinnedLookup: NonNullable<RequestOptions["lookup"]> = (
         _hostname,
@@ -640,9 +756,10 @@ export async function requestAppResponse(
         request.end(options.body);
       });
     })();
-    return await Promise.race([response, timeout]);
+    return await Promise.race([response, timeout, aborted]);
   } finally {
     if (timer) clearTimeout(timer);
+    if (onAbort) options.signal?.removeEventListener("abort", onAbort);
   }
 }
 
@@ -728,11 +845,13 @@ async function fetchReplayJson(
   url: string,
   timeoutMs: number,
   maxBytes: number,
+  signal?: AbortSignal,
 ): Promise<{ data: unknown; headers: IncomingHttpHeaders; bodyText: string }> {
   const response = await requestAppResponse(url, {
     headers: { accept: "application/json" },
     timeoutMs,
     maxBytes,
+    signal,
   });
   if (response.status === 401 || response.status === 403) {
     throw new AuthError("The recording-scoped replay link was rejected.");
@@ -775,6 +894,7 @@ export async function loadReplayEvents(
   recordingId: string,
   maxRecordingOffsetMs: number,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<{ events: AnyReplayEvent[]; recordingStartedAtMs: number }> {
   const manifestUrl = tokenizedManifestUrl(contextUrl, appUrl, recordingId);
   const accessToken = new URL(contextUrl).searchParams.get(
@@ -785,6 +905,7 @@ export async function loadReplayEvents(
     manifestUrl,
     timeoutMs,
     MAX_CAPTURE_MANIFEST_BYTES,
+    signal,
   );
   const manifest = record(manifestResponse.data);
   const recording = record(manifest?.recording);
@@ -856,61 +977,67 @@ export async function loadReplayEvents(
       .slice(start, start + 8)
       .map((value, index) => ({ chunk: record(value)!, index: start + index }));
     const batchEvents = new Array<unknown[]>(batch.length);
-    await runPool(batch, 4, async ({ chunk, index }) => {
-      const chunkUrl = safeChunkUrl(
-        chunk.bytesPath,
-        appUrl,
-        recordingId,
-        chunk.seq,
-        accessToken,
-      );
-      const chunkResponse = await fetchReplayJson(
-        chunkUrl,
-        timeoutMs,
-        MAX_CAPTURE_CHUNK_RESPONSE_BYTES,
-      );
-      if (
-        headerValue(chunkResponse.headers, "x-session-replay-seq") !==
-          String(chunk.seq) ||
-        headerValue(chunkResponse.headers, "x-session-replay-checksum") !==
-          chunk.checksum
-      ) {
-        throw new Error("replay_chunk_incomplete");
-      }
-      const chunkPayload = record(chunkResponse.data);
-      const eventText =
-        typeof chunkPayload?.json === "string"
-          ? chunkPayload.json
-          : typeof chunkResponse.data === "string"
-            ? chunkResponse.data
-            : Array.isArray(chunkResponse.data) ||
-                Array.isArray(chunkPayload?.events)
-              ? chunkResponse.bodyText
-              : undefined;
-      if (typeof eventText !== "string") {
-        throw new Error("replay_chunk_invalid");
-      }
-      if (
-        !/^[\da-f]{64}$/i.test(chunk.checksum) ||
-        createHash("sha256").update(eventText, "utf8").digest("hex") !==
-          chunk.checksum.toLowerCase()
-      ) {
-        throw new Error("replay_chunk_checksum_mismatch");
-      }
-      const byteLength = Buffer.byteLength(eventText, "utf8");
-      if (byteLength !== chunk.byteLength) {
-        throw new Error("replay_chunk_incomplete");
-      }
-      const chunkEvents = eventsFromChunkText(eventText);
-      if (chunkEvents.length !== chunk.eventCount) {
-        throw new Error("replay_chunk_incomplete");
-      }
-      actualBytes += byteLength;
-      if (actualBytes > MAX_CAPTURE_EVENT_BYTES) {
-        throw new Error("replay_prefix_too_large");
-      }
-      batchEvents[index - start] = chunkEvents;
-    });
+    await runPool(
+      batch,
+      4,
+      async ({ chunk, index }) => {
+        const chunkUrl = safeChunkUrl(
+          chunk.bytesPath,
+          appUrl,
+          recordingId,
+          chunk.seq,
+          accessToken,
+        );
+        const chunkResponse = await fetchReplayJson(
+          chunkUrl,
+          timeoutMs,
+          MAX_CAPTURE_CHUNK_RESPONSE_BYTES,
+          signal,
+        );
+        if (
+          headerValue(chunkResponse.headers, "x-session-replay-seq") !==
+            String(chunk.seq) ||
+          headerValue(chunkResponse.headers, "x-session-replay-checksum") !==
+            chunk.checksum
+        ) {
+          throw new Error("replay_chunk_incomplete");
+        }
+        const chunkPayload = record(chunkResponse.data);
+        const eventText =
+          typeof chunkPayload?.json === "string"
+            ? chunkPayload.json
+            : typeof chunkResponse.data === "string"
+              ? chunkResponse.data
+              : Array.isArray(chunkResponse.data) ||
+                  Array.isArray(chunkPayload?.events)
+                ? chunkResponse.bodyText
+                : undefined;
+        if (typeof eventText !== "string") {
+          throw new Error("replay_chunk_invalid");
+        }
+        if (
+          !/^[\da-f]{64}$/i.test(chunk.checksum) ||
+          createHash("sha256").update(eventText, "utf8").digest("hex") !==
+            chunk.checksum.toLowerCase()
+        ) {
+          throw new Error("replay_chunk_checksum_mismatch");
+        }
+        const byteLength = Buffer.byteLength(eventText, "utf8");
+        if (byteLength !== chunk.byteLength) {
+          throw new Error("replay_chunk_incomplete");
+        }
+        const chunkEvents = eventsFromChunkText(eventText);
+        if (chunkEvents.length !== chunk.eventCount) {
+          throw new Error("replay_chunk_incomplete");
+        }
+        actualBytes += byteLength;
+        if (actualBytes > MAX_CAPTURE_EVENT_BYTES) {
+          throw new Error("replay_prefix_too_large");
+        }
+        batchEvents[index - start] = chunkEvents;
+      },
+      signal,
+    );
 
     for (const chunkEvents of batchEvents) {
       for (const value of chunkEvents!) {
@@ -982,6 +1109,137 @@ type BrowserPromptReply =
     }
   | { ok: false; reason: string };
 
+export async function handleReplayRequestPaused(
+  session: BrowserCDPSession,
+  event: BrowserFetchRequestPaused,
+  appUrl: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const fail = () =>
+    session.send("Fetch.failRequest", {
+      requestId: event.requestId,
+      errorReason: "BlockedByClient",
+    });
+  const requestUrl = event.request.url;
+  if (
+    event.responseStatusCode !== undefined ||
+    event.responseErrorReason !== undefined
+  ) {
+    if (signal.aborted || event.responseErrorReason !== undefined) {
+      await fail();
+      return;
+    }
+    const location = event.responseHeaders?.find(
+      ({ name }) => name.toLowerCase() === "location",
+    )?.value;
+    if (
+      event.responseStatusCode !== undefined &&
+      [301, 302, 303, 307, 308].includes(event.responseStatusCode) &&
+      location
+    ) {
+      let redirectUrl: string;
+      try {
+        redirectUrl = new URL(location, requestUrl).toString();
+      } catch {
+        await fail();
+        return;
+      }
+      if (
+        signal.aborted ||
+        !(await isReplayRequestAllowed(redirectUrl, appUrl))
+      ) {
+        await fail();
+        return;
+      }
+    }
+    await session.send("Fetch.continueResponse", {
+      requestId: event.requestId,
+    });
+    return;
+  }
+
+  if (signal.aborted || !(await isReplayRequestAllowed(requestUrl, appUrl))) {
+    await fail();
+    return;
+  }
+  const appOrigin = new URL(appUrl).origin;
+  if (new URL(requestUrl).origin !== appOrigin) {
+    if (!["GET", "HEAD"].includes(event.request.method.toUpperCase())) {
+      await fail();
+      return;
+    }
+    const headers = Object.entries(event.request.headers)
+      .filter(
+        ([name]) =>
+          !["authorization", "cookie", "cookie2", "origin", "referer"].includes(
+            name.toLowerCase(),
+          ),
+      )
+      .map(([name, value]) => ({ name, value }));
+    await session.send("Fetch.continueRequest", {
+      requestId: event.requestId,
+      headers,
+    });
+    return;
+  }
+
+  await session.send("Fetch.continueRequest", {
+    requestId: event.requestId,
+  });
+}
+
+export async function installReplayNetworkPolicy(
+  context: BrowserContext,
+  page: BrowserPage,
+  appUrl: string,
+  signal: AbortSignal,
+): Promise<ReplayNetworkPolicy> {
+  const session = await context.newCDPSession(page);
+  const inFlight = new Set<Promise<void>>();
+  let policyError: unknown;
+  session.on("Fetch.requestPaused", (event) => {
+    const work = handleReplayRequestPaused(session, event, appUrl, signal);
+    inFlight.add(work);
+    void work
+      .catch((error) => {
+        policyError ??= error;
+      })
+      .finally(() => inFlight.delete(work));
+  });
+  try {
+    await session.send("Fetch.enable", {
+      patterns: [
+        { urlPattern: "*", requestStage: "Request" },
+        { urlPattern: "*", requestStage: "Response" },
+      ],
+    });
+    await context.routeWebSocket("**/*", (websocket) => websocket.close());
+  } catch (error) {
+    await session.detach();
+    throw error;
+  }
+
+  return {
+    async assertHealthy() {
+      while (inFlight.size > 0) {
+        await Promise.allSettled([...inFlight]);
+      }
+      if (policyError) {
+        throw new Error(
+          `browser_network_policy_failed: ${reasonFromError(policyError)}`,
+        );
+      }
+    },
+    async close() {
+      try {
+        await session.send("Fetch.disable");
+      } finally {
+        await session.detach();
+      }
+    },
+  };
+}
+
 export async function captureBrowserRecording(
   ctx: RunContext,
   plan: RecordingPlan,
@@ -1019,14 +1277,22 @@ export async function captureBrowserRecording(
       storageState: { cookies: [], origins: [] },
     });
   } catch (error) {
+    if (ctx.signal.aborted) throw abortReason(ctx.signal);
     failAll(`browser_context_failed: ${reasonFromError(error)}`);
     return;
   }
 
   let page: BrowserPage | undefined;
+  let networkPolicy: ReplayNetworkPolicy | undefined;
   let recordingStartedAtMs: number | undefined;
   try {
     page = await context.newPage();
+    networkPolicy = await installReplayNetworkPolicy(
+      context,
+      page,
+      ctx.appUrl,
+      ctx.signal,
+    );
     await withTimeout(
       page.goto(pageUrl, {
         waitUntil: "domcontentloaded",
@@ -1062,6 +1328,7 @@ export async function captureBrowserRecording(
       }
       return { status: "loading" };
     });
+    await networkPolicy.assertHealthy();
     if (ready.status === "error") {
       failAll(`browser_replay_failed: ${reasonFromError(ready.reason)}`);
       return;
@@ -1078,7 +1345,9 @@ export async function captureBrowserRecording(
     await context.clearCookies();
 
     for (const item of plan.items) {
-      const itemFailure = (reason: string, assetFailed = false) =>
+      let captureFailureReason: string | undefined;
+      const itemFailure = (reason: string, assetFailed = false) => {
+        captureFailureReason ??= reason;
         ctx.failures.push(
           failureFor(
             item,
@@ -1087,6 +1356,7 @@ export async function captureBrowserRecording(
             assetFailed ? "preflight_failed" : undefined,
           ),
         );
+      };
       let capture: BrowserFrameCapture | undefined;
       try {
         const reply = await withTimeout(
@@ -1122,6 +1392,7 @@ export async function captureBrowserRecording(
           }, item.offsetMs),
           ctx.timeoutMs,
         );
+        await networkPolicy.assertHealthy();
         if (!reply.ok) {
           itemFailure(reply.reason, reply.reason === "assets_not_capturable");
         } else {
@@ -1171,6 +1442,7 @@ export async function captureBrowserRecording(
                       offsetMs: item.offsetMs,
                       png: capture.png,
                     },
+                    ctx.signal,
                   );
                   if (typeof uploaded.attachmentRef !== "string") {
                     throw new Error("the app returned no attachmentRef");
@@ -1179,35 +1451,38 @@ export async function captureBrowserRecording(
                 } catch (error) {
                   await removePrivateOutputFile(filePath);
                   if (error instanceof AuthError) throw error;
+                  if (ctx.signal.aborted) throw abortReason(ctx.signal);
                   itemFailure(`upload_failed: ${reasonFromError(error)}`);
-                  continue;
                 }
               }
-              ctx.frames.push({
-                nodeKey: item.nodeKey,
-                exampleIndex: item.exampleIndex,
-                recordingId: plan.recordingId,
-                offsetMs: item.offsetMs,
-                width: capture.width,
-                height: capture.height,
-                localPath: fileName,
-                capturedAt: capture.capturedAt,
-                assetStatus: "preflighted",
-                sourceEventAt: item.sourceEventAt,
-                replayAt: replayAtFromRecordingStart(
-                  recordingStartedAtMs,
-                  item.offsetMs,
-                ),
-                ...(normalizeJourneyPath(capture.route)
-                  ? { route: normalizeJourneyPath(capture.route)! }
-                  : {}),
-                ...(attachmentRef ? { attachmentRef } : {}),
-              });
+              if (!captureFailureReason) {
+                ctx.frames.push({
+                  nodeKey: item.nodeKey,
+                  exampleIndex: item.exampleIndex,
+                  recordingId: plan.recordingId,
+                  offsetMs: item.offsetMs,
+                  width: capture.width,
+                  height: capture.height,
+                  localPath: fileName,
+                  capturedAt: capture.capturedAt,
+                  assetStatus: "preflighted",
+                  sourceEventAt: item.sourceEventAt,
+                  replayAt: replayAtFromRecordingStart(
+                    recordingStartedAtMs,
+                    item.offsetMs,
+                  ),
+                  ...(normalizeJourneyPath(capture.route)
+                    ? { route: normalizeJourneyPath(capture.route)! }
+                    : {}),
+                  ...(attachmentRef ? { attachmentRef } : {}),
+                });
+              }
             }
           }
         }
       } catch (error) {
         if (error instanceof AuthError) throw error;
+        if (ctx.signal.aborted) throw abortReason(ctx.signal);
         itemFailure(browserFailureReason(error));
       }
 
@@ -1243,6 +1518,7 @@ export async function captureBrowserRecording(
             }, item.offsetMs),
             ctx.timeoutMs,
           );
+          await networkPolicy.assertHealthy();
           if (!reply.ok) throw new Error(reply.reason);
           const sanitized = sanitizePromptProvenanceCandidates(
             reply.value.messages,
@@ -1258,6 +1534,9 @@ export async function captureBrowserRecording(
               playheadOffsetMs: reply.value.playheadOffsetMs,
               observedAt: reply.value.observedAt,
             },
+            captureOutcome: captureFailureReason
+              ? { status: "failed", reason: captureFailureReason }
+              : { status: "captured" },
             messages: sanitized.messages,
             truncation: sanitized.truncation,
           });
@@ -1269,8 +1548,12 @@ export async function captureBrowserRecording(
             treeSourceEventAt: item.sourceEventAt,
             requestedOffsetMs: item.offsetMs,
             observedAt,
+            captureOutcome: captureFailureReason
+              ? { status: "failed", reason: captureFailureReason }
+              : { status: "captured" },
             reason: browserFailureReason(error),
           });
+          if (ctx.signal.aborted) throw abortReason(ctx.signal);
         } finally {
           ctx.provenanceInFlight -= 1;
         }
@@ -1278,12 +1561,17 @@ export async function captureBrowserRecording(
     }
   } catch (error) {
     if (error instanceof AuthError) throw error;
+    if (ctx.signal.aborted) throw abortReason(ctx.signal);
     failAll(
       `browser_capture_failed: ${reasonFromError(error)}`,
       recordingStartedAtMs,
     );
   } finally {
-    await context.close();
+    try {
+      await networkPolicy?.close();
+    } finally {
+      await context.close();
+    }
   }
 }
 
@@ -1320,6 +1608,7 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
       ctx.token,
       "create-session-replay-agent-link",
       { recordingId: plan.recordingId },
+      ctx.signal,
     );
     if (ctx.captureMode === "browser") {
       if (typeof link.url !== "string") {
@@ -1341,6 +1630,7 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
     }
   } catch (error) {
     if (error instanceof AuthError) throw error;
+    if (ctx.signal.aborted) throw abortReason(ctx.signal);
     return failAll(`link_failed: ${reasonFromError(error)}`);
   }
 
@@ -1363,9 +1653,11 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
       plan.recordingId,
       maxRecordingOffsetMs,
       ctx.timeoutMs,
+      ctx.signal,
     );
   } catch (error) {
     if (error instanceof AuthError) throw error;
+    if (ctx.signal.aborted) throw abortReason(ctx.signal);
     return failAll(`replay_load_failed: ${reasonFromError(error)}`);
   }
   const { events, recordingStartedAtMs } = replay;
@@ -1397,6 +1689,7 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
       serviceWorkers: "block",
     });
   } catch (error) {
+    if (ctx.signal.aborted) throw abortReason(ctx.signal);
     return failAll(
       `render_failed: ${reasonFromError(error)}`,
       recordingStartedAtMs,
@@ -1630,6 +1923,7 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
                 offsetMs: item.offsetMs,
                 png: capturedPng,
               },
+              ctx.signal,
             );
             if (typeof uploaded.attachmentRef !== "string") {
               throw new Error("the app returned no attachmentRef");
@@ -1638,6 +1932,7 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
           } catch (error) {
             await rm(filePath, { force: true });
             if (error instanceof AuthError) throw error;
+            if (ctx.signal.aborted) throw abortReason(ctx.signal);
             fail(`upload_failed: ${reasonFromError(error)}`);
             continue;
           }
@@ -1662,6 +1957,7 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
         });
       } catch (error) {
         if (error instanceof AuthError) throw error;
+        if (ctx.signal.aborted) throw abortReason(ctx.signal);
         fail(reasonFromError(error));
         if (error instanceof CaptureTimeout) {
           // The page has one playhead and it is stuck, so no later frame of
@@ -1681,6 +1977,7 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
     }
   } catch (error) {
     if (error instanceof AuthError) throw error;
+    if (ctx.signal.aborted) throw abortReason(ctx.signal);
     failAll(`render_failed: ${reasonFromError(error)}`, recordingStartedAtMs);
   } finally {
     if (page) {
@@ -1710,10 +2007,11 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
 
-async function runPool<T>(
+export async function runPool<T>(
   items: readonly T[],
   concurrency: number,
   work: (item: T) => Promise<void>,
+  signal?: AbortSignal,
 ): Promise<void> {
   let next = 0;
   let failure: { error: unknown } | undefined;
@@ -1721,7 +2019,7 @@ async function runPool<T>(
   // drains, and only then is it rethrown, so the caller still holds every
   // result the in-flight recordings produced.
   const worker = async () => {
-    while (!failure && next < items.length) {
+    while (!failure && !signal?.aborted && next < items.length) {
       const item = items[next++]!;
       try {
         await work(item);
@@ -1734,6 +2032,30 @@ async function runPool<T>(
     Array.from({ length: Math.min(concurrency, items.length) }, worker),
   );
   if (failure) throw failure.error;
+  if (signal?.aborted) throw abortReason(signal);
+}
+
+export function signalExitCode(signal: NodeJS.Signals): number {
+  return signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 129;
+}
+
+export function createCaptureSignalHandler(
+  controller: AbortController,
+  closeBrowser: () => Promise<void>,
+  onFirstSignal: (signal: NodeJS.Signals) => void,
+  onSecondSignal: (signal: NodeJS.Signals) => void,
+): (signal: NodeJS.Signals) => void {
+  let firstSignal: NodeJS.Signals | undefined;
+  return (signal) => {
+    if (firstSignal) {
+      onSecondSignal(signal);
+      return;
+    }
+    firstSignal = signal;
+    onFirstSignal(signal);
+    controller.abort(new Error(`run_stopped: ${signal}`));
+    void closeBrowser();
+  };
 }
 
 function intOption(
@@ -1873,8 +2195,7 @@ async function main(argv: string[]): Promise<number> {
   const promptProvenancePath = path.join(outDir, PROMPT_PROVENANCE_FILE);
   // A manifest left by an earlier run would describe old frames as this run's
   // output if the run exits before it writes its own.
-  await removePrivateOutputFile(manifestPath);
-  if (extractPrompts) await removePrivateOutputFile(promptProvenancePath);
+  await removeStaleRunMetadata(outDir);
   const generatedAt = new Date().toISOString();
   const writeManifest = async (
     frames: ManifestFrame[],
@@ -1939,9 +2260,11 @@ async function main(argv: string[]): Promise<number> {
     );
     return 1;
   }
+  const abortController = new AbortController();
   const ctx: RunContext = {
     appUrl,
     token,
+    signal: abortController.signal,
     browser,
     outDir,
     timeoutMs,
@@ -1967,26 +2290,38 @@ async function main(argv: string[]): Promise<number> {
     });
     return browserClosePromise;
   };
+  const handleCaptureSignal = createCaptureSignalHandler(
+    abortController,
+    closeBrowser,
+    (signal) => {
+      requestedSignal = signal;
+    },
+    (signal) => process.exit(signalExitCode(signal)),
+  );
   const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
   const signalHandlers = signals.map((signal) => {
     const handler = () => {
-      requestedSignal ??= signal;
-      void closeBrowser();
+      handleCaptureSignal(signal);
     };
     process.on(signal, handler);
     return { signal, handler };
   });
   let stopped: { error: unknown } | undefined;
   try {
-    await runPool(plans, concurrency, async (plan) => {
-      await renderRecording(ctx, plan);
-      const failed = ctx.failures.filter(
-        (failure) => failure.recordingId === plan.recordingId,
-      ).length;
-      console.error(
-        `Finished ${plan.recordingId}: ${plan.items.length - failed} of ${plan.items.length} frames.`,
-      );
-    });
+    await runPool(
+      plans,
+      concurrency,
+      async (plan) => {
+        await renderRecording(ctx, plan);
+        const failed = ctx.failures.filter(
+          (failure) => failure.recordingId === plan.recordingId,
+        ).length;
+        console.error(
+          `Finished ${plan.recordingId}: ${plan.items.length - failed} of ${plan.items.length} frames.`,
+        );
+      },
+      abortController.signal,
+    );
   } catch (error) {
     stopped = { error };
   }

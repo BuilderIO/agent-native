@@ -67,7 +67,7 @@ describe("sanitizePromptProvenanceCandidates", () => {
     ]);
 
     expect(result.messages.map(({ text }) => text)).toEqual([
-      "Query: [OMITTED_SQL] Please keep the result private.",
+      "[OMITTED_SQL]",
       "Attached image [OMITTED_BASE64]",
       "Inline payload [OMITTED_BASE64]",
       "URL-safe payload [OMITTED_BASE64]",
@@ -77,6 +77,23 @@ describe("sanitizePromptProvenanceCandidates", () => {
     expect(JSON.stringify(result)).not.toContain("A".repeat(128));
     expect(JSON.stringify(result)).not.toContain("B".repeat(128));
     expect(JSON.stringify(result)).not.toContain("A_b-".repeat(30));
+  });
+
+  it("omits inline SQL with no FROM clause and its surrounding message text", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      {
+        role: "user",
+        text: "Please inspect this statement: SELECT 'customer@example.com'; keep the result private.",
+      },
+      { role: "user", text: "SELECT 1" },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "[OMITTED_SQL]",
+      "[OMITTED_SQL]",
+    ]);
+    expect(JSON.stringify(result)).not.toContain("customer@example.com");
+    expect(JSON.stringify(result)).not.toContain("SELECT");
   });
 
   it("reports message and per-message character truncation", () => {

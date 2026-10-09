@@ -8,6 +8,8 @@ const BEARER_VALUE = /\bbearer\s+[a-z0-9._~+/-]+=*/gi;
 const SQL_CODE_BLOCK = /```(?:sql|postgres(?:ql)?)\b[\s\S]*?```/gi;
 const SQL_STATEMENT =
   /(^|\n|\b(?:sql|query)\s*:\s*)(?:select\b[\s\S]*?\bfrom\b[\s\S]*?|insert\s+into\b[\s\S]*?|update\s+[\w."`]+\s+set\b[\s\S]*?|delete\s+from\b[\s\S]*?|create\s+(?:table|index|view|schema)\b[\s\S]*?|alter\s+table\b[\s\S]*?|drop\s+(?:table|index|view|schema)\b[\s\S]*?|with\b[\s\S]*?\bas\b[\s\S]*?\bselect\b[\s\S]*?)(?:;|$)/gi;
+const SQL_LOOKING_TEXT =
+  /\bselect\s+(?:(?:distinct|all)\s+)?(?:\*|['"\d(]|case\b|count\s*\(|[a-z_][\w$]*(?=\s*(?:,|;|$)|\s+(?:from|where|as|order|group|having|limit|union|except|intersect)\b))|\b(?:insert\s+into|update\s+\S+\s+set|delete\s+from|create\s+(?:table|index|view|schema)|alter\s+table|drop\s+(?:table|index|view|schema))\b|\bwith\s+[a-z_][\w$]*\s+as\s*\(/i;
 const DATA_URI_BASE64 =
   /\bdata:[a-z0-9.+-]+\/[a-z0-9.+-]+(?:;[a-z0-9=.+-]+)*;base64,[a-z0-9+/=]+/gi;
 const LONG_BASE64 = /[a-z0-9_+/=\n-]{128,}/gi;
@@ -65,9 +67,11 @@ function redactCredentials(text: string): string {
 }
 
 function omitSqlAndBase64Payloads(text: string): string {
-  return text
-    .replace(SQL_CODE_BLOCK, "[OMITTED_SQL]")
-    .replace(SQL_STATEMENT, "$1[OMITTED_SQL]")
+  const withoutCodeBlocks = text.replace(SQL_CODE_BLOCK, "[OMITTED_SQL]");
+  const withoutInlineSql = SQL_LOOKING_TEXT.test(withoutCodeBlocks)
+    ? "[OMITTED_SQL]"
+    : withoutCodeBlocks.replace(SQL_STATEMENT, "$1[OMITTED_SQL]");
+  return withoutInlineSql
     .replace(DATA_URI_BASE64, "[OMITTED_BASE64]")
     .replace(LONG_BASE64, "[OMITTED_BASE64]");
 }

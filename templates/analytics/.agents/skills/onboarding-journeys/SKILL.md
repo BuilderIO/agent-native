@@ -199,6 +199,11 @@ unreadable, missing, or oversized asset is an explicit frame failure with
 CLI's Analytics bearer or browser cookies. The manifest sets
 `remoteAssets: "browser-preflight-per-frame"` to describe the capture path;
 each frame status describes what happened for that seek.
+Before navigation, the CLI intercepts browser requests and blocks private,
+loopback, and metadata destinations outside the exact Analytics app origin at
+every redirect. It blocks WebSockets and allows cross-origin requests only for
+GET/HEAD to public hosts, stripping authorization, cookie, origin, and referrer
+headers.
 The output directory uses mode 0700 and each file uses mode 0600.
 
 `--extract-prompts` is available only with browser mode. It reads at most 12
@@ -211,9 +216,11 @@ were omitted and how many planned snapshots could not be recorded. It writes
 the result to `prompt-provenance.json` with restrictive local file permissions.
 The sidecar keeps the JourneyTree source-event
 timestamp separate from the observed seek offset, rrweb playhead, and
-extraction time. This is visible user-role text at the seek, not proof of an
-exact source event or attempt-ID relationship. It is never uploaded, including
-when `--upload` stores PNGs through the private attachment action.
+extraction time. Each snapshot also says whether its frame capture or upload
+succeeded and includes the failure reason when it did not. This is visible
+user-role text at the seek, not proof of an exact source event or attempt-ID
+relationship. It is never uploaded, including when `--upload` stores PNGs
+through the private attachment action.
 
 Keep recorded URLs and CSS intact for rrweb playback; network controls belong
 at the capture boundary. `--upload` stores PNGs through the private upload

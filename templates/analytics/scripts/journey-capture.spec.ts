@@ -9,13 +9,22 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   captureBrowserRecording,
+  createCaptureSignalHandler,
+  handleReplayRequestPaused,
+  installReplayNetworkPolicy,
+  isReplayRequestAllowed,
   loadReplayEvents,
   preparePrivateOutputDirectory,
   requestAppResponse,
+  removeStaleRunMetadata,
+  runPool,
+  signalExitCode,
   writePromptProvenanceSidecar,
   type Browser,
+  type BrowserCDPSession,
   type BrowserContext,
   type BrowserPage,
+  type BrowserWebSocketRoute,
   type RunContext,
 } from "./journey-capture";
 import type { RecordingPlan } from "./journey-capture-plan";
@@ -75,6 +84,144 @@ const recordingPlan: RecordingPlan = {
 };
 
 describe("journey capture network requests", () => {
+  it("blocks private replay destinations while stripping cross-origin credentials", async () => {
+    let websocketHandler: ((route: BrowserWebSocketRoute) => void) | undefined;
+    const session = {
+      on: vi.fn(),
+      send: vi.fn(async () => undefined),
+      detach: vi.fn(async () => undefined),
+    } as unknown as BrowserCDPSession;
+    const context = {
+      newCDPSession: vi.fn(async () => session),
+      routeWebSocket: vi.fn(
+        async (
+          _url: string,
+          handler: (route: BrowserWebSocketRoute) => void,
+        ) => {
+          websocketHandler = handler;
+        },
+      ),
+    } as unknown as BrowserContext;
+    const signal = new AbortController().signal;
+    const policy = await installReplayNetworkPolicy(
+      context,
+      {} as BrowserPage,
+      "https://analytics.example.com",
+      signal,
+    );
+    expect(session.send).toHaveBeenCalledWith("Fetch.enable", {
+      patterns: [
+        { urlPattern: "*", requestStage: "Request" },
+        { urlPattern: "*", requestStage: "Response" },
+      ],
+    });
+    expect(context.routeWebSocket).toHaveBeenCalledWith(
+      "**/*",
+      expect.any(Function),
+    );
+    await handleReplayRequestPaused(
+      session,
+      {
+        requestId: "public-asset",
+        request: {
+          url: "https://8.8.8.8/replay-image.png",
+          method: "GET",
+          headers: {
+            authorization: "Bearer must-not-leave",
+            cookie: "session=must-not-leave",
+            origin: "https://analytics.example.com",
+            referer:
+              "https://analytics.example.com/sessions/replay?agent_access=grant",
+            accept: "image/png",
+          },
+        },
+      },
+      "https://analytics.example.com",
+      signal,
+    );
+    expect(session.send).toHaveBeenCalledWith("Fetch.continueRequest", {
+      requestId: "public-asset",
+      headers: [{ name: "accept", value: "image/png" }],
+    });
+
+    await handleReplayRequestPaused(
+      session,
+      {
+        requestId: "private-redirect",
+        request: {
+          url: "https://analytics.example.com/sessions/replay",
+          method: "GET",
+          headers: {},
+        },
+        responseStatusCode: 302,
+        responseHeaders: [
+          {
+            name: "Location",
+            value: "http://169.254.169.254/latest/meta-data",
+          },
+        ],
+      },
+      "https://analytics.example.com",
+      signal,
+    );
+    expect(session.send).toHaveBeenCalledWith("Fetch.failRequest", {
+      requestId: "private-redirect",
+      errorReason: "BlockedByClient",
+    });
+
+    await handleReplayRequestPaused(
+      session,
+      {
+        requestId: "public-redirect",
+        request: {
+          url: "https://analytics.example.com/sessions/replay",
+          method: "GET",
+          headers: {},
+        },
+        responseStatusCode: 302,
+        responseHeaders: [
+          { name: "Location", value: "https://8.8.8.8/replay-image.png" },
+        ],
+      },
+      "https://analytics.example.com",
+      signal,
+    );
+    expect(session.send).toHaveBeenCalledWith("Fetch.continueResponse", {
+      requestId: "public-redirect",
+    });
+
+    await handleReplayRequestPaused(
+      session,
+      {
+        requestId: "external-post",
+        request: {
+          url: "https://8.8.8.8/collect",
+          method: "POST",
+          headers: {},
+        },
+      },
+      "https://analytics.example.com",
+      signal,
+    );
+    expect(session.send).toHaveBeenCalledWith("Fetch.failRequest", {
+      requestId: "external-post",
+      errorReason: "BlockedByClient",
+    });
+
+    const closeWebSocket = vi.fn();
+    websocketHandler!({ close: closeWebSocket });
+    expect(closeWebSocket).toHaveBeenCalledOnce();
+    expect(
+      await isReplayRequestAllowed(
+        "http://127.0.0.1:1234/",
+        "https://analytics.example.com",
+      ),
+    ).toBe(false);
+    await policy.close();
+    expect(session.send).toHaveBeenCalledWith("Fetch.disable");
+    expect(session.detach).toHaveBeenCalledOnce();
+  });
+
   it("connects to an available loopback family for localhost", async () => {
     const server = createServer((_request, response) => response.end("ok"));
     const port = await listen(server);
@@ -186,6 +333,97 @@ describe("journey capture network requests", () => {
     } finally {
       await close(server);
     }
+  });
+
+  it("aborts an in-flight request when the run signal is canceled", async () => {
+    let resolveRequestReceived: (() => void) | undefined;
+    let resolveResponseClosed: (() => void) | undefined;
+    let didCloseResponse = false;
+    const requestReceived = new Promise<void>((resolve) => {
+      resolveRequestReceived = resolve;
+    });
+    const responseClosed = new Promise<void>((resolve) => {
+      resolveResponseClosed = resolve;
+    });
+    const server = createServer((_request, response) => {
+      response.writeHead(200);
+      response.write("pending");
+      resolveRequestReceived?.();
+      response.on("close", () => {
+        didCloseResponse = true;
+        resolveResponseClosed?.();
+      });
+    });
+    const port = await listen(server);
+    const controller = new AbortController();
+
+    try {
+      const pending = requestAppResponse("http://127.0.0.1:" + port + "/", {
+        ...requestOptions,
+        signal: controller.signal,
+      });
+      await requestReceived;
+      controller.abort(new Error("run_stopped: SIGINT"));
+      await expect(pending).rejects.toThrow("run_stopped: SIGINT");
+      let closeTimeout: NodeJS.Timeout | undefined;
+      await Promise.race([
+        responseClosed,
+        new Promise<void>((resolve) => {
+          closeTimeout = setTimeout(resolve, 1_000);
+        }),
+      ]);
+      if (closeTimeout) clearTimeout(closeTimeout);
+      expect(didCloseResponse).toBe(true);
+    } finally {
+      await close(server);
+    }
+  });
+});
+
+describe("capture cancellation", () => {
+  it("stops scheduling work after aborting a run pool", async () => {
+    const controller = new AbortController();
+    const started: number[] = [];
+
+    await expect(
+      runPool(
+        [1, 2, 3],
+        1,
+        async (item) => {
+          started.push(item);
+          controller.abort(new Error("run_stopped: SIGINT"));
+        },
+        controller.signal,
+      ),
+    ).rejects.toThrow("run_stopped: SIGINT");
+    expect(started).toEqual([1]);
+  });
+
+  it("closes Chromium on the first signal and force exits on the second", () => {
+    const controller = new AbortController();
+    const closeBrowser = vi.fn(async () => undefined);
+    const onFirstSignal = vi.fn();
+    const onSecondSignal = vi.fn((signal: NodeJS.Signals) =>
+      signalExitCode(signal),
+    );
+    const handleSignal = createCaptureSignalHandler(
+      controller,
+      closeBrowser,
+      onFirstSignal,
+      onSecondSignal,
+    );
+
+    handleSignal("SIGINT");
+    expect(controller.signal.aborted).toBe(true);
+    expect(controller.signal.reason).toMatchObject({
+      message: "run_stopped: SIGINT",
+    });
+    expect(closeBrowser).toHaveBeenCalledOnce();
+    expect(onFirstSignal).toHaveBeenCalledWith("SIGINT");
+
+    handleSignal("SIGTERM");
+    expect(onSecondSignal).toHaveBeenCalledWith("SIGTERM");
+    expect(onSecondSignal.mock.results[0]?.value).toBe(143);
   });
 });
 
@@ -439,8 +677,15 @@ describe("browser journey capture", () => {
       waitForFunction: vi.fn(async () => undefined),
       evaluate: vi.fn(async <T>() => replies.shift() as T),
     } as unknown as BrowserPage;
+    const session = {
+      on: vi.fn(),
+      send: vi.fn(async () => undefined),
+      detach: vi.fn(async () => undefined),
+    } as unknown as BrowserCDPSession;
     const context = {
       newPage: vi.fn(async () => page),
+      newCDPSession: vi.fn(async () => session),
+      routeWebSocket: vi.fn(async () => undefined),
       clearCookies: vi.fn(async () => undefined),
       close: vi.fn(async () => undefined),
     } as unknown as BrowserContext;
@@ -451,6 +696,7 @@ describe("browser journey capture", () => {
     const ctx: RunContext = {
       appUrl: `http://127.0.0.1:${port}`,
       token: "test-only-app-bearer",
+      signal: new AbortController().signal,
       browser,
       outDir,
       timeoutMs: 1_000,
@@ -541,9 +787,173 @@ describe("browser journey capture", () => {
       await rm(outDir, { recursive: true, force: true });
     }
   });
+
+  it("records prompt provenance when frame upload fails", async () => {
+    const outDir = await mkdtemp(path.join(os.tmpdir(), "journey-capture-"));
+    await chmod(outDir, 0o700);
+    const png = Buffer.from(pngHeader(1, 1)).toString("base64");
+    const uploadBodies: string[] = [];
+    const appServer = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer | string) =>
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)),
+      );
+      request.on("end", () => {
+        uploadBodies.push(Buffer.concat(chunks).toString("utf8"));
+        response.writeHead(500, { "content-type": "application/json" });
+        response.end("{}");
+      });
+    });
+    const port = await listen(appServer);
+    const replies: unknown[] = [
+      { status: "ready", recordingStartedAt: "2026-10-09T00:00:00.000Z" },
+      {
+        ok: true,
+        value: {
+          offsetMs: 10,
+          playheadOffsetMs: 5,
+          width: 1,
+          height: 1,
+          route: "/start",
+          capturedAt: "2026-10-09T00:00:00.010Z",
+          png,
+        },
+      },
+      {
+        ok: true,
+        value: {
+          observedOffsetMs: 10,
+          playheadOffsetMs: 5,
+          observedAt: "2026-10-09T00:00:00.011Z",
+          messages: [{ role: "user", text: "private prompt text" }],
+        },
+      },
+    ];
+    const page = {
+      goto: vi.fn(async () => undefined),
+      waitForFunction: vi.fn(async () => undefined),
+      evaluate: vi.fn(async <T>() => replies.shift() as T),
+    } as unknown as BrowserPage;
+    const session = {
+      on: vi.fn(),
+      send: vi.fn(async () => undefined),
+      detach: vi.fn(async () => undefined),
+    } as unknown as BrowserCDPSession;
+    const context = {
+      newCDPSession: vi.fn(async () => session),
+      routeWebSocket: vi.fn(async () => undefined),
+      newPage: vi.fn(async () => page),
+      clearCookies: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+    } as unknown as BrowserContext;
+    const browser = {
+      newContext: vi.fn(async () => context),
+    } as unknown as Browser;
+    const ctx: RunContext = {
+      appUrl: "http://127.0.0.1:" + port,
+      token: "test-only-app-bearer",
+      signal: new AbortController().signal,
+      browser,
+      outDir,
+      timeoutMs: 1_000,
+      upload: true,
+      captureMode: "browser",
+      extractPrompts: true,
+      minAspect: undefined,
+      maxAspect: undefined,
+      usedNames: new Set<string>(),
+      frames: [],
+      failures: [],
+      provenanceSnapshots: [],
+      provenanceFailures: [],
+      provenanceOmittedSnapshots: 0,
+      provenanceInFlight: 0,
+    };
+    const plan: RecordingPlan = {
+      recordingId: recordingPlan.recordingId,
+      items: [recordingPlan.items[0]!],
+    };
+
+    try {
+      await captureBrowserRecording(
+        ctx,
+        plan,
+        "http://127.0.0.1:" +
+          port +
+          "/sessions/sr_1?agent_access=scoped-grant&frame=1",
+      );
+
+      expect(ctx.frames).toEqual([]);
+      expect(ctx.failures).toMatchObject([
+        { nodeKey: "first", reason: expect.stringContaining("upload_failed:") },
+      ]);
+      expect(ctx.provenanceSnapshots).toMatchObject([
+        {
+          nodeKey: "first",
+          captureOutcome: {
+            status: "failed",
+            reason: expect.stringContaining("upload_failed:"),
+          },
+        },
+      ]);
+      expect(ctx.provenanceFailures).toEqual([]);
+      expect(uploadBodies).toHaveLength(1);
+      expect(uploadBodies[0]).toContain('"png":"');
+      expect(uploadBodies[0]).not.toContain("private prompt text");
+      await expect(
+        stat(path.join(outDir, "first-0.png")),
+      ).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+
+      const sidecarPath = await writePromptProvenanceSidecar(
+        outDir,
+        "2026-10-09T00:00:00.000Z",
+        ctx.provenanceSnapshots,
+        ctx.provenanceFailures,
+        ctx.provenanceOmittedSnapshots,
+        plan.items.length,
+      );
+      const sidecar = JSON.parse(await readFile(sidecarPath, "utf8"));
+      expect(sidecar.coverage).toMatchObject({
+        plannedSnapshots: 1,
+        recordedSnapshots: 1,
+        failedSnapshots: 0,
+        unrecordedSnapshots: 0,
+      });
+      expect(sidecar.snapshots[0].captureOutcome).toEqual({
+        status: "failed",
+        reason: expect.stringContaining("upload_failed:"),
+      });
+    } finally {
+      await close(appServer);
+      await rm(outDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("prompt provenance sidecar", () => {
+  it("removes a prior sidecar before a run that does not extract prompts", async () => {
+    const outDir = await mkdtemp(path.join(os.tmpdir(), "journey-provenance-"));
+    try {
+      await preparePrivateOutputDirectory(outDir, process.cwd());
+      const sidecarPath = await writePromptProvenanceSidecar(
+        outDir,
+        "2026-10-09T00:00:00.000Z",
+        [],
+        [],
+        0,
+        1,
+      );
+
+      await removeStaleRunMetadata(outDir);
+
+      await expect(stat(sidecarPath)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
+    }
+  });
+
   it("reports planned seeks with no snapshot or extraction failure", async () => {
     const outDir = await mkdtemp(path.join(os.tmpdir(), "journey-provenance-"));
     try {
