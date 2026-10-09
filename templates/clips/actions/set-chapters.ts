@@ -27,6 +27,8 @@ const MAX_ATTEMPTS = 4;
 const cutRanges = (editsJson: string) => cutRangesOf(parseEdits(editsJson));
 
 const ChapterSchema = z.object({
+  // .int() also refuses anything past the safe-integer range, which
+  // readStoredChapters would read back as unreadable.
   startMs: z.coerce.number().int().min(0),
   title: z.string().min(1),
 });

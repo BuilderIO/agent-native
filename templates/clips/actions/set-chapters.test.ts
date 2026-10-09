@@ -184,6 +184,15 @@ describe("set-chapters", () => {
     expect(written).toHaveLength(0);
   });
 
+  it("won't store a time too large to read back", () => {
+    expect(() =>
+      action.schema.parse({
+        recordingId: "rec_1",
+        chapters: [{ startMs: 1e300, title: "Far" }],
+      }),
+    ).toThrow();
+  });
+
   it("still overwrites when no expected chapters are given", async () => {
     stored.chaptersJson = JSON.stringify([intro, demo]);
     await action.run({ recordingId: "rec_1", chapters: [demo] } as any);
