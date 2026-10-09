@@ -6,10 +6,9 @@ name: Mirror CI service images
 # This job logs in to Docker Hub first: a step can authenticate, and service
 # containers cannot, so the copy is the one place that needs credentials.
 
+# Manual only: it cannot succeed until the Docker Hub secrets exist, so it does
+# not run on pushes to pull requests.
 on:
-  push:
-    paths:
-      - ".github/workflows/mirror-ci-service-images.yml"
   workflow_dispatch:
 
 permissions:
