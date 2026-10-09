@@ -847,7 +847,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   ].map(([, shard]) => shard);
   assert.deepEqual(shardEntries, [
     ...DESIGN_E2E_REGRESSION_SHARDS,
-    ...Array.from({ length: 24 }, (_, index) => `changed-${index + 1}`),
+    ...Array.from({ length: 48 }, (_, index) => `changed-${index + 1}`),
     "screen-history-1",
     "screen-history-2",
     "screen-history-3",
@@ -881,7 +881,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
 });
 
-test("splits every changed Design E2E spec across 24 bounded shards", () => {
+test("splits every changed Design E2E spec across 48 bounded shards", () => {
   const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
   const changedShardNumbers = [
     ...workflow.matchAll(/^\s{12}changed-(\d+),?\s*$/gm),
@@ -889,13 +889,13 @@ test("splits every changed Design E2E spec across 24 bounded shards", () => {
 
   assert.deepEqual(
     changedShardNumbers,
-    Array.from({ length: 24 }, (_, index) => index + 1),
+    Array.from({ length: 48 }, (_, index) => index + 1),
     "all changed-spec shards must remain present and sequential",
   );
   assert.match(
     workflow,
-    /--shard="\$\{changed_shard\}\/24"/,
-    "changed specs must be fully covered across the same 24 shards",
+    /--shard="\$\{changed_shard\}\/48"/,
+    "changed specs must be fully covered across the same 48 shards",
   );
 });
 

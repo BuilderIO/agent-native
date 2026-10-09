@@ -471,6 +471,30 @@ jobs:
             changed-22,
             changed-23,
             changed-24,
+            changed-25,
+            changed-26,
+            changed-27,
+            changed-28,
+            changed-29,
+            changed-30,
+            changed-31,
+            changed-32,
+            changed-33,
+            changed-34,
+            changed-35,
+            changed-36,
+            changed-37,
+            changed-38,
+            changed-39,
+            changed-40,
+            changed-41,
+            changed-42,
+            changed-43,
+            changed-44,
+            changed-45,
+            changed-46,
+            changed-47,
+            changed-48,
             screen-history-1,
             screen-history-2,
             screen-history-3,
@@ -542,7 +566,7 @@ jobs:
           fi
           changed_shard="${{ matrix.shard }}"
           changed_shard="${changed_shard#changed-}"
-          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/24"
+          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48"
 
       - name: Run focused Design regression cases
         if: ${{ !startsWith(matrix.shard, 'screen-history-') && !startsWith(matrix.shard, 'changed-') }}
