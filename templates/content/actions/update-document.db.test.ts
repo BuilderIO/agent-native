@@ -2494,6 +2494,83 @@ describe("update-document save outcome counts", () => {
     }
   });
 
+  it.each(["current", "stale", "absent"] as const)(
+    "classifies an unchanged save's %s base without writing History",
+    async (base) => {
+      const id = await createDocument({ title: "Page", content: "Body" });
+      const before = await documentRow(id);
+      const saved = await measuredSave(
+        () =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            updateDocumentAction.run(
+              {
+                id,
+                content: "Body",
+                ...(base === "absent"
+                  ? {}
+                  : {
+                      baseRevision: documentRevisionToken(
+                        0,
+                        base === "current" ? "Body" : "Older body",
+                      ),
+                    }),
+              },
+              { caller: "frontend", userEmail: OWNER },
+            ),
+          ),
+        {
+          outcome: "unchanged",
+          stale_base:
+            base === "absent" ? "unknown" : base === "stale" ? "true" : "false",
+          history_effect: "none",
+        },
+      );
+      expect(saved.content).toBe("Body");
+      expect(await documentRow(id)).toEqual(before);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, id)),
+      ).toHaveLength(0);
+    },
+  );
+
+  it("classifies a known stale base on an early stale-body conflict without writing", async () => {
+    const id = await createDocument({ content: "Hydrated body" });
+    const before = await documentRow(id);
+    const saved = await measuredSave(
+      () =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          updateDocumentAction.run(
+            {
+              id,
+              content: "",
+              baseRevision: documentRevisionToken(0, ""),
+              loadedContentWasEmpty: true,
+              loadedUpdatedAt: "2020-01-01T00:00:00.000Z",
+              browserSaveAttemptId: nextId("stale-attempt"),
+            },
+            { caller: "frontend", userEmail: OWNER },
+          ),
+        ),
+      {
+        outcome: "conflict",
+        stale_base: "true",
+        history_effect: "none",
+        reason_code: "stale_empty_body",
+      },
+    );
+    expect(saved).toMatchObject({ conflict: true });
+    expect(await documentRow(id)).toEqual(before);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.documentId, id)),
+    ).toHaveLength(0);
+  });
+
   it("counts unchanged, stale conflict, refusal and superseded saves once", async () => {
     const id = await createDocument({ title: "Page", content: "Body" });
     const frontend = { caller: "frontend" as const, userEmail: OWNER };

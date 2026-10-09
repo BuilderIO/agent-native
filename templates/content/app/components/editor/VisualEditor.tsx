@@ -4215,7 +4215,7 @@ export function VisualEditor({
   const editableMarkedRef = useRef(false);
   useEffect(() => {
     if (editor && !editor.isDestroyed && documentId && visitKey !== undefined) {
-      observeEditorMount.modeChanged(
+      observeEditorMount.contextChanged(
         editor,
         documentId,
         visitKey,

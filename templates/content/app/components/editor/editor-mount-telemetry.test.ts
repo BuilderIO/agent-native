@@ -101,12 +101,43 @@ describe("editor mount observations", () => {
     const observe = createEditorMountObserver(report, () => "visit");
     const editor = {};
     observe(editor, "page", "route", "editing");
-    observe.modeChanged(editor, "page", "route", "readonly");
+    observe.contextChanged(editor, "page", "route", "readonly");
     observe({}, "page", "route", "readonly");
     await vi.runAllTimersAsync();
     expect(report.mock.calls.map(([event]) => event.outcome)).toEqual([
       "initial",
       "remount",
     ]);
+  });
+
+  it("retains in-place navigation for later remount and mode-switch classification", async () => {
+    vi.useFakeTimers();
+    const report = vi.fn();
+    const visits = vi
+      .fn()
+      .mockReturnValueOnce("visit-a")
+      .mockReturnValueOnce("visit-b")
+      .mockReturnValueOnce("visit-c");
+    const observe = createEditorMountObserver(report, visits);
+    const editor = {};
+    observe(editor, "page", "route-a", "editing");
+    observe.contextChanged(editor, "page", "route-b", "editing");
+    const remounted = {};
+    expect(observe(remounted, "page", "route-b", "editing")).toBe("visit-b");
+    observe.contextChanged(editor, "page", "route-a", "readonly");
+    observe.contextChanged(remounted, "page", "route-c", "editing");
+    expect(observe({}, "page", "route-c", "suggesting")).toBe("visit-c");
+    await vi.runAllTimersAsync();
+    expect(report.mock.calls.map(([event]) => event)).toEqual([
+      { id: "page", visitId: "visit-a", outcome: "initial", mode: "editing" },
+      { id: "page", visitId: "visit-b", outcome: "remount", mode: "editing" },
+      {
+        id: "page",
+        visitId: "visit-c",
+        outcome: "mode_switch",
+        mode: "suggesting",
+      },
+    ]);
+    expect(visits).toHaveBeenCalledTimes(3);
   });
 });

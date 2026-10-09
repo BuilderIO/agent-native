@@ -16,6 +16,7 @@ export function createEditorMountObserver(
   createVisitId: () => string = () => crypto.randomUUID(),
 ) {
   const editors = new WeakSet<object>();
+  let currentEditor: object | null = null;
   let visit: {
     id: string;
     documentId: string;
@@ -30,6 +31,7 @@ export function createEditorMountObserver(
   ): string | null => {
     if (editors.has(editor)) return null;
     editors.add(editor);
+    currentEditor = editor;
     let outcome: EditorMountOutcome;
     if (!visit) outcome = "initial";
     else if (visit.documentId !== documentId || visit.routeKey !== routeKey)
@@ -54,18 +56,16 @@ export function createEditorMountObserver(
     }
     return visit!.id;
   };
-  observe.modeChanged = (
+  observe.contextChanged = (
     editor: object,
     documentId: string,
     routeKey: string,
     mode: EditorMountMode,
   ) => {
-    if (
-      editors.has(editor) &&
-      visit?.documentId === documentId &&
-      visit.routeKey === routeKey
-    )
-      visit.mode = mode;
+    if (currentEditor !== editor || !visit) return;
+    if (visit.documentId !== documentId || visit.routeKey !== routeKey)
+      visit = { id: createVisitId(), documentId, routeKey, mode };
+    else visit.mode = mode;
   };
   return observe;
 }

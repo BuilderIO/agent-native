@@ -73,6 +73,7 @@ it("observes real editor creation once in StrictMode while slow telemetry cannot
     key: string,
     editable = true,
     mode: EditorMountMode = "editing",
+    visitKey = "route",
   ) {
     await act(async () =>
       root!.render(
@@ -91,7 +92,7 @@ it("observes real editor creation once in StrictMode while slow telemetry cannot
                 createElement(VisualEditor, {
                   key,
                   documentId: "page",
-                  visitKey: "route",
+                  visitKey,
                   editorMountMode: mode,
                   content: "Alpha paragraph",
                   onChange,
@@ -123,9 +124,13 @@ it("observes real editor creation once in StrictMode while slow telemetry cannot
     );
   });
   expect(captured.editor!.getText()).toContain("Inserted");
-  await render("first", false);
+  const firstEditor = captured.editor;
+  await render("first", true, "editing", "next-route");
+  expect(captured.editor).toBe(firstEditor);
   expect(report).toHaveBeenCalledTimes(1);
-  await render("second", false);
+  await render("first", false, "editing", "next-route");
+  expect(report).toHaveBeenCalledTimes(1);
+  await render("second", false, "editing", "next-route");
   expect(report).toHaveBeenCalledTimes(2);
   expect(report).toHaveBeenLastCalledWith({
     id: "page",
@@ -133,7 +138,7 @@ it("observes real editor creation once in StrictMode while slow telemetry cannot
     outcome: "remount",
     mode: "editing",
   });
-  await render("third", true, "suggesting");
+  await render("third", true, "suggesting", "next-route");
   expect(report).toHaveBeenCalledTimes(3);
   expect(report).toHaveBeenLastCalledWith({
     id: "page",
@@ -141,7 +146,7 @@ it("observes real editor creation once in StrictMode while slow telemetry cannot
     outcome: "mode_switch",
     mode: "suggesting",
   });
-  await render("fourth", false, "readonly");
+  await render("fourth", false, "readonly", "next-route");
   expect(report).toHaveBeenCalledTimes(4);
   expect(report).toHaveBeenLastCalledWith({
     id: "page",

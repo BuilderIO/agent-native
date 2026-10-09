@@ -688,6 +688,41 @@ export default defineAction({
     const existing = access.resource;
     const ownerEmail = existing.ownerEmail as string;
 
+    const observeSaveBase = (snapshot: {
+      bodyRevision: number;
+      content: string;
+      title: string;
+      updatedAt: string;
+    }) => {
+      const observedBaseRevision =
+        args.authoredBaseRevision ?? args.baseRevision;
+      const bodyBaseStale =
+        observedBaseRevision !== undefined &&
+        observedBaseRevision !==
+          documentRevisionToken(snapshot.bodyRevision, snapshot.content);
+      const staleComparisons = [
+        ...(observedBaseRevision
+          ? [bodyBaseStale]
+          : args.baseUpdatedAt !== undefined
+            ? [args.baseUpdatedAt !== snapshot.updatedAt]
+            : []),
+        ...(args.baseTitle !== undefined
+          ? [args.baseTitle !== snapshot.title]
+          : []),
+        ...(args.recoveryExpectedUpdatedAt !== undefined
+          ? [args.recoveryExpectedUpdatedAt !== snapshot.updatedAt]
+          : []),
+      ];
+      measurement.stale_base =
+        staleComparisons.length === 0
+          ? "unknown"
+          : staleComparisons.some(Boolean)
+            ? "true"
+            : "false";
+      return bodyBaseStale;
+    };
+    observeSaveBase(existing);
+
     const db = getDb();
     const requestUserEmail = getRequestUserEmail();
     const requestOrgId = getRequestOrgId() ?? "";
@@ -978,34 +1013,7 @@ export default defineAction({
           .from(schema.documents)
           .where(eq(schema.documents.id, id))
           .limit(1);
-        const observedBaseRevision =
-          args.authoredBaseRevision ?? args.baseRevision;
-        const bodyBaseStale =
-          observedBaseRevision !== undefined &&
-          observedBaseRevision !==
-            documentRevisionToken(
-              historyBefore.bodyRevision,
-              historyBefore.content,
-            );
-        const staleComparisons = [
-          ...(observedBaseRevision
-            ? [bodyBaseStale]
-            : args.baseUpdatedAt !== undefined
-              ? [args.baseUpdatedAt !== historyBefore.updatedAt]
-              : []),
-          ...(args.baseTitle !== undefined
-            ? [args.baseTitle !== historyBefore.title]
-            : []),
-          ...(args.recoveryExpectedUpdatedAt !== undefined
-            ? [args.recoveryExpectedUpdatedAt !== historyBefore.updatedAt]
-            : []),
-        ];
-        measurement.stale_base =
-          staleComparisons.length === 0
-            ? "unknown"
-            : staleComparisons.some(Boolean)
-              ? "true"
-              : "false";
+        const bodyBaseStale = observeSaveBase(historyBefore);
         if (
           args.recoveryExpectedUpdatedAt !== undefined &&
           historyBefore.updatedAt !== args.recoveryExpectedUpdatedAt
