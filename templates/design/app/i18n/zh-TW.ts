@@ -1233,6 +1233,7 @@ export default {
     downloadZip: "下載 ZIP",
     downloadPdfAllScreens: "下載 PDF（所有畫面）",
     publishApp: "發佈應用程式",
+    exportOptions: "匯出選項",
     exportHtml: "匯出HTML",
     exportPdf: "匯出PDF",
     copyCodingHandoff: "複製編碼交接",

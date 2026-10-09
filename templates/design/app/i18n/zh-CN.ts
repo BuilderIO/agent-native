@@ -1234,6 +1234,7 @@ export default {
     downloadZip: "下载 ZIP",
     downloadPdfAllScreens: "下载 PDF（所有屏幕）",
     publishApp: "发布应用",
+    exportOptions: "导出选项",
     exportHtml: "导出HTML",
     exportPdf: "导出PDF",
     copyCodingHandoff: "复制编码交接",

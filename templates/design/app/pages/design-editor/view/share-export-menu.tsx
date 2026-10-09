@@ -49,7 +49,7 @@ export function ShareExportMenu({
           <Button
             type="button"
             size="sm"
-            aria-label={t("designEditor.export")}
+            aria-label={t("designEditor.exportOptions")}
             className={cn("w-6 min-w-0 px-0", className)}
           >
             <IconChevronDown className="size-3" />

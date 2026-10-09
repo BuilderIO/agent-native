@@ -1285,6 +1285,7 @@ export default {
     downloadZip: "ZIP herunterladen",
     downloadPdfAllScreens: "Laden Sie PDF herunter (Alle Screens)",
     publishApp: "App veröffentlichen",
+    exportOptions: "Exportoptionen",
     exportHtml: "HTML exportieren",
     exportPdf: "PDF exportieren",
     copyCodingHandoff: "Code-Übergabe kopieren",
