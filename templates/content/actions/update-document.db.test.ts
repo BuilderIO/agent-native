@@ -96,7 +96,7 @@ async function documentRow(documentId: string) {
 
 describe("update-document compare-and-swap", () => {
   it.each(
-    (["conflict", "preservation"] as const).flatMap((responseKind) =>
+    (["conflict", "preservation", "saved"] as const).flatMap((responseKind) =>
       (["owner", "editor", "viewer", "revoked", "deleted"] as const).map(
         (accessAfterMove) => [responseKind, accessAfterMove] as const,
       ),
@@ -152,14 +152,18 @@ describe("update-document compare-and-swap", () => {
         const save = () =>
           runWithRequestContext({ userEmail: EDITOR }, () =>
             updateDocumentAction.run(
-              {
-                id,
-                content: "Must not apply",
-                baseRevision: documentRevisionToken(0, "Stale base"),
-                ...(responseKind === "conflict"
-                  ? { recoveryExpectedUpdatedAt: "1970-01-01T00:00:00.000Z" }
-                  : {}),
-              },
+              responseKind === "saved"
+                ? { id, title: "Saved title" }
+                : {
+                    id,
+                    content: "Must not apply",
+                    baseRevision: documentRevisionToken(0, "Stale base"),
+                    ...(responseKind === "conflict"
+                      ? {
+                          recoveryExpectedUpdatedAt: "1970-01-01T00:00:00.000Z",
+                        }
+                      : {}),
+                  },
               { caller: "frontend", userEmail: EDITOR },
             ),
           );
@@ -171,11 +175,25 @@ describe("update-document compare-and-swap", () => {
             statusCode: 404,
           });
         } else {
-          await expect(save()).resolves.toMatchObject({
-            [responseKind === "conflict" ? "conflict" : "preservationRequired"]:
-              true,
-            document: { id, content: "Original", accessRole: accessAfterMove },
-          });
+          await expect(save()).resolves.toMatchObject(
+            responseKind === "saved"
+              ? {
+                  id,
+                  title: "Saved title",
+                  content: "Original",
+                  accessRole: accessAfterMove,
+                }
+              : {
+                  [responseKind === "conflict"
+                    ? "conflict"
+                    : "preservationRequired"]: true,
+                  document: {
+                    id,
+                    content: "Original",
+                    accessRole: accessAfterMove,
+                  },
+                },
+          );
         }
         expect(race).toHaveBeenCalledOnce();
       } finally {
@@ -223,7 +241,11 @@ describe("update-document compare-and-swap", () => {
               editorEditGeneration: 1,
               browserSaveAttemptId: nextId("moving-snapshot-attempt"),
             },
-            { caller: "frontend", userEmail: EDITOR },
+            {
+              caller: "frontend",
+              actionName: "update-document",
+              userEmail: EDITOR,
+            },
           ),
         ),
       ).resolves.toMatchObject({ id, title: "Moved page", content: "After" });
@@ -233,10 +255,115 @@ describe("update-document compare-and-swap", () => {
         content: "After",
       });
       expect(race).toHaveBeenCalledOnce();
+      const listVersions = (await import("./list-document-versions.js"))
+        .default;
+      const versions = await runWithRequestContext({ userEmail: EDITOR }, () =>
+        listVersions.run({ documentId: id, includeContent: true, limit: 100 }),
+      );
+      expect(
+        versions.versions.map((version: any) => version.content),
+      ).toContain("After");
+      const storedVersions = await db
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.documentId, id));
+      expect(
+        storedVersions.every((version: any) => version.ownerEmail === EDITOR),
+      ).toBe(true);
+      const { queryAuditEvents } = await import("@agent-native/core/audit");
+      const events = await queryAuditEvents(
+        { userEmail: EDITOR },
+        {
+          action: "update-document",
+          targetType: "document",
+          targetId: id,
+        },
+      );
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        actorEmail: EDITOR,
+        ownerEmail: EDITOR,
+        status: "success",
+      });
     } finally {
       race.mockRestore();
     }
   });
+
+  it.each(["viewer", "revoked", "deleted"] as const)(
+    "rejects a save when a move leaves %s access before the row lock",
+    async (accessAfterMove) => {
+      const id = await createDocument({
+        title: "Original title",
+        content: "Original",
+      });
+      const db = getDb();
+      await db.insert(schema.documentShares).values({
+        id: nextId("prelock-share"),
+        resourceId: id,
+        principalType: "user",
+        principalId: EDITOR,
+        role: "editor",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+      const transaction = db.transaction.bind(db);
+      const race = vi
+        .spyOn(db, "transaction")
+        .mockImplementationOnce(async (...args: unknown[]) => {
+          await db
+            .delete(schema.documentShares)
+            .where(eq(schema.documentShares.resourceId, id));
+          if (accessAfterMove === "deleted") {
+            await db
+              .delete(schema.documents)
+              .where(eq(schema.documents.id, id));
+          } else {
+            await db
+              .update(schema.documents)
+              .set({ ownerEmail: VIEWER })
+              .where(eq(schema.documents.id, id));
+            if (accessAfterMove === "viewer") {
+              await db.insert(schema.documentShares).values({
+                id: nextId("prelock-viewer-share"),
+                resourceId: id,
+                principalType: "user",
+                principalId: EDITOR,
+                role: "viewer",
+                createdBy: VIEWER,
+                createdAt: new Date().toISOString(),
+              });
+            }
+          }
+          return transaction(...args);
+        });
+      try {
+        await expect(
+          runWithRequestContext({ userEmail: EDITOR }, () =>
+            updateDocumentAction.run(
+              { id, title: "Must not apply", description: "Must not apply" },
+              { caller: "frontend", userEmail: EDITOR },
+            ),
+          ),
+        ).rejects.toMatchObject(
+          accessAfterMove === "deleted"
+            ? { errorCode: "DOCUMENT_NOT_FOUND", statusCode: 404 }
+            : { statusCode: 403 },
+        );
+        if (accessAfterMove !== "deleted") {
+          expect(await documentRow(id)).toMatchObject({
+            ownerEmail: VIEWER,
+            title: "Original title",
+            content: "Original",
+            description: "",
+          });
+        }
+        expect(race).toHaveBeenCalledOnce();
+      } finally {
+        race.mockRestore();
+      }
+    },
+  );
 
   it("normalizes a duplicate title heading in an authored browser save", async () => {
     const id = await createDocument({ title: "Page", content: "Body before" });

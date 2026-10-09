@@ -697,11 +697,11 @@ export default defineAction({
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
 
     const favoriteOnly = isFavoriteOnlyUpdate(args);
-    const access = favoriteOnly
+    let access = favoriteOnly
       ? await resolveDocumentAccessForMutation(id, "id")
       : await assertDocumentMutationAccess(id, "editor", "id");
-    const existing = access.resource;
-    const ownerEmail = existing.ownerEmail as string;
+    let existing = access.resource;
+    let ownerEmail = existing.ownerEmail as string;
 
     const db = getDb();
     const requestUserEmail = getRequestUserEmail();
@@ -926,6 +926,11 @@ export default defineAction({
           .from(schema.documents)
           .where(eq(schema.documents.id, id))
           .for("update");
+        access = favoriteOnly
+          ? await resolveDocumentAccessForMutation(id, "id")
+          : await assertDocumentMutationAccess(id, "editor", "id");
+        existing = access.resource;
+        ownerEmail = existing.ownerEmail as string;
         if (args.browserSaveAttemptId && browserSavePayload) {
           const stored = await findBrowserSaveAttempt({
             db: tx as ReturnType<typeof getDb>,
@@ -1583,10 +1588,8 @@ export default defineAction({
       }
     }
 
-    const [doc] = await db
-      .select()
-      .from(schema.documents)
-      .where(eq(schema.documents.id, id));
+    const finalAccess = await resolveDocumentAccessForMutation(id, "id");
+    const doc = finalAccess.resource;
     const finalFavorite = requestUserEmail
       ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
       : parseDocumentFavorite(doc.isFavorite);
@@ -1612,7 +1615,7 @@ export default defineAction({
       {
         ...documentUpdateResponse(
           doc,
-          access.role,
+          finalAccess.role,
           finalFavorite,
           softDeletedDatabaseIds,
           browserSaveConfirmation,
@@ -1626,7 +1629,7 @@ export default defineAction({
             }
           : {}),
       } satisfies BrowserDocumentUpdateResponse,
-      ownerEmail,
+      doc.ownerEmail as string,
     );
   },
   link: ({ result }) => {
