@@ -39,7 +39,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useLocation } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import {
@@ -168,6 +168,7 @@ export function FirstRunOnboarding({
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const previewMode = useOnboardingPreviewMode();
   const previewStep = useOnboardingPreviewStep();
   const {
@@ -303,8 +304,10 @@ export function FirstRunOnboarding({
   const completionAttemptRef = useRef<{
     screen: FirstRunScreen | null;
     extensionIndex: number;
+    redirect: string | null;
   } | null>(null);
   const completionInFlightRef = useRef(false);
+  const completionRedirectRef = useRef<string | null>(null);
   const setupSkipStartedRef = useRef(false);
   const onboardingTerminalRef = useRef(false);
   const abandonmentTrackedRef = useRef(false);
@@ -337,10 +340,14 @@ export function FirstRunOnboarding({
     async (
       completedScreen: FirstRunScreen | null,
       completedExtensionIndex = extensionIndex,
+      retryRedirect: string | null = completionRedirectRef.current,
     ) => {
-      completionAttemptRef.current = completedScreen
-        ? { screen: completedScreen, extensionIndex: completedExtensionIndex }
-        : { screen: null, extensionIndex: completedExtensionIndex };
+      completionRedirectRef.current = null;
+      completionAttemptRef.current = {
+        screen: completedScreen,
+        extensionIndex: completedExtensionIndex,
+        redirect: retryRedirect,
+      };
       completionInFlightRef.current = true;
       try {
         await completeFirstRun();
@@ -349,6 +356,9 @@ export function FirstRunOnboarding({
         }
         onboardingTerminalRef.current = true;
         completionAttemptRef.current = null;
+        if (retryRedirect) {
+          navigate(retryRedirect, { replace: true });
+        }
         return true;
       } catch {
         // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
@@ -357,7 +367,13 @@ export function FirstRunOnboarding({
         completionInFlightRef.current = false;
       }
     },
-    [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
+    [
+      completeFirstRun,
+      extensionIndex,
+      navigate,
+      pathname,
+      trackFirstRunStepCompleted,
+    ],
   );
   useEffect(() => {
     if (!previewMode && firstRun && !loading && profile) {
@@ -511,6 +527,7 @@ export function FirstRunOnboarding({
     void finishOnboarding(
       attempt?.screen ?? null,
       attempt?.extensionIndex ?? extensionIndex,
+      attempt?.redirect ?? null,
     );
   }, [extensionIndex, finishOnboarding]);
   const completionErrorProps = {
@@ -785,7 +802,7 @@ export function FirstRunOnboarding({
                       onClick={() => handleBuilder(true)}
                       disabled={connectFlow.connecting}
                     >
-                      {t("agentChat.onboarding.builderCreateAndActivate")}
+                      {t("agentChat.onboarding.builderCreateAccount")}
                     </button>
                   )}
                   <button
@@ -868,6 +885,7 @@ export function FirstRunOnboarding({
                       return;
                     setupSkipStartedRef.current = true;
                     trackFirstRunStepSkipped("choice");
+                    completionRedirectRef.current = "/record";
                     handleFinish(null);
                   }}
                 >

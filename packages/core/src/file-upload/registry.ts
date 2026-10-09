@@ -28,6 +28,22 @@ export function listFileUploadProviders(): FileUploadProvider[] {
   return [...providers.values()];
 }
 
+/** Resolve a public upload URL only through a provider that claims ownership. */
+export async function findFileUploadProviderOwningUrl(
+  url: string,
+): Promise<FileUploadProvider | null> {
+  const candidates = [...providers.values()];
+  if (!candidates.includes(builderFileUploadProvider)) {
+    candidates.push(builderFileUploadProvider);
+  }
+  for (const provider of candidates) {
+    if (provider.isOwnedUrl && (await provider.isOwnedUrl(url))) {
+      return provider;
+    }
+  }
+  return null;
+}
+
 export function getActiveFileUploadProvider(): FileUploadProvider | null {
   for (const provider of providers.values()) {
     if (provider.isConfigured()) return provider;

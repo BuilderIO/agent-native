@@ -5331,6 +5331,25 @@ describe("auto-continue on a deployment that replaces the error message", () => 
     ).toBe(false);
   });
 
+  it("keeps a typed attachment rejection terminal and records no retry recovery", async () => {
+    const outcome = await readError({
+      error: "Invalid 'image_url': image size exceeds limit.",
+      errorCode: "invalid_attachment",
+      providerRetryable: false,
+    });
+
+    expect(outcome.continued).toBe(false);
+    const last = outcome.results?.at(-1) as any;
+    expect(last.content.at(-1).text).toContain(
+      "export a smaller PNG, JPEG, GIF, or WebP",
+    );
+    expect(last.content.at(-1).text).not.toMatch(/retry/i);
+    expect(last.metadata.custom.runError).toMatchObject({
+      errorCode: "invalid_attachment",
+    });
+    expect(last.metadata.custom.runError.recoverable).toBeUndefined();
+  });
+
   it("continues a recoverable run timeout despite stop wording", async () => {
     const outcome = await readError({
       error: "The agent run was stopped before it finished.",

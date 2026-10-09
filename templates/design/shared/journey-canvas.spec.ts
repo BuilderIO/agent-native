@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { toJSONSchema, type z } from "zod";
 
+import arSA from "../app/i18n/ar-SA.js";
 import { emptyBoardHtml } from "./board-file.js";
 import {
   JOURNEY_BOARD_ID_PREFIX,
@@ -17,6 +18,9 @@ import {
 import { CARD_PROVENANCE_HEADER_HEIGHT } from "./journey-layout.js";
 
 type RawInput = z.input<typeof createJourneyCanvasInputSchema>;
+type RawJourneyNode = RawInput["tree"]["nodes"][number];
+type RawCohortNode = Extract<RawJourneyNode, { n: number }>;
+type RawReferenceNode = Extract<RawJourneyNode, { referenceOnly: true }>;
 
 const example = (sessionId: string, width = 1440, height = 900) => ({
   sessionId,
@@ -30,8 +34,8 @@ function node(
   key: string,
   parentKey: string | null,
   n: number,
-  extra: Partial<RawInput["tree"]["nodes"][number]> = {},
-): RawInput["tree"]["nodes"][number] {
+  extra: Partial<RawCohortNode> = {},
+): RawCohortNode {
   return {
     key,
     label: key,
@@ -45,6 +49,23 @@ function node(
     dropoffPct: 0,
     examples: [example(`${key}-1`), example(`${key}-2`)],
     ...extra,
+  };
+}
+
+function referenceNode(
+  key: string,
+  parentKey: string,
+  depth: number,
+  examples: RawJourneyNode["examples"],
+): RawReferenceNode {
+  return {
+    key,
+    label: key.split(" > ").pop()!,
+    parentKey,
+    depth,
+    kind: "step",
+    referenceOnly: true,
+    examples,
   };
 }
 
@@ -101,6 +122,44 @@ function rawInput(overrides: Partial<RawInput> = {}): RawInput {
   };
 }
 
+function appBandsInput(overrides: Partial<RawInput> = {}): RawInput {
+  const clipsRoot = node("clips::root", null, 100, {
+    pctOfRoot: 100,
+    pctOfParent: 100,
+  });
+  const clipsChild = node("clips::child", "clips::root", 60, {
+    pctOfRoot: 60,
+    pctOfParent: 60,
+  });
+  const designRoot = node("design::root", null, 40, {
+    pctOfRoot: 100,
+    pctOfParent: 100,
+  });
+  const designChild = node("design::child", "design::root", 20, {
+    pctOfRoot: 50,
+    pctOfParent: 50,
+  });
+  const base = rawInput();
+  return {
+    ...base,
+    layoutMode: "appBands",
+    tree: {
+      ...base.tree,
+      app: "all",
+      rootN: 140,
+      appRootN: { clips: 100, design: 40 },
+      nodes: [clipsRoot, clipsChild, designRoot, designChild],
+    },
+    frames: [
+      frame(clipsRoot.key, 0),
+      frame(clipsChild.key, 0),
+      frame(designRoot.key, 0),
+      frame(designChild.key, 0),
+    ],
+    ...overrides,
+  };
+}
+
 const parse = (raw: RawInput) => createJourneyCanvasInputSchema.parse(raw);
 const plan = (raw: RawInput = rawInput()) =>
   planJourneyCanvas(parse(raw), "design-1");
@@ -114,12 +173,45 @@ function problems(raw: unknown): string[] {
 }
 
 describe("create-journey-canvas input", () => {
+  it("plans up to 1,000 journey nodes and rejects larger trees", () => {
+    const root = node("root", null, 1000);
+    const nodes = [
+      root,
+      ...Array.from({ length: 999 }, (_, index) =>
+        node(`root > branch-${index}`, "root", 1),
+      ),
+    ];
+    const raw = rawInput({
+      includeScreenshotless: true,
+      frames: [],
+      tree: { ...rawInput().tree, nodes },
+    });
+
+    expect(planJourneyCanvas(parse(raw), "design-1").nodeCount).toBe(1000);
+    const oversized = createJourneyCanvasInputSchema.safeParse({
+      ...raw,
+      tree: {
+        ...raw.tree,
+        nodes: [...nodes, node("root > overflow", "root", 1)],
+      },
+    });
+    expect(oversized.success).toBe(false);
+    if (!oversized.success) {
+      expect(oversized.error.issues.map((issue) => issue.path)).toContainEqual([
+        "tree",
+        "nodes",
+      ]);
+    }
+  });
+
   it("applies the documented defaults", () => {
     const input: CreateJourneyCanvasInput = parse(rawInput());
     expect(input.cardWidth).toBe(360);
     expect(input.maxExamplesPerNode).toBe(3);
     expect(input.includeScreenshotless).toBe(false);
     expect(input.allowEncryptedPublicUploadFallback).toBe(false);
+    expect(input.layoutMode).toBe("tree");
+    expect(input.tree.nodes[0]?.referenceOnly).toBe(false);
   });
 
   it("accepts an https imageUrl and an attachmentRef", () => {
@@ -137,11 +229,108 @@ describe("create-journey-canvas input", () => {
       ],
     });
     expect(problems(withRef)).toEqual([]);
+    const withStagedFrame = rawInput({
+      designId: "design-1",
+      frames: [
+        frame("signup", 0, {
+          imageUrl: undefined,
+          stagedFrameId: "jcu_opaque-frame-id",
+          route: "/home",
+          screenshotOffsetMs: 2_600,
+        }),
+      ],
+    });
+    expect(problems(withStagedFrame)).toEqual([]);
+    const stagedFrameWithoutOffset = rawInput({
+      frames: [
+        frame("signup", 0, {
+          imageUrl: undefined,
+          stagedFrameId: "jcu_opaque-frame-id",
+          route: "/home",
+        }),
+      ],
+    });
+    expect(problems(stagedFrameWithoutOffset).join("\n")).toMatch(
+      /frames\.0\.screenshotOffsetMs: Pass the actual screenshot seek offset/,
+    );
+  });
+
+  it("requires and carries sourceApp for private frames in an all-app tree", () => {
+    const base = rawInput();
+    const withSourceApp = rawInput({
+      tree: { ...base.tree, app: "all" },
+      frames: [
+        frame("signup", 0, {
+          imageUrl: undefined,
+          attachmentRef: "ref-opaque-1",
+          sourceApp: "chat",
+        }),
+      ],
+    });
+    expect(problems(withSourceApp)).toEqual([]);
+    expect(
+      planJourneyCanvas(parse(withSourceApp), "design-1").screens[0]?.attachment
+        ?.sourceApp,
+    ).toBe("chat");
+
+    const missingSourceApp = rawInput({
+      tree: { ...base.tree, app: "all" },
+      frames: [
+        frame("signup", 0, {
+          imageUrl: undefined,
+          attachmentRef: "ref-opaque-1",
+        }),
+      ],
+    });
+    expect(problems(missingSourceApp).join("\n")).toMatch(/sourceApp/);
+
+    const mismatchedSourceApp = rawInput({
+      frames: [
+        frame("signup", 0, {
+          imageUrl: undefined,
+          attachmentRef: "ref-opaque-1",
+          sourceApp: "chat",
+        }),
+      ],
+    });
+    expect(problems(mismatchedSourceApp).join("\n")).toMatch(/sourceApp/);
+  });
+
+  it("validates app-band roots against independent app denominators", () => {
+    expect(problems(appBandsInput())).toEqual([]);
+
+    const wrongDenominator = appBandsInput();
+    wrongDenominator.tree.appRootN = { clips: 100, design: 80 };
+    expect(problems(wrongDenominator).join("\n")).toMatch(
+      /Node "design::root" percent does not use the design cohort denominator/,
+    );
+
+    const crossAppParent = appBandsInput();
+    crossAppParent.tree.nodes[1]!.parentKey = "design::root";
+    expect(problems(crossAppParent).join("\n")).toMatch(
+      /App-band parent links must stay within the same app cohort/,
+    );
+
+    const missingPrefix = appBandsInput();
+    missingPrefix.tree.nodes[0]!.key = "root";
+    expect(problems(missingPrefix).join("\n")).toMatch(
+      /App-band nodes need an app-prefixed key/,
+    );
+
+    const inheritedDenominator = appBandsInput();
+    inheritedDenominator.tree.nodes[2]!.key = "constructor::root";
+    inheritedDenominator.tree.nodes[3]!.key = "constructor::child";
+    inheritedDenominator.tree.nodes[3]!.parentKey = "constructor::root";
+    inheritedDenominator.tree.appRootN = { clips: 100 };
+    expect(problems(inheritedDenominator).join("\n")).toMatch(
+      /Pass the root denominator for the constructor cohort/,
+    );
   });
 
   it("rejects data: and non-https image URLs with a clear message", () => {
     const dataUrl = problems(
       rawInput({
+        designId: "design-1",
         frames: [
           frame("signup", 0, { imageUrl: "data:image/png;base64,AAAA" }),
         ],
@@ -171,12 +360,54 @@ describe("create-journey-canvas input", () => {
       rawInput({ frames: [frame("signup", 0, { imageUrl: undefined })] }),
     );
     expect(neither.join("\n")).toMatch(
-      /exactly one of imageUrl or attachmentRef/,
+      /exactly one of imageUrl, attachmentRef, or stagedFrameId/,
     );
     const both = problems(
       rawInput({ frames: [frame("signup", 0, { attachmentRef: "ref" })] }),
     );
-    expect(both.join("\n")).toMatch(/exactly one of imageUrl or attachmentRef/);
+    expect(both.join("\n")).toMatch(
+      /exactly one of imageUrl, attachmentRef, or stagedFrameId/,
+    );
+    const missingDesign = problems(
+      rawInput({
+        frames: [
+          frame("signup", 0, {
+            imageUrl: undefined,
+            stagedFrameId: "jcu_opaque-frame-id",
+            route: "/home",
+          }),
+        ],
+      }),
+    );
+    expect(missingDesign.join("\n")).toMatch(
+      /Pass the Design ID used to stage/,
+    );
+  });
+
+  it("maps a staged private frame to the final access-checked screenshot route", () => {
+    const input = parse(
+      rawInput({
+        designId: "design-1",
+        frames: [
+          frame("signup", 0, {
+            imageUrl: undefined,
+            stagedFrameId: "jcu_opaque-frame-id",
+            route: "/app/settings",
+            screenshotOffsetMs: 2_600,
+          }),
+        ],
+      }),
+    );
+    const result = planJourneyCanvas(input, "design-1");
+    const screen = result.screens.find(
+      (candidate) => candidate.nodeKey === "signup",
+    )!;
+    expect(screen.attachment?.stagedFrameId).toBe("jcu_opaque-frame-id");
+    expect(screen.attachment?.route).toBe("/app/settings");
+    expect(screen.html).toContain(
+      `${REPLAY_SCREENSHOT_ROUTE}${screen.attachment!.rowId}`,
+    );
+    expect(screen.html).not.toContain("jcu_opaque-frame-id");
   });
 
   it("rejects trees and frames that do not hang together", () => {
@@ -228,10 +459,42 @@ describe("create-journey-canvas input", () => {
       "designId",
       "frames",
       "includeScreenshotless",
+      "layoutMode",
+      "locale",
       "maxExamplesPerNode",
       "title",
       "tree",
     ]);
+    expect(JSON.stringify(schema.properties.tree)).toContain("referenceOnly");
+  });
+
+  it("allows reference-only step nodes without cohort metrics", () => {
+    const base = rawInput();
+    const observed = referenceNode("signup > Skip", "signup", 2, [
+      example("skip", 1440, 900),
+    ]);
+    const parsed = parse({
+      ...base,
+      tree: { ...base.tree, nodes: [base.tree.nodes[0]!, observed] },
+      frames: [frame("signup", 0), frame(observed.key, 0)],
+    });
+
+    expect(parsed.tree.nodes[1]).toMatchObject({
+      key: observed.key,
+      kind: "step",
+      referenceOnly: true,
+      examples: observed.examples,
+    });
+    expect("n" in parsed.tree.nodes[1]!).toBe(false);
+    expect(
+      problems({
+        ...base,
+        tree: {
+          ...base.tree,
+          nodes: [{ ...base.tree.nodes[0]!, n: undefined }],
+        },
+      }).join("\n"),
+    ).toContain("n");
   });
 
   it("bounds sizes", () => {
@@ -245,7 +508,100 @@ describe("create-journey-canvas input", () => {
   });
 });
 
+describe("journey canvas direction", () => {
+  it("marks Arabic cards as right-to-left documents", () => {
+    const input = parse(rawInput({ locale: "ar-SA" }));
+    const result = planJourneyCanvas(input, "design-1", arSA.journeyCanvas);
+
+    expect(result.screens[0]?.html).toMatch(
+      /<html lang="ar-SA" dir="rtl"(?:\s|>)/,
+    );
+  });
+});
+
 describe("planJourneyCanvas", () => {
+  it("places app cohorts in separate bands and labels each root with its own denominator", () => {
+    const input = parse(appBandsInput());
+    const result = planJourneyCanvas(input, "design-bands");
+    const screen = (key: string) =>
+      result.screens.find((candidate) => candidate.nodeKey === key)!;
+    const clipsRoot = screen("clips::root");
+    const clipsChild = screen("clips::child");
+    const designRoot = screen("design::root");
+    const designChild = screen("design::child");
+    const fragments = result.boardFragments({ x: 0, y: 0 }).join("\n");
+
+    expect(designRoot.frame.x).toBeGreaterThan(clipsChild.frame.x);
+    expect(clipsRoot.frame.y).toBe(designRoot.frame.y);
+    expect(clipsRoot.html).toContain(
+      "100 sessions · 100% of Clips cohort (n=100)",
+    );
+    expect(designRoot.html).toContain(
+      "40 sessions · 100% of Design cohort (n=40)",
+    );
+    expect(clipsChild.html).toContain("60 sessions · 60% of previous");
+    expect(designChild.html).toContain("20 sessions · 50% of previous");
+    expect(fragments).toContain("Clips · 100 sessions");
+    expect(fragments).toContain("Design · 40 sessions");
+    expect(
+      fragments.match(/data-agent-native-layer-name="Journey edge"/g),
+    ).toHaveLength(2);
+    expect(fragments).toContain("separate per-app cohorts");
+    expect(fragments).not.toContain("140 sessions");
+  });
+
+  it("places the main onboarding component before independent app roots without joining them", () => {
+    const base = rawInput();
+    const routeRoot = node("clips::page:/record", null, 90, {
+      pctOfRoot: 90,
+      pctOfParent: 90,
+    });
+    const roleRoot = node(
+      "clips::page:/library > app:entered > step:role",
+      null,
+      40,
+      { pctOfRoot: 40, pctOfParent: 40 },
+    );
+    const choice = node(
+      "clips::page:/library > app:entered > step:role > step:choice",
+      roleRoot.key,
+      30,
+      { pctOfRoot: 30, pctOfParent: 75 },
+    );
+    const input = parse(
+      rawInput({
+        layoutMode: "appBands",
+        tree: {
+          ...base.tree,
+          app: "all",
+          rootN: 100,
+          appRootN: { clips: 100 },
+          nodes: [routeRoot, roleRoot, choice],
+        },
+        frames: [
+          frame(routeRoot.key, 0),
+          frame(roleRoot.key, 0),
+          frame(choice.key, 0),
+        ],
+      }),
+    );
+    const result = planJourneyCanvas(input, "design-bands");
+    const screen = (key: string) =>
+      result.screens.find((candidate) => candidate.nodeKey === key)!;
+    const fragments = result.boardFragments({ x: 0, y: 0 }).join("\n");
+
+    expect(screen(roleRoot.key).frame.y).toBeLessThan(
+      screen(routeRoot.key).frame.y,
+    );
+    expect(screen(roleRoot.key).frame.y).toBe(screen(choice.key).frame.y);
+    expect(screen(choice.key).frame.x).toBeGreaterThan(
+      screen(roleRoot.key).frame.x,
+    );
+    expect(
+      fragments.match(/data-agent-native-layer-name="Journey edge"/g),
+    ).toHaveLength(1);
+  });
+
   it("renders a card per node with a frame, stubs for last-observed steps and other, and lists the rest", () => {
     const result = plan();
     expect(result.nodeCount).toBe(4);
@@ -356,15 +712,516 @@ describe("planJourneyCanvas", () => {
     const root = plan().screens.find((s) => s.nodeKey === "signup")!;
     expect(root.provenance).toEqual({
       eventAt: "2026-10-01T12:00:00.000Z",
+      dateLabel: "Event time (UTC)",
       recordingId: "rec-signup-1",
       offsetMs: 4_000,
+      offsetIsObserved: false,
+      checkpointOffsetMs: 4_000,
+      replayObservedAt: null,
       screenshotCapturedAt: "2026-10-08T09:30:00.000Z",
+      sourceApp: "design",
     });
-    expect(root.html).toContain("Event date 2026-10-01");
-    expect(root.html).toContain("Recording ID rec-signup-1");
-    expect(root.html).toContain("Replay offset 4,000 ms");
-    expect(root.html).toContain("Screenshot captured 2026-10-08");
-    expect(root.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 225);
+    expect(root.html).toContain("Event time (UTC): 2026-10-01T12:00:00.000Z");
+    expect(root.html).toContain("Replay and source details");
+    expect(root.html).toContain("Recording ID: rec-signup-1");
+    expect(root.html).toContain("Replay offset: 4,000 ms");
+    expect(root.html).toContain(
+      "Screenshot captured: 2026-10-08T09:30:00.000Z",
+    );
+    expect(root.frame.height).toBe(
+      CARD_PROVENANCE_HEADER_HEIGHT + 20 + 12 + 225,
+    );
+  });
+
+  it("shows the replay screenshot offset and observation time separately from its source event", () => {
+    const result = plan(
+      rawInput({
+        designId: "design-1",
+        frames: [
+          frame("signup", 0, {
+            imageUrl: undefined,
+            stagedFrameId: "jcu_replay-offset",
+            route: "/home",
+            screenshotOffsetMs: 4_600,
+            recordingStartedAt: "2026-10-01T11:59:56.000Z",
+          }),
+        ],
+      }),
+    );
+    const root = result.screens.find((screen) => screen.nodeKey === "signup")!;
+
+    expect(root.provenance).toMatchObject({
+      eventAt: "2026-10-01T12:00:00.000Z",
+      offsetMs: 4_600,
+      offsetIsObserved: true,
+      checkpointOffsetMs: 4_000,
+      replayObservedAt: "2026-10-01T12:00:00.600Z",
+    });
+    expect(root.attachment?.offsetMs).toBe(4_600);
+    expect(root.html).toContain("Replay offset: 4,600 ms");
+    expect(root.html).not.toContain("Checkpoint seek target: 4,000 ms");
+    expect(root.html).toContain("Analytics checkpoint offset: 4,000 ms");
+    expect(root.html).toContain("Replay observed: 2026-10-01T12:00:00.600Z");
+    expect(root.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 12 + 225);
+  });
+
+  it("keeps replay timing in the disclosure without increasing the visible header", () => {
+    const checkpointFrame = frame("signup", 0, { screenshotOffsetMs: 4_000 });
+    const observedFrame = frame("signup", 0, {
+      screenshotOffsetMs: 4_000,
+      recordingStartedAt: "2026-10-01T11:59:56.300Z",
+    });
+    const checkpoint = plan(
+      rawInput({ frames: [checkpointFrame] }),
+    ).screens.find((screen) => screen.nodeKey === "signup")!;
+    const observed = plan(rawInput({ frames: [observedFrame] })).screens.find(
+      (screen) => screen.nodeKey === "signup",
+    )!;
+
+    expect(observed.provenance?.replayObservedAt).toBe(
+      "2026-10-01T12:00:00.300Z",
+    );
+    expect(observed.html).toContain(
+      "Replay observed: 2026-10-01T12:00:00.300Z",
+    );
+    expect(observed.frame.height).toBe(checkpoint.frame.height);
+  });
+
+  it("keeps long recording IDs in the expandable provenance without changing card geometry", () => {
+    const base = rawInput();
+    const root = base.tree.nodes[0]!;
+    const longRoot = {
+      ...root,
+      examples: root.examples.map((example, index) =>
+        index === 0 ? { ...example, recordingId: "r".repeat(48) } : example,
+      ),
+    };
+    const tree = {
+      ...base.tree,
+      nodes: [longRoot, ...base.tree.nodes.slice(1)],
+    };
+    const frames = [frame("signup", 0, { screenshotOffsetMs: 4_600 })];
+    const shortId = plan(rawInput({ cardWidth: 320, frames })).screens.find(
+      (screen) => screen.nodeKey === "signup",
+    )!;
+    const longId = plan(
+      rawInput({ cardWidth: 320, tree, frames }),
+    ).screens.find((screen) => screen.nodeKey === "signup")!;
+
+    expect(longId.html).toContain(`Recording ID: ${"r".repeat(48)}`);
+    expect(longId.frame.height).toBe(shortId.frame.height);
+  });
+
+  it("labels cohort sessions that continue beyond pictured child paths", () => {
+    const base = rawInput();
+    const nodes = [...base.tree.nodes];
+    nodes[0] = node("signup", null, 1000, {
+      dropoffN: 100,
+      dropoffPct: 10,
+    });
+    const result = plan(rawInput({ tree: { ...base.tree, nodes } }));
+    const root = result.screens.find((screen) => screen.nodeKey === "signup")!;
+
+    expect(root.html).toContain(
+      "260 continued on unpictured paths · 26% of this step",
+    );
+    expect(root.html).toContain("header .coverage-note");
+    expect(root.frame.height).toBe(
+      CARD_PROVENANCE_HEADER_HEIGHT + 20 + 12 + 225,
+    );
+  });
+
+  it("renders a chronological reference chain without inventing cohort metrics", () => {
+    const base = rawInput();
+    const exampleAt = (sessionId: string, ts: string, offsetMs: number) => ({
+      ...example(sessionId),
+      ts,
+      offsetMs,
+    });
+    const nodes = [
+      node("signup", null, 1000, {
+        examples: [exampleAt("root", "2026-10-08T09:59:00.000Z", 1_000)],
+      }),
+      referenceNode("signup > Skip", "signup", 2, [
+        exampleAt("skip", "2026-10-08T10:00:00.000Z", 2_000),
+      ]),
+      referenceNode("signup > Skip > Library", "signup > Skip", 3, [
+        exampleAt("library-1", "2026-10-08T10:01:00.000Z", 3_000),
+        exampleAt("library-2", "2026-10-08T10:02:00.000Z", 4_000),
+      ]),
+      referenceNode(
+        "signup > Skip > Library > RecordaClip",
+        "signup > Skip > Library",
+        4,
+        [exampleAt("recordaclip", "2026-10-08T10:03:00.000Z", 5_000)],
+      ),
+      referenceNode(
+        "signup > Skip > Library > RecordaClip > Connectstorage",
+        "signup > Skip > Library > RecordaClip",
+        5,
+        [exampleAt("connectstorage", "2026-10-08T10:04:00.000Z", 6_000)],
+      ),
+    ];
+    const referenceFrames = nodes.slice(1).flatMap((journeyNode, nodeIndex) =>
+      journeyNode.examples.map((_, exampleIndex) =>
+        frame(journeyNode.key, exampleIndex, {
+          capturedAt: `2026-10-08T10:${String(10 + nodeIndex * 2 + exampleIndex).padStart(2, "0")}:00.000Z`,
+        }),
+      ),
+    );
+    const result = plan(
+      rawInput({
+        tree: { ...base.tree, nodes },
+        frames: [frame("signup", 0), ...referenceFrames.reverse()],
+      }),
+    );
+
+    for (const journeyNode of nodes.slice(1)) {
+      const screen = result.screens.find(
+        (candidate) =>
+          candidate.nodeKey === journeyNode.key && candidate.exampleIndex === 0,
+      )!;
+      expect(screen.html).toMatch(
+        /<p class="metrics"[^>]*>Observed session reference<\/p>/,
+      );
+      expect(screen.html).not.toContain(" sessions · ");
+      expect(screen.provenance?.eventAt).toBe(journeyNode.examples[0]?.ts);
+      expect(screen.provenance?.recordingId).toBe(
+        journeyNode.examples[0]?.recordingId,
+      );
+      expect(screen.provenance?.offsetMs).toBe(
+        journeyNode.examples[0]?.offsetMs,
+      );
+      expect(screen.html).toContain("Screenshot captured: 2026-10-08T");
+    }
+    const libraryFrames = result.screens
+      .filter((screen) => screen.nodeKey === "signup > Skip > Library")
+      .sort((a, b) => a.exampleIndex - b.exampleIndex);
+    const orderedReferenceScreens = result.screens.filter(
+      (screen) => screen.nodeKey !== "signup",
+    );
+    expect(
+      orderedReferenceScreens.map((screen) => screen.provenance?.eventAt),
+    ).toEqual([
+      "2026-10-08T10:00:00.000Z",
+      "2026-10-08T10:01:00.000Z",
+      "2026-10-08T10:02:00.000Z",
+      "2026-10-08T10:03:00.000Z",
+      "2026-10-08T10:04:00.000Z",
+    ]);
+    expect(
+      orderedReferenceScreens.map(
+        (screen) => screen.provenance?.screenshotCapturedAt,
+      ),
+    ).toEqual([
+      "2026-10-08T10:10:00.000Z",
+      "2026-10-08T10:12:00.000Z",
+      "2026-10-08T10:13:00.000Z",
+      "2026-10-08T10:14:00.000Z",
+      "2026-10-08T10:16:00.000Z",
+    ]);
+    expect(
+      libraryFrames.map((screen) => screen.provenance?.recordingId),
+    ).toEqual(["rec-library-1", "rec-library-2"]);
+    const board = result.boardFragments({ x: 0, y: 0 }).join("\n");
+    expect(board.match(/data-an-primitive="arrow"/g)).toHaveLength(4);
+    expect(board).not.toContain("Journey edge label");
+    expect(board).not.toContain("No later step observed");
+  });
+
+  it("shows frame captions and lets readers switch examples in place", () => {
+    const base = rawInput();
+    const outputKey = "signup > output reference";
+    const observed = referenceNode(outputKey, "signup", 2, [
+      {
+        ...example("output-1"),
+        ts: "2026-10-01T17:49:59.308Z",
+        offsetMs: 400_000,
+      },
+      {
+        ...example("output-2"),
+        ts: "2026-10-01T17:51:39.308Z",
+        offsetMs: 500_000,
+      },
+    ]);
+    const attachedFrame = (
+      exampleIndex: number,
+      caption: RawInput["frames"][number]["caption"],
+    ): RawInput["frames"][number] => ({
+      nodeKey: outputKey,
+      exampleIndex,
+      attachmentRef: `attachment:v1:private-${exampleIndex}`,
+      width: 1470,
+      height: 753,
+      capturedAt: `2026-10-08T22:03:0${exampleIndex}.000Z`,
+      caption,
+    });
+    const result = plan(
+      rawInput({
+        tree: {
+          ...base.tree,
+          nodes: [base.tree.nodes[0]!, observed],
+        },
+        frames: [
+          frame("signup", 0),
+          attachedFrame(0, {
+            outputTitle: "Case-management prototype",
+            observedState: "Prompt is visible before generation.",
+            actor: "first-actor@example.test",
+            actorSource: "recording metadata",
+            dateLabel: "Replay observation (UTC)",
+            evidenceStatus: "rendered_output_observed",
+            prompt: "Build a <test> prototype.",
+            promptTranslation: "Build a prototype.",
+            promptSource: "reviewed replay prompt",
+          }),
+          attachedFrame(1, {
+            outputTitle: "Create test case modal",
+            observedState: "The first output is visible.",
+            actor: "second-actor@example.test",
+            dateLabel: "Event time (UTC)",
+            evidenceStatus: "rendered_output_observed",
+            prompt: "Create a modal for test cases.",
+            promptSource: "reviewed replay prompt",
+          }),
+        ],
+      }),
+    );
+    const screens = result.screens
+      .filter((screen) => screen.nodeKey === outputKey)
+      .sort((a, b) => a.exampleIndex - b.exampleIndex);
+    const html = screens[0]?.html ?? "";
+    const exampleHeader = (index: number) =>
+      new RegExp(
+        `<section class="example-provenance" data-index="${index}"[^>]*>([\\s\\S]*?)</section>`,
+      ).exec(html)?.[1] ?? "";
+
+    expect(screens).toHaveLength(2);
+    expect(exampleHeader(0)).toContain(
+      "Event time (UTC): 2026-10-01T17:49:59.308Z",
+    );
+    expect(exampleHeader(0)).not.toContain("Replay observation (UTC)");
+    expect(exampleHeader(0)).toContain(
+      "Actor (recording): first-actor@example.test",
+    );
+    expect(exampleHeader(0)).toContain("Prompt is visible before generation.");
+    expect(exampleHeader(0)).toContain(
+      'title="Observed state: Prompt is visible before generation."',
+    );
+    expect(exampleHeader(0)).toContain(
+      'title="Actor (recording): first-actor@example.test (Actor source: recording metadata)"',
+    );
+    expect(exampleHeader(0)).toContain("Prompt: Build a prototype.");
+    expect(exampleHeader(0)).toContain("Build a &lt;test&gt; prototype.");
+    expect(exampleHeader(1)).toContain(
+      "Event time (UTC): 2026-10-01T17:51:39.308Z",
+    );
+    expect(exampleHeader(1)).toContain(
+      'title="UTC timestamp: 2026-10-01T17:51:39.308Z"',
+    );
+    expect(exampleHeader(1)).toMatch(
+      /<time[^>]*datetime="2026-10-01T17:51:39.308Z"[^>]*>2026-10-01 UTC<\/time>/,
+    );
+    expect(exampleHeader(1)).toMatch(
+      /<span class="date-kind"[^>]*>Event time \(UTC\)<\/span>/,
+    );
+    expect(exampleHeader(1)).toContain(
+      "Actor (recording): second-actor@example.test",
+    );
+    expect(exampleHeader(1)).toContain(
+      'title="Actor (recording): second-actor@example.test"',
+    );
+    expect(exampleHeader(1)).not.toContain("recording metadata");
+    expect(exampleHeader(1)).toContain("The first output is visible.");
+    expect(exampleHeader(1)).toContain(
+      "Prompt: Create a modal for test cases.",
+    );
+    expect(screens[0]?.html).toMatch(
+      /:checked~header \.example-provenance\[data-index="1"\]\{display:block\}/,
+    );
+    expect(screens[0]?.html).toMatch(
+      /:checked~main \.example-frame\[data-index="1"\]\{display:flex\}/,
+    );
+    expect(screens[0]?.html).toContain("Example 1 of 2");
+    expect(screens[0]?.html).toContain("Example 2 of 2");
+    expect(screens[0]?.html).toMatch(
+      /aria-label="Show example 1 of 2" checked/,
+    );
+    expect(screens[0]?.html).toContain("/api/design-board-replay-screenshots/");
+    expect(screens[0]?.html).toMatch(/aria-label="Show example 2 of 2"[^>]*>/);
+    expect(screens[1]?.html).toMatch(
+      /aria-label="Show example 2 of 2" checked/,
+    );
+    expect(screens[0]?.html).not.toContain("storageOwnerEmail");
+    expect(screens[0]?.provenance?.screenshotCapturedAt).toBe(
+      "2026-10-08T22:03:00.000Z",
+    );
+  });
+
+  it("labels the actual replay seek time and keeps its source event time distinct", () => {
+    const base = rawInput();
+    const outputKey = "signup > output reference";
+    const observed = referenceNode(outputKey, "signup", 2, [
+      {
+        ...example("output-1"),
+        ts: "2026-10-01T17:49:59.308Z",
+        offsetMs: 400_000,
+      },
+    ]);
+    const result = plan(
+      rawInput({
+        tree: { ...base.tree, nodes: [base.tree.nodes[0]!, observed] },
+        frames: [
+          frame("signup", 0),
+          {
+            nodeKey: outputKey,
+            exampleIndex: 0,
+            attachmentRef: "attachment:v1:observed-output",
+            width: 1470,
+            height: 753,
+            capturedAt: "2026-10-08T22:03:00.000Z",
+            screenshotOffsetMs: 400_000,
+            recordingStartedAt: "2026-10-01T17:43:20.308Z",
+            caption: { dateLabel: "Replay observation (UTC)" },
+          },
+        ],
+      }),
+    );
+    const screen = result.screens.find((item) => item.nodeKey === outputKey)!;
+
+    expect(screen.html).toContain(
+      "Replay observation (UTC): 2026-10-01T17:50:00.308Z",
+    );
+    expect(screen.html).toContain("Event time (UTC): 2026-10-01T17:49:59.308Z");
+    expect(screen.html).not.toContain(
+      "Replay observed: 2026-10-01T17:50:00.308Z",
+    );
+  });
+
+  it("keeps the full card heading available when the canvas ellipsizes it", () => {
+    const base = rawInput();
+    const title =
+      "A long observed settings handoff heading with details that exceed the card width & remain readable";
+    const result = plan(
+      rawInput({
+        tree: {
+          ...base.tree,
+          nodes: base.tree.nodes.map((candidate) =>
+            candidate.key === "signup"
+              ? { ...candidate, label: title }
+              : candidate,
+          ),
+        },
+      }),
+    );
+    const html = result.screens.find(
+      (screen) => screen.nodeKey === "signup",
+    )?.html;
+    const escapedTitle = title.replace(/&/g, "&amp;");
+
+    expect(html).toContain('title="' + escapedTitle + '"');
+    expect(html).toContain(">" + escapedTitle + "</h1>");
+  });
+
+  it("shows a completion event timestamp separately from the replay image time", () => {
+    const base = rawInput();
+    const outputKey = "signup > completed output";
+    const observed = referenceNode(outputKey, "signup", 2, [
+      {
+        ...example("completed-output"),
+        ts: "2026-09-28T15:07:06.840-07:00",
+        offsetMs: 545_313,
+      },
+    ]);
+    const result = plan(
+      rawInput({
+        tree: { ...base.tree, nodes: [base.tree.nodes[0]!, observed] },
+        frames: [
+          frame("signup", 0),
+          {
+            nodeKey: outputKey,
+            exampleIndex: 0,
+            attachmentRef: "attachment:v1:completed-output",
+            width: 1536,
+            height: 826,
+            capturedAt: "2026-10-08T15:17:00.000-07:00",
+            screenshotOffsetMs: 545_313,
+            recordingStartedAt: "2026-09-28T21:58:01.527Z",
+            caption: {
+              outputTitle: "A comfort routine with measurable potential",
+              actor: "actor@example.test",
+              actorSource: "recording user identity",
+              dateLabel: "Replay observation (UTC)",
+              evidenceStatus: "generation_completed",
+              evidenceAt: "2026-09-28T15:07:01.840-07:00",
+              prompt: "Create a six-slide deck.",
+              promptSource: "recorded composer DOM text",
+            },
+          },
+        ],
+      }),
+    );
+    const screen = result.screens.find((item) => item.nodeKey === outputKey)!;
+
+    expect(screen.html).toContain(
+      "Replay observation (UTC): 2026-09-28T22:07:06.840Z",
+    );
+    expect(screen.html).toContain(
+      'title="UTC timestamp: 2026-09-28T22:07:06.840Z"',
+    );
+    expect(screen.html).toContain(
+      "Evidence: generation_completed event (2026-09-28T22:07:01.840Z UTC)",
+    );
+    expect(screen.html).toContain(
+      "Screenshot captured: 2026-10-08T22:17:00.000Z",
+    );
+    expect(screen.html).toContain("Actor (recording): actor@example.test");
+    expect(screen.frame.height).toBe(
+      CARD_PROVENANCE_HEADER_HEIGHT + 36 + Math.round(360 / (1536 / 826)),
+    );
+  });
+
+  it("uses evidenceAt for a generation-completed primary timestamp", () => {
+    const base = rawInput();
+    const outputKey = "signup > completed output";
+    const observed = referenceNode(outputKey, "signup", 2, [
+      {
+        ...example("completed-output"),
+        ts: "2026-09-28T22:07:06.840Z",
+        offsetMs: 545_313,
+      },
+    ]);
+    const screen = plan(
+      rawInput({
+        tree: { ...base.tree, nodes: [base.tree.nodes[0]!, observed] },
+        frames: [
+          frame("signup", 0),
+          {
+            nodeKey: outputKey,
+            exampleIndex: 0,
+            attachmentRef: "attachment:v1:completed-output",
+            width: 1536,
+            height: 826,
+            capturedAt: "2026-10-08T15:17:00.000Z",
+            caption: {
+              dateLabel: "generation_completed event (UTC)",
+              evidenceStatus: "generation_completed",
+              evidenceAt: "2026-09-28T22:07:01.840Z",
+            },
+          },
+        ],
+      }),
+    ).screens.find((item) => item.nodeKey === outputKey)!;
+
+    expect(screen.html).toContain(
+      "generation_completed event (UTC): 2026-09-28T22:07:01.840Z",
+    );
+    expect(screen.html).not.toContain(
+      "generation_completed event (UTC): 2026-09-28T22:07:06.840Z",
+    );
+    expect(screen.html).toContain(
+      "Evidence: generation_completed event (2026-09-28T22:07:01.840Z UTC)",
+    );
   });
 
   it("never inlines image bytes", () => {
@@ -380,13 +1237,18 @@ describe("planJourneyCanvas", () => {
     )!;
     const mobile = screens.find((s) => s.nodeKey === "signup > prompt")!;
     expect(root.frame.width).toBe(360);
-    expect(root.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 225);
+    expect(root.frame.height).toBe(
+      CARD_PROVENANCE_HEADER_HEIGHT + 20 + 12 + 225,
+    );
     expect(mobile.frame.width).toBe(360);
-    expect(mobile.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 720);
+    expect(mobile.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 12 + 720);
+    expect(mobile.html).toContain(
+      "500 continued on unpictured paths · 100% of this step",
+    );
     const wide = plan(
       rawInput({ frames: [frame("signup", 0, { width: 5000, height: 500 })] }),
     ).screens[0]!;
-    expect(wide.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 180);
+    expect(wide.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 12 + 180);
   });
 
   it("stacks extra examples behind the front card", () => {
@@ -436,13 +1298,14 @@ describe("planJourneyCanvas", () => {
     expect(result.frameCount).toBe(4);
   });
 
-  it("draws arrows, fork percentages, last-observed-step and other stubs, a date line and a title on the board", () => {
+  it("draws arrows and observed-step stubs without a redundant export-date footer", () => {
     const html = plan().boardFragments({ x: 100, y: 200 }).join("\n");
     expect(html).toContain("No later step observed");
     expect(html).toContain("340 sessions · 34% of this step");
     expect(html).toContain("10 sessions · 10% of this step");
     expect(html).toContain("Other (3 branches)");
-    expect(html).toContain("Captured 2026-10-08 · 2 examples");
+    expect(html).not.toContain('data-agent-native-layer-name="Captured date"');
+    expect(html).not.toContain("Captured 2026-10-08 · 2 examples");
     expect(html).toContain("Design onboarding");
     expect(html).not.toContain("partial sample");
     expect(html).toContain(">50%<");
@@ -530,7 +1393,10 @@ describe("replaceJourneyBoardObjects", () => {
     );
     expect(first).toContain("No later step observed");
     const smaller = rawInput();
-    smaller.tree.nodes[0]!.dropoffN = 0;
+    smaller.tree.nodes[0] = node("signup", null, 1000, {
+      dropoffN: 0,
+      dropoffPct: 0,
+    });
     const second = replaceJourneyBoardObjects(
       first,
       plan(smaller).boardFragments({ x: 0, y: 0 }),

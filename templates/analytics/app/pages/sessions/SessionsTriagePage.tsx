@@ -97,7 +97,7 @@ import {
 type Range = "24h" | "7d" | "30d" | "90d" | "all" | "custom";
 type Sort = "newest" | "longest" | "errors" | "events" | "rage";
 type AnySort = Sort | SessionFrictionSort;
-type VisitorType = "internal" | "work" | "personal";
+type VisitorType = "internal" | "work" | "personal" | "anonymous";
 
 type Recording = {
   id: string;
@@ -259,9 +259,9 @@ export function SessionsTriagePage() {
   const query = params.get("q") ?? "";
   const domain = params.get("emailDomain") ?? "";
   const requestedSort = params.get("sort");
-  const visitorType = (["internal", "work", "personal"] as VisitorType[]).find(
-    (value) => value === params.get("visitorType"),
-  );
+  const visitorType = (
+    ["internal", "work", "personal", "anonymous"] as VisitorType[]
+  ).find((value) => value === params.get("visitorType"));
   const hideEmpty = readHideEmptyFilter(params);
   const hideInternal = params.get("hideInternal") === "true";
   const hasErrors = params.get("hasErrors") === "true";
@@ -808,6 +808,9 @@ export function SessionsTriagePage() {
                   <SelectItem value="personal">
                     {t("sessions.personalVisitors")}
                   </SelectItem>
+                  <SelectItem value="anonymous">
+                    {t("sessions.anonymous")}
+                  </SelectItem>
                 </SelectContent>
               </Select>
               <CheckFilter
@@ -1185,17 +1188,19 @@ export function SessionsTriagePage() {
                           <Link
                             to={`/sessions/${encodeURIComponent(recording.id)}`}
                             className="grid min-w-0 flex-1 gap-2 px-2 py-3 hover:bg-muted/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:grid-cols-4"
-                            aria-label={`${t("sessions.watchReplay")}: ${recording.userId || recording.userKey || recording.anonymousId || t("sessions.anonymous")}`}
+                            aria-label={`${t("sessions.watchReplay")}: ${visitorType === "anonymous" ? t("sessions.anonymous") : recording.userId || recording.userKey || recording.anonymousId || t("sessions.anonymous")}`}
                           >
                             <span className="font-medium text-primary">
                               {formatSessionDuration(recording.durationMs)}
                             </span>
                             <span className="min-w-0">
                               <span className="block truncate text-sm font-medium">
-                                {recording.userId ||
-                                  recording.userKey ||
-                                  recording.anonymousId ||
-                                  t("sessions.anonymous")}
+                                {visitorType === "anonymous"
+                                  ? t("sessions.anonymous")
+                                  : recording.userId ||
+                                    recording.userKey ||
+                                    recording.anonymousId ||
+                                    t("sessions.anonymous")}
                               </span>
                               <span className="block text-xs text-muted-foreground">
                                 {new Date(recording.startedAt).toLocaleString()}

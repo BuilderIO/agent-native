@@ -12,7 +12,10 @@ const suggestionSchema = z.object({
 const suggestionsSchema = z.array(suggestionSchema).length(3);
 const HOME_SUGGESTIONS_TIMEOUT_MS = 10_000;
 
-type HomeSuggestionsUnavailableReason = "missing_credentials" | "timeout";
+type HomeSuggestionsUnavailableReason =
+  | "missing_credentials"
+  | "timeout"
+  | "agent_engine_settings_unavailable";
 
 const ROLE_CONTEXT: Record<string, string> = {
   product:
@@ -64,6 +67,12 @@ function unavailableReason(
   }
   if ("errorCode" in error && error.errorCode === "complete_text_timeout") {
     return "timeout";
+  }
+  if (
+    "errorCode" in error &&
+    error.errorCode === "agent_engine_settings_unavailable"
+  ) {
+    return "agent_engine_settings_unavailable";
   }
 }
 

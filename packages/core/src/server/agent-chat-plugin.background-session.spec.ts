@@ -93,13 +93,19 @@ import {
   registerAgentEngine,
   unregisterAgentEngine,
 } from "../agent/engine/registry.js";
-import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
+import type {
+  AgentEngine,
+  EngineEvent,
+  EngineMessage,
+} from "../agent/engine/types.js";
 import {
   createThread,
   getThread,
   mutateThreadQueuedMessages,
 } from "../chat-threads/store.js";
 import { startBackgroundAgentSession } from "../client/background-agent-session.js";
+import * as fileUploadRegistry from "../file-upload/registry.js";
+import { PDF_BASE64 } from "../file-upload/test-image-fixtures.js";
 import { createAgentChatPlugin } from "./agent-chat-plugin.js";
 import { seedAgentRunOwnerContext } from "./agent-run-context.js";
 
@@ -129,7 +135,8 @@ const scriptedEngine: AgentEngine = {
     computerUse: false,
     parallelToolCalls: false,
   },
-  async *stream(): AsyncIterable<EngineEvent> {
+  async *stream({ messages }): AsyncIterable<EngineEvent> {
+    engineMessages.push(messages);
     yield {
       type: "assistant-content",
       parts: [{ type: "text", text: "Replied to the comment." }],
@@ -140,6 +147,8 @@ const scriptedEngine: AgentEngine = {
 
 const hooks = new Map<string, Array<() => void | Promise<void>>>();
 const requests: RecordedResponse[] = [];
+const externalFiles = new Map<string, Uint8Array>();
+const engineMessages: EngineMessage[][] = [];
 
 function agentChatPosts(threadId: string): RecordedResponse[] {
   return requests.filter(
@@ -196,7 +205,7 @@ beforeAll(async () => {
   createAgentChatPlugin({
     actions: () => ({}),
     a2aAgentDelegation: false,
-    durableBackgroundRuns: false,
+    durableBackgroundRuns: true,
     frameworkTools: "minimal",
     leanPrompt: true,
     mcp: { enabled: false },
@@ -222,6 +231,12 @@ beforeAll(async () => {
           : input instanceof URL
             ? input.href
             : input.url;
+      const externalFile = externalFiles.get(raw);
+      if (externalFile) {
+        return new Response(externalFile.slice(), {
+          headers: { "content-type": "application/pdf" },
+        });
+      }
       if (!raw.startsWith("/") && !raw.startsWith(ORIGIN)) {
         return realFetch(input, init);
       }
@@ -325,6 +340,84 @@ describe("background agent sessions through the agent-chat plugin", () => {
         terminalReason: snapshot.terminalReason ?? null,
       })
       .toEqual({ status: "completed", terminalReason: "done" });
+  });
+
+  it("rehydrates an uploaded PDF in the durable worker before sending it to the engine", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    const url = "https://storage.example.test/uploads/background-report.pdf";
+    const pdfBytes = Buffer.from(PDF_BASE64, "base64");
+    const uploadFile = vi
+      .spyOn(fileUploadRegistry, "uploadFile")
+      .mockResolvedValue({ url, provider: "test-storage" });
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    externalFiles.set(url, pdfBytes);
+    engineMessages.length = 0;
+    const requestStart = requests.length;
+
+    try {
+      const handle = startBackgroundAgentSession({
+        message: "Summarize the uploaded report",
+        operationId: "pdf-background-operation",
+        threadId: "pdf-background-thread",
+        engine: ENGINE_NAME,
+        attachments: [
+          {
+            type: "file",
+            name: "background-report.pdf",
+            contentType: "application/pdf",
+            data: `data:application/pdf;base64,${PDF_BASE64}`,
+          },
+        ],
+      });
+      await handle.accepted;
+      await handle.completion;
+
+      const userParts = engineMessages
+        .flatMap((messages) => messages)
+        .filter((message) => message.role === "user")
+        .flatMap((message) => message.content);
+      expect(userParts).toContainEqual({
+        type: "file",
+        data: PDF_BASE64,
+        mediaType: "application/pdf",
+        filename: "background-report.pdf",
+      });
+      expect(
+        userParts
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n"),
+      ).not.toContain("<chat-attachment-processing-error");
+      expect(uploadFile).toHaveBeenCalledOnce();
+      expect(findProvider).toHaveBeenCalledWith(url);
+      expect((await handle.status()).status).toBe("completed");
+      const workerDispatch = requests
+        .slice(requestStart)
+        .find(
+          (request) =>
+            request.method === "POST" &&
+            request.path === "/_agent-native/agent-chat/_process-run",
+        );
+      expect(workerDispatch?.body).toMatchObject({
+        __backgroundRun: { payloadRef: true },
+      });
+    } finally {
+      externalFiles.delete(url);
+      uploadFile.mockRestore();
+      findProvider.mockRestore();
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
   });
 
   it("still refuses a queued-message promotion that carries no live claim", async () => {

@@ -195,6 +195,9 @@ export interface MultiScreenCanvasProps {
   reviewResourceId?: string;
   reviewPinMode?: boolean;
   reviewCommentsHidden?: boolean;
+  pixelGridEnabled?: boolean;
+  snapToPixelGrid?: boolean;
+  showRulers?: boolean;
   reviewCanPost?: boolean;
   reviewCanResolve?: boolean;
   reviewTargetId?: string | null;
