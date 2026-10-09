@@ -21,7 +21,6 @@ const mocks = vi.hoisted(() => {
   const chain = (rows: unknown[]) => {
     const link: Record<string, any> = {
       from: vi.fn(() => link),
-      innerJoin: vi.fn(() => link),
       where: vi.fn(() => link),
       for: vi.fn(() => link),
       limit: vi.fn(async () => rows),
@@ -157,6 +156,7 @@ vi.mock("../server/db/index.js", () => {
         "sizeBytes",
         "blobHandle",
         "sourceStageId",
+        "ownerEmail",
       ]),
     },
   };
@@ -1378,6 +1378,44 @@ describe("create-journey-canvas failures", () => {
 
     expect(mocks.deleteDesign).not.toHaveBeenCalled();
     expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("keeps referenced blobs when editor access is revoked during recovery", async () => {
+    const input = parsed({
+      ...rawInput([frame("a", { attachmentRef: "ref-a" })]),
+      designId: "design-1",
+    });
+    const handle = {
+      id: "committed-before-revocation",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: true,
+    };
+    mocks.putPrivateBlob.mockResolvedValueOnce(handle);
+    mocks.state.landedSelects = [[{ blobHandle: JSON.stringify(handle) }]];
+    const ownerAccess = {
+      role: "owner",
+      resource: {
+        id: "design-1",
+        ownerEmail: "owner@example.test",
+        orgId: null,
+        visibility: "private",
+      },
+    };
+    mocks.assertAccess
+      .mockResolvedValueOnce(ownerAccess)
+      .mockResolvedValueOnce(ownerAccess)
+      .mockRejectedValueOnce(new Error("editor share was revoked"));
+    const commitMutation = mocks.mutateDesignData.getMockImplementation()!;
+    mocks.mutateDesignData.mockImplementationOnce(async (...args) => {
+      await commitMutation(...args);
+      throw new Error("response lost");
+    });
+
+    await expect(action.run(input, {} as any)).rejects.toThrow("response lost");
+
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
   });
 
   it("cleans unreferenced uploads after an ambiguous refresh without deleting the Design", async () => {

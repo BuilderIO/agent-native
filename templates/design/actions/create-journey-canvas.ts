@@ -249,9 +249,9 @@ export default defineAction({
     let previousBoardContent: string | undefined;
     let nextBoardContent: string | undefined;
     let removedBlobHandles: string[] = [];
+    const blobOwnerEmail =
+      existingAccess?.resource.ownerEmail ?? requesterEmail;
     try {
-      const blobOwnerEmail =
-        existingAccess?.resource.ownerEmail ?? requesterEmail;
       const db = getDb();
       let stagedImageBytes = 0;
       if (stagedScreens.length > 0) {
@@ -971,6 +971,7 @@ export default defineAction({
       if (landingStatus === "not_landed" || landingStatus === "unknown") {
         const blobCleanup = await findUnreferencedStoredBlobs({
           designId,
+          ownerEmail: blobOwnerEmail,
           blobs: [...newlyStored.values()],
         });
         if (
@@ -1009,6 +1010,7 @@ export default defineAction({
 
 async function findUnreferencedStoredBlobs(args: {
   designId: string;
+  ownerEmail: string;
   blobs: readonly StoredReplayScreenshotBlob[];
 }): Promise<{
   verified: boolean;
@@ -1025,14 +1027,10 @@ async function findUnreferencedStoredBlobs(args: {
     const rows = await getDb()
       .select({ blobHandle: schema.designBoardReplayScreenshots.blobHandle })
       .from(schema.designBoardReplayScreenshots)
-      .innerJoin(
-        schema.designs,
-        eq(schema.designBoardReplayScreenshots.designId, schema.designs.id),
-      )
       .where(
         and(
-          accessFilter(schema.designs, schema.designShares),
           eq(schema.designBoardReplayScreenshots.designId, args.designId),
+          eq(schema.designBoardReplayScreenshots.ownerEmail, args.ownerEmail),
           inArray(schema.designBoardReplayScreenshots.blobHandle, [
             ...blobsByHandle.keys(),
           ]),
