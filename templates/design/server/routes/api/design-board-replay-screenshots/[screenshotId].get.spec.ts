@@ -131,6 +131,56 @@ describe("GET /api/design-board-replay-screenshots/:screenshotId", () => {
       opaque: true,
       encrypted: true,
     });
+    expect(mocks.setResponseHeader).toHaveBeenCalledWith(
+      expect.anything(),
+      "Cross-Origin-Resource-Policy",
+      "cross-origin",
+    );
+    const policyHeaderCall = mocks.setResponseHeader.mock.calls.findIndex(
+      ([, name]) => name === "Cross-Origin-Resource-Policy",
+    );
+    expect(mocks.readPrivateBlob.mock.invocationCallOrder[0]!).toBeLessThan(
+      mocks.setResponseHeader.mock.invocationCallOrder[policyHeaderCall]!,
+    );
+  });
+
+  it("does not relax resource policy when private blob integrity checks fail", async () => {
+    mocks.readPrivateBlob.mockResolvedValue({
+      data: new Uint8Array([...imageData, 0]),
+      mimeType: "image/png",
+    });
+
+    await expect(handler(makeEvent() as never)).rejects.toMatchObject({
+      statusCode: 502,
+      statusMessage: "Stored screenshot failed integrity checks",
+    });
+
+    expect(mocks.setResponseHeader).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "Cross-Origin-Resource-Policy",
+      expect.anything(),
+    );
+  });
+
+  it("does not relax resource policy or read a screenshot when viewer access is denied", async () => {
+    mocks.assertAccess.mockRejectedValue(
+      Object.assign(new Error("Forbidden"), {
+        statusCode: 403,
+        statusMessage: "Forbidden",
+      }),
+    );
+
+    await expect(handler(makeEvent() as never)).rejects.toMatchObject({
+      statusCode: 403,
+      statusMessage: "Forbidden",
+    });
+
+    expect(mocks.readPrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.setResponseHeader).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "Cross-Origin-Resource-Policy",
+      expect.anything(),
+    );
   });
 
   it("rejects fallback handles without both prefixes and encryption", async () => {

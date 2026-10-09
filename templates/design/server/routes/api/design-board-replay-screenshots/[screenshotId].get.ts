@@ -46,7 +46,6 @@ export default defineEventHandler(async (event) => {
   setResponseHeader(event, "Pragma", "no-cache");
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
   setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-  setResponseHeader(event, "Cross-Origin-Resource-Policy", "same-origin");
 
   const session = await getSession(event);
   if (!session?.email) {
@@ -140,6 +139,7 @@ export default defineEventHandler(async (event) => {
         });
       }
 
+      setResponseHeader(event, "Cross-Origin-Resource-Policy", "cross-origin");
       setResponseHeader(event, "Content-Type", screenshot.mimeType);
       setResponseHeader(event, "Content-Length", String(blob.data.byteLength));
       setResponseHeader(
