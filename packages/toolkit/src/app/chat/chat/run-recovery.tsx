@@ -615,11 +615,13 @@ export function BuilderSetupCard({
         "agent-builder-setup-card",
         sidebarLayout && "agent-builder-setup-card--sidebar",
         attached && "agent-builder-setup-card--attached",
-        fullWidth
-          ? "w-full p-3"
-          : sidebarLayout
-            ? "mx-auto w-full max-w-[42rem] p-3"
-            : "mx-auto w-full max-w-[42rem] p-3 sm:w-fit",
+        attached
+          ? "p-3"
+          : fullWidth
+            ? "w-full p-3"
+            : sidebarLayout
+              ? "mx-auto w-full max-w-[42rem] p-3"
+              : "mx-auto w-full max-w-[42rem] p-3 sm:w-fit",
       )}
     >
       <div
