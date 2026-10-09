@@ -187,6 +187,27 @@ describe("appMountPath", () => {
     expect(appBasePath()).toBe("/dispatch");
   });
 
+  it("uses the workspace app identity when a root splat masks a static local route", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "content", path: "/content" }]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/dispatch/home" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "/" },
+          catchall: { id: "catchall", parentId: "root", path: "*" },
+          home: { id: "home", parentId: "root", path: "home" },
+        },
+      },
+    });
+
+    expect(appBasePath()).toBe("/dispatch");
+  });
+
   it.each(["/dispatch", "/dispatch/"])(
     "uses the workspace app identity when a root parameter route masks %s",
     (pathname) => {

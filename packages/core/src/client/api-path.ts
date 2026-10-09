@@ -141,6 +141,19 @@ function workspaceAppIdentityBasePath(): string {
   return typeof identity === "string" ? normalizeBasePath(identity) : "";
 }
 
+function isStaticRouteTemplate(template: string | null): boolean {
+  return Boolean(
+    template &&
+    template !== "/" &&
+    template
+      .split("/")
+      .slice(1)
+      .every(
+        (segment) => segment && segment !== "*" && !segment.startsWith(":"),
+      ),
+  );
+}
+
 export function isWorkspaceRuntime(): boolean {
   const env = clientEnv();
   const projected =
@@ -190,9 +203,13 @@ function workspacePathBasePath(): string {
       routeForLocalPath === "/" &&
       routeForFullPath !== null &&
       /^\/:[^/]+$/.test(routeForFullPath);
+    const localStaticRouteMatchedByRootSplat =
+      routeForFullPath === "/*" && isStaticRouteTemplate(routeForLocalPath);
     if (
       routeForLocalPath &&
-      (!routeForFullPath || mountRootMatchedByRootParam) &&
+      (!routeForFullPath ||
+        mountRootMatchedByRootParam ||
+        localStaticRouteMatchedByRootSplat) &&
       workspaceAppIdentityBasePath() === basePath
     ) {
       return basePath;
