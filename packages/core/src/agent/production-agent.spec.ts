@@ -3183,6 +3183,7 @@ describe("createProductionAgentHandler", () => {
         body: JSON.stringify({
           message: "Inspect this image",
           threadId: "thread-image-payload",
+          __agentNativeBrowserSessionId: "untrusted-session",
           attachments: [
             {
               type: "image",
@@ -3197,7 +3198,11 @@ describe("createProductionAgentHandler", () => {
 
     try {
       const result = await runWithRequestContext(
-        { userEmail: "alice@example.com", run: {} },
+        {
+          userEmail: "alice@example.com",
+          browserSessionId: "origin-session",
+          run: {},
+        },
         () => handler(event),
       );
 
@@ -3213,6 +3218,9 @@ describe("createProductionAgentHandler", () => {
         contentType: "image/png",
         url: "https://files.example.test/screen.png",
       });
+      expect(JSON.parse(dispatchPayload).__agentNativeBrowserSessionId).toBe(
+        "origin-session",
+      );
     } finally {
       preUpload.mockRestore();
       if (previousDurableFlag === undefined) {
@@ -3323,6 +3331,9 @@ describe("createProductionAgentHandler", () => {
         name: "screen.png",
         url: "https://files.example.test/fallback.png",
       });
+      expect(JSON.parse(dispatchPayload).__agentNativeBrowserSessionId).toBe(
+        null,
+      );
       expect(
         modelMessageInputs.flatMap((messages) =>
           messages.flatMap((message) => message.content),
