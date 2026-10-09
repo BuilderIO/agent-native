@@ -78,6 +78,7 @@ describe("app origin client config", () => {
 
     expect(resolvePublicAppOriginConfig()).toEqual({
       appHomePath: "/home",
+      workspaceAppPath: "/",
       workspaceRuntime: true,
     });
   });
@@ -90,6 +91,7 @@ describe("app origin client config", () => {
 
     expect(resolvePublicAppOriginConfig()).toEqual({
       appHomePath: "/home",
+      workspaceAppPath: "/",
       workspaceRuntime: true,
       workspaceAppMountPaths: ["/dispatch", "/diagrams"],
     });

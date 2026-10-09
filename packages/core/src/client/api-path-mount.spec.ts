@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  agentNativePath,
+  appApiPath,
   appBasePath,
   appMountPath,
   appMountedPath,
@@ -68,6 +70,22 @@ describe("appMountPath", () => {
     });
 
     expect(appBasePath()).toBe("");
+  });
+
+  it("uses the server-projected root mount for legacy workspace pages", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubGlobal("window", {
+      location: { pathname: "/home" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/",
+      },
+    });
+
+    expect(appBasePath()).toBe("");
+    expect(agentNativePath("/_agent-native/auth/session")).toBe(
+      "/_agent-native/auth/session",
+    );
   });
 
   it("does not infer an unknown prefix before a valid route", () => {
@@ -179,6 +197,21 @@ describe("appMountPath", () => {
 
     expect(appBasePath()).toBe("");
   });
+
+  it.each(["/", "/_agent-native/auth/session", "/api/health"])(
+    "keeps the configured workspace mount for the reserved path %s",
+    (pathname) => {
+      vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+      vi.stubGlobal("window", { location: { pathname } });
+
+      expect(appBasePath()).toBe("/dispatch");
+      expect(appApiPath("/api/health")).toBe("/dispatch/api/health");
+      expect(agentNativePath("/_agent-native/auth/session")).toBe(
+        "/dispatch/_agent-native/auth/session",
+      );
+    },
+  );
 
   it("preserves the default root router basename without mount metadata", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");

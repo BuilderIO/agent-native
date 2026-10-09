@@ -1969,7 +1969,7 @@ function getAppOriginClientConfigScript() {
   })();
   const workspaceAppPath =
     workspaceAppMountConfig?.currentPath ??
-    (workspaceRuntime && appConfig.app.basePath?.trim()
+    (workspaceRuntime
       ? normalizeAppBasePath(appConfig.app.basePath) || "/"
       : "");
   const config = {

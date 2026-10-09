@@ -199,7 +199,9 @@ function workspacePathBasePath(fallbackPath = ""): string {
     return configuredWorkspacePath;
   }
   const segment = pathname.split("/").find(Boolean);
-  if (!segment || isFrameworkSegment(segment) || segment === "api") return "";
+  if (!segment || isFrameworkSegment(segment) || segment === "api") {
+    return fallbackPath;
+  }
   if (hasExplicitWorkspaceRootPath()) return "";
   const mounts = workspaceAppMountPaths();
   const matchingMount = mounts

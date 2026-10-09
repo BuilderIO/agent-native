@@ -2056,6 +2056,16 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
     expect(html).toContain('"workspaceAppMountPaths":["/diagrams"]');
   });
 
+  it("projects a root mount for a workspace app without mount metadata", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('"workspaceAppPath":"/"');
+  });
+
   it("projects an explicit root workspace mount into the worker shell config", async () => {
     const dir = makeTempDir();
     const configPath = path.join(dir, "root-mount-config.mjs");

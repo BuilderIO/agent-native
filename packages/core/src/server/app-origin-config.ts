@@ -69,7 +69,7 @@ export function resolvePublicAppOriginConfig(): {
   );
   const workspaceAppPath =
     workspaceAppMountConfig?.currentPath ??
-    (workspaceRuntime && config.app.basePath?.trim()
+    (workspaceRuntime
       ? normalizeAppBasePath(config.app.basePath) || "/"
       : undefined);
   const resolved = {
