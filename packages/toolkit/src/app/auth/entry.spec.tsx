@@ -105,6 +105,36 @@ describe("auth session replay gate", () => {
     ).toBe(true);
   });
 
+  it("derives a replay path from a relative Analytics endpoint", () => {
+    const options = authSessionReplayOptions(
+      {
+        agentNativeAnalyticsPublicKey: "anpk_test",
+        agentNativeAnalyticsEndpoint: "/api/analytics/track",
+        authSessionReplay: true,
+      },
+      "/signup",
+      "",
+      "clips.agent-native.com",
+    );
+
+    expect(options?.endpoint).toBe("/api/analytics/replay");
+  });
+
+  it("surfaces malformed absolute Analytics endpoints", () => {
+    expect(() =>
+      authSessionReplayOptions(
+        {
+          agentNativeAnalyticsPublicKey: "anpk_test",
+          agentNativeAnalyticsEndpoint: "https://[",
+          authSessionReplay: true,
+        },
+        "/signup",
+        "",
+        "clips.agent-native.com",
+      ),
+    ).toThrow();
+  });
+
   it("does not start on auth callback material or a hash", () => {
     const config = {
       agentNativeAnalyticsPublicKey: "anpk_test",

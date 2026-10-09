@@ -536,8 +536,25 @@ jobs:
             echo "No changed Design E2E specs to run."
             exit 0
           fi
+          auth_replay_spec="e2e/pre-auth-session-replay-smoke.spec.ts"
+          run_auth_replay=false
+          remaining_changed_specs=()
+          for spec in "${existing_changed_specs[@]}"; do
+            if [[ "$spec" == "$auth_replay_spec" ]]; then
+              run_auth_replay=true
+            else
+              remaining_changed_specs+=("$spec")
+            fi
+          done
+          existing_changed_specs=("${remaining_changed_specs[@]}")
           changed_shard="${{ matrix.shard }}"
           changed_shard="${changed_shard#changed-}"
+          if [[ "$changed_shard" == "1" && "$run_auth_replay" == "true" ]]; then
+            E2E_DISABLE_AUTO_DEV_ACCOUNT=1 pnpm exec playwright test "$auth_replay_spec" --workers=1
+          fi
+          if ((${#existing_changed_specs[@]} == 0)); then
+            exit 0
+          fi
           pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/12"
 
       - name: Run focused Design regression cases

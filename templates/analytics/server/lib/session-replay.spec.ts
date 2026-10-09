@@ -811,7 +811,7 @@ describe("session replay ingest parsing", () => {
     expect(parsed.chunks).toHaveLength(1);
   });
 
-  it("derives pre-auth context only from replay properties", () => {
+  it("recognizes pre-auth context only from replay properties", () => {
     const parsed = parseSessionReplayIngestPayload({
       publicKey: "anpk_test",
       replayId: "recording_1",
@@ -832,11 +832,10 @@ describe("session replay ingest parsing", () => {
       events: [{ type: 4, timestamp: 1 }],
     });
 
-    expect(parsed.metadata).toEqual({
-      retained: true,
-      capture_context: "pre_auth",
-    });
+    expect(parsed.metadata).toEqual({ retained: true });
+    expect(parsed.preAuthCaptureContextRequested).toBe(true);
     expect(unmarked.metadata).toEqual({});
+    expect(unmarked.preAuthCaptureContextRequested).toBeUndefined();
   });
 
   it("rejects metadata-only recordings from direct summary reads", async () => {
@@ -2257,6 +2256,169 @@ describe("session replay ingest parsing", () => {
     });
   }
 
+  it.each([
+    {
+      name: "same-origin signup URL",
+      url: "https://app.example.com/signup?source=invite",
+      origin: "https://app.example.com",
+      accepted: true,
+    },
+    {
+      name: "same-origin non-auth URL",
+      url: "https://app.example.com/settings",
+      origin: "https://app.example.com",
+      accepted: false,
+    },
+    {
+      name: "same-origin legacy sign-in entry",
+      url: "https://app.example.com/_agent-native/sign-in",
+      origin: "https://app.example.com",
+      accepted: true,
+    },
+    {
+      name: "same-origin sign-in entry",
+      url: "https://app.example.com/sign-in",
+      origin: "https://app.example.com",
+      accepted: true,
+    },
+    {
+      name: "auth URL from a different origin",
+      url: "https://app.example.com/signup",
+      origin: "https://attacker.example.test",
+      accepted: false,
+    },
+    {
+      name: "malformed auth URL",
+      url: "https://[",
+      origin: "https://app.example.com",
+      accepted: false,
+    },
+    {
+      name: "auth URL containing callback material",
+      url: "https://app.example.com/signup?code=fake",
+      origin: "https://app.example.com",
+      accepted: false,
+    },
+  ])(
+    "accepts pre-auth markers only for a $name",
+    async ({ url, origin, accepted }) => {
+      const results = replayIngestKeyDbResults(null) as unknown[][];
+      const returnedRecording = results[5]?.[0] as
+        | { metadata: string }
+        | undefined;
+      if (returnedRecording && accepted) {
+        returnedRecording.metadata = JSON.stringify({
+          capture_context: "pre_auth",
+        });
+      }
+      const { db, inserts } = createReplayDbMock(results);
+      const updateValues: Array<Record<string, unknown>> = [];
+      const update = vi.fn(() => ({
+        set: vi.fn((values: Record<string, unknown>) => {
+          updateValues.push(values);
+          return { where: vi.fn(async () => undefined) };
+        }),
+      }));
+      getDbMock.mockReturnValue({ ...db, update });
+      putPrivateBlobMock.mockResolvedValue(null);
+
+      const input = parseSessionReplayIngestPayload({
+        publicKey: "anpk_test",
+        replayId: "recording_1",
+        sessionId: "session_1",
+        anonymousId: "anon_1",
+        sequence: 0,
+        url,
+        properties: { capture_context: "pre_auth" },
+        events: [{ type: 4, timestamp: 1 }],
+      });
+      await recordSessionReplayChunks(input, { origin, requestBytes: 100 });
+
+      const recordingInsert = inserts.find(
+        (entry) => entry.table === schema.sessionRecordings,
+      )?.values as { metadata: string } | undefined;
+      expect(
+        JSON.parse(recordingInsert?.metadata ?? "{}").capture_context,
+      ).toBe(accepted ? "pre_auth" : undefined);
+      expect(
+        JSON.parse(String(updateValues[0]?.metadata ?? "{}")).capture_context,
+      ).toBe(accepted ? "pre_auth" : undefined);
+    },
+  );
+
+  it("does not promote an existing identified recording from an auth-page marker", async () => {
+    const existingRecording = {
+      id: "sr_existing",
+      publicKeyId: "key_1",
+      clientRecordingId: "recording_1",
+      sessionId: "session_1",
+      userId: "known@example.com",
+      anonymousId: null,
+      userKey: "known@example.com",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: null,
+      durationMs: null,
+      chunkCount: 0,
+      eventCount: 0,
+      totalBytes: 0,
+      pageCount: 0,
+      errorCount: 0,
+      networkErrorCount: 0,
+      rageClickCount: 0,
+      privacyMode: "unknown",
+      metadata: "{}",
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      visibility: "private",
+      status: "active",
+    };
+    const { db } = createReplayDbMock([
+      [
+        {
+          id: "key_1",
+          publicKey: "anpk_test",
+          ownerEmail: "owner@example.com",
+          orgId: null,
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 100_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+      ],
+      [{ bytes: 0 }],
+      [{ requests: 0 }],
+      [existingRecording],
+      [],
+    ]);
+    const updateValues: Array<Record<string, unknown>> = [];
+    const update = vi.fn(() => ({
+      set: vi.fn((values: Record<string, unknown>) => {
+        updateValues.push(values);
+        return { where: vi.fn(async () => undefined) };
+      }),
+    }));
+    getDbMock.mockReturnValue({ ...db, update });
+    putPrivateBlobMock.mockResolvedValue(null);
+
+    await recordSessionReplayChunks(
+      parseSessionReplayIngestPayload({
+        publicKey: "anpk_test",
+        replayId: "recording_1",
+        sessionId: "session_1",
+        userId: "known@example.com",
+        sequence: 0,
+        url: "https://app.example.com/signup",
+        properties: { capture_context: "pre_auth" },
+        events: [{ type: 4, timestamp: 1 }],
+      }),
+      { origin: "https://app.example.com", requestBytes: 100 },
+    );
+
+    expect(updateValues[0]).toMatchObject({ userId: "known@example.com" });
+    expect(
+      JSON.parse(String(updateValues[0]?.metadata ?? "{}")).capture_context,
+    ).toBeUndefined();
+  });
+
   it("clamps future replay recording times before inserting rows", async () => {
     const originalNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
@@ -2739,7 +2901,7 @@ describe("replay viewport", () => {
     expect(mergeReplayMetadata({}, { other: 1 })).toEqual({ other: 1 });
   });
 
-  it("keeps the server-owned viewport outside the caller metadata cap", () => {
+  it("keeps server metadata outside the caller metadata cap", () => {
     const maxBytes = 16 * 1024;
     const metadata = {
       payload: "x".repeat(maxBytes - JSON.stringify({ payload: "" }).length),
@@ -2750,9 +2912,17 @@ describe("replay viewport", () => {
       first: { width: 1440, height: 900 },
       last: { width: 1440, height: 900 },
     };
-    const merged = mergeReplayMetadata({}, metadata, viewport);
+    const merged = mergeReplayMetadata(
+      {},
+      { ...metadata, capture_context: "pre_auth" },
+      viewport,
+    );
 
-    expect(merged).toMatchObject({ payload: metadata.payload, viewport });
+    expect(merged).toMatchObject({
+      payload: metadata.payload,
+      viewport,
+      capture_context: "pre_auth",
+    });
     expect(JSON.stringify(merged).length).toBeGreaterThan(maxBytes);
     expect(() =>
       mergeReplayMetadata({}, { payload: "x".repeat(maxBytes) }),

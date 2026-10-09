@@ -610,9 +610,7 @@ function getOrCreateReplaySession(
     const sequence = parsedSequence;
     const resolvedLinkBaseUrl = linkBaseUrl ?? parsed.linkBaseUrl;
     const resolvedCaptureContext =
-      parsed.captureContext === "pre_auth" || captureContext === "pre_auth"
-        ? "pre_auth"
-        : null;
+      parsed.captureContext === "pre_auth" ? "pre_auth" : null;
     const suppressIdentityInProperties =
       parsed.suppressIdentityInProperties === true ||
       resolvedCaptureContext === "pre_auth";
@@ -1491,6 +1489,14 @@ function isSensitiveReplayPropertyKey(key: string): boolean {
   );
 }
 
+function stripReplayIdentityValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripReplayIdentityValue);
+  if (value && typeof value === "object") {
+    return stripReplayIdentityProperties(value as Record<string, unknown>);
+  }
+  return value;
+}
+
 function stripReplayIdentityProperties(
   value: Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
@@ -1498,19 +1504,7 @@ function stripReplayIdentityProperties(
   const result: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
     if (isSensitiveReplayPropertyKey(key)) continue;
-    if (Array.isArray(child)) {
-      result[key] = child.map((entry) =>
-        entry && typeof entry === "object" && !Array.isArray(entry)
-          ? stripReplayIdentityProperties(entry as Record<string, unknown>)
-          : entry,
-      );
-    } else if (child && typeof child === "object") {
-      result[key] = stripReplayIdentityProperties(
-        child as Record<string, unknown>,
-      );
-    } else {
-      result[key] = child;
-    }
+    result[key] = stripReplayIdentityValue(child);
   }
   return result;
 }

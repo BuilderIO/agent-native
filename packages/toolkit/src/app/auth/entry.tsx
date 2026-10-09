@@ -138,7 +138,7 @@ function isAuthCallbackUrl(urlValue: string, appBasePath: string): boolean {
 function replayEndpointFromAnalyticsEndpoint(
   endpoint: string,
 ): string | undefined {
-  try {
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(endpoint)) {
     const url = new URL(endpoint);
     if (url.pathname.endsWith("/api/analytics/track")) {
       url.pathname = url.pathname.replace(
@@ -151,8 +151,6 @@ function replayEndpointFromAnalyticsEndpoint(
       url.pathname = url.pathname.replace(/\/track$/, "/api/analytics/replay");
       return url.toString();
     }
-  } catch {
-    // Relative Analytics endpoints use the same suffixes below.
   }
   if (endpoint.endsWith("/api/analytics/track")) {
     return endpoint.replace(

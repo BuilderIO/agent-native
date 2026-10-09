@@ -19,6 +19,10 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import {
+  SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_ENTRY_PATH,
+} from "@agent-native/core/shared";
+import {
   accessFilter,
   resolveAccess,
   roleSatisfies,
@@ -200,6 +204,8 @@ export interface ParsedSessionReplayIngest {
   privacyMode: string;
   status: "active" | "completed";
   metadata: Record<string, unknown>;
+  /** A client request that is trusted only for a same-origin auth-page upload. */
+  preAuthCaptureContextRequested?: boolean;
   /** Derived from the upload's rrweb events; never taken from client metadata. */
   viewport?: RecordedReplayViewport | null;
   chunks: NormalizedSessionReplayChunk[];
@@ -340,6 +346,30 @@ const REPLAY_PRIVATE_BLOB_REF_KIND = "agent-native.session-replay.private-blob";
 const REPLAY_PRIVATE_BLOB_REF_VERSION = 1;
 const PRE_AUTH_CAPTURE_CONTEXT = "pre_auth";
 const PRE_AUTH_CAPTURE_METADATA_SUFFIX = '"capture_context":"pre_auth"}';
+const PRE_AUTH_AUTH_PATH_SUFFIXES = [
+  "/login",
+  "/signup",
+  SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_ENTRY_PATH,
+];
+const PRE_AUTH_CALLBACK_QUERY_PARAMS = new Set([
+  "token",
+  "code",
+  "state",
+  "c",
+  "access_token",
+  "refresh_token",
+  "id_token",
+  "token_hash",
+  "session_token",
+  "auth_token",
+  "verification_token",
+  "otp",
+  "flow_id",
+  "verifier",
+  "callbackurl",
+  "error",
+]);
 let inlineReplayFallbackWarned = false;
 
 function replayError(
@@ -405,6 +435,32 @@ function normalizeReplayOrigin(
   } catch {
     return null;
   }
+}
+
+function isTrustedPreAuthReplayLocation(
+  url: string | null,
+  requestOrigin: string | null | undefined,
+): boolean {
+  const origin = normalizeReplayOrigin(requestOrigin);
+  if (!origin || !url) return false;
+
+  const baseUrl = `${origin}/`;
+  if (!URL.canParse(url, baseUrl)) return false;
+  const pageUrl = new URL(url, baseUrl);
+  if (pageUrl.origin !== origin || pageUrl.hash) return false;
+
+  const pathname = pageUrl.pathname.replace(/\/+$/, "") || "/";
+  const isAuthPath =
+    pathname === "/" ||
+    PRE_AUTH_AUTH_PATH_SUFFIXES.some(
+      (suffix) => pathname === suffix || pathname.endsWith(suffix),
+    );
+  if (!isAuthPath) return false;
+
+  return Array.from(pageUrl.searchParams.keys()).every((key) => {
+    const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return !PRE_AUTH_CALLBACK_QUERY_PARAMS.has(normalized);
+  });
 }
 
 function parseAllowedReplayOrigins(value: unknown): string[] {
@@ -1195,9 +1251,8 @@ export function parseSessionReplayIngestPayload(
     ...(directApp ? { app: directApp } : {}),
     ...(directTemplate ? { template: directTemplate } : {}),
   };
-  if (properties.capture_context === PRE_AUTH_CAPTURE_CONTEXT) {
-    metadata.capture_context = PRE_AUTH_CAPTURE_CONTEXT;
-  }
+  const preAuthCaptureContextRequested =
+    properties.capture_context === PRE_AUTH_CAPTURE_CONTEXT;
   assertReplayMetadataCap(metadata);
   const context: Record<string, unknown> = replayRecord(body.context);
   const url =
@@ -1284,6 +1339,9 @@ export function parseSessionReplayIngestPayload(
     privacyMode: signals.privacyMode,
     status,
     metadata,
+    ...(preAuthCaptureContextRequested
+      ? { preAuthCaptureContextRequested: true }
+      : {}),
     viewport: signals.viewport,
     chunks,
   };
@@ -1528,8 +1586,8 @@ export function mergeReplayMetadata(
   const hasPreAuthContext =
     existingCaptureContext === PRE_AUTH_CAPTURE_CONTEXT ||
     incomingCaptureContext === PRE_AUTH_CAPTURE_CONTEXT;
-  if (hasPreAuthContext) merged.capture_context = PRE_AUTH_CAPTURE_CONTEXT;
   assertReplayMetadataCap(merged);
+  if (hasPreAuthContext) merged.capture_context = PRE_AUTH_CAPTURE_CONTEXT;
   // The cap bounds caller metadata; the server-owned viewport is a few bytes.
   const next = mergeReplayViewport(stored, viewport);
   const result = next === undefined ? merged : { ...merged, viewport: next };
@@ -1650,7 +1708,16 @@ export async function recordSessionReplayChunks(
   }
   const db = getDb() as any;
   const ingestedAt = replayTimestamp(context.now) ?? replayNowIso();
-  const clampedInput = clampReplayIngestTiming(input, ingestedAt);
+  const timingClampedInput = clampReplayIngestTiming(input, ingestedAt);
+  const { capture_context: _callerCaptureContext, ...callerMetadata } =
+    timingClampedInput.metadata;
+  let clampedInput = {
+    ...timingClampedInput,
+    metadata: callerMetadata,
+  };
+  const mayStartPreAuthRecording =
+    input.preAuthCaptureContextRequested === true &&
+    isTrustedPreAuthReplayLocation(input.url, context.origin);
 
   let [recording] = await db
     .select()
@@ -1665,6 +1732,16 @@ export async function recordSessionReplayChunks(
       ),
     )
     .limit(1);
+
+  if (!recording && mayStartPreAuthRecording) {
+    clampedInput = {
+      ...clampedInput,
+      metadata: {
+        ...clampedInput.metadata,
+        capture_context: PRE_AUTH_CAPTURE_CONTEXT,
+      },
+    };
+  }
 
   if (!recording) {
     await assertReplayDailyByteBudget(key, {
@@ -1727,6 +1804,15 @@ export async function recordSessionReplayChunks(
   }
 
   if (!recording) throw replayError("Unable to create replay recording", 500);
+  if (
+    clampedInput.metadata.capture_context === PRE_AUTH_CAPTURE_CONTEXT &&
+    parseRecordingMetadata(recording).capture_context !==
+      PRE_AUTH_CAPTURE_CONTEXT
+  ) {
+    const { capture_context: _unpersistedCaptureContext, ...metadata } =
+      clampedInput.metadata;
+    clampedInput = { ...clampedInput, metadata };
+  }
   if (
     recording.ownerEmail !== key.ownerEmail ||
     (recording.orgId ?? null) !== key.orgId

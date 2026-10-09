@@ -603,6 +603,28 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     /^        if: startsWith\(matrix\.shard, 'changed-'\)$/m,
     "changed-spec tests must run only on their dedicated shards",
   );
+  const replaySmokeCommand =
+    'E2E_DISABLE_AUTO_DEV_ACCOUNT=1 pnpm exec playwright test "$auth_replay_spec" --workers=1';
+  assert.ok(
+    changedSpecRegressions.includes(
+      'auth_replay_spec="e2e/pre-auth-session-replay-smoke.spec.ts"',
+    ),
+    "the signup replay smoke needs its isolated auth environment",
+  );
+  assert.ok(
+    changedSpecRegressions.includes(
+      'if [[ "$changed_shard" == "1" && "$run_auth_replay" == "true" ]]; then',
+    ),
+    "the signup replay smoke must run on one shard only",
+  );
+  assert.ok(
+    changedSpecRegressions.includes(replaySmokeCommand) &&
+      changedSpecRegressions.indexOf(replaySmokeCommand) <
+        changedSpecRegressions.indexOf(
+          'pnpm exec playwright test "${existing_changed_specs[@]}"',
+        ),
+    "the signup replay smoke must run separately with its required server environment",
+  );
   assert.match(
     screenSelectionRegressions,
     /^        if: startsWith\(matrix\.shard, 'screen-history-'\)$/m,
@@ -677,7 +699,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     [...changedSpecRegressions.matchAll(/--workers=(\d+)/g)].map(([, count]) =>
       Number(count),
     ),
-    [1],
+    [1, 1],
   );
   const designJobStart = workflow.indexOf(
     "  design-canvas-interaction-acceptance:\n",

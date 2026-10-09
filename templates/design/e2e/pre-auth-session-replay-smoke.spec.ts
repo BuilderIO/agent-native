@@ -17,6 +17,7 @@ interface ReplayPayload {
 async function installReplaySink(context: BrowserContext, baseURL: string) {
   const payloads: ReplayPayload[] = [];
   const replayOrigins: string[] = [];
+  const replayRequestOrigins: string[] = [];
   const appOrigin = new URL(baseURL).origin;
   await context.route("**/*", (route) => {
     const url = new URL(route.request().url());
@@ -36,6 +37,7 @@ async function installReplaySink(context: BrowserContext, baseURL: string) {
   await context.route("**/api/analytics/replay*", async (route) => {
     const request = route.request();
     replayOrigins.push(new URL(request.url()).origin);
+    replayRequestOrigins.push(request.headers().origin ?? "");
     const body = request.postDataBuffer();
     if (body) {
       const raw = request.headers()["content-encoding"]?.includes("gzip")
@@ -52,7 +54,7 @@ async function installReplaySink(context: BrowserContext, baseURL: string) {
   await context.route("**/api/analytics/track*", (route) =>
     route.fulfill({ status: 200, body: "{}" }),
   );
-  return { payloads, replayOrigins };
+  return { payloads, replayOrigins, replayRequestOrigins };
 }
 
 function watchPage(page: Page, baseURL: string) {
@@ -85,20 +87,22 @@ function watchPage(page: Page, baseURL: string) {
   };
 }
 
-test.skip(
-  process.env.E2E_DISABLE_AUTO_DEV_ACCOUNT !== "1",
-  "Requires the isolated signup and replay setup enabled by E2E_DISABLE_AUTO_DEV_ACCOUNT=1.",
-);
-
+// oracle: none — verifies payload privacy and auth continuity, not Design parity.
 test("pre-auth recording continues through signup and masks abandonment", async ({
   browser,
 }, testInfo) => {
+  // oracle: none — the isolated auth setup is a payload test precondition, not visual parity.
+  test.skip(
+    process.env.E2E_DISABLE_AUTO_DEV_ACCOUNT !== "1",
+    "Requires the isolated signup and replay setup enabled by E2E_DISABLE_AUTO_DEV_ACCOUNT=1.",
+  );
   const baseURL = String(testInfo.project.use.baseURL ?? "");
   if (!baseURL) throw new Error("Design E2E base URL is missing");
   const context = await browser.newContext({
     storageState: { cookies: [], origins: [] },
   });
-  const { payloads, replayOrigins } = await installReplaySink(context, baseURL);
+  const { payloads, replayOrigins, replayRequestOrigins } =
+    await installReplaySink(context, baseURL);
   const page = await context.newPage();
   const browserDiagnostics = watchPage(page, baseURL);
   const email = `codex-auth-replay-smoke-${process.env.E2E_RUN_ID}@example.com`;
@@ -134,8 +138,10 @@ test("pre-auth recording continues through signup and masks abandonment", async 
     } catch (error) {
       const redact = (value: string) =>
         value
-          .replaceAll(email, "[redacted]")
-          .replaceAll(password, "[redacted]");
+          .split(email)
+          .join("[redacted]")
+          .split(password)
+          .join("[redacted]");
       console.error(
         `[pre-auth replay browser diagnostics] ${JSON.stringify({
           consoleErrors: browserDiagnostics.consoleErrors.map(redact),
@@ -185,6 +191,9 @@ test("pre-auth recording continues through signup and masks abandonment", async 
       })
       .toBe(true);
     expect(new Set(replayOrigins)).toEqual(new Set([new URL(baseURL).origin]));
+    expect(new Set(replayRequestOrigins)).toEqual(
+      new Set([new URL(baseURL).origin]),
+    );
     const linkedChunk = payloads.find((payload) => payload.userEmail === email);
     expect(linkedChunk?.replayId).toBe(anonymousChunk?.replayId);
     expect(linkedChunk?.sessionId).toBe(anonymousChunk?.sessionId);
@@ -208,6 +217,7 @@ test("pre-auth recording continues through signup and masks abandonment", async 
   const {
     payloads: abandonmentPayloads,
     replayOrigins: abandonmentReplayOrigins,
+    replayRequestOrigins: abandonmentRequestOrigins,
   } = await installReplaySink(abandonmentContext, baseURL);
   const abandonmentPage = await abandonmentContext.newPage();
   const abandonmentEmail = `codex-abandonment-smoke-${process.env.E2E_RUN_ID}@example.com`;
@@ -250,6 +260,9 @@ test("pre-auth recording continues through signup and masks abandonment", async 
       expect(JSON.stringify(abandonedChunk)).not.toContain(password);
     }
     expect(new Set(abandonmentReplayOrigins)).toEqual(
+      new Set([new URL(baseURL).origin]),
+    );
+    expect(new Set(abandonmentRequestOrigins)).toEqual(
       new Set([new URL(baseURL).origin]),
     );
   } finally {
