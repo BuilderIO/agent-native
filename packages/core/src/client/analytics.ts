@@ -1831,6 +1831,16 @@ function replayEndpointFromTrackingEndpoint(value: string): string | undefined {
       );
       return url.toString();
     }
+    if (
+      url.pathname.endsWith("/build-track") ||
+      url.pathname.endsWith("/config-track")
+    ) {
+      url.pathname = url.pathname.replace(
+        /\/(?:build-track|config-track)$/,
+        "/api/analytics/replay",
+      );
+      return url.toString();
+    }
     if (url.pathname.endsWith("/track")) {
       url.pathname = url.pathname.replace(/\/track$/, "/api/analytics/replay");
       return url.toString();
@@ -1843,6 +1853,12 @@ function replayEndpointFromTrackingEndpoint(value: string): string | undefined {
   }
   if (value.endsWith("/ssr-track")) {
     return value.replace(/\/ssr-track$/, "/api/analytics/replay");
+  }
+  if (value.endsWith("/build-track") || value.endsWith("/config-track")) {
+    return value.replace(
+      /\/(?:build-track|config-track)$/,
+      "/api/analytics/replay",
+    );
   }
   if (value.endsWith("/track")) {
     return value.replace(/\/track$/, "/api/analytics/replay");

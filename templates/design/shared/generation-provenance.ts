@@ -13,11 +13,23 @@ export type DesignGenerationPageviewProvenance =
   | { kind: "invalid-route" }
   | { kind: "design-output"; properties: Record<string, string> };
 
+function stripBasePath(pathname: string, basePath: string): string {
+  const normalizedBasePath = `/${basePath.replace(/^\/+|\/+$/g, "")}`;
+  if (!basePath || normalizedBasePath === "/") return pathname;
+  if (pathname === normalizedBasePath) return "/";
+  if (pathname.startsWith(`${normalizedBasePath}/`)) {
+    return pathname.slice(normalizedBasePath.length);
+  }
+  return pathname;
+}
+
 export function getDesignGenerationPageviewProvenance(
   pathname: string,
   search: string,
+  basePath = "",
 ): DesignGenerationPageviewProvenance {
-  const designPath = /^\/design\/([^/]+)\/?$/.exec(pathname);
+  const routerPathname = stripBasePath(pathname, basePath);
+  const designPath = /^\/design\/([^/]+)\/?$/.exec(routerPathname);
   if (!designPath) return { kind: "other-route" };
 
   let outputId: string;

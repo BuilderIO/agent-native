@@ -1,5 +1,5 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
-import { appPath } from "@agent-native/core/client/api-path";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import {
   createAgentNativeQueryClient,
   useDbSync,
@@ -67,6 +67,7 @@ configureTracking({
         ? getDesignGenerationPageviewProvenance(
             window.location.pathname,
             window.location.search,
+            appBasePath(),
           )
         : null;
     return {

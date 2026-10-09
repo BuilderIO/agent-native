@@ -31,6 +31,32 @@ describe("Design generation pageview provenance", () => {
     });
   });
 
+  it("extracts output and attempt provenance under the configured app base path", () => {
+    expect(
+      getDesignGenerationPageviewProvenance(
+        "/mounted/design/design-1",
+        `?${DESIGN_GENERATION_ATTEMPT_QUERY_PARAM}=attempt_1234567890abcdef`,
+        "/mounted/",
+      ),
+    ).toEqual({
+      kind: "design-output",
+      properties: {
+        output_id: "design-1",
+        generation_attempt_id: "attempt_1234567890abcdef",
+      },
+    });
+  });
+
+  it("does not strip a base path that only matches a path prefix", () => {
+    expect(
+      getDesignGenerationPageviewProvenance(
+        "/mounted-app/design/design-1",
+        "",
+        "/mounted",
+      ),
+    ).toEqual({ kind: "other-route" });
+  });
+
   it("ignores malformed or ambiguous attempt identifiers", () => {
     expect(isDesignGenerationAttemptId("short")).toBe(false);
     expect(

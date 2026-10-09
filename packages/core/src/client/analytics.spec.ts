@@ -2038,7 +2038,19 @@ describe("browser analytics pageviews", () => {
       "https://analytics.example.test/ssr-track",
       "https://analytics.example.test/api/analytics/replay",
     ],
+    [
+      "build track",
+      "https://analytics.example.test/build-track",
+      "https://analytics.example.test/api/analytics/replay",
+    ],
+    [
+      "config track",
+      "https://analytics.example.test/config-track",
+      "https://analytics.example.test/api/analytics/replay",
+    ],
     ["relative SSR track", "/ssr-track", "/api/analytics/replay"],
+    ["relative build track", "/build-track", "/api/analytics/replay"],
+    ["relative config track", "/config-track", "/api/analytics/replay"],
   ])(
     "starts replay from server-injected %s config and attaches active replay fields",
     async (_label, trackingEndpoint, replayEndpoint) => {
