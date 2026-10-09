@@ -204,7 +204,11 @@ test("retains Slides parity and corpus gates while keeping the full soak manual"
   assert.doesNotMatch(soakWorkflow, /^\s+pull_request:/mu);
   assert.match(
     soakWorkflow,
-    /--seed\s+\$\{\{ matrix\.seed_start \}\}[\s\S]*--seeds 5 --steps 500/u,
+    /seed_start:\s*\[1, 3, 5, 7, 9, 11, 13, 15, 17, 19\]/u,
+  );
+  assert.match(
+    soakWorkflow,
+    /--seed\s+\$\{\{ matrix\.seed_start \}\}[\s\S]*--seeds 2 --steps 500/u,
   );
 });
 
