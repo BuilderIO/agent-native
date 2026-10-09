@@ -151,11 +151,11 @@ const CANVAS_PRESET_ALIASES: CanvasPresetAlias[] = [
   },
   {
     preset: "Mobile Leaderboard",
-    pattern: /\bmobile\s+leaderboard\b/i,
+    pattern: /\bmobile\s+leaderboard\s+(?:ads?|banners?)\b/i,
   },
   {
     preset: "Leaderboard",
-    pattern: /\b(?:display\s+)?leaderboard\b/i,
+    pattern: /\bdisplay\s+leaderboard\b|\bleaderboard\s+(?:ads?|banners?)\b/i,
   },
   {
     preset: "Medium Rectangle",
@@ -171,26 +171,33 @@ const OUTPUT_VERB =
   /\b(?:create|make|design|generate|build|produce|draft|render|draw|prepare|compose|crea(?:r)?|diseñ(?:a|ar)|disegna(?:re)?|erstelle|erstellen|gestalte(?:n)?|crée(?:z|r)?|concevoir|produire|dessiner|faire)\b/i;
 const OUTPUT_RELATION_BOUNDARY =
   /\b(?:for|with|using|including|featuring|showing|based\s+on|inspired\s+by|announcing|promoting|about|on|that|which)\b/i;
-const PRODUCT_SURFACE_OUTPUT =
-  /\b(?:(?:[\w-]+\s+){0,5}(?:tools?|editors?|makers?|generators?|builders?|creators?|apps?|pages?)|dashboard|dashboards|manager|management\s+(?:tool|app|platform)|(?:web|mobile|desktop)\s+apps?|applications?|website|web\s+site|landing\s+page|pricing\s+page|settings\s+page|login\s+screen|web\s+page|product\s+interface|portal|platform|crm|workspace|admin\s+(?:panel|dashboard)|prototype|site|form)\b/i;
+// Matched against the head noun alone, so "Facebook ads reporting screen" stays
+// a screen: modifiers before a product-surface head never pick a fixed format.
+const PRODUCT_SURFACE_HEAD =
+  /^(?:pages?|screens?|views?|reports?|dashboards?|trackers?|analytics|lists?|managers?|editors?|builders?|makers?|generators?|creators?|tools?|apps?|applications?|forms?|librar(?:y|ies)|galler(?:y|ies)|schedulers?|portals?|platforms?|sites?|websites?|interfaces?|uis?|ux|panels?|crms?|workspaces?|prototypes?|inbox(?:es)?|tables?|calendars?|feeds?|planners?|consoles?|flows?|settings)$/i;
+const GENERIC_ARTWORK_HEAD =
+  /^(?:|graphics?|images?|creatives?|visuals?|assets?|artwork|art|designs?|mockups?|posts?|stor(?:y|ies)|banners?|ads?|thumbnails?|cards?|covers?|headers?|promos?|directions?|options?|variations?|variants?|versions?|concepts?|ideas?|layouts?|drafts?|sets?|series|batch(?:es)?)$/i;
+const NOUN_PHRASE_POSTMODIFIER = /,|\s(?:in|of|at|to|from|by|as|into|like)\s/i;
 const FIXED_ARTWORK_OUTPUT =
-  /\b(?:ads?|advertisements?|banners?|leaderboards?|skyscrapers?|billboards?|anzeige(?:n)?|annonce(?:s)?|publicit[ée]|an[uú]ncio(?:s)?|publicidade|social(?:\s+media)?\s+(?:posts?|stor(?:y|ies))|instagram\s+(?:posts?|stor(?:y|ies))|email\s+headers?|newsletter\s+(?:headers?|graphics?)|flyers?|posters?|brochures?|infographics?|cover\s+art|favicons?|logos?|avatars?|thumbnails?|promo(?:tional)?\s+(?:graphics?|images?|posts?)|open\s+graph\s+(?:preview\s+)?images?|og\s+images?)\b/i;
+  /\b(?:ads?|advertisements?|banners?|display\s+leaderboards?|skyscrapers?|billboards?|anzeige(?:n)?|annonce(?:s)?|publicit[ée]|an[uú]ncio(?:s)?|publicidade|social(?:\s+media)?\s+(?:posts?|stor(?:y|ies))|instagram\s+(?:posts?|stor(?:y|ies))|email\s+headers?|newsletter\s+(?:headers?|graphics?)|flyers?|posters?|brochures?|infographics?|cover\s+art|favicons?|logos?|avatars?|thumbnails?|promo(?:tional)?\s+(?:graphics?|images?|posts?)|open\s+graph\s+(?:preview\s+)?images?|og\s+images?)\b/i;
 
-function requestedOutputPhrase(prompt: string): string {
+function requestedOutput(prompt: string): { phrase: string; head: string } {
   const verb = OUTPUT_VERB.exec(prompt);
   const remainder = verb ? prompt.slice(verb.index + verb[0].length) : prompt;
   const sentence = remainder.split(/[.!?;\n]/, 1)[0] ?? remainder;
   const relation = OUTPUT_RELATION_BOUNDARY.exec(sentence);
   const phrase = sentence.slice(0, relation?.index ?? sentence.length).trim();
+  const nounPhrase = phrase.split(NOUN_PHRASE_POSTMODIFIER, 1)[0] ?? phrase;
+  const head = /([\p{L}\d]+)[^\p{L}\d]*$/u.exec(nounPhrase)?.[1] ?? "";
   if (relation && /^(?:for|on)$/i.test(relation[0])) {
     const platform = sentence
       .slice(relation.index + relation[0].length)
       .match(
         /^\s+(?:(?:an?|the)\s+)?(linkedin|meta|facebook|instagram|twitter|x|youtube|google)\b/i,
       );
-    if (platform) return `${phrase} ${platform[1]}`;
+    if (platform) return { phrase: `${phrase} ${platform[1]}`, head };
   }
-  return phrase;
+  return { phrase, head };
 }
 
 function presetDimensions(name: string): CanvasDimensions | undefined {
@@ -221,8 +228,8 @@ export function resolveCanvasIntent(prompt?: string): CanvasIntent {
     };
   }
 
-  const output = requestedOutputPhrase(value);
-  if (PRODUCT_SURFACE_OUTPUT.test(output)) return { kind: "responsive" };
+  const { phrase: output, head } = requestedOutput(value);
+  if (PRODUCT_SURFACE_HEAD.test(head)) return { kind: "responsive" };
 
   const outputAlias = CANVAS_PRESET_ALIASES.find((alias) =>
     alias.pattern.test(output),
@@ -244,9 +251,13 @@ export function resolveCanvasIntent(prompt?: string): CanvasIntent {
     return { kind: "fixed", source: "fixed-output" };
   }
 
-  const contextualAlias = CANVAS_PRESET_ALIASES.find((alias) =>
-    alias.pattern.test(value),
-  );
+  // A platform named elsewhere in the prompt only picks the format when the
+  // requested output is itself generic artwork ("a graphic for our LinkedIn
+  // campaign"), never for a named product noun ("a sales leaderboard for our
+  // Facebook ads team").
+  const contextualAlias = GENERIC_ARTWORK_HEAD.test(head)
+    ? CANVAS_PRESET_ALIASES.find((alias) => alias.pattern.test(value))
+    : undefined;
   if (contextualAlias) {
     const dimensions = presetDimensions(contextualAlias.preset);
     if (dimensions) {

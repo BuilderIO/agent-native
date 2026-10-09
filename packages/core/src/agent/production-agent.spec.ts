@@ -37,10 +37,12 @@ import {
   runWithRequestContext,
 } from "../server/request-context.js";
 import * as settingsStore from "../settings/store.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { warnAgent } from "./action-warnings.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import type {
   AgentEngine,
+  EngineContentPart,
   EngineEvent,
   EngineMessage,
   EngineStreamOptions,
@@ -65,6 +67,7 @@ import {
   createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
   appendRequestAttachmentContextToResumedHistory,
   preloadPlanModeEngineTools,
+  queuedPromotionAttachments,
   normalizeAgentActionSurfaceResolution,
   readPersistedActionSurface,
   readPersistedAllowedActionNames,
@@ -923,6 +926,25 @@ describe("serializeDurableDispatchPayload", () => {
     ).toThrow(DurableAttachmentReferenceRequiredError);
   });
 
+  it("stores neither attachment bytes nor data URLs pasted into text", () => {
+    const payload = serializeDurableDispatchPayload({
+      message: "use data:image/png;base64,iVBORw0KGgo= as the logo",
+      attachments: [
+        {
+          type: "image",
+          name: "logo.png",
+          data: "data:image/png;base64,iVBORw0KGgo=",
+          url: "https://cdn.builder.io/api/v1/image/assets%2Fspace%2Flogo",
+        },
+      ],
+    });
+
+    assertNoInlineImageBytes(payload, "dispatch_payload");
+    expect(JSON.parse(payload).message).toBe(
+      "use [inline image/png data omitted] as the logo",
+    );
+  });
+
   it("rejects a data URL masquerading as a durable attachment reference", () => {
     expect(() =>
       serializeDurableDispatchPayload({
@@ -935,6 +957,50 @@ describe("serializeDurableDispatchPayload", () => {
         ],
       }),
     ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+});
+
+describe("queuedPromotionAttachments", () => {
+  it("promotes a queued image part as a vision image and other files as files", () => {
+    const attachments = queuedPromotionAttachments([
+      {
+        type: "file",
+        name: "ad.png",
+        mediaType: "image/png",
+        url: "https://storage.example.test/ad.png",
+      },
+      {
+        type: "file",
+        name: "brief.pdf",
+        mediaType: "application/pdf",
+        url: "https://storage.example.test/brief.pdf",
+      },
+      { type: "file", name: "notes", fileId: "file-1" },
+    ]);
+
+    expect(attachments).toEqual([
+      expect.objectContaining({
+        type: "image",
+        name: "ad.png",
+        contentType: "image/png",
+        url: "https://storage.example.test/ad.png",
+      }),
+      expect.objectContaining({ type: "file", name: "brief.pdf" }),
+      expect.objectContaining({ type: "file", name: "notes", id: "file-1" }),
+    ]);
+  });
+
+  it("treats an image media type with parameters or different case as an image", () => {
+    const [attachment] = queuedPromotionAttachments([
+      {
+        type: "file",
+        name: "photo",
+        mediaType: "IMAGE/JPEG; charset=binary",
+        url: "https://storage.example.test/photo",
+      },
+    ]);
+
+    expect(attachment?.type).toBe("image");
   });
 });
 
@@ -1836,7 +1902,9 @@ describe("buildUserContentWithAttachments", () => {
             toolCallId: "history_tc_1",
             toolName: "chat-history",
             toolInput: '{"action":"search"}',
-            content: "Interrupted before this tool returned a result.",
+            content:
+              "Interrupted before this tool returned a result. Its outcome is UNKNOWN: the tool may have run. Verify the current state before repeating any write.",
+            isError: true,
           },
         ],
       },
@@ -3194,7 +3262,7 @@ describe("createProductionAgentHandler", () => {
       capabilities: {
         thinking: false,
         promptCaching: false,
-        vision: false,
+        vision: true,
         computerUse: false,
         parallelToolCalls: false,
       },
@@ -5932,7 +6000,7 @@ describe("runAgentLoop", () => {
       capabilities: {
         thinking: false,
         promptCaching: false,
-        vision: false,
+        vision: true,
         computerUse: false,
         parallelToolCalls: true,
       },
@@ -17868,5 +17936,152 @@ describe("runAgentLoop tool-result images", () => {
     expect(toolDone.result).toContain("https://cdn.example.com/shot.png");
     expect(toolDone.result).not.toContain("A".repeat(100));
     expect(toolDone.images).toBeUndefined();
+  });
+});
+
+describe("runAgentLoop attachment delivery", () => {
+  const imagePart = {
+    type: "image" as const,
+    data: "aW1hZ2U=",
+    mediaType: "image/png" as const,
+  };
+
+  function attachmentEngine(
+    vision: boolean,
+    stop: Extract<EngineEvent, { type: "stop" }>,
+  ) {
+    const calls: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        calls.push(opts.messages);
+        if (stop.reason !== "error") {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "ok" }],
+          };
+        }
+        yield stop;
+      },
+    };
+    return { engine, calls };
+  }
+
+  const run = (engine: AgentEngine, content: EngineContentPart[]) =>
+    runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+  it("replaces images with a typed note for a model without vision", async () => {
+    const { engine, calls } = attachmentEngine(false, {
+      type: "stop",
+      reason: "end_turn",
+    });
+
+    await run(engine, [imagePart, { type: "text", text: "what is this?" }]);
+
+    const sent = calls[0]!.flatMap((message) => message.content);
+    expect(sent.some((part) => part.type === "image")).toBe(false);
+    expect(sent[0]).toEqual({
+      type: "text",
+      text: expect.stringContaining(
+        '<chat-attachment-processing-error code="model-without-vision" model="test-model">',
+      ),
+    });
+  });
+
+  it("sends images unchanged to a vision model", async () => {
+    const { engine, calls } = attachmentEngine(true, {
+      type: "stop",
+      reason: "end_turn",
+    });
+
+    await run(engine, [imagePart, { type: "text", text: "what is this?" }]);
+
+    expect(calls[0]![0]!.content[0]).toEqual(imagePart);
+  });
+
+  it.each([
+    [
+      "Anthropic",
+      400,
+      "messages.0.content.0.image.source.base64: image exceeds 5 MB maximum: 7340032 bytes > 5242880 bytes",
+    ],
+    ["Anthropic", 400, "Could not process image"],
+    ["OpenAI", 400, "Invalid image."],
+    [
+      "Google",
+      400,
+      "Unable to process input image. Please retry or report in https://developers.generativeai.google/guide/troubleshooting",
+    ],
+    ["Builder gateway", undefined, "Unsupported image media type: image/heic"],
+    ["any", 413, "Request exceeds the maximum allowed number of bytes."],
+  ])(
+    "stops a %s attachment rejection (%s) as non-retryable invalid_attachment naming the file",
+    async (_provider, statusCode, error) => {
+      const { engine, calls } = attachmentEngine(true, {
+        type: "stop",
+        reason: "error",
+        error,
+        ...(statusCode !== undefined
+          ? { errorCode: `http_${statusCode}`, statusCode }
+          : { errorCode: "invalid_request_error" }),
+        providerRetryable: true,
+      });
+
+      await expect(
+        run(engine, [
+          imagePart,
+          {
+            type: "file",
+            data: "JVBERi0=",
+            mediaType: "application/pdf",
+            filename: "report.pdf",
+          },
+          { type: "text", text: "read these" },
+        ]),
+      ).rejects.toMatchObject({
+        name: "EngineError",
+        errorCode: "invalid_attachment",
+        providerRetryable: false,
+        message: `The model provider rejected an attachment in this request ("report.pdf"): ${error}`,
+      });
+      expect(calls).toHaveLength(1);
+    },
+  );
+
+  it("leaves the provider's code alone when the request carries no attachment", async () => {
+    const { engine } = attachmentEngine(true, {
+      type: "stop",
+      reason: "error",
+      error: "Invalid image.",
+      errorCode: "http_400",
+      statusCode: 400,
+      providerRetryable: false,
+    });
+
+    await expect(
+      run(engine, [{ type: "text", text: "hello" }]),
+    ).rejects.toMatchObject({
+      errorCode: "http_400",
+      message: "Invalid image.",
+    });
   });
 });
