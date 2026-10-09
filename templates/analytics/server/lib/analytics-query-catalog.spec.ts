@@ -830,6 +830,51 @@ describe("analytics query catalog", () => {
     });
   });
 
+  it("keeps exact certified panels ahead of trusted definitions for single-term searches", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "revenue",
+      limit: 6,
+      dashboards: [
+        {
+          id: "certified-revenue",
+          title: "Revenue",
+          origin: "saved-dashboard",
+          certification: {
+            status: "certified",
+            certifiedAt: "2026-10-01T00:00:00.000Z",
+            certifiedBy: "reviewer@example.com",
+            certifiedForUpdatedAt: "v1",
+          },
+          updatedAt: "v1",
+          config: {
+            panels: [
+              {
+                id: "revenue",
+                title: "Revenue",
+                source: "first-party",
+                sql: "SELECT revenue FROM revenue_events",
+              },
+            ],
+          },
+        },
+      ],
+      dictionaryEntries: [
+        {
+          id: "revenue-definition",
+          metric: "Revenue",
+          definition: "Revenue recognized from closed-won deals",
+          sourceKind: "dbt",
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      kind: "dashboard-panel",
+      panelId: "revenue",
+      dashboardCertified: true,
+    });
+  });
+
   it("returns only the bounded number of strongest matches", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "signup",
