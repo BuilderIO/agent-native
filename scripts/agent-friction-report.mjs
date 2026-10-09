@@ -2296,31 +2296,31 @@ const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
   [
     "\\b" +
       FEEDBACK_REPLY_CONTEXT +
-      "\\b[^.!?\\n]{0,100}\\b" +
+      "\\b[^.!?]{0,100}\\b" +
       FEEDBACK_REPLY_DETAIL_ISSUE +
       "\\b",
     "\\b" +
       FEEDBACK_REPLY_DETAIL_ISSUE +
-      "\\b[^.!?\\n]{0,100}\\b" +
+      "\\b[^.!?]{0,100}\\b" +
       FEEDBACK_REPLY_CONTEXT +
       "\\b",
     "\\b" +
       FEEDBACK_REPLY_CONTEXT +
-      "\\b[^.!?\\n]{0,100}\\b" +
+      "\\b[^.!?]{0,100}\\b" +
       FEEDBACK_REPLY_DETAIL_OMISSION +
-      "\\b[^.!?\\n]{0,120}\\b" +
+      "\\b[^.!?]{0,120}\\b" +
       FEEDBACK_REPLY_DETAIL_TARGET +
       "\\b",
     "\\b" +
       FEEDBACK_REPLY_DETAIL_OMISSION +
-      "\\b[^.!?\\n]{0,120}\\b" +
+      "\\b[^.!?]{0,120}\\b" +
       FEEDBACK_REPLY_DETAIL_TARGET +
-      "\\b[^.!?\\n]{0,120}\\b(?:in|from|for|when)\\b[^.!?\\n]{0,30}\\b(?:you\\s+)?" +
+      "\\b[^.!?]{0,120}\\b(?:in|from|for|when)\\b[^.!?]{0,30}\\b(?:you\\s+)?" +
       FEEDBACK_REPLY_CONTEXT +
       "\\b",
-    "\\bno\\b[^.!?\\n]{0,120}\\b" +
+    "\\bno\\b[^.!?]{0,120}\\b" +
       FEEDBACK_REPLY_DETAIL_TARGET +
-      "\\b[^.!?\\n]{0,120}\\b(?:in|from|for|when)\\b[^.!?\\n]{0,30}\\b(?:you\\s+)?" +
+      "\\b[^.!?]{0,120}\\b(?:in|from|for|when)\\b[^.!?]{0,30}\\b(?:you\\s+)?" +
       FEEDBACK_REPLY_CONTEXT +
       "\\b",
   ].join("|"),
@@ -2329,6 +2329,7 @@ const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
 const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "When you reply, don't include all those technical details."],
   [true, "Too much technical detail in replies."],
+  [true, "Your replies\nare too technical."],
   [true, "Replies are too technical."],
   [true, "Leave out publisher details from replies."],
   [true, "Don't include commit hashes or CI results in replies."],
@@ -2340,6 +2341,7 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [false, "Please reply with technical details."],
   [false, "Please reply with very technical details."],
   [false, "Reply once there are no CI results yet."],
+  [false, "Reply once there are\nno CI results yet."],
   [false, "CI results and branch details are useful."],
 ];
 
@@ -2356,7 +2358,8 @@ if (process.argv.includes("--self-test")) {
   failures.push(
     ...FEEDBACK_REPLY_DETAIL_REGEX_CASES.filter(
       ([expected, message]) =>
-        FEEDBACK_REPLY_DETAIL_RE.test(message) !== expected,
+        FEEDBACK_REPLY_DETAIL_RE.test(textForPattern(message, true)) !==
+        expected,
     ),
   );
   failures.push(
