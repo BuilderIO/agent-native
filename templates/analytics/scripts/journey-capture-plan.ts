@@ -296,6 +296,7 @@ export interface CaptureManifest {
   captureMode: "offline" | "browser";
   remoteAssets: "not-fetched" | "browser-preflight-per-frame";
   promptProvenancePath?: string;
+  promptProvenanceError?: "sidecar_write_failed";
   frames: ManifestFrame[];
   failures: ManifestFailure[];
   skipped: SkippedExample[];
@@ -332,6 +333,7 @@ export function buildManifest(input: {
   appUrl: string;
   captureMode: "offline" | "browser";
   promptProvenancePath?: string;
+  promptProvenanceError?: "sidecar_write_failed";
   frames: ManifestFrame[];
   failures: ManifestFailure[];
   skipped: SkippedExample[];
@@ -354,6 +356,9 @@ export function buildManifest(input: {
     ...(input.promptProvenancePath
       ? { promptProvenancePath: input.promptProvenancePath }
       : {}),
+    ...(input.promptProvenanceError
+      ? { promptProvenanceError: input.promptProvenanceError }
+      : {}),
     frames: [...input.frames]
       .map((frame) => ({
         ...frame,
@@ -365,11 +370,29 @@ export function buildManifest(input: {
   };
 }
 
+export async function writeCaptureOutputs<TManifest>(
+  writeSidecar: () => Promise<void>,
+  writeManifest: (sidecarWriteFailed: boolean) => Promise<TManifest>,
+): Promise<{ manifest: TManifest; sidecarWriteFailed: boolean }> {
+  let sidecarWriteFailed = false;
+  try {
+    await writeSidecar();
+  } catch {
+    sidecarWriteFailed = true;
+  }
+  const manifest = await writeManifest(sidecarWriteFailed);
+  return { manifest, sidecarWriteFailed };
+}
+
 /** The exit code: failing every frame is an error; a partial run is reported, not fatal. */
 export function exitCodeFor(
-  manifest: Pick<CaptureManifest, "frames" | "failures">,
+  manifest: Pick<CaptureManifest, "frames" | "failures"> &
+    Partial<Pick<CaptureManifest, "promptProvenanceError">>,
 ): number {
-  return manifest.frames.length === 0 && manifest.failures.length > 0 ? 1 : 0;
+  return manifest.promptProvenanceError ||
+    (manifest.frames.length === 0 && manifest.failures.length > 0)
+    ? 1
+    : 0;
 }
 
 export function normalizeAppUrl(raw: string): string {

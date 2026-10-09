@@ -69,6 +69,7 @@ import {
   unattemptedFailures,
   unauthenticatedMessage,
   isLoopbackHost,
+  writeCaptureOutputs,
   type ManifestFailure,
   type ManifestFrame,
   type RecordingPlan,
@@ -115,7 +116,7 @@ exampleIndex, recordingId, offsetMs, sourceEventAt, replayAt, width, height,
 localPath, capturedAt, assetStatus, route?, attachmentRef? }], remoteAssets,
 failures: [{ nodeKey, exampleIndex, recordingId, offsetMs, sourceEventAt,
 replayAt, reason, assetStatus?, code?, diagnostics? }], skipped: [...],
-promptProvenancePath? }.
+promptProvenancePath?, promptProvenanceError? }.
 Browser captures use the recording-scoped frame URL in an empty browser context.
 Each recording loads once through the largest requested offset, then seeks all
 requested offsets. Browser mode caps the manifest at 4 MiB, capture prefixes at
@@ -132,10 +133,12 @@ resolver exception is restricted to the exact loopback SOCKS listener.
 --extract-prompts writes only bounded, redacted user-role text to
 prompt-provenance.json, omitting SQL and base64 payloads; that sidecar is
 local-only and is never uploaded. It records screenshot/upload success or
-failure alongside each observed prompt snapshot.
+failure alongside each observed prompt snapshot. If the sidecar cannot be
+written, the manifest records promptProvenanceError and the run exits nonzero.
 New output directories use mode 0700; existing directories must already be
 private. Each output file uses mode 0600.
-Exit code is 1 when no frame was captured, 2 when authentication is missing or rejected.`;
+Exit code is 1 when no frame was captured or the requested provenance sidecar
+could not be written; 2 when authentication is missing or rejected.`;
 
 class AuthError extends Error {}
 
@@ -2121,12 +2124,18 @@ async function main(argv: string[]): Promise<number> {
   const writeManifest = async (
     frames: ManifestFrame[],
     failures: ManifestFailure[],
+    sidecarWriteFailed = false,
   ) => {
     const manifest = buildManifest({
       generatedAt,
       appUrl,
       captureMode,
-      ...(extractPrompts ? { promptProvenancePath } : {}),
+      ...(extractPrompts && !sidecarWriteFailed
+        ? { promptProvenancePath }
+        : {}),
+      ...(extractPrompts && sidecarWriteFailed
+        ? { promptProvenanceError: "sidecar_write_failed" as const }
+        : {}),
       outDir,
       frames,
       failures,
@@ -2151,8 +2160,15 @@ async function main(argv: string[]): Promise<number> {
   };
 
   if (!items.length) {
-    await writePromptProvenance();
-    await writeManifest([], []);
+    const output = await writeCaptureOutputs(
+      writePromptProvenance,
+      (sidecarWriteFailed) => writeManifest([], [], sidecarWriteFailed),
+    );
+    if (output.sidecarWriteFailed) {
+      console.error(
+        "Prompt provenance sidecar write failed; see promptProvenanceError in the capture manifest.",
+      );
+    }
     console.error(
       `Nothing to render: no example has a recording and an offset (see "skipped" in ${manifestPath}). Re-run get-onboarding-journey with a window that has replays.`,
     );
@@ -2289,8 +2305,17 @@ async function main(argv: string[]): Promise<number> {
   }
   let manifest;
   try {
-    await writePromptProvenance(ctx);
-    manifest = await writeManifest(ctx.frames, ctx.failures);
+    const output = await writeCaptureOutputs(
+      () => writePromptProvenance(ctx),
+      (sidecarWriteFailed) =>
+        writeManifest(ctx.frames, ctx.failures, sidecarWriteFailed),
+    );
+    manifest = output.manifest;
+    if (output.sidecarWriteFailed) {
+      console.error(
+        "Prompt provenance sidecar write failed; see promptProvenanceError in the capture manifest.",
+      );
+    }
   } finally {
     await closeBrowser();
     for (const { signal, handler } of signalHandlers) {

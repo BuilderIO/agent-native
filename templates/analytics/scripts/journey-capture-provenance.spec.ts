@@ -139,6 +139,62 @@ describe("sanitizePromptProvenanceCandidates", () => {
     }
   });
 
+  it("redacts password aliases and signed URL query values while retaining useful URL context", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      {
+        role: "user",
+        text: [
+          "DB_PASS=fake-db-pass-value",
+          "pwd=fake-short-password-value",
+          "passwords=fake-password-list-value",
+          "tokens=fake-token-list-value",
+          "https://cdn.example.test/media/image.png?sig=fake-sas-signature&sp=read&sv=fake-version",
+          "https://cdn.example.test/media/video.mp4?X-Amz-Signature=fake-s3-signature&X-Amz-Date=fake-date",
+        ].join("\n"),
+      },
+    ]);
+    const text = result.messages[0]?.text ?? "";
+
+    expect(text).toBe(
+      [
+        "DB_PASS=[REDACTED]",
+        "pwd=[REDACTED]",
+        "passwords=[REDACTED]",
+        "tokens=[REDACTED]",
+        "https://cdn.example.test/media/image.png?sig=[REDACTED]&sp=read&sv=fake-version",
+        "https://cdn.example.test/media/video.mp4?X-Amz-Signature=[REDACTED]&X-Amz-Date=fake-date",
+      ].join("\n"),
+    );
+    for (const value of [
+      "fake-db-pass-value",
+      "fake-short-password-value",
+      "fake-password-list-value",
+      "fake-token-list-value",
+      "fake-sas-signature",
+      "fake-s3-signature",
+    ]) {
+      expect(text).not.toContain(value);
+    }
+  });
+
+  it("strips URL authority userinfo for database and HTTP schemes", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      {
+        role: "user",
+        text: "Connect to postgresql://alice:fake-db-password@db.example.test/analytics or https://service-user:fake-http-password@api.example.test/health.",
+      },
+    ]);
+    const text = result.messages[0]?.text ?? "";
+
+    expect(text).toBe(
+      "Connect to postgresql://[REDACTED]@db.example.test/analytics or https://[REDACTED]@api.example.test/health.",
+    );
+    expect(text).not.toContain("alice");
+    expect(text).not.toContain("fake-db-password");
+    expect(text).not.toContain("service-user");
+    expect(text).not.toContain("fake-http-password");
+  });
+
   it("omits messages with ambiguous space-separated credential values", () => {
     const result = sanitizePromptProvenanceCandidates([
       {

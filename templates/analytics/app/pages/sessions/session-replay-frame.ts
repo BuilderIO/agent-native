@@ -21,7 +21,8 @@ const MAX_REPLAY_DOM_NODES = 8_192;
 const MAX_REPLAY_OCCLUSIONS = 64;
 const MAX_REPLAY_DOM_ANCESTOR_DEPTH = 128;
 const MAX_USER_MESSAGE_SCAN_NODES = 1_024;
-const MAX_USER_MESSAGE_SCAN_CHARS = 32_000;
+const MAX_USER_MESSAGE_SCAN_CHARS = 1_024;
+const MAX_USER_MESSAGE_SCAN_HIT_TESTS = 1_024;
 const NON_MESSAGE_TEXT_SELECTOR =
   'button, input, textarea, select, [contenteditable], [hidden], [aria-hidden="true"], script, style, template';
 
@@ -40,6 +41,8 @@ type ReplayTextOcclusion = { element: Element; rect: ReplayTextRect };
 type ReplayTextScanBudget = {
   characters: number;
   exhausted: boolean;
+  hitTestLimitReached: boolean;
+  hitTests: number;
   nodes: number;
 };
 
@@ -359,7 +362,7 @@ function replayTextOcclusionRects(document: Document): ReplayTextOcclusion[] {
         !replayTextColorIsTransparent(style.backgroundColor)) ||
       (style.boxShadow !== "" && style.boxShadow !== "none");
     if (
-      // elementFromPoint misses transparent layers and samples can miss thin overlays.
+      // Point sampling can miss thin paint layers, so reject their rectangles first.
       (pointerTransparent ||
         (positioned && (painted || textAncestors.has(element)))) &&
       !replayTextLayoutIsHidden(style)
@@ -395,6 +398,7 @@ function replayTextIsUnobscured(
   clip: ReplayTextRect,
   document: Document,
   pointerTransparentOcclusions: ReplayTextOcclusion[],
+  scanBudget: ReplayTextScanBudget,
 ): boolean {
   const visibleRect = intersectReplayRects(clip, rect);
   if (!visibleRect) return false;
@@ -407,27 +411,23 @@ function replayTextIsUnobscured(
   ) {
     return false;
   }
-  const samplePoints = [
-    [0.5, 0.5],
-    [0.25, 0.25],
-    [0.75, 0.25],
-    [0.25, 0.75],
-    [0.75, 0.75],
-  ] as const;
   try {
-    return samplePoints.every(([xRatio, yRatio]) => {
-      const pointX =
-        visibleRect.left + (visibleRect.right - visibleRect.left) * xRatio;
-      const pointY =
-        visibleRect.top + (visibleRect.bottom - visibleRect.top) * yRatio;
-      const hit = document.elementFromPoint(pointX, pointY);
-      if (!hit) throw new Error("replay_text_occlusion_unverifiable");
-      if (hit === node.parentElement) return true;
-      if (hit.contains(node)) {
-        throw new Error("replay_text_occlusion_unverifiable");
-      }
+    if (scanBudget.hitTests >= MAX_USER_MESSAGE_SCAN_HIT_TESTS) {
+      scanBudget.exhausted = true;
+      scanBudget.hitTestLimitReached = true;
       return false;
-    });
+    }
+    scanBudget.hitTests += 1;
+    const pointX =
+      visibleRect.left + (visibleRect.right - visibleRect.left) / 2;
+    const pointY = visibleRect.top + (visibleRect.bottom - visibleRect.top) / 2;
+    const hit = document.elementFromPoint(pointX, pointY);
+    if (!hit) throw new Error("replay_text_occlusion_unverifiable");
+    if (hit === node.parentElement) return true;
+    if (hit.contains(node)) {
+      throw new Error("replay_text_occlusion_unverifiable");
+    }
+    return false;
   } catch {
     throw new Error("replay_text_occlusion_unverifiable");
   }
@@ -457,15 +457,25 @@ function visibleTextForMessage(
   while (node) {
     const currentNode = node;
     const text = currentNode.textContent ?? "";
-    if (
-      ++scanBudget.nodes > MAX_USER_MESSAGE_SCAN_NODES ||
-      scanBudget.characters + text.length > MAX_USER_MESSAGE_SCAN_CHARS
-    ) {
+    if (++scanBudget.nodes > MAX_USER_MESSAGE_SCAN_NODES) {
       scanBudget.exhausted = true;
       truncated = true;
       break;
     }
-    scanBudget.characters += text.length;
+    const remainingCharacters =
+      MAX_USER_MESSAGE_SCAN_CHARS - scanBudget.characters;
+    let scannedTextLength = Math.min(text.length, remainingCharacters);
+    if (
+      scannedTextLength > 0 &&
+      scannedTextLength < text.length &&
+      /[\uD800-\uDBFF]/.test(text[scannedTextLength - 1] ?? "")
+    ) {
+      scannedTextLength -= 1;
+    }
+    const scannedText = text.slice(0, scannedTextLength);
+    const textWasTruncated = scannedTextLength < text.length;
+    scanBudget.characters += scannedTextLength;
+    if (textWasTruncated) scanBudget.exhausted = true;
     let included = true;
     let depth = 0;
     for (
@@ -500,12 +510,12 @@ function visibleTextForMessage(
       ? replayTextClipRect(currentNode.parentElement ?? element, document)
       : null;
     let offset = 0;
-    while (included && clip && offset < text.length) {
+    while (included && clip && offset < scannedText.length) {
       if (scannedCharacters >= MAX_USER_MESSAGE_CHARS + 1) {
         truncated = true;
         break;
       }
-      const codePoint = text.codePointAt(offset)!;
+      const codePoint = scannedText.codePointAt(offset)!;
       const nextOffset = offset + (codePoint > 0xffff ? 2 : 1);
       range.setStart(currentNode, offset);
       range.setEnd(currentNode, nextOffset);
@@ -525,13 +535,23 @@ function visibleTextForMessage(
             clip,
             document,
             pointerTransparentOcclusions,
+            scanBudget,
           ),
       );
-      if (hasVisibleRect) visibleText.push(text.slice(offset, nextOffset));
+      if (hasVisibleRect)
+        visibleText.push(scannedText.slice(offset, nextOffset));
       offset = nextOffset;
       scannedCharacters += 1;
+      if (scanBudget.hitTestLimitReached) {
+        truncated = true;
+        break;
+      }
     }
-    if (truncated || (included && clip && offset < text.length)) {
+    if (
+      truncated ||
+      textWasTruncated ||
+      (included && clip && offset < scannedText.length)
+    ) {
       truncated = true;
       break;
     }
@@ -690,7 +710,13 @@ export function extractVisibleReplayUserMessages(
   const messages: ReplayFrameUserMessage[] = [];
   let totalCharacters = 0;
   let truncatedCharacters = false;
-  const scanBudget = { characters: 0, exhausted: false, nodes: 0 };
+  const scanBudget = {
+    characters: 0,
+    exhausted: false,
+    hitTestLimitReached: false,
+    hitTests: 0,
+    nodes: 0,
+  };
   let truncatedMessages = truncatedCandidateElements;
   for (const element of elements) {
     if (!isVisibleMessageElement(element, document)) continue;

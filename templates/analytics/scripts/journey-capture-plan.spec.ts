@@ -17,6 +17,7 @@ import {
   TreeFormatError,
   unattemptedFailures,
   unauthenticatedMessage,
+  writeCaptureOutputs,
   type TreeNode,
 } from "./journey-capture-plan";
 
@@ -296,6 +297,50 @@ describe("manifest", () => {
     expect(exitCodeFor({ frames: [], failures: [failure] })).toBe(1);
     expect(exitCodeFor({ frames: [frame], failures: [failure] })).toBe(0);
     expect(exitCodeFor({ frames: [], failures: [] })).toBe(0);
+  });
+
+  it("writes the manifest after sidecar failure and marks the capture unsuccessful", async () => {
+    let manifestWriteAttempted = false;
+    const frame = {
+      nodeKey: "signup",
+      exampleIndex: 0,
+      recordingId: "recording",
+      offsetMs: 100,
+      width: 1,
+      height: 1,
+      localPath: "frame.png",
+      capturedAt: "now",
+      assetStatus: "preflighted" as const,
+      sourceEventAt: null,
+      replayAt: null,
+    };
+    const output = await writeCaptureOutputs(
+      async () => {
+        throw new Error("private sidecar path detail");
+      },
+      async (sidecarWriteFailed) => {
+        manifestWriteAttempted = true;
+        return buildManifest({
+          generatedAt: "now",
+          appUrl: "https://analytics.example.test",
+          captureMode: "browser",
+          ...(sidecarWriteFailed
+            ? { promptProvenanceError: "sidecar_write_failed" as const }
+            : { promptProvenancePath: "/private/capture/prompts.json" }),
+          frames: [frame],
+          failures: [],
+          skipped: [],
+          outDir: "/private/capture",
+        });
+      },
+    );
+
+    expect(manifestWriteAttempted).toBe(true);
+    expect(output.sidecarWriteFailed).toBe(true);
+    expect(output.manifest.promptProvenancePath).toBeUndefined();
+    expect(output.manifest.promptProvenanceError).toBe("sidecar_write_failed");
+    expect(output.manifest.frames).toHaveLength(1);
+    expect(exitCodeFor(output.manifest)).toBe(1);
   });
 });
 

@@ -10,6 +10,7 @@ const MARKUP_ASSIGNMENT =
   /(`{1,3}|\*{1,2}|_{1,2})([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)*)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\r\n]*))/gi;
 const ASSIGNMENT_KEY =
   /(["']?)([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)*)\1(\s*[:=]\s*)/gi;
+const URL_USERINFO = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi;
 const SPACE_SEPARATED_CREDENTIAL_FORMS = [
   /(?:^|\s)--?([a-z][a-z0-9_.-]*)[ \t]+\S/gim,
   /\bexport[ \t]+([a-z][a-z0-9_.-]*)[ \t]+\S/gi,
@@ -97,11 +98,19 @@ function isCredentialKey(key: string): boolean {
         "cookie2",
         "credential",
         "credentials",
+        "pass",
         "password",
+        "passwords",
         "passwd",
         "passphrase",
+        "pwd",
         "secret",
+        "secrets",
+        "sig",
+        "signature",
+        "signatures",
         "token",
+        "tokens",
       ].includes(part),
     )
   ) {
@@ -117,7 +126,7 @@ function isCredentialKey(key: string): boolean {
     return true;
   }
   const compact = normalized.replace(/[^a-z0-9]/g, "");
-  return /(?:password|passwd|passphrase|secret|token|credential|credentials|authorization|authentication|auth|cookie|session|(?:api|access|private|secret|signing)key)$/.test(
+  return /(?:pass|passwords?|passwd|pwd|passphrase|secrets?|tokens?|credentials?|authorization|authentication|auth|cookies?|session|sigs?|signatures?|(?:api|access|private|secret|signing)key)$/.test(
     compact,
   );
 }
@@ -129,6 +138,19 @@ function hasSpaceSeparatedCredential(text: string): boolean {
     }
   }
   return false;
+}
+
+function urlQueryValueEnd(text: string, valueStart: number): number | null {
+  const prefix = text.slice(0, valueStart);
+  const queryStart = prefix.lastIndexOf("?");
+  if (
+    queryStart <= prefix.lastIndexOf("://") ||
+    queryStart <= prefix.lastIndexOf("#")
+  ) {
+    return null;
+  }
+  const delimiter = /[&#\s]/.exec(text.slice(valueStart));
+  return delimiter ? valueStart + delimiter.index : text.length;
 }
 
 function redactCredentialAssignments(text: string): string {
@@ -169,6 +191,17 @@ function redactCredentialAssignments(text: string): string {
       continue;
     }
 
+    const queryValueEnd = urlQueryValueEnd(text, valueStart);
+    if (queryValueEnd !== null) {
+      assignments.push({
+        redactStart: valueStart,
+        redactEnd: queryValueEnd,
+        valueEnd: queryValueEnd,
+      });
+      coveredValueEnd = queryValueEnd;
+      continue;
+    }
+
     let valueEnd = text.indexOf("\n", valueStart);
     if (valueEnd === -1) valueEnd = text.length;
     if (text[valueEnd - 1] === "\r") valueEnd -= 1;
@@ -191,7 +224,9 @@ function redactCredentialAssignments(text: string): string {
 function redactCredentials(text: string): string {
   if (hasSpaceSeparatedCredential(text)) return "[REDACTED]";
 
-  return redactCredentialAssignments(text)
+  return redactCredentialAssignments(
+    text.replace(URL_USERINFO, (_match, scheme) => `${scheme}[REDACTED]@`),
+  )
     .replace(
       MARKUP_ASSIGNMENT,
       (match, markup, key, delimiter, doubleQuoted, singleQuoted) => {
@@ -219,8 +254,17 @@ function redactCredentials(text: string): string {
     )
     .replace(
       ASSIGNMENT,
-      (match, keyQuote, key, delimiter, doubleQuoted, singleQuoted) => {
+      (match, keyQuote, key, delimiter, doubleQuoted, singleQuoted, value) => {
         if (!isCredentialKey(key)) return match;
+        if (
+          [doubleQuoted, singleQuoted, value].some(
+            (candidate) =>
+              typeof candidate === "string" &&
+              /^\[REDACTED\](?:[&#]|$)/.test(candidate),
+          )
+        ) {
+          return match;
+        }
         const valueQuote =
           doubleQuoted !== undefined
             ? '"'

@@ -30,7 +30,10 @@ function replayRect(
   } as DOMRect;
 }
 
-function mockReplayGeometry(document: Document): () => void {
+function mockReplayGeometry(
+  document: Document,
+  hitTestCalls: { count: number } = { count: 0 },
+): () => void {
   const view = document.defaultView!;
   const width = Object.getOwnPropertyDescriptor(view, "innerWidth");
   const height = Object.getOwnPropertyDescriptor(view, "innerHeight");
@@ -86,6 +89,7 @@ function mockReplayGeometry(document: Document): () => void {
   Object.defineProperty(document, "elementFromPoint", {
     configurable: true,
     value: (x: number, y: number) => {
+      hitTestCalls.count += 1;
       const target = Array.from(
         document.querySelectorAll<HTMLElement>("[data-occlusion-box]"),
       ).find((overlay) => {
@@ -419,6 +423,56 @@ describe("extractVisibleReplayUserMessages", () => {
     }
   });
 
+  it("caps synchronous hit tests and keeps the visible prefix when a message is long", () => {
+    const replayDocument = document;
+    const hitTestCalls = { count: 0 };
+    const restoreGeometry = mockReplayGeometry(replayDocument, hitTestCalls);
+    const visiblePrefix = "x".repeat(1_024);
+    replayDocument.body.innerHTML =
+      '<article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content" data-layout>' +
+      "x".repeat(1_500) +
+      "</div></article>";
+
+    try {
+      const result = extractVisibleReplayUserMessages(
+        replayDocument,
+        100,
+        100,
+        "now",
+      );
+      expect(result.messages).toEqual([{ role: "user", text: visiblePrefix }]);
+      expect(result.truncatedCharacters).toBe(true);
+      expect(result.truncatedMessages).toBe(true);
+      expect(hitTestCalls.count).toBeLessThanOrEqual(1_024);
+    } finally {
+      restoreGeometry();
+    }
+  });
+
+  it("does not split a surrogate pair at the text scan boundary", () => {
+    const replayDocument = document;
+    const restoreGeometry = mockReplayGeometry(replayDocument);
+    const visiblePrefix = "x".repeat(1_023);
+    replayDocument.body.innerHTML =
+      '<article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content" data-layout>' +
+      visiblePrefix +
+      "🌟after</div></article>";
+
+    try {
+      const result = extractVisibleReplayUserMessages(
+        replayDocument,
+        100,
+        100,
+        "now",
+      );
+      expect(result.messages).toEqual([{ role: "user", text: visiblePrefix }]);
+      expect(result.truncatedCharacters).toBe(true);
+      expect(result.truncatedMessages).toBe(true);
+    } finally {
+      restoreGeometry();
+    }
+  });
+
   it("bounds traversal across text nodes as well as elements", () => {
     const replayDocument = document;
     const restoreGeometry = mockReplayGeometry(replayDocument);
@@ -486,13 +540,15 @@ describe("extractVisibleReplayUserMessages", () => {
     }
   });
 
-  it("bounds message count and aggregate text size with explicit truncation", () => {
+  it("bounds visible message count with explicit truncation", () => {
     const replayDocument = document;
     const restoreGeometry = mockReplayGeometry(replayDocument);
     replayDocument.body.innerHTML = Array.from(
       { length: 13 },
       () =>
-        `<article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content" data-layout>${"x".repeat(3_000)}</div></article>`,
+        '<article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content" data-layout>' +
+        "x".repeat(10) +
+        "</div></article>",
     ).join("");
 
     try {
@@ -502,12 +558,12 @@ describe("extractVisibleReplayUserMessages", () => {
         10,
         "now",
       );
-      expect(result.messages).toHaveLength(4);
-      expect(result.messages.map(({ text }) => text.length)).toEqual([
-        2_000, 2_000, 2_000, 2_000,
-      ]);
+      expect(result.messages).toHaveLength(12);
+      expect(result.messages.map(({ text }) => text.length)).toEqual(
+        Array.from({ length: 12 }, () => 10),
+      );
       expect(result.truncatedMessages).toBe(true);
-      expect(result.truncatedCharacters).toBe(true);
+      expect(result.truncatedCharacters).toBe(false);
     } finally {
       restoreGeometry();
     }
