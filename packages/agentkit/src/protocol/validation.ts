@@ -447,7 +447,6 @@ function validateMessagePart(value: unknown, path: string): void {
     case "file":
       string(part.name, `${path}.name`);
       optionalString(part.url, `${path}.url`);
-      rejectDataUrlReference(part.url, `${path}.url`);
       optionalString(part.fileId, `${path}.fileId`);
       optionalString(part.mediaType, `${path}.mediaType`);
       if (part.data !== undefined) {
@@ -596,9 +595,12 @@ function parseQueueFileAttachments(value: unknown, path: string): FilePart[] {
       `expected at most ${MAX_AGENT_REQUEST_ATTACHMENTS} attachments`,
     );
   }
-  return attachments.map((attachment, index) =>
-    parseFilePart(attachment, `${path}[${index}]`),
-  );
+  return attachments.map((attachment, index) => {
+    const itemPath = `${path}[${index}]`;
+    const part = parseFilePart(attachment, itemPath);
+    rejectDataUrlReference(part.url, `${itemPath}.url`);
+    return part;
+  });
 }
 
 export function parseAgentThread(value: unknown, path = "thread"): AgentThread {

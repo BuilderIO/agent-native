@@ -205,7 +205,6 @@ export function useEditorSelectionAndStyles({
     designBreakpoints,
     handleBreakpointBarSelect,
     activeScreenBaseWidthPx,
-    activeBreakpointUpperBoundPx,
     overviewCanvasZoom,
     activeCanvasSourceType,
   } = editorActiveScreenAndGeometry;
