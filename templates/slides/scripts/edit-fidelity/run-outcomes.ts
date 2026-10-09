@@ -5,7 +5,7 @@ export class ActionTransportError extends Error {}
 export class ActionRequestTimeoutError extends Error {}
 
 const PLAYWRIGHT_TARGET_TRANSPORT_FAILURE =
-  /Execution context was destroyed|frame was detached|Target page, context or browser has been closed|Target crashed|Protocol error \([^)]*\): Target closed|Cannot find context with specified id/i;
+  /Execution context was destroyed|frame was detached|Target page, context or browser has been closed|Target crashed|Page crashed|Navigation failed because page crashed|Protocol error \([^)]*\): Target closed|Cannot find context with specified id/i;
 
 export function isPlaywrightTargetTransportFailure(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);

@@ -278,6 +278,14 @@ it("recognizes Playwright target transport failures only", () => {
   expect(isPlaywrightTargetTransportFailure(new Error("Target crashed"))).toBe(
     true,
   );
+  expect(isPlaywrightTargetTransportFailure(new Error("Page crashed"))).toBe(
+    true,
+  );
+  expect(
+    isPlaywrightTargetTransportFailure(
+      new Error("Navigation failed because page crashed!"),
+    ),
+  ).toBe(true);
   expect(
     isPlaywrightTargetTransportFailure(new Error("Timeout 45000ms exceeded")),
   ).toBe(false);
