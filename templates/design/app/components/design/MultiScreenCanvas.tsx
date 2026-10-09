@@ -127,6 +127,7 @@ import {
   canvasPrimitiveReactStyle,
   canvasVectorPaint,
 } from "./canvas-primitive-style";
+import { CanvasRulers, type CanvasRulersHandle } from "./CanvasRulers";
 import {
   CONTENT_SIZE_REPORT_MESSAGE_TYPE,
   CONTENT_SIZE_REPORT_BRIDGE,
@@ -187,6 +188,7 @@ import type {
   TransformBadge,
   VectorEditOverlayState,
 } from "./multi-screen/types";
+import { PIXEL_GRID_BACKGROUND_IMAGE, PIXEL_GRID_ZOOM } from "./pixel-grid";
 import {
   getIframePaintRetentionStyle,
   SCALED_IFRAME_PAINT_RETENTION_STYLE,
@@ -261,7 +263,6 @@ const WARM_LIVE_EDITORS = 3;
 const LAYOUT_GRID_LINE_CSS = `calc(1px * var(${CHROME_SCALE_CSS_VAR}, 1))`;
 
 const MIN_LAYOUT_GRID_SCREEN_PX = 10;
-const PIXEL_GRID_ZOOM = 800;
 
 const hasScreenChildLayers = memoizeByContent(256, (content: string) => {
   const body = content.match(/<body\b[^>]*>([\s\S]*?)<\/body\s*>/i)?.[1] ?? "";
@@ -651,6 +652,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   readOnly = false,
   editableScreenIds,
   previewDeviceFrame = "none",
+  pixelGridEnabled = true,
+  snapToPixelGrid = true,
+  showRulers = false,
   creation: {
     activeTool,
     toolProps,
@@ -1477,6 +1481,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const wheelGestureFrameRef = useRef<number | null>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const pixelGridRef = useRef<HTMLDivElement>(null);
+  const rulersRef = useRef<CanvasRulersHandle>(null);
   const marqueeOverlayRef = useRef<HTMLSpanElement>(null);
   const viewCommitTimerRef = useRef<number | null>(null);
   const lastCameraCommandNonceRef = useRef<number | null>(null);
@@ -1929,11 +1934,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   );
 
   const resolveBoardSnapStepForFrame = useCallback(
-    (frameId: string | null | undefined): number => {
+    (
+      frameId: string | null | undefined,
+      floorStep: number = WHOLE_PIXEL_SNAP_STEP,
+    ): number => {
       const grids = layoutGridsRef.current;
-      if (!grids || !frameId) return WHOLE_PIXEL_SNAP_STEP;
+      if (!grids || !frameId) return floorStep;
       const contentStep = resolveLayoutGridSnapStep(grids, frameId);
-      if (contentStep <= WHOLE_PIXEL_SNAP_STEP) return WHOLE_PIXEL_SNAP_STEP;
+      if (contentStep <= WHOLE_PIXEL_SNAP_STEP) return floorStep;
       const screen = screensRef.current.find((item) => item.id === frameId);
       const geometry = frameGeometryRef.current[frameId];
       if (!screen || !geometry?.width) return contentStep;
@@ -2752,15 +2760,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [],
   );
 
+  const snapToPixelGridRef = useRef(snapToPixelGrid);
+  snapToPixelGridRef.current = snapToPixelGrid;
   const resolveSnapStepForTargets = useCallback(
     (targetIds: readonly string[], center: Point): number => {
-      if (!layoutGridsRef.current) return WHOLE_PIXEL_SNAP_STEP;
+      const floorStep = snapToPixelGridRef.current ? WHOLE_PIXEL_SNAP_STEP : 0;
+      if (!layoutGridsRef.current) return floorStep;
       const movesAFrame = targetIds.some(
         (targetId) => frameGeometryRef.current[targetId] !== undefined,
       );
-      if (movesAFrame) return WHOLE_PIXEL_SNAP_STEP;
+      if (movesAFrame) return floorStep;
       return resolveBoardSnapStepForFrame(
         getFrameEntryAtPoint(center)?.id ?? null,
+        floorStep,
       );
     },
     [getFrameEntryAtPoint, resolveBoardSnapStepForFrame],
@@ -9699,6 +9711,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }),
       );
     }
+    rulersRef.current?.setCamera({ x: p.x, y: p.y, zoom: zoomRef.current });
     const grid = pixelGridRef.current;
     if (grid) {
       grid.style.backgroundPosition = `${p.x}px ${p.y}px`;
@@ -10450,7 +10463,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const scale = canvasZoom / 100;
   const chromeScale = scale > 0 ? 1 / scale : 1;
-  const showPixelGrid = canvasZoom >= PIXEL_GRID_ZOOM;
+  const showPixelGrid = pixelGridEnabled && canvasZoom >= PIXEL_GRID_ZOOM;
   const effectiveTool = normalizeCanvasTool(activeTool ?? localActiveTool);
   const lastTracedToolRef = useRef<string | null>(null);
   if (lastTracedToolRef.current !== effectiveTool) {
@@ -11424,19 +11437,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         visibility: focusedInteract ? "hidden" : undefined,
       }}
     >
-      {showPixelGrid && !focusedInteract ? (
-        <div
-          ref={pixelGridRef}
-          className="pointer-events-none absolute inset-0 opacity-60"
-          style={{
-            backgroundImage:
-              "linear-gradient(to right, hsl(var(--border)) 1px, transparent 1px), linear-gradient(to bottom, hsl(var(--border)) 1px, transparent 1px)",
-            backgroundPosition: `${pan.x}px ${pan.y}px`,
-            backgroundSize: `${scale}px ${scale}px`,
-          }}
-        />
-      ) : null}
-
       {!focusedInteract &&
       showBoardStaticPreview &&
       boardFrameGeometry &&
@@ -12092,6 +12092,32 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             />
           ))}
       </div>
+
+      {showPixelGrid && !focusedInteract ? (
+        <div
+          ref={pixelGridRef}
+          className="pointer-events-none absolute inset-0 opacity-60"
+          style={{
+            backgroundImage: PIXEL_GRID_BACKGROUND_IMAGE,
+            backgroundPosition: `${pan.x}px ${pan.y}px`,
+            backgroundSize: `${scale}px ${scale}px`,
+          }}
+        />
+      ) : null}
+
+      {showRulers && !focusedInteract ? (
+        <CanvasRulers
+          ref={rulersRef}
+          panX={pan.x}
+          panY={pan.y}
+          zoom={canvasZoom}
+          width={surfaceSize.width}
+          height={surfaceSize.height}
+          canvasPadding={SURFACE_PADDING}
+          insetLeft={chromeInsetLeft}
+          insetRight={chromeInsetRight}
+        />
+      ) : null}
 
       {/* Alt-hover measurement distance labels — same render-outside-the-
           transformed-world reasoning as the equal-gap labels below. */}

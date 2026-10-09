@@ -313,6 +313,8 @@ const messages = {
     silenceWorking: "無音部分を削除しています…",
     silenceCompleted: "無音部分の削除が完了しました",
     silenceFailed: "無音部分の削除に失敗しました",
+    silenceEditsUnreadable:
+      "保存済みの編集を読み取れなかったため、無音部分は削除されませんでした。",
     generatePrSummary: "PRサマリーを生成する",
     generateSop: "SOPを生成する",
     generateSopTooltip:
@@ -1352,6 +1354,8 @@ const messages = {
     burningRedactions: "マスクを動画に焼き込んでいます…",
     burningRedactionsPercent: "マスクを動画に焼き込んでいます… {{percent}}%",
     editFailed: "その編集を保存できませんでした",
+    refreshFailed:
+      "最新の編集内容を読み込めませんでした。編集を続ける前にもう一度お試しください。",
     autoSaveHint: "編集内容はこのクリップに自動保存されます",
     savingChanges: "変更を保存中…",
     changesSaved: "このクリップに変更を保存しました",

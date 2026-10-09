@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.204.0",
+  "version": "0.205.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -183,6 +183,7 @@
     "./client/lazy-chunk-error-boundary": "./dist/client/tombstone/lazy-chunk-error-boundary.js",
     "./client/lazy-chunk-retry-fallback": "./dist/client/tombstone/lazy-chunk-retry-fallback.js",
     "./client/secrets": "./dist/client/secrets.js",
+    "./client/session-replay-privacy": "./dist/client/session-replay-privacy.js",
     "./client/use-db-sync": "./dist/client/use-db-sync.js",
     "./client/zoom-gesture": "./dist/client/zoom-gesture.js",
     "./client/ui": "./dist/client/ui/index.js",
@@ -609,6 +610,7 @@
     "./shared/sign-in-journey": "./dist/shared/sign-in-journey.js",
     "./shared/ssr-beta-redirect": "./dist/shared/ssr-beta-redirect.js",
     "./shared/ssr-session-bootstrap": "./dist/shared/ssr-session-bootstrap.js",
+    "./shared/ssr-session-bootstrap-slot": "./dist/shared/ssr-session-bootstrap-slot.js",
     "./shared/test-traffic": "./dist/shared/test-traffic.js",
     "./shared/workspace-app-audience": "./dist/shared/workspace-app-audience.js",
     "./shared/workspace-app-id": "./dist/shared/workspace-app-id.js",

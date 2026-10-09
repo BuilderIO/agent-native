@@ -303,6 +303,8 @@ const messages = {
     silenceWorking: "جارٍ إزالة فترات الصمت…",
     silenceCompleted: "اكتملت إزالة فترات الصمت",
     silenceFailed: "فشلت إزالة فترات الصمت",
+    silenceEditsUnreadable:
+      "تعذرت قراءة التعديلات المحفوظة، لذلك لم تتم إزالة فترات الصمت.",
     generatePrSummary: "إنشاء ملخص للعلاقات العامة",
     generateSop: "توليد SOP",
     generateSopTooltip:
@@ -1345,6 +1347,8 @@ const messages = {
     burningRedactions: "جارٍ تثبيت مناطق الإخفاء في الفيديو…",
     burningRedactionsPercent: "جارٍ تثبيت مناطق الإخفاء في الفيديو… {{percent}}%",
     editFailed: "تعذّر حفظ هذا التعديل",
+    refreshFailed:
+      "تعذر تحميل أحدث التعديلات. حاول مرة أخرى قبل متابعة التحرير.",
     autoSaveHint: "تُحفَظ التعديلات في هذا المقطع تلقائيًا",
     savingChanges: "جارٍ حفظ التغييرات…",
     changesSaved: "تم حفظ التغييرات في هذا المقطع",

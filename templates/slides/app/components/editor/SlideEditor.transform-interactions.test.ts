@@ -55,6 +55,34 @@ describe("SlideEditor transformed-object interactions", () => {
     expect(rotateSource).toContain("promotion.snapshot.objectId");
   });
 
+  it("promotes a flow object only after the handle gesture passes the threshold", () => {
+    const resizeStart = editorSource.indexOf("const startElementResize =");
+    const resizeSource = editorSource.slice(
+      resizeStart,
+      editorSource.indexOf("const startGroupResize =", resizeStart),
+    );
+    const resizePreview = resizeSource.indexOf("preview: (gesture)");
+    expect(resizePreview).toBeGreaterThan(0);
+    expect(
+      resizeSource.indexOf("freezeElementForFreeformSelection("),
+    ).toBeGreaterThan(resizeSource.indexOf("const beginResize"));
+    expect(resizeSource).toContain("!beginResize()");
+    expect(resizeSource).toContain("resolveFitTextBoxResize({");
+
+    const rotateStart = editorSource.indexOf("const startRotateSelection =");
+    const rotateSource = editorSource.slice(
+      rotateStart,
+      editorSource.indexOf(
+        "useEffect(() => {\n    if (readOnly || editingEl)",
+        rotateStart,
+      ),
+    );
+    expect(
+      rotateSource.indexOf("freezeElementForFreeformSelection("),
+    ).toBeGreaterThan(rotateSource.indexOf("const beginRotation"));
+    expect(rotateSource).toContain("SLIDES_CANVAS_DRAG_THRESHOLD");
+  });
+
   it("renders single-object handles in the measured local transform frame", () => {
     const outlineStart = editorSource.indexOf(
       "function ElementSelectionOutline(",

@@ -1510,6 +1510,8 @@ export default {
     replayLoading: "Carregando replay...",
     replayLoadingProgress:
       "{{loaded}} de {{total}} blocos de replay carregados",
+    replayTargetFallback:
+      "O ponto solicitado ({{requested}}) não está disponível; exibindo o quadro de replay mais próximo em {{available}}.",
     replayUnavailable: "Nenhum bloco de replay para esta sessão",
     replayUnavailableDescription:
       "A sessão tem eventos de analytics, mas nenhum evento de bloco rrweb foi encontrado.",
@@ -1646,8 +1648,12 @@ export default {
       "O Design não retornou um resultado do storyboard.",
     storyboardTemporaryCleanupPending:
       "O storyboard foi salvo, mas não foi possível remover os arquivos temporários de captura.",
+    storyboardTemporaryCleanupFailed:
+      "A limpeza das capturas temporárias ainda está pendente.",
     storyboardUnexpectedResponse:
       "A exportação das capturas retornou uma resposta ilegível. Tente novamente.",
+    storyboardSaveOutcomeUnknown:
+      "O Design pode ter salvo o storyboard. Verifique o Design antes de tentar novamente.",
     openStoryboard: "Abrir storyboard no Design",
     cancelStoryboardCapture: "Cancelar captura",
     captureToDesign: "Capturar e adicionar ao Design",

@@ -1,3 +1,4 @@
+import type { ModelEngineConfig } from "@agent-native/core/agent/model-version";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { buildSettingsRoute } from "@agent-native/core/navigation";
 import {
@@ -767,6 +768,8 @@ function AgentPanelInner({
   const t = useT();
   const location = useLocation();
   const mounted = useClientOnly();
+  const [activeChatModelEngine, setActiveChatModelEngine] =
+    useState<ModelEngineConfig | null>(null);
   const onboardingPreviewMode = useOnboardingPreviewMode();
   const firstRunOnboardingGateOwnsSurface =
     useFirstRunOnboardingGateOwnsSurface();
@@ -2402,6 +2405,7 @@ function AgentPanelInner({
               emptyStateAddon={emptyStateAddon}
               emptyStateFooter={emptyStateFooter}
               onMessageCountChange={onMessageCountChange}
+              onActiveModelEngineChange={setActiveChatModelEngine}
               suggestions={suggestions}
               dynamicSuggestions={dynamicSuggestions}
               suggestionPlacement={
@@ -2493,7 +2497,7 @@ function AgentPanelInner({
                 </div>
               }
             >
-              <ResourcesPanel />
+              <ResourcesPanel modelEngine={activeChatModelEngine} />
             </Suspense>
           </div>
         )}

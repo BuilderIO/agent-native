@@ -73,7 +73,7 @@ export {
   type FrameSizePreset,
   type FrameSizePresetCategory,
   type FrameSizePresetCategoryKey,
-} from "./frame-size-presets";
+} from "@shared/frame-size-presets";
 export {
   GradientEditor,
   defaultGradient,

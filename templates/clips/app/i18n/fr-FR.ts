@@ -319,6 +319,8 @@ const messages = {
     silenceWorking: "Suppression des silences…",
     silenceCompleted: "Suppression des silences terminée",
     silenceFailed: "Échec de la suppression des silences",
+    silenceEditsUnreadable:
+      "Impossible de lire les modifications enregistrées ; les silences n'ont pas été supprimés.",
     generatePrSummary: "Générer un résumé des relations publiques",
     generateSop: "Générer SOP",
     generateSopTooltip:
@@ -1372,6 +1374,8 @@ const messages = {
     burningRedactionsPercent:
       "Application des masquages à la vidéo… {{percent}} %",
     editFailed: "Impossible d'enregistrer cette modification",
+    refreshFailed:
+      "Impossible de charger les dernières modifications. Réessayez avant de modifier le clip.",
     autoSaveHint:
       "Les modifications sont enregistrées automatiquement sur ce clip",
     savingChanges: "Enregistrement des modifications…",

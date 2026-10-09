@@ -131,6 +131,15 @@ function inferWorkspaceBasePath(pathname: string): string {
   return `/${firstSegment}`;
 }
 
+export function resolveAuthPageBasePath(
+  appBasePath: string,
+  workspaceRuntime: boolean,
+  pathname: string,
+): string {
+  if (appBasePath || !workspaceRuntime) return appBasePath;
+  return inferWorkspaceBasePath(pathname);
+}
+
 function readStorage(key: string): string {
   try {
     return window.localStorage.getItem(key) ?? "";
@@ -204,9 +213,22 @@ async function requestJson(
   url: string,
   init: RequestInit = {},
 ): Promise<AuthRequestResult> {
+  const headers = new Headers(init.headers);
+  if (typeof window !== "undefined") {
+    const requestUrl = new URL(url, window.location.href);
+    const sessionId = getAnalyticsSessionId();
+    if (
+      requestUrl.origin === window.location.origin &&
+      sessionId &&
+      /^[!-~]{1,127}$/.test(sessionId)
+    ) {
+      headers.set("X-Agent-Native-Session-Id", sessionId);
+    }
+  }
   const response = await fetch(url, {
     credentials: "include",
     ...init,
+    headers,
   });
   let data: Record<string, unknown> = {};
   let readable = false;
@@ -684,11 +706,13 @@ export function AuthPage(props: AuthPageProps) {
   );
 
   React.useEffect(() => {
-    if (appBasePath || !workspaceRuntime) {
-      setRuntimeBasePathResolved(true);
-      return;
-    }
-    setRuntimeAppBasePath(inferWorkspaceBasePath(window.location.pathname));
+    setRuntimeAppBasePath(
+      resolveAuthPageBasePath(
+        appBasePath,
+        workspaceRuntime,
+        window.location.pathname,
+      ),
+    );
     setRuntimeBasePathResolved(true);
   }, [appBasePath, workspaceRuntime]);
 

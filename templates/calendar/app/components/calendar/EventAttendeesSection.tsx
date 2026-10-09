@@ -44,7 +44,7 @@ import { withCalendarEventSourceIdentity } from "@/lib/calendar-event-identity";
 import { getLocalTimezone } from "@/lib/event-form-utils";
 import {
   canInlineRsvp,
-  hasTimeProposal,
+  getTimeProposals,
   RsvpStatusIcon,
   type RsvpStatus,
 } from "@/lib/rsvp-status";
@@ -54,7 +54,7 @@ type RecurringScope = "single" | "all" | "thisAndFollowing";
 
 type Attendee = NonNullable<CalendarEvent["attendees"]>[number];
 type EditableRsvpStatus = Exclude<RsvpStatus, "needsAction">;
-type ProposalAction = "propose" | "review";
+type ProposalAction = "propose" | "reviewAll";
 type AttendeeCalendarEvent = Pick<
   CalendarEvent,
   | "id"
@@ -313,9 +313,9 @@ function RsvpControls({
           >
             <IconCalendarTime aria-hidden="true" className="size-3.5" />
             {t(
-              proposalAction === "review"
-                ? "eventForm.reviewProposedTime"
-                : "eventForm.proposeNewTime",
+              proposalAction === "propose"
+                ? "eventForm.proposeNewTime"
+                : "eventForm.reviewTimeProposals",
             )}
           </a>
         </Button>
@@ -738,12 +738,18 @@ export function EventAttendeesSection({
   const userIsOrganizer = Boolean(
     event.organizer?.self || selfAttendee?.organizer,
   );
+  const timeProposals = getTimeProposals(event);
+  const hasOtherAttendees = attendees.some(
+    (attendee) => !attendee.self && !attendee.organizer,
+  );
   const proposalAction: ProposalAction | undefined =
     selfAttendee && event.htmlLink && !event.allDay
       ? userIsOrganizer
-        ? hasTimeProposal(event)
-          ? "review"
-          : undefined
+        ? timeProposals.length > 0
+          ? undefined
+          : hasOtherAttendees
+            ? "reviewAll"
+            : undefined
         : "propose"
       : undefined;
   const others =
@@ -806,6 +812,54 @@ export function EventAttendeesSection({
                   .filter(Boolean)
                   .join(", ")}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {userIsOrganizer && timeProposals.length > 0 && (
+        <div
+          role="status"
+          className="mb-2 rounded-lg border border-primary/25 bg-primary/5 p-3"
+        >
+          <div className="flex items-start gap-2.5">
+            <IconCalendarTime
+              aria-hidden="true"
+              className="mt-0.5 size-4 shrink-0 text-primary"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="space-y-2">
+                {timeProposals.map(({ attendee, comment }) => (
+                  <div key={attendee.email}>
+                    <p className="text-[13px] font-medium text-foreground">
+                      {t("eventForm.newTimeProposedBy", {
+                        name: attendee.displayName || attendee.email,
+                      })}
+                    </p>
+                    <p className="mt-0.5 break-words text-xs text-muted-foreground">
+                      {comment}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              {event.htmlLink && (
+                <Button
+                  asChild
+                  variant="secondary"
+                  size="sm"
+                  className="mt-2 h-8 gap-1.5"
+                >
+                  <a
+                    href={event.htmlLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <IconCalendarTime aria-hidden="true" className="size-3.5" />
+                    {t("eventForm.reviewProposedTime")}
+                  </a>
+                </Button>
+              )}
             </div>
           </div>
         </div>

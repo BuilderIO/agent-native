@@ -47,6 +47,7 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "./request-context.js";
+import { getForwardedRequestOrigin } from "./request-origin.js";
 
 export const DEV_ACTION_ROUTE = "/_agent-native/dev/action";
 export const DEV_DB_QUERY_ROUTE = "/_agent-native/dev/db-query";
@@ -297,7 +298,12 @@ export function mountDevActionForwardRoute(
         (await resolveDevUserEmail());
       const orgId = getHeader(event, DEV_ACTION_ORG_HEADER) || undefined;
 
-      return runWithRequestContext({ userEmail, orgId }, async () => {
+      const context = {
+        userEmail,
+        orgId,
+        requestOrigin: getForwardedRequestOrigin(event),
+      };
+      return runWithRequestContext(context, async () => {
         try {
           const ctx: ActionRunContext = {
             userEmail: getRequestUserEmail(),

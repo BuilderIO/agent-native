@@ -10,6 +10,7 @@ import { isAnonymousWaitlistSessionEmail } from "../server/anonymous-identity.js
 import { crossSiteCookieAttrs, getSession } from "../server/auth.js";
 import { shouldWriteFirstRunOnboardingEligibility } from "../server/first-run-onboarding-build-mode.js";
 import {
+  getVerifiedServiceIdentityFromEvent,
   getRequestContext,
   hasExplicitPersonalOrgScope,
 } from "../server/request-context.js";
@@ -275,6 +276,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   const sessionOrgRole = normalizeOrgRole(session.orgRole);
 
   const requestContext = getRequestContext();
+  const verifiedServiceIdentity = getVerifiedServiceIdentityFromEvent(event);
   const serviceRole = implicitServiceOrgRole({
     email,
     orgId: sessionOrgId,
@@ -283,13 +285,34 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
         ? null
         : (requestContext?.orgId ?? sessionOrgId),
   });
-  if (serviceRole && sessionOrgId) {
-    return {
-      email,
-      orgId: sessionOrgId,
-      orgName: null,
-      role: serviceRole,
-    };
+  if (
+    serviceRole &&
+    sessionOrgId &&
+    verifiedServiceIdentity &&
+    verifiedServiceIdentity.userEmail.trim().toLowerCase() ===
+      email.trim().toLowerCase() &&
+    verifiedServiceIdentity.orgId === sessionOrgId
+  ) {
+    const organization = await getDbExec().execute({
+      sql: `SELECT identity_authority, identity_id
+            FROM organizations WHERE id = ? LIMIT 1`,
+      args: [sessionOrgId],
+    });
+    const metadata = organization.rows[0] as
+      | { identity_authority?: unknown; identity_id?: unknown }
+      | undefined;
+    if (
+      metadata &&
+      !String(metadata.identity_authority ?? "").trim() &&
+      !String(metadata.identity_id ?? "").trim()
+    ) {
+      return {
+        email,
+        orgId: sessionOrgId,
+        orgName: null,
+        role: serviceRole,
+      };
+    }
   }
 
   const exec = getDbExec();

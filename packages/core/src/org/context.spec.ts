@@ -28,6 +28,7 @@ vi.mock("../application-state/store.js", () => ({
   appStatePut: (...args: any[]) => mockAppStatePut(...args),
 }));
 
+import { markVerifiedServiceIdentityForEvent } from "../server/request-context.js";
 import { setActiveOrgId } from "./active-org.js";
 import { __resetDomainMatchCacheForTests } from "./auto-join-domain.js";
 import {
@@ -100,10 +101,17 @@ describe("getOrgContext", () => {
     expect(mockExecute).not.toHaveBeenCalled();
   });
 
-  it("resolves an org service identity without a physical membership row", async () => {
+  it("resolves a verified service identity for an existing unlinked org", async () => {
     mockGetSession.mockResolvedValue({
       email: "svc-pr-recap@service.org-1",
       orgId: "org-1",
+    });
+    markVerifiedServiceIdentityForEvent(EVENT, {
+      userEmail: "svc-pr-recap@service.org-1",
+      orgId: "org-1",
+    });
+    mockExecute.mockResolvedValueOnce({
+      rows: [{ identity_authority: null, identity_id: null }],
     });
 
     await expect(getOrgContext(EVENT)).resolves.toEqual({
@@ -112,7 +120,55 @@ describe("getOrgContext", () => {
       orgName: null,
       role: "member",
     });
-    expect(mockExecute).not.toHaveBeenCalled();
+    expect(mockExecute).toHaveBeenCalledOnce();
+    expect(mockExecute).toHaveBeenCalledWith({
+      sql: expect.stringContaining("FROM organizations"),
+      args: ["org-1"],
+    });
+  });
+
+  it("does not infer org membership from an unverified service-shaped email", async () => {
+    mockGetSession.mockResolvedValue({
+      email: "svc-pr-recap@service.org-1",
+      orgId: "org-1",
+    });
+
+    await expect(getOrgContext(EVENT)).resolves.toEqual({
+      email: "svc-pr-recap@service.org-1",
+      orgId: null,
+      orgName: null,
+      role: null,
+    });
+    expect(mockExecute).toHaveBeenCalledWith({
+      sql: expect.stringContaining("FROM org_members"),
+      args: ["svc-pr-recap@service.org-1"],
+    });
+  });
+
+  it("denies a verified service identity for a federated org", async () => {
+    mockGetSession.mockResolvedValue({
+      email: "svc-pr-recap@service.org-1",
+      orgId: "org-1",
+    });
+    markVerifiedServiceIdentityForEvent(EVENT, {
+      userEmail: "svc-pr-recap@service.org-1",
+      orgId: "org-1",
+    });
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          identity_authority: "https://identity.example.test",
+          identity_id: "org-upstream-1",
+        },
+      ],
+    });
+
+    await expect(getOrgContext(EVENT)).resolves.toEqual({
+      email: "svc-pr-recap@service.org-1",
+      orgId: null,
+      orgName: null,
+      role: null,
+    });
   });
 
   it("looks up memberships by LOWERCASED email", async () => {

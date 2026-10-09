@@ -584,19 +584,20 @@ function setTrackingIdentityFromSession(data: unknown): void {
 }
 
 function refreshTrackingAuthSession(): Promise<void> {
-  if (typeof window === "undefined" || typeof fetch !== "function") {
+  if (typeof window === "undefined") {
     _trackingIdentityResolved = true;
     return Promise.resolve();
   }
+  if (typeof fetch !== "function") return Promise.resolve();
   if (_trackingSessionRefresh) return _trackingSessionRefresh;
   _trackingSessionRefresh = fetchAuthSessionStatus()
     .then((result) => {
       if (result.state === "available") {
         setTrackingIdentityFromSession(result.value);
+        _trackingIdentityResolved = true;
       }
     })
     .finally(() => {
-      _trackingIdentityResolved = true;
       _trackingSessionRefresh = null;
     });
   return _trackingSessionRefresh;
@@ -641,6 +642,15 @@ function getTrackingAuthUserId(): string | undefined {
 
 export function getAnalyticsIdentityKey(): string | undefined {
   return getTrackingUserId() || getOrCreateAnonymousId();
+}
+
+export async function resolveAnalyticsIdentityKey(): Promise<
+  string | undefined
+> {
+  if (!_trackingIdentityResolved) {
+    await (_trackingSessionRefresh ?? refreshTrackingAuthSession());
+  }
+  return _trackingIdentityResolved ? getAnalyticsIdentityKey() : undefined;
 }
 
 function getOrCreateAnonymousId(): string | undefined {

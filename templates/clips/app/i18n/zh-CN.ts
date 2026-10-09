@@ -294,6 +294,7 @@ const messages = {
     silenceWorking: "正在消除静音…",
     silenceCompleted: "静音消除完成",
     silenceFailed: "静音消除失败",
+    silenceEditsUnreadable: "无法读取已保存的编辑，因此未移除静音片段。",
     generatePrSummary: "生成公关摘要",
     generateSop: "生成SOP",
     generateSopTooltip:
@@ -1281,6 +1282,7 @@ const messages = {
     burningRedactions: "正在将遮挡渲染进视频…",
     burningRedactionsPercent: "正在将遮挡渲染进视频… {{percent}}%",
     editFailed: "无法保存该编辑",
+    refreshFailed: "无法加载最新编辑内容。请重试后再进行编辑。",
     autoSaveHint: "编辑内容会自动保存到此剪辑",
     savingChanges: "正在保存更改…",
     changesSaved: "更改已保存到此剪辑",

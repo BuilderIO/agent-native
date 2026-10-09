@@ -316,7 +316,7 @@ const messages = {
       "Öffnet direkt im Vollbild-Präsentationsmodus.",
     present: "Präsentieren",
     more: "Mehr",
-    importing: "Importiert...",
+    importing: "Wird importiert...",
     importFile: "Datei importieren",
     downloadBackup: "Backup herunterladen",
     conflictStatus: "Textkonflikt",

@@ -307,6 +307,8 @@ const messages = {
     silenceWorking: "무음 구간을 제거하는 중…",
     silenceCompleted: "무음 구간 제거 완료",
     silenceFailed: "무음 구간 제거 실패",
+    silenceEditsUnreadable:
+      "저장된 편집 내용을 읽을 수 없어 무음 구간을 제거하지 않았습니다.",
     generatePrSummary: "PR 요약 생성",
     generateSop: "SOP 생성",
     generateSopTooltip:
@@ -1332,6 +1334,8 @@ const messages = {
     burningRedactions: "가림 처리를 영상에 적용하는 중…",
     burningRedactionsPercent: "가림 처리를 영상에 적용하는 중… {{percent}}%",
     editFailed: "해당 편집을 저장하지 못했습니다",
+    refreshFailed:
+      "최신 편집 내용을 불러오지 못했습니다. 편집을 계속하기 전에 다시 시도하세요.",
     autoSaveHint: "수정 내용이 이 클립에 자동 저장됩니다",
     savingChanges: "변경사항 저장 중…",
     changesSaved: "변경사항이 이 클립에 저장되었습니다",

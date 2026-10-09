@@ -489,6 +489,7 @@ export {
 } from "./action-routes.js";
 export {
   AGENT_RUN_OWNER_CONTEXT_KEY,
+  readBrowserSessionIdHeader,
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
@@ -839,6 +840,7 @@ export {
   type RecurringSweepContext,
   type RecurringSweepHandler,
 } from "../jobs/sweep-hooks.js";
+export { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 export {
   scheduledTriggerAvailability,
   type ScheduledTriggerAvailability,

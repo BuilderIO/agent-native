@@ -33,7 +33,7 @@ const isoDate = z
 
 export default defineAction({
   description:
-    'Build the onboarding journey tree for a date window: per-session step sequences (signup, onboarding questions, setup method, app entry, first action, first output) folded into a prefix tree. format "tree" returns { window, app, rootN, coverage, nodes }: each node has n, pctOfRoot, pctOfParent, dropoffN/dropoffPct (sessions whose last observed step is that node, not a confirmed exit) and example sessions with recordingId, offsetMs to seek to, and the recording\'s viewport. format "summary" returns the same counts as an indented text outline with no examples. Check coverage.truncated first: true means counts are a partial sample or the node list was cut (see notes). Use it to plan onboarding storyboards or find where new users stop; feed the tree to the journey:capture CLI to render frames.',
+    'Build the onboarding journey tree for a date window: per-session step sequences (signup, onboarding questions, setup method, app entry, first action, first output) folded into a prefix tree. format "tree" returns { window, app, rootN, coverage, nodes } for sessions that entered onboarding, plus standaloneSetup when Home chat integration events occurred in sessions without onboarding; its root and percentages have a separate denominator. Each node has n, pctOfRoot, pctOfParent, dropoffN/dropoffPct (sessions whose last observed step is that node, not a confirmed exit) and example sessions with recordingId, a recording-start-relative offsetMs to seek to, and the recording\'s viewport. format "summary" returns the same counts as indented text outlines with no examples. Check coverage.truncated first: true means counts are a partial sample or a node list was cut (see notes). Use it to plan onboarding storyboards or find where new users stop; feed either tree to the journey:capture CLI to render frames.',
   schema: z.object({
     dateFrom: isoDate.describe(
       "Inclusive UTC start date, YYYY-MM-DD. Sessions that began earlier appear mid-journey, so start a day before the period you care about.",
@@ -70,7 +70,7 @@ export default defineAction({
       .optional()
       .default(60)
       .describe(
-        "Most nodes returned, largest first. When the tree has more, coverage.truncated is true and notes says how many were cut. Defaults to 60.",
+        "Most nodes in each independently counted tree, largest first. When a tree has more, coverage.truncated is true and notes says how many were cut. Defaults to 60.",
       ),
     maxDepth: z.coerce
       .number()

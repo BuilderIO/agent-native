@@ -319,6 +319,8 @@ const messages = {
     silenceWorking: "Stille wird entfernt…",
     silenceCompleted: "Entfernen der Stille abgeschlossen",
     silenceFailed: "Entfernen der Stille fehlgeschlagen",
+    silenceEditsUnreadable:
+      "Gespeicherte Bearbeitungen konnten nicht gelesen werden; Stille wurde nicht entfernt.",
     generatePrSummary: "Erstellen Sie eine PR-Zusammenfassung",
     generateSop: "Generieren Sie SOP",
     generateSopTooltip:
@@ -1376,6 +1378,8 @@ const messages = {
     burningRedactionsPercent:
       "Die Schwärzungen werden in das Video gerendert … {{percent}} %",
     editFailed: "Diese Änderung konnte nicht gespeichert werden",
+    refreshFailed:
+      "Die neuesten Änderungen konnten nicht geladen werden. Bitte versuche es erneut, bevor du weiterbearbeitest.",
     autoSaveHint: "Änderungen werden automatisch in diesem Clip gespeichert",
     savingChanges: "Änderungen werden gespeichert…",
     changesSaved: "Änderungen in diesem Clip gespeichert",

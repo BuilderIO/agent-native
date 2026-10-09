@@ -595,6 +595,136 @@ describe("createHttpAgentChatRuntime", () => {
 });
 
 describe("createAgentNativeChatRuntime", () => {
+  it("keeps the original request context when a run-timeout stream closes without done", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "auto_continue", reason: "run_timeout" }]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "done", reason: "complete" }]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      threadId: "thread-timeout-context",
+    });
+    const originalMessages: AgentChatRuntimeMessage[] = [
+      {
+        id: "prior-user",
+        role: "user",
+        content: [{ type: "text", text: "Earlier context" }],
+      },
+    ];
+    const first = await session.startTurn({
+      prompt: "Original request",
+      messages: originalMessages,
+      metadata: { source: "browser" },
+    });
+    const firstEvents = await drain(first.events);
+
+    expect(firstEvents).toMatchObject([{ type: "continuation" }]);
+    expect(firstEvents.some((event) => event.type === "done")).toBe(false);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      prompt: "Continue after the time limit",
+    });
+    expect(continuation).toBeDefined();
+    await drain(continuation!.events);
+
+    const continuationRequest = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(continuationRequest).toMatchObject({
+      message: "Continue after the time limit",
+      threadId: "thread-timeout-context",
+      turnId: first.id,
+      history: [{ role: "user", content: "Earlier context" }],
+      metadata: { source: "browser" },
+    });
+  });
+
+  it("sends the browser analytics session with agent-run requests", async () => {
+    const storage = new Map<string, string>([
+      ["agent-native.session_id", "browser-session-42"],
+      ["agent-native.session_last_activity", String(Date.now())],
+    ]);
+    vi.stubGlobal("window", {
+      location: {
+        href: "https://app.example.test/chat",
+        origin: "https://app.example.test",
+      },
+      localStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => storage.set(key, value),
+      },
+    });
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetchMock as typeof fetch,
+      });
+      const session = await runtime.createSession();
+      await drain(
+        (await session.startTurn({ prompt: "Create a slide" })).events,
+      );
+
+      expect(
+        new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get(
+          "x-agent-native-session-id",
+        ),
+      ).toBe("browser-session-42");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("omits the browser analytics session from cross-origin agent chat requests", async () => {
+    const storage = new Map<string, string>([
+      ["agent-native.session_id", "browser-session-42"],
+      ["agent-native.session_last_activity", String(Date.now())],
+    ]);
+    vi.stubGlobal("window", {
+      location: {
+        href: "https://app.example.test/chat",
+        origin: "https://app.example.test",
+      },
+      localStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => storage.set(key, value),
+      },
+    });
+    try {
+      const apiUrl = "https://chat.example.test/_agent-native/agent-chat";
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl,
+        fetch: fetchMock as typeof fetch,
+      });
+      const session = await runtime.createSession();
+      await drain(
+        (await session.startTurn({ prompt: "Create a slide" })).events,
+      );
+
+      const chatRequest = fetchMock.mock.calls.find(
+        ([input]) => String(input) === apiUrl,
+      )?.[1];
+      expect(
+        new Headers(chatRequest?.headers).get("x-agent-native-session-id"),
+      ).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("sends prior tool activity as structured history without duplicating the current prompt", async () => {
     const fetchMock = vi
       .fn()
@@ -2438,50 +2568,71 @@ describe("createAgentNativeChatRuntime", () => {
   it("uses the configured streaming origin after minting a same-origin token", async () => {
     const apiUrl = "/_agent-native/agent-chat";
     const streamingUrl = "https://stream.example.test/agent-chat";
-    const fetchMock = vi.fn(
-      async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        if (url === `${apiUrl}/stream-token`) {
-          return Response.json({ token: "short-lived-token" });
-        }
-        if (url === streamingUrl) {
+    const storage = new Map<string, string>([
+      ["agent-native.session_id", "browser-session-42"],
+      ["agent-native.session_last_activity", String(Date.now())],
+    ]);
+    vi.stubGlobal("window", {
+      location: {
+        href: "https://app.example.test/chat",
+        origin: "https://app.example.test",
+      },
+      localStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => storage.set(key, value),
+      },
+    });
+    try {
+      const fetchMock = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url === `${apiUrl}/stream-token`) {
+            return Response.json({ token: "short-lived-token" });
+          }
+          if (url === streamingUrl) {
+            return sseResponse([
+              { type: "text", text: "streamed" },
+              { type: "done" },
+            ]);
+          }
           return sseResponse([
-            { type: "text", text: "streamed" },
+            { type: "text", text: "primary" },
             { type: "done" },
           ]);
-        }
-        return sseResponse([
-          { type: "text", text: "primary" },
-          { type: "done" },
-        ]);
-      },
-    );
-    const runtime = createAgentNativeChatRuntime({
-      apiUrl,
-      streamingUrl,
-      fetch: fetchMock as typeof fetch,
-    });
+        },
+      );
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl,
+        streamingUrl,
+        fetch: fetchMock as typeof fetch,
+      });
 
-    const session = await runtime.createSession({
-      threadId: "thread-streaming",
-    });
-    await drain((await session.startTurn({ prompt: "Stream this" })).events);
+      const session = await runtime.createSession({
+        threadId: "thread-streaming",
+      });
+      await drain((await session.startTurn({ prompt: "Stream this" })).events);
 
-    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
-      `${apiUrl}/stream-token`,
-      streamingUrl,
-    ]);
-    const tokenRequest = fetchMock.mock.calls[0]?.[1];
-    const streamRequest = fetchMock.mock.calls[1]?.[1];
-    expect(tokenRequest).toMatchObject({
-      method: "GET",
-      credentials: "same-origin",
-      cache: "no-store",
-    });
-    expect(new Headers(streamRequest?.headers).get("Authorization")).toBe(
-      "Bearer short-lived-token",
-    );
-    expect(streamRequest?.credentials).toBe("omit");
+      expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+        `${apiUrl}/stream-token`,
+        streamingUrl,
+      ]);
+      const tokenRequest = fetchMock.mock.calls[0]?.[1];
+      const streamRequest = fetchMock.mock.calls[1]?.[1];
+      expect(tokenRequest).toMatchObject({
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      expect(new Headers(streamRequest?.headers).get("Authorization")).toBe(
+        "Bearer short-lived-token",
+      );
+      expect(
+        new Headers(streamRequest?.headers).get("x-agent-native-session-id"),
+      ).toBeNull();
+      expect(streamRequest?.credentials).toBe("omit");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("falls back to the primary route when the streaming origin cannot connect", async () => {
@@ -3155,6 +3306,79 @@ describe("createAgentNativeChatRuntime", () => {
         },
       },
     );
+  });
+
+  it("preserves the original user brief through the bounded text history window", async () => {
+    const originalBrief =
+      "Create a LinkedIn ad at exactly 1200x627. Keep it on one static canvas.";
+    const laterContext = Array.from({ length: 140 }, (_, index) => ({
+      id: `assistant-context-${index}`,
+      role: "assistant" as const,
+      content: [
+        {
+          type: index % 2 === 0 ? ("text" as const) : ("reasoning" as const),
+          text: `Prior design context ${index}.`,
+        },
+      ],
+    }));
+    const currentFollowUp = "Make it more vivid.";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-preserve-original-brief",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: currentFollowUp,
+      messages: [
+        {
+          id: "user-original-brief",
+          role: "user",
+          content: [{ type: "text", text: originalBrief }],
+        },
+        ...laterContext,
+        {
+          id: "user-current-follow-up",
+          role: "user",
+          content: [{ type: "text", text: currentFollowUp }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const history = body.structuredHistory as Array<{
+      role: "user" | "assistant";
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const parts = history.flatMap((message) => message.content);
+    const visibleText = parts
+      .filter(
+        (part) =>
+          part.type === "text" &&
+          part.text !==
+            "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+      )
+      .map((part) => part.text);
+    const historyBytes = new TextEncoder().encode(
+      JSON.stringify(body.structuredHistory),
+    ).byteLength;
+
+    expect(visibleText).toEqual([
+      originalBrief,
+      ...laterContext.slice(-127).map((message) => message.content[0]!.text),
+    ]);
+    expect(visibleText).toHaveLength(128);
+    expect(visibleText).not.toContain(currentFollowUp);
+    expect(historyBytes).toBeLessThanOrEqual(256 * 1024);
+    expect(parts).toContainEqual({
+      type: "text",
+      text: "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+    });
   });
 
   it("keeps the pending approval pair ahead of oversized continuation history", async () => {
