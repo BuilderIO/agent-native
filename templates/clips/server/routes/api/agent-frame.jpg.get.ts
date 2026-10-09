@@ -9,6 +9,7 @@ import {
   getForwardedRequestURL,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import { getAgentClipReadiness } from "@shared/agent-context";
 import { isImageRecording } from "@shared/recording-kind";
 import {
   defineEventHandler,
@@ -261,6 +262,24 @@ export default defineEventHandler(async (event: H3Event) => {
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
     return { error: REDACTION_HOLD_MESSAGE, redactionPending: true };
   }
+
+  const readiness = getAgentClipReadiness(recording.status);
+  if (readiness.state === "preparing") {
+    const retryAfterSeconds = readiness.retryAfterSeconds ?? 15;
+    setResponseStatus(event, 409);
+    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
+    setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
+    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+    return {
+      failureKind: "processing",
+      error: `This clip is still ${recording.status} and its frames are not ready.`,
+      nextStep:
+        readiness.instruction ??
+        "Wait 15 seconds, then fetch agentContextUrl again before requesting frames.",
+      retryAfterSeconds,
+    };
+  }
+
   // A still image has one frame, the picture itself; there is no video to
   // cut one from.
   if (isImageRecording(recording)) {

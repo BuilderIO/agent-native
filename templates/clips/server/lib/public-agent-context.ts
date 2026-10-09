@@ -792,6 +792,11 @@ export function buildPublicAgentContext({
           "Use the HTTP URLs in apis for browser-independent access. For complete transcript text, use apis.transcript. If this clip page is already open in a WebMCP-capable browser, list its read-only page tools for bounded access; WebMCP transcript results may omit fullText or be truncated, so follow sourceUrl for the complete transcript.",
         ]
       : []),
+    ...(frameMode === "still" || frameMode === "video"
+      ? [
+          "Keep the exact id and any agent_access query parameter from each supplied URL. When a frame request returns JSON, read failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link. If failureKind=media, explain that the stored media could not be retrieved and another share link will not fix it. If failureKind=processing, follow nextStep. When clip.agentReadiness.state is preparing, wait clip.agentReadiness.retryAfterSeconds and fetch apis.context.url before retrying; do not treat the frame as missing media. If failureKind=expired, ask the owner to extend or remove the clip's expiry in the Share menu, save it, then create and send a new Share with agents link. Report the failing frame URL without its agent_access value.",
+        ]
+      : []),
     ...transcriptStatusInstructions(transcript),
     ...(bugReport
       ? [
@@ -816,7 +821,6 @@ export function buildPublicAgentContext({
           ? [
               "This clip is readable as both text (transcript) and images (JPEG frames) — you can hear AND see it.",
               "To SEE the screen, GET apis.frame.urlTemplate with atMs (returns image/jpeg). Start with recommendedFrames, then fetch additional frames around transcript timestamps that matter for the task.",
-              "Keep the exact id and any agent_access query parameter from each supplied URL. For a 401 or 404 response, read the JSON failureKind and error. If a context or transcript request has failureKind=access, explain that this link does not grant access; for a private clip, ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link. If a frame request has failureKind=media while the context or transcript still works, explain that the stored video is unavailable and another share link will not fix it. If a request has failureKind=expired, ask the owner to extend or remove the clip's expiry in the Share menu, save it, then create and send a new Share with agents link. Report the failing frame URL without its agent_access value.",
             ]
           : []),
   ];

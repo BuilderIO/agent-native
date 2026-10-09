@@ -449,6 +449,12 @@ describe("buildPublicAgentContext", () => {
     expect(context.clip.sourceProvider).toBe("loom");
     expect(context.apis).toHaveProperty("frame");
     expect(context.recommendedFrames.length).toBeGreaterThan(0);
+    expect(context.instructions.join(" ")).toMatch(
+      /failureKind=processing, follow nextStep/i,
+    );
+    expect(context.instructions.join(" ")).toMatch(
+      /wait clip\.agentReadiness\.retryAfterSeconds and fetch apis\.context\.url/i,
+    );
   });
 
   it("tells agents to wait and retry while a transcript is pending", () => {

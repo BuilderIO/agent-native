@@ -205,6 +205,49 @@ describe("agent-frame.jpg route", () => {
     expect(mockLoadRecordingMediaFile).toHaveBeenCalled();
   });
 
+  it.each(["uploading", "processing"])(
+    "returns retry guidance without fetching frames while a clip is %s",
+    async (status) => {
+      mockLoadPublicAgentAccess.mockResolvedValue({
+        ok: true,
+        access: makeAccess({ recording: { id: `clip-${status}`, status } }),
+      });
+
+      const event = makeEvent({ id: `clip-${status}`, atMs: "1000" });
+      const result = await handler(event as any);
+
+      expect(event.status).toBe(409);
+      expect(headerValue(event, "Retry-After")).toBe("15");
+      expect(result).toMatchObject({
+        failureKind: "processing",
+        retryAfterSeconds: 15,
+        nextStep: expect.stringContaining("Wait 15 seconds"),
+      });
+      expect(mockLoadRecordingMediaFile).not.toHaveBeenCalled();
+      expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not fetch a screenshot while its clip is still processing", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          id: "processing-screenshot",
+          kind: "image",
+          status: "processing",
+        },
+      }),
+    });
+
+    const event = makeEvent({ id: "processing-screenshot", atMs: "0" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(409);
+    expect(result).toMatchObject({ failureKind: "processing" });
+    expect(mockLoadScreenshotImage).not.toHaveBeenCalled();
+  });
+
   it("caches anonymous public frames without shared caching", async () => {
     mockLoadPublicAgentAccess.mockResolvedValue({
       ok: true,
