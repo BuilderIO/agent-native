@@ -170,6 +170,39 @@ test("selects Slides caret and authoring E2E for their dependency closure", () =
   assert.equal(full.checks.slides_authoring_e2e, true);
 });
 
+test("retains Slides parity and corpus gates while keeping the full soak manual", () => {
+  const ciWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  const soakWorkflow = readFileSync(
+    ".github/workflows/slides-authoring-fuzz-soak.yml",
+    "utf8",
+  );
+
+  assert.match(
+    ciWorkflow,
+    /run: pnpm exec tsx scripts\/edit-fidelity\/run\.ts --authoring\n/u,
+  );
+  assert.match(ciWorkflow, /--authoring --browser webkit/u);
+  assert.match(ciWorkflow, /--authoring-corpus/u);
+
+  for (const browser of ["chromium", "webkit", "firefox"]) {
+    assert.match(
+      ciWorkflow,
+      new RegExp(
+        `--authoring-fuzz\\s+--seed 16 --steps 80 --browser ${browser}`,
+        "u",
+      ),
+    );
+  }
+  assert.doesNotMatch(ciWorkflow, /slides-authoring-fuzz-soak:/u);
+  assert.match(soakWorkflow, /^name: Slides authoring fuzz soak$/mu);
+  assert.match(soakWorkflow, /workflow_dispatch:/u);
+  assert.doesNotMatch(soakWorkflow, /^\s+pull_request:/mu);
+  assert.match(
+    soakWorkflow,
+    /--seed\s+\$\{\{ matrix\.seed_start \}\}[\s\S]*--seeds 5 --steps 500/u,
+  );
+});
+
 test("fails closed for empty and unknown root change sets", () => {
   const empty = classifyChangedPaths([]);
   assert.equal(empty.docsOnly, false);

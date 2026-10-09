@@ -274,6 +274,8 @@ afterEach(() => {
   } else {
     delete (Range.prototype as Partial<Range>).getBoundingClientRect;
   }
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("slide slash command menu", () => {
@@ -428,6 +430,101 @@ describe("slide slash command menu", () => {
 
     await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
     expect(document.activeElement).toBe(editingEl);
+  });
+
+  it("retries slash discovery on the next frame when the caret snapshot is missing", () => {
+    vi.useFakeTimers();
+    const { editingEl, textNode } = renderMenu("", 0);
+    const getSelection = window.getSelection.bind(window);
+    let retryFrame: FrameRequestCallback | null = null;
+    let missingSelections = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      retryFrame = callback;
+      return 1;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    vi.spyOn(window, "getSelection").mockImplementation(() => {
+      if (missingSelections > 0) {
+        missingSelections = Math.max(0, missingSelections - 1);
+        return null;
+      }
+      return getSelection();
+    });
+
+    editingEl.dispatchEvent(
+      new InputEvent("beforeinput", {
+        bubbles: true,
+        cancelable: true,
+        inputType: "insertText",
+        data: "/",
+      }),
+    );
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(retryFrame).toBeTypeOf("function");
+
+    textNode.insertData(0, "/");
+    setCaret(textNode, 1);
+    missingSelections = 2;
+    fireInput(editingEl, "insertText", "/");
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    act(() => retryFrame?.(performance.now()));
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(retryFrame).toBeTypeOf("function");
+    act(() => retryFrame?.(performance.now()));
+    expect(screen.getByRole("listbox")).toBeTruthy();
+    expect(document.activeElement).toBe(editingEl);
+  });
+
+  it("bounds retries when the caret snapshot stays unavailable", () => {
+    vi.useFakeTimers();
+    const { editingEl, textNode } = renderMenu("", 0);
+    const getSelection = window.getSelection.bind(window);
+    let retryFrame: FrameRequestCallback | null = null;
+    let scheduledFrames = 0;
+    let missingSelections = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      retryFrame = callback;
+      scheduledFrames += 1;
+      return scheduledFrames;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    vi.spyOn(window, "getSelection").mockImplementation(() => {
+      if (missingSelections > 0) {
+        missingSelections -= 1;
+        return null;
+      }
+      return getSelection();
+    });
+
+    editingEl.dispatchEvent(
+      new InputEvent("beforeinput", {
+        bubbles: true,
+        cancelable: true,
+        inputType: "insertText",
+        data: "/",
+      }),
+    );
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    textNode.insertData(0, "/");
+    setCaret(textNode, 1);
+    missingSelections = 10;
+    fireInput(editingEl, "insertText", "/");
+
+    for (let retry = 0; retry < 3; retry += 1) {
+      act(() => retryFrame?.(performance.now()));
+    }
+
+    expect(scheduledFrames).toBe(3);
+    expect(screen.queryByRole("listbox")).toBeNull();
+    missingSelections = 0;
+    fireEvent(document, new Event("selectionchange"));
+    fireInput(editingEl, "insertText", "x");
+    expect(screen.queryByRole("listbox")).toBeNull();
   });
 
   it("opens for a newly typed slash after a soft line break", () => {
