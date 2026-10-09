@@ -104,6 +104,7 @@ export function sourceIndexDictionaryEntries(bundle: SourceIndexBundle) {
     metric: entry.metric,
     definition: entry.definition,
     source: entry.source,
+    ...(entry.sourceKind ? { sourceKind: entry.sourceKind } : {}),
     table: entry.table ?? "",
     columnsUsed: entry.columnsUsed ?? "",
     dependencies: entry.dependencies ?? "",
@@ -111,7 +112,9 @@ export function sourceIndexDictionaryEntries(bundle: SourceIndexBundle) {
     commonQuestions: entry.commonQuestions ?? "",
     knownGotchas: entry.knownGotchas ?? "",
     updateFrequency: entry.updateFrequency ?? "",
-    semanticScope: entry.semanticScope ?? "unknown",
+    ...(entry.semanticScope && entry.semanticScope !== "unknown"
+      ? { semanticScope: entry.semanticScope }
+      : {}),
     sourcePath: entry.sourcePath ?? "",
     sourceRevision: entry.sourceRevision ?? "",
     sourceIndexGeneratedAt: bundle.generatedAt,

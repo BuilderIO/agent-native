@@ -14,7 +14,10 @@ import type {
   AgentLoopFinalResponseGuard,
   AgentLoopUsage,
 } from "../agent/production-agent.js";
-import { actionsToEngineTools } from "../agent/production-agent.js";
+import {
+  actionsToEngineTools,
+  runAgentLoop,
+} from "../agent/production-agent.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import type {
@@ -33,28 +36,41 @@ export type RunAgentLoopFn = (opts: {
   model: string;
   systemPrompt: string;
   tools: EngineTool[];
-  availableTools?: EngineTool[];
   messages: EngineMessage[];
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
+  availableTools?: EngineTool[];
   onUsage?: (usage: AgentLoopUsage) => void;
-  ownerEmail: string;
-  orgId: string | null;
+  ownerEmail?: string;
+  orgId?: string | null;
   appId?: string;
   actionCaller?: ActionCaller;
-  finalResponseGuard: AgentLoopFinalResponseGuard | null;
-  finalResponseGuardRequestText: string;
-  runId: string;
+  finalResponseGuard?: AgentLoopFinalResponseGuard | null;
+  finalResponseGuardRequestText?: string;
+  runId?: string;
 }) => Promise<AgentLoopUsage>;
 
-export interface AgentRunnerConfig {
-  productionContext: EvalProductionContext;
+interface AgentRunnerConfigBase {
   engine?: AgentEngine;
   model?: string;
   timeoutMs?: number;
   runLoop?: RunAgentLoopFn;
 }
+
+export type AgentRunnerConfig = AgentRunnerConfigBase &
+  (
+    | {
+        productionContext: EvalProductionContext;
+        actions?: Record<string, ActionEntry>;
+        systemPrompt?: string;
+      }
+    | {
+        productionContext?: undefined;
+        actions: Record<string, ActionEntry>;
+        systemPrompt?: string;
+      }
+  );
 
 export interface AgentRunner {
   runAgent(input: EvalInput): Promise<AgentRunOutput>;
@@ -81,25 +97,33 @@ function toEngineMessages(input: EvalInput): EngineMessage[] {
 export async function createAgentRunner(
   config: AgentRunnerConfig,
 ): Promise<AgentRunner> {
-  const productionContext = validateProductionContext(config.productionContext);
-  const productionChatPath = productionContext.productionChatPath;
-  const runLoop = config.runLoop;
+  const productionContext = config.productionContext
+    ? validateProductionContext(config.productionContext)
+    : undefined;
+  const actions = productionContext?.actions ?? config.actions;
+  const systemPrompt =
+    productionContext?.systemPrompt ?? config.systemPrompt ?? "";
+  if (!actions) {
+    throw new Error("Eval runner requires an action registry.");
+  }
+  const productionChatPath = productionContext?.productionChatPath;
+  const runLoop =
+    config.runLoop ??
+    (productionContext ? undefined : (runAgentLoop as RunAgentLoopFn));
   if (!productionChatPath && !runLoop) {
     throw new Error(
-      "Production eval requires an adapter that invokes the production chat handler. Direct runAgentLoop is available only through an explicit test runner.",
+      "Production eval requires an adapter that invokes the shared production agent loop.",
     );
   }
-  if (productionChatPath && !productionContext.orgId) {
+  if (productionChatPath && !productionContext?.orgId) {
     throw new Error(
       "Production chat evals require an explicit organization id.",
     );
   }
   if (
     productionChatPath &&
-    (!productionContext.finalResponseGuard ||
-      Object.values(productionContext.actions).some(
-        (action) => action.readOnly !== true,
-      ))
+    (!productionContext?.finalResponseGuard ||
+      Object.values(actions).some((action) => action.readOnly !== true))
   ) {
     throw new Error(
       "Production chat evals require the real final response guard and a read-only adapter action registry.",
@@ -113,14 +137,14 @@ export async function createAgentRunner(
     engine.defaultModel;
   const model = normalizeModelForEngine(engine, modelCandidate);
   const timeoutMs = config.timeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS;
-  const availableTools = actionsToEngineTools(productionContext.actions);
-  const initialToolNames = productionContext.initialToolNames
+  const availableTools = actionsToEngineTools(actions);
+  const initialToolNames = productionContext?.initialToolNames
     ? new Set(productionContext.initialToolNames)
     : undefined;
   const tools = initialToolNames
     ? availableTools.filter((tool) => initialToolNames.has(tool.name))
     : availableTools;
-  if (tools.length === 0) {
+  if (productionChatPath && tools.length === 0) {
     throw new Error(
       "Production eval context did not expose any initial agent tools.",
     );
@@ -130,7 +154,7 @@ export async function createAgentRunner(
     if (productionChatPath) {
       return runProductionChatPath({
         productionChatPath,
-        productionContext,
+        productionContext: productionContext!,
         input,
         engine,
         model,
@@ -139,7 +163,7 @@ export async function createAgentRunner(
     }
     if (!runLoop) {
       throw new Error(
-        "Production eval requires an adapter that invokes the production chat handler.",
+        "Production eval requires an adapter that invokes the shared production agent loop.",
       );
     }
     const runId = `eval:${crypto.randomUUID()}`;
@@ -221,41 +245,48 @@ export async function createAgentRunner(
 
     let usage: AgentLoopUsage | undefined;
     try {
-      usage = await Promise.race([
-        runWithRequestContext(
-          {
-            userEmail: productionContext.ownerEmail,
-            ...(productionContext.orgId
-              ? { orgId: productionContext.orgId }
-              : { orgScope: "personal" as const }),
-            isSyntheticTraffic: true,
+      const run = () =>
+        runLoop({
+          engine,
+          model,
+          systemPrompt,
+          tools,
+          ...(productionContext ? { availableTools } : {}),
+          messages,
+          actions: actions!,
+          send,
+          signal: controller.signal,
+          onUsage: (next) => {
+            if (finished) return;
+            partialUsage = mergePartialUsage(partialUsage, next);
           },
-          () =>
-            runLoop({
-              engine,
-              model,
-              systemPrompt: productionContext.systemPrompt,
-              tools,
-              availableTools,
-              messages,
-              actions: productionContext.actions,
-              send,
-              signal: controller.signal,
-              ownerEmail: productionContext.ownerEmail,
-              orgId: productionContext.orgId,
-              ...(productionContext.appId
-                ? { appId: productionContext.appId }
-                : {}),
-              actionCaller: "tool",
-              finalResponseGuard: productionContext.finalResponseGuard,
-              finalResponseGuardRequestText: input.prompt,
-              runId,
-              onUsage: (next) => {
-                if (finished) return;
-                partialUsage = mergePartialUsage(partialUsage, next);
+          ...(productionContext
+            ? {
+                ownerEmail: productionContext.ownerEmail,
+                orgId: productionContext.orgId,
+                ...(productionContext.appId
+                  ? { appId: productionContext.appId }
+                  : {}),
+                actionCaller: "tool" as const,
+                finalResponseGuard: productionContext.finalResponseGuard,
+                finalResponseGuardRequestText: input.prompt,
+                runId,
+              }
+            : {}),
+        });
+      usage = await Promise.race([
+        productionContext
+          ? runWithRequestContext(
+              {
+                userEmail: productionContext.ownerEmail,
+                ...(productionContext.orgId
+                  ? { orgId: productionContext.orgId }
+                  : { orgScope: "personal" as const }),
+                isSyntheticTraffic: true,
               },
-            }),
-        ),
+              run,
+            )
+          : run(),
         timeout,
       ]);
     } catch (err) {
@@ -428,7 +459,7 @@ function validateProductionPathRun(
   const receipt = result.receipt;
   if (
     !receipt ||
-    receipt.chatHandlerInvoked !== true ||
+    receipt.productionAgentLoopInvoked !== true ||
     receipt.requestPreparationInvoked !== true ||
     receipt.systemPromptBuilt !== true ||
     receipt.finalResponseGuardInstalled !== true ||
@@ -450,6 +481,9 @@ function validateProductionPathRun(
     !["ok", "empty", "timed_out", "failed"].includes(receipt.prefetchStatus)
   ) {
     return "Production chat eval adapter returned an incomplete setup receipt.";
+  }
+  if (receipt.prefetchStatus !== "ok" && receipt.prefetchStatus !== "empty") {
+    return `Production chat eval adapter reported unsuccessful prefetch status "${receipt.prefetchStatus}".`;
   }
   if (
     receipt.ownerEmail.trim().toLowerCase() !==

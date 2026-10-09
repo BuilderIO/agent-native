@@ -72,6 +72,56 @@ describe("parseSourceIndexArgs", () => {
 });
 
 describe("compileSourceIndex", () => {
+  it("preserves multiline descriptions and reports omitted or truncated metadata", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    await writeFile(
+      path.join(dbtRoot, "models", "schema.yml"),
+      [
+        "version: 2",
+        "models:",
+        "  - name: valid_model",
+        "    description: |",
+        "      Business note #3 explains the model grain.",
+        "      The next line contains additional business context.",
+        "  - name: invalid/model",
+        "    description: Unsafe model names are reported.",
+        "  - name: long_model",
+        "    description: >",
+        `      ${"Business context ".repeat(100)}`,
+      ].join("\n"),
+    );
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-09T12:00:00.000Z",
+    });
+    const validModel = bundle.entries.find(
+      (entry) => entry.metric === "model:valid_model",
+    );
+    const longModel = bundle.entries.find(
+      (entry) => entry.metric === "model:long_model",
+    );
+
+    expect(validModel?.definition).toContain(
+      "Business note #3 explains the model grain.",
+    );
+    expect(validModel?.definition).toContain(
+      "The next line contains additional business context.",
+    );
+    expect(longModel?.definition).toContain(
+      "definition excerpt truncated; inspect source",
+    );
+    expect(bundle.scanSummary).toMatchObject({
+      unsafeEntriesOmitted: 1,
+      truncatedFields: 1,
+    });
+    expect(sourceIndexBundleSchema.parse(bundle).scanSummary).toEqual(
+      bundle.scanSummary,
+    );
+  });
+
   it("fails loudly on a malformed quoted dbt YAML scalar", async () => {
     const root = await temporaryDirectory();
     const dbtRoot = path.join(root, "dbt");
@@ -167,6 +217,7 @@ describe("compileSourceIndex", () => {
     });
     const serialized = JSON.stringify(bundle);
     expect(bundle.entries).toHaveLength(1);
+    expect(bundle.entries[0]).toMatchObject({ sourceKind: "sigma" });
     expect(serialized).not.toContain("fake-sigma-client-id");
     expect(serialized).not.toContain("fake-sigma-client-secret");
     expect(serialized).not.toContain("fake-token");
@@ -298,6 +349,7 @@ describe("compileSourceIndex", () => {
     });
     expect(model).toMatchObject({
       table: "orders",
+      sourceKind: "dbt",
       semanticScope: "unknown",
       dependencies: "ref:stg_orders; source:app.organizations",
       joinPattern: "Unique grain: order_id, organization_id",
@@ -314,6 +366,7 @@ describe("compileSourceIndex", () => {
     expect(model?.knownGotchas).toContain("order_id: unique");
     expect(event).toMatchObject({
       columnsUsed: "email, user_id",
+      sourceKind: "code",
       semanticScope: "person",
       sourcePath: "src/track.ts",
     });
@@ -410,6 +463,11 @@ describe("compileSourceIndex", () => {
     execFileSync("git", ["add", "models/accounts.sql"], { cwd: dbtRoot });
     execFileSync("git", ["commit", "-q", "-m", "Add synthetic model"], {
       cwd: dbtRoot,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_DATE: "2024-02-03T04:05:06Z",
+        GIT_COMMITTER_DATE: "2024-02-03T04:05:06Z",
+      },
     });
 
     const revision = execFileSync("git", ["rev-parse", "--short=12", "HEAD"], {
@@ -417,7 +475,10 @@ describe("compileSourceIndex", () => {
       encoding: "utf8",
     }).trim();
     const bundle = await compileSourceIndex({ dbtRoots: [dbtRoot] });
+    const regenerated = await compileSourceIndex({ dbtRoots: [dbtRoot] });
 
+    expect(bundle.generatedAt).toBe("2024-02-03T04:05:06.000Z");
+    expect(regenerated).toEqual(bundle);
     expect(bundle.sources).toEqual([
       {
         id: "dbt",
@@ -432,6 +493,17 @@ describe("compileSourceIndex", () => {
         sources: [{ id: "dbt" }],
       }).success,
     ).toBe(false);
+
+    await writeFile(
+      path.join(dbtRoot, "models", "accounts.sql"),
+      "SELECT account_id FROM source_accounts\n-- synthetic working-tree edit",
+    );
+    const edited = await compileSourceIndex({ dbtRoots: [dbtRoot] });
+    expect(edited.generatedAt).toBe(bundle.generatedAt);
+    expect(edited.sources[0]?.revision).toBe(bundle.sources[0]?.revision);
+    expect(edited.sources[0]?.contentFingerprint).not.toBe(
+      bundle.sources[0]?.contentFingerprint,
+    );
   });
 
   it("does not turn a malformed model name into a nested column model", async () => {
@@ -456,21 +528,22 @@ describe("compileSourceIndex", () => {
     expect(bundle.entries.map((entry) => entry.table)).toEqual(["valid_model"]);
   });
 
-  it("writes only a new output file and reports explicit source errors", async () => {
+  it("atomically replaces the output file and reports explicit source errors", async () => {
     const root = await temporaryDirectory();
     const dbtRoot = path.join(root, "dbt");
     const out = path.join(root, ".tmp", "source-index.json");
     await mkdir(path.join(dbtRoot, "models"), { recursive: true });
     await writeFile(path.join(dbtRoot, "models", "example.sql"), "SELECT 1");
 
-    await writeSourceIndex({ dbtRoots: [dbtRoot], out });
+    const first = await writeSourceIndex({ dbtRoots: [dbtRoot], out });
     const written = JSON.parse(await readFile(out, "utf8"));
     expect(written.schemaVersion).toBe(1);
-    await expect(
-      writeSourceIndex({ dbtRoots: [dbtRoot], out }),
-    ).rejects.toMatchObject({
-      code: "output_write_failed",
-    });
+    const second = await writeSourceIndex({ dbtRoots: [dbtRoot], out });
+    expect(second.generatedAt).toBeDefined();
+    expect(JSON.parse(await readFile(out, "utf8"))).toEqual(second);
+    expect(second.sources[0]?.contentFingerprint).toBe(
+      first.sources[0]?.contentFingerprint,
+    );
     await expect(
       compileSourceIndex({ dbtRoots: [path.join(root, "missing")] }),
     ).rejects.toMatchObject({

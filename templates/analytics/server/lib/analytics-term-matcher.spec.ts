@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  dataDictionaryTrustRank,
   decodeSearchCursor,
   matchSearchFields,
   paginateSearchResults,
@@ -9,6 +10,19 @@ import {
 } from "./analytics-term-matcher";
 
 describe("Analytics term matching", () => {
+  it("keeps approved and dbt definitions ahead of generated Sigma examples", () => {
+    expect(
+      dataDictionaryTrustRank({ approved: true, sourceKind: "sigma" }),
+    ).toBeGreaterThan(
+      dataDictionaryTrustRank({ sourceKind: "dbt", aiGenerated: true }),
+    );
+    expect(
+      dataDictionaryTrustRank({ sourceKind: "dbt", aiGenerated: true }),
+    ).toBeGreaterThan(
+      dataDictionaryTrustRank({ sourceKind: "sigma", aiGenerated: true }),
+    );
+  });
+
   it("weights exact entity terms and shared synonyms consistently", () => {
     const exact = matchSearchFields("workspace members", [
       { value: "organization_user_role", weight: 24 },

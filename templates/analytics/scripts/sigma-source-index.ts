@@ -5,6 +5,7 @@ const MAX_PAGES = 100;
 const MAX_WORKBOOKS = 1_000;
 const MAX_REVIEWED_ELEMENTS = 1_000;
 const MAX_TABLE_REFS = 24;
+const SIGMA_REQUEST_TIMEOUT_MS = 10_000;
 const SAFE_SIGMA_ID = /^[A-Za-z0-9_-]{1,200}$/;
 const SAFE_COLUMN = /^[A-Za-z_][A-Za-z0-9_.$-]{0,119}$/;
 const SAFE_TABLE_REF = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){0,2}$/;
@@ -18,6 +19,11 @@ export interface SigmaReviewManifest {
 
 export interface SigmaSourceIndex {
   source: { id: "sigma"; contentFingerprint: string };
+  scanSummary: {
+    unsafeEntriesOmitted: number;
+    unsafeFieldsOmitted: number;
+    truncatedFields: number;
+  };
   entries: Array<{
     id: string;
     metric: string;
@@ -129,19 +135,44 @@ async function jsonRequest<T>(
   url: URL,
   init?: RequestInit,
 ): Promise<T> {
-  let response: Response;
+  const controller = new AbortController();
+  const signal = init?.signal
+    ? AbortSignal.any([init.signal, controller.signal])
+    : controller.signal;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error("Sigma API request timed out."));
+    }, SIGMA_REQUEST_TIMEOUT_MS);
+  });
+  const request = (async () => {
+    let response: Response;
+    try {
+      response = await fetcher(url, { ...init, signal });
+    } catch {
+      throw new Error(
+        "Sigma API request failed before a response was received.",
+      );
+    }
+    if (!response.ok) {
+      throw new Error(`Sigma API request failed (${response.status}).`);
+    }
+    try {
+      return (await response.json()) as T;
+    } catch {
+      throw new Error("Sigma API returned an invalid JSON response.");
+    }
+  })();
   try {
-    response = await fetcher(url, init);
-  } catch {
-    throw new Error("Sigma API request failed before a response was received.");
-  }
-  if (!response.ok) {
-    throw new Error(`Sigma API request failed (${response.status}).`);
-  }
-  try {
-    return (await response.json()) as T;
-  } catch {
-    throw new Error("Sigma API returned an invalid JSON response.");
+    return await Promise.race([request, timeout]);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("Sigma API request timed out.");
+    }
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -261,27 +292,79 @@ function redactSqlLiteralsAndComments(sql: string): string {
   return output;
 }
 
-export function extractSigmaTableReferences(sql: string): string[] {
+export function extractSigmaTableReferences(
+  sql: string,
+  scanSummary?: SigmaSourceIndex["scanSummary"],
+): string[] {
   const source = redactSqlLiteralsAndComments(sql);
   const tables = new Set<string>();
   const reference =
     /\b(?:from|join)\s+((?:`[^`]+`|[A-Za-z0-9_-]+)(?:\s*\.\s*(?:`[^`]+`|[A-Za-z0-9_-]+)){0,2})/gi;
   for (const match of source.matchAll(reference)) {
     const table = match[1]!.replace(/`/g, "").replace(/\s+/g, "");
-    if (SAFE_TABLE_REF.test(table)) tables.add(table);
-    if (tables.size >= MAX_TABLE_REFS) break;
+    if (!SAFE_TABLE_REF.test(table) || tables.has(table)) continue;
+    if (tables.size < MAX_TABLE_REFS) tables.add(table);
+    else if (scanSummary) scanSummary.truncatedFields += 1;
   }
   return [...tables].sort();
 }
 
-function safeText(value: string, max: number): string {
-  const cleaned = value.trim().replace(/\s+/g, " ").slice(0, max);
-  if (!cleaned || SENSITIVE_TEXT.test(cleaned)) {
+function safeText(
+  value: string,
+  max: number,
+  scanSummary: SigmaSourceIndex["scanSummary"],
+): string {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  if (!normalized || SENSITIVE_TEXT.test(normalized)) {
     throw new Error(
       "A reviewed Sigma title contains unsupported sensitive text.",
     );
   }
-  return cleaned;
+  if (normalized.length <= max) return normalized;
+  scanSummary.truncatedFields += 1;
+  const marker = "… [truncated]";
+  return `${normalized.slice(0, max - marker.length).trimEnd()}${marker}`;
+}
+
+function boundedList(
+  values: string[],
+  max: number,
+  separator: string,
+  scanSummary: SigmaSourceIndex["scanSummary"],
+): string {
+  const full = values.join(separator);
+  if (full.length <= max) return full;
+  scanSummary.truncatedFields += 1;
+  const marker = "… [additional values omitted]";
+  const included: string[] = [];
+  let used = 0;
+  for (const value of values) {
+    const next = used + (included.length ? separator.length : 0) + value.length;
+    if (next + separator.length + marker.length > max) break;
+    included.push(value);
+    used = next;
+  }
+  return [...included, marker].join(separator);
+}
+
+function formatSigmaMetric(
+  workbookName: string,
+  elementName: string,
+  scanSummary: SigmaSourceIndex["scanSummary"],
+): string {
+  const full = `${workbookName}: ${elementName}`;
+  if (full.length <= 200) return full;
+  scanSummary.truncatedFields += 1;
+  const marker = "… [truncated]";
+  const workbookPrefixLength = Math.max(
+    marker.length,
+    200 - elementName.length - ": ".length,
+  );
+  const prefix =
+    workbookName.length > workbookPrefixLength
+      ? `${workbookName.slice(0, workbookPrefixLength - marker.length).trimEnd()}${marker}`
+      : workbookName;
+  return `${prefix}: ${elementName}`.slice(0, 200);
 }
 
 function shortEntryId(workbookId: string, elementId: string): string {
@@ -333,13 +416,18 @@ export async function buildSigmaSourceIndex(args: {
   );
   const entries: SigmaSourceIndex["entries"] = [];
   const fingerprintRecords: unknown[] = [];
+  const scanSummary: SigmaSourceIndex["scanSummary"] = {
+    unsafeEntriesOmitted: 0,
+    unsafeFieldsOmitted: 0,
+    truncatedFields: 0,
+  };
 
   for (const selection of manifest.items) {
     const workbook = workbookById.get(selection.workbookId);
     if (!workbook) {
       throw new Error("A reviewed Sigma workbook is no longer accessible.");
     }
-    const workbookName = safeText(workbook.name ?? "", 180);
+    const workbookName = safeText(workbook.name ?? "", 180, scanSummary);
     const elements = await listAll<SigmaElement>({
       fetcher,
       baseUrl,
@@ -375,26 +463,29 @@ export async function buildSigmaSourceIndex(args: {
       if (!element) {
         throw new Error("A reviewed Sigma element is no longer accessible.");
       }
-      const elementName = safeText(element.name ?? "", 180);
-      const columns = Array.isArray(element.columns)
-        ? element.columns
-            .filter(
-              (column): column is string =>
-                typeof column === "string" && SAFE_COLUMN.test(column),
-            )
-            .slice(0, 100)
-        : [];
-      const tables = extractSigmaTableReferences(
-        queryByElementId.get(elementId) ?? "",
-      );
+      const elementName = safeText(element.name ?? "", 180, scanSummary);
+      const rawColumns = Array.isArray(element.columns) ? element.columns : [];
+      const safeColumns = rawColumns.flatMap((column) => {
+        if (typeof column === "string" && SAFE_COLUMN.test(column)) {
+          return [column];
+        }
+        scanSummary.unsafeFieldsOmitted += 1;
+        return [];
+      });
+      if (safeColumns.length > 100) scanSummary.truncatedFields += 1;
+      const columns = safeColumns.slice(0, 100);
+      const sql = queryByElementId.get(elementId) ?? "";
+      const tables = extractSigmaTableReferences(sql, scanSummary);
       const entry = {
         id: shortEntryId(selection.workbookId, elementId),
-        metric: `${workbookName}: ${elementName}`,
-        definition: `Reviewed Sigma ${safeText(element.type ?? "element", 80)} example. Confirm its meaning and grain against dbt before using it as a canonical definition.`,
+        metric: formatSigmaMetric(workbookName, elementName, scanSummary),
+        definition: `Reviewed Sigma ${safeText(element.type ?? "element", 80, scanSummary)} example. Confirm its meaning and grain against dbt before using it as a canonical definition.`,
         source: "sigma" as const,
-        ...(tables.length ? { table: tables.join(", ").slice(0, 600) } : {}),
+        ...(tables.length
+          ? { table: boundedList(tables, 600, ", ", scanSummary) }
+          : {}),
         ...(columns.length
-          ? { columnsUsed: columns.join(", ").slice(0, 2_000) }
+          ? { columnsUsed: boundedList(columns, 2_000, ", ", scanSummary) }
           : {}),
         knownGotchas:
           "Example metadata only. Use dbt for canonical schema and grain, then verify the current query against live data.",
@@ -408,6 +499,7 @@ export async function buildSigmaSourceIndex(args: {
         type: element.type ?? "",
         columns,
         tables,
+        sqlFingerprint: createHash("sha256").update(sql).digest("hex"),
       });
     }
   }
@@ -419,5 +511,6 @@ export async function buildSigmaSourceIndex(args: {
   return {
     source: { id: "sigma", contentFingerprint },
     entries,
+    scanSummary,
   };
 }

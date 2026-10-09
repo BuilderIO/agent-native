@@ -22,14 +22,19 @@ const MAX_REVIEWED_HISTORY_TEXT_LENGTH = 1_000;
 const MAX_MUST_CONTAIN_LENGTH = 500;
 const DEFAULT_THRESHOLD = 0.5;
 const RUN_ID_NAME_PREFIX = 8;
-export const PROMOTED_EVAL_PRIVACY_VERSION = 3;
+export const PROMOTED_EVAL_PRIVACY_VERSION = 4;
 const REDACTED_PROMPT_PLACEHOLDER = "[redacted production prompt]";
+export const PROMOTED_EVAL_REVIEW_LIMITS = {
+  promptLength: MAX_REVIEWED_PROMPT_LENGTH,
+  historyTurns: MAX_REVIEWED_HISTORY_TURNS,
+  historyTextLength: MAX_REVIEWED_HISTORY_TEXT_LENGTH,
+  expectedTextLength: MAX_MUST_CONTAIN_LENGTH,
+} as const;
 
 const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
 const OPAQUE_ID_PATTERN = /\b(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{16,}\b/g;
 const URL_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<>\"'`]+/gi;
 const PHONE_LIKE_PATTERN = /\+?\d[\d ().-]{5,}\d/g;
-const NUMBER_PATTERN = /\d+/g;
 const REVIEWED_TEXT_WORDS = new Set(
   `a account active an and are as at average be been before between by call compare compared conversion count created current daily data day days distinct does each done event events every find for found from funnel group groups has have how id in inactive is it last least list many median member members metric metrics most new number of on or organization organizations org over per previous production product prompt query queries rate recent redacted retention result results search session sessions should show signup signups since source sources table tables team teams the this today total trend under unique usage use user users was week weeks what when where which with without workspace workspaces year years yesterday yearly weekly monthly`.split(
     /\s+/,
@@ -79,6 +84,9 @@ export type PromoteTraceError =
   | "run_not_completed"
   | "no_user_prompt"
   | "no_signal"
+  | "reviewed_prompt_required"
+  | "reviewed_history_too_long"
+  | "reviewed_text_too_long"
   | "unsafe_reviewed_text";
 
 export interface PromoteTraceOptions {
@@ -212,8 +220,23 @@ function safeToolName(value: string | null | undefined): string | null {
  * eval only if it fits the generic vocabulary allowlist and has no unknown
  * identity-like terms; an unknown token fails the promotion closed.
  */
-function sanitizeReviewedText(value: string, maxLength: number): string | null {
-  if (typeof value !== "string" || value.length > maxLength * 4) return null;
+type SanitizedReviewedText =
+  | { ok: true; text: string }
+  | {
+      ok: false;
+      error: "reviewed_text_too_long" | "unsafe_reviewed_text";
+    };
+
+function sanitizeReviewedText(
+  value: string,
+  maxLength: number,
+): SanitizedReviewedText {
+  if (typeof value !== "string") {
+    return { ok: false, error: "unsafe_reviewed_text" };
+  }
+  if (value.length > maxLength) {
+    return { ok: false, error: "reviewed_text_too_long" };
+  }
   const sanitized = redactCapturedString(value)
     .replace(EMAIL_PATTERN, "[email]")
     .replace(OPAQUE_ID_PATTERN, "[id]")
@@ -221,7 +244,6 @@ function sanitizeReviewedText(value: string, maxLength: number): string | null {
     .replace(PHONE_LIKE_PATTERN, (match) =>
       (match.match(/\d/g)?.length ?? 0) >= 7 ? "[phone]" : match,
     )
-    .replace(NUMBER_PATTERN, "[number]")
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
     .trim();
   const tokens = sanitized.match(/\[[A-Za-z_]+\]|[\p{L}]+/gu) ?? [];
@@ -233,52 +255,68 @@ function sanitizeReviewedText(value: string, maxLength: number): string | null {
     ) {
       continue;
     }
-    return null;
+    return { ok: false, error: "unsafe_reviewed_text" };
   }
-  if (sanitized.length <= maxLength) return sanitized;
-  const wordBoundary = sanitized.slice(0, maxLength).lastIndexOf(" ");
-  return wordBoundary > 0 ? sanitized.slice(0, wordBoundary).trimEnd() : null;
+  if (sanitized.length > maxLength) {
+    return { ok: false, error: "reviewed_text_too_long" };
+  }
+  return { ok: true, text: sanitized };
 }
 
 function safeEvalInput(
   options: PromoteTraceOptions | undefined,
-): EvalInput | null {
-  let prompt = "";
-  if (options?.reviewedPrompt !== undefined) {
-    if (typeof options.reviewedPrompt !== "string") return null;
-    const sanitized = sanitizeReviewedText(
-      options.reviewedPrompt,
-      MAX_REVIEWED_PROMPT_LENGTH,
-    );
-    if (sanitized === null) return null;
-    prompt = sanitized;
+): { ok: true; value: EvalInput } | { ok: false; error: PromoteTraceError } {
+  if (
+    typeof options?.reviewedPrompt !== "string" ||
+    !options.reviewedPrompt.trim() ||
+    options.reviewedPrompt.trim().toLowerCase() === REDACTED_PROMPT_PLACEHOLDER
+  ) {
+    return { ok: false, error: "reviewed_prompt_required" };
+  }
+  const reviewedPrompt = sanitizeReviewedText(
+    options.reviewedPrompt,
+    MAX_REVIEWED_PROMPT_LENGTH,
+  );
+  if (!reviewedPrompt.ok) return reviewedPrompt;
+  if (!reviewedPrompt.text) {
+    return { ok: false, error: "reviewed_prompt_required" };
   }
   const rawHistory = options?.reviewedHistory;
-  if (rawHistory !== undefined && !Array.isArray(rawHistory)) return null;
+  if (rawHistory !== undefined && !Array.isArray(rawHistory)) {
+    return { ok: false, error: "unsafe_reviewed_text" };
+  }
+  if (
+    Array.isArray(rawHistory) &&
+    rawHistory.length > MAX_REVIEWED_HISTORY_TURNS
+  ) {
+    return { ok: false, error: "reviewed_history_too_long" };
+  }
   const safeHistory: Array<{ role: "user" | "assistant"; text: string }> = [];
-  for (const turn of (Array.isArray(rawHistory) ? rawHistory : []).slice(
-    0,
-    MAX_REVIEWED_HISTORY_TURNS,
-  )) {
+  for (const turn of Array.isArray(rawHistory) ? rawHistory : []) {
     if (
       !turn ||
       typeof turn !== "object" ||
       (turn.role !== "user" && turn.role !== "assistant") ||
       typeof turn.text !== "string"
     ) {
-      return null;
+      return { ok: false, error: "unsafe_reviewed_text" };
     }
-    const text = sanitizeReviewedText(
+    const reviewedText = sanitizeReviewedText(
       turn.text,
       MAX_REVIEWED_HISTORY_TEXT_LENGTH,
     );
-    if (text === null) return null;
-    if (text) safeHistory.push({ role: turn.role, text });
+    if (!reviewedText.ok) return reviewedText;
+    if (reviewedText.text) {
+      safeHistory.push({ role: turn.role, text: reviewedText.text });
+    }
   }
-  const safePrompt = prompt || REDACTED_PROMPT_PLACEHOLDER;
-  return safeHistory.length > 0
-    ? { prompt: safePrompt, history: safeHistory }
-    : { prompt: safePrompt };
+  return {
+    ok: true,
+    value:
+      safeHistory.length > 0
+        ? { prompt: reviewedPrompt.text, history: safeHistory }
+        : { prompt: reviewedPrompt.text },
+  };
 }
 
 function isToolError(event: Record<string, unknown>): boolean {
@@ -526,9 +564,11 @@ function historyFromDatasetContext(
   history: unknown,
 ): Array<{ role: "user" | "assistant"; text: string }> | null {
   if (history == null) return [];
-  if (!Array.isArray(history)) return null;
+  if (!Array.isArray(history) || history.length > MAX_REVIEWED_HISTORY_TURNS) {
+    return null;
+  }
   const turns: Array<{ role: "user" | "assistant"; text: string }> = [];
-  for (const turn of history.slice(0, MAX_REVIEWED_HISTORY_TURNS)) {
+  for (const turn of history) {
     const record = asRecord(turn);
     if (!record) return null;
     const role = record.role;
@@ -540,8 +580,8 @@ function historyFromDatasetContext(
       text,
       MAX_REVIEWED_HISTORY_TEXT_LENGTH,
     );
-    if (safeText === null) return null;
-    if (safeText) turns.push({ role, text: safeText });
+    if (!safeText.ok) return null;
+    if (safeText.text) turns.push({ role, text: safeText.text });
   }
   return turns;
 }
@@ -585,11 +625,15 @@ export function promotedEvalSpecFromDataset(
   const history = historyFromDatasetContext(context.history);
   const toolNames = toolNamesFromDatasetContext(context.tools);
   if (!history || !toolNames) return null;
-  const needle =
-    typeof entry.expectedOutput === "string"
-      ? sanitizeReviewedText(entry.expectedOutput, MAX_MUST_CONTAIN_LENGTH)
-      : "";
-  if (needle === null) return null;
+  let needle = "";
+  if (typeof entry.expectedOutput === "string") {
+    const safeNeedle = sanitizeReviewedText(
+      entry.expectedOutput,
+      MAX_MUST_CONTAIN_LENGTH,
+    );
+    if (!safeNeedle.ok) return null;
+    needle = safeNeedle.text;
+  }
   if (toolNames.length === 0 && needle.length === 0) return null;
 
   const scorers: PromotedEvalScorerSpec[] = [
@@ -597,18 +641,24 @@ export function promotedEvalSpecFromDataset(
     ...(needle.length > 0 ? [{ type: "contains" as const, needle }] : []),
   ];
   const name = `from-trace:${runId.slice(0, RUN_ID_NAME_PREFIX)}`;
+  if (
+    !entry.input.trim() ||
+    entry.input.trim().toLowerCase() === REDACTED_PROMPT_PLACEHOLDER
+  ) {
+    return null;
+  }
   const prompt = sanitizeReviewedText(entry.input, MAX_REVIEWED_PROMPT_LENGTH);
-  if (prompt === null) return null;
+  if (!prompt.ok || !prompt.text) return null;
   return {
     name,
     input:
       history.length > 0
         ? {
-            prompt: prompt || REDACTED_PROMPT_PLACEHOLDER,
+            prompt: prompt.text,
             history,
           }
         : {
-            prompt: prompt || REDACTED_PROMPT_PLACEHOLDER,
+            prompt: prompt.text,
           },
     threshold: DEFAULT_THRESHOLD,
     source: { kind: "trace", runId },
@@ -808,8 +858,9 @@ export function promoteTraceToEval(
   }
 
   const toolNames = successfulToolNames(input.events, input.spans);
-  const safeInput = safeEvalInput(input.options);
-  if (!safeInput) return { ok: false, error: "unsafe_reviewed_text" };
+  const safeInputResult = safeEvalInput(input.options);
+  if (!safeInputResult.ok) return safeInputResult;
+  const safeInput = safeInputResult.value;
   let mustContain: string | undefined;
   if (input.options?.mustContain !== undefined) {
     if (typeof input.options.mustContain !== "string") {
@@ -819,8 +870,8 @@ export function promoteTraceToEval(
       input.options.mustContain,
       MAX_MUST_CONTAIN_LENGTH,
     );
-    if (sanitized === null) return { ok: false, error: "unsafe_reviewed_text" };
-    mustContain = sanitized || undefined;
+    if (!sanitized.ok) return sanitized;
+    mustContain = sanitized.text || undefined;
   }
   if (toolNames.length === 0 && !mustContain) {
     return { ok: false, error: "no_signal" };

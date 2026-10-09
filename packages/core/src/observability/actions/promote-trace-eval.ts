@@ -7,6 +7,7 @@ import {
   promoteTraceToEval,
   promotedDatasetDescription,
   promotedDatasetIdempotencyKey,
+  PROMOTED_EVAL_REVIEW_LIMITS,
   sanitizedPromotedDatasetFromDataset,
   promotedEvalSpecFromDataset,
   type PromoteTraceError,
@@ -31,6 +32,9 @@ const PROMOTE_ERROR_STATUS: Record<PromoteLoadError, number> = {
   run_not_completed: 409,
   no_user_prompt: 400,
   no_signal: 400,
+  reviewed_prompt_required: 400,
+  reviewed_history_too_long: 413,
+  reviewed_text_too_long: 413,
   events_truncated: 413,
   unsafe_reviewed_text: 400,
 };
@@ -43,6 +47,11 @@ const PROMOTE_ERROR_MESSAGE: Record<PromoteLoadError, string> = {
     "Run has no user prompt in its thread or events to use as the eval prompt",
   no_signal:
     "Run has no successful tools and no mustContain needle, so promotion would emit an empty eval",
+  reviewed_prompt_required:
+    "Provide a nonblank, manually reviewed prompt. The production prompt is never copied automatically.",
+  reviewed_history_too_long: `Reviewed history exceeds ${PROMOTED_EVAL_REVIEW_LIMITS.historyTurns} turns; shorten it before promotion`,
+  reviewed_text_too_long:
+    "Reviewed prompt, history text, or expected text exceeds its field limit; shorten it before promotion",
   unsafe_reviewed_text:
     "Reviewed eval text contains an unsupported term. Replace names or organization labels with placeholders and use generic analytics words.",
   events_truncated: `Run event history exceeds ${PROMOTE_RUN_EVENT_LIMIT} events; refusing to promote a truncated trace`,
@@ -68,7 +77,18 @@ function refuse(error: PromoteLoadError): never {
     statusCode: PROMOTE_ERROR_STATUS[error],
     ...(error === "events_truncated"
       ? { details: { limit: PROMOTE_RUN_EVENT_LIMIT } }
-      : {}),
+      : error === "reviewed_history_too_long"
+        ? { details: { limit: PROMOTED_EVAL_REVIEW_LIMITS.historyTurns } }
+        : error === "reviewed_text_too_long"
+          ? {
+              details: {
+                promptLimit: PROMOTED_EVAL_REVIEW_LIMITS.promptLength,
+                historyTextLimit: PROMOTED_EVAL_REVIEW_LIMITS.historyTextLength,
+                expectedTextLimit:
+                  PROMOTED_EVAL_REVIEW_LIMITS.expectedTextLength,
+              },
+            }
+          : {}),
   });
 }
 
@@ -218,39 +238,37 @@ export async function promoteTraceEvalFromStore(
  */
 export default defineAction({
   description:
-    "Promote a completed run into a privacy-safe CI eval dataset and JSON spec, using reviewer text only when it passes the generic-word and entity-placeholder allowlist.",
+    "Promote a completed run into a privacy-safe CI eval dataset and JSON spec. Requires an explicitly reviewed, nonblank prompt; only reviewed text that passes the generic-word and entity-placeholder allowlist is persisted.",
   schema: z.object({
     runId: z
       .string()
       .describe("Completed agent run id from the observability trace list."),
     mustContain: z
       .string()
-      .max(500)
       .optional()
       .describe(
-        "Optional caller-reviewed substring the replayed reply must contain. Adds a contains() scorer. Only approved generic analytics words and placeholders are accepted; names or unknown terms fail the promotion. Required when the run called no successful tools.",
+        `Optional caller-reviewed substring the replayed reply must contain (up to ${PROMOTED_EVAL_REVIEW_LIMITS.expectedTextLength} characters). Adds a contains() scorer. Only approved generic analytics words and placeholders are accepted; names or unknown terms fail the promotion. Required when the run called no successful tools.`,
       ),
     reviewedPrompt: z
       .string()
-      .max(3_000)
       .optional()
       .describe(
-        "Optional manually reviewed prompt using only approved generic analytics words and entity placeholders such as [person] or [organization]. Unknown terms fail the promotion; the production prompt is never copied automatically.",
+        `Required manually reviewed, nonblank prompt (up to ${PROMOTED_EVAL_REVIEW_LIMITS.promptLength} characters) using only approved generic analytics words and entity placeholders such as [person] or [organization]. Unknown terms fail the promotion; the production prompt is never copied automatically.`,
       ),
     reviewedHistory: z
       .array(
         z.object({
           role: z.enum(["user", "assistant"]),
-          text: z.string().max(1_000),
+          text: z.string(),
         }),
       )
-      .max(16)
       .optional()
       .describe(
-        "Optional manually reviewed history using only approved generic analytics words and entity placeholders. Unknown terms fail the promotion; production history is never copied automatically.",
+        `Optional manually reviewed history of up to ${PROMOTED_EVAL_REVIEW_LIMITS.historyTurns} turns; each text is up to ${PROMOTED_EVAL_REVIEW_LIMITS.historyTextLength} characters. Use only approved generic analytics words and entity placeholders. Unknown terms fail the promotion; production history is never copied automatically.`,
       ),
   }),
   http: { method: "POST" },
+  maxBodyBytes: 24_000,
   readOnly: false,
   run: async ({ runId, reviewedPrompt, reviewedHistory, mustContain }, ctx) => {
     const userId = ctx?.userEmail;

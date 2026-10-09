@@ -242,12 +242,17 @@ describe("search-bigquery-schema", () => {
   it("distinguishes Builder product users from Analytics users and feature funnels", async () => {
     const result = await action.run({ search: "Builder.io users", limit: 10 });
 
-    expect(result.tables).toEqual([
+    expect(result.tables[0]).toEqual(
       expect.objectContaining({
         datasetId: "product",
         tableId: "product_user_dimension",
       }),
-    ]);
+    );
+    expect(result.tables).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tableId: "analytics_app_users" }),
+      ]),
+    );
   });
 
   it("pages through ranked matches with a query-bound cursor", async () => {
@@ -329,5 +334,317 @@ describe("search-bigquery-schema", () => {
       tables: [{ tableId: "event_log" }],
     });
     expect(result.nextPage).toMatch(/^bq1\./);
+  });
+
+  it("carries dataset table search counts across provider pages", async () => {
+    mocks.fetch.mockImplementation(async (input: URL | string) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/datasets/product/tables")) {
+        if (url.searchParams.get("pageToken") === "table-page-two") {
+          return jsonResponse({
+            tables: [
+              {
+                tableReference: {
+                  projectId: "test-project",
+                  datasetId: "product",
+                  tableId: "product_user_dimension",
+                },
+              },
+            ],
+          });
+        }
+        return jsonResponse({
+          tables: [
+            {
+              tableReference: {
+                projectId: "test-project",
+                datasetId: "product",
+                tableId: "analytics_app_users",
+              },
+            },
+          ],
+          nextPageToken: "table-page-two",
+        });
+      }
+      if (url.pathname.endsWith("/tables/analytics_app_users")) {
+        return jsonResponse({
+          tableReference: {
+            projectId: "test-project",
+            datasetId: "product",
+            tableId: "analytics_app_users",
+          },
+          schema: { fields: [{ name: "user_id", type: "STRING" }] },
+        });
+      }
+      if (url.pathname.endsWith("/tables/product_user_dimension")) {
+        return jsonResponse({
+          tableReference: {
+            projectId: "test-project",
+            datasetId: "product",
+            tableId: "product_user_dimension",
+          },
+          schema: { fields: [{ name: "user_id", type: "STRING" }] },
+        });
+      }
+      return jsonResponse({}, 404);
+    });
+
+    const first = await action.run({
+      dataset: "product",
+      search: "user",
+      limit: 1,
+    });
+    expect(first).toMatchObject({ searched: 1, of: 1, truncated: true });
+    expect(first.nextPage).toMatch(/^bq1\./);
+
+    const second = await action.run({
+      dataset: "product",
+      search: "user",
+      limit: 1,
+      nextPage: first.nextPage,
+    });
+    expect(second).toMatchObject({ searched: 2, of: 2, truncated: false });
+    expect(second.tables).toEqual([
+      expect.objectContaining({ tableId: "product_user_dimension" }),
+    ]);
+    expect(
+      mocks.fetch.mock.calls.some(([input]) => {
+        const url = new URL(String(input));
+        return (
+          url.pathname.endsWith("/datasets/product/tables") &&
+          url.searchParams.get("pageToken") === "table-page-two"
+        );
+      }),
+    ).toBe(true);
+  });
+
+  it("follows dataset continuation pages during global search below the scan cap", async () => {
+    const defaultFetch = mocks.fetch.getMockImplementation();
+    mocks.fetch.mockImplementation(async (input: URL | string) => {
+      const url = new URL(String(input));
+      const path = url.pathname;
+
+      if (path.endsWith("/datasets")) {
+        if (url.searchParams.get("pageToken") === "next-dataset-page") {
+          return jsonResponse({
+            datasets: [
+              {
+                datasetReference: {
+                  projectId: "test-project",
+                  datasetId: "identity_data",
+                },
+              },
+            ],
+          });
+        }
+        return jsonResponse({
+          datasets: [
+            {
+              datasetReference: {
+                projectId: "test-project",
+                datasetId: "product",
+              },
+            },
+          ],
+          nextPageToken: "next-dataset-page",
+        });
+      }
+
+      if (path.endsWith("/datasets/identity_data/tables")) {
+        return jsonResponse({
+          tables: [
+            {
+              tableReference: {
+                projectId: "test-project",
+                datasetId: "identity_data",
+                tableId: "builder_user_identity_map",
+              },
+              type: "TABLE",
+            },
+          ],
+        });
+      }
+
+      if (
+        path.endsWith(
+          "/datasets/identity_data/tables/builder_user_identity_map",
+        )
+      ) {
+        return jsonResponse({
+          tableReference: {
+            projectId: "test-project",
+            datasetId: "identity_data",
+            tableId: "builder_user_identity_map",
+          },
+          schema: { fields: [{ name: "user_id", type: "STRING" }] },
+        });
+      }
+
+      return defaultFetch?.(input) ?? jsonResponse({}, 404);
+    });
+
+    const result = await action.run({ search: "identity", limit: 10 });
+
+    expect(result).toMatchObject({
+      datasetsScanned: 2,
+      tablesScanned: 7,
+      truncated: false,
+      nextPage: null,
+      tables: [
+        expect.objectContaining({
+          datasetId: "identity_data",
+          tableId: "builder_user_identity_map",
+        }),
+      ],
+    });
+    expect(
+      mocks.fetch.mock.calls.some(([input]) => {
+        const url = new URL(String(input));
+        return (
+          url.pathname.endsWith("/datasets") &&
+          url.searchParams.get("pageToken") === "next-dataset-page"
+        );
+      }),
+    ).toBe(true);
+  });
+
+  it("follows table continuation pages during global search below the scan cap", async () => {
+    const defaultFetch = mocks.fetch.getMockImplementation();
+    mocks.fetch.mockImplementation(async (input: URL | string) => {
+      const url = new URL(String(input));
+      const path = url.pathname;
+
+      if (path.endsWith("/datasets/product/tables")) {
+        if (url.searchParams.get("pageToken") === "next-table-page") {
+          return jsonResponse({
+            tables: [
+              {
+                tableReference: {
+                  projectId: "test-project",
+                  datasetId: "product",
+                  tableId: "system_identity_map",
+                },
+                type: "TABLE",
+              },
+            ],
+          });
+        }
+        return jsonResponse({
+          tables: [
+            {
+              tableReference: {
+                projectId: "test-project",
+                datasetId: "product",
+                tableId: "generic_table",
+              },
+              type: "TABLE",
+            },
+          ],
+          nextPageToken: "next-table-page",
+        });
+      }
+
+      if (path.endsWith("/datasets/product/tables/generic_table")) {
+        return jsonResponse({
+          tableReference: {
+            projectId: "test-project",
+            datasetId: "product",
+            tableId: "generic_table",
+          },
+          schema: { fields: [{ name: "id", type: "STRING" }] },
+        });
+      }
+
+      if (path.endsWith("/datasets/product/tables/system_identity_map")) {
+        return jsonResponse({
+          tableReference: {
+            projectId: "test-project",
+            datasetId: "product",
+            tableId: "system_identity_map",
+          },
+          schema: { fields: [{ name: "user_id", type: "STRING" }] },
+        });
+      }
+
+      return defaultFetch?.(input) ?? jsonResponse({}, 404);
+    });
+
+    const result = await action.run({ search: "identity", limit: 10 });
+
+    expect(result).toMatchObject({
+      datasetsScanned: 1,
+      tablesScanned: 2,
+      truncated: false,
+      nextPage: null,
+      tables: [expect.objectContaining({ tableId: "system_identity_map" })],
+    });
+    expect(
+      mocks.fetch.mock.calls.some(([input]) => {
+        const url = new URL(String(input));
+        return (
+          url.pathname.endsWith("/datasets/product/tables") &&
+          url.searchParams.get("pageToken") === "next-table-page"
+        );
+      }),
+    ).toBe(true);
+  });
+
+  it("returns a resumable cursor when the global dataset scan reaches its cap", async () => {
+    mocks.fetch.mockImplementation(async (input: URL | string) => {
+      const url = new URL(String(input));
+      const path = url.pathname;
+
+      if (path.endsWith("/datasets")) {
+        if (url.searchParams.get("pageToken") === "dataset-page-2") {
+          return jsonResponse({
+            datasets: [
+              {
+                datasetReference: {
+                  projectId: "test-project",
+                  datasetId: "dataset_100",
+                },
+              },
+            ],
+          });
+        }
+        return jsonResponse({
+          datasets: Array.from({ length: 100 }, (_, index) => ({
+            datasetReference: {
+              projectId: "test-project",
+              datasetId: `dataset_${String(index).padStart(3, "0")}`,
+            },
+          })),
+          nextPageToken: "dataset-page-2",
+        });
+      }
+
+      if (path.includes("/datasets/") && path.endsWith("/tables")) {
+        return jsonResponse({ tables: [] });
+      }
+
+      return jsonResponse({}, 404);
+    });
+
+    const firstPage = await action.run({ search: "nothing", limit: 10 });
+    expect(firstPage).toMatchObject({
+      datasetsScanned: 100,
+      tablesScanned: 0,
+      truncated: true,
+    });
+    expect(firstPage.nextPage).toMatch(/^bqg1\./);
+
+    const secondPage = await action.run({
+      search: "nothing",
+      limit: 10,
+      nextPage: firstPage.nextPage,
+    });
+    expect(secondPage).toMatchObject({
+      datasetsScanned: 101,
+      tablesScanned: 0,
+      searched: 0,
+      of: 0,
+      truncated: false,
+      nextPage: null,
+    });
   });
 });

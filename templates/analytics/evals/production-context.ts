@@ -2,15 +2,24 @@ import type {
   EvalProductionContext,
   EvalProductionIdentity,
 } from "@agent-native/core/eval";
+import type {
+  AgentRunOutput,
+  EvalProductionChatPath,
+} from "@agent-native/core/eval";
 import {
+  actionsToEngineTools,
   attachToolSearch,
   buildFrameworkPrompts,
   generateActionsPrompt,
   loadActionsFromStaticRegistry,
+  runAgentLoop,
   TOOL_SEARCH_ACTION_NAME,
+  type AgentChatEvent,
+  type AgentLoopFinalResponseGuard,
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../.generated/actions-registry.js";
+import { retrieveAnalyticsPromptReferences } from "../server/lib/analytics-agent-context.js";
 import {
   INITIAL_TOOL_NAMES,
   analyticsExtraContext,
@@ -23,13 +32,189 @@ const REQUIRED_ANALYTICS_QUERY_ACTIONS = [
   "search-bigquery-schema",
 ] as const;
 
-/**
- * Reuses Analytics rules, guard, and static read-only actions. This context
- * cannot invoke the mounted chat handler: its request preparation and dynamic
- * prompt/tool assembly are closure-local to the chat plugin. It intentionally
- * omits productionChatPath so the eval runner rejects production claims until
- * that handler exposes a safe test seam. Identity is always caller-supplied.
- */
+function toMessages(
+  input: Parameters<EvalProductionChatPath["run"]>[0]["input"],
+): Parameters<typeof runAgentLoop>[0]["messages"] {
+  const messages: Parameters<typeof runAgentLoop>[0]["messages"] = [];
+  for (const turn of input.history ?? []) {
+    messages.push({
+      role: turn.role,
+      content: [{ type: "text", text: turn.text }],
+    });
+  }
+  messages.push({
+    role: "user",
+    content: [{ type: "text", text: input.prompt }],
+  });
+  return messages;
+}
+
+function appendReferences(
+  systemPrompt: string,
+  candidates: Awaited<
+    ReturnType<typeof retrieveAnalyticsPromptReferences>
+  >["jevPromptCandidates"],
+): string {
+  if (candidates.length === 0) return systemPrompt;
+  const references = candidates
+    .map(
+      (candidate) =>
+        `### ${candidate.name}\n${candidate.description}\n${candidate.content}`,
+    )
+    .join("\n\n");
+  return `${systemPrompt}\n\n<resource scope="analytics-catalog">\n${references}\n</resource>`;
+}
+
+async function runAnalyticsProductionPath(args: {
+  input: Parameters<EvalProductionChatPath["run"]>[0]["input"];
+  identity: EvalProductionIdentity;
+  engine: Parameters<typeof runAgentLoop>[0]["engine"];
+  model: string;
+  signal: AbortSignal;
+  onUsage: Parameters<EvalProductionChatPath["run"]>[0]["onUsage"];
+  actions: ReturnType<typeof loadActionsFromStaticRegistry>;
+  initialToolNames: string[];
+  systemPrompt: string;
+}): Promise<Awaited<ReturnType<EvalProductionChatPath["run"]>>> {
+  const references = await retrieveAnalyticsPromptReferences({
+    request: args.input.prompt,
+    email: args.identity.ownerEmail,
+    orgId: args.identity.orgId,
+    deadlineAt: Date.now() + 1_300,
+  });
+  const runId = `eval:${crypto.randomUUID()}`;
+  const prompt = appendReferences(
+    args.systemPrompt,
+    references.jevPromptCandidates,
+  );
+  const availableTools = actionsToEngineTools(args.actions);
+  const initialNames = new Set(args.initialToolNames);
+  const tools = availableTools.filter((tool) => initialNames.has(tool.name));
+  const availableActionNames = Object.keys(args.actions);
+  const readOnlyActionNames = availableActionNames.filter(
+    (name) => args.actions[name]?.readOnly === true,
+  );
+  const calls: Array<{
+    name: string;
+    input: unknown;
+    startedAtEventIndex: number;
+    completedAtEventIndex?: number;
+    completed?: boolean;
+    completedSideEffect?: boolean;
+    isError?: boolean;
+    result?: string;
+    id?: string;
+  }> = [];
+  let text = "";
+  let error: string | undefined;
+  let eventIndex = 0;
+  let guardApplied = false;
+  let usage: Awaited<ReturnType<typeof runAgentLoop>> | undefined;
+  const originalGuard = realDataFinalGuard as AgentLoopFinalResponseGuard;
+  const finalResponseGuard: AgentLoopFinalResponseGuard = async (context) => {
+    guardApplied = true;
+    return originalGuard(context);
+  };
+  const send = (event: AgentChatEvent) => {
+    const currentEventIndex = eventIndex++;
+    if (event.type === "text") {
+      text += event.text;
+    } else if (event.type === "tool_start") {
+      calls.push({
+        id: event.id,
+        name: event.tool,
+        input: event.input,
+        startedAtEventIndex: currentEventIndex,
+      });
+    } else if (event.type === "tool_done") {
+      const call = event.id
+        ? calls.find((entry) => entry.id === event.id)
+        : calls.find((entry) => entry.name === event.tool && !entry.completed);
+      if (call) {
+        call.completed = true;
+        call.completedAtEventIndex = currentEventIndex;
+        call.completedSideEffect = event.completedSideEffect;
+        call.isError = event.isError === true;
+        call.result = event.result;
+      }
+    } else if (event.type === "error") {
+      error = event.error;
+    }
+  };
+  const receipt = {
+    productionAgentLoopInvoked: false,
+    requestPreparationInvoked: true,
+    systemPromptBuilt: Boolean(prompt.trim()),
+    finalResponseGuardInstalled: typeof realDataFinalGuard === "function",
+    finalResponseGuardApplied: false,
+    usageCaptured: false,
+    prefetchStatus: references.prefetchStatus,
+    ownerEmail: args.identity.ownerEmail,
+    orgId: args.identity.orgId,
+    initialToolNames: args.initialToolNames,
+    availableActionNames,
+    readOnlyActionNames,
+  };
+  if (
+    references.prefetchStatus !== "ok" &&
+    references.prefetchStatus !== "empty"
+  ) {
+    return {
+      output: {
+        text: "",
+        toolCalls: [],
+        ok: false,
+        error: `Analytics request preparation ${references.prefetchStatus}.`,
+        runId,
+        durationMs: 0,
+      },
+      receipt,
+    };
+  }
+
+  const started = Date.now();
+  let ok = true;
+  try {
+    receipt.productionAgentLoopInvoked = true;
+    usage = await runAgentLoop({
+      engine: args.engine,
+      model: args.model,
+      systemPrompt: prompt,
+      tools,
+      availableTools,
+      messages: toMessages(args.input),
+      actions: args.actions,
+      send,
+      signal: args.signal,
+      onUsage: args.onUsage,
+      ownerEmail: args.identity.ownerEmail,
+      orgId: args.identity.orgId,
+      appId: "analytics",
+      actionCaller: "tool",
+      finalResponseGuard,
+      finalResponseGuardRequestText: args.input.prompt,
+      runId,
+    });
+  } catch (cause) {
+    ok = false;
+    error = cause instanceof Error ? cause.message : String(cause);
+  }
+  receipt.finalResponseGuardApplied = guardApplied;
+  receipt.usageCaptured = Boolean(usage);
+  const output: AgentRunOutput = {
+    text,
+    toolCalls: calls.map((call) => call.name),
+    toolCallDetails: calls.map(({ id: _id, ...call }) => call),
+    ok: ok && !error && !args.signal.aborted,
+    ...(error ? { error } : {}),
+    runId,
+    durationMs: Date.now() - started,
+    ...(usage ? { usage } : {}),
+  };
+  return { output, receipt };
+}
+
+/** Reuses the production prompt, request prefetch, read-only actions, guard, and agent loop. */
 export function resolveProductionEvalContext(
   identity: EvalProductionIdentity,
 ): EvalProductionContext {
@@ -73,6 +258,16 @@ export function resolveProductionEvalContext(
     .filter(Boolean)
     .join("\n\n");
 
+  const productionChatPath: EvalProductionChatPath = {
+    run: (args) =>
+      runAnalyticsProductionPath({
+        ...args,
+        actions,
+        initialToolNames,
+        systemPrompt,
+      }),
+  };
+
   return {
     actions,
     systemPrompt,
@@ -81,5 +276,6 @@ export function resolveProductionEvalContext(
     orgId,
     appId: "analytics",
     initialToolNames,
+    productionChatPath,
   };
 }

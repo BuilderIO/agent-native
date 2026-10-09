@@ -4,9 +4,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
-  decodeSearchCursor,
   matchSearchFields,
-  paginateSearchResults,
   semanticScopeCompatibility,
   semanticScopeForSearch,
 } from "../server/lib/analytics-term-matcher.js";
@@ -15,7 +13,6 @@ import {
   flattenBigQueryFields,
   getBigQueryProjectId,
   getBigQueryTableMetadata,
-  listBigQueryTables,
   listBigQueryTablesPage,
   type BigQueryTableMetadata,
   type BigQueryTableSummary,
@@ -38,6 +35,8 @@ const ID_RE = /^[A-Za-z0-9_]+$/;
 const GLOBAL_SEARCH_DATASET_LIMIT = 100;
 const GLOBAL_SEARCH_TABLE_LIMIT = 250;
 const GLOBAL_SEARCH_METADATA_BATCH_SIZE = 20;
+const GLOBAL_SEARCH_CURSOR_MAX_LENGTH = 8_192;
+const BIGQUERY_PAGE_TOKEN_MAX_LENGTH = 2_048;
 
 function apiCursorHash(search: string): string {
   return createHash("sha256")
@@ -46,15 +45,19 @@ function apiCursorHash(search: string): string {
     .slice(0, 16);
 }
 
-function encodeApiPageCursor(search: string, pageToken: string): string {
-  return `bq1.${apiCursorHash(search)}.${Buffer.from(pageToken).toString("base64url")}`;
+interface ApiPageCursor {
+  pageToken?: string;
+  searched: number;
+  matches: number;
 }
 
-function decodeApiPageCursor(
-  search: string,
-  cursor?: string,
-): string | undefined {
-  if (!cursor) return undefined;
+function encodeApiPageCursor(search: string, cursor: ApiPageCursor): string {
+  const encoded = Buffer.from(JSON.stringify(cursor)).toString("base64url");
+  return `bq1.${apiCursorHash(search)}.${encoded}`;
+}
+
+function decodeApiPageCursor(search: string, cursor?: string): ApiPageCursor {
+  if (!cursor) return { searched: 0, matches: 0 };
   const match = cursor.match(/^bq1\.([a-f0-9]{16})\.([A-Za-z0-9_-]+)$/);
   if (!match || match[1] !== apiCursorHash(search)) {
     fail("The search cursor does not match this query.", {
@@ -62,19 +65,139 @@ function decodeApiPageCursor(
       statusCode: 400,
     });
   }
-  const pageToken = Buffer.from(match[2]!, "base64url").toString("utf8");
-  if (!pageToken || pageToken.length > 2_048) {
-    fail("The search cursor is invalid.", {
+  const decoded = Buffer.from(match[2]!, "base64url").toString("utf8");
+  try {
+    const parsed: unknown = JSON.parse(decoded);
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      !Number.isSafeInteger((parsed as ApiPageCursor).searched) ||
+      (parsed as ApiPageCursor).searched < 0 ||
+      !Number.isSafeInteger((parsed as ApiPageCursor).matches) ||
+      (parsed as ApiPageCursor).matches < 0 ||
+      ((parsed as ApiPageCursor).pageToken !== undefined &&
+        (typeof (parsed as ApiPageCursor).pageToken !== "string" ||
+          !(parsed as ApiPageCursor).pageToken ||
+          (parsed as ApiPageCursor).pageToken!.length > 2_048))
+    ) {
+      throw new Error("invalid");
+    }
+    return parsed as ApiPageCursor;
+  } catch {
+    if (!decoded || decoded.length > 2_048) {
+      fail("The search cursor is invalid.", {
+        errorCode: "invalid_search_cursor",
+        statusCode: 400,
+      });
+    }
+    return { pageToken: decoded, searched: 0, matches: 0 };
+  }
+}
+
+interface GlobalSearchScanState {
+  datasetPageToken?: string;
+  datasetIndex: number;
+  tablePageToken?: string;
+}
+
+interface GlobalSearchCursor {
+  scan: GlobalSearchScanState;
+  offset: number;
+  scannedDatasets: number;
+  scannedTables: number;
+  matches: number;
+}
+
+function globalSearchCursorHash(projectId: string, search: string): string {
+  return createHash("sha256")
+    .update(`${projectId}\n${search.trim().toLowerCase()}`)
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function encodeGlobalSearchCursor(
+  projectId: string,
+  search: string,
+  cursor: GlobalSearchCursor,
+): string {
+  const encoded = Buffer.from(JSON.stringify(cursor)).toString("base64url");
+  const result = `bqg1.${globalSearchCursorHash(projectId, search)}.${encoded}`;
+  if (result.length > GLOBAL_SEARCH_CURSOR_MAX_LENGTH) {
+    fail("BigQuery returned an oversized continuation token.", {
+      errorCode: "invalid_bigquery_page_token",
+      statusCode: 502,
+    });
+  }
+  return result;
+}
+
+function decodeGlobalSearchCursor(
+  projectId: string,
+  search: string,
+  value?: string,
+): GlobalSearchCursor {
+  if (!value) {
+    return {
+      scan: { datasetIndex: 0 },
+      offset: 0,
+      scannedDatasets: 0,
+      scannedTables: 0,
+      matches: 0,
+    };
+  }
+  const match = value.match(/^bqg1\.([a-f0-9]{16})\.([A-Za-z0-9_-]+)$/);
+  if (
+    value.length > GLOBAL_SEARCH_CURSOR_MAX_LENGTH ||
+    !match ||
+    match[1] !== globalSearchCursorHash(projectId, search)
+  ) {
+    return fail("The search cursor is invalid or does not match this query.", {
       errorCode: "invalid_search_cursor",
       statusCode: 400,
     });
   }
-  return pageToken;
-}
 
-function decodeSearchOffset(search: string, cursor?: string): number {
   try {
-    return decodeSearchCursor(search, cursor);
+    const parsed: unknown = JSON.parse(
+      Buffer.from(match[2]!, "base64url").toString("utf8"),
+    );
+    if (!parsed || typeof parsed !== "object") throw new Error("invalid");
+    const cursor = parsed as Partial<GlobalSearchCursor>;
+    const scan = cursor.scan;
+    if (
+      !scan ||
+      typeof scan !== "object" ||
+      !Number.isSafeInteger(scan.datasetIndex) ||
+      scan.datasetIndex < 0 ||
+      scan.datasetIndex > 1_000 ||
+      !Number.isSafeInteger(cursor.offset) ||
+      cursor.offset! < 0 ||
+      (cursor.scannedDatasets !== undefined &&
+        (!Number.isSafeInteger(cursor.scannedDatasets) ||
+          cursor.scannedDatasets < 0)) ||
+      (cursor.scannedTables !== undefined &&
+        (!Number.isSafeInteger(cursor.scannedTables) ||
+          cursor.scannedTables < 0)) ||
+      (cursor.matches !== undefined &&
+        (!Number.isSafeInteger(cursor.matches) || cursor.matches < 0)) ||
+      (scan.datasetPageToken !== undefined &&
+        (typeof scan.datasetPageToken !== "string" ||
+          scan.datasetPageToken.length === 0 ||
+          scan.datasetPageToken.length > BIGQUERY_PAGE_TOKEN_MAX_LENGTH)) ||
+      (scan.tablePageToken !== undefined &&
+        (typeof scan.tablePageToken !== "string" ||
+          scan.tablePageToken.length === 0 ||
+          scan.tablePageToken.length > BIGQUERY_PAGE_TOKEN_MAX_LENGTH))
+    ) {
+      throw new Error("invalid");
+    }
+    return {
+      scan,
+      offset: cursor.offset!,
+      scannedDatasets: cursor.scannedDatasets ?? 0,
+      scannedTables: cursor.scannedTables ?? 0,
+      matches: cursor.matches ?? 0,
+    };
   } catch {
     return fail("The search cursor is invalid or does not match this query.", {
       errorCode: "invalid_search_cursor",
@@ -209,42 +332,152 @@ async function listDatasetsPage(
   };
 }
 
+async function scanGlobalTables(
+  projectId: string,
+  initial: GlobalSearchScanState,
+): Promise<{
+  tables: BigQueryTableSummary[];
+  datasetsScanned: number;
+  nextScan: GlobalSearchScanState | null;
+}> {
+  const tables: BigQueryTableSummary[] = [];
+  let datasetsScanned = 0;
+  let datasetsVisited = 0;
+  let datasetPagesScanned = 0;
+  let tablePagesScanned = 0;
+  let cursor = { ...initial };
+  let datasetPageToken = cursor.datasetPageToken;
+  let datasetPage = await listDatasetsPage(
+    projectId,
+    GLOBAL_SEARCH_DATASET_LIMIT,
+    "",
+    datasetPageToken,
+  );
+  datasetPagesScanned += 1;
+
+  while (true) {
+    if (
+      datasetsVisited >= GLOBAL_SEARCH_DATASET_LIMIT ||
+      tables.length >= GLOBAL_SEARCH_TABLE_LIMIT
+    ) {
+      return { tables, datasetsScanned, nextScan: cursor };
+    }
+
+    if (cursor.datasetPageToken !== datasetPageToken) {
+      if (datasetPagesScanned >= GLOBAL_SEARCH_DATASET_LIMIT) {
+        return { tables, datasetsScanned, nextScan: cursor };
+      }
+      datasetPageToken = cursor.datasetPageToken;
+      datasetPage = await listDatasetsPage(
+        projectId,
+        GLOBAL_SEARCH_DATASET_LIMIT,
+        "",
+        datasetPageToken,
+      );
+      datasetPagesScanned += 1;
+    }
+
+    if (cursor.datasetIndex >= datasetPage.datasets.length) {
+      if (!datasetPage.nextPageToken) {
+        return { tables, datasetsScanned, nextScan: null };
+      }
+      cursor = {
+        datasetPageToken: datasetPage.nextPageToken,
+        datasetIndex: 0,
+      };
+      continue;
+    }
+
+    const dataset = datasetPage.datasets[cursor.datasetIndex];
+    const nextDatasetIndex = cursor.datasetIndex + 1;
+    const nextDatasetState: GlobalSearchScanState | null =
+      nextDatasetIndex < datasetPage.datasets.length
+        ? {
+            ...(datasetPageToken ? { datasetPageToken } : {}),
+            datasetIndex: nextDatasetIndex,
+          }
+        : datasetPage.nextPageToken
+          ? { datasetPageToken: datasetPage.nextPageToken, datasetIndex: 0 }
+          : null;
+
+    datasetsVisited += 1;
+    if (!dataset.datasetId) {
+      if (!nextDatasetState) {
+        return { tables, datasetsScanned, nextScan: null };
+      }
+      cursor = nextDatasetState;
+      continue;
+    }
+
+    datasetsScanned += 1;
+    let tablePageToken = cursor.tablePageToken;
+    while (true) {
+      if (tablePagesScanned >= GLOBAL_SEARCH_TABLE_LIMIT) {
+        return {
+          tables,
+          datasetsScanned,
+          nextScan: {
+            ...(datasetPageToken ? { datasetPageToken } : {}),
+            datasetIndex: cursor.datasetIndex,
+            ...(tablePageToken ? { tablePageToken } : {}),
+          },
+        };
+      }
+
+      const remaining = GLOBAL_SEARCH_TABLE_LIMIT - tables.length;
+      const tablePage = await listBigQueryTablesPage(
+        projectId,
+        dataset.datasetId,
+        remaining,
+        { pageToken: tablePageToken },
+      );
+      tablePagesScanned += 1;
+      tables.push(...tablePage.tables.slice(0, remaining));
+
+      if (tablePage.nextPageToken) {
+        tablePageToken = tablePage.nextPageToken;
+        if (
+          tables.length >= GLOBAL_SEARCH_TABLE_LIMIT ||
+          tablePagesScanned >= GLOBAL_SEARCH_TABLE_LIMIT
+        ) {
+          return {
+            tables,
+            datasetsScanned,
+            nextScan: {
+              ...(datasetPageToken ? { datasetPageToken } : {}),
+              datasetIndex: cursor.datasetIndex,
+              tablePageToken,
+            },
+          };
+        }
+        continue;
+      }
+
+      cursor = nextDatasetState ?? cursor;
+      if (!nextDatasetState) {
+        return { tables, datasetsScanned, nextScan: null };
+      }
+      if (
+        tables.length >= GLOBAL_SEARCH_TABLE_LIMIT ||
+        datasetsVisited >= GLOBAL_SEARCH_DATASET_LIMIT
+      ) {
+        return { tables, datasetsScanned, nextScan: cursor };
+      }
+      break;
+    }
+  }
+}
+
 async function searchAcrossDatasets(
   projectId: string,
   search: string,
   limit: number,
   nextPage?: string,
 ) {
-  const datasets = (
-    await listDatasetsPage(projectId, GLOBAL_SEARCH_DATASET_LIMIT + 1, "")
-  ).datasets;
-  const scannableDatasets = datasets.slice(0, GLOBAL_SEARCH_DATASET_LIMIT);
-  const tables: BigQueryTableSummary[] = [];
-  const datasetCount = scannableDatasets.filter(
-    (dataset) => typeof dataset.datasetId === "string" && dataset.datasetId,
-  ).length;
-  let datasetsScanned = 0;
-  let truncated = datasets.length > GLOBAL_SEARCH_DATASET_LIMIT;
-
-  for (const dataset of scannableDatasets) {
-    const datasetId = dataset.datasetId;
-    if (!datasetId) continue;
-    if (tables.length >= GLOBAL_SEARCH_TABLE_LIMIT) {
-      truncated = true;
-      break;
-    }
-
-    datasetsScanned += 1;
-    const remaining = GLOBAL_SEARCH_TABLE_LIMIT - tables.length;
-    const listed = await listBigQueryTables(
-      projectId,
-      datasetId,
-      Math.min(remaining, GLOBAL_SEARCH_TABLE_LIMIT),
-    );
-    tables.push(...listed);
-  }
-
-  if (datasetsScanned < datasetCount) truncated = true;
+  const requestCursor = decodeGlobalSearchCursor(projectId, search, nextPage);
+  const scanStart = requestCursor.scan;
+  const scan = await scanGlobalTables(projectId, scanStart);
+  const { tables, datasetsScanned } = scan;
 
   const matches: Array<{
     table: ReturnType<typeof compactTable>;
@@ -327,40 +560,56 @@ async function searchAcrossDatasets(
       `${b.table.datasetId}.${b.table.tableId}`,
     );
   });
-  const hasScopeMatch = matches.some((match) => match.scopeRank === 2);
-  const scopedMatches = hasScopeMatch
-    ? matches.filter((match) => match.scopeRank === 2)
-    : matches;
-  const cursorSearch = `global\n${search.toLowerCase()}`;
-  const offset = decodeSearchOffset(cursorSearch, nextPage);
-  if (offset > scopedMatches.length) {
+  const rankedMatches = matches;
+  const offset = requestCursor.offset;
+  if (offset > rankedMatches.length) {
     fail("The search cursor is no longer valid; restart the search.", {
       errorCode: "invalid_search_cursor",
       statusCode: 400,
     });
   }
-  const page = paginateSearchResults({
-    search: cursorSearch,
-    results: scopedMatches.map((match) => match.table),
-    searched: tables.length,
-    limit,
-    offset,
-    truncated,
-  });
+  const end = offset + limit;
+  const hasMoreMatches = end < rankedMatches.length;
+  const scannedDatasets = requestCursor.scannedDatasets + datasetsScanned;
+  const scannedTables = requestCursor.scannedTables + tables.length;
+  const totalMatches = requestCursor.matches + rankedMatches.length;
+  const nextCursor = hasMoreMatches
+    ? { ...requestCursor, scan: scanStart, offset: end }
+    : scan.nextScan
+      ? {
+          scan: scan.nextScan,
+          offset: 0,
+          scannedDatasets,
+          scannedTables,
+          matches: totalMatches,
+        }
+      : null;
+  const pageResults = rankedMatches
+    .slice(offset, end)
+    .map((match) => match.table);
+  const page = {
+    results: pageResults,
+    searched: scannedTables,
+    of: totalMatches,
+    truncated: nextCursor !== null,
+    nextPage: nextCursor
+      ? encodeGlobalSearchCursor(projectId, search, nextCursor)
+      : null,
+  };
 
   return {
     mode: "table-search",
     projectId,
     search,
-    datasetsScanned,
-    tablesScanned: tables.length,
+    datasetsScanned: scannedDatasets,
+    tablesScanned: scannedTables,
     ...page,
-    tables: page.results,
+    tables: pageResults,
     ...(errors.length
       ? { errors: errors.slice(0, 12), errorCount: errors.length }
       : {}),
     nextStep:
-      "Use table=dataset.table for full metadata. Global search is bounded; pass a returned dataset/table reference for a complete inspection.",
+      "Follow nextPage to continue the bounded global scan. Pass table=dataset.table for full metadata on a specific result.",
   };
 }
 
@@ -394,7 +643,7 @@ export default defineAction({
       .max(200)
       .optional()
       .describe("Maximum results to return (default 50, max 200)"),
-    nextPage: z.string().max(4_096).optional(),
+    nextPage: z.string().max(GLOBAL_SEARCH_CURSOR_MAX_LENGTH).optional(),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -424,21 +673,29 @@ export default defineAction({
         );
       }
       const cursorSearch = `datasets\n${configuredProjectId}`;
+      const cursor = decodeApiPageCursor(cursorSearch, args.nextPage);
       const datasetPage = await listDatasetsPage(
         configuredProjectId,
         limit,
         search,
-        decodeApiPageCursor(cursorSearch, args.nextPage),
+        cursor.pageToken,
       );
       const nextPage = datasetPage.nextPageToken
-        ? encodeApiPageCursor(cursorSearch, datasetPage.nextPageToken)
+        ? encodeApiPageCursor(cursorSearch, {
+            pageToken: datasetPage.nextPageToken,
+            searched: cursor.searched + datasetPage.datasets.length,
+            matches: cursor.matches + datasetPage.datasets.length,
+          })
         : null;
+      const searched = cursor.searched + datasetPage.datasets.length;
       return {
         mode: "datasets",
         projectId: configuredProjectId,
         datasets: datasetPage.datasets,
-        searched: datasetPage.datasets.length,
-        of: datasetPage.totalItems ?? datasetPage.datasets.length,
+        searched,
+        of:
+          datasetPage.totalItems ??
+          cursor.matches + datasetPage.datasets.length,
         truncated: nextPage !== null,
         nextPage,
         nextStep:
@@ -449,15 +706,13 @@ export default defineAction({
     const datasetId = assertIdentifier("dataset", args.dataset);
     const includeColumns = args.includeColumns === true || !!search;
     const cursorSearch = `tables\n${configuredProjectId}\n${datasetId}\n${search.toLowerCase()}\n${includeColumns}`;
+    const cursor = decodeApiPageCursor(cursorSearch, args.nextPage);
     const tablePage = await listBigQueryTablesPage(
       configuredProjectId,
       datasetId,
       limit,
-      { pageToken: decodeApiPageCursor(cursorSearch, args.nextPage) },
+      { pageToken: cursor.pageToken },
     );
-    const nextPage = tablePage.nextPageToken
-      ? encodeApiPageCursor(cursorSearch, tablePage.nextPageToken)
-      : null;
     const tables = tablePage.tables;
 
     if (!includeColumns) {
@@ -470,13 +725,20 @@ export default defineAction({
           .toLowerCase()
           .includes(q);
       });
+      const nextPage = tablePage.nextPageToken
+        ? encodeApiPageCursor(cursorSearch, {
+            pageToken: tablePage.nextPageToken,
+            searched: cursor.searched + tables.length,
+            matches: cursor.matches + visibleTables.length,
+          })
+        : null;
       return {
         mode: "tables",
         projectId: configuredProjectId,
         datasetId,
         tables: visibleTables,
-        searched: tables.length,
-        of: tablePage.totalItems ?? tables.length,
+        searched: cursor.searched + tables.length,
+        of: tablePage.totalItems ?? cursor.matches + visibleTables.length,
         truncated: nextPage !== null,
         nextPage,
         nextStep:
@@ -496,13 +758,20 @@ export default defineAction({
     );
 
     if (!search) {
+      const nextPage = tablePage.nextPageToken
+        ? encodeApiPageCursor(cursorSearch, {
+            pageToken: tablePage.nextPageToken,
+            searched: cursor.searched + metadata.length,
+            matches: cursor.matches + metadata.length,
+          })
+        : null;
       return {
         mode: "tables-with-columns",
         projectId: configuredProjectId,
         datasetId,
         tables: metadata.map((meta) => compactTable(meta, true)),
-        searched: metadata.length,
-        of: tablePage.totalItems ?? metadata.length,
+        searched: cursor.searched + metadata.length,
+        of: tablePage.totalItems ?? cursor.matches + metadata.length,
         truncated: nextPage !== null,
         nextPage,
         note: "Use exact table and column names from this metadata. If the business meaning is unclear, save an unapproved data-dictionary entry or ask the user.",
@@ -540,20 +809,24 @@ export default defineAction({
         `${b.table.datasetId}.${b.table.tableId}`,
       );
     });
-    const hasScopeMatch = ranked.some((match) => match.scopeRank === 2);
-    const scopedResults = hasScopeMatch
-      ? ranked.filter((match) => match.scopeRank === 2)
-      : ranked;
+    const rankedResults = ranked;
+    const nextPage = tablePage.nextPageToken
+      ? encodeApiPageCursor(cursorSearch, {
+          pageToken: tablePage.nextPageToken,
+          searched: cursor.searched + metadata.length,
+          matches: cursor.matches + rankedResults.length,
+        })
+      : null;
     return {
       mode: "table-search",
       projectId: configuredProjectId,
       datasetId,
       search,
-      searched: metadata.length,
-      of: scopedResults.length,
+      searched: cursor.searched + metadata.length,
+      of: cursor.matches + rankedResults.length,
       truncated: nextPage !== null,
       nextPage,
-      tables: scopedResults.map((match) => match.table),
+      tables: rankedResults.map((match) => match.table),
       note: "Use exact table and column names from this metadata. If the business meaning is unclear, save an unapproved data-dictionary entry or ask the user.",
     };
   },

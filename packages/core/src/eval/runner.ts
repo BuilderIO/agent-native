@@ -2,6 +2,7 @@ import { access } from "node:fs/promises";
 import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
 
+import type { ActionEntry } from "../agent/production-agent.js";
 import { insertEvalResult } from "../observability/store.js";
 import type { EvalResult as ObservabilityEvalResult } from "../observability/types.js";
 import type { AgentRunner } from "./agent-runner.js";
@@ -111,11 +112,12 @@ export async function runEvals(
   runner: AgentRunner,
   opts: { thresholdOverride?: number; persist?: boolean } = {},
 ): Promise<EvalRunReport> {
+  const persist = opts.persist ?? true;
   const results: EvalResultRow[] = [];
   for (const evalCase of evals) {
     const row = await scoreEval(evalCase, runner, opts);
     results.push(row);
-    if (opts.persist && row.status !== "skipped") {
+    if (persist && row.status !== "skipped") {
       await persistEvalRow(row).catch(() => {});
     }
   }
@@ -241,8 +243,11 @@ export interface RunEvalSuiteOptions {
   cwd?: string;
   pattern?: string;
   thresholdOverride?: number;
+  actions?: Record<string, ActionEntry>;
+  systemPrompt?: string;
   productionContext?: EvalProductionContext;
   identity?: EvalProductionIdentity;
+  requireProductionChatPath?: boolean;
   persist?: boolean;
   runner?: AgentRunner;
   evals?: Eval[];
@@ -261,20 +266,45 @@ export async function runEvalSuite(
     evals = loaded.evals;
   }
 
-  const needsRunner = evals.some((evalCase) => !evalCase.skipReason);
   let runner = opts.runner;
-  if (!runner && needsRunner) {
+  if (opts.requireProductionChatPath) {
     const productionContext =
       opts.productionContext ??
       (await loadProductionEvalContext(cwd, opts.identity));
     requireProductionChatPath(productionContext);
+    if (runner) {
+      throw new Error(
+        "Production-path evals cannot use an injected runner because its chat-path parity cannot be verified.",
+      );
+    }
+    if (evals.length === 0) {
+      throw new Error("Production-path evals require at least one eval case.");
+    }
+    if (evals.some((evalCase) => evalCase.skipReason)) {
+      throw new Error("Production-path evals cannot contain skipped cases.");
+    }
     runner = await createAgentRunner({ productionContext });
+  } else {
+    const needsRunner = evals.some((evalCase) => !evalCase.skipReason);
+    if (!runner && needsRunner) {
+      if (opts.productionContext) {
+        requireProductionChatPath(opts.productionContext);
+        runner = await createAgentRunner({
+          productionContext: opts.productionContext,
+        });
+      } else {
+        runner = await createAgentRunner({
+          actions: opts.actions ?? (await discoverActions(cwd)),
+          systemPrompt: opts.systemPrompt,
+        });
+      }
+    }
   }
   runner ??= createInertRunner();
 
   const report = await runEvals(evals, runner, {
     thresholdOverride: opts.thresholdOverride,
-    persist: opts.persist ?? false,
+    persist: opts.persist ?? true,
   });
   return { report, files };
 }
@@ -329,9 +359,31 @@ export async function loadProductionEvalContext(
 function requireProductionChatPath(context: EvalProductionContext): void {
   if (typeof context.productionChatPath?.run !== "function") {
     throw new Error(
-      `Production eval adapter for ${context.appId ?? "this app"} does not invoke the production chat handler. Direct runAgentLoop evals omit request preparation, prefetch, and assembled runtime context, so this eval cannot count as production-path evidence.`,
+      `Production eval adapter for ${context.appId ?? "this app"} does not invoke the shared production agent loop with app request preparation and runtime context.`,
     );
   }
+}
+
+async function discoverActions(
+  cwd: string,
+): Promise<Record<string, ActionEntry>> {
+  const actionsDir = nodePath.join(cwd, "actions");
+  try {
+    await access(actionsDir);
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return {};
+    }
+    throw error;
+  }
+
+  const { autoDiscoverActions } = await import("../server/action-discovery.js");
+  return autoDiscoverActions(pathToFileURL(`${actionsDir}/`).href);
 }
 
 function createInertRunner(): AgentRunner {

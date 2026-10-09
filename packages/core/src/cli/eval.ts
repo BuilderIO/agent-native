@@ -19,6 +19,7 @@ export type EvalPromoteCliArgs = {
   runId: string;
   write?: string;
   json: boolean;
+  reviewedPrompt: string;
   mustContain?: string;
   datasetName?: string;
 };
@@ -58,19 +59,22 @@ function printHelp(): void {
 
 Usage:
   agent-native eval [pattern] --owner-email email --org-id id [--json] [--threshold N]
-  agent-native eval promote <runId> [--write path] [--json] [--must-contain text]
+  agent-native eval promote <runId> --reviewed-prompt text [--write path]
+    [--json] [--must-contain text]
 
 Discovers **/*.eval.ts and evals/*.ts under the current app, runs the agent
 for each eval input, scores the output with the eval's scorers, and exits
 non-zero if any eval scores below its threshold (so it gates CI/deploys).
 Production evals require explicit --owner-email and --org-id values plus an
-evals/production-context.ts adapter that invokes the production chat handler.
+evals/production-context.ts adapter that prepares the production prompt and
+invokes the shared production agent loop with its read-only action surface.
 Identity is never inferred from environment or app configuration. This command
 does not persist eval results.
 
-promote maps a completed production run into a defineEval case, persists an
-EvalDataset row, and optionally writes a *.eval.ts the CI gate already
-discovers. The hosted action never writes files. Repeating a promotion
+promote maps a completed production run into a defineEval case using the
+required manually reviewed prompt, persists an EvalDataset row, and optionally
+writes a *.eval.ts the CI gate already discovers. The hosted action never
+writes files. Repeating a promotion
 returns the existing dataset for the same owner and run. The CLI uses the
 signed-in account (or AGENT_USER_EMAIL) so it shares that dataset with the
 dashboard. A run whose event history exceeds the promotion limit is refused
@@ -90,6 +94,8 @@ Options:
   --org-id           Explicit organization identity for the eval request.
   --threshold N      Override every eval's pass threshold (0..1).
   --write path       Write a loadable *.eval.ts for the promoted case.
+  --reviewed-prompt  Required manually reviewed prompt; production prompt text
+                     is never copied.
   --must-contain txt Optional contains() needle for the promoted case.
   --dataset-name n   Optional EvalDataset name (defaults to from-trace:<runId>).
   -h, --help         Show this help.
@@ -110,6 +116,7 @@ export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
     let runId: string | undefined;
     let write: string | undefined;
     let json = false;
+    let reviewedPrompt: string | undefined;
     let mustContain: string | undefined;
     let datasetName: string | undefined;
 
@@ -135,6 +142,12 @@ export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
         i = containVal.next;
         continue;
       }
+      const promptVal = takeValue(argv, i, "--reviewed-prompt");
+      if (promptVal) {
+        reviewedPrompt = promptVal.value;
+        i = promptVal.next;
+        continue;
+      }
       const datasetVal = takeValue(argv, i, "--dataset-name");
       if (datasetVal) {
         datasetName = datasetVal.value;
@@ -150,6 +163,12 @@ export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
       console.error("eval promote: <runId> is required");
       process.exit(2);
     }
+    if (!reviewedPrompt?.trim()) {
+      console.error(
+        "eval promote: --reviewed-prompt is required and must not be empty",
+      );
+      process.exit(2);
+    }
     if (write !== undefined && write.length === 0) {
       console.error("eval promote: --write requires a path");
       process.exit(2);
@@ -159,6 +178,7 @@ export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
       command: "promote",
       runId,
       json,
+      reviewedPrompt,
       ...(write ? { write } : {}),
       ...(mustContain ? { mustContain } : {}),
       ...(datasetName ? { datasetName } : {}),
@@ -308,6 +328,7 @@ async function runPromote(args: EvalPromoteCliArgs): Promise<void> {
     const loaded = await loadTraceEvalPromotion(
       {
         runId: args.runId,
+        reviewedPrompt: args.reviewedPrompt,
         mustContain: args.mustContain,
         datasetName: args.datasetName,
       },
@@ -408,6 +429,7 @@ export async function runEval(argv: string[]): Promise<void> {
       pattern,
       thresholdOverride: threshold,
       ...(ownerEmail && orgId ? { identity: { ownerEmail, orgId } } : {}),
+      requireProductionChatPath: true,
       persist: false,
     });
   } catch (err) {
@@ -428,11 +450,13 @@ export async function runEval(argv: string[]): Promise<void> {
         ? "No eval files found (looked for **/*.eval.ts and evals/*.ts)."
         : `Found ${files.length} eval file(s) but no defineEval() exports.`;
     if (json) {
-      console.log(JSON.stringify({ ok: true, report, files }, null, 2));
+      console.log(
+        JSON.stringify({ ok: false, error: hint, report, files }, null, 2),
+      );
     } else {
-      console.log(`\n  ${hint}\n`);
+      console.error(`\n  eval failed: ${hint}\n`);
     }
-    process.exit(0);
+    process.exit(1);
   }
 
   if (json) {

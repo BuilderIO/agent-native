@@ -1,6 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -70,6 +78,7 @@ export interface SourceIndexEntry {
   metric: string;
   definition: string;
   source: string;
+  sourceKind?: "dbt" | "code" | "sigma";
   semanticScope?: SemanticScope;
   table?: string;
   columnsUsed?: string;
@@ -87,6 +96,13 @@ export interface SourceIndexBundle {
   generatedAt: string;
   sources: SourceIndexSource[];
   entries: SourceIndexEntry[];
+  scanSummary: SourceIndexScanSummary;
+}
+
+export interface SourceIndexScanSummary {
+  unsafeEntriesOmitted: number;
+  unsafeFieldsOmitted: number;
+  truncatedFields: number;
 }
 
 export interface SourceIndexOptions {
@@ -115,6 +131,7 @@ interface RootContext {
   absolutePath: string;
   id: string;
   revision?: string;
+  committedAt?: string;
 }
 
 interface ColumnDoc {
@@ -159,6 +176,7 @@ interface FileRecord {
 interface RootScanResult {
   entries: SourceIndexEntry[];
   contentFingerprint: string;
+  scanSummary: SourceIndexScanSummary;
 }
 
 interface ReadBudget {
@@ -167,6 +185,23 @@ interface ReadBudget {
 
 function codedError(code: string, message: string): never {
   throw new SourceIndexError(code, message);
+}
+
+function emptyScanSummary(): SourceIndexScanSummary {
+  return {
+    unsafeEntriesOmitted: 0,
+    unsafeFieldsOmitted: 0,
+    truncatedFields: 0,
+  };
+}
+
+function addScanSummary(
+  target: SourceIndexScanSummary,
+  source: SourceIndexScanSummary,
+): void {
+  target.unsafeEntriesOmitted += source.unsafeEntriesOmitted;
+  target.unsafeFieldsOmitted += source.unsafeFieldsOmitted;
+  target.truncatedFields += source.truncatedFields;
 }
 
 async function readSigmaCredentialsFromEnvFile(
@@ -371,21 +406,27 @@ function safePropertyName(value: string): string | null {
   return SAFE_PROPERTY_NAME.test(candidate) ? candidate : null;
 }
 
-function safeDescription(value: string): string | undefined {
+function safeDescription(
+  value: string,
+  scanSummary: SourceIndexScanSummary,
+): string | undefined {
   const normalized = value.replace(/\s+/g, " ").trim();
-  if (
-    !normalized ||
-    normalized.length > MAX_DESCRIPTION_LENGTH ||
-    SENSITIVE_TEXT.test(normalized)
-  ) {
+  if (!normalized) return undefined;
+  if (SENSITIVE_TEXT.test(normalized)) {
+    scanSummary.unsafeFieldsOmitted += 1;
     return undefined;
   }
-  return capString(normalized, MAX_DESCRIPTION_LENGTH);
+  if (normalized.length > MAX_DESCRIPTION_LENGTH) {
+    scanSummary.truncatedFields += 1;
+    return boundedExcerpt(normalized, MAX_DESCRIPTION_LENGTH);
+  }
+  return normalized;
 }
 
 function safeRelativePath(
   root: string,
   absolutePath: string,
+  scanSummary: SourceIndexScanSummary,
 ): string | undefined {
   const relative = path.relative(root, absolutePath).split(path.sep);
   if (
@@ -397,25 +438,26 @@ function safeRelativePath(
         SENSITIVE_TEXT.test(segment),
     )
   ) {
+    scanSummary.unsafeFieldsOmitted += 1;
     return undefined;
   }
-  return capString(relative.join("/"), 240);
+  const value = relative.join("/");
+  if (value.length <= 240) return value;
+  scanSummary.truncatedFields += 1;
+  const marker = "… [path truncated]";
+  return `${value.slice(0, 240 - marker.length).trimEnd()}${marker}`;
 }
 
-function revisionAt(root: string): string | undefined {
+function revisionAt(
+  root: string,
+): { revision: string; committedAt: string } | undefined {
+  let metadata: string;
   try {
-    const revision = execFileSync(
+    metadata = execFileSync(
       "git",
-      ["-C", root, "rev-parse", "--short=12", "HEAD"],
+      ["-C", root, "show", "-s", "--format=%H%x00%cI", "HEAD"],
       { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-    ).trim();
-    if (!/^[a-f0-9]{7,40}$/i.test(revision)) {
-      codedError(
-        "source_revision_invalid",
-        "A source repository returned an invalid revision id.",
-      );
-    }
-    return revision;
+    );
   } catch (error) {
     const stderr =
       error && typeof error === "object" && "stderr" in error
@@ -433,13 +475,48 @@ function revisionAt(root: string): string | undefined {
       "A source repository revision could not be read.",
     );
   }
+
+  const separator = metadata.indexOf("\0");
+  const fullRevision = metadata.slice(0, separator).trim();
+  const committedAt = metadata.slice(separator + 1).trim();
+  const committedAtMs = Date.parse(committedAt);
+  if (
+    separator < 0 ||
+    !/^[a-f0-9]{7,64}$/i.test(fullRevision) ||
+    !Number.isFinite(committedAtMs)
+  ) {
+    codedError(
+      "source_revision_invalid",
+      "A source repository returned invalid revision metadata.",
+    );
+  }
+  return {
+    revision: fullRevision.slice(0, 12),
+    committedAt: new Date(committedAtMs).toISOString(),
+  };
 }
 
 function sourceContext(root: string, fallback: string): RootContext {
   const absolutePath = path.resolve(root);
   const id = safeSlug(path.basename(absolutePath), fallback);
   const revision = revisionAt(absolutePath);
-  return { absolutePath, id, ...(revision ? { revision } : {}) };
+  return {
+    absolutePath,
+    id,
+    ...(revision
+      ? { revision: revision.revision, committedAt: revision.committedAt }
+      : {}),
+  };
+}
+
+function generatedAtFromDbtCommits(roots: RootContext[]): string | undefined {
+  if (roots.some((root) => !root.committedAt)) return undefined;
+  const latestCommit = Math.max(
+    ...roots.map((root) => Date.parse(root.committedAt!)),
+  );
+  return Number.isFinite(latestCommit)
+    ? new Date(latestCommit).toISOString()
+    : undefined;
 }
 
 async function listFiles(root: string): Promise<FileRecord[]> {
@@ -543,7 +620,11 @@ function yamlCommentFree(line: string): string {
       continue;
     }
     if (char === "'" || char === '"') quote = char;
-    else if (char === "#" && (index === 0 || /\s/.test(line[index - 1]!))) {
+    else if (
+      char === "#" &&
+      (index === 0 || /\s/.test(line[index - 1]!)) &&
+      !/\d/.test(line[index + 1] ?? "")
+    ) {
       return line.slice(0, index);
     }
   }
@@ -567,7 +648,7 @@ function yamlScalar(raw: string): string {
     return value.slice(1, -1).replace(/''/g, "'");
   }
   if ([">", ">-", ">+", "|", "|-", "|+"].includes(value)) return "";
-  return value.replace(/\s+#.*$/, "").trim();
+  return value.replace(/\s+#(?!\d).*$/, "").trim();
 }
 
 function yamlList(raw: string): string[] {
@@ -595,7 +676,11 @@ function addGrainHint(model: ModelDoc, columns: string[]): void {
   }
 }
 
-function parseSchemaYaml(raw: string, sourcePath?: string): ModelDoc[] {
+function parseSchemaYaml(
+  raw: string,
+  sourcePath: string | undefined,
+  scanSummary: SourceIndexScanSummary,
+): ModelDoc[] {
   const models: ModelDoc[] = [];
   let modelsIndent: number | null = null;
   let modelItemIndent: number | null = null;
@@ -612,7 +697,10 @@ function parseSchemaYaml(raw: string, sourcePath?: string): ModelDoc[] {
     indent: number,
   ): DbEntryContext | null => {
     const safeName = safeIdentifier(name);
-    if (!safeName) return null;
+    if (!safeName) {
+      scanSummary.unsafeEntriesOmitted += 1;
+      return null;
+    }
     const model: ModelDoc = {
       name: safeName,
       ...(sourcePath ? { sourcePath } : {}),
@@ -663,7 +751,10 @@ function parseSchemaYaml(raw: string, sourcePath?: string): ModelDoc[] {
     }
     if (multiline) {
       const target = multiline.target;
-      const description = safeDescription(multiline.lines.join(" "));
+      const description = safeDescription(
+        multiline.lines.join(" "),
+        scanSummary,
+      );
       if (description) target.description = description;
       multiline = null;
     }
@@ -687,7 +778,10 @@ function parseSchemaYaml(raw: string, sourcePath?: string): ModelDoc[] {
         indent > context.columnsIndent
       ) {
         const name = safeIdentifier(yamlScalar(nameItem[1]!));
-        if (!name) continue;
+        if (!name) {
+          scanSummary.unsafeFieldsOmitted += 1;
+          continue;
+        }
         const column: ColumnDoc = { name, tests: new Set() };
         context.model.columns.set(name, column);
         context.column = column;
@@ -767,7 +861,7 @@ function parseSchemaYaml(raw: string, sourcePath?: string): ModelDoc[] {
         if ([">", ">-", ">+", "|", "|-", "|+"].includes(rawValue.trim())) {
           multiline = { target, indent, lines: [] };
         } else {
-          const description = safeDescription(value);
+          const description = safeDescription(value, scanSummary);
           if (description) target.description = description;
         }
         continue;
@@ -846,7 +940,7 @@ function parseSchemaYaml(raw: string, sourcePath?: string): ModelDoc[] {
     }
   }
   if (multiline) {
-    const description = safeDescription(multiline.lines.join(" "));
+    const description = safeDescription(multiline.lines.join(" "), scanSummary);
     if (description) multiline.target.description = description;
   }
   if (context?.grainColumns) addGrainHint(context.model, context.grainColumns);
@@ -1143,7 +1237,10 @@ function splitTopLevel(source: string): string[] {
   return parts;
 }
 
-function objectMembers(expression: string): ObjectMember[] {
+function objectMembers(
+  expression: string,
+  scanSummary: SourceIndexScanSummary,
+): ObjectMember[] {
   const value = expression.trim();
   if (!value.startsWith("{") || !value.endsWith("}")) return [];
   return splitTopLevel(value.slice(1, -1))
@@ -1152,13 +1249,17 @@ function objectMembers(expression: string): ObjectMember[] {
       const colon = part.indexOf(":");
       if (colon < 0) {
         const key = part.trim().replace(/^['"]|['"]$/g, "");
-        return safePropertyName(key) ? { key, value: "" } : null;
+        if (safePropertyName(key)) return { key, value: "" };
+        scanSummary.unsafeFieldsOmitted += 1;
+        return null;
       }
       const rawKey = part.slice(0, colon).trim();
       const key = rawKey.replace(/^['"]|['"]$/g, "");
-      return safePropertyName(key)
-        ? { key, value: part.slice(colon + 1).trim() }
-        : null;
+      if (safePropertyName(key)) {
+        return { key, value: part.slice(colon + 1).trim() };
+      }
+      scanSummary.unsafeFieldsOmitted += 1;
+      return null;
     })
     .filter((member): member is ObjectMember => member !== null);
 }
@@ -1215,31 +1316,45 @@ function callArguments(source: string, openParen: number): string[] | null {
 function trackedEventParts(
   args: string[],
   constants: Map<string, string>,
+  scanSummary: SourceIndexScanSummary,
 ): { name: string; properties: string[] } | null {
   const first = args[0]?.trim();
   if (!first) return null;
   const firstLiteral = parseLiteral(first);
   if (firstLiteral !== null) {
     const name = safeEventName(firstLiteral);
-    if (!name) return null;
-    const direct = objectMembers(args[1] ?? "{}").map(({ key }) => key);
+    if (!name) {
+      scanSummary.unsafeEntriesOmitted += 1;
+      return null;
+    }
+    const direct = objectMembers(args[1] ?? "{}", scanSummary).map(
+      ({ key }) => key,
+    );
     return { name, properties: direct };
   }
   const constantName = constants.get(first);
   if (constantName) {
     const name = safeEventName(constantName);
-    if (!name) return null;
-    const direct = objectMembers(args[1] ?? "{}").map(({ key }) => key);
+    if (!name) {
+      scanSummary.unsafeEntriesOmitted += 1;
+      return null;
+    }
+    const direct = objectMembers(args[1] ?? "{}", scanSummary).map(
+      ({ key }) => key,
+    );
     return { name, properties: direct };
   }
 
-  const object = objectMembers(first);
+  const object = objectMembers(first, scanSummary);
   const eventMember = object.find(({ key }) =>
     ["event", "eventName", "name"].includes(key),
   );
   const rawName = eventMember ? parseLiteral(eventMember.value) : null;
   const name = rawName ? safeEventName(rawName) : null;
-  if (!name) return null;
+  if (!name) {
+    if (rawName) scanSummary.unsafeEntriesOmitted += 1;
+    return null;
+  }
   const properties = new Set<string>();
   for (const member of object) {
     if (
@@ -1258,13 +1373,19 @@ function trackedEventParts(
   }
   for (const member of object) {
     if (["properties", "props", "eventProperties"].includes(member.key)) {
-      for (const { key } of objectMembers(member.value)) properties.add(key);
+      for (const { key } of objectMembers(member.value, scanSummary)) {
+        properties.add(key);
+      }
     }
   }
   return { name, properties: [...properties] };
 }
 
-function extractCodeEvents(source: string, sourcePath?: string): CodeEvent[] {
+function extractCodeEvents(
+  source: string,
+  sourcePath: string | undefined,
+  scanSummary: SourceIndexScanSummary,
+): CodeEvent[] {
   const events = new Map<string, CodeEvent>();
   const codeMask = maskCodeStringsAndComments(source);
   const commentMask = maskCodeComments(source);
@@ -1293,7 +1414,9 @@ function extractCodeEvents(source: string, sourcePath?: string): CodeEvent[] {
     if (depth === 0) {
       objectVariables.set(
         name,
-        objectMembers(commentMask.slice(openBrace, end)).map(({ key }) => key),
+        objectMembers(commentMask.slice(openBrace, end), scanSummary).map(
+          ({ key }) => key,
+        ),
       );
     }
   }
@@ -1305,7 +1428,7 @@ function extractCodeEvents(source: string, sourcePath?: string): CodeEvent[] {
     const openParen = start + match[0].lastIndexOf("(");
     const args = callArguments(source, openParen);
     if (!args) continue;
-    const extracted = trackedEventParts(args, constants);
+    const extracted = trackedEventParts(args, constants, scanSummary);
     if (!extracted) continue;
     const properties = new Set(extracted.properties);
     const secondArgument = args[1]?.trim();
@@ -1408,13 +1531,18 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
   const sqlTests: SourceIndexEntry[] = [];
   const fingerprint = createHash("sha256");
   const budget = { bytes: 0 };
+  const scanSummary = emptyScanSummary();
   for (const file of files) {
     const extension = path.extname(file.absolutePath).toLowerCase();
-    const relativePath = safeRelativePath(root.absolutePath, file.absolutePath);
+    const relativePath = safeRelativePath(
+      root.absolutePath,
+      file.absolutePath,
+      scanSummary,
+    );
     if (extension === ".yml" || extension === ".yaml") {
       const docsRaw = await readSourceFile(file, budget);
       hashFile(fingerprint, file, docsRaw);
-      docs.push(...parseSchemaYaml(docsRaw, relativePath));
+      docs.push(...parseSchemaYaml(docsRaw, relativePath, scanSummary));
       continue;
     }
     if (extension !== ".sql") continue;
@@ -1443,6 +1571,8 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
           ...(relativePath ? { sourcePath: relativePath } : {}),
           ...(root.revision ? { sourceRevision: root.revision } : {}),
         });
+      } else {
+        scanSummary.unsafeEntriesOmitted += 1;
       }
       continue;
     }
@@ -1450,7 +1580,10 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
     const modelName = safeIdentifier(
       path.basename(file.absolutePath, extension),
     );
-    if (!modelName) continue;
+    if (!modelName) {
+      scanSummary.unsafeEntriesOmitted += 1;
+      continue;
+    }
     const model: ModelDoc = {
       name: modelName,
       ...(relativePath ? { sourcePath: relativePath } : {}),
@@ -1469,6 +1602,7 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       ...sqlTests.sort((a, b) => a.id.localeCompare(b.id)),
     ],
     contentFingerprint: fingerprint.digest("hex"),
+    scanSummary,
   };
 }
 
@@ -1481,12 +1615,17 @@ async function readCodeRoot(root: RootContext): Promise<RootScanResult> {
   const events = new Map<string, CodeEvent>();
   const fingerprint = createHash("sha256");
   const budget = { bytes: 0 };
+  const scanSummary = emptyScanSummary();
   for (const file of files) {
     if (!codeExtensions(file.absolutePath)) continue;
-    const relativePath = safeRelativePath(root.absolutePath, file.absolutePath);
+    const relativePath = safeRelativePath(
+      root.absolutePath,
+      file.absolutePath,
+      scanSummary,
+    );
     const source = await readSourceFile(file, budget);
     hashFile(fingerprint, file, source);
-    for (const event of extractCodeEvents(source, relativePath)) {
+    for (const event of extractCodeEvents(source, relativePath, scanSummary)) {
       const current = events.get(event.name) ?? {
         name: event.name,
         properties: new Set<string>(),
@@ -1525,6 +1664,7 @@ async function readCodeRoot(root: RootContext): Promise<RootScanResult> {
         } satisfies SourceIndexEntry;
       }),
     contentFingerprint: fingerprint.digest("hex"),
+    scanSummary,
   };
 }
 
@@ -1653,23 +1793,30 @@ export async function compileSourceIndex(
   if (!options.dbtRoots.length) {
     codedError("missing_dbt_root", "At least one dbt root is required.");
   }
-  const generatedAt = options.generatedAt ?? new Date().toISOString();
-  if (!Number.isFinite(Date.parse(generatedAt)) || !generatedAt.includes("T")) {
+  if (
+    options.generatedAt !== undefined &&
+    (!Number.isFinite(Date.parse(options.generatedAt)) ||
+      !options.generatedAt.includes("T"))
+  ) {
     codedError(
       "invalid_generated_at",
       "generatedAt must be an ISO 8601 timestamp.",
     );
   }
+  const dbtRoots = options.dbtRoots.map((root, index) =>
+    sourceContext(root, `dbt-${index + 1}`),
+  );
   const roots = [
-    ...options.dbtRoots.map((root, index) => ({
-      kind: "dbt" as const,
-      context: sourceContext(root, `dbt-${index + 1}`),
-    })),
+    ...dbtRoots.map((context) => ({ kind: "dbt" as const, context })),
     ...(options.codeRoots ?? []).map((root, index) => ({
       kind: "code" as const,
       context: sourceContext(root, `code-${index + 1}`),
     })),
   ];
+  const generatedAt =
+    options.generatedAt ??
+    generatedAtFromDbtCommits(dbtRoots) ??
+    new Date().toISOString();
   if (roots.length + (options.sigmaReviewedManifest ? 1 : 0) > MAX_SOURCES) {
     codedError(
       "source_limit_exceeded",
@@ -1688,6 +1835,7 @@ export async function compileSourceIndex(
   }
   const sources: SourceIndexSource[] = [];
   const entries: SourceIndexEntry[] = [];
+  const scanSummary = emptyScanSummary();
   for (const { kind, context } of roots) {
     const scan =
       kind === "dbt" ? await readDbtRoot(context) : await readCodeRoot(context);
@@ -1696,7 +1844,10 @@ export async function compileSourceIndex(
       ...(context.revision ? { revision: context.revision } : {}),
       contentFingerprint: scan.contentFingerprint,
     });
-    entries.push(...scan.entries);
+    entries.push(
+      ...scan.entries.map((entry) => ({ ...entry, sourceKind: kind })),
+    );
+    addScanSummary(scanSummary, scan.scanSummary);
   }
   if (options.sigmaReviewedManifest) {
     if (seenIds.has("sigma")) {
@@ -1713,7 +1864,15 @@ export async function compileSourceIndex(
       ...credentials,
     });
     sources.push(sigma.source);
-    entries.push(...sigma.entries);
+    entries.push(
+      ...sigma.entries.map((entry) => ({
+        ...entry,
+        sourceKind: "sigma" as const,
+      })),
+    );
+    scanSummary.unsafeFieldsOmitted += sigma.scanSummary.unsafeFieldsOmitted;
+    scanSummary.truncatedFields += sigma.scanSummary.truncatedFields;
+    scanSummary.unsafeEntriesOmitted += sigma.scanSummary.unsafeEntriesOmitted;
   }
   entries.sort((a, b) => a.id.localeCompare(b.id));
   const bundle: SourceIndexBundle = {
@@ -1721,6 +1880,7 @@ export async function compileSourceIndex(
     generatedAt,
     sources,
     entries,
+    scanSummary,
   };
   const validated = sourceIndexBundleSchema.safeParse(bundle);
   if (!validated.success) {
@@ -1738,16 +1898,19 @@ export async function writeSourceIndex(
 ): Promise<SourceIndexBundle> {
   const bundle = await compileSourceIndex(options);
   const outputPath = path.resolve(options.out);
+  const temporaryPath = `${outputPath}.${process.pid}.${randomUUID()}.tmp`;
   try {
     await mkdir(path.dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, `${JSON.stringify(bundle, null, 2)}\n`, {
+    await writeFile(temporaryPath, `${JSON.stringify(bundle, null, 2)}\n`, {
       encoding: "utf8",
       flag: "wx",
     });
+    await rename(temporaryPath, outputPath);
   } catch {
+    await unlink(temporaryPath).catch(() => {});
     codedError(
       "output_write_failed",
-      "The source index output could not be created.",
+      "The source index output could not be replaced.",
     );
   }
   return bundle;
@@ -1758,7 +1921,7 @@ async function runCli(): Promise<void> {
     const options = parseSourceIndexArgs(process.argv.slice(2));
     const bundle = await writeSourceIndex(options);
     process.stdout.write(
-      `${JSON.stringify({ ok: true, schemaVersion: bundle.schemaVersion, sources: bundle.sources.length, entries: bundle.entries.length })}\n`,
+      `${JSON.stringify({ ok: true, schemaVersion: bundle.schemaVersion, sources: bundle.sources.length, entries: bundle.entries.length, scanSummary: bundle.scanSummary })}\n`,
     );
   } catch (error) {
     const known = error instanceof SourceIndexError ? error : null;

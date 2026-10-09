@@ -16,13 +16,16 @@ pnpm --dir templates/analytics exec tsx scripts/build-source-index.ts \
 
 The compiler scans schema descriptions, SQL structure, and static tracking
 calls. It records source revisions and content fingerprints, and omits raw
-query text and row values. Keep the generated JSON outside Git because it can
-contain internal table, event, and column names. CI tests the revision and
-fingerprint generation against temporary synthetic repositories and the
-90-day stale signal; it never checks out or reads the private source
-repositories. The 90-day UI signal asks an admin to rebuild and compare current
-source revisions; it does not claim to detect a change in a private repository
-automatically.
+query text and row values. For Git-backed dbt roots, `generatedAt` uses the
+latest root's commit committer time in UTC, so the same dbt commits produce the
+same timestamp. Fingerprints still change when indexed files differ from the
+commit. If a dbt root has no Git commit, generation uses the current time.
+Keep the generated JSON outside Git because it can contain internal table,
+event, and column names. CI tests revisions, fingerprints, commit-time
+generation, and the 90-day stale signal against temporary synthetic
+repositories; it never checks out or reads private source repositories. The
+90-day UI signal asks an admin to rebuild and compare current source revisions;
+it does not claim to detect a change in a private repository automatically.
 
 Sigma is optional. To index only workbook elements that have been explicitly
 reviewed, create a private manifest with this shape and keep it outside Git:

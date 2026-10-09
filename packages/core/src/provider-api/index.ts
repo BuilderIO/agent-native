@@ -3684,12 +3684,15 @@ function isAllowedProviderUrl(
 ): boolean {
   if (url.protocol !== "https:" && url.protocol !== "http:") return false;
   if (config.requireHttps && url.protocol !== "https:") return false;
-  if (url.origin === base.origin) return true;
   const host = url.hostname.toLowerCase();
-  return (config.allowedHostSuffixes ?? []).some((suffix) => {
-    const normalized = suffix.toLowerCase().replace(/^\./, "");
-    return host === normalized || host.endsWith(`.${normalized}`);
-  });
+  const allowedHostSuffixes = config.allowedHostSuffixes ?? [];
+  if (allowedHostSuffixes.length > 0) {
+    return allowedHostSuffixes.some((suffix) => {
+      const normalized = suffix.toLowerCase().replace(/^\./, "");
+      return host === normalized || host.endsWith(`.${normalized}`);
+    });
+  }
+  return url.origin === base.origin;
 }
 
 function queryEntries(value: unknown): Array<[string, string]> {

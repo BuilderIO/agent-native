@@ -318,37 +318,43 @@ describe("provider API runtime", () => {
     expect(JSON.stringify(result)).not.toContain("fake-sigma-client-secret");
   });
 
-  it("rejects insecure Sigma API origins before sending credentials", async () => {
-    const resolveCredential = vi.fn(async ({ key }: { key: string }) =>
-      key === "SIGMA_BASE_URL"
-        ? {
-            key,
-            value: "http://aws-api.sigmacomputing.com",
-            source: "workspace_connection" as const,
-            provider: "sigma",
-            connectionId: "sigma-connection",
-            scope: "org",
-            scopeId: "org-1",
-          }
-        : null,
-    );
-    const runtime = createProviderApiRuntime({
-      appId: "analytics",
-      providerIds: ["sigma"],
-      getCredentialContext: () => credentialContext,
-      resolveCredential,
-    });
+  it.each([
+    ["insecure", "http://aws-api.sigmacomputing.com"],
+    ["outside Sigma's host family", "https://sigma-attacker.example"],
+  ])(
+    "rejects %s Sigma API origins before sending credentials",
+    async (_, value) => {
+      const resolveCredential = vi.fn(async ({ key }: { key: string }) =>
+        key === "SIGMA_BASE_URL"
+          ? {
+              key,
+              value,
+              source: "workspace_connection" as const,
+              provider: "sigma",
+              connectionId: "sigma-connection",
+              scope: "org",
+              scopeId: "org-1",
+            }
+          : null,
+      );
+      const runtime = createProviderApiRuntime({
+        appId: "analytics",
+        providerIds: ["sigma"],
+        getCredentialContext: () => credentialContext,
+        resolveCredential,
+      });
 
-    await expect(
-      runtime.executeRequest({
-        provider: "sigma",
-        path: "/v2/workbooks",
-        connectionId: "sigma-connection",
-      }),
-    ).rejects.toThrow(/configured provider host/);
-    expect(globalThis.fetch).not.toHaveBeenCalled();
-    expect(resolveCredential).toHaveBeenCalledTimes(1);
-  });
+      await expect(
+        runtime.executeRequest({
+          provider: "sigma",
+          path: "/v2/workbooks",
+          connectionId: "sigma-connection",
+        }),
+      ).rejects.toThrow(/configured provider host/);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      expect(resolveCredential).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("replaces one built-in provider definition without dropping the rest", async () => {
     const runtime = createProviderApiRuntime({

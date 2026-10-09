@@ -10,6 +10,7 @@ import {
 import { z } from "zod";
 
 import {
+  dataDictionaryTrustRank,
   decodeSearchCursor,
   matchSearchFields,
   paginateSearchResults,
@@ -25,7 +26,7 @@ const KEY_PREFIX = "data-dict-";
 
 export default defineAction({
   description:
-    "List or browse entries in the data dictionary — the internal catalog of metrics, tables, columns, and business definitions. A focused search also checks the organization's generated source index, whose entries are unapproved metadata suggestions. Source-index matches are capped at 200; refine broad searches. For an ordinary metric lookup, use find-data instead because it searches definitions and existing dashboard/chart SQL together in one bounded call. Use this action when the user specifically asks to browse dictionary definitions or filter them by department.",
+    "List or browse entries in the data dictionary — the internal catalog of metrics, tables, columns, and business definitions. A focused search also checks the organization's generated source index, whose entries are unapproved metadata suggestions. For an ordinary metric lookup, use find-data instead because it searches definitions and existing dashboard/chart SQL together in one bounded call. Use this action when the user specifically asks to browse dictionary definitions or filter them by department.",
   schema: z.object({
     search: z
       .string()
@@ -56,7 +57,6 @@ export default defineAction({
 
     const entries: Record<string, unknown>[] = [];
     const seen = new Set<string>();
-    let sourceIndexTruncated = false;
 
     const collect = (raw: unknown) => {
       const e = raw as Record<string, unknown> | null;
@@ -111,9 +111,7 @@ export default defineAction({
           }))
           .filter(({ score }) => score > 0)
           .sort((a, b) => b.score - a.score);
-        sourceIndexTruncated = allIndexedMatches.length > 200;
-        const indexedMatches = allIndexedMatches.slice(0, 200);
-        for (const { entry } of indexedMatches) {
+        for (const { entry } of allIndexedMatches) {
           collect(entry);
         }
       }
@@ -151,7 +149,9 @@ export default defineAction({
           : { score: 0, matchedTerms: [] };
         if (q && score <= 0) return [];
         const declaredScope =
-          typeof e.semanticScope === "string" ? e.semanticScope : "";
+          typeof e.semanticScope === "string" && e.semanticScope !== "unknown"
+            ? e.semanticScope
+            : "";
         const inferredScope = semanticScopeForSearch(
           [e.metric, e.definition, e.source, e.table]
             .filter((value): value is string => typeof value === "string")
@@ -162,9 +162,11 @@ export default defineAction({
           candidateScope,
           requestedScope,
         );
-        return [{ entry: e, score, matchedTerms, scopeRank }];
+        const trustRank = dataDictionaryTrustRank(e);
+        return [{ entry: e, score, matchedTerms, scopeRank, trustRank }];
       })
       .sort((a, b) => {
+        if (b.trustRank !== a.trustRank) return b.trustRank - a.trustRank;
         if (b.scopeRank !== a.scopeRank) return b.scopeRank - a.scopeRank;
         if (b.score !== a.score) return b.score - a.score;
         return (
@@ -173,10 +175,19 @@ export default defineAction({
           typeof b.entry.metric === "string" ? b.entry.metric : "",
         );
       });
-    const strongestScopeMatch = ranked.some((result) => result.scopeRank === 2);
-    const scopeFiltered = strongestScopeMatch
-      ? ranked.filter((result) => result.scopeRank > 0)
-      : ranked;
+    const strongestScopeTrust = Math.max(
+      ...ranked
+        .filter((result) => result.scopeRank === 2)
+        .map((result) => result.trustRank),
+      0,
+    );
+    const scopeFiltered =
+      strongestScopeTrust > 0
+        ? ranked.filter(
+            (result) =>
+              result.scopeRank === 2 || result.trustRank > strongestScopeTrust,
+          )
+        : ranked;
     const cursorSearch = `${q.toLowerCase()}\n${dept}`;
     const page = paginateSearchResults({
       search: cursorSearch,
@@ -184,7 +195,6 @@ export default defineAction({
       searched: entries.length,
       limit: args.limit,
       offset: decodeSearchCursor(cursorSearch, args.nextPage),
-      truncated: sourceIndexTruncated,
     });
 
     return page;

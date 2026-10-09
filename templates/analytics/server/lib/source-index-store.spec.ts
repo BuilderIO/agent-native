@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import { parseSourceIndexBundle } from "./source-index-schema";
 import {
   SOURCE_INDEX_STALE_AFTER_DAYS,
+  sourceIndexDictionaryEntries,
   sourceIndexFreshness,
 } from "./source-index-store";
 
@@ -33,6 +35,31 @@ describe("sourceIndexFreshness", () => {
   it("rejects an invalid generated timestamp instead of reporting fresh", () => {
     expect(() => sourceIndexFreshness("invalid", Date.now())).toThrow(
       "source index timestamp is invalid",
+    );
+  });
+});
+
+describe("sourceIndexDictionaryEntries", () => {
+  it("leaves unknown scope unset so search can infer it from the source", () => {
+    const bundle = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-09T12:00:00.000Z",
+      sources: [{ id: "dbt", revision: "abcdef123456" }],
+      entries: [
+        {
+          id: "model-users",
+          metric: "model:users",
+          definition: "User profile records.",
+          source: "dbt",
+          sourceKind: "dbt",
+          semanticScope: "unknown",
+          table: "users",
+        },
+      ],
+    });
+
+    expect(sourceIndexDictionaryEntries(bundle)[0]).not.toHaveProperty(
+      "semanticScope",
     );
   });
 });

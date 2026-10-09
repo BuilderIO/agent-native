@@ -19,6 +19,7 @@ async function temporaryDirectory(): Promise<string> {
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(
     temporaryRoots
       .splice(0)
@@ -67,6 +68,24 @@ describe("parseSigmaReviewManifest", () => {
         ],
       }),
     ).toThrow(/invalid element/);
+  });
+});
+
+describe("extractSigmaTableReferences", () => {
+  it("reports table references beyond the returned cap", () => {
+    const scanSummary = {
+      unsafeEntriesOmitted: 0,
+      unsafeFieldsOmitted: 0,
+      truncatedFields: 0,
+    };
+    const sql = Array.from({ length: 25 }, (_, index) =>
+      index === 0
+        ? `FROM project.dataset.table_${index}`
+        : `JOIN project.dataset.table_${index}`,
+    ).join(" ");
+
+    expect(extractSigmaTableReferences(sql, scanSummary)).toHaveLength(24);
+    expect(scanSummary.truncatedFields).toBe(1);
   });
 });
 
@@ -156,6 +175,96 @@ describe("buildSigmaSourceIndex", () => {
     expect(serialized).not.toContain("hidden.fake_table");
     expect(serialized).not.toContain("fake-access-token");
     expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps Sigma metric labels within the source-index limit", async () => {
+    const root = await temporaryDirectory();
+    const manifestPath = path.join(root, "review.json");
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        items: [{ workbookId: "workbook-1", elementIds: ["element-1"] }],
+      }),
+    );
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v2/auth/token") {
+        return jsonResponse({ access_token: "fake-access-token" });
+      }
+      if (url.pathname === "/v2/workbooks") {
+        return jsonResponse({
+          entries: [{ workbookId: "workbook-1", name: "Workbook ".repeat(30) }],
+          nextPage: null,
+        });
+      }
+      if (url.pathname.endsWith("/elements")) {
+        return jsonResponse({
+          entries: [
+            {
+              elementId: "element-1",
+              name: "Reviewed element ".repeat(10),
+              type: "table",
+            },
+          ],
+          nextPage: null,
+        });
+      }
+      return jsonResponse({ entries: [], nextPage: null });
+    }) as unknown as typeof fetch;
+
+    const index = await buildSigmaSourceIndex({
+      manifestPath,
+      baseUrl: "https://aws-api.sigmacomputing.com",
+      clientId: "fake-client-id",
+      clientSecret: "fake-client-secret",
+      fetcher,
+    });
+
+    expect(index.entries[0]?.metric).toHaveLength(200);
+    expect(index.entries[0]?.metric).toContain("Reviewed element");
+    expect(index.entries[0]?.metric).toContain("… [truncated]");
+    expect(index.scanSummary.truncatedFields).toBeGreaterThan(0);
+  });
+
+  it("times out a Sigma API request that never responds", async () => {
+    const root = await temporaryDirectory();
+    const manifestPath = path.join(root, "review.json");
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        items: [{ workbookId: "workbook-1", elementIds: ["element-1"] }],
+      }),
+    );
+    vi.useFakeTimers();
+    let requestStartedResolve = () => {};
+    const requestStarted = new Promise<void>((resolve) => {
+      requestStartedResolve = () => resolve();
+    });
+    const fetcher = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          requestStartedResolve();
+          init?.signal?.addEventListener("abort", () => {
+            reject(new Error("aborted"));
+          });
+        }),
+    ) as unknown as typeof fetch;
+    const pending = buildSigmaSourceIndex({
+      manifestPath,
+      baseUrl: "https://aws-api.sigmacomputing.com",
+      clientId: "fake-client-id",
+      clientSecret: "fake-client-secret",
+      fetcher,
+    });
+    await requestStarted;
+
+    const assertion = expect(pending).rejects.toThrow(
+      "Sigma API request timed out",
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    await assertion;
   });
 
   it("does not accept a non-Sigma or non-HTTPS API origin", async () => {

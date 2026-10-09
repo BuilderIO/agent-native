@@ -29,11 +29,17 @@ export default defineAction({
     const index = bundle as SourceIndexBundle;
     await putOrgSetting(admin.orgId, SOURCE_INDEX_SETTING_KEY, index);
     invalidateSourceIndexCache(admin.orgId);
+    const scanSummary = index.scanSummary ?? {
+      unsafeEntriesOmitted: 0,
+      unsafeFieldsOmitted: 0,
+      truncatedFields: 0,
+    };
     return {
       entryCount: index.entries.length,
       generatedAt: index.generatedAt,
       sources: index.sources.map((source) => source.id),
-      message: `Replaced the source index with ${index.entries.length} unapproved entries.`,
+      scanSummary,
+      message: `Replaced the source index with ${index.entries.length} unapproved entries; omitted ${scanSummary.unsafeEntriesOmitted} unsafe entries and ${scanSummary.unsafeFieldsOmitted} unsafe fields, and marked ${scanSummary.truncatedFields} truncated fields.`,
     };
   },
 });

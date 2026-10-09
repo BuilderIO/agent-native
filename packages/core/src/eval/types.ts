@@ -52,12 +52,12 @@ export type EvalPrefetchStatus = "ok" | "empty" | "timed_out" | "failed";
 
 /** Runtime evidence returned by an adapter that invokes the production chat path. */
 export interface EvalProductionPathReceipt {
-  readonly chatHandlerInvoked: true;
-  readonly requestPreparationInvoked: true;
-  readonly systemPromptBuilt: true;
-  readonly finalResponseGuardInstalled: true;
-  readonly finalResponseGuardApplied: true;
-  readonly usageCaptured: true;
+  readonly productionAgentLoopInvoked: boolean;
+  readonly requestPreparationInvoked: boolean;
+  readonly systemPromptBuilt: boolean;
+  readonly finalResponseGuardInstalled: boolean;
+  readonly finalResponseGuardApplied: boolean;
+  readonly usageCaptured: boolean;
   readonly prefetchStatus: EvalPrefetchStatus;
   readonly ownerEmail: string;
   readonly orgId: string;
@@ -71,7 +71,7 @@ export interface EvalProductionPathRun {
   readonly receipt: EvalProductionPathReceipt;
 }
 
-/** Adapter contract for a request executed by the mounted production chat handler. */
+/** Adapter contract for a request prepared by the app and run by the shared agent loop. */
 export interface EvalProductionChatPath {
   run(args: {
     input: EvalInput;

@@ -6,6 +6,7 @@ import {
 
 import {
   LOW_INFORMATION_TERMS,
+  dataDictionaryTrustRank,
   matchSearchFields as matchScore,
   paginateSearchResults,
   semanticScopeCompatibility,
@@ -47,6 +48,13 @@ const RETIRED_CATALOG_STATES = new Set([
 ]);
 type DictionaryEntry = Record<string, unknown>;
 type DashboardPanel = Record<string, unknown>;
+type SourceKind = "dbt" | "code" | "sigma";
+
+function sourceKind(value: unknown): SourceKind | undefined {
+  return value === "dbt" || value === "code" || value === "sigma"
+    ? value
+    : undefined;
+}
 
 function isRetiredCatalogReference(value: Record<string, unknown>): boolean {
   if (value.deprecated === true) return true;
@@ -100,6 +108,7 @@ export type AnalyticsQueryCatalogCandidate =
       owner?: string;
       approved?: boolean;
       aiGenerated?: boolean;
+      sourceKind?: "dbt" | "code" | "sigma";
       sourceUrl?: string;
       semanticScope?: string;
       sourcePath?: string;
@@ -229,7 +238,9 @@ export function candidateSemanticScope(
 ): string {
   if (candidate.kind === "data-dictionary") {
     const declared = candidate.semanticScope;
-    if (declared && SEMANTIC_SCOPES.has(declared)) return declared;
+    if (declared && declared !== "unknown" && SEMANTIC_SCOPES.has(declared)) {
+      return declared;
+    }
     return inferSemanticScope(
       [
         candidate.metric,
@@ -398,13 +409,16 @@ function dictionaryCandidates(
     ]);
     if (!rawScore) return [];
     const isSourceIndex = entry.sourceIndex === true;
+    const declaredScope = text(entry.semanticScope);
     const semanticScope =
-      text(entry.semanticScope) ||
-      inferSemanticScope(
-        [entry.metric, entry.definition, entry.source, entry.table]
-          .filter(Boolean)
-          .join(" "),
-      );
+      declaredScope && declaredScope !== "unknown"
+        ? declaredScope
+        : inferSemanticScope(
+            [entry.metric, entry.definition, entry.source, entry.table]
+              .filter(Boolean)
+              .join(" "),
+          );
+    const entrySourceKind = sourceKind(entry.sourceKind);
     const score = rawScore;
     if (!score) return [];
 
@@ -460,6 +474,7 @@ function dictionaryCandidates(
         ...(typeof entry.aiGenerated === "boolean"
           ? { aiGenerated: entry.aiGenerated }
           : {}),
+        ...(entrySourceKind ? { sourceKind: entrySourceKind } : {}),
         ...(text(entry.sourceUrl) ? { sourceUrl: text(entry.sourceUrl) } : {}),
         ...(semanticScope !== "unknown" ? { semanticScope } : {}),
         ...(text(entry.sourcePath)
@@ -516,7 +531,9 @@ function candidateDedupeKey(candidate: AnalyticsQueryCatalogCandidate): string {
 export function candidateTrustTier(
   candidate: AnalyticsQueryCatalogCandidate,
 ): number {
-  if (candidate.kind !== "dashboard-panel") return 0;
+  if (candidate.kind === "data-dictionary") {
+    return dataDictionaryTrustRank(candidate);
+  }
   if (candidate.dashboardCertified) return 2;
   return candidate.favorite ? 1 : 0;
 }
@@ -566,20 +583,32 @@ export function rankAnalyticsQueryCatalogPage(args: {
     ),
     0,
   );
+  const bestScopeTrust = Math.max(
+    ...candidates
+      .filter(
+        (candidate) =>
+          candidateScopeCompatibility(candidate, args.search) === 2,
+      )
+      .map(candidateTrustTier),
+    0,
+  );
   const scopeFiltered =
     strongestScopeMatch === 2
       ? candidates.filter(
           (candidate) =>
-            candidateScopeCompatibility(candidate, args.search) === 2,
+            candidateScopeCompatibility(candidate, args.search) === 2 ||
+            candidateTrustTier(candidate) > bestScopeTrust,
         )
       : candidates;
   const ranked = scopeFiltered.sort((a, b) => {
+    if (a.kind === b.kind) {
+      const aTrustTier = candidateTrustTier(a);
+      const bTrustTier = candidateTrustTier(b);
+      if (bTrustTier !== aTrustTier) return bTrustTier - aTrustTier;
+    }
     const aScope = candidateScopeCompatibility(a, args.search);
     const bScope = candidateScopeCompatibility(b, args.search);
     if (bScope !== aScope) return bScope - aScope;
-    const aTrustTier = candidateTrustTier(a);
-    const bTrustTier = candidateTrustTier(b);
-    if (bTrustTier !== aTrustTier) return bTrustTier - aTrustTier;
     if (b.score !== a.score) return b.score - a.score;
     const aRunnable = candidateIsRunnable(a);
     const bRunnable = candidateIsRunnable(b);

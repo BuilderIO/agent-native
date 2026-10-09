@@ -124,7 +124,7 @@ describe("promote-trace-eval", () => {
     runStore.getRunById.mockResolvedValue(completedRun());
 
     const result = await promoteTraceEval.run(
-      { runId: "run-1" },
+      { runId: "run-1", reviewedPrompt: "show active users daily" },
       { userEmail: "alice@example.com" },
     );
 
@@ -141,7 +141,7 @@ describe("promote-trace-eval", () => {
       promotedDatasetIdempotencyKey("run-1", "alice@example.com"),
     );
     expect(dataset.entries).toHaveLength(1);
-    expect(dataset.entries[0]?.input).toBe("[redacted production prompt]");
+    expect(dataset.entries[0]?.input).toBe("show active users daily");
     expect(JSON.stringify(dataset)).not.toContain("Search the docs");
     expect(dataset.entries[0]?.context).toMatchObject({
       privacyVersion: PROMOTED_EVAL_PRIVACY_VERSION,
@@ -152,7 +152,7 @@ describe("promote-trace-eval", () => {
     expect(result.sourceRunId).toBe("run-1");
   });
 
-  it("promotes the durable thread prompt when events have no user-message", async () => {
+  it("uses reviewed text when events have no user-message", async () => {
     store.getTraceSummary.mockResolvedValue(summary());
     runStore.getRunById.mockResolvedValue(completedRun());
     runStore.getRunEventsSince.mockResolvedValue([
@@ -184,12 +184,12 @@ describe("promote-trace-eval", () => {
     });
 
     const result = await promoteTraceEval.run(
-      { runId: "run-1" },
+      { runId: "run-1", reviewedPrompt: "show active users daily" },
       { userEmail: "alice@example.com" },
     );
 
     expect(threads.getThread).toHaveBeenCalledWith("thread-1");
-    expect(result.eval.input.prompt).toBe("[redacted production prompt]");
+    expect(result.eval.input.prompt).toBe("show active users daily");
     expect(store.savePromotedEvalDataset).toHaveBeenCalledTimes(1);
   });
 
@@ -198,10 +198,10 @@ describe("promote-trace-eval", () => {
     store.findPromotedEvalDataset.mockResolvedValue({
       id: "ds-existing",
       name: "from-trace:run-1",
-      description: "Promoted from production run run-1 (privacy v3)",
+      description: "Promoted from production run run-1 (privacy v4)",
       entries: [
         {
-          input: "[redacted production prompt]",
+          input: "show active users daily",
           context: {
             runId: "run-1",
             history: [],
@@ -230,14 +230,14 @@ describe("promote-trace-eval", () => {
         "run-1",
         "alice@example.com",
       ),
-      description: "Promoted from production run run-1 (privacy v3)",
+      description: "Promoted from production run run-1 (privacy v4)",
       userId: "alice@example.com",
     });
     expect(runStore.getRunEventsSince).not.toHaveBeenCalled();
     expect(runStore.getRunById).not.toHaveBeenCalled();
     expect(store.savePromotedEvalDataset).not.toHaveBeenCalled();
     expect(result.dataset.id).toBe("ds-existing");
-    expect(result.eval.input.prompt).toBe("[redacted production prompt]");
+    expect(result.eval.input.prompt).toBe("show active users daily");
     expect(result.eval.scorers).toEqual([
       { type: "usesTool", toolName: "search-docs" },
     ]);
@@ -269,13 +269,13 @@ describe("promote-trace-eval", () => {
     });
 
     const result = await promoteTraceEval.run(
-      { runId: "run-1" },
+      { runId: "run-1", reviewedPrompt: "show active users daily" },
       { userEmail: "alice@example.com" },
     );
 
     expect(result.dataset.id).not.toBe("ds-legacy");
     expect(result.eval.input).toEqual({
-      prompt: "[redacted production prompt]",
+      prompt: "show active users daily",
     });
     const persisted = JSON.stringify(
       store.savePromotedEvalDataset.mock.calls.map(
@@ -305,6 +305,81 @@ describe("promote-trace-eval", () => {
       errorCode: "unsafe_reviewed_text",
       statusCode: 400,
     });
+    expect(store.savePromotedEvalDataset).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, "", "   ", "[redacted production prompt]"])(
+    "returns reviewed_prompt_required for an empty or placeholder prompt (%s)",
+    async (reviewedPrompt) => {
+      store.getTraceSummary.mockResolvedValue(summary());
+      runStore.getRunById.mockResolvedValue(completedRun());
+
+      await expect(
+        promoteTraceEval.run(
+          { runId: "run-1", reviewedPrompt },
+          { userEmail: "alice@example.com" },
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "reviewed_prompt_required",
+        statusCode: 400,
+      });
+      expect(store.savePromotedEvalDataset).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns length errors without saving or truncating reviewed inputs", async () => {
+    store.getTraceSummary.mockResolvedValue(summary());
+    runStore.getRunById.mockResolvedValue(completedRun());
+
+    await expect(
+      promoteTraceEval.run(
+        { runId: "run-1", reviewedPrompt: "show ".repeat(601) },
+        { userEmail: "alice@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "reviewed_text_too_long",
+      statusCode: 413,
+      details: {
+        promptLimit: 3_000,
+        historyTextLimit: 1_000,
+        expectedTextLimit: 500,
+      },
+    });
+
+    await expect(
+      promoteTraceEval.run(
+        {
+          runId: "run-1",
+          reviewedPrompt: "show active users daily",
+          reviewedHistory: Array.from({ length: 17 }, () => ({
+            role: "user" as const,
+            text: "show active users daily",
+          })),
+        },
+        { userEmail: "alice@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "reviewed_history_too_long",
+      statusCode: 413,
+      details: { limit: 16 },
+    });
+
+    await expect(
+      promoteTraceEval.run(
+        {
+          runId: "run-1",
+          reviewedPrompt: "show active users daily",
+          reviewedHistory: [
+            { role: "user", text: "active ".repeat(143) + "active" },
+          ],
+        },
+        { userEmail: "alice@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "reviewed_text_too_long",
+      statusCode: 413,
+    });
+
     expect(store.savePromotedEvalDataset).not.toHaveBeenCalled();
   });
 

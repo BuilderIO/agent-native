@@ -38,12 +38,12 @@ describe("Analytics production eval context", () => {
     ).toThrow("non-empty owner email and organization id");
   });
 
-  it("does not claim to expose the production HTTP chat path", () => {
+  it("exposes the shared production agent loop path", () => {
     const context = resolveProductionEvalContext({
       ownerEmail: "eval-owner@example.com",
       orgId: "org_example",
     });
 
-    expect(context.productionChatPath).toBeUndefined();
+    expect(context.productionChatPath?.run).toBeTypeOf("function");
   });
 });

@@ -3,6 +3,7 @@ import { z } from "zod";
 const SAFE_ID = /^[a-z0-9][a-z0-9_-]{0,119}$/;
 const SAFE_SOURCE = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const GIT_REVISION = /^[a-f0-9]{7,64}$/i;
+export const SOURCE_INDEX_KINDS = ["dbt", "code", "sigma"] as const;
 const SENSITIVE_TEXT =
   /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|https?:\/\/|\{\{|\}\}|\b(?:bearer|api[_ -]?key|secret|password|token)\s*[:=]\s*\S+|\b\d{3}[-.\s)]?\d{3}[-.\s]?\d{4}\b|\b\d{13,19}\b)/i;
 const SENSITIVE_TEXT_FIELDS = [
@@ -49,6 +50,7 @@ export const sourceIndexEntrySchema = z
     metric: z.string().trim().min(1).max(200),
     definition: z.string().trim().min(1).max(5_000),
     source: z.string().regex(SAFE_SOURCE),
+    sourceKind: z.enum(SOURCE_INDEX_KINDS).optional(),
     semanticScope: z.enum(SOURCE_INDEX_SCOPES).optional(),
     table: z.string().trim().max(600).optional(),
     columnsUsed: z.string().trim().max(10_000).optional(),
@@ -81,6 +83,14 @@ export const sourceIndexBundleSchema = z
       .refine((value) => value.endsWith("Z"), "must be UTC ISO datetime"),
     sources: z.array(sourceIndexSourceSchema).min(1).max(10),
     entries: z.array(sourceIndexEntrySchema).min(1).max(1_500),
+    scanSummary: z
+      .object({
+        unsafeEntriesOmitted: z.number().int().nonnegative(),
+        unsafeFieldsOmitted: z.number().int().nonnegative(),
+        truncatedFields: z.number().int().nonnegative(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((bundle, ctx) => {

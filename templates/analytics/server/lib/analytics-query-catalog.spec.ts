@@ -113,6 +113,44 @@ describe("analytics query catalog", () => {
     });
   });
 
+  it("ranks dbt grain metadata ahead of Sigma examples", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "workspace user grain",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "sigma-user-grain-example",
+          metric: "Workspace User Grain Example",
+          definition:
+            "Reviewed dashboard example for workspace users and grain.",
+          table: "workspace_user_rollup",
+          semanticScope: "membership",
+          sourceKind: "sigma",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+        },
+        {
+          id: "dbt-workspace-user-grain",
+          metric: "model:workspace_user_rollup",
+          definition: "One row per workspace user, with the canonical grain.",
+          table: "workspace_user_rollup",
+          semanticScope: "session",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "dbt-workspace-user-grain",
+      sourceKind: "dbt",
+    });
+  });
+
   it("keeps Builder product users ahead of feature funnels and Analytics users", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "Builder.io users",

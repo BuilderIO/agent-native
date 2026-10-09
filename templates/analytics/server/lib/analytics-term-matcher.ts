@@ -148,6 +148,18 @@ export const LOW_INFORMATION_TERMS = new Set([
   "volume",
 ]);
 
+export function dataDictionaryTrustRank(entry: {
+  approved?: unknown;
+  aiGenerated?: unknown;
+  sourceKind?: unknown;
+}): number {
+  if (entry.approved === true) return 4;
+  if (entry.sourceKind === "dbt") return 3;
+  if (entry.sourceKind === "code") return 2;
+  if (entry.sourceKind === "sigma") return 1;
+  return entry.aiGenerated === true ? 0 : 2;
+}
+
 const PRODUCT_TERMS = new Set([
   "app",
   "chart",
