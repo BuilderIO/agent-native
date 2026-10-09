@@ -1,3 +1,4 @@
+import type { RecurringSweepContext } from "@agent-native/core/server";
 import { and, inArray, lt, sql } from "drizzle-orm";
 
 import {
@@ -62,4 +63,10 @@ export async function sweepExpiredJourneyCanvasStages(
   signal?.throwIfAborted();
   const cleanupPending = await deleteVisualEditSnapshotBlobs([]);
   return { ...removed, cleanupPending };
+}
+
+export async function runJourneyCanvasStageCleanupSweep(
+  context: RecurringSweepContext,
+): Promise<void> {
+  await sweepExpiredJourneyCanvasStages(context.signal);
 }
