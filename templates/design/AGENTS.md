@@ -51,6 +51,7 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 | `create-design` / `generate-design` | Start empty design / generate a fresh screen |
 | `present-design-variants` | Generate 2–5 variants |
 | `view-screen` / `navigate` | Read current screen / move UI |
+| `get-view-settings` / `update-view-settings` | Read/set the user's saved editor view toggles (pixel grid, snap, rulers, cursors, hidden comments) |
 | `export-png` | Export PNG |
 | `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export finished work |
 
