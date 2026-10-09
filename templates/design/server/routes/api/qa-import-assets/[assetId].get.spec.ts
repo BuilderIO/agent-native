@@ -114,15 +114,14 @@ describe("GET /api/qa-import-assets/:assetId", () => {
     expect(mockAssetPaths).not.toHaveBeenCalled();
   });
 
-  it("treats a session lookup failure as unauthenticated, preserving the existing route response", async () => {
-    mockGetSession.mockRejectedValue(new Error("session store unavailable"));
+  it("propagates session lookup failures instead of treating them as unauthenticated", async () => {
+    const sessionError = new Error("session store unavailable");
+    mockGetSession.mockRejectedValue(sessionError);
     const event = makeEvent();
 
-    await expect(handler(event as never)).resolves.toEqual({
-      error: "Unauthorized",
-    });
+    await expect(handler(event as never)).rejects.toBe(sessionError);
 
-    expect(event.status).toBe(401);
+    expect(event.status).toBe(200);
     expect(mockAssetPaths).not.toHaveBeenCalled();
   });
 
@@ -179,26 +178,36 @@ describe("GET /api/qa-import-assets/:assetId", () => {
     expect(mockStreamFile).toHaveBeenCalledWith({ kind: "read-stream" });
   });
 
-  it("hides unavailable paths but propagates unexpected filesystem failures", async () => {
-    const error = Object.assign(new Error("permission denied"), {
+  it("propagates filesystem failures other than a missing path", async () => {
+    const permissionError = Object.assign(new Error("permission denied"), {
       code: "EACCES",
     });
-    mockStat.mockRejectedValue(error);
+    mockAssetPaths.mockReturnValue([
+      "/private/new/0f0f0f0f-1111-4222-8333-444444444444.png",
+      "/private/old/0f0f0f0f-1111-4222-8333-444444444444.png",
+    ]);
+    mockStat
+      .mockRejectedValueOnce(permissionError)
+      .mockResolvedValueOnce({ isFile: () => true });
     const event = makeEvent();
 
-    await expect(handler(event as never)).resolves.toEqual({
-      error: "Not found",
-    });
+    await expect(handler(event as never)).rejects.toBe(permissionError);
 
-    expect(event.status).toBe(404);
+    expect(event.status).toBe(200);
+    expect(mockStat).toHaveBeenCalledTimes(1);
     expect(mockCreateReadStream).not.toHaveBeenCalled();
 
     const unexpectedError = Object.assign(new Error("I/O failure"), {
       code: "EIO",
     });
-    mockStat.mockRejectedValue(unexpectedError);
+    mockAssetPaths.mockReturnValue([
+      "/private/new/0f0f0f0f-1111-4222-8333-444444444444.png",
+      "/private/old/0f0f0f0f-1111-4222-8333-444444444444.png",
+    ]);
+    mockStat.mockReset().mockRejectedValue(unexpectedError);
 
     await expect(handler(makeEvent() as never)).rejects.toBe(unexpectedError);
+    expect(mockStat).toHaveBeenCalledTimes(1);
   });
 
   it("streams a valid owner-scoped SVG with its image MIME type", async () => {
