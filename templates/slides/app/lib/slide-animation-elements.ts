@@ -197,7 +197,7 @@ export function getElementPath(
   return current === root ? path : null;
 }
 
-function getPersistedChildren(parent: Element): Element[] {
+export function getPersistedChildren(parent: Element): Element[] {
   const children: Element[] = [];
   const append = (child: Element) => {
     if (child.classList.contains("fmd-layout-spacer")) return;

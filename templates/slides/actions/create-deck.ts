@@ -21,6 +21,10 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import {
+  HYGIENE_ACTION_DESCRIPTION,
+  slideHygieneResult,
+} from "../server/lib/slide-hygiene.js";
+import {
   resolveDefaultDesignSystemId,
   resolveDesignSystemIdByTitle,
 } from "../server/workspace-defaults.js";
@@ -188,7 +192,8 @@ export default defineAction({
     "For longer decks or live in-app generation, create the deck with slides: [], then add every generated slide with add-slide sequentially so each write preserves per-slide Creative Context provenance; pass generationComplete=false on intermediate writes and true on the final write; use patch-deck for edits to existing slides or deck structure, and never issue parallel writes to the same deck. The new deck is also opened in the connected Slides UI. " +
     "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
     "Pass deckId to replace an existing deck. " +
-    "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. The action resolves and attaches the effective default; use design-system context available before this call to author its slides, and use returned agentContext before adding slides in the empty-deck workflow. After all slide writes, call get-layout-overflows once for final verification and once more only after a repair; if measurements are unknown, report the unmeasured slides and wait for a new editor measurement before checking again. Every generated slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, choose and record one subject-appropriate deck-level visual contract with semantic --deck-* values, then reuse its canvas, type, spacing, surface, and accent tokens across every slide; vary composition instead of alternating themes or using a stock provider/brand palette.",
+    "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. The action resolves and attaches the effective default; use design-system context available before this call to author its slides, and use returned agentContext before adding slides in the empty-deck workflow. After all slide writes, call get-layout-overflows once for final verification and once more only after a repair; if measurements are unknown, report the unmeasured slides and wait for a new editor measurement before checking again. Every generated slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, choose and record one subject-appropriate deck-level visual contract with semantic --deck-* values, then reuse its canvas, type, spacing, surface, and accent tokens across every slide; vary composition instead of alternating themes or using a stock provider/brand palette." +
+    HYGIENE_ACTION_DESCRIPTION,
   schema: z.object({
     title: z.string().describe("Deck title"),
     slides: SlidesSchema.describe(
@@ -322,6 +327,10 @@ export default defineAction({
       normalizedSlides.slides,
       normalizedSlides.originalIds,
     );
+    const hygieneInputs = slides.map((slide) => ({
+      slideId: slide.id,
+      html: slide.content,
+    }));
     const incrementalGeneration = !deckId && slides.length === 0;
     if (actionOwnsGenerationLifecycle) {
       trackGenerationEvent(
@@ -584,6 +593,7 @@ export default defineAction({
           slides,
           postProcessStatus,
           ...creativeContextProvenance,
+          ...slideHygieneResult(hygieneInputs),
         };
       }
 
@@ -747,6 +757,7 @@ export default defineAction({
         slides,
         postProcessStatus,
         ...creativeContextProvenance,
+        ...slideHygieneResult(hygieneInputs),
       };
     } catch (error) {
       if (actionOwnsGenerationLifecycle) {
