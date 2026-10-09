@@ -552,6 +552,7 @@ export function createAgentNativeBrowserSessionBridge(
   let onVisibility: (() => void) | undefined;
   let lastWebMcpTools: AgentNativeWebMcpTool[] | undefined;
   let activeRequestCount = 0;
+  const requestExpiryTimers = new Set<ReturnType<typeof setTimeout>>();
 
   async function refreshRegistration(
     signal?: AbortSignal,
@@ -628,6 +629,7 @@ export function createAgentNativeBrowserSessionBridge(
       },
       Math.max(0, request.expiresAt - Date.now()),
     );
+    requestExpiryTimers.add(expiryTimer);
     try {
       const result = await executeBrowserSessionRequest(request, options);
       await postJson(
@@ -647,6 +649,7 @@ export function createAgentNativeBrowserSessionBridge(
       ).catch(() => {});
     } finally {
       clearTimeout(expiryTimer);
+      requestExpiryTimers.delete(expiryTimer);
       activeRequestCount--;
     }
 
@@ -742,6 +745,8 @@ export function createAgentNativeBrowserSessionBridge(
       started = false;
       heartbeatEngine.stop();
       pollEngine.stop();
+      for (const timer of requestExpiryTimers) clearTimeout(timer);
+      requestExpiryTimers.clear();
       if (onVisibility) {
         document.removeEventListener("visibilitychange", onVisibility);
         onVisibility = undefined;

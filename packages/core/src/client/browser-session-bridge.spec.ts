@@ -709,6 +709,85 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     }
   });
 
+  it("clears a claimed request expiry warning when the bridge stops", async () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+    let resolveAction: ((result: unknown) => void) | undefined;
+    const runAction = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveAction = resolve;
+        }),
+    );
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (
+        url === "/_agent-native/browser-sessions" &&
+        init?.method === "POST"
+      ) {
+        const body = JSON.parse(String(init.body));
+        return jsonResponse({
+          ok: true,
+          session: {
+            sessionId: body.sessionId,
+            session: body.session,
+            active: true,
+            actions: body.actions,
+          },
+        });
+      }
+      if (url.endsWith("/requests/claim")) {
+        return jsonResponse({
+          ok: true,
+          request: {
+            id: "req-stopped",
+            sessionId: "tab-1",
+            type: "run-action",
+            name: "stopped-action",
+            args: {},
+            status: "claimed",
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 12_000,
+          },
+        });
+      }
+      if (url.endsWith("/requests/req-stopped/complete")) {
+        return jsonResponse({ ok: true, request: { id: "req-stopped" } });
+      }
+      if (init?.method === "DELETE") return jsonResponse({ ok: true });
+      throw new Error(`Unexpected fetch ${init?.method} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      session: { id: "tab-1" },
+      sessionId: "tab-1",
+      getContext: () => ({}),
+      actions: [
+        {
+          name: "stopped-action",
+          description: "Remains pending after the bridge stops",
+          schema: { type: "object" },
+          run: runAction,
+        },
+      ],
+      heartbeatMs: 100_000,
+      pollMs: 500,
+      fetch: fetchMock as unknown as typeof fetch,
+      onError,
+    });
+
+    bridge.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(runAction).toHaveBeenCalledTimes(1);
+
+    bridge.stop();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(12_000);
+
+    expect(onError).not.toHaveBeenCalled();
+
+    resolveAction?.({ completed: true });
+    await vi.advanceTimersByTimeAsync(0);
+  });
+
   it("registers direct embedded context and actions without postMessage", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe("/_agent-native/browser-sessions");
