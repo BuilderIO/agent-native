@@ -1,13 +1,23 @@
 // @vitest-environment happy-dom
 
+import {
+  QueryClient,
+  QueryClientProvider,
+  useMutation,
+} from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { EditPanel } from "./EditPanel";
+import { useEditorScreenInspector } from "../../pages/design-editor/domains/use-editor-screen-inspector";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+}));
+
+vi.mock("sonner", () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
 }));
 
 let container: HTMLDivElement;
@@ -65,6 +75,53 @@ function renderUrlInspector(props: {
       />,
     ),
   );
+}
+
+function screenInspectorDependencies(
+  updateScreenSourceMutation: unknown,
+): Parameters<typeof useEditorScreenInspector>[0] {
+  return {
+    editorCore: {
+      id: "design-1",
+      viewMode: "overview",
+      selectedElement: null,
+    },
+    editorHistory: { overviewSelectedScreenIds: [] },
+    editorGenerationAndAccess: {
+      canEditDesign: true,
+      canEditPublicLiveScreenUrl: false,
+      updateScreenSourceMutation,
+    },
+    editorFilesAndSaving: {
+      liveScreenSnapshotsById: {},
+      runtimeLayerSnapshotsById: {},
+      screenRootComputedStylesById: {},
+      designDataJson: {},
+      designSourceType: "inline",
+      canvasFrameGeometryById: {},
+      overviewScreens: [],
+    },
+    editorActiveScreenAndGeometry: {
+      screenContentNaturalHeights: {},
+      activeFile: null,
+      activeScreenSnapshotOnly: false,
+    },
+    editorCanvasAndScreens: {
+      activeContent: "",
+      getScreenContent: vi.fn(() => ""),
+      getProjectionContentForScreen: vi.fn(() => ""),
+    },
+    editorLiveEditsAndPresence: { selectedStateId: null },
+    editorContentAndComponents: {},
+    editorToolsAndVectors: { canvasBackgroundRef: { current: null } },
+    editorSelectionAndStyles: {},
+    editorClipboard: {},
+    editorEditCommands: {},
+    editorLayerModels: {
+      selectedInspectorElements: [],
+      selectedLayerTargets: [],
+    },
+  } as unknown as Parameters<typeof useEditorScreenInspector>[0];
 }
 
 it("lets a live-screen editor update only the URL", async () => {
@@ -195,6 +252,84 @@ it("allows retry when a source transition fails before pending renders", async (
   act(() => settleTransition?.());
   await selectStaticTab();
   expect(onScreenSourceChange).toHaveBeenCalledTimes(2);
+});
+
+it("releases the transition guard when the source mutation rejects", async () => {
+  let attempts = 0;
+  const queryClient = new QueryClient({
+    defaultOptions: { mutations: { retry: false } },
+  });
+
+  function HookBackedUrlInspector() {
+    const updateScreenSourceMutation = useMutation({
+      mutationFn: async () => {
+        attempts += 1;
+        throw new Error("source update failed");
+      },
+      retry: false,
+    });
+    const { handleScreenSourceChange } = useEditorScreenInspector(
+      screenInspectorDependencies(updateScreenSourceMutation),
+    );
+
+    return (
+      <EditPanel
+        selectedElement={null}
+        selectedScreenGeometry={{
+          id: "screen-1",
+          title: "Students",
+          x: 0,
+          y: 0,
+          width: 1440,
+          height: 900,
+        }}
+        selectedScreenSource={{
+          sourceType: "url",
+          url: "http://localhost:5173/students",
+          connectionId: "localhost-1",
+        }}
+        viewMode="overview"
+        mode="edit"
+        onStyleChange={vi.fn()}
+        onScreenSourceChange={handleScreenSourceChange}
+        readOnly={false}
+        screenSourcePending={false}
+      />
+    );
+  }
+
+  await act(() =>
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <HookBackedUrlInspector />
+      </QueryClientProvider>,
+    ),
+  );
+
+  const selectStaticTab = async () => {
+    const staticTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "editPanel.positionOptions.static");
+    expect(staticTab).toBeDefined();
+    await act(async () => {
+      staticTab!.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      );
+      staticTab!.focus();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  };
+
+  await selectStaticTab();
+  expect(attempts).toBe(1);
+  await selectStaticTab();
+  expect(attempts).toBe(2);
+
+  queryClient.clear();
 });
 
 it("keeps live URL controls disabled without the URL permission", () => {
