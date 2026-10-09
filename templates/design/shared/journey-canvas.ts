@@ -47,6 +47,8 @@ const BORDER = "#d1d5db";
 const SURFACE = "#ffffff";
 // guard:allow-raw-color — generated storyboard HTML is standalone and cannot read app theme tokens
 const IMAGE_WELL = "#f3f4f6";
+// guard:allow-raw-color — generated storyboard HTML uses a neutral prompt disclosure shadow
+const PROMPT_SHADOW = "rgba(17,24,39,.18)";
 // guard:allow-raw-color — arrows sit on a canvas that is light or dark; mid-grey reads on both
 const EDGE = "#8b8f98";
 const isoTimestamp = z
@@ -612,7 +614,7 @@ header .recording-id{font-family:ui-monospace,monospace;display:-webkit-box;-web
 header .caption-line,header .prompt summary{font-size:10px;line-height:12px}
 header details{margin:0;color:${MUTED};font-size:10px;line-height:12px}
 header details summary{cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-header details[open] .prompt-body{position:absolute;z-index:3;top:100%;left:0;width:100%;max-height:45vh;overflow:auto;padding:8px 12px;background:${SURFACE};border:1px solid ${BORDER};box-shadow:0 4px 12px rgba(17,24,39,.18);white-space:pre-wrap;color:${INK}}
+header details[open] .prompt-body{position:absolute;z-index:3;top:100%;left:0;width:100%;max-height:45vh;overflow:auto;padding:8px 12px;background:${SURFACE};border:1px solid ${BORDER};box-shadow:0 4px 12px ${PROMPT_SHADOW};white-space:pre-wrap;color:${INK}}
 header .prompt-body p{margin:0 0 8px;overflow:visible;text-overflow:clip;white-space:pre-wrap;color:${INK};overflow-wrap:anywhere}
 header .prompt-source{font-size:9px;color:${MUTED}}
 header .example-switcher{display:flex;align-items:center;gap:5px;height:20px;color:${MUTED};font-size:10px;line-height:14px}

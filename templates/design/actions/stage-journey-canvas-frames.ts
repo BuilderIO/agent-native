@@ -401,6 +401,7 @@ export default defineAction({
       stagedFrames.push(
         ...results.map((result) => {
           if (result.status !== "fulfilled") {
+            // guard:allow-bare-error — invariant: the rejection check above must have thrown before mapping.
             throw new Error("A staging batch settled without a result.");
           }
           return result.value;

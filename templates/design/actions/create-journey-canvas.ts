@@ -77,8 +77,9 @@ function parseStagedBlobHandle(value: string): PrivateBlobHandle | null {
   let handle: unknown;
   try {
     handle = JSON.parse(value) as unknown;
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
   }
   return isValidReplayScreenshotBlobHandle(handle) ? handle : null;
 }
