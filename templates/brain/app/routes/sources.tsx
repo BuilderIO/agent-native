@@ -159,6 +159,7 @@ interface SourceFormState {
   zoomMeetingIds: string;
   zoomMeetingTopics: string;
   zoomLookbackDays: string;
+  zoomIncludeSummaries: boolean;
   zoomConfigExtras: Record<string, unknown>;
   githubRepos: string;
   githubLimit: string;
@@ -258,6 +259,7 @@ function defaultForm(
     zoomMeetingIds: "",
     zoomMeetingTopics: "",
     zoomLookbackDays: "7",
+    zoomIncludeSummaries: false,
     zoomConfigExtras: {},
     githubRepos: "",
     githubLimit: "25",
@@ -283,7 +285,13 @@ function zoomConfigFromSource(config: Record<string, unknown>) {
     !Array.isArray(config.zoom)
       ? (config.zoom as Record<string, unknown>)
       : {};
-  const { meetingIds, meetingTopics, lookbackDays, ...extras } = zoom;
+  const {
+    meetingIds,
+    meetingTopics,
+    lookbackDays,
+    includeSummaries,
+    ...extras
+  } = zoom;
   return {
     zoomMeetingIds: listValue(meetingIds),
     zoomMeetingTopics: listValue(meetingTopics),
@@ -291,6 +299,7 @@ function zoomConfigFromSource(config: Record<string, unknown>) {
       typeof lookbackDays === "number" || typeof lookbackDays === "string"
         ? String(lookbackDays)
         : "7",
+    zoomIncludeSummaries: includeSummaries === true,
     zoomConfigExtras: extras,
   };
 }
@@ -388,6 +397,7 @@ function buildConfig(form: SourceFormState) {
       meetingIds: zoomFilterLines(form.zoomMeetingIds),
       meetingTopics: zoomFilterLines(form.zoomMeetingTopics),
       lookbackDays: numberValue(form.zoomLookbackDays, 7, 1, 30),
+      includeSummaries: form.zoomIncludeSummaries,
     };
   }
   if (form.provider === "github") {
@@ -3298,6 +3308,17 @@ export default function SourcesRoute() {
                     {t("sources.zoomMeetingTopicsDescription")}
                   </p>
                 </div>
+                <label className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">
+                  <span className="text-sm font-medium">
+                    {t("sources.zoomIncludeSummaries")}
+                  </span>
+                  <Switch
+                    checked={form.zoomIncludeSummaries}
+                    onCheckedChange={(zoomIncludeSummaries) =>
+                      updateForm({ zoomIncludeSummaries })
+                    }
+                  />
+                </label>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="grid gap-2">
                     <Label htmlFor="zoom-lookback-days">

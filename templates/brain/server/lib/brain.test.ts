@@ -15,6 +15,42 @@ const requestString = (value: unknown) =>
         ? value.url
         : testString(value);
 
+const zoomSummaryListItem = (uuid: string, id: number, topic: string) => ({
+  meeting_uuid: uuid,
+  meeting_id: id,
+  meeting_topic: topic,
+  meeting_start_time: "2026-10-06T15:00:00Z",
+  meeting_host_email: "host@example.test",
+});
+
+function zoomSummaryFetch(paths: string[]) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = new URL(requestString(input));
+    paths.push(url.pathname);
+    if (url.pathname === "/oauth/token") {
+      return Response.json({ access_token: "zoom-token" });
+    }
+    if (url.pathname === "/v2/accounts/me/recordings") {
+      return Response.json({ meetings: [] });
+    }
+    if (url.pathname === "/v2/meetings/meeting_summaries") {
+      return Response.json({
+        summaries: [
+          zoomSummaryListItem("kept-uuid", 222, "Pricing sync"),
+          zoomSummaryListItem("other-uuid", 333, "Unrelated sync"),
+        ],
+      });
+    }
+    if (url.pathname === "/v2/meetings/kept-uuid/meeting_summary") {
+      return Response.json({
+        ...zoomSummaryListItem("kept-uuid", 222, "Pricing sync"),
+        summary_content: "Pricing ships Tuesday.",
+      });
+    }
+    return Response.json({ message: "unexpected" }, { status: 404 });
+  });
+}
+
 type Condition =
   | { op: "and"; conditions: Condition[] }
   | { op: "or"; conditions: Condition[] }
@@ -4400,6 +4436,54 @@ describe("Brain connector smoke coverage", () => {
     expect(matched.filesOmitted).toBe(2);
   });
 
+  it("skips Zoom summaries unless the source enables them", async () => {
+    const paths: string[] = [];
+    vi.stubGlobal("fetch", zoomSummaryFetch(paths));
+    const source = seedSource({
+      id: "zoom-no-summary-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: {} }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result.status).toBe("success");
+    expect(paths).not.toContain("/v2/meetings/meeting_summaries");
+  });
+
+  it("imports AI Companion summaries for unrecorded meetings when enabled", async () => {
+    const paths: string[] = [];
+    vi.stubGlobal("fetch", zoomSummaryFetch(paths));
+    const source = seedSource({
+      id: "zoom-summary-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { meetingTopics: ["Pricing sync"], includeSummaries: true },
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 1,
+      stats: {
+        summariesListed: 2,
+        summariesSkippedByFilter: 1,
+        summariesFetched: 1,
+        summaryCapturesCreated: 1,
+      },
+    });
+    expect(result.captures[0]).toMatchObject({
+      externalId: "zoom-summary:kept-uuid",
+      kind: "note",
+    });
+    expect(paths).not.toContain("/v2/meetings/other-uuid/meeting_summary");
+    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
+      includeSummaries: true,
+    });
+  });
+
   it("imports only Zoom meetings matching the source meeting filter", async () => {
     const downloads: string[] = [];
     const recording = (uuid: string, id: number, topic: string) => ({
@@ -4550,6 +4634,151 @@ describe("Brain connector smoke coverage", () => {
 
     expect(savedCursor.lookbackDays).toBe(20);
     expect(listFromDates).toEqual([lookbackStart, yesterday]);
+  });
+
+  it("keeps a held-back transcript cursor when summaries are first enabled", async () => {
+    const listFromDates: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          listFromDates.push(url.searchParams.get("from") ?? "");
+          return Response.json({ meetings: [] });
+        }
+        if (url.pathname === "/v2/meetings/meeting_summaries") {
+          return Response.json({ summaries: [] });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const dayMs = 24 * 60 * 60 * 1000;
+    const heldBack = new Date(Date.now() - 12 * dayMs)
+      .toISOString()
+      .slice(0, 10);
+    const source = seedSource({
+      id: "zoom-summary-held-cursor-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { lookbackDays: 7, includeSummaries: true },
+      }),
+      cursorJson: JSON.stringify({
+        from: heldBack,
+        filterKey: null,
+        lookbackDays: 7,
+      }),
+    });
+
+    await runConnectorSync(source as never);
+
+    expect(listFromDates).toEqual([heldBack]);
+  });
+
+  it("imports the remaining summaries when Zoom refuses one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({ meetings: [] });
+        }
+        if (url.pathname === "/v2/meetings/meeting_summaries") {
+          return Response.json({
+            summaries: [
+              zoomSummaryListItem("trashed-uuid", 111, "Pricing sync"),
+              zoomSummaryListItem("kept-uuid", 222, "Pricing sync"),
+            ],
+          });
+        }
+        if (url.pathname === "/v2/meetings/trashed-uuid/meeting_summary") {
+          return Response.json(
+            { code: 3001, message: "Meeting summary does not exist." },
+            { status: 404 },
+          );
+        }
+        if (url.pathname === "/v2/meetings/kept-uuid/meeting_summary") {
+          return Response.json({
+            ...zoomSummaryListItem("kept-uuid", 222, "Pricing sync"),
+            summary_content: "Pricing ships Tuesday.",
+          });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-summary-partial-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: { includeSummaries: true } }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "error",
+      capturesCreated: 1,
+      stats: {
+        summaryCapturesCreated: 1,
+        summaryFetchFailures: [
+          { meetingId: "111", error: expect.stringContaining("code 3001") },
+        ],
+      },
+    });
+    expect(source.status).toBe("error");
+    expect(source.lastError).toContain("did not return 1 AI Companion summary");
+    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
+      includeSummaries: true,
+    });
+  });
+
+  it("fails the run and keeps the cursor when the summary scope is missing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({ meetings: [] });
+        }
+        if (url.pathname === "/v2/meetings/meeting_summaries") {
+          return Response.json({
+            summaries: [zoomSummaryListItem("kept-uuid", 222, "Pricing sync")],
+          });
+        }
+        return Response.json(
+          {
+            code: 4711,
+            message:
+              "Invalid access token, does not contain scopes:[meeting:read:summary:admin].",
+          },
+          { status: 400 },
+        );
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-summary-scope-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: { includeSummaries: true } }),
+      cursorJson: JSON.stringify({ from: "2026-05-01" }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result.status).toBe("error");
+    expect(source.lastError).toContain("meeting:read:summary:admin");
+    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
+      from: "2026-05-01",
+    });
+    expect(
+      JSON.parse(String(source.cursorJson)).includeSummaries,
+    ).toBeUndefined();
   });
 
   it("dedupes account-wide Zoom recordings across query chunks", async () => {

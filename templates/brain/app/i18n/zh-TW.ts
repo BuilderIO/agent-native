@@ -405,6 +405,7 @@ const messages = {
     zoomMeetingTopicsDescription:
       "每行一個完整的會議標題。標題必須完全相符（不區分大小寫），因此盡量使用 ID。",
     zoomLookbackDays: "回溯天數",
+    zoomIncludeSummaries: "匯入 AI Companion 摘要",
     invalidZoomMeetingIds:
       "無效的 Zoom 會議 ID：{{entries}}。請使用會議邀請中的號碼，例如 123 4567 8901。",
     zoomDescription:
