@@ -170,6 +170,9 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
   const documentMock = {
     referrer: "https://builder.io/start?token=secret&utm=ok",
     title: "Inbox",
+    get baseURI() {
+      return location.href;
+    },
     get cookie() {
       return readCookies();
     },
@@ -2057,10 +2060,23 @@ describe("browser analytics pageviews", () => {
     ["relative build track", "/build-track", "/api/analytics/replay"],
     ["relative config track", "/config-track", "/api/analytics/replay"],
     ["relative custom analytics path", "/v1/events", "/api/analytics/replay"],
+    [
+      "path-relative analytics path",
+      "analytics/track",
+      "/workspace/analytics/api/analytics/replay",
+      "https://mail.agent-native.com/workspace/",
+      "/workspace/analytics/track",
+    ],
   ])(
     "starts replay from server-injected %s config and attaches active replay fields",
-    async (_label, trackingEndpoint, replayEndpoint) => {
-      installBrowser();
+    async (
+      _label,
+      trackingEndpoint,
+      replayEndpoint,
+      browserUrl,
+      expectedTrackingPath,
+    ) => {
+      installBrowser(browserUrl);
       const { analyticsCalls } = installFetch({
         session: {
           email: "user@example.com",
@@ -2106,6 +2122,15 @@ describe("browser analytics pageviews", () => {
         sessionReplayId: "replay-test",
         sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
       });
+      if (expectedTrackingPath) {
+        const eventUrl = analyticsCalls.find(
+          ([, init]) =>
+            JSON.parse(String(init.body)).event === "setup_step_saved",
+        )?.[0];
+        expect(new URL(String(eventUrl), document.baseURI).pathname).toBe(
+          expectedTrackingPath,
+        );
+      }
     },
   );
 

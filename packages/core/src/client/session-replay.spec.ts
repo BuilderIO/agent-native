@@ -225,6 +225,9 @@ function installBrowser(
   vi.stubGlobal("document", {
     referrer: "",
     title: "Inbox",
+    get baseURI() {
+      return location.href;
+    },
     visibilityState: "visible",
     addEventListener: vi.fn(addDocumentListener),
     removeEventListener: vi.fn(removeDocumentListener),
@@ -4596,14 +4599,25 @@ describe("session replay", () => {
     [
       "known track endpoint",
       "https://analytics.example.test/api/analytics/track",
+      "https://app.agent-native.com/inbox",
+      "https://analytics.example.test/api/analytics/replay",
     ],
-    ["custom analytics path", "https://analytics.example.test/v1/events"],
+    [
+      "custom analytics path",
+      "https://analytics.example.test/v1/events",
+      "https://app.agent-native.com/inbox",
+      "https://analytics.example.test/api/analytics/replay",
+    ],
+    [
+      "path-relative analytics path",
+      "analytics/track",
+      "https://app.agent-native.com/workspace/",
+      "https://app.agent-native.com/workspace/analytics/api/analytics/replay",
+    ],
   ])(
     "derives the replay endpoint from the %s env endpoint",
-    async (_label, analyticsEndpoint) => {
-      const { fetchMock } = installBrowser(
-        "https://app.agent-native.com/inbox",
-      );
+    async (_label, analyticsEndpoint, browserUrl, expectedReplayEndpoint) => {
+      const { fetchMock } = installBrowser(browserUrl);
       vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
       vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT", analyticsEndpoint);
       vi.stubEnv("VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE", "1");
@@ -4621,9 +4635,9 @@ describe("session replay", () => {
       await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(fetchMock.mock.calls[0][0]).toBe(
-        "https://analytics.example.test/api/analytics/replay",
-      );
+      expect(
+        new URL(String(fetchMock.mock.calls[0][0]), document.baseURI).href,
+      ).toBe(expectedReplayEndpoint);
     },
   );
 

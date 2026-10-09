@@ -11,12 +11,13 @@ const TRACKING_ENDPOINT_SUFFIXES = [
 
 export function replayEndpointFromAnalyticsEndpoint(
   endpoint: string,
+  baseUrl = URL_BASE,
 ): string | null {
   const hasScheme = /^[a-z][a-z\d+.-]*:/i.test(endpoint);
   const isProtocolRelative = endpoint.startsWith("//");
   let url: URL;
   try {
-    url = new URL(endpoint, URL_BASE);
+    url = new URL(endpoint, baseUrl);
   } catch (error) {
     if (error instanceof TypeError) return null;
     throw error;

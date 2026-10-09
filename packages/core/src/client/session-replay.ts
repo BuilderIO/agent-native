@@ -856,7 +856,10 @@ function defaultReplayEndpoint(): string {
     "VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT",
   );
   const derived = analyticsEndpoint
-    ? replayEndpointFromAnalyticsEndpoint(analyticsEndpoint)
+    ? replayEndpointFromAnalyticsEndpoint(
+        analyticsEndpoint,
+        typeof document === "undefined" ? undefined : document.baseURI,
+      )
     : null;
   if (derived) return derived;
   return typeof window !== "undefined"

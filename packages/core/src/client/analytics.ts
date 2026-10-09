@@ -1729,7 +1729,10 @@ function configuredSessionReplayOptions(
     env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
     (publicKey ? AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT : undefined);
   const endpoint = trackingEndpoint
-    ? (replayEndpointFromAnalyticsEndpoint(trackingEndpoint) ?? undefined)
+    ? (replayEndpointFromAnalyticsEndpoint(
+        trackingEndpoint,
+        typeof document === "undefined" ? undefined : document.baseURI,
+      ) ?? undefined)
     : undefined;
   const withTrackingDefaults = (
     options: SessionReplayOptions,
