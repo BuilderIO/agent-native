@@ -37,6 +37,70 @@ describe("LazyChunkErrorBoundary", () => {
     vi.restoreAllMocks();
   });
 
+  it("handles only the tagged import rejection and preserves its error identity", async () => {
+    const error = new Error("Failed to fetch dynamically imported module");
+    const errors = new Set<unknown>();
+    const Panel = lazy(() =>
+      Promise.reject(error).catch((error) => {
+        errors.add(error);
+        throw error;
+      }),
+    );
+    await act(async () => {
+      root.render(
+        <LazyChunkErrorBoundary
+          shouldHandleError={(error) => errors.has(error)}
+          fallback={<div>Import failed</div>}
+        >
+          <Suspense fallback={null}>
+            <Panel />
+          </Suspense>
+        </LazyChunkErrorBoundary>,
+      );
+    });
+    expect(container.textContent).toBe("Import failed");
+    expect(recoverFromStaleChunkError).toHaveBeenCalledWith(error);
+  });
+
+  it("lets ordinary panel render errors reach the outer boundary", async () => {
+    const error = new Error("Panel render failed");
+    const caught = vi.fn();
+    class OuterBoundary extends React.Component<
+      { children: React.ReactNode },
+      { error: unknown }
+    > {
+      state = { error: null as unknown };
+      static getDerivedStateFromError(error: unknown) {
+        return { error };
+      }
+      componentDidCatch(error: unknown) {
+        caught(error);
+      }
+      render() {
+        return this.state.error ? <div>Panel failed</div> : this.props.children;
+      }
+    }
+    function Panel(): React.ReactNode {
+      throw error;
+    }
+    recoverFromStaleChunkError.mockClear();
+    await act(async () => {
+      root.render(
+        <OuterBoundary>
+          <LazyChunkErrorBoundary
+            shouldHandleError={() => false}
+            fallback={<div>Import failed</div>}
+          >
+            <Panel />
+          </LazyChunkErrorBoundary>
+        </OuterBoundary>,
+      );
+    });
+    expect(container.textContent).toBe("Panel failed");
+    expect(caught).toHaveBeenCalledWith(error);
+    expect(recoverFromStaleChunkError).not.toHaveBeenCalled();
+  });
+
   it("keeps sibling app content mounted when a lazy loader rejects", async () => {
     const onRetry = vi.fn();
 

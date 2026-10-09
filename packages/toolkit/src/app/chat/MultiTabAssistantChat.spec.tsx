@@ -28,8 +28,10 @@ import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { invalidateClientStatusRequests } from "@agent-native/core/client/status-requests";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AgentSidebarPanel } from "./AgentSidebarPanel.js";
 import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
@@ -162,7 +164,10 @@ vi.mock("@agent-native/core/client/host", async (importOriginal) => {
     sendToBuilderChat: vi.fn(),
   };
 });
-vi.mock("@agent-native/core/client/mcp-app-host", () => ({
+vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/mcp-app-host")
+  >()),
   sendMcpAppHostMessage: () => null,
 }));
 vi.mock("@agent-native/core/client/api-path", async (importOriginal) => {
@@ -560,6 +565,64 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it("receives queued commands when the real client-only panel reports ready", async () => {
+    act(() => root.unmount());
+    root = createRoot(container);
+    chatHandleMocks.prefillMessage.mockClear();
+    const onOpenSettings = vi.fn();
+    const onReadyChange = vi.fn((ready: boolean) => {
+      if (ready) {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:set-mode", { detail: { mode: "cli" } }),
+        );
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "agent" },
+          }),
+        );
+        dispatchSubmitChat({
+          message: "Queued draft",
+          submit: false,
+          openSidebar: false,
+        });
+      }
+    });
+    const panel = (key: string) => (
+      <MemoryRouter>
+        <AgentSidebarPanel
+          key={key}
+          storageKey="bridge-test"
+          showHeader={false}
+          renderCliTab={() => <div>Terminal</div>}
+          onOpenSettings={onOpenSettings}
+          onReadyChange={onReadyChange}
+        />
+      </MemoryRouter>
+    );
+    await act(async () => {
+      root.render(panel("initial"));
+      await Promise.resolve();
+    });
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledExactlyOnceWith(
+      "Queued draft",
+    );
+    expect(onOpenSettings).toHaveBeenCalledExactlyOnceWith("agent");
+    expect(localStorage.getItem("agent-native-panel-mode:bridge-test")).toBe(
+      "cli",
+    );
+    onReadyChange.mockClear();
+    chatHandleMocks.prefillMessage.mockClear();
+    await act(async () => root.render(panel("replacement")));
+    expect(onReadyChange.mock.calls[0]).toEqual([false]);
+    expect(onReadyChange).toHaveBeenLastCalledWith(true);
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledExactlyOnceWith(
+      "Queued draft",
+    );
+    act(() => root.unmount());
+    expect(onReadyChange).toHaveBeenLastCalledWith(false);
+    root = createRoot(container);
   });
 
   it("keeps thread saves metadata-only for built-in, runtime, and custom transports", async () => {

@@ -88,13 +88,21 @@ import type { MultiTabAssistantChatProps } from "./MultiTabAssistantChat.js";
 import "@agent-native/core/client/mcp-app-host";
 
 export function preloadAgentChatSurface(): Promise<void> {
+  // Desktop shells call this unconditionally on mount; loading here would defeat on-demand chat.
   return Promise.resolve();
 }
 
+const panelImportErrors = new Set<unknown>();
+const isPanelImportError = (error: unknown) => panelImportErrors.has(error);
 const AgentSidebarPanel = lazy(() =>
-  import("./AgentSidebarPanel.js").then((m) => ({
-    default: m.AgentSidebarPanel,
-  })),
+  import("./AgentSidebarPanel.js")
+    .then((m) => ({
+      default: m.AgentSidebarPanel,
+    }))
+    .catch((error: unknown) => {
+      panelImportErrors.add(error);
+      throw error;
+    }),
 );
 
 const SHOW_FIRST_RUN_ONBOARDING = isFirstRunOnboardingEnabled();
@@ -1249,7 +1257,10 @@ export function AgentSidebar({
           ref={panelElementRef}
           className="agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col"
         >
-          <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
+          <LazyChunkErrorBoundary
+            fallback={<LazyChunkRetryFallback />}
+            shouldHandleError={isPanelImportError}
+          >
             <Suspense
               fallback={
                 <div

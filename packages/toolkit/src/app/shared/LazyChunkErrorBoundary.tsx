@@ -2,7 +2,11 @@ import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chun
 import React from "react";
 
 export class LazyChunkErrorBoundary extends React.Component<
-  { children: React.ReactNode; fallback: React.ReactNode },
+  {
+    children: React.ReactNode;
+    fallback: React.ReactNode;
+    shouldHandleError?: (error: unknown) => boolean;
+  },
   { error: unknown }
 > {
   state: { error: unknown } = { error: null };
@@ -17,6 +21,13 @@ export class LazyChunkErrorBoundary extends React.Component<
   }
 
   render() {
+    if (
+      this.state.error &&
+      this.props.shouldHandleError &&
+      !this.props.shouldHandleError(this.state.error)
+    ) {
+      throw this.state.error;
+    }
     return this.state.error ? this.props.fallback : this.props.children;
   }
 }

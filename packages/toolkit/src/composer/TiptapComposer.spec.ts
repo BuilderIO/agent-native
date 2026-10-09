@@ -3152,6 +3152,57 @@ describe("TiptapComposer paste handling", () => {
 });
 
 describe("TiptapComposer references", () => {
+  it("replays a reference rejected while disabled without consuming its ID", async () => {
+    const onReferencesChange = vi.fn();
+    function Harness({ disabled }: { disabled: boolean }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            disabled,
+            onReferencesChange,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+    const insert = () =>
+      window.dispatchEvent(
+        new CustomEvent("agentNative:insert-composer-reference", {
+          detail: {
+            label: "Document",
+            refType: "file",
+            refId: "queued-reference",
+            slotKey: "document",
+            insertMessageId: "disabled-reference",
+          },
+        }),
+      );
+    await act(async () => {
+      root.render(React.createElement(Harness, { disabled: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(insert);
+    expect(container.textContent).not.toContain("Document");
+    await act(async () =>
+      root.render(React.createElement(Harness, { disabled: false })),
+    );
+    onReferencesChange.mockClear();
+    act(insert);
+    expect(onReferencesChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ refId: "queued-reference" }),
+    ]);
+    const count = onReferencesChange.mock.calls.length;
+    act(insert);
+    expect(onReferencesChange).toHaveBeenCalledTimes(count);
+  });
+
   it("reports slot reference insertions and removals to the host", async () => {
     const onReferencesChange = vi.fn();
     const focusRef = React.createRef<TiptapComposerHandle>();

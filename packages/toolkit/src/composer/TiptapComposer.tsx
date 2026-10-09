@@ -3872,6 +3872,9 @@ export function TiptapComposer({
 
   const insertReferenceIfEmpty = useCallback(
     (payload: AgentComposerReferenceInsertPayload) => {
+      const ed = editor;
+      if (!isComposerEditorUsable(ed) || disabled || composerModeRef.current)
+        return;
       const insertMessageId =
         typeof payload.insertMessageId === "string"
           ? payload.insertMessageId
@@ -3880,9 +3883,6 @@ export function TiptapComposer({
         if (seenReferenceInsertIdsRef.current.has(insertMessageId)) return;
         seenReferenceInsertIdsRef.current.add(insertMessageId);
       }
-      const ed = editor;
-      if (!isComposerEditorUsable(ed) || disabled || composerModeRef.current)
-        return;
       const normalized = adapters.agentChat!.normalizeReference!(
         payload,
       ) as any;

@@ -888,6 +888,7 @@ export type MultiTabAssistantChatProps = Omit<
   agentTeamPollMs?: number;
   /** Reports the exact model engine selected for the active thread. */
   onActiveModelEngineChange?: (engine: ModelEngineConfig | null) => void;
+  onCommandListenersReadyChange?: (ready: boolean) => void;
 };
 
 export function MultiTabAssistantChat({
@@ -909,6 +910,7 @@ export function MultiTabAssistantChat({
   onRetryModelList: hostOnRetryModelList,
   onModelChange: hostOnModelChange,
   onActiveModelEngineChange,
+  onCommandListenersReadyChange,
   ...props
 }: MultiTabAssistantChatProps) {
   const translate = useT();
@@ -2738,6 +2740,11 @@ export function MultiTabAssistantChat({
       );
     }
   }, []);
+
+  useEffect(() => {
+    onCommandListenersReadyChange?.(true);
+    return () => onCommandListenersReadyChange?.(false);
+  }, [onCommandListenersReadyChange]);
 
   // Watch for agent-issued chat-command in application-state. The shared
   // DB-sync transport advances this key-specific version, so the command gets
