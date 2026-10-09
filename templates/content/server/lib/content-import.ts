@@ -650,8 +650,11 @@ async function createImportedPage(input: {
     );
     return { report: page.report, created: true };
   } catch (error) {
-    const [recorded] = await db
+    // The whole import, as the locked path reads it: page ids come from the
+    // import id, so this page's record is among them.
+    const records = await db
       .select({
+        documentId: schema.documentImports.documentId,
         requestSha256: schema.documentImports.requestSha256,
         originalBlob: schema.documentImports.originalBlob,
         reportJson: schema.documentImports.reportJson,
@@ -662,8 +665,7 @@ async function createImportedPage(input: {
         schema.documents,
         eq(schema.documents.id, schema.documentImports.documentId),
       )
-      .where(eq(schema.documentImports.documentId, id))
-      .limit(1)
+      .where(eq(schema.documentImports.importId, input.importId))
       .catch((lookupError: unknown) => {
         // Without the record there's no telling whether this attempt's page
         // was saved, or another attempt kept this original, so the original
@@ -675,6 +677,7 @@ async function createImportedPage(input: {
         });
         throw error;
       });
+    const recorded = records.find((record) => record.documentId === id);
     // This attempt's page committed and only a step after it failed. The page
     // is live and points at this attempt's uploads, so it counts as created.
     if (recorded?.originalBlob === originalBlob) {
@@ -690,10 +693,10 @@ async function createImportedPage(input: {
         cleanupError,
       );
     });
-    // Another attempt with this key created the page first, and may have been
-    // undone since.
+    // Another attempt with this key created the page first, and pages from
+    // the import may have gone to Trash since.
     if (!recorded || !isUniqueConstraintError(error)) throw error;
-    assertImportOpen([recorded], input.requestSha256);
+    assertImportOpen(records, input.requestSha256);
     return {
       report: JSON.parse(recorded.reportJson) as ImportedPageReport,
       created: false,

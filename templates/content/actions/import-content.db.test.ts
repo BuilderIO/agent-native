@@ -546,8 +546,7 @@ describe("import-content", () => {
         const lookup = {
           from: () => lookup,
           leftJoin: () => lookup,
-          where: () => lookup,
-          limit: () => Promise.reject(new Error("connection reset")),
+          where: () => Promise.reject(new Error("connection reset")),
         };
         return lookup as never;
       });
@@ -830,6 +829,42 @@ describe("undo-content-import", () => {
     const children = await importedChildren();
     expect(children).toHaveLength(1);
     expect(children[0].trashedAt).toEqual(expect.any(String));
+  });
+
+  it("refuses a racing apply once another page from the import is in Trash", async () => {
+    const apply = () =>
+      asOwner(() =>
+        importContent.run({
+          files: [
+            { name: "a.md", text: "# A\n\nFirst." },
+            { name: "b.md", text: "# B\n\nSecond." },
+          ],
+          parentId: PARENT_ID,
+          dryRun: false,
+          idempotencyKey: "race-trashed-sibling",
+        }),
+      );
+    let applied: Awaited<ReturnType<typeof apply>> | undefined;
+    // The racing apply uploads a.md's original, the other apply runs whole,
+    // then a.md's page goes to Trash while the racing apply uploads b.md's.
+    blobs.put.mockImplementationOnce(async (input) => {
+      applied = await apply();
+      return storedBlob(input);
+    });
+    blobs.put.mockImplementationOnce(storedBlob);
+    blobs.put.mockImplementationOnce(storedBlob);
+    blobs.put.mockImplementationOnce(async (input) => {
+      const page = applied!.pages.find((entry) => entry.sourceName === "a.md");
+      await getDb()
+        .update(schema.documents)
+        .set({ trashedAt: new Date().toISOString() })
+        .where(eq(schema.documents.id, page!.id!));
+      return storedBlob(input);
+    });
+
+    await expect(apply()).rejects.toMatchObject({
+      errorCode: "IMPORT_PAGE_TRASHED",
+    });
   });
 
   it("refuses while the import is still adding pages", async () => {
