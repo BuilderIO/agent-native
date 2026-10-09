@@ -1,0 +1,84 @@
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+const deletePrivateBlob = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/private-blob", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/private-blob")>()),
+  deletePrivateBlob,
+}));
+
+import { closeDbExec, getDbExec } from "@agent-native/core/db";
+
+import { sweepExpiredJourneyCanvasStages } from "./journey-canvas-stage-cleanup.js";
+
+const expiredAt = new Date(Date.now() - 8 * 24 * 60 * 60 * 1_000).toISOString();
+const recentAt = new Date().toISOString();
+const privateHandle = (id: string) =>
+  JSON.stringify({
+    id,
+    provider: "private-provider",
+    opaque: true,
+    encrypted: true,
+  });
+
+beforeAll(async () => {
+  vi.stubEnv("DATABASE_URL", "pglite:memory://");
+  vi.stubEnv("DATABASE_URL_UNPOOLED", "pglite:memory://");
+  vi.stubEnv("DESIGN_DATABASE_URL", "pglite:memory://");
+  vi.stubEnv("DESIGN_DATABASE_URL_UNPOOLED", "pglite:memory://");
+  await getDbExec().execute(`CREATE TABLE design_board_replay_screenshots (
+    id TEXT PRIMARY KEY,
+    blob_handle TEXT NOT NULL,
+    created_at TEXT
+  )`);
+  await getDbExec()
+    .execute(`CREATE TABLE design_visual_edit_snapshot_blob_cleanup (
+    blob_handle TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+});
+
+afterAll(async () => {
+  await closeDbExec();
+  vi.unstubAllEnvs();
+});
+
+describe("journey canvas staged frame cleanup", () => {
+  it("removes expired staging rows and only queues unreferenced private blobs", async () => {
+    const expiredBlob = privateHandle("expired-stage");
+    const sharedBlob = privateHandle("shared-stage");
+    await getDbExec().execute({
+      sql: `INSERT INTO design_board_replay_screenshots (id, blob_handle, created_at)
+            VALUES ($1, $2, $3), ($4, $5, $3), ($6, $5, $3), ($7, $8, $9)`,
+      args: [
+        "jcu_expired",
+        expiredBlob,
+        expiredAt,
+        "jcu_shared",
+        sharedBlob,
+        "jcs_shared",
+        "jcu_recent",
+        privateHandle("recent-stage"),
+        recentAt,
+      ],
+    });
+    deletePrivateBlob.mockResolvedValue({ deleted: true });
+
+    const result = await sweepExpiredJourneyCanvasStages();
+
+    expect(result).toEqual({
+      rowsRemoved: 2,
+      blobsQueued: 1,
+      cleanupPending: false,
+    });
+    expect(deletePrivateBlob).toHaveBeenCalledOnce();
+    expect(deletePrivateBlob).toHaveBeenCalledWith(JSON.parse(expiredBlob));
+    const remaining = await getDbExec().execute({
+      sql: `SELECT id FROM design_board_replay_screenshots ORDER BY id`,
+    });
+    expect(remaining.rows.map(({ id }) => id)).toEqual([
+      "jcs_shared",
+      "jcu_recent",
+    ]);
+  });
+});

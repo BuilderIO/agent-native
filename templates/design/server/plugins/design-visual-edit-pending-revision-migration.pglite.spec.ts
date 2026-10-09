@@ -8,6 +8,7 @@ import {
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
+  designBoardReplayStageExpiryIndexMigration,
   designLiveCollaborationOptInMigration,
   designVisualEditPendingBigintRevisionMigration,
 } from "./db.js";
@@ -53,6 +54,17 @@ beforeAll(async () => {
   );
   await withMigrationRuntime(async () => {
     await collaborationMigrations({});
+  });
+
+  await exec.execute(
+    "CREATE TABLE design_board_replay_screenshots (id TEXT, created_at TEXT)",
+  );
+  const stageExpiryIndexMigration = runMigrations(
+    [designBoardReplayStageExpiryIndexMigration],
+    { table: "design_stage_expiry_migrations" },
+  );
+  await withMigrationRuntime(async () => {
+    await stageExpiryIndexMigration({});
   });
 });
 
@@ -120,5 +132,13 @@ describe("visual-edit pending revision forward migration", () => {
       sql: `SELECT live_collaboration_enabled FROM designs WHERE id = 'new_design'`,
     });
     expect(newRows[0]?.live_collaboration_enabled).toBe(false);
+  });
+
+  it("adds a partial index for bounded staged screenshot expiry scans", async () => {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT indexdef FROM pg_indexes
+            WHERE indexname = 'design_board_replay_screenshots_stage_expiry_idx'`,
+    });
+    expect(rows[0]?.indexdef).toContain("WHERE starts_with(id, 'jcu_'::text)");
   });
 });

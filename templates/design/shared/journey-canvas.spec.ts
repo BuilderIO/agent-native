@@ -951,7 +951,7 @@ describe("planJourneyCanvas", () => {
     expect(screen.html).toContain("Screenshot captured 2026-10-08 UTC");
     expect(screen.html).toContain("Actor (recording): actor@example.test");
     expect(screen.frame.height).toBe(
-      CARD_PROVENANCE_HEADER_HEIGHT + 48 + Math.round(360 / (1536 / 826)),
+      CARD_PROVENANCE_HEADER_HEIGHT + 60 + Math.round(360 / (1536 / 826)),
     );
   });
 

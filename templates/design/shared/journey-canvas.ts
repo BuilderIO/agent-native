@@ -514,6 +514,24 @@ function localizedDateLabel(
   return messages.eventTime;
 }
 
+function captionEvidenceText(
+  caption: JourneyFrameCaption,
+  messages: JourneyCanvasMessages,
+): string | null {
+  const evidence =
+    caption.evidenceStatus === "generation_completed"
+      ? messages.generationCompletedEvidence
+      : caption.evidenceStatus === "rendered_output_observed"
+        ? messages.renderedOutputEvidence
+        : null;
+  if (!evidence) return null;
+  const timestamp =
+    caption.evidenceStatus === "generation_completed" && caption.evidenceAt
+      ? ` (${utcTimestamp(caption.evidenceAt)} UTC)`
+      : "";
+  return `${messages.evidence}: ${evidence}${timestamp}`;
+}
+
 export interface PlannedScreen {
   fileId: string;
   filename: string;
@@ -583,6 +601,7 @@ function cardProvenanceMarkup(
       ? messages.replayOffsetUnavailable
       : `${formatInt(provenance.offsetMs, messages.htmlLanguage)} ms`;
   const caption = provenance.caption;
+  const evidenceText = caption ? captionEvidenceText(caption, messages) : null;
   const captionMarkup = caption
     ? [
         caption.observedState
@@ -594,11 +613,9 @@ function cardProvenanceMarkup(
         caption.actor
           ? `<p class="caption-line" title="${escapeHtml(messages.actorSource)}: ${escapeHtml(caption.actorSource ?? messages.recordingMetadata)}">${escapeHtml(messages.actorRecording)}: ${escapeHtml(caption.actor)}</p>`
           : "",
-        caption.evidenceStatus === "generation_completed"
-          ? `<p class="caption-line">${escapeHtml(messages.evidence)}: ${escapeHtml(messages.generationCompletedEvidence)}${caption.evidenceAt ? ` (${escapeHtml(utcTimestamp(caption.evidenceAt))} UTC)` : ""}</p>`
-          : caption.evidenceStatus === "rendered_output_observed"
-            ? `<p class="caption-line">${escapeHtml(messages.evidence)}: ${escapeHtml(messages.renderedOutputEvidence)}</p>`
-            : "",
+        evidenceText
+          ? `<p class="caption-line">${escapeHtml(evidenceText)}</p>`
+          : "",
         caption.prompt
           ? `<details class="prompt"><summary title="${escapeHtml(messages.openFullPrompt)}">${escapeHtml(messages.prompt)}: ${escapeHtml(promptExcerpt(caption.promptTranslation ?? caption.prompt))}</summary><div class="prompt-body">${caption.promptTranslation ? `<p><strong>${escapeHtml(messages.promptEnglish)}</strong><br>${escapeHtml(caption.promptTranslation)}</p>` : ""}<p><strong>${escapeHtml(messages.promptSource)}</strong><br>${escapeHtml(caption.prompt)}</p>${caption.promptSource ? `<p class="prompt-source">${escapeHtml(messages.source)}: ${escapeHtml(caption.promptSource)}</p>` : ""}</div></details>`
           : caption.promptUnavailableReason
@@ -646,6 +663,7 @@ function captionHeaderHeight(
     ...frames.map((frame) => {
       const caption = frame.caption;
       if (!caption) return 0;
+      const evidenceText = captionEvidenceText(caption, messages);
       return [
         caption.observedState
           ? rowsFor(`${messages.observedState}: ${caption.observedState}`)
@@ -656,11 +674,7 @@ function captionHeaderHeight(
         caption.actor
           ? rowsFor(`${messages.actorRecording}: ${caption.actor}`)
           : 0,
-        caption.evidenceStatus
-          ? rowsFor(
-              `${messages.evidence}: ${caption.evidenceStatus}${caption.evidenceAt ? ` ${caption.evidenceAt}` : ""}`,
-            )
-          : 0,
+        evidenceText ? rowsFor(evidenceText) : 0,
         caption.prompt || caption.promptUnavailableReason ? 1 : 0,
       ].reduce((sum, lineCount) => sum + lineCount, 0);
     }),

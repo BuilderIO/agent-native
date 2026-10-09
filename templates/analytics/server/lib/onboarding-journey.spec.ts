@@ -58,6 +58,7 @@ function eventRow(
     session_id: sessionId,
     timestamp: new Date(T0 + offsetSeconds * 1000).toISOString(),
     event_name: eventName,
+    journey_kind: "onboarding",
     path: null,
     flow: null,
     step_id: null,
@@ -132,6 +133,7 @@ describe("parseJourneyEventRow", () => {
       { ...eventRow("s1", "signup", 0), session_id: null },
       { ...eventRow("s1", "signup", 0), event_name: undefined },
       { ...eventRow("s1", "signup", 0), timestamp: "garbled" },
+      { ...eventRow("s1", "signup", 0), journey_kind: "other" },
     ]) {
       expect(parseJourneyEventRow(broken)).toBeNull();
     }
@@ -220,6 +222,64 @@ describe("getOnboardingJourney", () => {
     });
     const tree = (await getOnboardingJourney(scope, ARGS)) as JourneyTree;
     expect(tree.nodes[0]!.examples[0]).not.toHaveProperty("replayUrl");
+  });
+
+  it("returns standalone chat setup sessions with a separate denominator", async () => {
+    const standaloneRows = [
+      eventRow("home-setup", "pageview", 1, {
+        path: "/home",
+        journey_kind: "standalone_setup",
+      }),
+      eventRow("home-setup", "integration_setup_exposed", 2, {
+        flow: "chat_setup",
+        method_id: "setup_card",
+        journey_kind: "standalone_setup",
+      }),
+      eventRow("home-setup", "integration_method_clicked", 3, {
+        flow: "chat_setup",
+        method_id: "custom_keys",
+        journey_kind: "standalone_setup",
+      }),
+      eventRow("home-setup", "integration_method_outcome", 4, {
+        flow: "chat_setup",
+        method_id: "custom_keys",
+        outcome: "credential_saved",
+        journey_kind: "standalone_setup",
+      }),
+    ];
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({
+      rows: [...journeyRows(), ...standaloneRows],
+      schema: [],
+    });
+    mocks.listJourneyRecordings.mockResolvedValue({
+      recordings: [
+        recordingFor("s1"),
+        recordingFor("s2"),
+        recordingFor("home-setup"),
+      ],
+      complete: true,
+    });
+
+    const tree = (await getOnboardingJourney(scope, ARGS)) as JourneyTree;
+
+    expect(tree.rootN).toBe(3);
+    expect(tree.coverage.sessionsWithEvents).toBe(3);
+    expect(tree.coverage.sessionsWithReplay).toBe(2);
+    expect(tree.nodes[0]?.key).toBe("signup");
+    expect(tree.standaloneSetup).toMatchObject({
+      rootN: 1,
+      coverage: {
+        sessionsWithEvents: 1,
+        sessionsWithReplay: 1,
+        truncated: false,
+      },
+    });
+    expect(tree.standaloneSetup?.nodes.map((node) => node.key)).toEqual([
+      "page:/home",
+      "page:/home > integration:chat_setup:exposed:setup_card",
+      "page:/home > integration:chat_setup:exposed:setup_card > integration:chat_setup:method:custom_keys",
+      "page:/home > integration:chat_setup:exposed:setup_card > integration:chat_setup:method:custom_keys > integration:chat_setup:outcome:custom_keys:credential_saved",
+    ]);
   });
 
   it("flags a cut event read instead of presenting a partial tree as whole", async () => {

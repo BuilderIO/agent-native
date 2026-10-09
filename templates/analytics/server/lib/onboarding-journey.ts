@@ -49,6 +49,16 @@ export interface JourneyTree {
     truncated: boolean;
   };
   nodes: JourneyNode[];
+  /** Home chat setup sessions that did not enter onboarding, with a separate denominator. */
+  standaloneSetup?: {
+    rootN: number;
+    coverage: {
+      sessionsWithEvents: number;
+      sessionsWithReplay: number;
+      truncated: boolean;
+    };
+    nodes: JourneyNode[];
+  };
   /** Present only when something limits how far the tree can be trusted. */
   notes?: string[];
 }
@@ -66,6 +76,15 @@ export interface JourneySummary {
   };
   /** One line per node, indented by depth. */
   outline: string;
+  standaloneSetup?: {
+    rootN: number;
+    coverage: {
+      sessionsWithEvents: number;
+      sessionsWithReplay: number | null;
+      truncated: boolean;
+    };
+    outline: string;
+  };
   notes?: string[];
 }
 
@@ -113,11 +132,21 @@ export function parseJourneyEventRow(
   const id = text(raw.id);
   const sessionId = text(raw.session_id);
   const eventName = text(raw.event_name);
+  const journeyKind = text(raw.journey_kind);
   const tsMs = parseJourneyTimestampMs(raw.timestamp);
-  if (!id || !sessionId || !eventName || tsMs === null) return null;
+  if (
+    !id ||
+    !sessionId ||
+    !eventName ||
+    (journeyKind !== "onboarding" && journeyKind !== "standalone_setup") ||
+    tsMs === null
+  ) {
+    return null;
+  }
   return {
     id,
     sessionId,
+    journeyKind,
     tsMs,
     eventName,
     path: text(raw.path),
@@ -180,7 +209,7 @@ async function readJourneyEvents(
   let rows = [...byId.values()];
   let lastSessionDropped = false;
   if (truncated) {
-    // Rows arrive ordered by session, so only the final session can be cut.
+    // Rows arrive ordered by journey kind and session, so only the final session can be cut.
     const lastSession = text(raw[raw.length - 1]?.session_id);
     if (lastSession) {
       rows = rows.filter((row) => row.sessionId !== lastSession);
@@ -307,8 +336,18 @@ export async function getOnboardingJourney(
   args: OnboardingJourneyArgs,
 ): Promise<JourneyTree | JourneySummary> {
   const read = await readJourneyEvents(scope, args, args.maxEventRows);
-  const { sessions, sessionsWithoutSteps } = groupSessions(read.rows);
-  const sessionIds = sessions.map((session) => session.sessionId);
+  const { sessions, sessionsWithoutSteps } = groupSessions(
+    read.rows.filter((row) => row.journeyKind === "onboarding"),
+  );
+  const standalone = groupSessions(
+    read.rows.filter((row) => row.journeyKind === "standalone_setup"),
+  );
+  const sessionIds = [
+    ...new Set([
+      ...sessions.map((session) => session.sessionId),
+      ...standalone.sessions.map((session) => session.sessionId),
+    ]),
+  ];
 
   let recordings: JourneyRecording[] | null;
   try {
@@ -338,6 +377,20 @@ export async function getOnboardingJourney(
     replayUrlFor: replayUrlBuilder(),
   });
   const capped = capNodes(built.nodes, args.maxNodes);
+  const standaloneBuilt = standalone.sessions.length
+    ? buildJourneyTree(standalone.sessions, bySession, {
+        maxDepth: args.maxDepth,
+        minNodeSessions: args.minNodeSessions,
+        examplesPerNode: args.format === "tree" ? args.examplesPerNode : 0,
+        settleMs: args.settleMs,
+        recency: args.recency,
+        viewport: args.viewport,
+        replayUrlFor: replayUrlBuilder(),
+      })
+    : null;
+  const standaloneCapped = standaloneBuilt
+    ? capNodes(standaloneBuilt.nodes, args.maxNodes)
+    : null;
 
   const notes: string[] = [];
   if (read.truncated) {
@@ -356,14 +409,19 @@ export async function getOnboardingJourney(
       `Node list cut to the ${args.maxNodes} largest of ${built.nodes.length}; children counts no longer sum to their parents.`,
     );
   }
+  if (standaloneCapped?.dropped) {
+    notes.push(
+      `Standalone setup tree cut to the ${args.maxNodes} largest of ${standaloneBuilt!.nodes.length} nodes.`,
+    );
+  }
   if (read.invalidRows) {
     notes.push(
       `${read.invalidRows} event rows had no id, session, or readable timestamp and were not counted.`,
     );
   }
-  if (sessionsWithoutSteps) {
+  if (sessionsWithoutSteps + standalone.sessionsWithoutSteps) {
     notes.push(
-      `${sessionsWithoutSteps} sessions had events but no step with a meaning (for example a pageview without a path) and are not in the tree.`,
+      `${sessionsWithoutSteps + standalone.sessionsWithoutSteps} sessions had events but no step with a meaning (for example a pageview without a path) and are not in a tree.`,
     );
   }
   const head = {
@@ -372,26 +430,71 @@ export async function getOnboardingJourney(
     rootN: built.rootN,
     ...(notes.length ? { notes } : {}),
   };
-  const truncated = read.truncated || capped.dropped > 0;
+  const truncated =
+    read.truncated ||
+    capped.dropped > 0 ||
+    (standaloneCapped?.dropped ?? 0) > 0;
   if (args.format === "summary") {
     return {
       format: "summary",
       ...head,
       coverage: {
         sessionsWithEvents: sessions.length,
-        sessionsWithReplay: recordings === null ? null : bySession.size,
+        sessionsWithReplay:
+          recordings === null
+            ? null
+            : sessions.filter((session) => bySession.has(session.sessionId))
+                .length,
         truncated,
       },
       outline: formatJourneyOutline(capped.nodes, args.maxDepth),
+      ...(standaloneBuilt && standaloneCapped
+        ? {
+            standaloneSetup: {
+              rootN: standaloneBuilt.rootN,
+              coverage: {
+                sessionsWithEvents: standalone.sessions.length,
+                sessionsWithReplay:
+                  recordings === null
+                    ? null
+                    : standalone.sessions.filter((session) =>
+                        bySession.has(session.sessionId),
+                      ).length,
+                truncated: read.truncated || standaloneCapped.dropped > 0,
+              },
+              outline: formatJourneyOutline(
+                standaloneCapped.nodes,
+                args.maxDepth,
+              ),
+            },
+          }
+        : {}),
     };
   }
   return {
     ...head,
     coverage: {
       sessionsWithEvents: sessions.length,
-      sessionsWithReplay: bySession.size,
+      sessionsWithReplay: sessions.filter((session) =>
+        bySession.has(session.sessionId),
+      ).length,
       truncated,
     },
     nodes: capped.nodes,
+    ...(standaloneBuilt && standaloneCapped
+      ? {
+          standaloneSetup: {
+            rootN: standaloneBuilt.rootN,
+            coverage: {
+              sessionsWithEvents: standalone.sessions.length,
+              sessionsWithReplay: standalone.sessions.filter((session) =>
+                bySession.has(session.sessionId),
+              ).length,
+              truncated: read.truncated || standaloneCapped.dropped > 0,
+            },
+            nodes: standaloneCapped.nodes,
+          },
+        }
+      : {}),
   };
 }

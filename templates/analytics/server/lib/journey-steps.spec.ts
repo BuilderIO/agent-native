@@ -18,6 +18,7 @@ function row(
   return {
     id: `e${nextId++}`,
     sessionId: "s1",
+    journeyKind: "onboarding",
     tsMs,
     eventName,
     path: null,
@@ -42,6 +43,7 @@ describe("normalizeJourneyPath", () => {
     expect(normalizeJourneyPath("/design/aB3dE5gH7jK9mN2pQ4")).toBe(
       "/design/:id",
     );
+    expect(normalizeJourneyPath("/r/ifsHSxM8iCbH")).toBe("/r/:id");
   });
 
   it("replaces a segment that holds an email address", () => {
@@ -77,6 +79,21 @@ describe("normalizeJourneyPath", () => {
       "/templates/landing-page",
     );
     expect(normalizeJourneyPath("/design/new-copy")).toBe("/design/:id");
+  });
+
+  it("preserves static share sub-routes while replacing their resource id", () => {
+    expect(normalizeJourneyPath("/share/meeting/m123?token=secret")).toBe(
+      "/share/meeting/:id",
+    );
+  });
+
+  it("preserves the static Visual Edit shell route", () => {
+    expect(normalizeJourneyPath("/visual-edit/shell")).toBe(
+      "/visual-edit/shell",
+    );
+    expect(normalizeJourneyPath("/visual-edit/design_1")).toBe(
+      "/visual-edit/:id",
+    );
   });
 
   it("keeps readable segments and the root", () => {

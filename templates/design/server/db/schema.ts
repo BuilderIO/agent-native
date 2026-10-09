@@ -7,6 +7,7 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
+import { sql } from "drizzle-orm";
 import { boolean, index, primaryKey } from "drizzle-orm/pg-core";
 
 export const designs = table("designs", {
@@ -325,5 +326,10 @@ export const designBoardReplayScreenshots = table(
     createdAt: text("created_at").default(now()),
     ...ownableColumns(),
   },
-  (t) => [index("design_board_replay_screenshots_design_idx").on(t.designId)],
+  (t) => [
+    index("design_board_replay_screenshots_design_idx").on(t.designId),
+    index("design_board_replay_screenshots_stage_expiry_idx")
+      .on(t.createdAt, t.id)
+      .where(sql`starts_with(${t.id}, 'jcu_')`),
+  ],
 );

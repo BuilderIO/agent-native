@@ -12,6 +12,7 @@ export { normalizeJourneyPath };
 export interface JourneyEventRow {
   id: string;
   sessionId: string;
+  journeyKind: "onboarding" | "standalone_setup";
   tsMs: number;
   eventName: string;
   path: string | null;
@@ -57,6 +58,13 @@ export const JOURNEY_COHORT_EVENT_NAMES: readonly string[] = [
   "onboarding_step_skipped",
   "onboarding_abandoned",
   "onboarding_method_clicked",
+];
+
+/** Home integration sessions get a separate tree when they never entered onboarding. */
+export const JOURNEY_INTEGRATION_EVENT_NAMES: readonly string[] = [
+  "integration_setup_exposed",
+  "integration_method_clicked",
+  "integration_method_outcome",
 ];
 
 /** Every event name that can become a step; the SQL selects exactly these. */

@@ -490,6 +490,13 @@ ALTER COLUMN client_revision TYPE BIGINT USING client_revision::BIGINT`,
     name: "design-board-replay-source-stage-id",
     sql: `ALTER TABLE design_board_replay_screenshots ADD COLUMN IF NOT EXISTS source_stage_id TEXT`,
   },
+  {
+    version: 40,
+    name: "design-board-replay-stage-expiry-index",
+    sql: `CREATE INDEX IF NOT EXISTS design_board_replay_screenshots_stage_expiry_idx
+      ON design_board_replay_screenshots (created_at, id)
+      WHERE starts_with(id, 'jcu_')`,
+  },
 ];
 
 export const designVisualEditPendingBigintRevisionMigration =
@@ -499,6 +506,9 @@ export const designLiveCollaborationOptInMigration = designMigrations.find(
 )!;
 export const designBoardReplayScreenshotsMigration = designMigrations.find(
   (migration) => migration.version === 38,
+)!;
+export const designBoardReplayStageExpiryIndexMigration = designMigrations.find(
+  (migration) => migration.version === 40,
 )!;
 export const runDesignMigrations = runMigrations(designMigrations, {
   table: "design_migrations",
