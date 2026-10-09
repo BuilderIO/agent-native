@@ -332,7 +332,7 @@ export function useSwitchOrg() {
     onSuccess: async () => {
       // The persisted-results scope follows the session's org; re-read it before
       // refetching, or this org's results are saved under the old one.
-      notifySessionInvalidated();
+      await notifySessionInvalidated();
       await qc.invalidateQueries();
     },
   });
