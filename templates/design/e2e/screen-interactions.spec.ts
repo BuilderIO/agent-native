@@ -463,6 +463,113 @@ test("editing a screen fill changes its body without changing child fills", asyn
   }
 });
 
+test("keeps hidden Code source reads quiet during canvas commits", async ({
+  page,
+  request,
+}) => {
+  const designId = await createDesign(request, "Hidden Code source reads");
+  try {
+    const fileId = await createScreen(request, designId, {
+      content: FILL_HTML,
+      metadata: { sourceType: "inline", width: 1280, height: 900 },
+      geometry: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
+    });
+    let sourceReads = 0;
+    page.on("request", (request) => {
+      const pathname = new URL(request.url()).pathname;
+      if (pathname.endsWith("/_agent-native/actions/read-source-file")) {
+        sourceReads += 1;
+      }
+    });
+    await gotoEditor(page, designId);
+    const codeWorkbench = page.getByTestId("design-code-workbench");
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (new URL(page.url()).searchParams.get("panel") !== "code") {
+        await page.getByRole("button", { name: "Code", exact: true }).click();
+      }
+      const loadError = page.getByTestId("design-code-workbench-load-error");
+      if (await loadError.isVisible().catch(() => false)) {
+        await page.getByRole("button", { name: "Retry code editor" }).click();
+      }
+      try {
+        await expect(codeWorkbench).toBeVisible({ timeout: 10_000 });
+        break;
+      } catch (error) {
+        if (attempt === 2) throw error;
+      }
+    }
+    await expect(codeWorkbench).toBeVisible();
+    await page.evaluate(async (id) => {
+      const workbench = (window as any).__designCodeWorkbench;
+      const providerKey = "inline:" + id;
+      if (!workbench) throw new Error("Code workbench handle is missing");
+      await workbench.api.openFile(providerKey, "screen.html", {
+        preview: false,
+      });
+    }, designId);
+    await expect.poll(() => sourceReads).toBeGreaterThan(0);
+    const sourceReadsBeforeEdits = sourceReads;
+
+    await page.getByRole("button", { name: "File", exact: true }).click();
+    await expect(page.getByTestId("design-code-workbench")).toBeHidden();
+    const iframeSelector =
+      '[data-screen-shell][data-frame-id="' +
+      fileId +
+      '"] iframe[data-screen-iframe-id="' +
+      fileId +
+      '"]';
+    const child = page
+      .frameLocator(iframeSelector)
+      .locator('[data-agent-native-node-id="child"]');
+    const childBounds = await child.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      };
+    });
+    const iframeBounds = await page.locator(iframeSelector).boundingBox();
+    if (!iframeBounds) throw new Error("Canvas screen is not visible");
+    await page.mouse.click(
+      iframeBounds.x +
+        ((childBounds.left + childBounds.width / 2) * iframeBounds.width) /
+          childBounds.viewportWidth,
+      iframeBounds.y +
+        ((childBounds.top + childBounds.height / 2) * iframeBounds.height) /
+          childBounds.viewportHeight,
+    );
+    await expect(
+      page.getByRole("tree", { name: "Layers" }).getByRole("treeitem", {
+        name: /Child/,
+      }),
+    ).toHaveAttribute("aria-selected", "true");
+
+    for (let index = 0; index < 20; index += 1) {
+      const writeResponse = page.waitForResponse((response) => {
+        const pathname = new URL(response.url()).pathname;
+        return (
+          pathname.endsWith("/_agent-native/actions/update-file") &&
+          response.request().method() === "POST"
+        );
+      });
+      await page.keyboard.press("ArrowRight");
+      expect((await writeResponse).ok()).toBe(true);
+    }
+    expect(sourceReads).toBe(sourceReadsBeforeEdits);
+
+    await page.getByRole("button", { name: "Code", exact: true }).click();
+    await expect
+      .poll(() => sourceReads)
+      .toBeGreaterThan(sourceReadsBeforeEdits);
+  } finally {
+    await action(request, "delete-design", { id: designId });
+  }
+});
+
 test("a screen's east-edge resize keeps its explicit height in the rendered card", async ({
   page,
   request,

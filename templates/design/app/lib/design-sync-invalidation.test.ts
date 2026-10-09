@@ -25,11 +25,11 @@ const DEPENDS_ON_CONTENT = [
   "get-motion-timeline",
   "index-design-tokens",
   "list-source-files",
-  "read-source-file",
   "list-design-components",
   "list-designs",
 ];
 const UNRELATED = [
+  "read-source-file",
   "get-lab-states",
   "get-feature-flags",
   "get-agentkit-capabilities",
