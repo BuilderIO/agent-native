@@ -1,4 +1,8 @@
-import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import {
+  appBasePath,
+  appPath,
+  WorkspaceAppMountResolutionError,
+} from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { docsUrl } from "@agent-native/core/shared";
 import {
@@ -52,7 +56,7 @@ interface PlatformVariant {
   icon: typeof IconBrandApple;
 }
 
-const LATEST_JSON_URL = `${appBasePath()}/api/clips-latest.json`;
+const LATEST_JSON_PATH = "/api/clips-latest.json";
 const MANIFEST_STORAGE_KEY = "clips-download-manifest-v1";
 const CHROME_EXTENSION_DOCS_URL = docsUrl("template-clips-capture-everywhere", {
   hash: "browser-logs-with-the-chrome-extension",
@@ -320,10 +324,20 @@ export default function DownloadPage() {
     const cachedManifest = readCachedManifest(channel);
     setManifest(cachedManifest);
     setManifestError(false);
-    const manifestUrl =
-      channel === "nightly"
-        ? `${LATEST_JSON_URL}?channel=nightly`
-        : LATEST_JSON_URL;
+    let manifestUrl: string;
+    try {
+      const latestJsonUrl = `${appBasePath()}${LATEST_JSON_PATH}`;
+      manifestUrl =
+        channel === "nightly"
+          ? `${latestJsonUrl}?channel=nightly`
+          : latestJsonUrl;
+    } catch (error) {
+      if (!(error instanceof WorkspaceAppMountResolutionError)) throw error;
+      if (!cachedManifest) setManifestError(true);
+      return () => {
+        cancelled = true;
+      };
+    }
     fetch(manifestUrl)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
       .then((json) => {

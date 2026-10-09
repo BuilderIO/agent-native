@@ -9,8 +9,17 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { appBasePathMock, WorkspaceAppMountResolutionError } = vi.hoisted(() => {
+  class WorkspaceAppMountResolutionError extends Error {}
+  const appBasePathMock = vi.fn((): string => {
+    throw new WorkspaceAppMountResolutionError("Workspace mount is unknown");
+  });
+  return { appBasePathMock, WorkspaceAppMountResolutionError };
+});
+
 vi.mock("@agent-native/core/client/api-path", () => ({
-  appBasePath: () => "",
+  appBasePath: appBasePathMock,
+  WorkspaceAppMountResolutionError,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -88,6 +97,7 @@ describe("DownloadPage", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    appBasePathMock.mockReturnValue("");
     window.localStorage.clear();
     Object.defineProperty(window.navigator, "userAgent", {
       configurable: true,
@@ -111,6 +121,7 @@ describe("DownloadPage", () => {
   });
 
   it("switches the title and direct installer links between stable and Nightly", async () => {
+    appBasePathMock.mockReturnValue("/docs");
     render(<DownloadPage />);
 
     await waitFor(() => {
@@ -156,7 +167,7 @@ describe("DownloadPage", () => {
       ).toBe(nightlyManifest.assets[0].url);
     });
     expect(fetchMock).toHaveBeenLastCalledWith(
-      "/api/desktop-latest.json?channel=nightly",
+      "/docs/api/desktop-latest.json?channel=nightly",
     );
 
     fireEvent.click(screen.getByRole("radio", { name: "Stable" }));
@@ -251,5 +262,17 @@ describe("DownloadPage", () => {
           .getAttribute("href"),
       ).toBe(productionManifest.assets[0].url);
     });
+  });
+
+  it("offers a retry when the workspace mount cannot be resolved", async () => {
+    appBasePathMock.mockImplementation(() => {
+      throw new WorkspaceAppMountResolutionError("Workspace mount is unknown");
+    });
+
+    render(<DownloadPage />);
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    expect((retry as HTMLButtonElement).disabled).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

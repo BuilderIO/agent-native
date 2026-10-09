@@ -1,4 +1,7 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import {
+  appBasePath,
+  WorkspaceAppMountResolutionError,
+} from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAppWindow,
@@ -31,7 +34,7 @@ export const meta = () =>
     },
   ]);
 
-const LATEST_JSON_URL = `${appBasePath()}/api/desktop-latest.json`;
+const LATEST_JSON_PATH = "/api/desktop-latest.json";
 const OPEN_DESKTOP_URL = "agentnative://open";
 const MANIFEST_STORAGE_KEY = "agent-native-desktop-download-manifest-v2";
 const CREATE_COMMAND = `npx @agent-native/core@latest create my-platform
@@ -324,10 +327,20 @@ export default function DownloadPage() {
     const cachedManifest = readCachedManifest(channel);
     setManifest(cachedManifest);
     setManifestError(false);
-    const manifestUrl =
-      channel === "nightly"
-        ? `${LATEST_JSON_URL}?channel=nightly`
-        : LATEST_JSON_URL;
+    let manifestUrl: string;
+    try {
+      const latestJsonUrl = `${appBasePath()}${LATEST_JSON_PATH}`;
+      manifestUrl =
+        channel === "nightly"
+          ? `${latestJsonUrl}?channel=nightly`
+          : latestJsonUrl;
+    } catch (error) {
+      if (!(error instanceof WorkspaceAppMountResolutionError)) throw error;
+      if (!cachedManifest) setManifestError(true);
+      return () => {
+        cancelled = true;
+      };
+    }
 
     fetch(manifestUrl)
       .then((response) =>
