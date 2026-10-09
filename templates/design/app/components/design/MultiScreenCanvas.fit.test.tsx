@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -85,8 +85,16 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       selectedScreenIds,
       paneSize,
       breakpointWidths,
+      breakpointHeights,
+      onZoomChange,
+      onScreenSelectionChange,
+      preserveCameraOnScreenCountChange,
     }: {
       breakpointWidths?: number[];
+      breakpointHeights?: Record<string, number>;
+      onZoomChange?: (zoom: number) => void;
+      onScreenSelectionChange?: (ids: string[]) => void;
+      preserveCameraOnScreenCountChange?: boolean;
       height?: number;
       zoom?: number;
       chromeInsetLeft?: number;
@@ -106,6 +114,7 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       width,
       height,
       ...(breakpointWidths ? { breakpointWidths } : {}),
+      ...(breakpointHeights ? { breakpointHeights } : {}),
     }));
     const geometryById = Object.fromEntries(
       widths.map((width, index) => [
@@ -127,8 +136,10 @@ describe("MultiScreenCanvas auto-fit framing", () => {
             initialFitScreenId,
             fillFocusedViewport,
             fitFocusedViewport,
+            onZoomChange,
+            preserveCameraOnScreenCountChange,
           }}
-          selection={{ selectedScreenIds }}
+          selection={{ selectedScreenIds, onScreenSelectionChange }}
         />,
       );
     });
@@ -437,6 +448,234 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       expect(frame.right).toBeLessThanOrEqual(WIDE_PANE.width);
       expect(frame.top).toBeGreaterThanOrEqual(0);
       expect(frame.top + frame.height).toBeLessThanOrEqual(WIDE_PANE.height);
+    });
+
+    describe("widget open fit", () => {
+      const PRIMARY_WIDTH = 1440;
+      const BREAKPOINT_WIDTH = 390;
+      const GROUP_WIDTH = PRIMARY_WIDTH + 24 + BREAKPOINT_WIDTH;
+      let observers: Map<Element, ResizeObserverCallback>;
+      let onZoomChange: ReturnType<typeof vi.fn<(next: number) => void>>;
+      let onScreenSelectionChange: ReturnType<
+        typeof vi.fn<(ids: string[], intent?: unknown) => void>
+      >;
+
+      beforeEach(() => {
+        pane = NARROW_PANE;
+        observers = new Map();
+        onZoomChange = vi.fn();
+        onScreenSelectionChange = vi.fn();
+        vi.stubGlobal(
+          "ResizeObserver",
+          class {
+            constructor(private readonly callback: ResizeObserverCallback) {}
+            observe(target: Element) {
+              observers.set(target, this.callback);
+            }
+            disconnect() {}
+          },
+        );
+      });
+
+      // The editor echoes the canvas's reported zoom back as the zoom prop and
+      // an explicit zoom turns on preserveCameraOnScreenCountChange.
+      function Editor({
+        breakpointHeights,
+      }: {
+        breakpointHeights: Record<string, number>;
+      }) {
+        const [zoom, setZoom] = useState(100);
+        const [explicitZoom, setExplicitZoom] = useState(false);
+        const screens = [
+          {
+            id: "screen-0",
+            filename: "screen-0.html",
+            content: "<!doctype html><html><body></body></html>",
+            width: PRIMARY_WIDTH,
+            height: 900,
+            breakpointWidths: [BREAKPOINT_WIDTH],
+            breakpointHeights,
+          },
+        ];
+        return (
+          <MultiScreenCanvas
+            screens={screens}
+            zoom={zoom}
+            creation={{ activeTool: "move" }}
+            geometry={{
+              geometryById: {
+                "screen-0": { x: 0, y: 0, width: PRIMARY_WIDTH, height: 900 },
+              },
+            }}
+            onPick={() => {}}
+            camera={{
+              initialFitScreenId: "screen-0",
+              fitFocusedViewport: true,
+              preserveCameraOnScreenCountChange: explicitZoom,
+              onZoomChange: (next) => {
+                onZoomChange(next);
+                setZoom(next);
+                setExplicitZoom(true);
+              },
+            }}
+            selection={{ onScreenSelectionChange }}
+          />
+        );
+      }
+
+      async function openWidget(options: {
+        breakpointHeights: Record<string, number>;
+        paneSize?: { width: number; height: number };
+      }) {
+        pane = options.paneSize ?? pane;
+        await act(async () => {
+          root.render(<Editor breakpointHeights={options.breakpointHeights} />);
+        });
+        return readView(container);
+      }
+
+      function expectGroupFitAndCentered(
+        view: ReturnType<typeof readView>,
+        groupHeight: number,
+        paneSize = pane,
+      ) {
+        const left = view.x + SURFACE_PADDING * view.scale;
+        const right = left + GROUP_WIDTH * view.scale;
+        const top = view.y + SURFACE_PADDING * view.scale;
+        const bottom = top + groupHeight * view.scale;
+        expect(left).toBeGreaterThanOrEqual(-0.5);
+        expect(right).toBeLessThanOrEqual(paneSize.width + 0.5);
+        expect(top).toBeGreaterThanOrEqual(-0.5);
+        expect(bottom).toBeLessThanOrEqual(paneSize.height + 0.5);
+        expect(left).toBeCloseTo(paneSize.width - right, 0);
+        expect(top).toBeCloseTo(paneSize.height - bottom, 0);
+      }
+
+      async function resizePane(next: { width: number; height: number }) {
+        const surface = container.querySelector<HTMLElement>(
+          "[data-multi-screen-canvas-surface]",
+        );
+        const callback = observers.get(surface!);
+        expect(callback).toBeDefined();
+        pane = next;
+        await act(async () => {
+          callback!(
+            [
+              {
+                target: surface!,
+                contentRect: {
+                  x: 0,
+                  y: 0,
+                  top: 0,
+                  left: 0,
+                  right: next.width,
+                  bottom: next.height,
+                  width: next.width,
+                  height: next.height,
+                  toJSON: () => ({}),
+                },
+                contentBoxSize: [
+                  { inlineSize: next.width, blockSize: next.height },
+                ],
+              } as unknown as ResizeObserverEntry,
+            ],
+            {} as ResizeObserver,
+          );
+        });
+        return readView(container);
+      }
+
+      async function wheel(trusted: boolean) {
+        const surface = container.querySelector<HTMLElement>(
+          "[data-multi-screen-canvas-surface]",
+        );
+        const event = new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          deltaY: 96,
+          deltaMode: 0,
+        });
+        Object.defineProperty(event, "isTrusted", { value: trusted });
+        await act(async () => {
+          surface!.dispatchEvent(event);
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve()),
+          );
+        });
+        return readView(container);
+      }
+
+      it("keeps the opened screen fit as the breakpoint frames are measured taller in several steps", async () => {
+        for (const measured of [1181, 1900, 3200]) {
+          const view = await openWidget({
+            breakpointHeights: { [String(BREAKPOINT_WIDTH)]: measured },
+          });
+          expectGroupFitAndCentered(view, Math.max(900, measured));
+        }
+        for (const [selected] of onScreenSelectionChange.mock.calls) {
+          expect(selected).toEqual([]);
+        }
+      });
+
+      it("refits when the host pane is resized after the first fit was echoed as an explicit zoom", async () => {
+        const open = await openWidget({
+          breakpointHeights: { [String(BREAKPOINT_WIDTH)]: 2200 },
+        });
+        expectGroupFitAndCentered(open, 2200);
+
+        const wide = await resizePane(WIDE_PANE);
+        expectGroupFitAndCentered(wide, 2200);
+        expect(wide.scale).toBeGreaterThan(open.scale);
+
+        const back = await resizePane(NARROW_PANE);
+        expectGroupFitAndCentered(back, 2200);
+        expect(back.scale).toBeCloseTo(open.scale, 6);
+        expect(back.x).toBeCloseTo(open.x, 4);
+        expect(back.y).toBeCloseTo(open.y, 4);
+      });
+
+      it("stops following the content once the viewer wheels the canvas", async () => {
+        await openWidget({
+          breakpointHeights: { [String(BREAKPOINT_WIDTH)]: 1181 },
+        });
+        const wheeled = await wheel(true);
+
+        const grown = await openWidget({
+          breakpointHeights: { [String(BREAKPOINT_WIDTH)]: 3200 },
+        });
+        expect(grown.scale).toBeCloseTo(wheeled.scale, 6);
+        expect(grown.x).toBeCloseTo(wheeled.x, 4);
+        expect(grown.y).toBeCloseTo(wheeled.y, 4);
+
+        const resized = await resizePane(WIDE_PANE);
+        expect(resized.scale).toBeCloseTo(wheeled.scale, 6);
+        expect(resized.x).toBeCloseTo(wheeled.x, 4);
+        expect(resized.y).toBeCloseTo(wheeled.y, 4);
+      });
+
+      it("ignores a script-dispatched wheel, which is not the viewer", async () => {
+        await openWidget({
+          breakpointHeights: { [String(BREAKPOINT_WIDTH)]: 1181 },
+        });
+        await wheel(false);
+
+        const grown = await openWidget({
+          breakpointHeights: { [String(BREAKPOINT_WIDTH)]: 3200 },
+        });
+        expectGroupFitAndCentered(grown, 3200);
+      });
+
+      it("settles instead of re-reporting zoom while nothing changes", async () => {
+        await openWidget({
+          breakpointHeights: { [String(BREAKPOINT_WIDTH)]: 2200 },
+        });
+        const reported = onZoomChange.mock.calls.length;
+        await openWidget({
+          breakpointHeights: { [String(BREAKPOINT_WIDTH)]: 2200 },
+        });
+        await resizePane(NARROW_PANE);
+        expect(onZoomChange.mock.calls.length).toBe(reported);
+      });
     });
   });
 
