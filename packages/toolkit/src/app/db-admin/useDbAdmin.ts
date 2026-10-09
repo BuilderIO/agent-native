@@ -16,9 +16,12 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
-export function dbAdminBasePath(): string {
+export function getDbAdminBasePath(): string {
   return agentNativePath("/_agent-native/db-admin");
 }
+
+/** @deprecated Call getDbAdminBasePath() to resolve the path at runtime. */
+export const dbAdminBasePath = getDbAdminBasePath;
 
 export interface DbAdminRequestConfig {
   basePath?: string;
@@ -26,7 +29,7 @@ export interface DbAdminRequestConfig {
 }
 
 function requestBasePath(config?: DbAdminRequestConfig): string {
-  return (config?.basePath ?? dbAdminBasePath()).replace(/\/+$/, "");
+  return (config?.basePath ?? getDbAdminBasePath()).replace(/\/+$/, "");
 }
 
 function requestScopeKey(config?: DbAdminRequestConfig): string {
