@@ -9,8 +9,8 @@ import {
 import type { ContextDetail } from "../types.js";
 import { FigmaContextConnector } from "./figma.js";
 
-describe("Figma native compiler visual fidelity", () => {
-  it("keeps the source render and clone-ready native code within the pixel-diff gate", async () => {
+describe("Figma connector generated HTML", () => {
+  it("renders converted fixture content as expected", async () => {
     const frame = {
       id: "frame-visual",
       name: "Visual parity fixture",

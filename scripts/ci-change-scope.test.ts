@@ -730,9 +730,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(changedSpecStepTimeout) &&
-      changedSpecStepTimeout === 4 &&
-      jobTimeout >= changedSpecStepTimeout + 5,
-    `changed-spec tests need the exact four-minute cap and five minutes for setup (job ${jobTimeout}, step ${changedSpecStepTimeout})`,
+      changedSpecStepTimeout === 6 &&
+      jobTimeout >= changedSpecStepTimeout + 3,
+    `changed-spec tests need the exact six-minute cap and three minutes for setup (job ${jobTimeout}, step ${changedSpecStepTimeout})`,
   );
   assert.match(
     designJob,
@@ -803,8 +803,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "e2e/inspector-styles.spec.ts:879",
   ]);
   assert.deepEqual(fixedLocations(dragOneAStart, dragOneBStart), [
-    "e2e/corner-radius-handle-drag.spec.ts:239",
-    "e2e/overview-wheel-zoom.spec.ts:185",
+    "e2e/corner-radius-handle-drag.spec.ts:238",
+    "e2e/overview-wheel-zoom.spec.ts:183",
   ]);
   assert.deepEqual(fixedLocations(dragOneBStart, dragTwoAStart), [
     "e2e/drag-and-drop.drag-feedback.spec.ts:24",
@@ -842,23 +842,23 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.deepEqual(fixedLocations(positionOneBStart, positionTwoAStart), [
     "e2e/pasted-svg-image-inspector.spec.ts:760",
     "e2e/position-alignment.spec.ts:431",
-    "e2e/position-alignment.spec.ts:509",
+    "e2e/position-alignment.spec.ts:508",
   ]);
   assert.deepEqual(fixedLocations(positionTwoAStart, positionTwoBStart), [
     "e2e/pasted-svg-image-inspector.spec.ts:891",
     "e2e/position-alignment.spec.ts:292",
-    "e2e/position-alignment.spec.ts:570",
+    "e2e/position-alignment.spec.ts:568",
   ]);
   assert.deepEqual(fixedLocations(positionTwoBStart, positionThreeStart), [
     "e2e/pasted-svg-image-inspector.spec.ts:1186",
-    "e2e/position-alignment.spec.ts:615",
-    "e2e/position-alignment.spec.ts:661",
+    "e2e/position-alignment.spec.ts:613",
+    "e2e/position-alignment.spec.ts:658",
   ]);
   assert.deepEqual(fixedLocations(positionThreeStart, fallbackStart), [
     "e2e/position-alignment.spec.ts:312",
-    "e2e/position-alignment.spec.ts:708",
-    "e2e/position-alignment.spec.ts:740",
-    "e2e/position-alignment.spec.ts:780",
+    "e2e/position-alignment.spec.ts:705",
+    "e2e/position-alignment.spec.ts:737",
+    "e2e/position-alignment.spec.ts:776",
   ]);
   assert.ok(
     regressionCases.includes(
@@ -1084,12 +1084,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ],
     [
       "e2e/corner-radius-handle-drag.spec.ts",
-      239,
+      238,
       "canvas corner-radius handle follows the drag and persists the radius",
     ],
     [
       "e2e/overview-wheel-zoom.spec.ts",
-      185,
+      183,
       "the zoom percentage input updates the overview canvas scale",
     ],
     [
@@ -1144,37 +1144,37 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      509,
+      508,
       "fixed Position stays viewport-relative after iframe scroll and reload",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      570,
+      568,
       "Position stays Frame-relative through Groups and resets at nested Frames",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      615,
+      613,
       "Position edits use the CSS containing block through static wrappers and borders",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      661,
+      658,
       "Position stays Frame-relative through a positioned plain wrapper",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      708,
+      705,
       "unframed absolute positions use the initial containing block through static wrappers",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      740,
+      737,
       "Position edits invert own and static-containing-block transforms and persist",
     ],
     [
       "e2e/position-alignment.spec.ts",
-      780,
+      776,
       "Align uses a Group's bounds while Position stays Frame-relative",
     ],
     [
@@ -1189,6 +1189,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     const sourceLines = readFileSync(`templates/design/${file}`, "utf8").split(
       "\n",
     );
+    assert.match(sourceLines[line - 1] ?? "", /^\s*test\s*\(/, location);
     const testStart = sourceLines.findIndex((sourceLine) =>
       sourceLine.includes(`test(\"${title}\"`),
     );

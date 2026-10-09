@@ -160,7 +160,7 @@ describe("FigmaLinkComposerBubble", () => {
 
     expect(sendToDesignAgentChat).toHaveBeenCalledWith({
       message:
-        "Import this Figma frame into the current Design and report any fidelity differences: https://www.figma.com/design/FileKey1/Checkout?node-id=1-2",
+        "Import this Figma frame into the current Design and identify any content the importer could not carry over: https://www.figma.com/design/FileKey1/Checkout?node-id=1-2",
       submit: false,
       openSidebar: false,
     });

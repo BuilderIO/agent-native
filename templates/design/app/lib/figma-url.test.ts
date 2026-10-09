@@ -44,7 +44,7 @@ describe("buildFigmaLinkChatPrompt", () => {
     )!;
     expect(buildFigmaLinkChatPrompt("import", link, "design-1")).toEqual({
       message:
-        "Import this Figma frame into the current Design and report any fidelity differences: https://www.figma.com/design/FileKey1/Name?node-id=1-2",
+        "Import this Figma frame into the current Design and identify any content the importer could not carry over: https://www.figma.com/design/FileKey1/Name?node-id=1-2",
     });
   });
 
@@ -57,13 +57,12 @@ describe("buildFigmaLinkChatPrompt", () => {
     );
   });
 
-  it("describes the honest SVG export fidelity boundary", () => {
+  it("describes what the SVG export turns into static content", () => {
     const link = extractFigmaLink(
       "https://www.figma.com/design/FileKey1/Name",
     )!;
     const prompt = buildFigmaLinkChatPrompt("export-svg", link).message;
-    expect(prompt).toContain("Figma-compatible SVG");
-    expect(prompt).toContain("auto-layout");
-    expect(prompt).toContain("will not stay live");
+    expect(prompt).toContain("SVG for use in Figma");
+    expect(prompt).toContain("static SVG content");
   });
 });

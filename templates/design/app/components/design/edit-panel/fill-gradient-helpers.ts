@@ -325,7 +325,7 @@ export function imageFillChangePatch(
  * opposite of what "+" is supposed to do, and it reintroduced the exact
  * phantom-second-fill problem `solidToGradientPatch` exists to avoid.
  */
-// guard:allow-raw-color — Figma's new-fill paint; hex because solid layers need a parseable colour.
+// guard:allow-raw-color — new solid layers need a parseable color value.
 const NEW_FILL_COLOR = "#d9d9d9";
 
 export function addFillLayerPatch(params: {

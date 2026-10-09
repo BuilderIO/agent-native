@@ -911,7 +911,7 @@ describe("spacing guide rhythm chaining", () => {
   });
 });
 
-describe("computeSpacingSnap (Figma smart spacing)", () => {
+describe("computeSpacingSnap", () => {
   const row = (...xs: number[]) =>
     xs.map((x, index) => ({
       id: `s${index}`,

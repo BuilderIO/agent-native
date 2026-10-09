@@ -55,8 +55,7 @@ const keyframeSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Easing of the SEGMENT leaving this keyframe toward the next one " +
-        "(Figma semantics: the easing INTO the following keyframe). " +
+      "Easing of the SEGMENT leaving this keyframe toward the next one. " +
         'Accepts CSS keywords ("linear", "ease-out", "step-start" — the ' +
         '"Hold" preset), "cubic-bezier(x1,y1,x2,y2)", "steps(n, pos)", ' +
         'CSS "linear(...)" stop lists, and spring physics as ' +

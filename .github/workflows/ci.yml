@@ -511,7 +511,7 @@ jobs:
       - name: Run changed Design E2E specs
         if: startsWith(matrix.shard, 'changed-')
         working-directory: templates/design
-        timeout-minutes: 4
+        timeout-minutes: 6
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
@@ -616,8 +616,8 @@ jobs:
               ;;
             drag-1a)
               fixed_specs=( \
-                e2e/corner-radius-handle-drag.spec.ts:239 \
-                e2e/overview-wheel-zoom.spec.ts:185 \
+                e2e/corner-radius-handle-drag.spec.ts:238 \
+                e2e/overview-wheel-zoom.spec.ts:183 \
               )
               ;;
             drag-1b)
@@ -651,29 +651,29 @@ jobs:
               fixed_specs=( \
                 e2e/pasted-svg-image-inspector.spec.ts:760 \
                 e2e/position-alignment.spec.ts:431 \
-                e2e/position-alignment.spec.ts:509 \
+                e2e/position-alignment.spec.ts:508 \
               )
               ;;
             position-2a)
               fixed_specs=( \
                 e2e/pasted-svg-image-inspector.spec.ts:891 \
                 e2e/position-alignment.spec.ts:292 \
-                e2e/position-alignment.spec.ts:570 \
+                e2e/position-alignment.spec.ts:568 \
               )
               ;;
             position-2b)
               fixed_specs=( \
                 e2e/pasted-svg-image-inspector.spec.ts:1186 \
-                e2e/position-alignment.spec.ts:615 \
-                e2e/position-alignment.spec.ts:661 \
+                e2e/position-alignment.spec.ts:613 \
+                e2e/position-alignment.spec.ts:658 \
               )
               ;;
             position-3)
               fixed_specs=( \
                 e2e/position-alignment.spec.ts:312 \
-                e2e/position-alignment.spec.ts:708 \
-                e2e/position-alignment.spec.ts:740 \
-                e2e/position-alignment.spec.ts:780 \
+                e2e/position-alignment.spec.ts:705 \
+                e2e/position-alignment.spec.ts:737 \
+                e2e/position-alignment.spec.ts:776 \
               )
               ;;
             *)

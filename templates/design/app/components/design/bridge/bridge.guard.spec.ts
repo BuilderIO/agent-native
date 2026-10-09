@@ -1460,7 +1460,7 @@ describe("generated bridge modules", () => {
 });
 
 it(
-  "embedded canvas gesture bridge preserves app input unless a Figma pan gesture is active",
+  "embedded canvas gesture bridge preserves app input unless pan navigation is active",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });

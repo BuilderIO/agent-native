@@ -43,8 +43,8 @@ const APP_GEOMETRY_CONTRACT = {
   layersHeaderHeight: 28,
   layerRowHeight: 32,
   layerActionSize: 20,
-  layerIconSize: 16,
-  layerRowIconSize: 12,
+  layerIconSize: 12,
+  layerRowIconSize: 16,
   layerChevronSize: 16,
   layerChevronGlyphSize: 12,
   layerIndentWidth: 24,
@@ -291,6 +291,12 @@ async function assertAutoLayoutGeometry(page: Page): Promise<void> {
   const fill = page.locator('[data-design-sizing-menu-item="Fill container"]');
   await expect(hug).toBeVisible();
   await expect(fill).toBeVisible();
+  await hug.evaluate(async (item) => {
+    const menu = item.closest<HTMLElement>('[role="menu"]');
+    await Promise.all(
+      menu?.getAnimations().map((animation) => animation.finished) ?? [],
+    );
+  });
   await expect
     .poll(async () => (await readGeometry(hug)).height, { timeout: 2_000 })
     .toBeGreaterThanOrEqual(APP_GEOMETRY_CONTRACT.sizingMenuItemMinHeight);
@@ -313,8 +319,12 @@ async function assertAutoLayoutGeometry(page: Page): Promise<void> {
   expect(
     Number.parseFloat(hugGeometry.styles["line-height"]),
   ).toBeLessThanOrEqual(20);
-  expect((await readGeometry(hug.locator("span").first())).width).toBe(16);
-  expect((await readGeometry(hug.locator("span").last())).width).toBe(14);
+  await expect
+    .poll(async () => (await readGeometry(hug.locator("span").first())).width)
+    .toBeCloseTo(16, 1);
+  await expect
+    .poll(async () => (await readGeometry(hug.locator("span").last())).width)
+    .toBeCloseTo(14, 1);
   await page.keyboard.press("Escape");
   await expect(hug).toBeHidden();
   await page.mouse.move(600, 300);

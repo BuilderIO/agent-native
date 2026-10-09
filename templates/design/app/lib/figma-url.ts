@@ -54,7 +54,7 @@ export function buildFigmaLinkChatPrompt(
     return {
       message:
         link.kind === "frame"
-          ? `Import this Figma frame into ${destination} and report any fidelity differences: ${link.url}`
+          ? `Import this Figma frame into ${destination} and identify any content the importer could not carry over: ${link.url}`
           : `Open this Figma file, list its top-level frames, and ask me which frame to import: ${link.url}`,
     };
   }
@@ -67,6 +67,6 @@ export function buildFigmaLinkChatPrompt(
 
   return {
     message:
-      "Export the current Design screen as Figma-compatible SVG and explain which text, auto-layout, component, variable, and prototype behavior will not stay live in Figma.",
+      "Export the current Design screen as SVG for use in Figma and identify which parts become static SVG content.",
   };
 }

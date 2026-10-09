@@ -888,7 +888,7 @@ describe("mapFigmaNodeToHtml - vector geometry", () => {
   });
 });
 
-describe("mapFigmaNodeToHtml - preserved Figma semantics", () => {
+describe("mapFigmaNodeToHtml - preserved source node semantics", () => {
   it("keeps bounded component, variable, and interaction metadata inert", () => {
     const root: FigmaNode = {
       id: "instance",

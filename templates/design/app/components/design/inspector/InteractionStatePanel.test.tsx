@@ -78,7 +78,7 @@ describe("InteractionStatePanel", () => {
     expect(markup).not.toContain("Editing");
   });
 
-  it("shows the plain Figma state name when Hover is active", () => {
+  it("shows the plain state name when Hover is active", () => {
     const markup = renderPanel({ activeState: "hover" });
     expect(markup).toContain(">Hover<");
     expect(markup).not.toContain(">Editing Hover state<");
@@ -254,7 +254,7 @@ describe("InteractionStatePanel menu interactions", () => {
     expect(items[0]?.querySelector('[aria-hidden="true"]')).not.toBeNull();
   });
 
-  it("keeps canonical Figma order when the caller narrows states out of order", async () => {
+  it("keeps canonical state order when the caller narrows states out of order", async () => {
     const { container } = await mountPanel({
       availableStates: ["disabled", "hover", "focus"],
     });
