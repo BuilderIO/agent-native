@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 type Predicate =
@@ -501,6 +502,15 @@ describe("update-design data concurrency", () => {
         connectionId: "owner-connection",
       },
     };
+    const claimSnapshot = {
+      filename: snapshot.filename,
+      fileType: snapshot.fileType,
+      contentHashes: screenRestoreContentHashes(
+        snapshot.content,
+        snapshot.fileType,
+      ),
+      screenMetadata: snapshot.screenMetadata,
+    };
     mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
     mocks.state.connections = [
       {
@@ -514,7 +524,7 @@ describe("update-design data concurrency", () => {
         id: "restore-claim-1",
         designId: "design-1",
         sourceFileId: "deleted-file-1",
-        snapshot: JSON.stringify(snapshot),
+        snapshot: JSON.stringify(claimSnapshot),
         consumedAt: null,
         restoredFileId: null,
       },
@@ -627,6 +637,82 @@ describe("update-design data concurrency", () => {
       errorCode: "screen_restore_claim_invalid",
       statusCode: 403,
     });
+  });
+
+  it("rejects a restored Screen whose content does not match its fingerprint", async () => {
+    const snapshot = {
+      filename: "restored.html",
+      fileType: "html",
+      content: "<html><body><main>Restored</main></body></html>",
+      screenMetadata: {
+        title: "Restored",
+        connectionId: "owner-connection",
+      },
+    };
+    mocks.assertAccess.mockResolvedValue({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "owner-connection",
+        ownerEmail: "design-owner@example.com",
+        orgId: null,
+      },
+    ];
+    mocks.state.restoreClaims = [
+      {
+        id: "restore-claim-1",
+        designId: "design-1",
+        sourceFileId: "deleted-file-1",
+        snapshot: JSON.stringify({
+          filename: snapshot.filename,
+          fileType: snapshot.fileType,
+          contentHashes: screenRestoreContentHashes(
+            snapshot.content,
+            snapshot.fileType,
+          ),
+          screenMetadata: snapshot.screenMetadata,
+        }),
+        consumedAt: null,
+        restoredFileId: null,
+      },
+    ];
+    mocks.state.designFiles = [
+      {
+        id: "restored-file-1",
+        designId: "design-1",
+        filename: snapshot.filename,
+        fileType: snapshot.fileType,
+        content: annotateScreenHtmlForPersist(
+          "<html><body><main>Changed</main></body></html>",
+          snapshot.fileType,
+        ),
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "restored-file-1"],
+            value: snapshot.screenMetadata,
+          },
+        ],
+        restoreClaims: [
+          {
+            claimId: "restore-claim-1",
+            sourceFileId: "deleted-file-1",
+            targetFileId: "restored-file-1",
+          },
+        ],
+        operationSource: "undo-session",
+        operationRevision: 1,
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "screen_restore_claim_invalid",
+      statusCode: 403,
+    });
+    expect(mocks.state.restoreClaims[0]?.consumedAt).toBeNull();
   });
 
   it("rejects one ambiguous legacy snapshot instead of silently losing a concurrent frame edit", async () => {

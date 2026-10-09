@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
+
 const mocks = vi.hoisted(() => {
   const fileSelectChain = {
     from: vi.fn(),
@@ -761,7 +763,7 @@ describe("delete-file", () => {
     });
   });
 
-  it("stores a server-owned restore claim for deleted connection metadata", async () => {
+  it("stores a content fingerprint for deleted connection metadata", async () => {
     mocks.designData.screenMetadata["file-b"] = {
       title: "Delete",
       connectionId: "screen-connection",
@@ -790,10 +792,11 @@ describe("delete-file", () => {
       designId: "design_123",
       sourceFileId: "file-b",
     });
-    expect(JSON.parse(claim.snapshot)).toEqual({
+    const storedSnapshot = JSON.parse(claim.snapshot);
+    expect(storedSnapshot).toEqual({
       filename: "b.html",
       fileType: "html",
-      content: "<main>Delete</main>",
+      contentHashes: screenRestoreContentHashes("<main>Delete</main>", "html"),
       screenMetadata: {
         title: "Delete",
         connectionId: "screen-connection",
@@ -803,6 +806,8 @@ describe("delete-file", () => {
         connectionId: "localhost-connection",
       },
     });
+    expect(storedSnapshot.content).toBeUndefined();
+    expect(claim.snapshot).not.toContain("<main>Delete</main>");
   });
 
   it("deletes a multi-screen selection with one durable checkpoint", async () => {

@@ -980,7 +980,6 @@ test("duplicates a URL-backed React component through undo and redo", async ({
   );
 });
 
-// oracle: none - verifies Design-owned persisted state and transport behavior.
 test("keeps a URL screen selected when its static snapshot fails", async ({
   page,
   request,
@@ -1030,7 +1029,6 @@ test("keeps a URL screen selected when its static snapshot fails", async ({
   ).toBeVisible({ timeout: 10_000 });
 });
 
-// oracle: none - verifies Design-owned persisted state and transport behavior.
 test("registers an inactive local Screen at its current bridge endpoint", async ({
   page,
   request,

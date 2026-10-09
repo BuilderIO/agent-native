@@ -7,11 +7,8 @@ import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
+import { screenRestoreContentHash } from "../server/lib/screen-restore-claims.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
-import {
-  annotateScreenHtmlForPersist,
-  normalizeScreenHtml,
-} from "../shared/screen-annotation.js";
 import { designConnectionIdsFromData } from "../shared/source-mode.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 
@@ -210,7 +207,7 @@ function connectionAssignmentKey(
 interface ScreenRestoreClaimSnapshot {
   filename: string;
   fileType: string;
-  content: string;
+  contentHashes: string[];
   screenMetadata?: Record<string, unknown>;
   localhostScreen?: Record<string, unknown>;
 }
@@ -224,7 +221,13 @@ function parseScreenRestoreClaimSnapshot(
       !isRecord(value) ||
       typeof value.filename !== "string" ||
       typeof value.fileType !== "string" ||
-      typeof value.content !== "string" ||
+      !Array.isArray(value.contentHashes) ||
+      value.contentHashes.length === 0 ||
+      value.contentHashes.some(
+        (contentHash) =>
+          typeof contentHash !== "string" ||
+          !/^[a-f0-9]{64}$/.test(contentHash),
+      ) ||
       (value.screenMetadata !== undefined && !isRecord(value.screenMetadata)) ||
       (value.localhostScreen !== undefined && !isRecord(value.localhostScreen))
     ) {
@@ -247,14 +250,8 @@ function restoredContentMatchesClaim(
   storedContent: string,
   snapshot: ScreenRestoreClaimSnapshot,
 ): boolean {
-  const sourceCandidates = [snapshot.content];
-  if (snapshot.fileType === "html") {
-    sourceCandidates.push(normalizeScreenHtml(snapshot.content).content);
-  }
-  return sourceCandidates.some(
-    (candidate) =>
-      annotateScreenHtmlForPersist(candidate, snapshot.fileType) ===
-      storedContent,
+  return snapshot.contentHashes.includes(
+    screenRestoreContentHash(storedContent),
   );
 }
 

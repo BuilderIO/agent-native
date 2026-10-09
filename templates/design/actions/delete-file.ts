@@ -19,6 +19,7 @@ import {
   snapshotDesignBeforeAgentEditInVersionLock,
   withDesignVersionLock,
 } from "../server/lib/design-versions.js";
+import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
 import {
   deleteVisualEditSnapshotBlobs,
   queueVisualEditSnapshotBlobCleanupInTransaction,
@@ -264,10 +265,12 @@ function hasConnectionId(value: unknown): boolean {
 
 function screenRestoreClaimSnapshot(
   snapshot: DeletedFileSnapshot,
-): Pick<
-  DeletedFileSnapshot,
-  "filename" | "fileType" | "content" | "screenMetadata" | "localhostScreen"
-> | null {
+):
+  | (Pick<
+      DeletedFileSnapshot,
+      "filename" | "fileType" | "screenMetadata" | "localhostScreen"
+    > & { contentHashes: string[] })
+  | null {
   if (
     !hasConnectionId(snapshot.screenMetadata) &&
     !hasConnectionId(snapshot.localhostScreen)
@@ -278,7 +281,10 @@ function screenRestoreClaimSnapshot(
   return {
     filename: snapshot.filename,
     fileType: snapshot.fileType,
-    content: snapshot.content,
+    contentHashes: screenRestoreContentHashes(
+      snapshot.content,
+      snapshot.fileType,
+    ),
     ...(snapshot.screenMetadata
       ? { screenMetadata: { ...snapshot.screenMetadata } }
       : {}),

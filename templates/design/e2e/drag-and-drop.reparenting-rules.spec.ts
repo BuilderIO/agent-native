@@ -34,7 +34,6 @@ async function persistedNodeParent(
 }
 
 test.describe("reparenting rules", () => {
-  // oracle: none - verifies Design's saved parent and position after dragging.
   test("dragging a flow child out places it directly above the exited frame in visible overlap and persists after reload", async ({
     page,
   }) => {
