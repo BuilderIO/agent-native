@@ -191,13 +191,20 @@ describe("sanitizePromptProvenanceCandidates", () => {
   });
 
   it("redacts provider-shaped API tokens without a key label", () => {
+    const githubTokenPlaceholder = [
+      "ghp",
+      "FAKE_EXAMPLE_TOKEN_VALUE_1234567890",
+    ].join("_");
+    const awsKeyPlaceholder = ["AKIA", "FAKEEXAMPLE00000"].join("");
+    const openAiTokenPlaceholder = [
+      "sk",
+      "proj",
+      "fake_example_token_value_1234567890",
+    ].join("-");
     const result = sanitizePromptProvenanceCandidates([
-      { role: "user", text: "ghp_FAKE_EXAMPLE_TOKEN_VALUE_1234567890" },
-      { role: "user", text: "AKIAFAKEEXAMPLE00000" },
-      {
-        role: "user",
-        text: "sk-proj-fake_example_token_value_1234567890",
-      },
+      { role: "user", text: githubTokenPlaceholder },
+      { role: "user", text: awsKeyPlaceholder },
+      { role: "user", text: openAiTokenPlaceholder },
       { role: "user", text: "The docs mention a github token prefix." },
     ]);
 
@@ -208,9 +215,9 @@ describe("sanitizePromptProvenanceCandidates", () => {
       "The docs mention a github token prefix.",
     ]);
     for (const value of [
-      "ghp_FAKE_EXAMPLE_TOKEN_VALUE_1234567890",
-      "AKIAFAKEEXAMPLE00000",
-      "sk-proj-fake_example_token_value_1234567890",
+      githubTokenPlaceholder,
+      awsKeyPlaceholder,
+      openAiTokenPlaceholder,
     ]) {
       expect(JSON.stringify(result)).not.toContain(value);
     }
