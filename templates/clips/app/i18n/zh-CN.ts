@@ -326,7 +326,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "代理可读的剪辑上下文",
     agentInstructions:
-      "先打开 agentContextUrl。使用 apis.transcript 阅读完整转录，并将 recommendedFrames[].url（或带 atMs 的 apis.frame.urlTemplate）作为图像获取。请原样保留 id 和 agent_access。发生错误时，检查 JSON 中的 failureKind、error 和 nextStep。如果 failureKind=access，请说明此链接无法授予访问权限；对于私有剪辑，请让所有者在 Clips 分享菜单中选择 {{shareWithAgents}} 并发送生成的链接。如果转录可用但 failureKind=media，请说明无法获取存储的媒体，换链接无法解决。如果 failureKind=processing，请遵循 nextStep；这不表示剪辑缺失或链接无效。如果 failureKind=expired 或 HTTP 410，请让所有者在分享菜单中延长或取消剪辑的过期时间并保存，然后选择 {{shareWithAgents}} 并发送新链接。",
+      "先打开 agentContextUrl。使用 apis.transcript 阅读完整转录，并将 recommendedFrames[].url（或带 atMs 的 apis.frame.urlTemplate）作为图像获取。请原样保留 id 和 agent_access。发生错误时，检查 JSON 中的 failureKind、error 和 nextStep。如果 failureKind=access，请说明此链接无法授予访问权限；对于私有剪辑，请让所有者在 Clips 分享菜单中选择 {{shareWithAgents}} 并发送生成的链接。如果转录可用但 failureKind=media，请说明无法获取存储的媒体，换链接无法解决。如果 failureKind=processing，请遵循 nextStep；这不表示剪辑缺失或链接无效。如果 failureKind=expired，请让所有者在分享菜单中延长或取消剪辑的过期时间并保存，然后选择 {{shareWithAgents}} 并发送新链接。",
     untitledClip: "无标题剪辑",
     incorrectPassword: "密码错误",
     passwordProtected: "该剪辑受密码保护",
@@ -570,7 +570,7 @@ const messages = {
     openInCodex: "在 Codex 中打开",
     copyAgentPrompt: "复制代理提示",
     agentPrompt:
-      "读取这个 Clips 代理上下文 URL：{{agentContextUrl}}。使用 apis.transcript 阅读完整转录，并将 recommendedFrames[].url（或带 atMs 的 apis.frame.urlTemplate）作为图像获取。请原样保留 id 和 agent_access。发生错误时，检查 JSON 中的 failureKind、error 和 nextStep。如果 failureKind=access，请说明此链接无法授予访问权限；对于私有剪辑，请让所有者在 Clips 分享菜单中选择 {{shareWithAgents}} 并发送生成的链接。如果转录可用但 failureKind=media，请说明无法获取存储的媒体，换链接无法解决。如果 failureKind=processing，请遵循 nextStep；这不表示剪辑缺失或链接无效。如果 failureKind=expired 或 HTTP 410，请让所有者在分享菜单中延长或取消剪辑的过期时间并保存，然后选择 {{shareWithAgents}} 并发送新链接。报告问题时也请使用可用的 browserDiagnostics。",
+      "读取这个 Clips 代理上下文 URL：{{agentContextUrl}}。使用 apis.transcript 阅读完整转录，并将 recommendedFrames[].url（或带 atMs 的 apis.frame.urlTemplate）作为图像获取。请原样保留 id 和 agent_access。发生错误时，检查 JSON 中的 failureKind、error 和 nextStep。如果 failureKind=access，请说明此链接无法授予访问权限；对于私有剪辑，请让所有者在 Clips 分享菜单中选择 {{shareWithAgents}} 并发送生成的链接。如果转录可用但 failureKind=media，请说明无法获取存储的媒体，换链接无法解决。如果 failureKind=processing，请遵循 nextStep；这不表示剪辑缺失或链接无效。如果 failureKind=expired，请让所有者在分享菜单中延长或取消剪辑的过期时间并保存，然后选择 {{shareWithAgents}} 并发送新链接。报告问题时也请使用可用的 browserDiagnostics。",
     agentTokenDescription:
       "此剪辑未公开，因此提供供代理使用的临时只读链接。2 小时后过期。",
     agentPublicDescription: "供代理使用的只读链接。剪辑保持公开期间有效。",
