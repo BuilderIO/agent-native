@@ -2295,7 +2295,7 @@ const FEEDBACK_REPLY_DETAIL_OMISSION =
 const FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION =
   "\\b(?:don['’]t|do not|shouldn['’]t|should not)\\s+(?:make|keep|write|use)\\s+(?:them|it|replies?|responses?)\\b[^.!?;]{0,40}\\bless\\s+(?:technical|detail)\\b";
 // Negated requests and praise are not corrections about excessive detail.
-const FEEDBACK_REPLY_DETAIL_NEGATION = [
+const FEEDBACK_REPLY_DETAIL_NON_CORRECTION = [
   "\\b" +
     FEEDBACK_REPLY_CONTEXT +
     "\\b[^.!?;]{0,100}\\b(?:(?:is|are|seem|seems|look|looks|sound|sounds)\\s+)?(?:not|no\\s+longer|isn't|aren't|wasn't|weren't)\\s+(?:too\\s+)?(?:technical|detailed?|too\\s+much\\s+(?:(?:technical|implementation|internal|deployment)\\s+)?detail)\\b",
@@ -2313,7 +2313,7 @@ const FEEDBACK_REPLY_DETAIL_NEGATION = [
 ].join("|");
 const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
   "(?:^|[.!?;]|,(?!\\s*(?:or|nor)\\b)|\\bbut\\b)\\s*(?![^.!?;,]*(?:" +
-    FEEDBACK_REPLY_DETAIL_NEGATION +
+    FEEDBACK_REPLY_DETAIL_NON_CORRECTION +
     "))[^.!?;,]*?(?:" +
     [
       "\\b" +
@@ -2367,11 +2367,47 @@ const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
         FEEDBACK_REPLY_DETAIL_TARGET +
         "\\b[^.!?;]{0,120}\\b(?:in|from|for|when)\\b[^.!?;]{0,30}\\b(?:you\\s+)?" +
         FEEDBACK_REPLY_CONTEXT +
-        "\\b",
+        "\\b(?![^.!?;]{0,100}\\b(?:which\\s+is\\s+)?(?:exactly|just)\\s+what\\s+(?:we|i)\\s+(?:want|need)\\b)",
     ].join("|") +
     ")",
   "i",
 );
+const FEEDBACK_REPLY_DETAIL_WINDOW_SIZE = 512;
+const FEEDBACK_REPLY_DETAIL_WINDOW_STEP = 128;
+const FEEDBACK_REPLY_DETAIL_CONTEXT_RE = new RegExp(
+  "\\b" + FEEDBACK_REPLY_CONTEXT + "\\b",
+  "i",
+);
+const FEEDBACK_REPLY_DETAIL_CANDIDATE_RE =
+  /\b(?:too|overly|excessively|less|should(?:n['’]t|\s+not)?|do\s+not|don['’]t|avoid|skip|omit|remove|leave\s+out|stop|no|without|free\s+of|concise|brief|plain\s+(?:english|language)|high[- ]level)\b/i;
+
+function hasFeedbackReplyDetailCorrection(message) {
+  const input = textForPattern(message, true);
+
+  // Bound each regex scan so long messages cannot trigger repeated backtracking.
+  for (
+    let start = 0;
+    start < input.length;
+    start += FEEDBACK_REPLY_DETAIL_WINDOW_STEP
+  ) {
+    const window = input.slice(
+      start,
+      start + FEEDBACK_REPLY_DETAIL_WINDOW_SIZE,
+    );
+    if (
+      !FEEDBACK_REPLY_DETAIL_CONTEXT_RE.test(window) ||
+      !FEEDBACK_REPLY_DETAIL_CANDIDATE_RE.test(window)
+    ) {
+      continue;
+    }
+
+    if (FEEDBACK_REPLY_DETAIL_RE.test(window)) {
+      return true;
+    }
+  }
+
+  return false;
+}
 const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "When you reply, don't include all those technical details."],
   [true, "Too much technical detail in replies."],
@@ -2409,6 +2445,10 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [false, "I like the high-level replies."],
   [false, "I like concise and plain-English replies."],
   [false, "Replies are no longer too technical."],
+  [
+    false,
+    "There are no technical details in replies, which is exactly what we want.",
+  ],
   [false, "Nice work. Keep the replies high-level like this one."],
   [false, "Replies are too technical, but don't make them less technical."],
   [false, "Do not make replies, or responses, less technical."],
@@ -2455,10 +2495,23 @@ if (process.argv.includes("--self-test")) {
   failures.push(
     ...FEEDBACK_REPLY_DETAIL_REGEX_CASES.filter(
       ([expected, message]) =>
-        FEEDBACK_REPLY_DETAIL_RE.test(textForPattern(message, true)) !==
-        expected,
+        hasFeedbackReplyDetailCorrection(message) !== expected,
     ),
   );
+  const stressMessage = "reply and but ".repeat(7_000);
+  const stressCorrection = `${stressMessage}reply too technical`;
+  const stressStart = process.hrtime.bigint();
+  const stressMatched = hasFeedbackReplyDetailCorrection(stressMessage);
+  const stressCorrectionMatched =
+    hasFeedbackReplyDetailCorrection(stressCorrection);
+  const stressDurationMs =
+    Number(process.hrtime.bigint() - stressStart) / 1_000_000;
+  if (!stressCorrectionMatched || stressMatched || stressDurationMs > 2_000) {
+    failures.push([
+      false,
+      `Long feedback message took ${stressDurationMs.toFixed(1)} ms or matched unexpectedly`,
+    ]);
+  }
   failures.push(
     ...AUTH_PAGE_BACKGROUND_REGRESSION_CASES.filter(
       ([expected, message]) =>
@@ -2608,7 +2661,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
