@@ -9,6 +9,7 @@ import {
   buildAutomationTriggerPrompt,
   buildTriggerContent,
   dispatchAutomationWebhookTask,
+  hasEventAutomation,
   initTriggerDispatcher,
   parseTriggerFrontmatter,
   refreshEventSubscriptions,
@@ -19,6 +20,10 @@ import {
 } from "./event-queue.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
+const resourceFingerprintAllOwnersMock = vi.hoisted(() => vi.fn());
+// The fingerprint of the rows a scan read; the default matches the default
+// fingerprint read, i.e. jobs/ unchanged since the scan.
+const scanFingerprintMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
@@ -33,8 +38,7 @@ const getThreadMock = vi.hoisted(() =>
   })),
 );
 const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
-const subscribeMock = vi.hoisted(() => vi.fn());
-const unsubscribeMock = vi.hoisted(() => vi.fn());
+const subscribeAllMock = vi.hoisted(() => vi.fn());
 const emitMock = vi.hoisted(() => vi.fn());
 const registerEventMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
@@ -294,6 +298,11 @@ vi.mock("../resources/store.js", () => ({
       ? owner.slice("__organization__:".length)
       : null,
   resourceListAllOwners: resourceListAllOwnersMock,
+  resourceFingerprintAllOwners: resourceFingerprintAllOwnersMock,
+  resourceListAllOwnersWithFingerprint: async (prefix: string) => {
+    const resources = await resourceListAllOwnersMock(prefix);
+    return { resources, fingerprint: await scanFingerprintMock() };
+  },
   resourceGetByPath: resourceGetByPathMock,
   resourcePut: resourcePutMock,
   resourcePutIfCurrent: resourcePutIfCurrentMock,
@@ -302,8 +311,8 @@ vi.mock("../resources/store.js", () => ({
 vi.mock("../event-bus/index.js", () => ({
   emit: emitMock,
   registerEvent: registerEventMock,
-  subscribe: subscribeMock,
-  unsubscribe: unsubscribeMock,
+  subscribeAll: subscribeAllMock,
+  unsubscribe: vi.fn(),
 }));
 vi.mock("../server/interval-job.js", () => ({
   startIntervalJob: vi.fn(() => ({ stop: vi.fn() })),
@@ -428,6 +437,14 @@ vi.mock(import("../db/client.js"), async (importOriginal) => {
   };
 });
 
+/** The dispatcher's one bus listener, bound to a single event name. */
+function busEventHandler(eventName: string) {
+  const handler = subscribeAllMock.mock.calls.at(-1)?.[0];
+  expect(handler).toBeTypeOf("function");
+  return (payload: unknown, meta: Record<string, unknown>) =>
+    handler(eventName, payload, meta);
+}
+
 describe("trigger dispatcher", () => {
   it("reports when durable event subscriptions cannot be refreshed", async () => {
     resourceListAllOwnersMock.mockRejectedValueOnce(
@@ -476,15 +493,553 @@ Respond to the concurrent event.`,
       },
     ]);
     firstSnapshot.resolve([]);
-    await Promise.all([first, second]);
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
 
-    expect(subscribeMock).toHaveBeenCalledWith(
-      "test.concurrent.refresh",
-      expect.any(Function),
+    await expect(hasEventAutomation("test.concurrent.refresh")).resolves.toBe(
+      true,
     );
-    expect(unsubscribeMock).not.toHaveBeenCalledWith(
-      "sub-test.concurrent.refresh",
+    expect(listCall).toBe(2);
+  });
+
+  it("does no database work when the dispatcher initializes", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    expect(resourceListAllOwnersMock).not.toHaveBeenCalled();
+    expect(triggerQueueMocks.ensure).not.toHaveBeenCalled();
+    expect(subscribeAllMock).toHaveBeenCalledOnce();
+  });
+
+  it("retries a failed automation load on the next event instead of dropping event automations", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const meta = (eventId: string) => ({
+      owner: "alice+triggers@agent-native.test",
+      eventId,
+      emittedAt: new Date().toISOString(),
+    });
+    const timeout = new Error(
+      "DB query timed out after 15000ms (connection terminated)",
     );
+    resourceListAllOwnersMock.mockRejectedValueOnce(timeout);
+
+    await expect(
+      busEventHandler("test.event.fired")({}, meta("event-during-outage")),
+    ).rejects.toBe(timeout);
+    // The lookup adds no read of its own, so it adds no new way to lose the event.
+    expect(resourceListAllOwnersMock).toHaveBeenCalledOnce();
+    expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
+    await expect(hasEventAutomation("test.event.fired")).resolves.toBe(true);
+
+    await busEventHandler("test.event.fired")({}, meta("event-after-outage"));
+
+    expect(triggerQueueMocks.enqueue).toHaveBeenCalledOnce();
+    expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        triggerId: "resource-1",
+        eventId: "event-after-outage",
+      }),
+    );
+    error.mockRestore();
+  });
+
+  it("rejects instead of reporting no automations when they cannot be read", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    resourceListAllOwnersMock.mockRejectedValueOnce(
+      new Error("permission denied for table resources"),
+    );
+
+    await expect(hasEventAutomation("test.event.fired")).rejects.toThrow(
+      "permission denied for table resources",
+    );
+    await expect(hasEventAutomation("test.event.fired")).resolves.toBe(true);
+  });
+
+  it("forgets loaded automations when a later refresh fails", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    await expect(hasEventAutomation("test.event.fired")).resolves.toBe(true);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    resourceListAllOwnersMock.mockRejectedValueOnce(
+      new Error("resource store unavailable"),
+    );
+
+    await expect(refreshEventSubscriptions()).resolves.toBe(false);
+    resourceListAllOwnersMock.mockResolvedValueOnce([]);
+    await expect(hasEventAutomation("test.event.fired")).resolves.toBe(false);
+    error.mockRestore();
+  });
+
+  it("skips the jobs read for events nobody listens for once automations are loaded", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const meta = {
+      owner: "alice+triggers@agent-native.test",
+      eventId: "unwatched-event",
+      emittedAt: new Date().toISOString(),
+    };
+
+    await busEventHandler("unwatched.event")({}, meta);
+    await busEventHandler("other.unwatched.event")({}, meta);
+
+    expect(resourceListAllOwnersMock).toHaveBeenCalledOnce();
+    expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("does not dispatch an event from a scan that began before it arrived", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const meta = (eventId: string) => ({
+      owner: "alice+triggers@agent-native.test",
+      eventId,
+      emittedAt: new Date().toISOString(),
+    });
+    let resolveEarlyScan!: (value: unknown[]) => void;
+    resourceListAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveEarlyScan = resolve;
+        }),
+    );
+    const earlyEvent = busEventHandler("unrelated.event")({}, meta("early"));
+    await vi.waitFor(() =>
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce(),
+    );
+
+    // Another instance creates the automation while that scan is running;
+    // the scan has already read jobs/ without it.
+    const lateEvent = busEventHandler("test.event.fired")({}, meta("late"));
+    resolveEarlyScan([]);
+    await Promise.all([earlyEvent, lateEvent]);
+
+    expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
+    expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: "late" }),
+    );
+  });
+
+  it("shares one jobs read across a burst of events on a cold cache", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const meta = (eventId: string) => ({
+      owner: "alice+triggers@agent-native.test",
+      eventId,
+      emittedAt: new Date().toISOString(),
+    });
+
+    await Promise.all(
+      ["burst-1", "burst-2", "burst-3"].map((eventId) =>
+        busEventHandler("test.event.fired")({}, meta(eventId)),
+      ),
+    );
+
+    expect(resourceListAllOwnersMock).toHaveBeenCalledOnce();
+    expect(triggerQueueMocks.enqueue).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not let a scan from before a refresh overwrite the refreshed snapshot", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    let resolveStale!: (value: unknown[]) => void;
+    resourceListAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStale = resolve;
+        }),
+    );
+    const staleEvent = busEventHandler("test.event.fired")(
+      {},
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "stale-scan-event",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+    await vi.waitFor(() =>
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce(),
+    );
+
+    await expect(refreshEventSubscriptions()).resolves.toBe(true);
+    resolveStale([]);
+    await staleEvent;
+
+    await busEventHandler("test.event.fired")(
+      {},
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "after-refresh-event",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+    expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: "after-refresh-event" }),
+    );
+  });
+
+  it("re-reads before dispatching when a refresh invalidates the event's scan mid-flight", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    let resolveStale!: (value: unknown[]) => void;
+    resourceListAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStale = resolve;
+        }),
+    );
+    const dispatch = busEventHandler("test.event.fired")(
+      {},
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-during-refresh",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+    await vi.waitFor(() =>
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce(),
+    );
+
+    // The automation is defined while the event's scan is still pending.
+    await expect(refreshEventSubscriptions()).resolves.toBe(true);
+    resolveStale([]);
+    await dispatch;
+
+    expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: "event-during-refresh" }),
+    );
+  });
+
+  it("re-reads instead of answering from a scan a refresh invalidated mid-flight", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    let resolveStale!: (value: unknown[]) => void;
+    resourceListAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStale = resolve;
+        }),
+    );
+    const answer = hasEventAutomation("test.event.fired");
+    await vi.waitFor(() =>
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce(),
+    );
+
+    await expect(refreshEventSubscriptions()).resolves.toBe(true);
+    resolveStale([]);
+
+    await expect(answer).resolves.toBe(true);
+  });
+
+  it("re-reads before reporting no automation so a stale cached negative is never trusted", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    resourceListAllOwnersMock.mockResolvedValueOnce([]);
+    resourceFingerprintAllOwnersMock.mockResolvedValueOnce("before-define");
+    scanFingerprintMock.mockResolvedValueOnce("before-define");
+    await expect(hasEventAutomation("test.event.fired")).resolves.toBe(false);
+
+    // Another instance defines the automation; this one's cache is still fresh.
+    await expect(hasEventAutomation("test.event.fired")).resolves.toBe(true);
+    await expect(hasEventAutomation("test.event.fired")).resolves.toBe(true);
+    expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("picks up an automation another instance created once the fingerprint check is due", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    vi.useFakeTimers();
+    try {
+      await initTriggerDispatcher({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+      const meta = (eventId: string) => ({
+        owner: "alice+triggers@agent-native.test",
+        eventId,
+        emittedAt: new Date().toISOString(),
+      });
+      resourceListAllOwnersMock.mockResolvedValueOnce([]);
+      await busEventHandler("test.event.fired")({}, meta("before-define"));
+
+      // Another instance defines the automation.
+      resourceFingerprintAllOwnersMock.mockResolvedValue("after-define");
+      await vi.advanceTimersByTimeAsync(4_000);
+      await busEventHandler("test.event.fired")({}, meta("within-interval"));
+      expect(resourceFingerprintAllOwnersMock).not.toHaveBeenCalled();
+      expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await busEventHandler("test.event.fired")({}, meta("after-check"));
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledOnce();
+      // The check does not scan on a changed fingerprint; the event's own
+      // scan is the only full read after the first.
+      expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
+      expect(triggerQueueMocks.enqueue).toHaveBeenCalledOnce();
+      expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: "after-check" }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps skipping unwatched events without a full read while the fingerprint is unchanged", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    vi.useFakeTimers();
+    try {
+      await initTriggerDispatcher({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+      await expect(hasEventAutomation("unwatched.event")).resolves.toBe(false);
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce();
+
+      // Past the 60s list lifetime: each matching check renews it.
+      for (let check = 0; check < 14; check += 1) {
+        await vi.advanceTimersByTimeAsync(5_000);
+        await Promise.all(
+          ["burst-a", "burst-b"].map((eventId) =>
+            busEventHandler("unwatched.event")(
+              {},
+              {
+                owner: "alice+triggers@agent-native.test",
+                eventId,
+                emittedAt: new Date().toISOString(),
+              },
+            ),
+          ),
+        );
+      }
+
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce();
+      // One read by hasEventAutomation, then one shared read per interval.
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledTimes(15);
+      expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls back to the full read when the fingerprint check fails, and backs off retrying it", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await initTriggerDispatcher({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+      const meta = (eventId: string) => ({
+        owner: "alice+triggers@agent-native.test",
+        eventId,
+        emittedAt: new Date().toISOString(),
+      });
+      resourceListAllOwnersMock.mockResolvedValueOnce([]);
+      await busEventHandler("test.event.fired")({}, meta("before-define"));
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      resourceFingerprintAllOwnersMock.mockRejectedValueOnce(
+        new Error("DB query timed out after 15000ms"),
+      );
+      await busEventHandler("test.event.fired")({}, meta("check-failed"));
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("Could not check cached event automations"),
+        expect.any(Error),
+      );
+      expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
+      expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: "check-failed" }),
+      );
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledWith("jobs/", {
+        timeoutMs: 2_000,
+      });
+
+      // Until the retry time, events skip the check and take the full read.
+      await busEventHandler("test.event.fired")({}, meta("during-backoff"));
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledOnce();
+      expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(3);
+      expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: "during-backoff" }),
+      );
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await busEventHandler("test.event.fired")({}, meta("after-backoff"));
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not trust a fingerprint for names read from a different state, even if an undo restores it", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    vi.useFakeTimers();
+    try {
+      await initTriggerDispatcher({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+      const meta = (eventId: string) => ({
+        owner: "alice+triggers@agent-native.test",
+        eventId,
+        emittedAt: new Date().toISOString(),
+      });
+      resourceFingerprintAllOwnersMock.mockResolvedValue("enabled-state");
+      scanFingerprintMock.mockResolvedValue("enabled-state");
+      await expect(hasEventAutomation("test.event.fired")).resolves.toBe(true);
+
+      // The automation is disabled; this event's own scan sees that.
+      resourceListAllOwnersMock.mockResolvedValueOnce([]);
+      scanFingerprintMock.mockResolvedValueOnce("disabled-state");
+      await busEventHandler("test.event.fired")({}, meta("while-disabled"));
+      expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
+
+      // An undo restores the exact earlier rows, so the fingerprint matches
+      // the one verified for the enabled names.
+      await vi.advanceTimersByTimeAsync(5_000);
+      await busEventHandler("test.event.fired")({}, meta("after-undo"));
+
+      expect(triggerQueueMocks.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: "after-undo" }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("pairs a scan with the rows it read even when jobs/ changes and is undone around it", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    // Every fingerprint read sees the enabled rows: the automation is disabled
+    // only while the scan reads jobs/, and an undo restores the exact rows.
+    resourceFingerprintAllOwnersMock.mockResolvedValue("enabled-state");
+    let scannedState = "enabled-state";
+    scanFingerprintMock.mockImplementation(async () => scannedState);
+    resourceListAllOwnersMock.mockImplementationOnce(async () => {
+      scannedState = "disabled-state";
+      return [];
+    });
+    await expect(hasEventAutomation("test.event.fired")).resolves.toBe(false);
+
+    await expect(hasEventAutomation("test.event.fired")).resolves.toBe(true);
+  });
+
+  it("does not reuse a scan that began while the fingerprint read was running", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    let resolveFingerprint!: (value: string) => void;
+    resourceFingerprintAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFingerprint = resolve;
+        }),
+    );
+    const answer = hasEventAutomation("test.event.fired");
+    await vi.waitFor(() =>
+      expect(resourceFingerprintAllOwnersMock).toHaveBeenCalledOnce(),
+    );
+
+    let resolveConcurrentScan!: (value: unknown[]) => void;
+    resourceListAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveConcurrentScan = resolve;
+        }),
+    );
+    // This scan reads jobs/ before the automation is written; the fingerprint
+    // read that is still running sees the write.
+    const concurrentEvent = busEventHandler("unrelated.event")(
+      {},
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "concurrent-event",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+    await vi.waitFor(() =>
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce(),
+    );
+    resolveFingerprint("after-define");
+    resolveConcurrentScan([]);
+    await concurrentEvent;
+
+    await expect(answer).resolves.toBe(true);
+    expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts a new full read after a changed fingerprint instead of reusing one that began earlier", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    let resolveEarlyScan!: (value: unknown[]) => void;
+    resourceListAllOwnersMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveEarlyScan = resolve;
+        }),
+    );
+    // A cold-cache event starts a scan before the automation exists.
+    const earlyEvent = busEventHandler("test.event.fired")(
+      {},
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "early-event",
+        emittedAt: new Date().toISOString(),
+      },
+    );
+    await vi.waitFor(() =>
+      expect(resourceListAllOwnersMock).toHaveBeenCalledOnce(),
+    );
+
+    const answer = hasEventAutomation("test.event.fired");
+    await Promise.resolve();
+    resolveEarlyScan([]);
+    await earlyEvent;
+
+    await expect(answer).resolves.toBe(true);
+    expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
   });
 
   it("rejects delegated policy ids that could inject trigger frontmatter", () => {
@@ -507,6 +1062,8 @@ Respond to the concurrent event.`,
     vi.clearAllMocks();
     isProductionServerlessRuntimeMock.mockReturnValue(false);
     triggerQueueMocks.reset();
+    resourceFingerprintAllOwnersMock.mockResolvedValue("fingerprint-unchanged");
+    scanFingerprintMock.mockResolvedValue("fingerprint-unchanged");
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
     resourceListAllOwnersMock.mockResolvedValue([
@@ -531,7 +1088,7 @@ Respond to the event.`,
         const latestListCall = resourceListAllOwnersMock.mock.results.at(-1);
         const resources = latestListCall?.value
           ? await latestListCall.value
-          : [];
+          : await resourceListAllOwnersMock("jobs/");
         return resources.find(
           (resource: { owner: string; path: string }) =>
             resource.owner === owner && resource.path === path,
@@ -546,7 +1103,7 @@ Respond to the event.`,
       },
     );
     createThreadMock.mockResolvedValue({ id: "thread-1" });
-    subscribeMock.mockImplementation((eventName: string) => `sub-${eventName}`);
+    subscribeAllMock.mockImplementation(() => "sub-any-event");
     runAgentLoopMock.mockResolvedValue({
       inputTokens: 200,
       outputTokens: 50,
@@ -631,9 +1188,7 @@ Respond to the event.`,
         getActions: () => ({}),
         getSystemPrompt: async () => "system",
       });
-      const handler = subscribeMock.mock.calls.find(
-        ([eventName]) => eventName === "test.event.fired",
-      )?.[1];
+      const handler = busEventHandler("test.event.fired");
       expect(handler).toBeTypeOf("function");
 
       await handler(
@@ -768,9 +1323,7 @@ Respond to the event.`,
     )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
     expect(sweep).toBeTypeOf("function");
 
-    const eventHandler = subscribeMock.mock.calls.find(
-      ([name]) => name === eventName,
-    )?.[1];
+    const eventHandler = busEventHandler(eventName);
     expect(eventHandler).toBeTypeOf("function");
     for (let index = 0; index < 6; index += 1) {
       await eventHandler(
@@ -868,9 +1421,7 @@ Respond to the event.`,
       getSystemPrompt: async () => "system",
     });
 
-    const eventHandler = subscribeMock.mock.calls.find(
-      ([name]) => name === eventName,
-    )?.[1];
+    const eventHandler = busEventHandler(eventName);
     const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
       ([id]) => id === "automation-trigger-queue",
     )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
@@ -985,9 +1536,7 @@ Respond to the event.`,
       getSystemPrompt: async () => "system",
     });
 
-    const eventHandler = subscribeMock.mock.calls.find(
-      ([name]) => name === eventName,
-    )?.[1];
+    const eventHandler = busEventHandler(eventName);
     for (const eventId of ["first-event", "second-event"]) {
       await eventHandler?.(
         { messageId: eventId },
@@ -1114,9 +1663,7 @@ Respond to the event.`,
       getSystemPrompt: async () => "system",
     });
 
-    const eventHandler = subscribeMock.mock.calls.find(
-      ([name]) => name === eventName,
-    )?.[1];
+    const eventHandler = busEventHandler(eventName);
     await eventHandler?.(
       { messageId: "deadline-message" },
       {
@@ -1198,9 +1745,7 @@ Respond to the event.`,
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
     });
-    const eventHandler = subscribeMock.mock.calls.find(
-      ([name]) => name === eventName,
-    )?.[1];
+    const eventHandler = busEventHandler(eventName);
     await eventHandler?.(
       { messageId: "bulk-message" },
       {
@@ -1253,9 +1798,7 @@ Respond to the event.`,
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
     });
-    const eventHandler = subscribeMock.mock.calls.find(
-      ([name]) => name === "mail.message.received",
-    )?.[1];
+    const eventHandler = busEventHandler("mail.message.received");
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     await eventHandler?.(
       { messageId: "stale-message" },
@@ -1745,9 +2288,7 @@ Respond to the event.`,
       ([id]) => id === "automation-trigger-queue",
     )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
     expect(sweep).toBeTypeOf("function");
-    const eventHandler = subscribeMock.mock.calls.find(
-      ([name]) => name === eventName,
-    )?.[1];
+    const eventHandler = busEventHandler(eventName);
     expect(eventHandler).toBeTypeOf("function");
     await eventHandler(
       { messageId: "message-1" },
@@ -1787,9 +2328,7 @@ Respond to the event.`,
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "test.event.fired",
-    )?.[1];
+    const handler = busEventHandler("test.event.fired");
     expect(handler).toBeTypeOf("function");
 
     await handler(
@@ -1874,9 +2413,7 @@ Respond to the event.`,
     resourceGetByPathMock.mockRejectedValueOnce(
       new Error("provider unavailable"),
     );
-    const handler = subscribeMock.mock.calls.find(
-      ([subscribedEventName]) => subscribedEventName === eventName,
-    )?.[1];
+    const handler = busEventHandler(eventName);
     expect(handler).toBeTypeOf("function");
 
     await handler(
@@ -1932,9 +2469,7 @@ Respond to the event.`,
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([subscribedEventName]) => subscribedEventName === eventName,
-    )?.[1];
+    const handler = busEventHandler(eventName);
     expect(handler).toBeTypeOf("function");
 
     await handler(
@@ -1968,9 +2503,7 @@ Respond to the event.`,
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([subscribedEventName]) => subscribedEventName === eventName,
-    )?.[1];
+    const handler = busEventHandler(eventName);
     expect(handler).toBeTypeOf("function");
 
     await handler(
@@ -2069,9 +2602,7 @@ Respond to the event.`,
       model: "test-model",
     });
 
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "tool-filter.event.fired",
-    )?.[1];
+    const handler = busEventHandler("tool-filter.event.fired");
     expect(handler).toBeTypeOf("function");
     await handler(
       { ok: true },
@@ -2154,9 +2685,7 @@ Respond to the event.`,
       model: "test-model",
     });
 
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "initial-tool-wiring.event.fired",
-    )?.[1];
+    const handler = busEventHandler("initial-tool-wiring.event.fired");
     expect(handler).toBeTypeOf("function");
     await handler(
       { ok: true },
@@ -2192,7 +2721,7 @@ Respond to the event.`,
       model: "test-model",
     });
 
-    const handler = subscribeMock.mock.calls[0]?.[1];
+    const handler = busEventHandler("test.event.fired");
     expect(handler).toBeTypeOf("function");
     await handler(
       { ok: true },
@@ -2250,9 +2779,16 @@ Respond to the event.`,
       appId: "plan",
     });
 
-    expect(subscribeMock.mock.calls.some(([name]) => name === eventName)).toBe(
-      false,
+    await busEventHandler(eventName)(
+      {},
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "cross-app-event",
+        emittedAt: new Date().toISOString(),
+      },
     );
+
+    expect(triggerQueueMocks.enqueue).not.toHaveBeenCalled();
   });
 
   it("passes a stored delegated policy only from trigger frontmatter", async () => {
@@ -2280,9 +2816,7 @@ Update the local follow-up status.`,
       getSystemPrompt: async () => "system",
       model: "test-model",
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "crm.follow-up",
-    )?.[1];
+    const handler = busEventHandler("crm.follow-up");
     expect(handler).toBeTypeOf("function");
     await handler(
       { recordId: "record-1" },
@@ -2332,9 +2866,7 @@ Respond to the event.`,
       appId: "calendar",
     });
 
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "usage.event.record",
-    )?.[1];
+    const handler = busEventHandler("usage.event.record");
     expect(handler).toBeTypeOf("function");
     await handler(
       { ok: true },
@@ -2387,9 +2919,7 @@ Respond to the event.`,
       model: "test-model",
     });
 
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "qa.event.prompt",
-    )?.[1];
+    const handler = busEventHandler("qa.event.prompt");
     expect(handler).toBeTypeOf("function");
     await handler(
       { ok: true },
@@ -2463,9 +2993,7 @@ Read the calendar.`,
       getInitialToolNames,
       getSystemPrompt: async () => "system",
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "event.mcp.required",
-    )?.[1];
+    const handler = busEventHandler("event.mcp.required");
     const handlerPromise = handler(
       { ok: true },
       {
@@ -2534,9 +3062,7 @@ Read the calendar.`,
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "event.mcp.missing",
-    )?.[1];
+    const handler = busEventHandler("event.mcp.missing");
     await handler(
       { ok: true },
       {
@@ -2588,9 +3114,7 @@ Read the calendar.`,
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "event.mcp.third",
-    )?.[1];
+    const handler = busEventHandler("event.mcp.third");
     await handler(
       { ok: true },
       {
@@ -2650,9 +3174,7 @@ Read the calendar.`,
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "event.retried",
-    )?.[1];
+    const handler = busEventHandler("event.retried");
     const event = {
       owner,
       eventId: "event-retried",
@@ -2723,9 +3245,7 @@ Handle the event.`,
       getSystemPrompt: async () => "system",
       appId: "mail",
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "event.orphaned",
-    )?.[1];
+    const handler = busEventHandler("event.orphaned");
     await handler(
       { ok: true },
       {
@@ -2778,9 +3298,7 @@ Handle the event.`,
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "event.no.key",
-    )?.[1];
+    const handler = busEventHandler("event.no.key");
     await handler(
       { ok: true },
       {
@@ -2824,9 +3342,7 @@ Handle the event.`,
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "event.condition.no.key",
-    )?.[1];
+    const handler = busEventHandler("event.condition.no.key");
     await handler(
       { ok: true },
       {
@@ -2860,9 +3376,7 @@ Handle the event.`,
       apiKey: "test-deployment-api-key",
       model: "dependency-model",
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "event.condition.deployment.key",
-    )?.[1];
+    const handler = busEventHandler("event.condition.deployment.key");
     await handler?.(
       { ok: true },
       {
@@ -2903,9 +3417,7 @@ Handle the event.`,
       getSystemPrompt: async () => "system",
       engine,
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "event.condition.configured.engine",
-    )?.[1];
+    const handler = busEventHandler("event.condition.configured.engine");
     await handler?.(
       { ok: true },
       {
@@ -2940,9 +3452,7 @@ Handle the event.`,
       getSystemPrompt: async () => "system",
       apiKey: "test-deployment-api-key",
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "event.condition.failure",
-    )?.[1];
+    const handler = busEventHandler("event.condition.failure");
     await handler?.(
       {},
       {
@@ -2992,9 +3502,7 @@ Handle the organization event.`,
       getSystemPrompt: async () => "system",
       appId: "mail",
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "event.org.creator",
-    )?.[1];
+    const handler = busEventHandler("event.org.creator");
 
     await handler(
       { ok: true },
@@ -3056,9 +3564,7 @@ Recover and handle the event.`,
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
     });
-    const handler = subscribeMock.mock.calls.find(
-      ([eventName]) => eventName === "event.stale.recovery",
-    )?.[1];
+    const handler = busEventHandler("event.stale.recovery");
     await handler(
       { ok: true },
       {
