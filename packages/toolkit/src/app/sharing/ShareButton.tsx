@@ -93,7 +93,10 @@ export interface ShareButtonProps {
     label: string;
     copiedLabel: string;
     onCopy: () => Promise<boolean | void> | boolean | void;
+    className?: string;
   };
+  /** For a scoped host session that can only list, share, unshare, and set visibility: no people suggestions, access requests, or agent link. */
+  shareActionsOnly?: boolean;
   /** Optional label for the primary copyable link section. */
   shareUrlLabel?: string;
   shareUrlDescription?: ReactNode;
@@ -355,6 +358,7 @@ export function ShareButton(props: ShareButtonProps) {
             copyLabel={props.quickCopy.label}
             copiedLabel={props.quickCopy.copiedLabel}
             onCopy={props.quickCopy.onCopy}
+            className={props.quickCopy.className}
           />
         ) : (
           <SheetTrigger asChild>{trigger}</SheetTrigger>
@@ -391,6 +395,7 @@ export function ShareButton(props: ShareButtonProps) {
             copyLabel={props.quickCopy.label}
             copiedLabel={props.quickCopy.copiedLabel}
             onCopy={props.quickCopy.onCopy}
+            className={props.quickCopy.className}
           />
         </PopoverAnchor>
       ) : (
@@ -469,12 +474,13 @@ function SharePanel(
   const generalAccessLabel =
     props.generalAccessLabel ??
     t("agentChat.share.generalAccess", { defaultValue: "General access" });
-  const accessRequests = canManage ? (
-    <AccessRequestsSection
-      resourceType={props.resourceType}
-      resourceId={props.resourceId}
-    />
-  ) : null;
+  const accessRequests =
+    canManage && !props.shareActionsOnly ? (
+      <AccessRequestsSection
+        resourceType={props.resourceType}
+        resourceId={props.resourceId}
+      />
+    ) : null;
   const shareLinks = (
     <>
       {props.shareUrl ? (
@@ -611,7 +617,9 @@ function SharePanel(
                 <MemberAutocomplete
                   value={inviteEmail}
                   open={suggestionsOpen}
-                  onOpenChange={setSuggestionsOpen}
+                  onOpenChange={
+                    props.shareActionsOnly ? () => {} : setSuggestionsOpen
+                  }
                   onValueChange={(next) => {
                     onInviteEmailChange(next);
                     if (shareError) setShareError(null);
@@ -820,7 +828,7 @@ function SharePanel(
 
       {!props.agentTabContent ? (
         <AgentShareSection
-          enabled={data?.agentReadable === true}
+          enabled={data?.agentReadable === true && !props.shareActionsOnly}
           resourceType={props.resourceType}
           resourceId={props.resourceId}
           label={props.agentShareLabel}
@@ -851,7 +859,7 @@ function SharePanel(
         {props.agentTabContent}
         {!loadFailed && !isLoading ? (
           <AgentShareSection
-            enabled={data?.agentReadable === true}
+            enabled={data?.agentReadable === true && !props.shareActionsOnly}
             resourceType={props.resourceType}
             resourceId={props.resourceId}
             label={props.agentShareLabel}

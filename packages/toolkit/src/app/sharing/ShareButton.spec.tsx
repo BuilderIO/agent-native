@@ -57,10 +57,18 @@ const accessRequestsData = vi.hoisted(() => ({
 const refetchRequests = vi.hoisted(() => vi.fn(async () => undefined));
 const approveRequest = vi.hoisted(() => vi.fn());
 const queriedActions = vi.hoisted(() => [] as string[]);
+// Queries registered with `enabled` not false: the ones that would hit the network.
+const enabledQueries = vi.hoisted(() => [] as string[]);
+const mutatedActions = vi.hoisted(() => [] as string[]);
 
 vi.mock("@agent-native/core/client/use-action", () => ({
-  useActionQuery: (name: string) => {
+  useActionQuery: (
+    name: string,
+    _params?: unknown,
+    options?: { enabled?: boolean },
+  ) => {
     queriedActions.push(name);
+    if (options?.enabled !== false) enabledQueries.push(name);
     return name === "list-resource-access-requests"
       ? {
           data: {
@@ -77,7 +85,10 @@ vi.mock("@agent-native/core/client/use-action", () => ({
         };
   },
   useActionMutation: (name: string) => ({
-    mutate: name === "share-resource" ? shareMutate : otherMutate,
+    mutate: (...args: unknown[]) => {
+      mutatedActions.push(name);
+      return (name === "share-resource" ? shareMutate : otherMutate)(...args);
+    },
     mutateAsync:
       name === "approve-resource-access-request" ? approveRequest : otherMutate,
   }),
@@ -214,6 +225,8 @@ describe("ShareButton", () => {
     accessRequestsData.isError = false;
     refetchRequests.mockClear();
     queriedActions.length = 0;
+    enabledQueries.length = 0;
+    mutatedActions.length = 0;
     refetchShares.mockClear();
     popoverInteractOutsideHandlers.length = 0;
     sheetInteractOutsideHandlers.length = 0;
@@ -1393,6 +1406,314 @@ describe("ShareButton", () => {
 
     expect(container.textContent).toContain("People with access");
     expect(queriedActions).not.toContain("list-resource-access-requests");
+  });
+
+  describe("shareActionsOnly", () => {
+    const friendShare = {
+      id: "share-1",
+      principalType: "user",
+      principalId: "friend@example.com",
+      role: "viewer",
+    };
+
+    // A manager on an agent-readable resource with a pending access request:
+    // every optional section the scoped host cannot call is on offer.
+    function offerEverySection() {
+      sharesData.current = {
+        ...sharesData.current,
+        role: "owner",
+        agentReadable: true,
+        shares: [friendShare],
+        policy: {
+          allowPublic: true,
+          requireOrgMemberForUserShares: false,
+          supportsGroupShares: true,
+        },
+      } as typeof sharesData.current;
+      accessRequestsData.current = [patRequest];
+    }
+
+    function stubFetchFailingOrgMembers() {
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("/_agent-native/org/members")) {
+          throw new Error("members unavailable");
+        }
+        return Response.json({ members: [] });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    }
+
+    function orgMemberFetches(fetchMock: ReturnType<typeof vi.fn>) {
+      return fetchMock.mock.calls.filter((call) =>
+        String(call[0]).includes("/_agent-native/org/members"),
+      );
+    }
+
+    async function renderShare(
+      props: Partial<React.ComponentProps<typeof ShareButton>> = {},
+    ) {
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <QueryClientProvider client={queryClient}>
+              <ShareButton
+                resourceType="document"
+                resourceId="doc-1"
+                {...props}
+              />
+            </QueryClientProvider>
+          </TooltipProvider>,
+        );
+      });
+    }
+
+    function addPeopleInput() {
+      return container.querySelector(
+        'input[role="combobox"]',
+      ) as HTMLInputElement;
+    }
+
+    // Every way the autocomplete has of asking for suggestions.
+    async function askForSuggestions(input: HTMLInputElement, typed: string) {
+      act(() => input.focus());
+      setInputValue(input, typed);
+      act(() => {
+        input.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+        );
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 180));
+      });
+    }
+
+    function button(label: string) {
+      return Array.from(container.querySelectorAll("button")).find(
+        (candidate) => candidate.textContent === label,
+      );
+    }
+
+    it("never reads people, groups, access requests, or the agent link", async () => {
+      offerEverySection();
+      const fetchMock = stubFetchFailingOrgMembers();
+      await renderShare({ shareActionsOnly: true });
+
+      await askForSuggestions(addPeopleInput(), "aka");
+
+      expect(orgMemberFetches(fetchMock)).toHaveLength(0);
+      expect(enabledQueries).not.toContain("list-workspace-user-groups");
+      expect(queriedActions).not.toContain("list-resource-access-requests");
+      expect(mutatedActions).toEqual([]);
+      const text = container.textContent ?? "";
+      expect(text).not.toContain("Could not load people.");
+      expect(text).not.toContain("Share with agents");
+      expect(text).not.toContain("Access requests");
+      expect(text).not.toContain("Need this for the launch review.");
+    });
+
+    it("keeps the agent link out of the Agents tab too", async () => {
+      offerEverySection();
+      await renderShare({
+        shareActionsOnly: true,
+        peopleTabLabel: "People",
+        agentsTabLabel: "Agents",
+        agentTabContent: <button type="button">Copy agent prompt</button>,
+      });
+
+      const agents = Array.from(
+        container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+      ).find((tab) => tab.textContent === "Agents");
+      await act(async () => {
+        agents!.dispatchEvent(
+          new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+        );
+      });
+
+      expect(container.textContent).toContain("Copy agent prompt");
+      expect(container.textContent).not.toContain("Share with agents");
+      expect(container.textContent).not.toContain("Access requests");
+    });
+
+    it("still adds, lists, re-scopes, and removes people with share actions alone", async () => {
+      offerEverySection();
+      const fetchMock = stubFetchFailingOrgMembers();
+      await renderShare({ shareActionsOnly: true });
+
+      const text = container.textContent ?? "";
+      expect(text).toContain("owner@example.com");
+      expect(text).toContain("friend@example.com");
+
+      const input = addPeopleInput();
+      await askForSuggestions(input, "new@example.com");
+      const add = button("Add");
+      if (!add) throw new Error("Add button not found");
+      act(() => add.click());
+
+      expect(shareMutate).toHaveBeenCalledTimes(1);
+      expect(shareMutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resourceType: "document",
+          resourceId: "doc-1",
+          principalType: "user",
+          principalId: "new@example.com",
+          role: "viewer",
+        }),
+        expect.any(Object),
+      );
+      expect(container.textContent).toContain("new@example.com");
+
+      const visibility = container.querySelector(
+        'button[aria-label="General access"]',
+      ) as HTMLButtonElement;
+      await act(async () => visibility.click());
+      const organization = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).find((option) => option.textContent?.includes("Organization"));
+      if (!organization) throw new Error("Organization option not found");
+      await act(async () => organization.click());
+      expect(otherMutate).toHaveBeenCalledWith(
+        { resourceType: "document", resourceId: "doc-1", visibility: "org" },
+        expect.any(Object),
+      );
+
+      const remove = container.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="Remove"]',
+      )[0];
+      await act(async () => remove.click());
+      expect(otherMutate).toHaveBeenCalledWith(
+        {
+          resourceType: "document",
+          resourceId: "doc-1",
+          principalType: "user",
+          principalId: "friend@example.com",
+        },
+        expect.any(Object),
+      );
+
+      expect(mutatedActions).toEqual([
+        "share-resource",
+        "set-resource-visibility",
+        "unshare-resource",
+      ]);
+      expect(new Set(enabledQueries)).toEqual(
+        new Set(["list-resource-shares"]),
+      );
+      expect(orgMemberFetches(fetchMock)).toHaveLength(0);
+    });
+
+    it("reads people, groups, access requests, and the agent link by default", async () => {
+      offerEverySection();
+      const fetchMock = stubFetchFailingOrgMembers();
+      await renderShare();
+
+      await askForSuggestions(addPeopleInput(), "aka");
+
+      expect(orgMemberFetches(fetchMock).length).toBeGreaterThan(0);
+      expect(enabledQueries).toContain("list-workspace-user-groups");
+      expect(queriedActions).toContain("list-resource-access-requests");
+      const text = container.textContent ?? "";
+      expect(text).toContain("Could not load people.");
+      expect(text).toContain("Access requests");
+      expect(text).toContain("Need this for the launch review.");
+      expect(text).toContain("Share with agents");
+
+      const disclosure = Array.from(container.querySelectorAll("button")).find(
+        (candidate) => candidate.textContent?.includes("Share with agents"),
+      );
+      if (!disclosure) throw new Error("Agent share disclosure not found");
+      act(() => disclosure.click());
+      expect(mutatedActions).toEqual(["create-agent-resource-link"]);
+    });
+
+    it("reads the agent link from the Agents tab by default", async () => {
+      offerEverySection();
+      await renderShare({
+        peopleTabLabel: "People",
+        agentsTabLabel: "Agents",
+        agentTabContent: <button type="button">Copy agent prompt</button>,
+      });
+
+      const agents = Array.from(
+        container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+      ).find((tab) => tab.textContent === "Agents");
+      await act(async () => {
+        agents!.dispatchEvent(
+          new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+        );
+      });
+
+      expect(container.textContent).toContain("Copy agent prompt");
+      expect(container.textContent).toContain("Share with agents");
+    });
+  });
+
+  describe("quickCopy.className", () => {
+    const quickCopy = {
+      label: "Copy page link",
+      copiedLabel: "Copied page link",
+      onCopy: async () => true,
+      className: "widget-joined-share",
+    };
+
+    function expectClassOnJoinedControl() {
+      const joined = container.querySelector(".widget-joined-share");
+      expect(joined).not.toBeNull();
+      expect(joined?.className).toContain("shrink-0");
+      expect(
+        joined?.contains(
+          container.querySelector('button[aria-label="Copy page link"]'),
+        ),
+      ).toBe(true);
+      expect(
+        joined?.contains(container.querySelector('button[aria-label="Share"]')),
+      ).toBe(true);
+      expect(container.querySelectorAll(".widget-joined-share")).toHaveLength(
+        1,
+      );
+    }
+
+    it("lands on the joined control's root element", async () => {
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <QueryClientProvider client={queryClient}>
+              <ShareButton
+                resourceType="document"
+                resourceId="doc-1"
+                quickCopy={quickCopy}
+              />
+            </QueryClientProvider>
+          </TooltipProvider>,
+        );
+      });
+
+      expectClassOnJoinedControl();
+    });
+
+    it("lands on the joined control's root element in the mobile sheet", async () => {
+      vi.stubGlobal("matchMedia", () => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }));
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <QueryClientProvider client={queryClient}>
+              <ShareButton
+                resourceType="document"
+                resourceId="doc-1"
+                mobileSheet
+                quickCopy={quickCopy}
+              />
+            </QueryClientProvider>
+          </TooltipProvider>,
+        );
+      });
+
+      expectClassOnJoinedControl();
+    });
   });
 
   // Keep the non-source-locale provider test last: react-i18next's global
