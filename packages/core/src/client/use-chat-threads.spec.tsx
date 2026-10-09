@@ -1379,6 +1379,119 @@ describe("useChatThreads", () => {
     expect(fetchMock).toHaveBeenCalledWith("/chat/threads/later-route-thread");
   });
 
+  it("retries an initial route lookup after an unavailable response", async () => {
+    const routeThread: ChatThreadSummary = {
+      id: "retry-route-thread",
+      title: "Retry route",
+      preview: "route preview",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: null,
+    };
+    let lookups = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/retry-route-thread" && !init) {
+        lookups += 1;
+        return lookups === 1
+          ? new Response(null, { status: 503 })
+          : jsonResponse(routeThread);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "retry-route-test", null, {
+        routeThreadId: "retry-route-thread",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+    });
+
+    expect(lookups).toBe(2);
+    expect(hook!.isThreadPersisted("retry-route-thread")).toBe(true);
+    expect(hook!.isNewThread("retry-route-thread")).toBe(false);
+  });
+
+  it("ignores a route lookup that completes after its history scope changes", async () => {
+    const scopeA = { type: "workspace-app", id: "app-a" };
+    const scopeB = { type: "workspace-app", id: "app-b" };
+    const staleThread: ChatThreadSummary = {
+      id: "scoped-route-thread",
+      title: "Scope A",
+      preview: "stale scope preview",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: scopeA,
+    };
+    let resolveScopeALookup: ((response: Response) => void) | undefined;
+    const scopeALookup = new Promise<Response>((resolve) => {
+      resolveScopeALookup = resolve;
+    });
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes("/threads?") && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (
+        url ===
+          "/chat/threads/scoped-route-thread?scopeType=workspace-app&scopeId=app-a" &&
+        !init
+      ) {
+        return scopeALookup;
+      }
+      if (
+        url ===
+          "/chat/threads/scoped-route-thread?scopeType=workspace-app&scopeId=app-b" &&
+        !init
+      ) {
+        return new Response(null, { status: 404 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    let activeScope = scopeA;
+    function Harness() {
+      hook = useChatThreads("/chat", "scoped-route-test", activeScope, {
+        routeThreadId: "scoped-route-thread",
+        isolateHistoryByScope: true,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    activeScope = scopeB;
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolveScopeALookup?.(jsonResponse(staleThread));
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+
+    expect(hook!.isThreadPersisted("scoped-route-thread")).toBe(false);
+    expect(hook!.isNewThread("scoped-route-thread")).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/chat/threads/scoped-route-thread?scopeType=workspace-app&scopeId=app-b",
+    );
+  });
+
   it("classifies a missing route thread as a draft without exposing saved state", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/chat/threads" && !init) {

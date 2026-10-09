@@ -1580,6 +1580,7 @@ const AgentKitAssistantChatBody = forwardRef<
       if (savingThreadDataRef.current.has(snapshot.threadData)) {
         return;
       }
+      if (savingThreadDataRef.current.size > 0) return;
       savingThreadDataRef.current.add(snapshot.threadData);
       if (props.createTransport) {
         try {
@@ -1598,6 +1599,14 @@ const AgentKitAssistantChatBody = forwardRef<
 
       const finish = (saved: boolean) => {
         savingThreadDataRef.current.delete(snapshot.threadData);
+        if (
+          latestThreadDataRef.current !== snapshot.threadData &&
+          latestThreadDataRef.current !== lastSavedThreadDataRef.current &&
+          savingThreadDataRef.current.size === 0
+        ) {
+          saveSnapshotRef.current();
+          return;
+        }
         if (saved && latestThreadDataRef.current === snapshot.threadData) {
           lastSavedThreadDataRef.current = snapshot.threadData;
           if (retryThreadSaveTimerRef.current !== null) {

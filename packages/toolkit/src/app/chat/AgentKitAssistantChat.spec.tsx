@@ -6195,6 +6195,105 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
+  it("keeps older save callbacks that return response objects compatible", async () => {
+    const createTransport = () => chatMocks.transport;
+    const onSaveThread = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 500 }));
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    const message = {
+      id: "legacy-save-user-message",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-10-07T12:00:00.000Z",
+      parts: [{ type: "text", text: "Keep the existing callback contract" }],
+    };
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      activeRunIds: ["legacy-save-run"],
+      messages: [message],
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ createTransport, onSaveThread })}
+        />,
+      );
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(onSaveThread).toHaveBeenCalledOnce();
+  });
+
+  it("serializes snapshot saves so an older completion cannot overwrite a newer one", async () => {
+    const createTransport = () => chatMocks.transport;
+    let resolveFirstSave: ((saved: boolean) => void) | undefined;
+    const firstSave = new Promise<boolean>((resolve) => {
+      resolveFirstSave = resolve;
+    });
+    const onSaveThread = vi
+      .fn()
+      .mockReturnValueOnce(firstSave)
+      .mockResolvedValue(true);
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    const firstMessage = {
+      id: "ordered-save-first-message",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-10-07T12:00:00.000Z",
+      parts: [{ type: "text", text: "First snapshot" }],
+    };
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      activeRunIds: ["ordered-save-run"],
+      messages: [firstMessage],
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ createTransport, onSaveThread })}
+        />,
+      );
+      await Promise.resolve();
+    });
+    expect(onSaveThread).toHaveBeenCalledOnce();
+
+    const secondMessage = {
+      id: "ordered-save-second-message",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-10-07T12:01:00.000Z",
+      parts: [{ type: "text", text: "Newer snapshot" }],
+    };
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      messages: [firstMessage, secondMessage],
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ createTransport, onSaveThread })}
+        />,
+      );
+      await Promise.resolve();
+    });
+    expect(onSaveThread).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      resolveFirstSave?.(true);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onSaveThread).toHaveBeenCalledTimes(2);
+    expect(onSaveThread.mock.calls[1]?.[1].threadData).not.toBe(
+      onSaveThread.mock.calls[0]?.[1].threadData,
+    );
+  });
+
   it("bounds retries when a snapshot cannot be saved", async () => {
     const createTransport = () => chatMocks.transport;
     const onSaveThread = vi.fn().mockResolvedValue(false);

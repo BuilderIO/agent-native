@@ -227,7 +227,7 @@ export interface AssistantChatProps {
   onSwitchToCli?: () => void;
   /** Callback when message count changes */
   onMessageCountChange?: (count: number) => void;
-  /** Callback to save thread data to the server (provided by useChatThreads) */
+  /** Return `false` to keep a failed snapshot retryable; other legacy return values count as success. */
   onSaveThread?: (
     threadId: string,
     data: {
@@ -237,7 +237,7 @@ export interface AssistantChatProps {
       messageCount: number;
       titleSource?: "fallback";
     },
-  ) => boolean | void | Promise<boolean | void>;
+  ) => unknown;
   /** Callback to generate a title from the first user message, on the model it was sent with */
   onGenerateTitle?: (
     threadId: string,

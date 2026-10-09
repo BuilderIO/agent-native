@@ -85,6 +85,8 @@ const THREADS_UPDATED_EVENT = "agent-chat:threads-updated";
 const THREADS_PAGE_SIZE = 50;
 const CLIENT_DRAFT_THREAD_PREFIX = "agent-chat-client-draft-thread:";
 const MAX_THREAD_SAVE_RETRIES = 3;
+const MAX_ROUTE_THREAD_CONFIRMATION_RETRIES = 2;
+const ROUTE_THREAD_CONFIRMATION_RETRY_DELAY_MS = 500;
 const THREAD_SAVE_RETRYABLE_STATUSES = new Set([408, 409, 429]);
 
 function shouldRetryThreadSave(status: number): boolean {
@@ -326,12 +328,13 @@ export function useChatThreads(
     : null;
   const routeControlsActiveThread = options?.routeThreadId !== undefined;
   const routeThreadId = normalizeThreadId(options?.routeThreadId);
-  const routeThreadIdRef = useRef(routeThreadId);
-  routeThreadIdRef.current = routeThreadId;
-  const initialRouteConfirmationPendingRef = useRef(
-    routeControlsActiveThread ? routeThreadId : null,
-  );
-  const lastRouteConfirmationIdRef = useRef<string | null>(null);
+  const routeThreadLookupKey =
+    routeControlsActiveThread && routeThreadId
+      ? JSON.stringify([apiUrl, historyScopeKey, routeThreadId])
+      : null;
+  const routeThreadLookupKeyRef = useRef(routeThreadLookupKey);
+  routeThreadLookupKeyRef.current = routeThreadLookupKey;
+  const initialRouteConfirmationPendingRef = useRef(routeThreadLookupKey);
   const activeThreadKey = useMemo(() => {
     return activeThreadStorageKey(storageKey, scope, browserTabId);
   }, [browserTabId, storageKey, scope?.type, scope?.id]);
@@ -863,7 +866,7 @@ export function useChatThreads(
           : restoredOnPage;
       if (
         routeControlsActiveThread &&
-        routeThreadIdRef.current !== routeThreadId
+        routeThreadLookupKeyRef.current !== routeThreadLookupKey
       ) {
         setIsLoading(false);
         return;
@@ -878,6 +881,7 @@ export function useChatThreads(
         newlyCreatedRef.current.delete(restoredThread.id);
       }
       if (restoredThread === undefined && lookupRestored && !restoredOnPage) {
+        initialRouteConfirmationPendingRef.current = null;
         setIsLoading(false);
         return;
       }
@@ -963,22 +967,14 @@ export function useChatThreads(
 
   useEffect(() => {
     if (!routeControlsActiveThread) return;
-    if (!routeThreadId) {
-      lastRouteConfirmationIdRef.current = null;
-      return;
-    }
+    if (!routeThreadId || !routeThreadLookupKey) return;
     if (isLoading) return;
 
     if (initialRouteConfirmationPendingRef.current !== null) {
-      const initialRouteId = initialRouteConfirmationPendingRef.current;
+      const initialRouteKey = initialRouteConfirmationPendingRef.current;
       initialRouteConfirmationPendingRef.current = null;
-      if (initialRouteId === routeThreadId) {
-        lastRouteConfirmationIdRef.current = routeThreadId;
-        return;
-      }
+      if (initialRouteKey === routeThreadLookupKey) return;
     }
-    if (lastRouteConfirmationIdRef.current === routeThreadId) return;
-    lastRouteConfirmationIdRef.current = routeThreadId;
     if (
       serverConfirmedThreadIdsRef.current.has(routeThreadId) ||
       newlyCreatedRef.current.has(routeThreadId) ||
@@ -987,8 +983,28 @@ export function useChatThreads(
       return;
     }
 
-    void fetchThreadById(apiUrl, routeThreadId, historyScope).then((thread) => {
-      if (routeThreadIdRef.current !== routeThreadId || thread === undefined) {
+    let cancelled = false;
+    let retryTimer: number | null = null;
+    let retries = 0;
+    const confirmRouteThread = async () => {
+      const thread = await fetchThreadById(apiUrl, routeThreadId, historyScope);
+      if (
+        cancelled ||
+        routeThreadLookupKeyRef.current !== routeThreadLookupKey
+      ) {
+        return;
+      }
+      if (thread === undefined) {
+        if (retries < MAX_ROUTE_THREAD_CONFIRMATION_RETRIES) {
+          retries += 1;
+          retryTimer = window.setTimeout(
+            () => {
+              retryTimer = null;
+              void confirmRouteThread();
+            },
+            ROUTE_THREAD_CONFIRMATION_RETRY_DELAY_MS * 2 ** (retries - 1),
+          );
+        }
         return;
       }
       if (thread === null) {
@@ -998,10 +1014,6 @@ export function useChatThreads(
         return;
       }
 
-      serverConfirmedThreadIdsRef.current.add(thread.id);
-      knownThreadScopesRef.current.set(thread.id, thread.scope ?? null);
-      clearClientDraftThreadMarker(thread.id);
-      newlyCreatedRef.current.delete(thread.id);
       if (
         isolateHistory &&
         !threadCanStayVisibleInHistory(
@@ -1012,6 +1024,10 @@ export function useChatThreads(
       ) {
         return;
       }
+      serverConfirmedThreadIdsRef.current.add(thread.id);
+      knownThreadScopesRef.current.set(thread.id, thread.scope ?? null);
+      clearClientDraftThreadMarker(thread.id);
+      newlyCreatedRef.current.delete(thread.id);
       setThreads((prev) =>
         prev.some((candidate) => candidate.id === thread.id)
           ? prev.map((candidate) =>
@@ -1019,16 +1035,23 @@ export function useChatThreads(
             )
           : [thread, ...prev],
       );
-    });
+    };
+    void confirmRouteThread();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+    };
   }, [
     addOptimisticThread,
     apiUrl,
     clearClientDraftThreadMarker,
     historyScope,
-    isLoading,
     isolateHistory,
+    isLoading,
     routeControlsActiveThread,
     routeThreadId,
+    routeThreadLookupKey,
   ]);
 
   const createThread = useCallback(
