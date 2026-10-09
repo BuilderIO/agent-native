@@ -358,6 +358,7 @@ const MCP_WIDGET_ADD_SLIDE_FIELDS = new Set([
   "notes",
   "background",
   "layout",
+  "layoutWarningDismissed",
   "imageUrl",
   "excalidrawData",
   "transition",
@@ -495,7 +496,9 @@ export function isMcpWidgetPatchAllowed(
         hasOnlyMcpWidgetSlideFields(
           operation.fields,
           MCP_WIDGET_ADD_SLIDE_FIELDS,
-        )
+        ) &&
+        (operation.fields.layoutWarningDismissed === undefined ||
+          typeof operation.fields.layoutWarningDismissed === "boolean")
       );
     }
 

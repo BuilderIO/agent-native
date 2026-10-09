@@ -1851,6 +1851,7 @@ describe("run() — asynchronous layout fit metadata", () => {
               notes: "",
               layout: "blank",
               background: "#202020",
+              layoutWarningDismissed: false,
             },
           },
           { op: "delete-slide", slideId: "slide-2" },
@@ -1863,7 +1864,11 @@ describe("run() — asynchronous layout fit metadata", () => {
     const savedDeck = JSON.parse(String(mockDeckRow?.data));
     expect(savedDeck.title).toBe("Updated");
     expect(savedDeck.slides).toMatchObject([
-      { id: "slide-3", content: "<div>New widget slide</div>" },
+      {
+        id: "slide-3",
+        content: "<div>New widget slide</div>",
+        layoutWarningDismissed: false,
+      },
       {
         id: "slide-1",
         content: "<div>Edited in widget</div>",
@@ -1896,6 +1901,7 @@ describe("run() — asynchronous layout fit metadata", () => {
             notes: "",
             layout: "blank",
             background: "#000000",
+            layoutWarningDismissed: true,
           },
         },
         { op: "delete-slide", slideId: "slide-2" },
@@ -1917,6 +1923,29 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(isMcpWidgetPatchAllowed("mcp-widget-write", [operation])).toBe(
       false,
     );
+  });
+
+  it("allows boolean overflow-warning state on copied widget slides", () => {
+    const addSlide = {
+      op: "add-slide",
+      slideId: "slide-3",
+      fields: {
+        content: "<div>New</div>",
+        layoutWarningDismissed: false,
+      },
+    } as unknown as Operation;
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [addSlide])).toBe(true);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          ...addSlide,
+          fields: {
+            content: "<div>New</div>",
+            layoutWarningDismissed: "false",
+          },
+        } as unknown as Operation,
+      ]),
+    ).toBe(false);
   });
 
   it.each([
@@ -1967,19 +1996,6 @@ describe("run() — asynchronous layout fit metadata", () => {
         { ...dismissal, baseFields: undefined },
       ]),
     ).toBe(false);
-    expect(
-      isMcpWidgetPatchAllowed("mcp-widget-write", [
-        {
-          op: "add-slide",
-          slideId: "slide-3",
-          fields: {
-            content: "<div>New</div>",
-            layoutWarningDismissed: true,
-          },
-        } as unknown as Operation,
-      ]),
-    ).toBe(false);
-
     await runPatchDeckAction(
       {
         deckId: "deck-1",
