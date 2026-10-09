@@ -344,6 +344,28 @@ describe("deriveJourneyStep", () => {
       key: "custom_key:unknown:validation:unknown",
       label: "Custom key validation (unknown): unknown",
     });
+
+    for (const outcome of ["constructor", "__proto__"]) {
+      expect(
+        deriveJourneyStep(
+          row("integration_key_validation_outcome", 1, {
+            flow: "settings",
+            outcome,
+          }),
+        ),
+      ).toEqual({
+        key: "custom_key:settings:validation:unknown",
+        label: "Custom key validation (settings): unknown",
+      });
+    }
+  });
+
+  it("does not treat inherited method labels as configured labels", () => {
+    expect(
+      deriveJourneyStep(
+        row("onboarding_method_clicked", 1, { methodId: "constructor" }),
+      ),
+    ).toEqual({ key: "method:constructor", label: "Chose: constructor" });
   });
 
   it("gives the dotted and underscored auth events one key", () => {

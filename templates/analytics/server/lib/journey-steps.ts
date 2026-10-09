@@ -208,12 +208,21 @@ function clean(value: string | null): string {
   return value?.trim().toLowerCase() || "unknown";
 }
 
+function lookup<T>(
+  values: Readonly<Record<string, T>>,
+  key: string,
+): T | undefined {
+  return Object.prototype.hasOwnProperty.call(values, key)
+    ? values[key]
+    : undefined;
+}
+
 function methodLabel(methodId: string): string {
-  return METHOD_LABELS[methodId] ?? methodId;
+  return lookup(METHOD_LABELS, methodId) ?? methodId;
 }
 
 function eventRank(row: JourneyEventRow): number {
-  const builderEvent = BUILDER_CONNECTION_EVENT_ALIASES[row.eventName];
+  const builderEvent = lookup(BUILDER_CONNECTION_EVENT_ALIASES, row.eventName);
   if (builderEvent) {
     const firstRun =
       row.flow?.trim().toLowerCase() === "first_run" ||
@@ -231,9 +240,9 @@ function eventRank(row: JourneyEventRow): number {
           return 8.75;
       }
     }
-    return TIE_RANK[builderEvent] ?? 99;
+    return lookup(TIE_RANK, builderEvent) ?? 99;
   }
-  return TIE_RANK[row.eventName] ?? 99;
+  return lookup(TIE_RANK, row.eventName) ?? 99;
 }
 
 function providerSetupFlow(flow: string | null): string {
@@ -246,7 +255,7 @@ function providerSetupOutcome(outcome: string | null): {
   label: string;
 } {
   const normalized = clean(outcome);
-  const label = PROVIDER_SETUP_OUTCOME_LABELS[normalized];
+  const label = lookup(PROVIDER_SETUP_OUTCOME_LABELS, normalized);
   return label
     ? { key: normalized, label }
     : { key: "unknown", label: "unknown" };
@@ -263,8 +272,9 @@ function integrationSetupValue(
 export function deriveJourneyStep(
   row: JourneyEventRow,
 ): { key: string; label: string } | null {
-  const builderEvent = BUILDER_CONNECTION_EVENT_ALIASES[row.eventName];
-  if (builderEvent) return BUILDER_CONNECTION_STEPS[builderEvent] ?? null;
+  const builderEvent = lookup(BUILDER_CONNECTION_EVENT_ALIASES, row.eventName);
+  if (builderEvent)
+    return lookup(BUILDER_CONNECTION_STEPS, builderEvent) ?? null;
 
   switch (row.eventName) {
     case "pageview": {
@@ -423,9 +433,9 @@ export function buildSessionSteps(
     const aRank = eventRank(a);
     const bRank = eventRank(b);
     const aEventOrderKey =
-      BUILDER_CONNECTION_EVENT_ALIASES[a.eventName] ?? a.eventName;
+      lookup(BUILDER_CONNECTION_EVENT_ALIASES, a.eventName) ?? a.eventName;
     const bEventOrderKey =
-      BUILDER_CONNECTION_EVENT_ALIASES[b.eventName] ?? b.eventName;
+      lookup(BUILDER_CONNECTION_EVENT_ALIASES, b.eventName) ?? b.eventName;
     const aIsOnboardingStep = ONBOARDING_STEP_EVENT_NAMES.has(a.eventName);
     const bIsOnboardingStep = ONBOARDING_STEP_EVENT_NAMES.has(b.eventName);
     const aPositionRank = aIsOnboardingStep
