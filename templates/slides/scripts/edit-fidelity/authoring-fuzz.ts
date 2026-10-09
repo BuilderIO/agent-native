@@ -2574,29 +2574,7 @@ export async function runAuthoringFuzz(
     tracePhase("slash.type:start");
     await typeText("/");
     tracePhase("slash.type:end");
-    await page.waitForFunction(
-      (selector: string) => {
-        const editingEl = document.querySelector<HTMLElement>(selector);
-        const listboxId = editingEl?.getAttribute("aria-controls");
-        const optionId = editingEl?.getAttribute("aria-activedescendant");
-        const listbox = listboxId ? document.getElementById(listboxId) : null;
-        const activeOption = optionId
-          ? document.getElementById(optionId)
-          : null;
-        return (
-          listbox?.getAttribute("role") === "listbox" &&
-          activeOption?.getAttribute("role") === "option" &&
-          listbox.contains(activeOption)
-        );
-      },
-      editorSelector,
-      { timeout: 5000 },
-    );
-    const listboxId = await editor.getAttribute("aria-controls");
-    if (!listboxId) throw new Error("slash menu did not expose its listbox");
-    const listbox = page.locator(
-      `[role="listbox"][id=${JSON.stringify(listboxId)}]`,
-    );
+    const listbox = await waitForControlledSlashListbox();
     const options = listbox.locator('[role="option"]');
     tracePhase("slash.wait-visible:start");
     await options.first().waitFor({ state: "visible", timeout: 5_000 });
@@ -2646,6 +2624,29 @@ export async function runAuthoringFuzz(
         `slash menu is clipped beyond the viewport (${JSON.stringify(position)})`,
       );
     return listbox;
+  };
+  const waitForControlledSlashListbox = async () => {
+    await page.waitForFunction(
+      (selector: string) => {
+        const editingEl = document.querySelector<HTMLElement>(selector);
+        const listboxId = editingEl?.getAttribute("aria-controls");
+        const optionId = editingEl?.getAttribute("aria-activedescendant");
+        const listbox = listboxId ? document.getElementById(listboxId) : null;
+        const activeOption = optionId
+          ? document.getElementById(optionId)
+          : null;
+        return (
+          listbox?.getAttribute("role") === "listbox" &&
+          activeOption?.getAttribute("role") === "option" &&
+          listbox.contains(activeOption)
+        );
+      },
+      editorSelector,
+      { timeout: 5000 },
+    );
+    const listboxId = await editor.getAttribute("aria-controls");
+    if (!listboxId) throw new Error("slash menu did not expose its listbox");
+    return page.locator(`[role="listbox"][id=${JSON.stringify(listboxId)}]`);
   };
   const controlledSlashListbox = async () => {
     const listboxId = await editor.getAttribute("aria-controls");
@@ -3261,9 +3262,7 @@ export async function runAuthoringFuzz(
           await waitForSlashMenuHidden();
           await typeText("/example.com ");
           await typeText("/");
-          const listbox = await controlledSlashListbox();
-          if (!listbox)
-            throw new Error("slash menu did not expose its listbox");
+          const listbox = await waitForControlledSlashListbox();
           await listbox
             .locator('[role="option"]')
             .first()
