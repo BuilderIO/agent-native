@@ -23,7 +23,7 @@ const exactHttpsOrigin = z.string().refine((value) => {
 
 export default defineAction({
   description:
-    "Add exact HTTPS origins to a first-party Analytics public key's replay allowlist. Existing origins and key settings are preserved. The key must belong to the active organization or the current user.",
+    "Add exact HTTPS origins to a first-party Analytics public key's replay allowlist. Returns the key id and prefix, updated allowlist, newly added origins, and whether it changed. Existing origins and key settings are preserved; the key must belong to the active organization or current user.",
   schema: z.object({
     id: z.string().min(1).max(200).describe("Public key row id to update."),
     addReplayAllowedOrigins: z
