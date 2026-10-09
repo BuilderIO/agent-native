@@ -350,14 +350,17 @@ export default defineAppConfig({
 
 يسجّل Core أيضًا المقاييس بمجرد أن يسجّل المضيف موفّر مقاييس (meter provider) باستخدام `registerObservabilityProvider()` من `@agent-native/core/server`. تُسجَّل المقاييس لكل طلب وكل تشغيل، دون أخذ عينات:
 
-| الأداة                                  | السمات                                                                                       |
-| --------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
-| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
-| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
-| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
-| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
-| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+| الأداة                                      | السمات                                                                                       |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`              | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `agent_native.http.server.handoff.duration` | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`          | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`                 | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`                   | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`                   | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures`     | `error.type`, `agent_native.telemetry.signal`                                                |
+
+يحمل `agent_native.http.server.handoff.duration` السمات والفئات نفسها التي يحملها `http.server.request.duration`، لكنه ينتهي عندما يعيد خطاف الاستجابة الاستجابة إلى بيئة التشغيل بدلًا من بداية الخطاف. الفارق بين المئينات في المقياسين هو الوقت الذي قضته استجابة مكتملة في الانتظار، مثل انتظار تفريغ القياس عن بُعد داخل الطلب. من دون `waitUntil`، تسجّل النواة العيّنة بعد ذلك التفريغ، فتصل إلى الواجهة الخلفية مع التفريغ التالي.
 
 في المقاييس، تكون `gen_ai.tool.name` اسم إجراء من إجراءات إطار العمل أو `other`، وتكون `gen_ai.request.model` معرّف النموذج فقط عندما يدرجه المحرك ضمن النماذج المدعومة، وإلا فهي `_OTHER`. لذلك لا يمكن للأدوات التي يعرّفها التطبيق ولا لمعرّفات النماذج التي يمرّرها المستدعي إنشاء سلاسل غير محدودة؛ وتحتفظ الامتدادات (spans) بالقيم الدقيقة.
 

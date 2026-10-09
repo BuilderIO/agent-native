@@ -350,14 +350,17 @@ export default defineAppConfig({
 
 जब होस्ट `@agent-native/core/server` से `registerObservabilityProvider()` के साथ एक मीटर प्रोवाइडर रजिस्टर करता है, तो Core मेट्रिक्स भी रिकॉर्ड करता है। मेट्रिक्स हर अनुरोध और हर रन के लिए, बिना सैंपलिंग के, रिकॉर्ड किए जाते हैं:
 
-| इंस्ट्रूमेंट                            | एट्रिब्यूट्स                                                                                 |
-| --------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
-| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
-| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
-| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
-| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
-| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+| इंस्ट्रूमेंट                                | एट्रिब्यूट्स                                                                                 |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`              | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `agent_native.http.server.handoff.duration` | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`          | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`                 | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`                   | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`                   | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures`     | `error.type`, `agent_native.telemetry.signal`                                                |
+
+`agent_native.http.server.handoff.duration` में `http.server.request.duration` जैसे ही attributes और buckets हैं, लेकिन यह hook शुरू होने पर नहीं, बल्कि तब खत्म होता है जब response hook response को runtime को वापस सौंपता है। दोनों के percentiles के बीच का अंतर वह समय है जो एक पूरा हो चुका response इंतज़ार में बिताता है, जैसे inline telemetry flush पर। `waitUntil` के बिना core यह sample उस flush के बाद record करता है, इसलिए यह अगले flush के साथ back end तक पहुँचता है।
 
 मेट्रिक्स में, `gen_ai.tool.name` किसी फ़्रेमवर्क एक्शन का नाम या `other` होता है, और `gen_ai.request.model` मॉडल ID तभी होता है जब इंजन उसे समर्थित के रूप में सूचीबद्ध करता है, अन्यथा `_OTHER`। इसलिए ऐप-परिभाषित टूल और कॉलर द्वारा दिए गए मॉडल ID असीमित सीरीज़ नहीं बना सकते; स्पैन सटीक मान रखते हैं।
 

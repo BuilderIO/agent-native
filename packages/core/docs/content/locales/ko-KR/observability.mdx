@@ -350,14 +350,17 @@ export default defineAppConfig({
 
 호스트가 `@agent-native/core/server`의 `registerObservabilityProvider()`로 미터 프로바이더를 등록하면 Core는 메트릭도 기록합니다. 메트릭은 샘플링 없이 모든 요청과 실행에 대해 기록됩니다.
 
-| 계측기                                  | 속성                                                                                         |
-| --------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
-| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
-| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
-| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
-| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
-| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+| 계측기                                      | 속성                                                                                         |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`              | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `agent_native.http.server.handoff.duration` | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`          | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`                 | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`                   | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`                   | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures`     | `error.type`, `agent_native.telemetry.signal`                                                |
+
+`agent_native.http.server.handoff.duration`은 `http.server.request.duration`과 같은 속성과 버킷을 갖지만, 응답 훅이 시작될 때가 아니라 훅이 응답을 런타임에 돌려줄 때 끝납니다. 두 백분위수의 차이는 완성된 응답이 인라인 텔레메트리 플러시 등으로 기다린 시간입니다. `waitUntil`이 없으면 core는 해당 플러시 이후에 샘플을 기록하므로, 샘플은 다음 플러시와 함께 백엔드에 도착합니다.
 
 메트릭에서 `gen_ai.tool.name`은 프레임워크 액션 이름 또는 `other`이며, `gen_ai.request.model`은 엔진이 지원 모델로 등록한 경우에만 모델 ID이고 그렇지 않으면 `_OTHER`입니다. 따라서 앱에서 정의한 도구나 호출자가 지정한 모델 ID가 시리즈를 무한정 늘릴 수 없으며, 스팬에는 정확한 값이 남습니다.
 

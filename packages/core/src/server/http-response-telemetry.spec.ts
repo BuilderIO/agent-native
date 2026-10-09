@@ -511,11 +511,15 @@ describe("http response telemetry", () => {
     const unregister = registerObservabilityProvider({
       meterProvider: {
         getMeter: () => ({
-          createHistogram: () => ({
+          createHistogram: (name: string) => ({
             record: (
               _value: number,
               attributes?: Record<string, string | number>,
-            ) => recorded.push(attributes),
+            ) => {
+              if (name === "http.server.request.duration") {
+                recorded.push(attributes);
+              }
+            },
           }),
           createCounter: () => ({ add() {} }),
         }),
@@ -654,6 +658,72 @@ describe("http response telemetry", () => {
     });
   });
 
+  describe("handoff duration", () => {
+    let recorded: Array<{ name: string; value: number }>;
+    let nowSpy: ReturnType<typeof vi.spyOn>;
+    let unregister: () => void = () => undefined;
+    const startedAt = 1_000_000;
+
+    function registerMeter(forceFlush: () => Promise<void>) {
+      unregister = registerObservabilityProvider({
+        meterProvider: {
+          getMeter: () => ({
+            createHistogram: (name: string) => ({
+              record: (value: number) => recorded.push({ name, value }),
+            }),
+            createCounter: () => ({ add() {} }),
+          }),
+          forceFlush,
+        },
+      });
+    }
+
+    beforeEach(() => {
+      processState.requestSequence = 5;
+      recorded = [];
+      nowSpy = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    });
+
+    afterEach(() => {
+      nowSpy.mockRestore();
+      unregister();
+    });
+
+    function durations(name: string) {
+      return recorded.filter((r) => r.name === name).map((r) => r.value);
+    }
+
+    it("includes an inline export that holds the response", async () => {
+      registerMeter(async () => {
+        nowSpy.mockReturnValue(startedAt + 3_200);
+      });
+      const { requestHooks, responseHooks } = createHooks();
+      const event = eventFor("/some/page");
+      await requestHooks[0](event);
+      nowSpy.mockReturnValue(startedAt + 1_200);
+      await responseHooks[0](new Response("ok"), event);
+
+      expect(durations("http.server.request.duration")).toEqual([1.2]);
+      expect(durations("agent_native.http.server.handoff.duration")).toEqual([
+        3.2,
+      ]);
+    });
+
+    it("excludes an export handed to waitUntil", async () => {
+      registerMeter(() => new Promise<void>(() => undefined));
+      const { requestHooks, responseHooks } = createHooks();
+      const event = eventFor("/some/page");
+      Object.assign(event.req, { waitUntil: () => undefined });
+      await requestHooks[0](event);
+      nowSpy.mockReturnValue(startedAt + 1_200);
+      await responseHooks[0](new Response("ok"), event);
+
+      expect(durations("agent_native.http.server.handoff.duration")).toEqual([
+        1.2,
+      ]);
+    });
+  });
+
   it("attributes a framework 401 to its route on the metric and the span", async () => {
     processState.requestSequence = 5;
     const recorded: Array<Record<string, string | number> | undefined> = [];
@@ -676,11 +746,15 @@ describe("http response telemetry", () => {
     const unregister = registerObservabilityProvider({
       meterProvider: {
         getMeter: () => ({
-          createHistogram: () => ({
+          createHistogram: (name: string) => ({
             record: (
               _value: number,
               attributes?: Record<string, string | number>,
-            ) => recorded.push(attributes),
+            ) => {
+              if (name === "http.server.request.duration") {
+                recorded.push(attributes);
+              }
+            },
           }),
           createCounter: () => ({ add() {} }),
         }),
@@ -719,8 +793,10 @@ describe("http response telemetry", () => {
     const unregister = registerObservabilityProvider({
       meterProvider: {
         getMeter: () => ({
-          createHistogram: () => ({
-            record: (value: number) => recorded.push(value),
+          createHistogram: (name: string) => ({
+            record: (value: number) => {
+              if (name === "http.server.request.duration") recorded.push(value);
+            },
           }),
           createCounter: () => ({ add() {} }),
         }),

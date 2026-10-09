@@ -19,6 +19,7 @@ import { getDatabaseRuntimeFingerprint } from "../db/runtime-diagnostics.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   flushObservability,
+  recordHttpServerHandoff,
   recordHttpServerRequest,
 } from "../observability/metrics.js";
 import {
@@ -485,22 +486,26 @@ async function emitTelemetry(
       // Response telemetry is best-effort. Never perturb request handling.
     }
   }
-  recordHttpServerRequest({
-    method: getMethod(event),
-    statusCode,
-    durationMs,
-    route,
-  });
-  const flush = (async () => {
+  const metric = { method: getMethod(event), statusCode, durationMs, route };
+  recordHttpServerRequest(metric);
+  const recordHandoff = () =>
+    recordHttpServerHandoff({
+      ...metric,
+      durationMs: Date.now() - state.startedAt,
+    });
+  const flush = async () => {
     await flushTrackingEvents(state.trackingScope);
     await flushObservability();
-  })();
+  };
   const waitUntil = responseWaitUntil(event);
   if (waitUntil) {
-    waitUntil(flush);
+    recordHandoff();
+    waitUntil(flush());
     return;
   }
-  await flush;
+  await flush();
+  // Recorded after the export it measures, so the next flush carries it.
+  recordHandoff();
 }
 
 type WaitUntil = (promise: Promise<unknown>) => void;

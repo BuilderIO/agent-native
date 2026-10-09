@@ -75,6 +75,7 @@ interface Meter {
 interface Instruments {
   meterProvider: ObservabilityMeterProvider;
   httpServerRequestDuration: MetricHistogram;
+  httpServerHandoffDuration: MetricHistogram;
   genAiOperationDuration: MetricHistogram;
   genAiTokenUsage: MetricHistogram;
   agentRuns: MetricCounter;
@@ -98,6 +99,15 @@ function instruments(): Instruments | undefined {
       "http.server.request.duration",
       {
         description: "Duration of HTTP server requests.",
+        unit: "s",
+        advice: { explicitBucketBoundaries: HTTP_SERVER_DURATION_BUCKETS_S },
+      },
+    ),
+    httpServerHandoffDuration: meter.createHistogram(
+      "agent_native.http.server.handoff.duration",
+      {
+        description:
+          "Time from the start of an HTTP server request until its response is handed back to the runtime, including post-handler work that holds it.",
         unit: "s",
         advice: { explicitBucketBoundaries: HTTP_SERVER_DURATION_BUCKETS_S },
       },
@@ -158,21 +168,37 @@ export interface HttpServerRequestMetric {
   route?: string;
 }
 
+function httpServerAttributes(
+  request: HttpServerRequestMetric,
+): MetricAttributes {
+  return {
+    "http.request.method": httpRequestMethod(request.method),
+    "http.response.status_code": request.statusCode,
+    ...(request.route ? { "http.route": request.route } : {}),
+    ...(request.statusCode >= 500
+      ? { "error.type": String(request.statusCode) }
+      : {}),
+  };
+}
+
 export function recordHttpServerRequest(
   request: HttpServerRequestMetric,
 ): void {
-  const recorded = instruments();
-  if (!recorded) return;
-  recorded.httpServerRequestDuration.record(
+  instruments()?.httpServerRequestDuration.record(
     Math.max(0, request.durationMs) / 1_000,
-    {
-      "http.request.method": httpRequestMethod(request.method),
-      "http.response.status_code": request.statusCode,
-      ...(request.route ? { "http.route": request.route } : {}),
-      ...(request.statusCode >= 500
-        ? { "error.type": String(request.statusCode) }
-        : {}),
-    },
+    httpServerAttributes(request),
+  );
+}
+
+// http.server.request.duration ends when the response hook starts; this ends
+// when the hook hands the response back, so work holding a finished response
+// (an awaited telemetry export) shows up as the gap between the two.
+export function recordHttpServerHandoff(
+  request: HttpServerRequestMetric,
+): void {
+  instruments()?.httpServerHandoffDuration.record(
+    Math.max(0, request.durationMs) / 1_000,
+    httpServerAttributes(request),
   );
 }
 

@@ -352,14 +352,17 @@ Los tramos finalizan con el estado OK/ERROR y registran un mensaje fijo derivado
 
 Core también registra métricas en cuanto el host registra un proveedor de medidores con `registerObservabilityProvider()` de `@agent-native/core/server`. Las métricas se registran para cada solicitud y ejecución, sin muestreo:
 
-| Instrumento                             | Atributos                                                                                    |
-| --------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
-| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
-| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
-| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
-| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
-| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+| Instrumento                                 | Atributos                                                                                    |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`              | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `agent_native.http.server.handoff.duration` | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`          | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`                 | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`                   | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`                   | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures`     | `error.type`, `agent_native.telemetry.signal`                                                |
+
+`agent_native.http.server.handoff.duration` tiene los mismos atributos y buckets que `http.server.request.duration`, pero termina cuando el hook de respuesta devuelve la respuesta al runtime en lugar de cuando el hook empieza. La diferencia entre sus percentiles es el tiempo que una respuesta ya terminada pasó esperando, por ejemplo un flush de telemetría en línea. Sin `waitUntil`, core registra la muestra después de ese flush, así que llega al backend con el siguiente.
 
 En las métricas, `gen_ai.tool.name` es el nombre de una acción del framework u `other`, y `gen_ai.request.model` es el ID del modelo solo cuando el motor lo declara como compatible; de lo contrario, `_OTHER`. Así, las herramientas definidas por la app y los ID de modelo proporcionados por quien llama no pueden crear series ilimitadas; los spans conservan los valores exactos.
 
