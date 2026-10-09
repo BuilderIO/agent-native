@@ -5,7 +5,6 @@ import { defineAction } from "../../action.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { assertAccess } from "../access.js";
 import { requireShareableResource } from "../registry.js";
-import { assertWidgetShareBinding } from "../widget-grant.js";
 import { resourceSharingChange } from "./change-result.js";
 import {
   getExtensionShareChangeTargets,
@@ -41,8 +40,7 @@ export default defineAction({
     principalType: z.enum(["user", "group", "org"]),
     principalId: z.string(),
   }),
-  run: async (args, context) => {
-    assertWidgetShareBinding(context, "unshare-resource", args);
+  run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
     const access = await assertAccess(
       args.resourceType,

@@ -6,7 +6,6 @@ import { organizations } from "../../org/schema.js";
 import { listWorkspaceUserGroupsForOrg } from "../../workspace-connections/groups.js";
 import { resolveAccess } from "../access.js";
 import { requireShareableResource } from "../registry.js";
-import { assertWidgetShareBinding } from "../widget-grant.js";
 
 async function loadOrgDisplayNames(
   db: any,
@@ -79,8 +78,7 @@ export default defineAction({
     resourceId: z.string(),
   }),
   http: { method: "GET" },
-  run: async (args, context) => {
-    assertWidgetShareBinding(context, "list-resource-shares", args);
+  run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
     const policy: {
       allowPublic: boolean;

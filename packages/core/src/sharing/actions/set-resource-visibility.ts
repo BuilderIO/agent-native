@@ -12,7 +12,6 @@ import {
   resolveRegisteredAccessContext,
 } from "../access.js";
 import { requireShareableResource } from "../registry.js";
-import { assertWidgetShareBinding } from "../widget-grant.js";
 import { resourceSharingChange } from "./change-result.js";
 import {
   getExtensionShareChangeTargets,
@@ -44,8 +43,7 @@ export default defineAction({
     );
     return access.resource.visibility !== "public";
   },
-  run: async (args, context) => {
-    assertWidgetShareBinding(context, "set-resource-visibility", args);
+  run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
     if (args.visibility === "public" && reg.allowPublic === false) {
       throw new ForbiddenError(
