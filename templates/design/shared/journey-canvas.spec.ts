@@ -135,11 +135,11 @@ function problems(raw: unknown): string[] {
 }
 
 describe("create-journey-canvas input", () => {
-  it("plans up to 500 journey nodes and rejects larger trees", () => {
+  it("plans up to 1,000 journey nodes and rejects larger trees", () => {
     const root = node("root", null, 1000);
     const nodes = [
       root,
-      ...Array.from({ length: 499 }, (_, index) =>
+      ...Array.from({ length: 999 }, (_, index) =>
         node(`root > branch-${index}`, "root", 1),
       ),
     ];
@@ -149,7 +149,7 @@ describe("create-journey-canvas input", () => {
       tree: { ...rawInput().tree, nodes },
     });
 
-    expect(planJourneyCanvas(parse(raw), "design-1").nodeCount).toBe(500);
+    expect(planJourneyCanvas(parse(raw), "design-1").nodeCount).toBe(1000);
     const oversized = createJourneyCanvasInputSchema.safeParse({
       ...raw,
       tree: {

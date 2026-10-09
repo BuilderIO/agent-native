@@ -62,6 +62,8 @@ sizes and persists the whole tree in one transaction.
 
 Options: `designId` (refresh that design), `cardWidth` (default 360),
 `maxExamplesPerNode` (default 3, at most 6), `includeScreenshotless` (default false).
+Each call accepts at most 1,000 journey nodes and 900 frame entries, with a
+256 MiB total screenshot-byte limit.
 `locale` selects the translated labels inside each standalone storyboard card;
 it defaults to `en-US`.
 `allowEncryptedPublicUploadFallback` defaults to `false`; set it to `true` only
