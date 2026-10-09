@@ -20,7 +20,6 @@ import {
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
-  type SettingsTabItem,
 } from "@agent-native/toolkit/app/settings";
 import { LanguagePicker } from "@agent-native/toolkit/app/shared";
 import { IconShield } from "@tabler/icons-react";
@@ -56,14 +55,10 @@ export function meta() {
 export interface DispatchSettingsPageProps {
   /** Raw CHANGELOG.md behind What's new. */
   changelog: string;
-  additionalSettingsTabs?: readonly SettingsTabItem[];
 }
 
 /** The template route supplies the app's own changelog. */
-export function DispatchSettingsPage({
-  changelog,
-  additionalSettingsTabs = [],
-}: DispatchSettingsPageProps) {
+export function DispatchSettingsPage({ changelog }: DispatchSettingsPageProps) {
   const t = useT();
   const connectAppsEnabled = useFeatureFlag(DISPATCH_CONNECT_APPS_FLAG.key);
   // Core Preferences owns the interface language in the redesigned Settings,
@@ -84,7 +79,6 @@ export function DispatchSettingsPage({
   });
   const settingsTabs = [
     ...agentSettingsTabs,
-    ...additionalSettingsTabs,
     {
       id: "admin",
       label: t("dispatch.nav.admin", { defaultValue: "Admin" }),
