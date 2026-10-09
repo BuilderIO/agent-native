@@ -1880,6 +1880,54 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
 });
 
 describe("DesignCanvas localhost screens never render a source snapshot", () => {
+  it("does not use stored legacy credentials without a registered connection", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) =>
+      Promise.reject(new Error(`Unexpected fetch: ${requestInfoUrl(input)}`)),
+    );
+    const onExternalContentSnapshot = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const unavailable = shouldShowLocalhostPreviewRecovery({
+      sourceType: "localhost",
+      connectionId: undefined,
+      snapshotOnly: false,
+      refreshFailed: false,
+      hasUsablePreviewCredentials: false,
+      connectionUnavailable: false,
+      canEdit: true,
+      publicUnavailable: false,
+      publicVisualEdit: false,
+    });
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/settings"
+          contentKey="legacy-screen-settings"
+          screenId="legacy-screen-settings"
+          sourceType="localhost"
+          bridgeUrl="http://127.0.0.1:7331"
+          previewToken="legacy-preview-token"
+          localhostPreviewUnavailable={unavailable}
+          onExternalContentSnapshot={onExternalContentSnapshot}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Reconnect this Screen's localhost connection in the inspector, then retry.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onExternalContentSnapshot).not.toHaveBeenCalled();
+    expect(container.querySelector('iframe[src*="localhost:5173"]')).toBeNull();
+  });
+
   it("does not load a localhost URL or snapshot without bridge entitlement", async () => {
     await act(async () => {
       root.render(
