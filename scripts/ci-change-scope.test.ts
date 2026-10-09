@@ -16,6 +16,10 @@ import {
   scriptTestsForPaths,
   workspaceFiltersForPaths,
 } from "./ci-change-scope.ts";
+import {
+  DESIGN_E2E_REGRESSION_SHARDS,
+  resolveDesignE2ERegressionPinsForShard,
+} from "./design-e2e-regression-pins.ts";
 import { resolveDesignE2ESpecs } from "./design-e2e-spec-selection.ts";
 
 test("recognizes documentation surfaces and package metadata", () => {
@@ -809,528 +813,39 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
   ].map(([, shard]) => shard);
   assert.deepEqual(shardEntries, [
-    "inspector-1a",
-    "inspector-1b",
-    "inspector-2",
-    "inspector-3a",
-    "inspector-3b",
-    "inspector-4a",
-    "inspector-4b",
-    "drag-1a",
-    "drag-1b",
-    "drag-2a",
-    "drag-2b",
-    "position-1a",
-    "position-1b",
-    "position-2a",
-    "position-2b",
-    "position-3",
+    ...DESIGN_E2E_REGRESSION_SHARDS,
     ...Array.from({ length: 24 }, (_, index) => `changed-${index + 1}`),
     "screen-history-1",
     "screen-history-2",
     "screen-history-3",
   ]);
-  const fixedLocations = (start: number, end: number) =>
-    [
-      ...regressionCases.slice(start, end).matchAll(/e2e\/[^ \n]+(?::\d+)?/g),
-    ].map(([location]) => location);
-  const shardStart = (name: string) =>
-    regressionCases.indexOf(`            ${name})`);
-  const inspectorOneAStart = shardStart("inspector-1a");
-  const inspectorOneBStart = shardStart("inspector-1b");
-  const inspectorTwoStart = shardStart("inspector-2");
-  const inspectorThreeAStart = shardStart("inspector-3a");
-  const inspectorThreeBStart = shardStart("inspector-3b");
-  const inspectorFourAStart = shardStart("inspector-4a");
-  const inspectorFourBStart = shardStart("inspector-4b");
-  const dragOneAStart = shardStart("drag-1a");
-  const dragOneBStart = shardStart("drag-1b");
-  const dragTwoAStart = shardStart("drag-2a");
-  const dragTwoBStart = shardStart("drag-2b");
-  assert.ok(
-    inspectorOneAStart >= 0 &&
-      inspectorOneBStart > inspectorOneAStart &&
-      inspectorTwoStart > inspectorOneBStart &&
-      inspectorThreeAStart > inspectorTwoStart &&
-      inspectorThreeBStart > inspectorThreeAStart &&
-      inspectorFourAStart > inspectorThreeBStart &&
-      inspectorFourBStart > inspectorFourAStart &&
-      dragOneAStart > inspectorFourBStart &&
-      dragOneBStart > dragOneAStart &&
-      dragTwoAStart > dragOneBStart &&
-      dragTwoBStart > dragTwoAStart,
-  );
-  assert.deepEqual(fixedLocations(inspectorOneAStart, inspectorOneBStart), [
-    "e2e/canvas-invariants.spec.ts:508",
-    "e2e/canvas-invariants.spec.ts:1286",
-    "e2e/inspector-styles.spec.ts:176",
-  ]);
-  assert.deepEqual(fixedLocations(inspectorOneBStart, inspectorTwoStart), [
-    "e2e/inspector-styles.spec.ts:238",
-    "e2e/inspector-styles.spec.ts:314",
-  ]);
-  assert.deepEqual(fixedLocations(inspectorTwoStart, inspectorThreeAStart), [
-    "e2e/canvas-invariants.spec.ts:383",
-    "e2e/canvas-invariants.spec.ts:538",
-    "e2e/inspector-styles.spec.ts:452",
-    "e2e/inspector-styles.spec.ts:610",
-    "e2e/inspector-styles.spec.ts:737",
-  ]);
-  assert.deepEqual(fixedLocations(inspectorFourAStart, inspectorFourBStart), [
-    "e2e/canvas-invariants.spec.ts:553",
-    "e2e/inspector-styles.spec.ts:541",
-    "e2e/inspector-styles.spec.ts:667",
-  ]);
-  assert.deepEqual(fixedLocations(inspectorFourBStart, dragOneAStart), [
-    "e2e/inspector-styles.spec.ts:798",
-    "e2e/inspector-styles.spec.ts:426",
-  ]);
-  assert.deepEqual(fixedLocations(inspectorThreeAStart, inspectorThreeBStart), [
-    "e2e/canvas-invariants.spec.ts:1170",
-    "e2e/inspector-styles.spec.ts:832",
-    "e2e/inspector-styles.spec.ts:998",
-  ]);
-  assert.deepEqual(fixedLocations(inspectorThreeBStart, inspectorFourAStart), [
-    "e2e/canvas-invariants.spec.ts:1320",
-    "e2e/inspector-styles.spec.ts:879",
-  ]);
-  assert.deepEqual(fixedLocations(dragOneAStart, dragOneBStart), [
-    "e2e/corner-radius-handle-drag.spec.ts:238",
-    "e2e/overview-wheel-zoom.spec.ts:183",
-  ]);
-  assert.deepEqual(fixedLocations(dragOneBStart, dragTwoAStart), [
-    "e2e/drag-and-drop.drag-feedback.spec.ts:24",
-    "e2e/drag-and-drop.moving-by-drag.spec.ts:42",
-  ]);
-  const positionOneAStart = shardStart("position-1a");
-  const positionOneBStart = shardStart("position-1b");
-  const positionTwoAStart = shardStart("position-2a");
-  const positionTwoBStart = shardStart("position-2b");
-  const positionThreeStart = shardStart("position-3");
-  const fallbackStart = shardStart("*");
-  assert.ok(
-    positionOneAStart >= 0 &&
-      positionOneBStart > positionOneAStart &&
-      positionTwoAStart > positionOneBStart &&
-      positionTwoBStart > positionTwoAStart &&
-      positionThreeStart > positionTwoBStart &&
-      fallbackStart > positionThreeStart,
-  );
-  assert.deepEqual(fixedLocations(dragTwoAStart, dragTwoBStart), [
-    "e2e/drag-and-drop.moving-by-drag.spec.ts:105",
-    "e2e/interaction-alt-drag-duplicate.spec.ts:1293",
-    "e2e/interaction-selection.spec.ts:313",
-  ]);
-  assert.deepEqual(fixedLocations(dragTwoBStart, positionOneAStart), [
-    "e2e/interaction-selection.spec.ts:451",
-    "e2e/interaction-selection.spec.ts:572",
-  ]);
-  assert.deepEqual(fixedLocations(positionOneAStart, positionOneBStart), [
-    "e2e/pasted-svg-image-inspector.spec.ts:656",
-    "e2e/pasted-svg-image-inspector.spec.ts:693",
-    "e2e/pasted-svg-image-inspector.spec.ts:1135",
-    "e2e/position-alignment.spec.ts:361",
-  ]);
-  assert.deepEqual(fixedLocations(positionOneBStart, positionTwoAStart), [
-    "e2e/pasted-svg-image-inspector.spec.ts:760",
-    "e2e/position-alignment.spec.ts:431",
-    "e2e/position-alignment.spec.ts:508",
-  ]);
-  assert.deepEqual(fixedLocations(positionTwoAStart, positionTwoBStart), [
-    "e2e/pasted-svg-image-inspector.spec.ts:891",
-    "e2e/position-alignment.spec.ts:292",
-    "e2e/position-alignment.spec.ts:568",
-  ]);
-  assert.deepEqual(fixedLocations(positionTwoBStart, positionThreeStart), [
-    "e2e/pasted-svg-image-inspector.spec.ts:1186",
-    "e2e/position-alignment.spec.ts:613",
-    "e2e/position-alignment.spec.ts:658",
-  ]);
-  assert.deepEqual(fixedLocations(positionThreeStart, fallbackStart), [
-    "e2e/position-alignment.spec.ts:312",
-    "e2e/position-alignment.spec.ts:705",
-    "e2e/position-alignment.spec.ts:737",
-    "e2e/position-alignment.spec.ts:776",
-  ]);
-  assert.ok(
-    regressionCases.includes(
-      "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
-    ),
-  );
-  assert.ok(
-    regressionCases.includes(
-      'pnpm exec playwright test "${focused_specs[@]}" --workers=1',
-    ),
-    "the fixed regression step must execute its explicit selectors",
-  );
-  assert.ok(
-    changedSpecRegressions.includes(
-      'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/24"',
-    ),
-  );
-  assert.ok(
-    changedSpecRegressions.includes(
-      "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
-    ),
-  );
-  assert.ok(
-    changedSpecRegressions.includes(
-      "DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}",
-    ),
-  );
-  assert.ok(
-    changedSpecRegressions.includes(
-      'node --experimental-strip-types ../../scripts/design-e2e-spec-selection.ts > "$changed_specs_file"',
-    ),
-    "changed-spec step must use the tested selector resolver",
-  );
-  assert.ok(
-    changedSpecRegressions.includes(
-      "mapfile -d '' -t existing_changed_specs < \"$changed_specs_file\"",
-    ),
-    "changed-spec step must preserve paths through NUL-delimited parsing",
-  );
-  const replaySmokeJobStart = workflow.indexOf(
-    "  pre-auth-session-replay-smoke:\n",
-  );
-  assert.notEqual(replaySmokeJobStart, -1);
-  const replaySmokeJobEnd = workflow.indexOf(
-    "\n  fast-tests:",
-    replaySmokeJobStart,
-  );
-  const replaySmokeJob = workflow.slice(
-    replaySmokeJobStart,
-    replaySmokeJobEnd === -1 ? undefined : replaySmokeJobEnd,
-  );
-  assert.ok(
-    workflow.includes(
-      "pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}",
-    ),
-  );
-  assert.ok(
-    replaySmokeJob.includes(
-      "if: needs.change-scope.outputs.pre_auth_session_replay_e2e == 'true'",
-    ),
-  );
-  assert.ok(
-    replaySmokeJob.includes('E2E_DISABLE_AUTO_DEV_ACCOUNT: "1"') &&
-      replaySmokeJob.includes(
-        "pnpm exec playwright test e2e/pre-auth-session-replay-smoke.spec.ts --workers=1",
-      ),
-  );
-  assert.ok(
-    /if \(\(\$\{#existing_changed_specs\[@\]\} == 0\)\); then\s+echo "No runnable changed Design E2E specs remain\."\s+exit 0\s+fi/.test(
-      changedSpecRegressions,
-    ),
-    "a valid selector containing only removed files must be a successful no-op",
-  );
   assert.doesNotMatch(
-    changedSpecRegressions,
-    /Changed-spec shard received an empty selector/,
-    "deleted-only selectors must not be confused with invalid empty input",
-  );
-  const fastTestsJobStart = workflow.indexOf("  fast-tests:\n");
-  assert.notEqual(fastTestsJobStart, -1, "missing fast-tests workflow job");
-  const nextJobHeader = workflow
-    .slice(fastTestsJobStart + 1)
-    .match(/\n  [a-z][a-z0-9_-]*:\n/);
-  const nextJobIndex = nextJobHeader?.index;
-  const fastTestsJobEnd =
-    nextJobIndex === undefined
-      ? undefined
-      : fastTestsJobStart + 1 + nextJobIndex;
-  const fastTestsJob = workflow.slice(fastTestsJobStart, fastTestsJobEnd);
-  assert.doesNotMatch(
-    fastTestsJob,
-    /\n  [a-z][a-z0-9_-]*:\n/,
-    "fast-tests assertions must stop before the next top-level job",
-  );
-  const needsStart = fastTestsJob.indexOf("    needs:");
-  const needsEnd = fastTestsJob.indexOf("    if:", needsStart);
-  assert.ok(
-    fastTestsJob
-      .slice(needsStart, needsEnd)
-      .includes("design-canvas-interaction-acceptance"),
-  );
-  assert.ok(
-    fastTestsJob.includes(
-      "DESIGN_CANVAS_RESULT: ${{ needs.design-canvas-interaction-acceptance.result }}",
-    ),
-  );
-  assert.ok(
-    fastTestsJob.includes('if [ "$DESIGN_CANVAS_E2E" = "true" ]; then'),
-  );
-  assert.ok(
-    fastTestsJob.includes('if [ "$DESIGN_CANVAS_RESULT" != "success" ]; then'),
-  );
-  assert.ok(
-    fastTestsJob
-      .slice(needsStart, needsEnd)
-      .includes("pre-auth-session-replay-smoke"),
-  );
-  assert.ok(
-    fastTestsJob.includes(
-      "PRE_AUTH_REPLAY_RESULT: ${{ needs.pre-auth-session-replay-smoke.result }}",
-    ),
+    regressionCases,
+    /e2e\/[^\s:]+\.spec\.ts:\d+/,
+    "fixed regression selectors must be resolved from titles, not stored line numbers",
   );
   assert.match(
-    fastTestsJob,
-    /if \[ "\$PRE_AUTH_REPLAY_E2E" = "true" \]; then\s+if \[ "\$PRE_AUTH_REPLAY_RESULT" != "success" \]; then\s+echo "::error::pre-auth session replay smoke did not succeed \(\$PRE_AUTH_REPLAY_RESULT\)"\s+exit 1\s+fi/,
+    regressionCases,
+    /node --experimental-strip-types \.\.\/\.\.\/scripts\/design-e2e-regression-pins\.ts "\$\{\{ matrix\.shard \}\}" > "\$focused_specs_file"/,
+    "each fixed regression shard must resolve its current selectors from the title manifest",
   );
   assert.match(
-    fastTestsJob,
-    /if \[ "\$DESIGN_CANVAS_E2E" = "true" \]; then\s+if \[ "\$DESIGN_CANVAS_RESULT" != "success" \]; then\s+echo "::error::Design canvas interaction acceptance did not succeed \(\$DESIGN_CANVAS_RESULT\)"\s+exit 1\s+fi/,
+    regressionCases,
+    /mapfile -d '' -t focused_specs < "\$focused_specs_file"/,
+    "the resolver output must become the Playwright selector list",
   );
-  const selectedTests = [
-    [
-      "e2e/canvas-invariants.spec.ts",
-      383,
-      "X/Y match the element's real position, not 0,0",
-    ],
-    [
-      "e2e/canvas-invariants.spec.ts",
-      538,
-      "setting X moves the element by exactly that amount",
-    ],
-    [
-      "e2e/canvas-invariants.spec.ts",
-      553,
-      "setting Y moves the element by exactly that amount",
-    ],
-    [
-      "e2e/canvas-invariants.spec.ts",
-      508,
-      "a child of an auto-layout parent still reports real geometry",
-    ],
-    [
-      "e2e/canvas-invariants.spec.ts",
-      1286,
-      "deleting a layer removes it from the document",
-    ],
-    [
-      "e2e/canvas-invariants.spec.ts",
-      1170,
-      "Escape on a rect drawn inside a frame clears, and never lands on the screen",
-    ],
-    [
-      "e2e/canvas-invariants.spec.ts",
-      1320,
-      "basic authoring raises no uncaught page errors",
-    ],
-    [
-      "e2e/inspector-styles.spec.ts",
-      176,
-      "text fills hide and restore without losing the original color",
-    ],
-    [
-      "e2e/inspector-styles.spec.ts",
-      238,
-      "selection hide and Appearance visibility stay in sync with opacity",
-    ],
-    [
-      "e2e/inspector-styles.spec.ts",
-      314,
-      "text gradient apply and removal survive reselection; box gradient editor persists",
-    ],
-    [
-      "e2e/inspector-styles.spec.ts",
-      426,
-      "style layer row actions stay visible and toggle visibility state",
-    ],
-    [
-      "e2e/inspector-styles.spec.ts",
-      452,
-      "typography edits update size and spacing inputs",
-    ],
-    [
-      "e2e/inspector-styles.spec.ts",
-      541,
-      "search selects Lato Medium and keeps custom font names offline",
-    ],
-    [
-      "e2e/inspector-styles.spec.ts",
-      610,
-      "numeric scrub handles use terse tooltips and drag from compact labels",
-    ],
-    [
-      "e2e/inspector-styles.spec.ts",
-      667,
-      "numeric input applies arithmetic expressions and starts an Option scrub drag",
-    ],
-    [
-      "e2e/inspector-styles.spec.ts",
-      737,
-      "appearance controls use droplet blend menu and inline independent corners",
-    ],
-    [
-      "e2e/inspector-styles.spec.ts",
-      798,
-      "export rows add, remove, and reset when selection changes",
-    ],
-    [
-      "e2e/inspector-styles.spec.ts",
-      832,
-      "resizing a selected element emits a visual-style-change payload",
-    ],
-    [
-      "e2e/inspector-styles.spec.ts",
-      879,
-      "pointercancel restores a scrubbed value without adding a history step",
-    ],
-    [
-      "e2e/inspector-styles.spec.ts",
-      998,
-      "can capture a screenshot of inspector coverage via CDP",
-    ],
-    [
-      "e2e/drag-and-drop.drag-feedback.spec.ts",
-      24,
-      "snap guides appear when an edge aligns with a sibling",
-    ],
-    [
-      "e2e/drag-and-drop.moving-by-drag.spec.ts",
-      42,
-      "dropping over a sibling keeps the moved position after reload",
-    ],
-    [
-      "e2e/drag-and-drop.moving-by-drag.spec.ts",
-      105,
-      "Alt+drag leaves the original and creates a copy",
-    ],
-    [
-      "e2e/interaction-selection.spec.ts",
-      313,
-      "board regression: an overlapping Frame drop into another board Frame persists after reload",
-    ],
-    [
-      "e2e/interaction-selection.spec.ts",
-      451,
-      "board regression: overlapping board Frames keep the pointer drop without cancel or revert",
-    ],
-    [
-      "e2e/interaction-selection.spec.ts",
-      572,
-      "selected nested frame drag from its grandchild tracks the pointer and persists",
-    ],
-    [
-      "e2e/corner-radius-handle-drag.spec.ts",
-      238,
-      "canvas corner-radius handle follows the drag and persists the radius",
-    ],
-    [
-      "e2e/overview-wheel-zoom.spec.ts",
-      183,
-      "the zoom percentage input updates the overview canvas scale",
-    ],
-    [
-      "e2e/pasted-svg-image-inspector.spec.ts",
-      656,
-      "clipboard SVG File paste in the parent editor stays editable after reload",
-    ],
-    [
-      "e2e/pasted-svg-image-inspector.spec.ts",
-      693,
-      "rejected SVG HTML is consumed instead of inserted as native markup",
-    ],
-    [
-      "e2e/pasted-svg-image-inspector.spec.ts",
-      760,
-      "Figma frame paste uses the live Design scene and updates the selected frame inspector",
-    ],
-    [
-      "e2e/pasted-svg-image-inspector.spec.ts",
-      891,
-      "Figma paste plans can insert a frame into the Design board and persist it",
-    ],
-    [
-      "e2e/pasted-svg-image-inspector.spec.ts",
-      1135,
-      "clipboard SVG File paste relayed from a Screen iframe stays in that Screen",
-    ],
-    [
-      "e2e/pasted-svg-image-inspector.spec.ts",
-      1186,
-      "clipboard SVG File paste from the board iframe targets the selected Screen",
-    ],
-    [
-      "e2e/position-alignment.spec.ts",
-      292,
-      "Left and Right alignment controls move to their named edges",
-    ],
-    [
-      "e2e/position-alignment.spec.ts",
-      312,
-      "Top and Bottom alignment controls move to their named edges",
-    ],
-    [
-      "e2e/position-alignment.spec.ts",
-      361,
-      "Auto Layout matrix centers both axes and persists after reload",
-    ],
-    [
-      "e2e/position-alignment.spec.ts",
-      431,
-      "canvas and Layers selection show parent-relative position after iframe scroll",
-    ],
-    [
-      "e2e/position-alignment.spec.ts",
-      508,
-      "fixed Position stays viewport-relative after iframe scroll and reload",
-    ],
-    [
-      "e2e/position-alignment.spec.ts",
-      568,
-      "Position stays Frame-relative through Groups and resets at nested Frames",
-    ],
-    [
-      "e2e/position-alignment.spec.ts",
-      613,
-      "Position edits use the CSS containing block through static wrappers and borders",
-    ],
-    [
-      "e2e/position-alignment.spec.ts",
-      658,
-      "Position stays Frame-relative through a positioned plain wrapper",
-    ],
-    [
-      "e2e/position-alignment.spec.ts",
-      705,
-      "unframed absolute positions use the initial containing block through static wrappers",
-    ],
-    [
-      "e2e/position-alignment.spec.ts",
-      737,
-      "Position edits invert own and static-containing-block transforms and persist",
-    ],
-    [
-      "e2e/position-alignment.spec.ts",
-      776,
-      "Align uses a Group's bounds while Position stays Frame-relative",
-    ],
-    [
-      "e2e/interaction-alt-drag-duplicate.spec.ts",
-      1293,
-      "copies a root auto-layout Frame as a selected board-root layer and preserves its original",
-    ],
-  ] as const;
-  for (const [file, line, title] of selectedTests) {
-    const location = `${file}:${line}`;
-    assert.ok(regressionCases.includes(location), location);
-    const sourceLines = readFileSync(`templates/design/${file}`, "utf8").split(
-      "\n",
-    );
-    assert.match(sourceLines[line - 1] ?? "", /^\s*test\s*\(/, location);
-    const testStart = sourceLines.findIndex((sourceLine) =>
-      sourceLine.includes(`test(\"${title}\"`),
-    );
-    assert.notEqual(testStart, -1, location);
-    const nextTestStart = sourceLines.findIndex(
-      (sourceLine, index) =>
-        index > testStart && /^\s*test\s*\(/.test(sourceLine),
-    );
-    const testEnd = nextTestStart === -1 ? sourceLines.length : nextTestStart;
-    assert.ok(line - 1 >= testStart && line - 1 < testEnd, location);
-  }
+  assert.match(
+    regressionCases,
+    /pnpm exec playwright test "\$\{focused_specs\[@\]\}" --workers=1/,
+    "resolved fixed regression selectors must run serially",
+  );
+  assert.equal(
+    DESIGN_E2E_REGRESSION_SHARDS.flatMap((shard) =>
+      resolveDesignE2ERegressionPinsForShard(shard),
+    ).length,
+    46,
+    "the title manifest must retain every fixed regression pin",
+  );
 });
 
 test("splits every changed Design E2E spec across 24 bounded shards", () => {
@@ -1362,8 +877,8 @@ test("runs fixed Design regression pins even when their spec files changed", () 
 
   assert.match(
     regressionCases,
-    /^          focused_specs=\("\$\{fixed_specs\[@\]\}"\)$/m,
-    "fixed behavior pins must run in their dedicated shard regardless of changed files",
+    /^          node --experimental-strip-types \.\.\/\.\.\/scripts\/design-e2e-regression-pins\.ts "\$\{\{ matrix\.shard \}\}"/m,
+    "fixed behavior pins must resolve in their dedicated shard regardless of changed files",
   );
   assert.doesNotMatch(
     regressionCases,

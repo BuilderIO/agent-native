@@ -553,123 +553,13 @@ jobs:
         run: |
           set -euo pipefail
           # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.
-          case "${{ matrix.shard }}" in
-            inspector-1a)
-              fixed_specs=( \
-                e2e/canvas-invariants.spec.ts:508 \
-                e2e/canvas-invariants.spec.ts:1286 \
-                e2e/inspector-styles.spec.ts:176 \
-              )
-              ;;
-            inspector-1b)
-              fixed_specs=( \
-                e2e/inspector-styles.spec.ts:238 \
-                e2e/inspector-styles.spec.ts:314 \
-              )
-              ;;
-            inspector-2)
-              fixed_specs=( \
-                e2e/canvas-invariants.spec.ts:383 \
-                e2e/canvas-invariants.spec.ts:538 \
-                e2e/inspector-styles.spec.ts:452 \
-                e2e/inspector-styles.spec.ts:610 \
-                e2e/inspector-styles.spec.ts:737 \
-              )
-              ;;
-            inspector-3a)
-              fixed_specs=( \
-                e2e/canvas-invariants.spec.ts:1170 \
-                e2e/inspector-styles.spec.ts:832 \
-                e2e/inspector-styles.spec.ts:998 \
-              )
-              ;;
-            inspector-3b)
-              fixed_specs=( \
-                e2e/canvas-invariants.spec.ts:1320 \
-                e2e/inspector-styles.spec.ts:879 \
-              )
-              ;;
-            inspector-4a)
-              fixed_specs=( \
-                e2e/canvas-invariants.spec.ts:553 \
-                e2e/inspector-styles.spec.ts:541 \
-                e2e/inspector-styles.spec.ts:667 \
-              )
-              ;;
-            inspector-4b)
-              fixed_specs=( \
-                e2e/inspector-styles.spec.ts:798 \
-                e2e/inspector-styles.spec.ts:426 \
-              )
-              ;;
-            drag-1a)
-              fixed_specs=( \
-                e2e/corner-radius-handle-drag.spec.ts:238 \
-                e2e/overview-wheel-zoom.spec.ts:183 \
-              )
-              ;;
-            drag-1b)
-              fixed_specs=( \
-                e2e/drag-and-drop.drag-feedback.spec.ts:24 \
-                e2e/drag-and-drop.moving-by-drag.spec.ts:42 \
-              )
-              ;;
-            drag-2a)
-              fixed_specs=( \
-                e2e/drag-and-drop.moving-by-drag.spec.ts:105 \
-                e2e/interaction-alt-drag-duplicate.spec.ts:1293 \
-                e2e/interaction-selection.spec.ts:313 \
-              )
-              ;;
-            drag-2b)
-              fixed_specs=( \
-                e2e/interaction-selection.spec.ts:451 \
-                e2e/interaction-selection.spec.ts:572 \
-              )
-              ;;
-            position-1a)
-              fixed_specs=( \
-                e2e/pasted-svg-image-inspector.spec.ts:656 \
-                e2e/pasted-svg-image-inspector.spec.ts:693 \
-                e2e/pasted-svg-image-inspector.spec.ts:1135 \
-                e2e/position-alignment.spec.ts:361 \
-              )
-              ;;
-            position-1b)
-              fixed_specs=( \
-                e2e/pasted-svg-image-inspector.spec.ts:760 \
-                e2e/position-alignment.spec.ts:431 \
-                e2e/position-alignment.spec.ts:508 \
-              )
-              ;;
-            position-2a)
-              fixed_specs=( \
-                e2e/pasted-svg-image-inspector.spec.ts:891 \
-                e2e/position-alignment.spec.ts:292 \
-                e2e/position-alignment.spec.ts:568 \
-              )
-              ;;
-            position-2b)
-              fixed_specs=( \
-                e2e/pasted-svg-image-inspector.spec.ts:1186 \
-                e2e/position-alignment.spec.ts:613 \
-                e2e/position-alignment.spec.ts:658 \
-              )
-              ;;
-            position-3)
-              fixed_specs=( \
-                e2e/position-alignment.spec.ts:312 \
-                e2e/position-alignment.spec.ts:705 \
-                e2e/position-alignment.spec.ts:737 \
-                e2e/position-alignment.spec.ts:776 \
-              )
-              ;;
-            *)
-              echo "::error::Unknown Design interaction shard: ${{ matrix.shard }}"
-              exit 1
-              ;;
-          esac
-          focused_specs=("${fixed_specs[@]}")
+          focused_specs_file="$RUNNER_TEMP/design-regression-pins.nul"
+          node --experimental-strip-types ../../scripts/design-e2e-regression-pins.ts "${{ matrix.shard }}" > "$focused_specs_file"
+          mapfile -d '' -t focused_specs < "$focused_specs_file"
+          if (( ${#focused_specs[@]} == 0 )); then
+            echo "::error::No Design regression pins resolved for shard ${{ matrix.shard }}"
+            exit 2
+          fi
           pnpm exec playwright test "${focused_specs[@]}" --workers=1
 
   pre-auth-session-replay-smoke:
