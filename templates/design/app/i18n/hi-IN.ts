@@ -2,6 +2,7 @@ export default {
   journeyCanvas: {
     observedSessionReference: "देखे गए सत्र का संदर्भ",
     sessionsOfAll: "{count} सत्र · कुल का {percent}",
+    sessionsOfAppRoot: "{count} सत्र · {app} समूह का {percent} (n={rootCount})",
     sessionsOfPrevious: "{count} सत्र · पिछले चरण का {percent}",
     sessionsOfParent: "{count} सत्र · {label} का {percent}",
     sessionsOfStep: "{count} सत्र · इस चरण का {percent}",
@@ -44,11 +45,17 @@ export default {
     promptSource: "Prompt (स्रोत)",
     source: "स्रोत",
     promptNotCaptured: "Prompt कैप्चर नहीं हुआ",
+    actorUnavailable: "कर्ता उपलब्ध नहीं",
+    replayDetails: "रीप्ले और स्रोत का विवरण",
+    sourceApp: "स्रोत ऐप",
+    route: "कैप्चर किया गया मार्ग",
+    recordingStarted: "रिकॉर्डिंग शुरू हुई",
+    appBandHeading: "{app} · {count} सत्र",
     journeyTitleSummary: "{app} · {from} से {to} · {count} सत्र{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} से {to} · ऐप के अनुसार अलग-अलग समूह{partial}",
     sessionCount: "{count} सत्र",
     otherPaths: "अन्य रास्ते",
-    capturedDate: "कैप्चर की तारीख {date}{examples}",
-    additionalExamples: " · {count} उदाहरण",
     htmlLanguage: "hi-IN",
   },
   composer: { menu: { integrations: "इंटीग्रेशन" } },
@@ -993,6 +1000,8 @@ export default {
       "फ़ाइलें बनाने से पहले जनरेशन रुक गया। उसी प्रॉम्प्ट से जारी रखने के लिए फिर कोशिश करें।",
     generationStoppedCheckAgent:
       "फ़ाइलें बनाने से पहले जनरेशन रुक गया। एजेंट संदेश देखें या फिर कोशिश करें।",
+    invalidCanvasDimensions:
+      "अनुरोधित कैनवास आकार समर्थित नहीं है। संपादक की सीमाओं के भीतर सकारात्मक पिक्सेल आयामों का उपयोग करें।",
     notFound: "डिज़ाइन नहीं मिला",
     backToDesigns: "डिज़ाइन पर वापस जाएँ",
     designNotFoundDescription: "यह डिज़ाइन मौजूद नहीं है या हटा दिया गया है।",

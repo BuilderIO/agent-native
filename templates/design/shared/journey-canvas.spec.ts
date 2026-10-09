@@ -122,6 +122,44 @@ function rawInput(overrides: Partial<RawInput> = {}): RawInput {
   };
 }
 
+function appBandsInput(overrides: Partial<RawInput> = {}): RawInput {
+  const clipsRoot = node("clips::root", null, 100, {
+    pctOfRoot: 100,
+    pctOfParent: 100,
+  });
+  const clipsChild = node("clips::child", "clips::root", 60, {
+    pctOfRoot: 60,
+    pctOfParent: 60,
+  });
+  const designRoot = node("design::root", null, 40, {
+    pctOfRoot: 100,
+    pctOfParent: 100,
+  });
+  const designChild = node("design::child", "design::root", 20, {
+    pctOfRoot: 50,
+    pctOfParent: 50,
+  });
+  const base = rawInput();
+  return {
+    ...base,
+    layoutMode: "appBands",
+    tree: {
+      ...base.tree,
+      app: "all",
+      rootN: 140,
+      appRootN: { clips: 100, design: 40 },
+      nodes: [clipsRoot, clipsChild, designRoot, designChild],
+    },
+    frames: [
+      frame(clipsRoot.key, 0),
+      frame(clipsChild.key, 0),
+      frame(designRoot.key, 0),
+      frame(designChild.key, 0),
+    ],
+    ...overrides,
+  };
+}
+
 const parse = (raw: RawInput) => createJourneyCanvasInputSchema.parse(raw);
 const plan = (raw: RawInput = rawInput()) =>
   planJourneyCanvas(parse(raw), "design-1");
@@ -172,6 +210,7 @@ describe("create-journey-canvas input", () => {
     expect(input.maxExamplesPerNode).toBe(3);
     expect(input.includeScreenshotless).toBe(false);
     expect(input.allowEncryptedPublicUploadFallback).toBe(false);
+    expect(input.layoutMode).toBe("tree");
     expect(input.tree.nodes[0]?.referenceOnly).toBe(false);
   });
 
@@ -255,6 +294,37 @@ describe("create-journey-canvas input", () => {
       ],
     });
     expect(problems(mismatchedSourceApp).join("\n")).toMatch(/sourceApp/);
+  });
+
+  it("validates app-band roots against independent app denominators", () => {
+    expect(problems(appBandsInput())).toEqual([]);
+
+    const wrongDenominator = appBandsInput();
+    wrongDenominator.tree.appRootN = { clips: 100, design: 80 };
+    expect(problems(wrongDenominator).join("\n")).toMatch(
+      /Node "design::root" percent does not use the design cohort denominator/,
+    );
+
+    const crossAppParent = appBandsInput();
+    crossAppParent.tree.nodes[1]!.parentKey = "design::root";
+    expect(problems(crossAppParent).join("\n")).toMatch(
+      /App-band parent links must stay within the same app cohort/,
+    );
+
+    const missingPrefix = appBandsInput();
+    missingPrefix.tree.nodes[0]!.key = "root";
+    expect(problems(missingPrefix).join("\n")).toMatch(
+      /App-band nodes need an app-prefixed key/,
+    );
+
+    const inheritedDenominator = appBandsInput();
+    inheritedDenominator.tree.nodes[2]!.key = "constructor::root";
+    inheritedDenominator.tree.nodes[3]!.key = "constructor::child";
+    inheritedDenominator.tree.nodes[3]!.parentKey = "constructor::root";
+    inheritedDenominator.tree.appRootN = { clips: 100 };
+    expect(problems(inheritedDenominator).join("\n")).toMatch(
+      /Pass the root denominator for the constructor cohort/,
+    );
   });
 
   it("rejects data: and non-https image URLs with a clear message", () => {
@@ -389,6 +459,7 @@ describe("create-journey-canvas input", () => {
       "designId",
       "frames",
       "includeScreenshotless",
+      "layoutMode",
       "locale",
       "maxExamplesPerNode",
       "title",
@@ -449,6 +520,88 @@ describe("journey canvas direction", () => {
 });
 
 describe("planJourneyCanvas", () => {
+  it("places app cohorts in separate bands and labels each root with its own denominator", () => {
+    const input = parse(appBandsInput());
+    const result = planJourneyCanvas(input, "design-bands");
+    const screen = (key: string) =>
+      result.screens.find((candidate) => candidate.nodeKey === key)!;
+    const clipsRoot = screen("clips::root");
+    const clipsChild = screen("clips::child");
+    const designRoot = screen("design::root");
+    const designChild = screen("design::child");
+    const fragments = result.boardFragments({ x: 0, y: 0 }).join("\n");
+
+    expect(designRoot.frame.x).toBeGreaterThan(clipsChild.frame.x);
+    expect(clipsRoot.frame.y).toBe(designRoot.frame.y);
+    expect(clipsRoot.html).toContain(
+      "100 sessions · 100% of Clips cohort (n=100)",
+    );
+    expect(designRoot.html).toContain(
+      "40 sessions · 100% of Design cohort (n=40)",
+    );
+    expect(clipsChild.html).toContain("60 sessions · 60% of previous");
+    expect(designChild.html).toContain("20 sessions · 50% of previous");
+    expect(fragments).toContain("Clips · 100 sessions");
+    expect(fragments).toContain("Design · 40 sessions");
+    expect(
+      fragments.match(/data-agent-native-layer-name="Journey edge"/g),
+    ).toHaveLength(2);
+    expect(fragments).toContain("separate per-app cohorts");
+    expect(fragments).not.toContain("140 sessions");
+  });
+
+  it("places the main onboarding component before independent app roots without joining them", () => {
+    const base = rawInput();
+    const routeRoot = node("clips::page:/record", null, 90, {
+      pctOfRoot: 90,
+      pctOfParent: 90,
+    });
+    const roleRoot = node(
+      "clips::page:/library > app:entered > step:role",
+      null,
+      40,
+      { pctOfRoot: 40, pctOfParent: 40 },
+    );
+    const choice = node(
+      "clips::page:/library > app:entered > step:role > step:choice",
+      roleRoot.key,
+      30,
+      { pctOfRoot: 30, pctOfParent: 75 },
+    );
+    const input = parse(
+      rawInput({
+        layoutMode: "appBands",
+        tree: {
+          ...base.tree,
+          app: "all",
+          rootN: 100,
+          appRootN: { clips: 100 },
+          nodes: [routeRoot, roleRoot, choice],
+        },
+        frames: [
+          frame(routeRoot.key, 0),
+          frame(roleRoot.key, 0),
+          frame(choice.key, 0),
+        ],
+      }),
+    );
+    const result = planJourneyCanvas(input, "design-bands");
+    const screen = (key: string) =>
+      result.screens.find((candidate) => candidate.nodeKey === key)!;
+    const fragments = result.boardFragments({ x: 0, y: 0 }).join("\n");
+
+    expect(screen(roleRoot.key).frame.y).toBeLessThan(
+      screen(routeRoot.key).frame.y,
+    );
+    expect(screen(roleRoot.key).frame.y).toBe(screen(choice.key).frame.y);
+    expect(screen(choice.key).frame.x).toBeGreaterThan(
+      screen(roleRoot.key).frame.x,
+    );
+    expect(
+      fragments.match(/data-agent-native-layer-name="Journey edge"/g),
+    ).toHaveLength(1);
+  });
+
   it("renders a card per node with a frame, stubs for last-observed steps and other, and lists the rest", () => {
     const result = plan();
     expect(result.nodeCount).toBe(4);
@@ -566,11 +719,15 @@ describe("planJourneyCanvas", () => {
       checkpointOffsetMs: 4_000,
       replayObservedAt: null,
       screenshotCapturedAt: "2026-10-08T09:30:00.000Z",
+      sourceApp: "design",
     });
-    expect(root.html).toContain("Event time (UTC) 2026-10-01T12:00:00.000Z");
-    expect(root.html).toContain("Recording ID rec-signup-1");
-    expect(root.html).toContain("Replay offset 4,000 ms");
-    expect(root.html).toContain("Screenshot captured 2026-10-08");
+    expect(root.html).toContain("Event time (UTC): 2026-10-01T12:00:00.000Z");
+    expect(root.html).toContain("Replay and source details");
+    expect(root.html).toContain("Recording ID: rec-signup-1");
+    expect(root.html).toContain("Replay offset: 4,000 ms");
+    expect(root.html).toContain(
+      "Screenshot captured: 2026-10-08T09:30:00.000Z",
+    );
     expect(root.frame.height).toBe(
       CARD_PROVENANCE_HEADER_HEIGHT + 20 + 12 + 225,
     );
@@ -601,16 +758,14 @@ describe("planJourneyCanvas", () => {
       replayObservedAt: "2026-10-01T12:00:00.600Z",
     });
     expect(root.attachment?.offsetMs).toBe(4_600);
-    expect(root.html).toContain("Replay offset 4,600 ms");
-    expect(root.html).not.toContain("Checkpoint seek target 4,000 ms");
-    expect(root.html).toContain("Analytics checkpoint offset 4,000 ms");
-    expect(root.html).toContain("Replay observed 2026-10-01T12:00:00.600Z UTC");
-    expect(root.frame.height).toBe(
-      CARD_PROVENANCE_HEADER_HEIGHT + 20 + 12 + 225,
-    );
+    expect(root.html).toContain("Replay offset: 4,600 ms");
+    expect(root.html).not.toContain("Checkpoint seek target: 4,000 ms");
+    expect(root.html).toContain("Analytics checkpoint offset: 4,000 ms");
+    expect(root.html).toContain("Replay observed: 2026-10-01T12:00:00.600Z");
+    expect(root.frame.height).toBe(CARD_PROVENANCE_HEADER_HEIGHT + 12 + 225);
   });
 
-  it("reserves header space when the observed replay time adds a provenance row", () => {
+  it("keeps replay timing in the disclosure without increasing the visible header", () => {
     const checkpointFrame = frame("signup", 0, { screenshotOffsetMs: 4_000 });
     const observedFrame = frame("signup", 0, {
       screenshotOffsetMs: 4_000,
@@ -627,12 +782,12 @@ describe("planJourneyCanvas", () => {
       "2026-10-01T12:00:00.300Z",
     );
     expect(observed.html).toContain(
-      "Replay observed 2026-10-01T12:00:00.300Z UTC",
+      "Replay observed: 2026-10-01T12:00:00.300Z",
     );
-    expect(observed.frame.height).toBe(checkpoint.frame.height + 10);
+    expect(observed.frame.height).toBe(checkpoint.frame.height);
   });
 
-  it("counts the recording label when a long ID wraps in the provenance row", () => {
+  it("keeps long recording IDs in the expandable provenance without changing card geometry", () => {
     const base = rawInput();
     const root = base.tree.nodes[0]!;
     const longRoot = {
@@ -653,8 +808,8 @@ describe("planJourneyCanvas", () => {
       rawInput({ cardWidth: 320, tree, frames }),
     ).screens.find((screen) => screen.nodeKey === "signup")!;
 
-    expect(longId.html).toContain(`Recording ID ${"r".repeat(48)}`);
-    expect(longId.frame.height).toBe(shortId.frame.height + 10);
+    expect(longId.html).toContain(`Recording ID: ${"r".repeat(48)}`);
+    expect(longId.frame.height).toBe(shortId.frame.height);
   });
 
   it("labels cohort sessions that continue beyond pictured child paths", () => {
@@ -737,7 +892,7 @@ describe("planJourneyCanvas", () => {
       expect(screen.provenance?.offsetMs).toBe(
         journeyNode.examples[0]?.offsetMs,
       );
-      expect(screen.html).toContain("Screenshot captured 2026-10-08");
+      expect(screen.html).toContain("Screenshot captured: 2026-10-08T");
     }
     const libraryFrames = result.screens
       .filter((screen) => screen.nodeKey === "signup > Skip > Library")
@@ -824,7 +979,6 @@ describe("planJourneyCanvas", () => {
             outputTitle: "Create test case modal",
             observedState: "The first output is visible.",
             actor: "second-actor@example.test",
-            actorSource: "recording metadata",
             dateLabel: "Event time (UTC)",
             evidenceStatus: "rendered_output_observed",
             prompt: "Create a modal for test cases.",
@@ -844,24 +998,40 @@ describe("planJourneyCanvas", () => {
 
     expect(screens).toHaveLength(2);
     expect(exampleHeader(0)).toContain(
-      "Event time (UTC) 2026-10-01T17:49:59.308Z",
+      "Event time (UTC): 2026-10-01T17:49:59.308Z",
     );
     expect(exampleHeader(0)).not.toContain("Replay observation (UTC)");
     expect(exampleHeader(0)).toContain(
       "Actor (recording): first-actor@example.test",
     );
     expect(exampleHeader(0)).toContain("Prompt is visible before generation.");
+    expect(exampleHeader(0)).toContain(
+      'title="Observed state: Prompt is visible before generation."',
+    );
+    expect(exampleHeader(0)).toContain(
+      'title="Actor (recording): first-actor@example.test (Actor source: recording metadata)"',
+    );
     expect(exampleHeader(0)).toContain("Prompt: Build a prototype.");
     expect(exampleHeader(0)).toContain("Build a &lt;test&gt; prototype.");
     expect(exampleHeader(1)).toContain(
-      "Event time (UTC) 2026-10-01T17:51:39.308Z",
+      "Event time (UTC): 2026-10-01T17:51:39.308Z",
     );
     expect(exampleHeader(1)).toContain(
       'title="UTC timestamp: 2026-10-01T17:51:39.308Z"',
     );
+    expect(exampleHeader(1)).toMatch(
+      /<time[^>]*datetime="2026-10-01T17:51:39.308Z"[^>]*>2026-10-01 UTC<\/time>/,
+    );
+    expect(exampleHeader(1)).toMatch(
+      /<span class="date-kind"[^>]*>Event time \(UTC\)<\/span>/,
+    );
     expect(exampleHeader(1)).toContain(
       "Actor (recording): second-actor@example.test",
     );
+    expect(exampleHeader(1)).toContain(
+      'title="Actor (recording): second-actor@example.test"',
+    );
+    expect(exampleHeader(1)).not.toContain("recording metadata");
     expect(exampleHeader(1)).toContain("The first output is visible.");
     expect(exampleHeader(1)).toContain(
       "Prompt: Create a modal for test cases.",
@@ -920,11 +1090,11 @@ describe("planJourneyCanvas", () => {
     const screen = result.screens.find((item) => item.nodeKey === outputKey)!;
 
     expect(screen.html).toContain(
-      "Replay observation (UTC) 2026-10-01T17:50:00.308Z",
+      "Replay observation (UTC): 2026-10-01T17:50:00.308Z",
     );
-    expect(screen.html).toContain("Event time (UTC) 2026-10-01T17:49:59.308Z");
+    expect(screen.html).toContain("Event time (UTC): 2026-10-01T17:49:59.308Z");
     expect(screen.html).not.toContain(
-      "Replay observed 2026-10-01T17:50:00.308Z UTC",
+      "Replay observed: 2026-10-01T17:50:00.308Z",
     );
   });
 
@@ -994,7 +1164,7 @@ describe("planJourneyCanvas", () => {
     const screen = result.screens.find((item) => item.nodeKey === outputKey)!;
 
     expect(screen.html).toContain(
-      "Replay observation (UTC) 2026-09-28T22:07:06.840Z",
+      "Replay observation (UTC): 2026-09-28T22:07:06.840Z",
     );
     expect(screen.html).toContain(
       'title="UTC timestamp: 2026-09-28T22:07:06.840Z"',
@@ -1002,10 +1172,12 @@ describe("planJourneyCanvas", () => {
     expect(screen.html).toContain(
       "Evidence: generation_completed event (2026-09-28T22:07:01.840Z UTC)",
     );
-    expect(screen.html).toContain("Screenshot captured 2026-10-08 UTC");
+    expect(screen.html).toContain(
+      "Screenshot captured: 2026-10-08T22:17:00.000Z",
+    );
     expect(screen.html).toContain("Actor (recording): actor@example.test");
     expect(screen.frame.height).toBe(
-      CARD_PROVENANCE_HEADER_HEIGHT + 60 + Math.round(360 / (1536 / 826)),
+      CARD_PROVENANCE_HEADER_HEIGHT + 36 + Math.round(360 / (1536 / 826)),
     );
   });
 
@@ -1042,10 +1214,10 @@ describe("planJourneyCanvas", () => {
     ).screens.find((item) => item.nodeKey === outputKey)!;
 
     expect(screen.html).toContain(
-      "generation_completed event (UTC) 2026-09-28T22:07:01.840Z",
+      "generation_completed event (UTC): 2026-09-28T22:07:01.840Z",
     );
     expect(screen.html).not.toContain(
-      "generation_completed event (UTC) 2026-09-28T22:07:06.840Z",
+      "generation_completed event (UTC): 2026-09-28T22:07:06.840Z",
     );
     expect(screen.html).toContain(
       "Evidence: generation_completed event (2026-09-28T22:07:01.840Z UTC)",
@@ -1126,13 +1298,14 @@ describe("planJourneyCanvas", () => {
     expect(result.frameCount).toBe(4);
   });
 
-  it("draws arrows, fork percentages, last-observed-step and other stubs, a date line and a title on the board", () => {
+  it("draws arrows and observed-step stubs without a redundant export-date footer", () => {
     const html = plan().boardFragments({ x: 100, y: 200 }).join("\n");
     expect(html).toContain("No later step observed");
     expect(html).toContain("340 sessions · 34% of this step");
     expect(html).toContain("10 sessions · 10% of this step");
     expect(html).toContain("Other (3 branches)");
-    expect(html).toContain("Captured 2026-10-08 · 2 examples");
+    expect(html).not.toContain('data-agent-native-layer-name="Captured date"');
+    expect(html).not.toContain("Captured 2026-10-08 · 2 examples");
     expect(html).toContain("Design onboarding");
     expect(html).not.toContain("partial sample");
     expect(html).toContain(">50%<");

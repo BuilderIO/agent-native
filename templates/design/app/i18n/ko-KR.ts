@@ -2,6 +2,8 @@ export default {
   journeyCanvas: {
     observedSessionReference: "관찰된 세션 참조",
     sessionsOfAll: "세션 {count}개 · 전체의 {percent}",
+    sessionsOfAppRoot:
+      "세션 {count}개 · {app} 코호트의 {percent} (n={rootCount})",
     sessionsOfPrevious: "세션 {count}개 · 이전 단계의 {percent}",
     sessionsOfParent: "세션 {count}개 · {label}의 {percent}",
     sessionsOfStep: "세션 {count}개 · 이 단계의 {percent}",
@@ -44,11 +46,16 @@ export default {
     promptSource: "프롬프트(원문)",
     source: "출처",
     promptNotCaptured: "프롬프트가 캡처되지 않음",
+    actorUnavailable: "행위자 정보를 사용할 수 없음",
+    replayDetails: "리플레이 및 출처 세부정보",
+    sourceApp: "출처 앱",
+    route: "캡처된 경로",
+    recordingStarted: "녹화 시작",
+    appBandHeading: "{app} · 세션 {count}개",
     journeyTitleSummary: "{app} · {from}~{to} · 세션 {count}개{partial}",
+    journeyTitleAppBandsSummary: "{from}~{to} · 앱별 독립 코호트{partial}",
     sessionCount: "세션 {count}개",
     otherPaths: "기타 경로",
-    capturedDate: "캡처 날짜 {date}{examples}",
-    additionalExamples: " · 예시 {count}개",
     htmlLanguage: "ko-KR",
   },
   composer: { menu: { integrations: "연동" } },
@@ -996,6 +1003,8 @@ export default {
       "파일을 만들기 전에 생성이 중지되었습니다. 같은 프롬프트에서 계속하려면 다시 시도하세요.",
     generationStoppedCheckAgent:
       "파일을 만들기 전에 생성이 중지되었습니다. 에이전트 메시지를 확인하거나 다시 시도하세요.",
+    invalidCanvasDimensions:
+      "요청한 캔버스 크기는 지원되지 않습니다. 편집기 제한 내의 양수 픽셀 크기를 사용하세요.",
     notFound: "디자인을 찾을 수 없음",
     backToDesigns: "디자인으로 돌아가기",
     designNotFoundDescription: "이 디자인은 존재하지 않거나 삭제되었습니다.",

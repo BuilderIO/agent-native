@@ -2,6 +2,8 @@ export default {
   journeyCanvas: {
     observedSessionReference: "観測されたセッションの参照",
     sessionsOfAll: "{count} セッション · 全体の {percent}",
+    sessionsOfAppRoot:
+      "{count} セッション · {app} コホートの {percent}（n={rootCount}）",
     sessionsOfPrevious: "{count} セッション · 前のステップの {percent}",
     sessionsOfParent: "{count} セッション · {label} の {percent}",
     sessionsOfStep: "{count} セッション · このステップの {percent}",
@@ -43,12 +45,18 @@ export default {
     promptSource: "プロンプト（元の言語）",
     source: "情報源",
     promptNotCaptured: "プロンプト未取得",
+    actorUnavailable: "実行者情報なし",
+    replayDetails: "リプレイとソースの詳細",
+    sourceApp: "ソースアプリ",
+    route: "キャプチャ時のルート",
+    recordingStarted: "録画開始時刻",
+    appBandHeading: "{app} · {count} セッション",
     journeyTitleSummary:
       "{app} · {from} から {to} · {count} セッション{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} から {to} · アプリごとの別コホート{partial}",
     sessionCount: "{count} セッション",
     otherPaths: "その他の経路",
-    capturedDate: "取得日 {date}{examples}",
-    additionalExamples: " · {count} 件の例",
     htmlLanguage: "ja-JP",
   },
   composer: { menu: { integrations: "連携" } },
@@ -1009,6 +1017,8 @@ export default {
       "ファイルを作成する前に生成が停止しました。同じプロンプトから続行するには、もう一度お試しください。",
     generationStoppedCheckAgent:
       "ファイルを作成する前に生成が停止しました。エージェントのメッセージを確認するか、もう一度お試しください。",
+    invalidCanvasDimensions:
+      "指定されたキャンバスサイズには対応していません。エディターの上限内で、正のピクセル寸法を指定してください。",
     notFound: "デザインが見つかりません",
     backToDesigns: "デザインに戻る",
     designNotFoundDescription: "このデザインは存在しないか、削除されています。",

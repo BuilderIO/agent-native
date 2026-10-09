@@ -1,6 +1,7 @@
 export interface JourneyCanvasMessages {
   observedSessionReference: string;
   sessionsOfAll: string;
+  sessionsOfAppRoot: string;
   sessionsOfPrevious: string;
   sessionsOfParent: string;
   sessionsOfStep: string;
@@ -41,17 +42,24 @@ export interface JourneyCanvasMessages {
   promptSource: string;
   source: string;
   promptNotCaptured: string;
+  actorUnavailable: string;
+  replayDetails: string;
+  sourceApp: string;
+  route: string;
+  recordingStarted: string;
+  appBandHeading: string;
   journeyTitleSummary: string;
+  journeyTitleAppBandsSummary: string;
   sessionCount: string;
   otherPaths: string;
-  capturedDate: string;
-  additionalExamples: string;
   htmlLanguage: string;
 }
 
 export const enUSJourneyCanvasMessages: JourneyCanvasMessages = {
   observedSessionReference: "Observed session reference",
   sessionsOfAll: "{count} sessions · {percent} of all",
+  sessionsOfAppRoot:
+    "{count} sessions · {percent} of {app} cohort (n={rootCount})",
   sessionsOfPrevious: "{count} sessions · {percent} of previous",
   sessionsOfParent: "{count} sessions · {percent} of {label}",
   sessionsOfStep: "{count} sessions · {percent} of this step",
@@ -94,11 +102,17 @@ export const enUSJourneyCanvasMessages: JourneyCanvasMessages = {
   promptSource: "Prompt (source)",
   source: "Source",
   promptNotCaptured: "Prompt not captured",
+  actorUnavailable: "Actor unavailable",
+  replayDetails: "Replay and source details",
+  sourceApp: "Source app",
+  route: "Captured route",
+  recordingStarted: "Recording started",
+  appBandHeading: "{app} · {count} sessions",
   journeyTitleSummary: "{app} · {from} to {to} · {count} sessions{partial}",
+  journeyTitleAppBandsSummary:
+    "{from} to {to} · separate per-app cohorts{partial}",
   sessionCount: "{count} sessions",
   otherPaths: "Other paths",
-  capturedDate: "Captured {date}{examples}",
-  additionalExamples: " · {count} examples",
   htmlLanguage: "en-US",
 };
 

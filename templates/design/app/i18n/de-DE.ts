@@ -2,6 +2,8 @@ export default {
   journeyCanvas: {
     observedSessionReference: "Beobachtete Sitzungsreferenz",
     sessionsOfAll: "{count} Sitzungen · {percent} aller",
+    sessionsOfAppRoot:
+      "{count} Sitzungen · {percent} der {app}-Kohorte (n={rootCount})",
     sessionsOfPrevious: "{count} Sitzungen · {percent} des vorherigen Schritts",
     sessionsOfParent: "{count} Sitzungen · {percent} von {label}",
     sessionsOfStep: "{count} Sitzungen · {percent} dieses Schritts",
@@ -45,11 +47,17 @@ export default {
     promptSource: "Prompt (Quelle)",
     source: "Quelle",
     promptNotCaptured: "Prompt nicht erfasst",
+    actorUnavailable: "Akteur nicht verfügbar",
+    replayDetails: "Replay- und Quelldetails",
+    sourceApp: "Quell-App",
+    route: "Erfasste Route",
+    recordingStarted: "Aufzeichnung gestartet",
+    appBandHeading: "{app} · {count} Sitzungen",
     journeyTitleSummary: "{app} · {from} bis {to} · {count} Sitzungen{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} bis {to} · getrennte Kohorten je App{partial}",
     sessionCount: "{count} Sitzungen",
     otherPaths: "Andere Pfade",
-    capturedDate: "Aufgenommen am {date}{examples}",
-    additionalExamples: " · {count} Beispiele",
     htmlLanguage: "de-DE",
   },
   composer: { menu: { integrations: "Integrationen" } },
@@ -1012,6 +1020,8 @@ export default {
       "Die Generierung wurde vor dem Erstellen von Dateien gestoppt. Versuchen Sie es erneut, um mit demselben Prompt fortzufahren.",
     generationStoppedCheckAgent:
       "Die Generierung wurde vor dem Erstellen von Dateien gestoppt. Prüfen Sie die Agentenmeldung oder versuchen Sie es erneut.",
+    invalidCanvasDimensions:
+      "Die angeforderte Leinwandgröße wird nicht unterstützt. Verwenden Sie positive Pixelmaße innerhalb der Editorgrenzen.",
     notFound: "Design nicht gefunden",
     backToDesigns: "Zurück zu Designs",
     designNotFoundDescription:

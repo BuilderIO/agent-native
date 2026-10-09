@@ -20,9 +20,9 @@ Read relevant guides before deeper work:
 
 For shared contracts, read the matching guide in `.agents/skills/`.
 
-## Framework Docs
+## Docs
 
-Use local docs: `pnpm action docs-search --query "<topic>"` searches; `pnpm action docs-search --slug "<slug>"` reads.
+Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug with `pnpm action docs-search --slug "<slug>"`.
 
 ## Actions
 
@@ -46,6 +46,7 @@ Use local docs: `pnpm action docs-search --query "<topic>"` searches; `pnpm acti
 | `create-design` / `generate-design` | Start empty design / generate a fresh screen |
 | `present-design-variants` | Generate 2–5 variants |
 | `view-screen` / `navigate` | Read current screen / move UI |
+| `get-view-settings` / `update-view-settings` | Read/set the user's saved editor view toggles (pixel grid, snap, rulers, cursors, hidden comments) |
 | `export-png` | Export PNG |
 | `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export finished work |
 

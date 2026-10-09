@@ -2,6 +2,8 @@ export default {
   journeyCanvas: {
     observedSessionReference: "已觀察工作階段參考",
     sessionsOfAll: "{count} 個工作階段 · 佔全部 {percent}",
+    sessionsOfAppRoot:
+      "{count} 個工作階段 · 佔 {app} 群組 {percent}（n={rootCount}）",
     sessionsOfPrevious: "{count} 個工作階段 · 佔上一步 {percent}",
     sessionsOfParent: "{count} 個工作階段 · 佔 {label} 的 {percent}",
     sessionsOfStep: "{count} 個工作階段 · 佔此步驟 {percent}",
@@ -42,11 +44,16 @@ export default {
     promptSource: "提示（來源）",
     source: "來源",
     promptNotCaptured: "未擷取提示",
+    actorUnavailable: "無法取得操作者",
+    replayDetails: "回放與來源詳細資料",
+    sourceApp: "來源應用程式",
+    route: "擷取時的路由",
+    recordingStarted: "錄製開始時間",
+    appBandHeading: "{app} · {count} 個工作階段",
     journeyTitleSummary: "{app} · {from} 至 {to} · {count} 個工作階段{partial}",
+    journeyTitleAppBandsSummary: "{from} 至 {to} · 各應用程式獨立群組{partial}",
     sessionCount: "{count} 個工作階段",
     otherPaths: "其他路徑",
-    capturedDate: "擷取日期 {date}{examples}",
-    additionalExamples: " · {count} 個範例",
     htmlLanguage: "zh-TW",
   },
   composer: { menu: { integrations: "整合" } },
@@ -1121,6 +1128,8 @@ export default {
     generationMayHaveStoppedToast: "生成可能在建立檔案前停止。",
     generationStoppedRetry: "生成在建立檔案前停止。請重試以從同一提示繼續。",
     generationStoppedCheckAgent: "生成在建立檔案前停止。請檢視代理訊息或重試。",
+    invalidCanvasDimensions:
+      "不支援所要求的畫布尺寸。請使用編輯器限制範圍內的正像素尺寸。",
     notFound: "未找到設計",
     backToDesigns: "返回設計",
     fileMenu: {
