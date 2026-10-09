@@ -506,7 +506,19 @@ async function ensureStoreReadiness(
     .catch(() => "unavailable" as const)
     .then((nextState) => {
       if (requestRevision !== store.revision) {
-        return "unavailable" as const;
+        const remainingTimeoutMs =
+          callerDeadline === undefined
+            ? undefined
+            : callerDeadline - Date.now();
+        if (remainingTimeoutMs !== undefined && remainingTimeoutMs <= 0) {
+          return "unavailable" as const;
+        }
+        return ensureStoreReadiness(store, {
+          ...(fresh ? { fresh: true } : {}),
+          ...(remainingTimeoutMs === undefined
+            ? {}
+            : { timeoutMs: remainingTimeoutMs }),
+        });
       }
       store.resolvedAt = Date.now();
       publish(store, nextState);

@@ -9,6 +9,7 @@ import {
   ensureAgentEngineReadiness,
   getAgentEngineReadiness,
   getAgentEngineReadinessStoreCountForTests,
+  invalidateAgentEngineReadiness,
   requireAgentEngineConfiguredForDispatch,
   resetAgentEngineReadinessForTests,
   subscribeAgentEngineReadiness,
@@ -724,6 +725,121 @@ describe("useAgentEngineConfigured", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it("rechecks replacement readiness when setup changes during a send", async () => {
+    let resolveInitial!: (response: Response) => void;
+    let resolveReplacement!: (response: Response) => void;
+    const fetch = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveInitial = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveReplacement = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetch);
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await flushAfterPaint();
+    expect(fetch).toHaveBeenCalledOnce();
+
+    const sendReadiness = requireAgentEngineConfiguredForDispatch({
+      fresh: true,
+      timeoutMs: 1_000,
+    });
+    const sendAssertion = expect(sendReadiness).resolves.toBeUndefined();
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      resolveInitial(jsonResponse({ configured: false, chatEligible: false }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolveReplacement(
+        jsonResponse({ configured: true, chatEligible: true }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await sendAssertion;
+    await flushAfterPaint();
+    expect(container.textContent).toBe("configured");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the original send deadline when setup replaces its readiness check", async () => {
+    vi.useFakeTimers();
+    let resolveInitial!: (response: Response) => void;
+    let resolveReplacement!: (response: Response) => void;
+    const fetch = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveInitial = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveReplacement = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetch);
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await flushAfterPaint();
+    expect(fetch).toHaveBeenCalledOnce();
+
+    const sendReadiness = requireAgentEngineConfiguredForDispatch({
+      fresh: true,
+      timeoutMs: 25,
+    });
+    const sendFailure = expect(sendReadiness).rejects.toMatchObject({
+      name: AgentChatAiSetupRequiredError.name,
+      state: "unavailable",
+    });
+    await vi.advanceTimersByTimeAsync(10);
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveInitial(jsonResponse({ configured: false, chatEligible: false }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.advanceTimersByTimeAsync(16);
+    await sendFailure;
+
+    await act(async () => {
+      resolveReplacement(
+        jsonResponse({ configured: true, chatEligible: true }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await expect(ensureAgentEngineReadiness()).resolves.toBe("configured");
+  });
+
   it("applies a send deadline when joining a passive probe, then reuses its answer", async () => {
     vi.useFakeTimers();
     let resolveStatus!: (response: Response) => void;
@@ -759,6 +875,52 @@ describe("useAgentEngineConfigured", () => {
       requireAgentEngineConfiguredForDispatch({ source }),
     ).resolves.toBeUndefined();
     expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("joins the replacement probe when readiness is invalidated during a send", async () => {
+    let resolveOldProbe!: (response: Response) => void;
+    let resolveReplacementProbe!: (response: Response) => void;
+    const fetch = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveOldProbe = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveReplacementProbe = resolve;
+          }),
+      );
+    const source = {
+      statusUrl:
+        "https://replaced-probe.example.test/_agent-native/agent-engine/status",
+      fetch: fetch as typeof globalThis.fetch,
+    };
+
+    const pendingSend = requireAgentEngineConfiguredForDispatch({
+      source,
+      timeoutMs: 5_000,
+    });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+
+    invalidateAgentEngineReadiness(source);
+    const replacementProbe = ensureAgentEngineReadiness({
+      source,
+      fresh: true,
+    });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+
+    resolveOldProbe(jsonResponse({ configured: false, chatEligible: false }));
+    resolveReplacementProbe(
+      jsonResponse({ configured: true, chatEligible: true }),
+    );
+
+    await expect(replacementProbe).resolves.toBe("configured");
+    await expect(pendingSend).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("retries a failed check instead of latching a dead state", async () => {
