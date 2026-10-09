@@ -284,10 +284,9 @@ function applyDefaultSsrCacheHeader(
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
-  // Route recovery uses one fixed path alias, not a caller-controlled query
-  // value. Netlify's atomic deploy cache invalidation refreshes this shared
-  // alias when a new production or branch deploy becomes active. Keep recovery
-  // variation bounded so arbitrary values cannot force origin cache misses.
+  // Recovery uses one fixed path alias, not caller-controlled query values.
+  // Keep Netlify's default cache ID: deploy-context invalidation refreshes this
+  // alias, while a custom cache ID opts out and can preserve a stale shell.
   const varyByQuery = responseRequestsQueryVary;
 
   // A public shell must never set a viewer cookie or vary by credentials.
