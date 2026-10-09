@@ -95,6 +95,92 @@ async function documentRow(documentId: string) {
 }
 
 describe("update-document compare-and-swap", () => {
+  it.each(["owner", "viewer", "revoked", "deleted"] as const)(
+    "refreshes %s access after the early receipt lookup races with a move",
+    async (accessAfterMove) => {
+      const id = await createDocument({ content: "Body" });
+      const db = getDb();
+      await db.insert(schema.documentShares).values({
+        id: nextId("receipt-race-share"),
+        resourceId: id,
+        principalType: "user",
+        principalId: EDITOR,
+        role: "editor",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+      const args = {
+        id,
+        title: "Saved title",
+        baseTitle: "Untitled",
+        browserSaveAttemptId: nextId("receipt-race-attempt"),
+      };
+      const save = () =>
+        runWithRequestContext({ userEmail: EDITOR }, () =>
+          updateDocumentAction.run(args, {
+            caller: "frontend",
+            userEmail: EDITOR,
+          }),
+        );
+      await expect(save()).resolves.toMatchObject({
+        browserSaveAttempt: { result: "applied" },
+      });
+      const attempts = await import("./_browser-document-save-attempt.js");
+      const lookup = attempts.findBrowserSaveAttempt;
+      const race = vi
+        .spyOn(attempts, "findBrowserSaveAttempt")
+        .mockImplementationOnce(async (input) => {
+          const receipt = await lookup(input);
+          expect(receipt).not.toBeNull();
+          await db
+            .delete(schema.documentShares)
+            .where(eq(schema.documentShares.resourceId, id));
+          if (accessAfterMove === "deleted") {
+            await db
+              .delete(schema.documents)
+              .where(eq(schema.documents.id, id));
+          } else {
+            await db
+              .update(schema.documents)
+              .set({
+                ownerEmail: accessAfterMove === "owner" ? EDITOR : VIEWER,
+              })
+              .where(eq(schema.documents.id, id));
+            if (accessAfterMove === "viewer") {
+              await db.insert(schema.documentShares).values({
+                id: nextId("receipt-race-viewer-share"),
+                resourceId: id,
+                principalType: "user",
+                principalId: EDITOR,
+                role: "viewer",
+                createdBy: VIEWER,
+                createdAt: new Date().toISOString(),
+              });
+            }
+          }
+          return receipt;
+        });
+      try {
+        if (accessAfterMove === "revoked" || accessAfterMove === "deleted") {
+          await expect(save()).rejects.toMatchObject({
+            statusCode: accessAfterMove === "revoked" ? 403 : 404,
+          });
+        } else {
+          await expect(save()).resolves.toMatchObject({
+            id,
+            title: "Saved title",
+            content: "Body",
+            accessRole: accessAfterMove,
+            browserSaveAttempt: { result: "replayed" },
+          });
+        }
+        expect(race).toHaveBeenCalledOnce();
+      } finally {
+        race.mockRestore();
+      }
+    },
+  );
+
   it.each(
     (["conflict", "preservation", "saved"] as const).flatMap((responseKind) =>
       (["owner", "editor", "viewer", "revoked", "deleted"] as const).map(

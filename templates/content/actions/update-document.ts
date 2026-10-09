@@ -450,7 +450,7 @@ export default defineAction({
   mcpTool: true,
   mcpAnnotations: {
     readOnlyHint: false,
-    destructiveHint: false,
+    destructiveHint: true,
     openWorldHint: false,
   },
   mcpApp: { structuredContent: true },
@@ -753,10 +753,12 @@ export default defineAction({
       });
       if (stored) {
         const receipt = readBrowserSaveAttempt(stored, browserSavePayload);
-        const [current] = await db
-          .select()
-          .from(schema.documents)
-          .where(eq(schema.documents.id, id));
+        const currentAccess = await resolveDocumentAccessForMutation(id, "id");
+        const current = currentAccess.resource;
+        const currentOwnerEmail = current.ownerEmail as string;
+        const currentFavorite = requestUserEmail
+          ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
+          : parseDocumentFavorite(current.isFavorite);
         if ("kind" in receipt) {
           return scopeDocumentAudit(
             {
@@ -764,24 +766,24 @@ export default defineAction({
               id,
               document: documentUpdateResponse(
                 current,
-                access.role,
+                currentAccess.role,
                 currentFavorite,
               ),
               reason: receipt.reason,
               checkpointId: receipt.checkpointId,
             } satisfies DocumentUpdatePreservationResponse,
-            ownerEmail,
+            currentOwnerEmail,
           );
         }
         return scopeDocumentAudit(
           documentUpdateResponse(
             current,
-            access.role,
+            currentAccess.role,
             currentFavorite,
             receipt.softDeletedDatabaseIds ?? [],
             receipt,
           ),
-          ownerEmail,
+          currentOwnerEmail,
         );
       }
     }
@@ -1540,6 +1542,12 @@ export default defineAction({
         }
 
         if (contentCasConflict) {
+          if (isExternalCaller) {
+            throw new ActionContractError(
+              "Document update conflicted; no changes were saved. Read get-document and retry against its current metadata.",
+              { errorCode: "DOCUMENT_UPDATE_CONFLICT", statusCode: 409 },
+            );
+          }
           return scopeDocumentAudit(
             documentConflictResponse(
               current,

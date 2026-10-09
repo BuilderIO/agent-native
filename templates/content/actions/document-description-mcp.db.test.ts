@@ -166,13 +166,36 @@ afterAll(async () => {
 const longDescription = `${"Complete guidance with Unicode café 🪶 and Markdown **emphasis**.\n".repeat(160)}END OF DESCRIPTION`;
 
 describe("document descriptions through external MCP", () => {
+  it("reports a metadata conflict as an MCP error without saving any fields", async () => {
+    const created = await createPage({
+      title: "Current title",
+      content: "Body",
+    });
+    const before = await readRow(created.id);
+    const rejected = await ownerClient.callTool({
+      name: "update-document",
+      arguments: {
+        id: created.id,
+        title: "Must not apply",
+        baseTitle: "Stale title",
+        description: "Must not apply",
+      },
+    });
+    expect(rejected.isError).toBe(true);
+    expect(JSON.stringify(rejected.content)).toContain(
+      "DOCUMENT_UPDATE_CONFLICT",
+    );
+    expect(JSON.stringify(rejected.content)).toContain("no changes were saved");
+    expect(await readRow(created.id)).toEqual(before);
+  });
+
   it("advertises update-document in the compact catalog with write annotations", async () => {
     const { tools } = await ownerClient.listTools();
     const tool = tools.find((entry) => entry.name === "update-document");
     expect(tool).toBeDefined();
     expect(tool?.annotations).toMatchObject({
       readOnlyHint: false,
-      destructiveHint: false,
+      destructiveHint: true,
       openWorldHint: false,
     });
     expect(tool?.inputSchema.properties).toHaveProperty("description");
