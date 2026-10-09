@@ -1,4 +1,5 @@
 import type { ActionCaller, ActionRunContext } from "@agent-native/core/action";
+import { ActionContractError } from "@agent-native/core/action";
 import { ForbiddenError } from "@agent-native/core/sharing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -175,6 +176,40 @@ describe("Content save outcome delivery", () => {
     expect(result).toEqual({ id: "created" });
     await vi.runAllTimersAsync();
     expect(counter).not.toHaveBeenCalled();
+  });
+
+  it("counts a recovery create ID conflict once with its known reason and preserves the refusal", async () => {
+    vi.useFakeTimers();
+    const error = new ActionContractError(
+      "This document ID is already in use.",
+      {
+        errorCode: "DOCUMENT_ID_CONFLICT",
+        statusCode: 409,
+      },
+    );
+    const create = observeRecoveryDocumentCreate(async () => {
+      throw error;
+    });
+    const recovery = withContentRecoverySaveContext({ caller: "tool" });
+
+    await expect(create({}, recovery)).rejects.toBe(error);
+    expect(error).toMatchObject({
+      errorCode: "DOCUMENT_ID_CONFLICT",
+      statusCode: 409,
+    });
+    expect(counter).not.toHaveBeenCalled();
+    await vi.runAllTimersAsync();
+    expect(counter).toHaveBeenCalledExactlyOnceWith(
+      "content_save_outcome_counts",
+      {
+        operation: "create_document",
+        origin: "recovery",
+        outcome: "refused",
+        stale_base: "unknown",
+        history_effect: "none",
+        reason_code: "DOCUMENT_ID_CONFLICT",
+      },
+    );
   });
 
   it("retains the audit outcome and response without counting excluded saves", async () => {
