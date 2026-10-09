@@ -836,6 +836,28 @@ describe("session replay iframe recording", () => {
       legacyPartlyClipped.srcdoc =
         "<!doctype html><html><body>visible</body></html>";
 
+      const legacyClipContainer = replayDocument.createElement("div");
+      legacyClipContainer.id = "legacy-clip-container";
+      legacyClipContainer.style.cssText =
+        "position:absolute;left:80px;top:125px;width:30px;height:20px;clip:rect(0px, 20px, 20px, 0px)";
+      const legacyAncestorFullyClipped = replayDocument.createElement("iframe");
+      legacyAncestorFullyClipped.id = "legacy-ancestor-fully-clipped-frame";
+      legacyAncestorFullyClipped.style.cssText =
+        "position:absolute;left:22px;top:2px;width:10px;height:10px;border:0";
+      legacyAncestorFullyClipped.srcdoc =
+        "<!doctype html><html><body>hidden</body></html>";
+      const legacyAncestorPartlyClipped =
+        replayDocument.createElement("iframe");
+      legacyAncestorPartlyClipped.id = "legacy-ancestor-partly-clipped-frame";
+      legacyAncestorPartlyClipped.style.cssText =
+        "position:absolute;left:15px;top:2px;width:10px;height:10px;border:0";
+      legacyAncestorPartlyClipped.srcdoc =
+        "<!doctype html><html><body>visible</body></html>";
+      legacyClipContainer.append(
+        legacyAncestorFullyClipped,
+        legacyAncestorPartlyClipped,
+      );
+
       replayDocument.body.append(
         clipped,
         masked,
@@ -844,6 +866,7 @@ describe("session replay iframe recording", () => {
         roundedCornerContainer,
         legacyFullyClipped,
         legacyPartlyClipped,
+        legacyClipContainer,
       );
     });
     await page.waitForFunction(() => {
@@ -861,7 +884,7 @@ describe("session replay iframe recording", () => {
         ),
       );
       return (
-        frames.length === 7 &&
+        frames.length === 9 &&
         nestedFrames.length === 2 &&
         [...frames, ...nestedFrames].every(
           (frame) =>
@@ -903,6 +926,12 @@ describe("session replay iframe recording", () => {
       const legacyPartlyClipped = replayDocument.querySelector(
         "#legacy-partly-clipped-frame",
       ) as HTMLIFrameElement;
+      const legacyAncestorFullyClipped = replayDocument.querySelector(
+        "#legacy-ancestor-fully-clipped-frame",
+      ) as HTMLIFrameElement;
+      const legacyAncestorPartlyClipped = replayDocument.querySelector(
+        "#legacy-ancestor-partly-clipped-frame",
+      ) as HTMLIFrameElement;
       const ids = new Map<Element, number>([
         [clipped, 1],
         [nestedClip, 2],
@@ -913,6 +942,8 @@ describe("session replay iframe recording", () => {
         [roundedCorner, 7],
         [legacyFullyClipped, 8],
         [legacyPartlyClipped, 9],
+        [legacyAncestorFullyClipped, 10],
+        [legacyAncestorPartlyClipped, 11],
       ]);
       (
         window as typeof window & { __anJourneyCapture?: unknown }
@@ -946,7 +977,7 @@ describe("session replay iframe recording", () => {
           .getPropertyValue("clip"),
         audit: audit({
           dimensions: { width: 300, height: 200 },
-          recordedIframeParentIds: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+          recordedIframeParentIds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
         }),
       };
     }, serializedAuditSource());
@@ -958,7 +989,7 @@ describe("session replay iframe recording", () => {
     expect(result.roundedCornerClipPath).not.toBe("none");
     expect(result.legacyClip).not.toBe("auto");
     expect(result.audit).toEqual({
-      visibleIframeCount: 3,
+      visibleIframeCount: 4,
       unavailableIframeCount: 0,
       unverifiableIframeCount: 3,
     });

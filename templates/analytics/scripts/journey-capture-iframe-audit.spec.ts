@@ -972,6 +972,97 @@ describe("replay iframe audit", () => {
     ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 0 });
   });
 
+  it("applies a legacy CSS clip from a positioned ancestor in ancestor coordinates", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const clipper = replayDocument.createElement("div");
+    clipper.style.cssText = "position:absolute;clip:rect(0px, 20px, 20px, 0px)";
+    replayDocument.body.append(clipper);
+    setBox(clipper, { left: 40, top: 40, width: 30, height: 20 }, 30, 20);
+    const hidden = appendFrame(
+      replayDocument,
+      { left: 62, top: 45, width: 10, height: 10 },
+      10,
+      10,
+      clipper,
+    );
+    const partlyVisible = appendFrame(
+      replayDocument,
+      { left: 55, top: 45, width: 10, height: 10 },
+      10,
+      10,
+      clipper,
+    );
+    installReplayState(
+      replayFrame,
+      new WeakMap([
+        [hidden, 1],
+        [partlyVisible, 2],
+      ]),
+    );
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [2],
+      }),
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 0 });
+  });
+
+  it("fails closed when a legacy CSS clip rectangle has unsupported offsets", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 20, height: 20 },
+      20,
+      20,
+    );
+    frame.style.position = "absolute";
+    const view = replayDocument.defaultView!;
+    const nativeGetComputedStyle = view.getComputedStyle.bind(view);
+    Object.defineProperty(view, "getComputedStyle", {
+      configurable: true,
+      value: (element: Element, pseudoElement?: string | null) => {
+        const styles = nativeGetComputedStyle(element, pseudoElement);
+        if (element !== frame) return styles;
+        return new Proxy(styles, {
+          get(target, property) {
+            if (property === "getPropertyValue") {
+              return (name: string) =>
+                name === "clip"
+                  ? "rect(0px, calc(20px + 1em), 20px, 0px)"
+                  : target.getPropertyValue(name);
+            }
+            return Reflect.get(target, property, target);
+          },
+        }) as CSSStyleDeclaration;
+      },
+    });
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({
+      visibleIframeCount: 0,
+      unavailableIframeCount: 0,
+      unverifiableIframeCount: 1,
+    });
+  });
+
   it("does not reject an iframe inside the center of a rounded inset clip", () => {
     const replayFrame = appendFrame(
       document,
