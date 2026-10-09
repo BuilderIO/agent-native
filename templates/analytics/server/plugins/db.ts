@@ -1734,6 +1734,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
     CREATE INDEX IF NOT EXISTS session_recording_session_associations_session_recording_idx
       ON session_recording_session_associations (session_id, recording_id)`,
     },
+    {
+      version: 162,
+      name: "session-recordings-client-started-index",
+      sql: `CREATE INDEX IF NOT EXISTS session_recordings_client_started_idx
+      ON session_recordings (client_recording_id, started_at)`,
+    },
   ],
   { table: "analytics_migrations" },
 );

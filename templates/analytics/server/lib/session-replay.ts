@@ -2308,72 +2308,80 @@ export async function listJourneyRecordings(
   }
   const exactLinks = [...linkSessionsByPair.entries()];
   for (let i = 0; i < exactLinks.length; i += JOURNEY_RECORDING_BATCH) {
-    const batch = exactLinks.slice(i, i + JOURNEY_RECORDING_BATCH);
-    const exactMatch = or(
-      ...batch.map(([, link]) =>
-        and(
-          eq(r.clientRecordingId, link.clientRecordingId),
-          eq(r.startedAt, link.startedAt),
+    const pendingBatches = [exactLinks.slice(i, i + JOURNEY_RECORDING_BATCH)];
+    while (pendingBatches.length) {
+      const batch = pendingBatches.pop();
+      if (!batch?.length) continue;
+      const exactMatch = or(
+        ...batch.map(([, link]) =>
+          and(
+            eq(r.clientRecordingId, link.clientRecordingId),
+            eq(r.startedAt, link.startedAt),
+          ),
         ),
-      ),
-    );
-    const read = await db
-      .select({
-        id: r.id,
-        clientRecordingId: r.clientRecordingId,
-        startedAt: r.startedAt,
-        endedAt: r.endedAt,
-        durationMs: r.durationMs,
-        metadata: r.metadata,
-      })
-      .from(r)
-      .where(
-        and(
-          accessFilter(r, schema.sessionRecordingShares, {
-            userEmail: scope.userEmail,
-            orgId: scope.orgId ?? undefined,
-          }),
-          replayVisibleIdentityCondition(),
-          replayPlayableEventsCondition(),
-          exactMatch,
-        ),
-      )
-      .orderBy(asc(r.startedAt), asc(r.id))
-      .limit(batch.length + 1);
-    if (read.length > batch.length) {
-      complete = false;
-      continue;
-    }
-    const rowsByPair = new Map<string, typeof read>();
-    for (const row of read) {
-      const key = JSON.stringify([row.clientRecordingId, row.startedAt]);
-      const matches = rowsByPair.get(key) ?? [];
-      matches.push(row);
-      rowsByPair.set(key, matches);
-    }
-    for (const [key, link] of batch) {
-      const matches = rowsByPair.get(key) ?? [];
-      if (matches.length > 1) {
+      );
+      const read = await db
+        .select({
+          id: r.id,
+          clientRecordingId: r.clientRecordingId,
+          startedAt: r.startedAt,
+          endedAt: r.endedAt,
+          durationMs: r.durationMs,
+          metadata: r.metadata,
+        })
+        .from(r)
+        .where(
+          and(
+            accessFilter(r, schema.sessionRecordingShares, {
+              userEmail: scope.userEmail,
+              orgId: scope.orgId ?? undefined,
+            }),
+            replayVisibleIdentityCondition(),
+            replayPlayableEventsCondition(),
+            exactMatch,
+          ),
+        )
+        .orderBy(asc(r.startedAt), asc(r.id))
+        .limit(batch.length + 1);
+      if (read.length > batch.length) {
         complete = false;
+        if (batch.length > 1) {
+          const midpoint = Math.floor(batch.length / 2);
+          pendingBatches.push(batch.slice(midpoint), batch.slice(0, midpoint));
+        }
         continue;
       }
-      const row = matches[0];
-      if (!row) continue;
-      const startedAtMs = Date.parse(row.startedAt);
-      const endedAtMs = row.endedAt ? Date.parse(row.endedAt) : null;
-      if (!Number.isFinite(startedAtMs) || Number.isNaN(endedAtMs)) {
-        complete = false;
-        continue;
+      const rowsByPair = new Map<string, typeof read>();
+      for (const row of read) {
+        const key = JSON.stringify([row.clientRecordingId, row.startedAt]);
+        const matches = rowsByPair.get(key) ?? [];
+        matches.push(row);
+        rowsByPair.set(key, matches);
       }
-      for (const sessionId of link.sessionIds) {
-        recordings.push({
-          id: row.id,
-          sessionId,
-          startedAtMs,
-          endedAtMs,
-          durationMs: row.durationMs ?? null,
-          viewport: readRecordingViewport(row.metadata),
-        });
+      for (const [key, link] of batch) {
+        const matches = rowsByPair.get(key) ?? [];
+        if (matches.length > 1) {
+          complete = false;
+          continue;
+        }
+        const row = matches[0];
+        if (!row) continue;
+        const startedAtMs = Date.parse(row.startedAt);
+        const endedAtMs = row.endedAt ? Date.parse(row.endedAt) : null;
+        if (!Number.isFinite(startedAtMs) || Number.isNaN(endedAtMs)) {
+          complete = false;
+          continue;
+        }
+        for (const sessionId of link.sessionIds) {
+          recordings.push({
+            id: row.id,
+            sessionId,
+            startedAtMs,
+            endedAtMs,
+            durationMs: row.durationMs ?? null,
+            viewport: readRecordingViewport(row.metadata),
+          });
+        }
       }
     }
   }

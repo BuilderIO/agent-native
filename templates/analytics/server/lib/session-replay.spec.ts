@@ -1,5 +1,6 @@
 import { gzipSync } from "node:zlib";
 
+import { getTableConfig } from "drizzle-orm/pg-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
@@ -3630,8 +3631,10 @@ describe("listJourneyRecordings", () => {
       clientRecordingId: string;
       startedAt: string;
     }> = [],
+    queryResults?: unknown[][],
   ) => {
     const limits: number[] = [];
+    let queryIndex = 0;
     let condition: unknown;
     const query = {
       where: vi.fn((where: unknown) => {
@@ -3641,7 +3644,8 @@ describe("listJourneyRecordings", () => {
       orderBy: vi.fn(() => ({
         limit: vi.fn(async (n: number) => {
           limits.push(n);
-          return rows.slice(0, n);
+          const result = queryResults?.[queryIndex++] ?? rows;
+          return result.slice(0, n);
         }),
       })),
     };
@@ -3726,6 +3730,20 @@ describe("listJourneyRecordings", () => {
     expect(where).toContain("owner_email");
   });
 
+  it("declares a non-unique composite index for exact replay lookups", () => {
+    const index = getTableConfig(schema.sessionRecordings).indexes.find(
+      (candidate) =>
+        candidate.config.name === "session_recordings_client_started_idx",
+    );
+
+    expect(index?.config.unique).toBe(false);
+    expect(
+      index?.config.columns.map((column) =>
+        "name" in column ? column.name : null,
+      ),
+    ).toEqual(["client_recording_id", "started_at"]);
+  });
+
   it("keeps duplicate exact replay matches unknown instead of choosing one", async () => {
     const first = {
       ...row("duplicate-a"),
@@ -3749,5 +3767,43 @@ describe("listJourneyRecordings", () => {
 
     expect(read.complete).toBe(false);
     expect(read.recordings).toEqual([]);
+  });
+
+  it("keeps valid exact links when a neighboring pair has duplicate matches", async () => {
+    const first = {
+      ...row("duplicate-a"),
+      clientRecordingId: "client-duplicate",
+    };
+    const second = {
+      ...row("duplicate-b"),
+      clientRecordingId: "client-duplicate",
+    };
+    const valid = {
+      ...row("exact-valid"),
+      clientRecordingId: "client-valid",
+    };
+    const { read, limits } = await readWith(
+      [],
+      [],
+      [
+        {
+          sessionId: "duplicate-event-session",
+          clientRecordingId: first.clientRecordingId,
+          startedAt: first.startedAt,
+        },
+        {
+          sessionId: "valid-event-session",
+          clientRecordingId: valid.clientRecordingId,
+          startedAt: valid.startedAt,
+        },
+      ],
+      [[first, second, valid], [first, second], [valid]],
+    );
+
+    expect(read.complete).toBe(false);
+    expect(read.recordings).toMatchObject([
+      { id: "exact-valid", sessionId: "valid-event-session" },
+    ]);
+    expect(limits).toEqual([3, 2, 2]);
   });
 });
