@@ -87,6 +87,35 @@ describe("createPollEngine", () => {
     engine.stop();
   });
 
+  it("routes attempt timeouts separately when configured", async () => {
+    const onError = vi.fn();
+    const onTimeout = vi.fn();
+    const attempt = vi.fn(
+      (signal: AbortSignal) =>
+        new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        }),
+    );
+    const engine = createPollEngine(attempt, {
+      intervalMs: 1000,
+      timeoutMs: 5000,
+      onError,
+      onTimeout,
+    });
+
+    engine.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(onTimeout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "poll attempt timed out after 5000ms",
+      }),
+    );
+    expect(onError).not.toHaveBeenCalled();
+    engine.stop();
+  });
+
   it("never overlaps: pollNow() is a no-op while an attempt is in flight", async () => {
     let resolveFirst: (() => void) | undefined;
     const attempt = vi

@@ -551,6 +551,7 @@ export function createAgentNativeBrowserSessionBridge(
   let started = false;
   let onVisibility: (() => void) | undefined;
   let lastWebMcpTools: AgentNativeWebMcpTool[] | undefined;
+  let activeRequestCount = 0;
 
   async function refreshRegistration(
     signal?: AbortSignal,
@@ -616,6 +617,7 @@ export function createAgentNativeBrowserSessionBridge(
     const request = claim.request as AgentNativeBrowserSessionRequest | null;
     if (!request) return null;
 
+    activeRequestCount++;
     try {
       const result = await executeBrowserSessionRequest(request, options);
       await postJson(
@@ -633,6 +635,8 @@ export function createAgentNativeBrowserSessionBridge(
         )}/complete`,
         { ok: false, error: messageError(error).message },
       ).catch(() => {});
+    } finally {
+      activeRequestCount--;
     }
 
     return request;
@@ -687,6 +691,9 @@ export function createAgentNativeBrowserSessionBridge(
   );
   const pollEngine = createPollEngine(requestPoll.attempt, {
     onError: requestPoll.onError,
+    onTimeout: (error) => {
+      if (activeRequestCount === 0) requestPoll.onError(error);
+    },
     intervalMs: () => {
       const base = options.pollMs ?? DEFAULT_POLL_MS;
       return isDocumentHidden()

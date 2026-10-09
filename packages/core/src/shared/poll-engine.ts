@@ -3,6 +3,8 @@ export interface PollEngineOptions {
   timeoutMs?: number | (() => number);
   timeoutFloorMs?: number;
   onError?: (err: unknown) => void;
+  /** Handles the poll deadline separately from an attempt rejection. */
+  onTimeout?: (err: unknown) => void;
   leading?: boolean;
 }
 
@@ -41,6 +43,8 @@ export function createPollEngine(
       ? resolve(options.timeoutMs)
       : Math.max(timeoutFloorMs, resolve(options.intervalMs) * 4);
   const onError = options.onError ?? (() => {});
+  const useDefaultTimeoutHandler = options.onTimeout == null;
+  const onTimeout = options.onTimeout ?? onError;
   const leading = options.leading ?? true;
 
   let generation = 0;
@@ -94,17 +98,17 @@ export function createPollEngine(
       reported = true;
       onError(err);
     };
+    const reportTimeout = (err: unknown): void => {
+      if (reported) return;
+      if (useDefaultTimeoutHandler) reported = true;
+      onTimeout(err);
+    };
     inFlightReport = report;
 
-    // The attempt is retained separately from the timeout race below. The
-    // timeout reports a slow attempt immediately, but the in-flight slot is
-    // only released once the attempt itself settles: releasing on the
-    // timeout would let the next tick start while an attempt that ignores
-    // `signal` is still doing work, which is the overlap (duplicate external
-    // requests, racing writes) this engine exists to prevent. An attempt that
-    // never settles blocks further attempts by design. A timeout reports it;
-    // after stop(), a restarted engine reports it when a later tick still sees
-    // the attempt in flight.
+    // A timeout does not release the attempt: a slow or signal-ignoring
+    // operation must settle before another tick can run. An attempt that never
+    // settles blocks further attempts by design. After stop(), a restarted
+    // engine reports a still-pending attempt on its next tick.
     const settled = Promise.resolve()
       .then(() => attempt(controller.signal))
       .then(
@@ -115,6 +119,7 @@ export function createPollEngine(
         },
       );
 
+    let timeoutError: Error | undefined;
     try {
       await Promise.race([
         settled,
@@ -125,9 +130,10 @@ export function createPollEngine(
               if (activeStopRequested) {
                 resolve();
               } else {
-                reject(
-                  new Error(`poll attempt timed out after ${timeoutMs}ms`),
+                timeoutError = new Error(
+                  `poll attempt timed out after ${timeoutMs}ms`,
                 );
+                reject(timeoutError);
               }
             },
             { once: true },
@@ -135,7 +141,8 @@ export function createPollEngine(
         }),
       ]);
     } catch (err) {
-      report(err);
+      if (err === timeoutError) reportTimeout(err);
+      else report(err);
     } finally {
       await settled;
       clearTimeout(abortTimer);
