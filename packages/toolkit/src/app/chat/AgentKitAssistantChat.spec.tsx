@@ -1201,6 +1201,11 @@ describe("AgentKitAssistantChat host behavior", () => {
       "agentChat.recovery.copyFailed",
     );
     expect(failedFeedback?.classList.contains("sr-only")).toBe(false);
+    expect(
+      failedFeedback?.classList.contains(
+        "agentkit-active-run-actions-feedback-error",
+      ),
+    ).toBe(true);
   });
 
   it("does not duplicate Thinking after the run becomes active", async () => {

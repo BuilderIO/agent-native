@@ -3603,7 +3603,8 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
             <span
               className={cn(
                 "agentkit-active-run-actions-feedback",
-                activeRunRequestIdCopyStatus === "failed" && "text-destructive",
+                activeRunRequestIdCopyStatus === "failed" &&
+                  "agentkit-active-run-actions-feedback-error",
               )}
               role={
                 activeRunRequestIdCopyStatus === "failed" ? "alert" : "status"

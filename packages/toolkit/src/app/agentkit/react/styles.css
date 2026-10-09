@@ -1407,6 +1407,10 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   font-size: 0.75rem;
 }
 
+.agentkit-active-run-actions-feedback-error {
+  color: var(--agentkit-danger);
+}
+
 .agentkit-active-run-actions-trigger {
   opacity: 0;
   transition: opacity 120ms ease;
