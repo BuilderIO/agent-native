@@ -360,7 +360,7 @@ export default defineAppConfig({
 | `agent_native.tool.calls`                   | `gen_ai.tool.name`, `error.type`                                                             |
 | `agent_native.telemetry.flush_failures`     | `error.type`, `agent_native.telemetry.signal`                                                |
 
-`agent_native.http.server.handoff.duration` 與 `http.server.request.duration` 具有相同的屬性與分桶，但它不是在回應掛鉤開始時結束，而是在掛鉤把回應交還給執行環境時結束。兩者百分位數之間的差值，就是已完成的回應花在等待上的時間，例如等待內嵌遙測排清。沒有 `waitUntil` 時，core 會在該次排清之後記錄樣本，因此樣本會隨下一次排清抵達後端。
+`agent_native.http.server.handoff.duration` 與 `http.server.request.duration` 具有相同的屬性與分桶，但它不是在回應掛鉤開始時結束，而是在掛鉤把回應交還給執行環境時結束。當它的百分位數與 `http.server.request.duration` 的百分位數拉開差距時，表示已完成的回應正被卡住，例如被內嵌遙測排清卡住。兩個百分位數可能來自不同的請求，因此這個差值只是一個訊號，而不是某個請求的等待時間。沒有 `waitUntil` 時，core 會在該次排清之後記錄樣本，因此樣本會隨下一次排清抵達後端。
 
 在指標中，`gen_ai.tool.name` 是框架動作的名稱或 `other`；只有當引擎將某個模型 ID 列為支援時，`gen_ai.request.model` 才會是該模型 ID，否則為 `_OTHER`。因此，應用程式自訂的工具與呼叫端傳入的模型 ID 不會產生無限增長的序列；span 中會保留確切的值。
 

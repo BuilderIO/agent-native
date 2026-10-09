@@ -362,7 +362,7 @@ export default defineAppConfig({
 | `agent_native.tool.calls`                   | `gen_ai.tool.name`, `error.type`                                                             |
 | `agent_native.telemetry.flush_failures`     | `error.type`, `agent_native.telemetry.signal`                                                |
 
-`agent_native.http.server.handoff.duration` は `http.server.request.duration` と同じ属性とバケットを持ちますが、レスポンスフックの開始時ではなく、フックがレスポンスをランタイムに返した時点で終わります。両者のパーセンタイルの差は、完成したレスポンスがインラインのテレメトリーフラッシュなどで待たされた時間です。`waitUntil` がない場合、core はそのフラッシュの後にサンプルを記録するため、サンプルは次のフラッシュでバックエンドに届きます。
+`agent_native.http.server.handoff.duration` は `http.server.request.duration` と同じ属性とバケットを持ちますが、レスポンスフックの開始時ではなく、フックがレスポンスをランタイムに返した時点で終わります。そのパーセンタイルが `http.server.request.duration` のパーセンタイルから離れていく場合、インラインのテレメトリーフラッシュなどで完成したレスポンスが引き留められています。2 つのパーセンタイルは別々のリクエストに由来することがあるため、この差は兆候であり、個々のリクエストの待ち時間ではありません。`waitUntil` がない場合、core はそのフラッシュの後にサンプルを記録するため、サンプルは次のフラッシュでバックエンドに届きます。
 
 メトリクスでは、`gen_ai.tool.name` はフレームワークのアクション名または `other` になり、`gen_ai.request.model` はエンジンがサポート対象として挙げているモデル ID の場合のみその値、それ以外は `_OTHER` になります。そのため、アプリ定義のツールや呼び出し元が指定したモデル ID によって系列が無制限に増えることはありません。スパンには正確な値が残ります。
 

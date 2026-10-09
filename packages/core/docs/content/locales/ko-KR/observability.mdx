@@ -360,7 +360,7 @@ export default defineAppConfig({
 | `agent_native.tool.calls`                   | `gen_ai.tool.name`, `error.type`                                                             |
 | `agent_native.telemetry.flush_failures`     | `error.type`, `agent_native.telemetry.signal`                                                |
 
-`agent_native.http.server.handoff.duration`은 `http.server.request.duration`과 같은 속성과 버킷을 갖지만, 응답 훅이 시작될 때가 아니라 훅이 응답을 런타임에 돌려줄 때 끝납니다. 두 백분위수의 차이는 완성된 응답이 인라인 텔레메트리 플러시 등으로 기다린 시간입니다. `waitUntil`이 없으면 core는 해당 플러시 이후에 샘플을 기록하므로, 샘플은 다음 플러시와 함께 백엔드에 도착합니다.
+`agent_native.http.server.handoff.duration`은 `http.server.request.duration`과 같은 속성과 버킷을 갖지만, 응답 훅이 시작될 때가 아니라 훅이 응답을 런타임에 돌려줄 때 끝납니다. 이 지표의 백분위수가 `http.server.request.duration`의 백분위수에서 벌어지면, 인라인 텔레메트리 플러시 등으로 완성된 응답이 붙잡혀 있다는 뜻입니다. 두 백분위수는 서로 다른 요청에서 나올 수 있으므로, 이 차이는 신호일 뿐 특정 요청의 대기 시간이 아닙니다. `waitUntil`이 없으면 core는 해당 플러시 이후에 샘플을 기록하므로, 샘플은 다음 플러시와 함께 백엔드에 도착합니다.
 
 메트릭에서 `gen_ai.tool.name`은 프레임워크 액션 이름 또는 `other`이며, `gen_ai.request.model`은 엔진이 지원 모델로 등록한 경우에만 모델 ID이고 그렇지 않으면 `_OTHER`입니다. 따라서 앱에서 정의한 도구나 호출자가 지정한 모델 ID가 시리즈를 무한정 늘릴 수 없으며, 스팬에는 정확한 값이 남습니다.
 

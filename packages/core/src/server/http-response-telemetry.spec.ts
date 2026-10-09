@@ -710,10 +710,19 @@ describe("http response telemetry", () => {
     });
 
     it("excludes an export handed to waitUntil", async () => {
-      registerMeter(() => new Promise<void>(() => undefined));
+      let releaseFlush: () => void = () => undefined;
+      registerMeter(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseFlush = resolve;
+          }),
+      );
       const { requestHooks, responseHooks } = createHooks();
       const event = eventFor("/some/page");
-      Object.assign(event.req, { waitUntil: () => undefined });
+      const handedOff: Promise<unknown>[] = [];
+      Object.assign(event.req, {
+        waitUntil: (promise: Promise<unknown>) => handedOff.push(promise),
+      });
       await requestHooks[0](event);
       nowSpy.mockReturnValue(startedAt + 1_200);
       await responseHooks[0](new Response("ok"), event);
@@ -721,6 +730,9 @@ describe("http response telemetry", () => {
       expect(durations("agent_native.http.server.handoff.duration")).toEqual([
         1.2,
       ]);
+      expect(handedOff).toHaveLength(1);
+      releaseFlush();
+      await handedOff[0];
     });
   });
 
