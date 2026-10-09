@@ -707,7 +707,13 @@ async function directoryWidgetTemplateConfig(
   );
   const sharedActions =
     appId === "content"
-      ? { "list-resource-suggestions": listResourceSuggestions }
+      ? {
+          "list-resource-suggestions": listResourceSuggestions,
+          "list-resource-shares": listResourceShares,
+          "share-resource": shareResource,
+          "unshare-resource": unshareResource,
+          "set-resource-visibility": setResourceVisibility,
+        }
       : {};
   const actionNames = [
     ...new Set([
