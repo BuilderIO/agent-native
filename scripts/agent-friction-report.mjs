@@ -2590,25 +2590,37 @@ function hasFeedbackReplyDetailFollowup(input, followupPattern) {
   const followupMatches = input.matchAll(
     new RegExp(followupPattern.source, `${followupPattern.flags}g`),
   );
+  const sentenceSpans = [];
+  let sentenceStart = 0;
+  for (const sentenceEnd of input.matchAll(
+    FEEDBACK_REPLY_DETAIL_SENTENCE_END_SCAN_RE,
+  )) {
+    const end = sentenceEnd.index;
+    sentenceSpans.push({
+      end,
+      isNonFeedbackResponse:
+        FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE_RE.test(
+          input.slice(sentenceStart, end),
+        ),
+    });
+    sentenceStart = end + sentenceEnd[0].length;
+  }
+  sentenceSpans.push({
+    end: input.length,
+    isNonFeedbackResponse: FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE_RE.test(
+      input.slice(sentenceStart),
+    ),
+  });
+
+  let sentenceIndex = 0;
   for (const match of followupMatches) {
-    const prefix = input.slice(0, match.index);
-    const precedingSentenceEnds = [
-      ...prefix.matchAll(FEEDBACK_REPLY_DETAIL_SENTENCE_END_SCAN_RE),
-    ];
-    const lastSentenceEnd = precedingSentenceEnds.at(-1);
-    const sentenceStart = lastSentenceEnd
-      ? lastSentenceEnd.index + lastSentenceEnd[0].length
-      : 0;
-    const remaining = input.slice(match.index);
-    const nextSentenceEnd = remaining.search(
-      FEEDBACK_REPLY_DETAIL_SENTENCE_END_SCAN_RE,
-    );
-    const sentenceEnd =
-      nextSentenceEnd === -1 ? input.length : match.index + nextSentenceEnd;
-    const sentence = input.slice(sentenceStart, sentenceEnd);
-    if (!FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE_RE.test(sentence)) {
-      return true;
+    while (
+      sentenceIndex < sentenceSpans.length - 1 &&
+      sentenceSpans[sentenceIndex].end < match.index
+    ) {
+      sentenceIndex += 1;
     }
+    if (!sentenceSpans[sentenceIndex].isNonFeedbackResponse) return true;
   }
   return false;
 }
@@ -3315,6 +3327,23 @@ if (process.argv.includes("--self-test")) {
     failures.push([
       false,
       `Comma-dense feedback message took ${commaDenseDurationMs.toFixed(1)} ms or matched unexpectedly`,
+    ]);
+  }
+  const stressApiResponseFollowups =
+    "API responses are not too verbose. Actually, they are too technical. ".repeat(
+      3_000,
+    );
+  const apiResponseFollowupStart = process.hrtime.bigint();
+  const apiResponseFollowupsMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    stressApiResponseFollowups,
+  );
+  const apiResponseFollowupDurationMs =
+    Number(process.hrtime.bigint() - apiResponseFollowupStart) / 1_000_000;
+  if (apiResponseFollowupsMatched || apiResponseFollowupDurationMs > 2_000) {
+    failures.push([
+      false,
+      `API response follow-ups took ${apiResponseFollowupDurationMs.toFixed(1)} ms or matched unexpectedly`,
     ]);
   }
   const stressLargeDenseNegative = "reply too ".repeat(100_000);
