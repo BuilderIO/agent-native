@@ -240,11 +240,8 @@ vi.mock("../server/embed-route.js", () => ({
 }));
 
 // Keep real capability builders except when testing scope construction failures.
-const capabilityScopeOverride = vi.hoisted(() => ({
-  unmintable: false,
-  readUnmintable: false,
-  readCapabilityInputs: vi.fn(),
-}));
+const readCapabilityInputs = vi.hoisted(() => vi.fn());
+const writeScopeOverride = vi.hoisted(() => ({ unmintable: false }));
 vi.mock("../shared/embed-auth.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../shared/embed-auth.js")>();
@@ -255,17 +252,15 @@ vi.mock("../shared/embed-auth.js", async (importOriginal) => {
         typeof actual.createMcpDirectoryWidgetReadCapability
       >[0],
     ) => {
-      capabilityScopeOverride.readCapabilityInputs(input);
-      return capabilityScopeOverride.readUnmintable
-        ? undefined
-        : actual.createMcpDirectoryWidgetReadCapability(input);
+      readCapabilityInputs(input);
+      return actual.createMcpDirectoryWidgetReadCapability(input);
     },
     createMcpDirectoryWidgetWriteCapability: (
       input: Parameters<
         typeof actual.createMcpDirectoryWidgetWriteCapability
       >[0],
     ) =>
-      capabilityScopeOverride.unmintable
+      writeScopeOverride.unmintable
         ? undefined
         : actual.createMcpDirectoryWidgetWriteCapability(input),
   };
@@ -2817,9 +2812,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     )!;
 
     afterEach(() => {
-      capabilityScopeOverride.unmintable = false;
-      capabilityScopeOverride.readUnmintable = false;
-      capabilityScopeOverride.readCapabilityInputs.mockClear();
+      writeScopeOverride.unmintable = false;
+      readCapabilityInputs.mockClear();
     });
 
     it("degrades to a read-only ticket when the write scope itself is unmintable", async () => {
@@ -2827,7 +2821,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         .spyOn(console, "error")
         .mockImplementation(() => {});
       try {
-        capabilityScopeOverride.unmintable = true;
+        writeScopeOverride.unmintable = true;
         embedSessionMocks.createEmbedSessionTicket.mockClear();
 
         const created = await callCreate(contentTemplate);
@@ -2858,37 +2852,38 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         .spyOn(console, "error")
         .mockImplementation(() => {});
       try {
-        capabilityScopeOverride.unmintable = true;
-        capabilityScopeOverride.readUnmintable = true;
-        capabilityScopeOverride.readCapabilityInputs.mockClear();
+        // An id past the 256-character cap invalidates the read scope as
+        // well as the write scope, so no widget capability can be built.
+        const id = "x".repeat(257);
+        readCapabilityInputs.mockClear();
         embedSessionMocks.createEmbedSessionTicket.mockClear();
 
-        const created = await callCreate(contentTemplate);
+        const created = await callCreate({
+          ...contentTemplate,
+          result: { id, spaceId: id },
+        } as unknown as typeof contentTemplate);
 
         expect(created.result.isError).not.toBe(true);
-        expect(
-          capabilityScopeOverride.readCapabilityInputs,
-        ).toHaveBeenCalledTimes(1);
-        expect(
-          capabilityScopeOverride.readCapabilityInputs.mock.calls[0]?.[0],
-        ).toMatchObject({
+        expect(readCapabilityInputs).toHaveBeenCalledTimes(1);
+        expect(readCapabilityInputs.mock.calls[0]?.[0]).toMatchObject({
           appId: "content",
           resourceUri: "ui://content/shell-v69",
           resourceIds: {
-            documentId: "page-1",
+            documentId: id,
             resourceType: "document",
-            spaceId: "space-1",
+            spaceId: id,
           },
           actionArguments: expect.objectContaining({
-            "get-document": { id: "page-1" },
-            "get-content-navigation-context": { id: "page-1" },
+            "get-document": { id },
+            "get-content-navigation-context": { id },
           }),
         });
-        expect(created.result.structuredContent).toMatchObject(
-          contentTemplate.result,
-        );
+        expect(created.result.structuredContent).toMatchObject({
+          id,
+          spaceId: id,
+        });
         expect(created.result.content[0].text).toBe(
-          "create-document completed for page-1.",
+          `create-document completed for ${id}.`,
         );
         expect(
           embedSessionMocks.createEmbedSessionTicket,
