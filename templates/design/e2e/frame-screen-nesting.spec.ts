@@ -86,8 +86,16 @@ async function screenBox(page: Page) {
   return { ...box, scale: box.width / 320 };
 }
 
-async function emptyBoardPoint(page: Page) {
-  const point = await page.evaluate(() => {
+async function emptyBoardPoint(
+  page: Page,
+  avoidBoxes: Array<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }> = [],
+) {
+  const point = await page.evaluate((boxesToAvoid) => {
     const world = document.querySelector("[data-multi-screen-canvas-world]");
     const surface = (world?.parentElement ?? world) as HTMLElement | null;
     if (!surface) return null;
@@ -95,6 +103,12 @@ async function emptyBoardPoint(page: Page) {
     const cards = Array.from(
       document.querySelectorAll("[data-screen-iframe-id]"),
     ).map((el) => el.getBoundingClientRect());
+    const blocked = boxesToAvoid.map((box) => ({
+      left: box.x - 120,
+      right: box.x + box.width + 120,
+      top: box.y - 120,
+      bottom: box.y + box.height + 120,
+    }));
     for (let y = r.top + 60; y < r.bottom - 60; y += 40) {
       for (let x = r.left + 60; x < r.right - 60; x += 40) {
         if (
@@ -104,6 +118,9 @@ async function emptyBoardPoint(page: Page) {
               x <= c.right + 24 &&
               y >= c.top - 24 &&
               y <= c.bottom + 24,
+          ) ||
+          blocked.some(
+            (c) => x >= c.left && x <= c.right && y >= c.top && y <= c.bottom,
           )
         ) {
           continue;
@@ -113,7 +130,7 @@ async function emptyBoardPoint(page: Page) {
       }
     }
     return null;
-  });
+  }, avoidBoxes);
   if (!point) throw new Error("no empty canvas point found at this viewport");
   return point;
 }
@@ -296,7 +313,8 @@ test("1:19 — the Screen tool makes a top-level screen, the Frame tool does not
   ).toBe(before.length + 1);
 });
 
-test("4:24 — a board frame can be dragged into a screen and become a child", async ({
+// oracle: none — verifies app geometry persistence after cross-screen drag, not visual parity.
+test("a board Frame keeps its drop position after it moves into a Screen", async ({
   page,
 }) => {
   const id = await newDesign(page);
@@ -318,8 +336,14 @@ test("4:24 — a board frame can be dragged into a screen and become a child", a
     .contentFrame()
     .locator('[data-an-primitive="frame"]')
     .first();
+  const nodeId = await boardFrame.getAttribute("data-agent-native-node-id");
+  expect(nodeId).toBeTruthy();
   const from = (await boardFrame.boundingBox())!;
   const screen = await screenBox(page);
+  const dropPoint = {
+    x: screen.x + screen.width / 2,
+    y: screen.y + screen.height / 2,
+  };
   await page
     .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
     .click();
@@ -332,18 +356,322 @@ test("4:24 — a board frame can be dragged into a screen and become a child", a
       steps: 4,
     },
   );
-  await page.mouse.move(
-    screen.x + screen.width / 2,
-    screen.y + screen.height / 2,
-    { steps: 24 },
-  );
+  await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 24 });
   await page.mouse.up();
   await expect
     .poll(() => fileContent(page, id, "index.html"), { timeout: 10_000 })
     .toContain('data-an-primitive="frame"');
   await expect
     .poll(() => fileContent(page, id, "__board__.html"), { timeout: 10_000 })
-    .not.toContain('data-an-primitive="frame"');
+    .not.toContain(`data-agent-native-node-id="${nodeId}"`);
+
+  // Let the delayed drag-cancel grace period finish before checking persisted
+  // geometry. Ownership transfer can succeed even if a late cancel restores
+  // the frame's original position.
+  await page.waitForTimeout(300);
+  const screenHtml = await fileContent(page, id, "index.html");
+  expect(
+    screenHtml.match(new RegExp(`data-agent-native-node-id="${nodeId}"`, "g")),
+  ).toHaveLength(1);
+
+  await openEditor(page, id);
+  const movedFrame = page
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
+    .first()
+    .contentFrame()
+    .locator(`[data-agent-native-node-id="${nodeId}"]`);
+  await expect(movedFrame).toBeVisible();
+  const movedBox = (await movedFrame.boundingBox())!;
+  const reloadedScreen = await screenBox(page);
+
+  // The drag remains anchored at the frame center through activation, so that
+  // center should land at the pointer's release point.
+  expect(
+    Math.abs(
+      movedBox.x +
+        movedBox.width / 2 -
+        (reloadedScreen.x + reloadedScreen.width / 2),
+    ),
+  ).toBeLessThanOrEqual(6);
+  expect(
+    Math.abs(
+      movedBox.y +
+        movedBox.height / 2 -
+        (reloadedScreen.y + reloadedScreen.height / 2),
+    ),
+  ).toBeLessThanOrEqual(6);
+});
+
+// oracle: none — verifies app geometry after frame-to-frame drag, not a measured Figma result.
+test("a board Frame keeps its drop position when moved over another board Frame", async ({
+  page,
+}) => {
+  const id = await newDesign(page);
+  await openEditor(page, id);
+  const firstStart = await emptyBoardPoint(page);
+  await drawFrameTool(page, "Frame", firstStart, {
+    x: firstStart.x + 90,
+    y: firstStart.y + 90,
+  });
+
+  const boardDocument = () =>
+    page.locator("[data-board-surface-layer] iframe").first().contentFrame();
+  const boardFrames = () =>
+    boardDocument().locator('[data-an-primitive="frame"]');
+  const source = boardFrames().first();
+  const sourceId = await source.getAttribute("data-agent-native-node-id");
+  expect(sourceId).toBeTruthy();
+  const sourceBox = (await source.boundingBox())!;
+  const secondStart = await emptyBoardPoint(page, [sourceBox]);
+  await drawFrameTool(page, "Frame", secondStart, {
+    x: secondStart.x + 90,
+    y: secondStart.y + 90,
+  });
+
+  const target = boardFrames().nth(1);
+  const targetId = await target.getAttribute("data-agent-native-node-id");
+  expect(targetId).toBeTruthy();
+  const targetBox = (await target.boundingBox())!;
+  const dropPoint = {
+    x: targetBox.x + targetBox.width / 2,
+    y: targetBox.y + targetBox.height / 2,
+  };
+  expect(dropPoint.x).toBeGreaterThan(targetBox.x);
+  expect(dropPoint.x).toBeLessThan(targetBox.x + targetBox.width);
+  expect(dropPoint.y).toBeGreaterThan(targetBox.y);
+  expect(dropPoint.y).toBeLessThan(targetBox.y + targetBox.height);
+  const releaseOverScreen = await page.evaluate(
+    ({ x, y }) =>
+      Array.from(document.querySelectorAll("[data-screen-iframe-id]")).some(
+        (screen) => {
+          const rect = screen.getBoundingClientRect();
+          return (
+            x >= rect.left &&
+            x <= rect.right &&
+            y >= rect.top &&
+            y <= rect.bottom
+          );
+        },
+      ),
+    dropPoint,
+  );
+  expect(releaseOverScreen).toBe(false);
+
+  await page
+    .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
+    .click();
+  await page.evaluate(() => {
+    const debugWindow = window as Window & {
+      __boardDragPhases?: string[];
+    };
+    debugWindow.__boardDragPhases = [];
+    window.addEventListener("message", (event) => {
+      const data = event.data as {
+        boardSurface?: boolean;
+        phase?: string;
+        type?: string;
+      };
+      if (
+        data?.type === "agent-native:cross-screen-drag" &&
+        data.boardSurface === true
+      ) {
+        debugWindow.__boardDragPhases?.push(data.phase ?? "");
+      }
+    });
+  });
+  await page.mouse.move(
+    sourceBox.x + sourceBox.width / 2,
+    sourceBox.y + sourceBox.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    sourceBox.x + sourceBox.width / 2 - 12,
+    sourceBox.y + sourceBox.height / 2,
+    { steps: 4 },
+  );
+  await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 24 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const boardDragPhases = await page.evaluate(() => {
+    const debugWindow = window as Window & {
+      __boardDragPhases?: string[];
+    };
+    return debugWindow.__boardDragPhases ?? [];
+  });
+  expect(boardDragPhases).toContain("start");
+  expect(boardDragPhases).toContain("move");
+  expect(boardDragPhases).toContain("end");
+
+  const boardHtml = await fileContent(page, id, "__board__.html");
+  expect(
+    boardHtml.match(new RegExp(`data-agent-native-node-id="${sourceId}"`, "g")),
+  ).toHaveLength(1);
+  expect(
+    boardHtml.match(new RegExp(`data-agent-native-node-id="${targetId}"`, "g")),
+  ).toHaveLength(1);
+
+  await openEditor(page, id);
+  const movedSource = boardDocument().locator(
+    `[data-agent-native-node-id="${sourceId}"]`,
+  );
+  await expect(movedSource).toBeVisible();
+  const targetAfter = boardDocument().locator(
+    `[data-agent-native-node-id="${targetId}"]`,
+  );
+  await expect(targetAfter).toBeVisible();
+  const movedBox = (await movedSource.boundingBox())!;
+  const targetAfterBox = (await targetAfter.boundingBox())!;
+  expect(
+    Math.abs(
+      movedBox.x +
+        movedBox.width / 2 -
+        (targetAfterBox.x + targetAfterBox.width / 2),
+    ),
+  ).toBeLessThanOrEqual(6);
+  expect(
+    Math.abs(
+      movedBox.y +
+        movedBox.height / 2 -
+        (targetAfterBox.y + targetAfterBox.height / 2),
+    ),
+  ).toBeLessThanOrEqual(6);
+});
+
+// oracle: none — verifies locked-screen drop behavior in the app, not visual parity.
+test("a board Frame keeps its position when released over a locked Screen", async ({
+  page,
+}) => {
+  const id = await newDesign(page);
+  await openEditor(page, id);
+
+  const homeRow = page
+    .getByRole("tree", { name: "Layers" })
+    .locator('[role="treeitem"][aria-level="1"]')
+    .filter({ has: page.locator('span[title="Home"]') })
+    .first();
+  await homeRow.hover();
+  await homeRow.locator('button[aria-label="Lock layer"]').click({
+    force: true,
+  });
+  await expect(
+    homeRow.locator('button[aria-label="Unlock layer"]'),
+  ).toBeVisible();
+
+  const start = await emptyBoardPoint(page);
+  await drawFrameTool(page, "Frame", start, {
+    x: start.x + 90,
+    y: start.y + 90,
+  });
+  const boardDocument = () =>
+    page.locator("[data-board-surface-layer] iframe").first().contentFrame();
+  const source = boardDocument().locator('[data-an-primitive="frame"]').first();
+  const sourceId = await source.getAttribute("data-agent-native-node-id");
+  expect(sourceId).toBeTruthy();
+  const sourceBefore = (await source.boundingBox())!;
+  const targetBefore = await screenBox(page);
+  const dropPoint = {
+    x: targetBefore.x + targetBefore.width / 2,
+    y: targetBefore.y + targetBefore.height / 2,
+  };
+
+  await boardDocument()
+    .locator("html")
+    .evaluate(() => {
+      const debugWindow = window as Window & {
+        __hostDragCancels?: number;
+      };
+      debugWindow.__hostDragCancels = 0;
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "agent-native:cancel-active-drag") {
+          debugWindow.__hostDragCancels =
+            (debugWindow.__hostDragCancels ?? 0) + 1;
+        }
+      });
+    });
+  await page.evaluate(() => {
+    const debugWindow = window as Window & {
+      __hostMouseUpCount?: number;
+    };
+    debugWindow.__hostMouseUpCount = 0;
+    window.addEventListener(
+      "mouseup",
+      () => {
+        debugWindow.__hostMouseUpCount =
+          (debugWindow.__hostMouseUpCount ?? 0) + 1;
+      },
+      true,
+    );
+  });
+
+  await page
+    .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
+    .click();
+  await page.evaluate(() => {
+    const debugWindow = window as Window & {
+      __hostMouseUpCount?: number;
+    };
+    debugWindow.__hostMouseUpCount = 0;
+  });
+  await page.mouse.move(
+    sourceBefore.x + sourceBefore.width / 2,
+    sourceBefore.y + sourceBefore.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 24 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+
+  const sourceAfterDrop = (await source.boundingBox())!;
+  expect(
+    Math.abs(sourceAfterDrop.x + sourceAfterDrop.width / 2 - dropPoint.x),
+  ).toBeLessThanOrEqual(6);
+  expect(
+    Math.abs(sourceAfterDrop.y + sourceAfterDrop.height / 2 - dropPoint.y),
+  ).toBeLessThanOrEqual(6);
+
+  const hostDragCancels = await boardDocument()
+    .locator("html")
+    .evaluate(() => {
+      const debugWindow = window as Window & {
+        __hostDragCancels?: number;
+      };
+      return debugWindow.__hostDragCancels ?? 0;
+    });
+  const hostMouseUpCount = await page.evaluate(() => {
+    const debugWindow = window as Window & {
+      __hostMouseUpCount?: number;
+    };
+    return debugWindow.__hostMouseUpCount ?? 0;
+  });
+  expect(hostMouseUpCount).toBe(1);
+  expect(
+    hostDragCancels,
+    "a locked Screen is not a drop target and must not cancel the board move",
+  ).toBe(0);
+
+  const boardHtml = await fileContent(page, id, "__board__.html");
+  expect(
+    boardHtml.match(new RegExp(`data-agent-native-node-id="${sourceId}"`, "g")),
+  ).toHaveLength(1);
+  await openEditor(page, id);
+  const movedSource = boardDocument().locator(
+    `[data-agent-native-node-id="${sourceId}"]`,
+  );
+  await expect(movedSource).toBeVisible();
+  const movedBox = (await movedSource.boundingBox())!;
+  const targetAfter = await screenBox(page);
+  expect(
+    Math.abs(
+      movedBox.x + movedBox.width / 2 - (targetAfter.x + targetAfter.width / 2),
+    ),
+  ).toBeLessThanOrEqual(6);
+  expect(
+    Math.abs(
+      movedBox.y +
+        movedBox.height / 2 -
+        (targetAfter.y + targetAfter.height / 2),
+    ),
+  ).toBeLessThanOrEqual(6);
 });
 
 // Was an invisible skip: it fired on EVERY run, so this guarded nothing while

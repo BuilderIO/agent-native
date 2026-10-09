@@ -20,6 +20,7 @@ import {
 } from "./duplicate-screen";
 import { runUndo } from "./undo";
 
+// Keep screen copies spaced consistently across the board.
 const DESIGN_SCREEN_GAP = 56;
 
 const ref = <T>(current: T) => ({ current });
@@ -172,6 +173,121 @@ describe("getDuplicateScreenGeometry", () => {
 });
 
 describe("runDuplicateScreen", () => {
+  it("duplicates the freshest screen content instead of a stale file snapshot", async () => {
+    const createFileAsync = vi.fn().mockResolvedValue({ id: "copy" });
+    const args = duplicateArgs({
+      files: [
+        {
+          id: "source",
+          filename: "index.html",
+          fileType: "html",
+          content: '<main data-version="stale"><span>Old</span></main>',
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+      createFileAsync,
+      getCurrentScreenContentForDuplicate: () =>
+        '<main data-version="live"><span data-agent-native-node-id="live-link">Link</span></main>',
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    expect(createFileAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('data-version="live"'),
+      }),
+    );
+    expect(createFileAsync.mock.calls[0]?.[0].content).not.toContain(
+      'data-version="stale"',
+    );
+  });
+
+  it("falls back to the selected file when current content is unavailable", async () => {
+    const createFileAsync = vi.fn().mockResolvedValue({ id: "copy" });
+    const args = duplicateArgs({
+      files: [
+        {
+          id: "source",
+          filename: "index.html",
+          fileType: "html",
+          content: '<main data-version="saved"><span>Saved</span></main>',
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+      createFileAsync,
+      getCurrentScreenContentForDuplicate: () => undefined,
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    expect(createFileAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('data-version="saved"'),
+      }),
+    );
+  });
+
+  it("copies existing connection metadata through the server-created duplicate", async () => {
+    const args = duplicateArgs({
+      designDataJsonRef: {
+        current: {
+          canvasFrames: {
+            source: { x: 0, y: 0, width: 640, height: 480 },
+          },
+          screenMetadata: {
+            source: {
+              sourceType: "localhost",
+              width: 640,
+              height: 480,
+              connectionId: "owner-connection",
+            },
+          },
+          localhostScreens: {
+            source: {
+              url: "http://localhost:5173/library",
+              connectionId: "owner-connection",
+            },
+          },
+        },
+      },
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    expect(args.createFileAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designId: "design-1",
+        duplicateSourceFileId: "source",
+      }),
+    );
+    const updateInput = (args.updateDesignAsync as any).mock.calls[0]?.[0];
+    expect(updateInput).not.toHaveProperty("duplicateSourceFileId");
+    expect(updateInput.dataOperations).toEqual(
+      expect.arrayContaining([
+        {
+          op: "set",
+          path: ["screenMetadata", "copy", "sourceType"],
+          value: "localhost",
+        },
+        {
+          op: "set",
+          path: ["localhostScreens", "copy", "url"],
+          value: "http://localhost:5173/library",
+        },
+      ]),
+    );
+    expect(
+      updateInput.dataOperations.some(
+        (operation: { value?: unknown }) =>
+          operation.value &&
+          typeof operation.value === "object" &&
+          "connectionId" in operation.value,
+      ),
+    ).toBe(false);
+  });
+
   it("copies only widget-safe screen layout metadata", async () => {
     const args = duplicateArgs({
       widgetEmbed: true,
@@ -206,30 +322,36 @@ describe("runDuplicateScreen", () => {
 
     await runDuplicateScreen(args, "source");
 
+    expect((args.createFileAsync as any).mock.calls[0]?.[0]).not.toHaveProperty(
+      "duplicateSourceFileId",
+    );
     const operations = (args.updateDesignAsync as any).mock.calls[0][0]
       .dataOperations as Array<{
       op: string;
       path: string[];
-      value?: Record<string, unknown>;
+      value?: unknown;
     }>;
-    expect(
-      operations.find(
-        (operation) =>
-          operation.op === "set" &&
-          operation.path[0] === "screenMetadata" &&
-          operation.path[1] === "copy",
-      ),
-    ).toEqual({
-      op: "set",
-      path: ["screenMetadata", "copy"],
-      value: {
-        width: 640,
-        height: 480,
-        heightPinned: true,
-        heightMode: "fixed",
-        breakpointHeights: { "390": 820 },
-      },
-    });
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        { op: "set", path: ["screenMetadata", "copy", "width"], value: 640 },
+        { op: "set", path: ["screenMetadata", "copy", "height"], value: 480 },
+        {
+          op: "set",
+          path: ["screenMetadata", "copy", "heightPinned"],
+          value: true,
+        },
+        {
+          op: "set",
+          path: ["screenMetadata", "copy", "heightMode"],
+          value: "fixed",
+        },
+        {
+          op: "set",
+          path: ["screenMetadata", "copy", "breakpointHeights"],
+          value: { "390": 820 },
+        },
+      ]),
+    );
     expect(
       operations.some((operation) => operation.path[0] === "localhostScreens"),
     ).toBe(false);
@@ -260,25 +382,24 @@ describe("runDuplicateScreen", () => {
       .dataOperations as Array<{
       op: string;
       path: string[];
-      value?: Record<string, unknown>;
+      value?: unknown;
     }>;
-    expect(
-      operations.find(
-        (operation) =>
-          operation.op === "set" &&
-          operation.path[0] === "screenMetadata" &&
-          operation.path[1] === "copy",
-      ),
-    ).toEqual({
-      op: "set",
-      path: ["screenMetadata", "copy"],
-      value: {
-        sourceType: "inline",
-        width: 640,
-        height: 480,
-        breakpointHeights: { "390": 820 },
-      },
-    });
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        {
+          op: "set",
+          path: ["screenMetadata", "copy", "sourceType"],
+          value: "inline",
+        },
+        { op: "set", path: ["screenMetadata", "copy", "width"], value: 640 },
+        { op: "set", path: ["screenMetadata", "copy", "height"], value: 480 },
+        {
+          op: "set",
+          path: ["screenMetadata", "copy", "breakpointHeights"],
+          value: { "390": 820 },
+        },
+      ]),
+    );
   });
 
   it("keeps Cmd+D duplicates on the board's 56px spacing", async () => {

@@ -73,6 +73,26 @@ Sources auto-sync hourly; each run overlaps the previous one by one day to
 catch late-processed transcripts, and captures dedupe by `zoom:<meeting uuid>`.
 Captures use the organization audience. There are no Zoom webhooks.
 
+`"includeSummaries": true` also imports AI Companion meeting summaries, which
+exist for meetings that were never recorded. It is off by default because it
+needs two more scopes, `meeting:read:list_summaries:admin` and
+`meeting:read:summary:admin`; without them the sync fails with Zoom's
+missing-scope error after importing that run's transcripts. Summaries are listed
+account-wide from `/meetings/meeting_summaries`, narrowed by `userIds` (matched
+against the host ID or email) and the meeting filter, then fetched from
+`/meetings/{uuid}/meeting_summary`. Each becomes a `note` capture deduped by
+`zoom-summary:<meeting uuid>`, separate from that meeting's transcript, and goes
+through the same sensitivity check. A summary edited in Zoom after import is not
+re-imported. Turning the flag on rewinds the next sync to the `lookbackDays`
+window; every rewind keeps an older cursor that is held back for a pending
+transcript. A summary Zoom refuses (trashed, deleted) is recorded in
+`summaryFetchFailures` and the rest still import; the run ends as an error
+with `lastError` naming the first failure, and the cursor advances. Auth,
+missing-scope, timeout, and server errors (401, code 4711, 408, 5xx) instead
+fail the whole run and keep the cursor, so the next sync retries them. Run stats report `summariesListed`, `summariesSkippedByFilter`,
+`summariesAlreadyImported`, `summariesFetched`, `emptySummaries`,
+`summaryCapturesCreated`, and `summaryFetchFailures`.
+
 ## Blessed FAQ And Docs Publishers
 
 Approved FAQs, docs, handbooks, and similar owned resources use the same
