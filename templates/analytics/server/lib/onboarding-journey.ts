@@ -6,9 +6,16 @@ import {
 } from "./first-party-analytics.js";
 import {
   buildOnboardingJourneyEventsSql,
+  buildOnboardingJourneyFollowupSql,
   type OnboardingJourneyEventsFilters,
+  type OnboardingJourneyObservationWindow,
+  type OnboardingJourneyTerminalStep,
 } from "./first-party-metric-catalog.js";
-import { buildSessionSteps, type JourneyEventRow } from "./journey-steps.js";
+import {
+  projectSessionSteps,
+  type JourneyEventRow,
+  type JourneyStep,
+} from "./journey-steps.js";
 import {
   buildJourneyTree,
   addDeeperCounts,
@@ -22,6 +29,8 @@ import { listJourneyRecordings } from "./session-replay.js";
 // Both backends cap a query result at 5,000 rows; stay under it so a full page
 // is never mistaken for a cut one.
 const EVENT_PAGE_ROWS = 4_000;
+const FOLLOWUP_TERMINAL_BATCH_SIZE = 1_000;
+const MAX_FOLLOWUP_QUERY_CHARS = 800_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface OnboardingJourneyArgs extends OnboardingJourneyEventsFilters {
@@ -50,6 +59,7 @@ export interface JourneyTree {
     truncated: boolean;
   };
   nodes: JourneyNode[];
+  followUp: JourneyFollowup;
   /** Home chat setup sessions that did not enter onboarding, with a separate denominator. */
   standaloneSetup?: {
     rootN: number;
@@ -77,6 +87,7 @@ export interface JourneySummary {
   };
   /** One line per node, indented by depth. */
   outline: string;
+  followUp: JourneyFollowup;
   standaloneSetup?: {
     rootN: number;
     coverage: {
@@ -87,6 +98,39 @@ export interface JourneySummary {
     outline: string;
   };
   notes?: string[];
+}
+
+export interface JourneyFollowup {
+  status: "complete" | "incomplete";
+  observationCutoff: string;
+  observationFollowupDurationMs: {
+    min: number;
+    max: number;
+    mean: number;
+  } | null;
+  rightCensoredAtWindowEnd: true;
+  coverage: {
+    journeyEventRead: {
+      rows: number;
+      pages: number;
+      truncated: boolean;
+      paginationConsistency: "stable" | "may_have_shifted";
+    };
+    followupAggregateRead: {
+      rows: number | null;
+      batches: number;
+      truncated: boolean;
+    };
+    cohortSessions: number | null;
+  };
+  laterRecordedActivityWithinWindow: {
+    total: number | null;
+    byTerminalStepKey: Record<string, number> | null;
+  };
+  noLaterRecordedActivityWithinWindow: {
+    total: number | null;
+    byTerminalStepKey: Record<string, number> | null;
+  };
 }
 
 /** Recordings could not be read completely, so examples would misreport replay availability. */
@@ -164,40 +208,50 @@ export function parseJourneyEventRow(
 
 interface EventRead {
   rows: JourneyEventRow[];
+  rawRows: number;
   invalidRows: number;
   truncated: boolean;
   onboardingTruncated: boolean;
   standaloneSetupTruncated: boolean;
   lastSessionDroppedFor: JourneyEventRow["journeyKind"] | null;
   pages: number;
+  paginationConsistency: "stable" | "may_have_shifted";
 }
 
 async function readJourneyEvents(
   scope: AnalyticsScope,
   filters: OnboardingJourneyEventsFilters,
   maxEventRows: number,
+  observation: OnboardingJourneyObservationWindow,
 ): Promise<EventRead> {
   const raw: Record<string, unknown>[] = [];
   let truncated = false;
   let truncatedAt: JourneyEventRow["journeyKind"] | null = null;
   let overflowSessionId: string | null = null;
   let pages = 0;
+  let rowsFetched = 0;
   for (;;) {
     // One row past the budget tells a full read from a cut one.
     const limit = Math.min(EVENT_PAGE_ROWS, maxEventRows + 1 - raw.length);
     const page = await queryFirstPartyAnalytics(
-      buildOnboardingJourneyEventsSql(filters, {
-        limit,
-        offset: raw.length,
-      }),
+      buildOnboardingJourneyEventsSql(
+        filters,
+        {
+          limit,
+          offset: raw.length,
+        },
+        observation,
+      ),
       scope,
       { cache: true },
     );
-    if (page.truncated) {
-      throw new Error("Journey event page exceeded the query row cap");
-    }
     pages += 1;
     raw.push(...page.rows);
+    rowsFetched += page.rows.length;
+    if (page.truncated) {
+      truncated = true;
+      break;
+    }
     if (page.rows.length < limit) break;
     if (raw.length > maxEventRows) {
       truncated = true;
@@ -245,17 +299,20 @@ async function readJourneyEvents(
   }
   return {
     rows,
+    rawRows: rowsFetched,
     invalidRows,
     truncated,
     onboardingTruncated: truncated && truncatedAt !== "standalone_setup",
     standaloneSetupTruncated: truncated,
     lastSessionDroppedFor,
     pages,
+    paginationConsistency: pages > 1 ? "may_have_shifted" : "stable",
   };
 }
 
 function groupSessions(rows: readonly JourneyEventRow[]): {
   sessions: JourneySession[];
+  terminalSteps: OnboardingJourneyTerminalStep[];
   sessionsWithoutSteps: number;
 } {
   const bySession = new Map<string, JourneyEventRow[]>();
@@ -265,16 +322,277 @@ function groupSessions(rows: readonly JourneyEventRow[]): {
     else bySession.set(row.sessionId, [row]);
   }
   const sessions: JourneySession[] = [];
+  const terminalSteps: OnboardingJourneyTerminalStep[] = [];
   let sessionsWithoutSteps = 0;
   for (const [sessionId, sessionRows] of bySession) {
-    const steps = buildSessionSteps(sessionRows);
-    if (steps.length) sessions.push({ sessionId, steps });
-    else sessionsWithoutSteps += 1;
+    const selected = projectSessionSteps(sessionRows);
+    const steps: JourneyStep[] = selected.map(({ key, label, tsMs }) => ({
+      key,
+      label,
+      tsMs,
+    }));
+    const terminal = selected[selected.length - 1];
+    if (steps.length && terminal) {
+      sessions.push({ sessionId, steps });
+      terminalSteps.push({
+        sessionId,
+        stepKey: terminal.key,
+        tsMs: terminal.tsMs,
+      });
+    } else sessionsWithoutSteps += 1;
   }
   sessions.sort((a, b) =>
     a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0,
   );
-  return { sessions, sessionsWithoutSteps };
+  terminalSteps.sort((a, b) =>
+    a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0,
+  );
+  return {
+    sessions,
+    terminalSteps,
+    sessionsWithoutSteps,
+  };
+}
+
+function freezeObservationWindow(
+  args: OnboardingJourneyEventsFilters,
+): OnboardingJourneyObservationWindow {
+  const requestedAtMs = Date.now();
+  const requestedEndExclusive = Date.parse(`${args.dateTo}T00:00:00Z`) + DAY_MS;
+  const cutoffMs = Math.min(requestedAtMs, requestedEndExclusive);
+  const observationCutoff = new Date(cutoffMs).toISOString();
+  return {
+    observationCutoff,
+    observationDate: observationCutoff.slice(0, 10),
+  };
+}
+
+function incompleteFollowup(
+  observation: OnboardingJourneyObservationWindow,
+  read: EventRead,
+  batches = 0,
+  rows: number | null = null,
+  followupTruncated = false,
+): JourneyFollowup {
+  return {
+    status: "incomplete",
+    observationCutoff: observation.observationCutoff,
+    observationFollowupDurationMs: null,
+    rightCensoredAtWindowEnd: true,
+    coverage: {
+      journeyEventRead: {
+        rows: read.rawRows,
+        pages: read.pages,
+        truncated: read.truncated,
+        paginationConsistency: read.paginationConsistency,
+      },
+      followupAggregateRead: {
+        rows,
+        batches,
+        truncated: followupTruncated,
+      },
+      cohortSessions: null,
+    },
+    laterRecordedActivityWithinWindow: { total: null, byTerminalStepKey: null },
+    noLaterRecordedActivityWithinWindow: {
+      total: null,
+      byTerminalStepKey: null,
+    },
+  };
+}
+
+function followupBatches(
+  terminals: readonly OnboardingJourneyTerminalStep[],
+): OnboardingJourneyTerminalStep[][] {
+  const batches: OnboardingJourneyTerminalStep[][] = [];
+  let current: OnboardingJourneyTerminalStep[] = [];
+  let currentSize = 0;
+  for (const terminal of terminals) {
+    const escapedSize =
+      terminal.sessionId.length * 2 + terminal.stepKey.length * 2 + 220;
+    if (
+      current.length &&
+      (current.length >= FOLLOWUP_TERMINAL_BATCH_SIZE ||
+        currentSize + escapedSize > MAX_FOLLOWUP_QUERY_CHARS)
+    ) {
+      batches.push(current);
+      current = [];
+      currentSize = 0;
+    }
+    current.push(terminal);
+    currentSize += escapedSize;
+  }
+  if (current.length) batches.push(current);
+  return batches;
+}
+
+async function readFollowup(
+  scope: AnalyticsScope,
+  filters: OnboardingJourneyEventsFilters,
+  read: EventRead,
+  terminals: readonly OnboardingJourneyTerminalStep[],
+  observation: OnboardingJourneyObservationWindow,
+): Promise<JourneyFollowup> {
+  if (
+    read.truncated ||
+    read.invalidRows ||
+    read.paginationConsistency === "may_have_shifted"
+  ) {
+    return incompleteFollowup(observation, read);
+  }
+  if (terminals.length === 0) {
+    return {
+      status: "complete",
+      observationCutoff: observation.observationCutoff,
+      observationFollowupDurationMs: null,
+      rightCensoredAtWindowEnd: true,
+      coverage: {
+        journeyEventRead: {
+          rows: read.rawRows,
+          pages: read.pages,
+          truncated: read.truncated,
+          paginationConsistency: read.paginationConsistency,
+        },
+        followupAggregateRead: { rows: 0, batches: 0, truncated: false },
+        cohortSessions: 0,
+      },
+      laterRecordedActivityWithinWindow: {
+        total: 0,
+        byTerminalStepKey: {},
+      },
+      noLaterRecordedActivityWithinWindow: {
+        total: 0,
+        byTerminalStepKey: {},
+      },
+    };
+  }
+  const cohortByStep = new Map<string, number>();
+  const laterByStep = new Map<string, number>();
+  const batches = followupBatches(terminals);
+  let aggregateRows = 0;
+  for (const batch of batches) {
+    const sql = buildOnboardingJourneyFollowupSql(filters, batch, observation);
+    if (sql.length > MAX_FOLLOWUP_QUERY_CHARS) {
+      return incompleteFollowup(observation, read, batches.length);
+    }
+    const result = await queryFirstPartyAnalytics(sql, scope, { cache: true });
+    if (result.truncated) {
+      return incompleteFollowup(observation, read, batches.length, null, true);
+    }
+    aggregateRows += result.rows.length;
+    const seen = new Set<string>();
+    let batchCohort = 0;
+    for (const row of result.rows) {
+      const stepKey = text(row.terminal_step_key);
+      const cohortSessions = integer(row.cohort_sessions);
+      const laterSessions = integer(row.later_recorded_activity);
+      if (
+        !stepKey ||
+        cohortSessions === null ||
+        laterSessions === null ||
+        cohortSessions < 0 ||
+        laterSessions < 0 ||
+        laterSessions > cohortSessions ||
+        seen.has(stepKey)
+      ) {
+        return incompleteFollowup(observation, read, batches.length, null);
+      }
+      seen.add(stepKey);
+      batchCohort += cohortSessions;
+      cohortByStep.set(
+        stepKey,
+        (cohortByStep.get(stepKey) ?? 0) + cohortSessions,
+      );
+      laterByStep.set(stepKey, (laterByStep.get(stepKey) ?? 0) + laterSessions);
+    }
+    const expected = batch.length;
+    if (batchCohort !== expected) {
+      return incompleteFollowup(observation, read, batches.length, null);
+    }
+  }
+
+  const expectedByStep = new Map<string, number>();
+  for (const terminal of terminals) {
+    expectedByStep.set(
+      terminal.stepKey,
+      (expectedByStep.get(terminal.stepKey) ?? 0) + 1,
+    );
+  }
+  if (
+    [...expectedByStep].some(
+      ([stepKey, count]) => cohortByStep.get(stepKey) !== count,
+    ) ||
+    cohortByStep.size !== expectedByStep.size
+  ) {
+    return incompleteFollowup(observation, read, batches.length, null);
+  }
+
+  const noLaterByStep: Record<string, number> = {};
+  const laterByStepObject: Record<string, number> = {};
+  for (const [stepKey, count] of [...expectedByStep].sort(([a], [b]) =>
+    compareKeys(a, b),
+  )) {
+    const laterCount = laterByStep.get(stepKey) ?? 0;
+    laterByStepObject[stepKey] = laterCount;
+    noLaterByStep[stepKey] = count - laterCount;
+  }
+  const total = terminals.length;
+  const laterTotal = Object.values(laterByStepObject).reduce(
+    (sum, count) => sum + count,
+    0,
+  );
+  const durationMs = terminals.map(
+    (terminal) => Date.parse(observation.observationCutoff) - terminal.tsMs,
+  );
+  const followupDuration = durationMs.length
+    ? durationMs.reduce(
+        (summary, duration) => ({
+          min: Math.min(summary.min, duration),
+          max: Math.max(summary.max, duration),
+          total: summary.total + duration,
+        }),
+        {
+          min: Number.POSITIVE_INFINITY,
+          max: Number.NEGATIVE_INFINITY,
+          total: 0,
+        },
+      )
+    : null;
+  const durationSummary = followupDuration
+    ? {
+        min: followupDuration.min,
+        max: followupDuration.max,
+        mean: Math.round(followupDuration.total / durationMs.length),
+      }
+    : null;
+  return {
+    status: "complete",
+    observationCutoff: observation.observationCutoff,
+    observationFollowupDurationMs: durationSummary,
+    rightCensoredAtWindowEnd: true,
+    coverage: {
+      journeyEventRead: {
+        rows: read.rawRows,
+        pages: read.pages,
+        truncated: read.truncated,
+        paginationConsistency: read.paginationConsistency,
+      },
+      followupAggregateRead: {
+        rows: aggregateRows,
+        batches: batches.length,
+        truncated: false,
+      },
+      cohortSessions: total,
+    },
+    laterRecordedActivityWithinWindow: {
+      total: laterTotal,
+      byTerminalStepKey: laterByStepObject,
+    },
+    noLaterRecordedActivityWithinWindow: {
+      total: total - laterTotal,
+      byTerminalStepKey: noLaterByStep,
+    },
+  };
 }
 
 async function readRecordings(
@@ -368,12 +686,25 @@ export async function getOnboardingJourney(
   scope: AnalyticsScope,
   args: OnboardingJourneyArgs,
 ): Promise<JourneyTree | JourneySummary> {
-  const read = await readJourneyEvents(scope, args, args.maxEventRows);
-  const { sessions, sessionsWithoutSteps } = groupSessions(
+  const observation = freezeObservationWindow(args);
+  const read = await readJourneyEvents(
+    scope,
+    args,
+    args.maxEventRows,
+    observation,
+  );
+  const { sessions, terminalSteps, sessionsWithoutSteps } = groupSessions(
     read.rows.filter((row) => row.journeyKind === "onboarding"),
   );
   const standalone = groupSessions(
     read.rows.filter((row) => row.journeyKind === "standalone_setup"),
+  );
+  const followUp = await readFollowup(
+    scope,
+    args,
+    read,
+    terminalSteps,
+    observation,
   );
   const sessionIds = [
     ...new Set([
@@ -449,10 +780,10 @@ export async function getOnboardingJourney(
       `Some onboarding or standalone setup sessions continue beyond maxDepth=${args.maxDepth}; deeperN counts observed continuation omitted below each returned node.`,
     );
   }
-  if (read.pages > 1 && args.dateTo >= new Date().toISOString().slice(0, 10)) {
-    // Pages are OFFSET reads of a table that is still receiving events.
+  if (read.pages > 1) {
+    // Late-arriving events can change OFFSET page membership in any window.
     notes.push(
-      `The window includes today and the read took ${read.pages} pages; events that arrived while it ran can shift page boundaries, so a few rows near the live edge may be missing.`,
+      `The event read took ${read.pages} OFFSET pages; late-arriving events can shift page membership in any window, so returned tree counts may be incomplete.`,
     );
   }
   if (capped.dropped) {
@@ -497,6 +828,7 @@ export async function getOnboardingJourney(
         truncated,
       },
       outline: formatJourneyOutline(capped.nodes, args.maxDepth),
+      followUp,
       ...(standaloneBuilt && standaloneCapped
         ? {
             standaloneSetup: {
@@ -533,6 +865,7 @@ export async function getOnboardingJourney(
       truncated,
     },
     nodes: capped.nodes,
+    followUp,
     ...(standaloneBuilt && standaloneCapped
       ? {
           standaloneSetup: {

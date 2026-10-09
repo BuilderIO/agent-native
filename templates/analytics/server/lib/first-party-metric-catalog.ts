@@ -1048,7 +1048,18 @@ const FUNNEL_EVENTS_CTE = `WITH auth_identity_bridge AS (
   FROM funnel_events e
   JOIN signup_cohort c ON c.funnel_user_key = e.funnel_user_key
 )`;
-const ONBOARDING_EVENTS_CTE = `WITH auth_identity_bridge AS (
+function buildOnboardingEventsCte(
+  options: {
+    dateRangeFilter?: string;
+    observationCutoffSql?: string;
+  } = {},
+): string {
+  const dateRangeFilter =
+    options.dateRangeFilter ?? DASHBOARD_TIME_RANGE_FILTER;
+  const observationCutoffFilter = options.observationCutoffSql
+    ? `AND e.timestamp::timestamptz < ${options.observationCutoffSql}`
+    : "";
+  return `WITH auth_identity_bridge AS (
   SELECT linked_email, MIN(identities.auth_user_id) AS auth_user_id
   FROM (
     SELECT lower(COALESCE(
@@ -1057,7 +1068,8 @@ const ONBOARDING_EVENTS_CTE = `WITH auth_identity_bridge AS (
     )) AS linked_email,
     NULLIF(e.properties::jsonb ->> 'auth_user_id', '') AS auth_user_id
     FROM analytics_events e
-    WHERE ${DASHBOARD_TIME_RANGE_FILTER}
+    WHERE ${dateRangeFilter}
+      ${observationCutoffFilter}
       AND ${DASHBOARD_APP_FILTER}
       AND ${FIRST_PARTY_TEMPLATE_FILTER}
   ) AS identities
@@ -1084,7 +1096,8 @@ const ONBOARDING_EVENTS_CTE = `WITH auth_identity_bridge AS (
     CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
     CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END
   ))
-  WHERE ${DASHBOARD_TIME_RANGE_FILTER}
+  WHERE ${dateRangeFilter}
+    ${observationCutoffFilter}
     AND ${DASHBOARD_APP_FILTER}
     AND ${FIRST_PARTY_TEMPLATE_FILTER}
 ), onboarding_events AS (
@@ -1092,6 +1105,9 @@ const ONBOARDING_EVENTS_CTE = `WITH auth_identity_bridge AS (
   WHERE ${FUNNEL_EMAIL_FILTER}
     AND NOT ${testIdentityEmailSql("funnel_user_email")}
 )`;
+}
+
+const ONBOARDING_EVENTS_CTE = buildOnboardingEventsCte();
 const SIGNIFICANT_ACTION_FILTER = `((event_name IN ('action_completed', 'core_action_completed') AND COALESCE(properties::jsonb ->> 'success', 'true') = 'true') OR event_name = 'app.first_action' OR (event_name = 'action.response' AND COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE(upper(properties::jsonb ->> 'method'), '') <> 'GET'))`;
 const ACTION_RESPONSE_WEIGHT_SQL = `CASE WHEN NULLIF(properties::jsonb ->> 'sample_weight', '') IS NOT NULL THEN (properties::jsonb ->> 'sample_weight')::numeric WHEN COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE((properties::jsonb ->> 'duration_ms')::numeric, 1000) < 1000 AND COALESCE((properties::jsonb ->> 'status_code')::int, 200) < 400 AND NULLIF(properties::jsonb ->> 'framework_ready_wait_ms', '') IS NULL AND NULLIF(properties::jsonb ->> 'startup_db_operation_wall_ms', '') IS NULL THEN 10 ELSE 1 END`;
 const ACTION_RESPONSE_OUTCOME_CLASS_SQL = `CASE WHEN COALESCE(properties::jsonb ->> 'outcome', '') = 'cancelled' THEN 'cancelled' WHEN COALESCE(properties::jsonb ->> 'outcome', '') = 'timeout' AND COALESCE(properties::jsonb ->> 'page_hidden', '') = 'true' THEN 'suspended' WHEN COALESCE(properties::jsonb ->> 'success', '') = 'true' THEN 'success' ELSE 'failure' END`;
@@ -1346,7 +1362,7 @@ const sqlNameList = (names: readonly string[]) =>
  * and `only_builder` would keep identified events but drop the anonymous ones
  * that came first.
  */
-const ONBOARDING_JOURNEY_EVENTS_SQL = `${ONBOARDING_EVENTS_CTE}, identified_events AS (
+const ONBOARDING_JOURNEY_SCOPE_CTES = `, identified_events AS (
   SELECT session_id,
     ${testIdentityEmailSql("funnel_user_email")} AS is_test,
     lower(coalesce(funnel_user_email, '')) LIKE '%@builder.io' AS is_builder
@@ -1363,7 +1379,8 @@ const ONBOARDING_JOURNEY_EVENTS_SQL = `${ONBOARDING_EVENTS_CTE}, identified_even
   FROM session_identity
   WHERE has_test = 0
     AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND has_builder = 0) OR ('{{emailFilter}}' = 'only_builder' AND has_builder = 1))
-), cohort_sessions AS (
+ )`;
+const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
   SELECT DISTINCT i.session_id
   FROM included_sessions i
   JOIN scoped_onboarding_events c ON c.session_id = i.session_id
@@ -1409,6 +1426,25 @@ FROM journey_events e
 ORDER BY e.journey_kind, e.session_id, e.timestamp, e.id
 LIMIT {{journeyLimit}} OFFSET {{journeyOffset}}`;
 
+const ONBOARDING_JOURNEY_EVENTS_SQL = `${ONBOARDING_EVENTS_CTE}${ONBOARDING_JOURNEY_SCOPE_CTES}${ONBOARDING_JOURNEY_EVENTS_SUFFIX}`;
+
+const ONBOARDING_JOURNEY_DATE_RANGE_FILTER =
+  DASHBOARD_TIME_RANGE_FILTER.replace(
+    /CURRENT_DATE/g,
+    "NULLIF('{{observationDate}}', '')::date",
+  );
+
+export interface OnboardingJourneyObservationWindow {
+  observationCutoff: string;
+  observationDate: string;
+}
+
+export interface OnboardingJourneyTerminalStep {
+  sessionId: string;
+  stepKey: string;
+  tsMs: number;
+}
+
 export interface OnboardingJourneyEventsFilters {
   /** Inclusive UTC event dates, `YYYY-MM-DD`. */
   dateFrom: string;
@@ -1429,11 +1465,9 @@ export function isCalendarDate(value: string): boolean {
   return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === value;
 }
 
-/** One page of journey events; every interpolated value is validated first. */
-export function buildOnboardingJourneyEventsSql(
+function validateOnboardingJourneyFilters(
   filters: OnboardingJourneyEventsFilters,
-  page: { limit: number; offset: number },
-): string {
+): void {
   for (const date of [filters.dateFrom, filters.dateTo]) {
     if (!isCalendarDate(date)) {
       throw new Error(`Journey window dates must be YYYY-MM-DD, got "${date}"`);
@@ -1450,6 +1484,43 @@ export function buildOnboardingJourneyEventsSql(
   ) {
     throw new Error(`Unknown email filter "${filters.emailFilter}"`);
   }
+}
+
+function validateObservationWindow(
+  window: OnboardingJourneyObservationWindow,
+): void {
+  const cutoffMs = Date.parse(window.observationCutoff);
+  if (
+    !isCalendarDate(window.observationDate) ||
+    Number.isNaN(cutoffMs) ||
+    new Date(cutoffMs).toISOString() !== window.observationCutoff ||
+    window.observationDate !== window.observationCutoff.slice(0, 10)
+  ) {
+    throw new Error("Invalid frozen onboarding observation window");
+  }
+}
+
+function fillOnboardingJourneySql(
+  sql: string,
+  values: Record<string, string>,
+): string {
+  return sql.replace(/{{\s*([A-Za-z0-9_]+)\s*}}/g, (_match, key: string) => {
+    const value = values[key];
+    if (value === undefined) {
+      throw new Error(`Journey SQL has an unresolved placeholder {{${key}}}`);
+    }
+    return value;
+  });
+}
+
+/** One page of journey events; every interpolated value is validated first. */
+export function buildOnboardingJourneyEventsSql(
+  filters: OnboardingJourneyEventsFilters,
+  page: { limit: number; offset: number },
+  observation?: OnboardingJourneyObservationWindow,
+): string {
+  validateOnboardingJourneyFilters(filters);
+  if (observation) validateObservationWindow(observation);
   if (!Number.isSafeInteger(page.limit) || page.limit < 1) {
     throw new Error("Journey page limit must be a positive integer");
   }
@@ -1465,16 +1536,88 @@ export function buildOnboardingJourneyEventsSql(
     journeyLimit: String(page.limit),
     journeyOffset: String(page.offset),
   };
-  return ONBOARDING_JOURNEY_EVENTS_SQL.replace(
-    /{{\s*([A-Za-z0-9_]+)\s*}}/g,
-    (_match, key: string) => {
-      const value = values[key];
-      if (value === undefined) {
-        throw new Error(`Journey SQL has an unresolved placeholder {{${key}}}`);
+  let query = ONBOARDING_JOURNEY_EVENTS_SQL;
+  if (observation) {
+    const cte = buildOnboardingEventsCte({
+      dateRangeFilter: ONBOARDING_JOURNEY_DATE_RANGE_FILTER,
+      observationCutoffSql: "NULLIF('{{observationCutoff}}', '')::timestamptz",
+    });
+    query = `${cte}${ONBOARDING_JOURNEY_SCOPE_CTES}${ONBOARDING_JOURNEY_EVENTS_SUFFIX}`;
+    values.observationCutoff = observation.observationCutoff;
+    values.observationDate = observation.observationDate;
+  }
+  return fillOnboardingJourneySql(query, values);
+}
+
+function sqlStringLiteral(value: string): string {
+  if (value.includes("\0")) {
+    throw new Error("Journey values cannot contain a NUL character");
+  }
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+/** A scoped aggregate over any later first-party event for each selected terminal step. */
+export function buildOnboardingJourneyFollowupSql(
+  filters: OnboardingJourneyEventsFilters,
+  terminalSteps: readonly OnboardingJourneyTerminalStep[],
+  observation: OnboardingJourneyObservationWindow,
+): string {
+  validateOnboardingJourneyFilters(filters);
+  validateObservationWindow(observation);
+  if (!terminalSteps.length) {
+    throw new Error("A follow-up query requires terminal onboarding steps");
+  }
+  const terminalRows = terminalSteps
+    .map((terminal) => {
+      if (
+        !terminal.sessionId ||
+        !terminal.stepKey ||
+        !Number.isSafeInteger(terminal.tsMs)
+      ) {
+        throw new Error("Invalid onboarding terminal step");
       }
-      return value;
-    },
-  );
+      return `SELECT ${sqlStringLiteral(terminal.sessionId)} AS session_id, ${sqlStringLiteral(terminal.stepKey)} AS terminal_step_key, NULLIF('${new Date(terminal.tsMs).toISOString()}', '')::timestamptz AS terminal_at`;
+    })
+    .join(" UNION ALL ");
+  const baseCte = buildOnboardingEventsCte({
+    dateRangeFilter: ONBOARDING_JOURNEY_DATE_RANGE_FILTER,
+    observationCutoffSql: "NULLIF('{{observationCutoff}}', '')::timestamptz",
+  });
+  const query = `${baseCte}${ONBOARDING_JOURNEY_SCOPE_CTES}, cohort_sessions AS (
+  SELECT DISTINCT i.session_id
+  FROM included_sessions i
+  JOIN scoped_onboarding_events c ON c.session_id = i.session_id
+  WHERE c.event_name IN (${sqlNameList(JOURNEY_COHORT_EVENT_NAMES)})
+), terminal_steps AS (
+  ${terminalRows}
+), eligible_terminal_steps AS (
+  SELECT terminal.*
+  FROM terminal_steps terminal
+  JOIN included_sessions included USING (session_id)
+  JOIN cohort_sessions cohort USING (session_id)
+)
+SELECT terminal_step_key,
+  COUNT(*) AS cohort_sessions,
+  SUM(CASE WHEN EXISTS (
+    SELECT 1
+    FROM scoped_onboarding_events later
+    JOIN included_sessions included ON included.session_id = later.session_id
+    WHERE later.session_id = terminal.session_id
+      AND later.timestamp::timestamptz > terminal.terminal_at
+      AND later.timestamp::timestamptz < '{{observationCutoff}}'::timestamptz
+  ) THEN 1 ELSE 0 END) AS later_recorded_activity
+FROM eligible_terminal_steps terminal
+GROUP BY terminal_step_key
+ORDER BY terminal_step_key`;
+  return fillOnboardingJourneySql(query, {
+    timeRange: "custom",
+    timeRangeStart: filters.dateFrom,
+    timeRangeEnd: filters.dateTo,
+    emailFilter: filters.emailFilter,
+    appFilter: filters.app,
+    observationCutoff: observation.observationCutoff,
+    observationDate: observation.observationDate,
+  });
 }
 const SHARING_ACTIONS_BY_APP_SQL = `${FUNNEL_EVENTS_CTE} SELECT ${TEMPLATE_EXPR} AS app, event_name AS action, COUNT(*) AS events, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name IN ('share_view', 'share_cta_click', 'share_invite_sent', 'share_visibility_change', 'share_link_copied') AND ${FUNNEL_SCOPE_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER} GROUP BY 1, 2 ORDER BY app, events DESC`;
 

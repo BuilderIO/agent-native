@@ -427,7 +427,7 @@ export function deriveJourneyStep(
  * and consecutive repeats of the same step collapse into the first, which
  * keeps that first occurrence's timestamp.
  */
-export function buildSessionSteps(
+export function projectSessionSteps(
   rows: readonly JourneyEventRow[],
 ): JourneyStep[] {
   const ordered = [...rows].sort((a, b) => {
@@ -484,4 +484,14 @@ export function buildSessionSteps(
     steps.push({ ...step, tsMs: row.tsMs });
   }
   return steps;
+}
+
+export function buildSessionSteps(
+  rows: readonly JourneyEventRow[],
+): JourneyStep[] {
+  return projectSessionSteps(rows).map(({ key, label, tsMs }) => ({
+    key,
+    label,
+    tsMs,
+  }));
 }

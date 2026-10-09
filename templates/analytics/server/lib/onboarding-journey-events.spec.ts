@@ -8,9 +8,12 @@ import {
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics.js";
 import {
+  buildOnboardingJourneyFollowupSql,
   buildOnboardingJourneyEventsSql,
   isCalendarDate,
   type OnboardingJourneyEventsFilters,
+  type OnboardingJourneyObservationWindow,
+  type OnboardingJourneyTerminalStep,
 } from "./first-party-metric-catalog.js";
 
 const { PGlite } = createRequire(
@@ -111,11 +114,51 @@ describe("onboarding journey events SQL", () => {
     };
   }
 
+  function observation(
+    overrides: Partial<OnboardingJourneyObservationWindow> = {},
+  ): OnboardingJourneyObservationWindow {
+    const nextDate = new Date(
+      Date.parse(`${today}T00:00:00Z`) + 24 * 60 * 60 * 1000,
+    )
+      .toISOString()
+      .slice(0, 10);
+    const observationCutoff =
+      overrides.observationCutoff ?? `${nextDate}T00:00:00.000Z`;
+    return {
+      observationCutoff,
+      observationDate:
+        overrides.observationDate ?? observationCutoff.slice(0, 10),
+      ...overrides,
+    };
+  }
+
   async function run(
     overrides: Partial<OnboardingJourneyEventsFilters> = {},
     page = { limit: 1000, offset: 0 },
+    window = observation(),
   ) {
-    const sql = buildOnboardingJourneyEventsSql(filters(overrides), page);
+    const sql = buildOnboardingJourneyEventsSql(
+      filters(overrides),
+      page,
+      window,
+    );
+    const scoped = scopedAnalyticsSql(sql, SCOPE);
+    const result = (await client.query(scoped.sql, scoped.args)) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    return result.rows;
+  }
+
+  async function runFollowup(
+    terminals: readonly OnboardingJourneyTerminalStep[],
+    filterOverrides: Partial<OnboardingJourneyEventsFilters> = {},
+    window = observation(),
+  ) {
+    const sql = buildOnboardingJourneyFollowupSql(
+      filters(filterOverrides),
+      terminals,
+      window,
+    );
     const scoped = scopedAnalyticsSql(sql, SCOPE);
     const result = (await client.query(scoped.sql, scoped.args)) as {
       rows: Array<Record<string, unknown>>;
@@ -164,14 +207,85 @@ describe("onboarding journey events SQL", () => {
     });
   }
 
-  it("is accepted by the first-party validators and BigQuery translation", async () => {
+  it("validates and translates both frozen journey and follow-up reads", async () => {
     await setup();
-    const sql = buildOnboardingJourneyEventsSql(filters(), {
-      limit: 10,
-      offset: 0,
+    const window = observation();
+    const journeySql = buildOnboardingJourneyEventsSql(
+      filters(),
+      { limit: 10, offset: 0 },
+      window,
+    );
+    const followupSql = buildOnboardingJourneyFollowupSql(
+      filters(),
+      [
+        {
+          sessionId: "session-1",
+          stepKey: "step:role",
+          tsMs: Date.parse(`${today}T12:00:00.000Z`),
+        },
+      ],
+      window,
+    );
+    for (const sql of [journeySql, followupSql]) {
+      expect(() => validateFirstPartyAnalyticsSql(sql)).not.toThrow();
+      expect(() => assertFirstPartyAnalyticsBigQuerySql(sql)).not.toThrow();
+      expect(sql).toContain(window.observationCutoff);
+    }
+  });
+
+  it("uses the same date, app, test, Builder, identity, and cutoff scope for later activity", async () => {
+    await setup();
+    await seedSessions();
+    await insert("identity-switch", "signup", 3, {
+      email: "eve@example.com",
     });
-    expect(() => validateFirstPartyAnalyticsSql(sql)).not.toThrow();
-    expect(() => assertFirstPartyAnalyticsBigQuerySql(sql)).not.toThrow();
+    await insert("identity-switch", "onboarding_step_viewed", 4, {
+      email: "eve@example.com",
+      properties: { flow: "first_run", step_id: "role" },
+    });
+    // The selected terminal step is authenticated; this later native event is
+    // anonymous in the same session and therefore has a different funnel key.
+    await insert("identity-switch", "button_click", 5);
+    await insert("no-later", "signup", 3, { email: "frank@example.com" });
+    await insert("no-later", "onboarding_step_viewed", 4, {
+      email: "frank@example.com",
+      properties: { flow: "first_run", step_id: "role" },
+    });
+    // An event exactly at the exclusive cutoff is not observed.
+    await insert("no-later", "button_click", 6);
+
+    const terminals = [
+      "normal",
+      "identity-switch",
+      "no-later",
+      "employee",
+      "qa",
+      "old",
+      "design",
+    ].map(
+      (sessionId): OnboardingJourneyTerminalStep => ({
+        sessionId,
+        stepKey: "step:role",
+        tsMs: Date.parse(`${today}T12:00:04.000Z`),
+      }),
+    );
+    const cutoff = `${today}T12:00:06.000Z`;
+    const window = observation({ observationCutoff: cutoff });
+    const rows = await runFollowup(terminals, { app: "clips" }, window);
+
+    expect(rows).toEqual([
+      {
+        terminal_step_key: "step:role",
+        cohort_sessions: 3,
+        later_recorded_activity: 2,
+      },
+    ]);
+    const journeyRows = await run({ app: "clips" }, undefined, window);
+    expect(sessionsOf(journeyRows)).toEqual([
+      "identity-switch",
+      "no-later",
+      "normal",
+    ]);
   });
 
   it("selects renderable Design output events for onboarding sessions", async () => {
