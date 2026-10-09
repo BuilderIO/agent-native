@@ -6,12 +6,21 @@ import {
   buildAgentDiscoveryPayload,
   buildAgentHttpToolManifest,
   buildRecommendedFrames,
+  CLIPS_WEBMCP_TOOL_DEFINITIONS,
   formatAgentTimestamp,
   safeJsonForHtml,
   toAgentTranscriptSegments,
 } from "./agent-context";
 
 describe("agent clip context helpers", () => {
+  it("tells agents not to retry unsupported frame sources", () => {
+    const frameTool = CLIPS_WEBMCP_TOOL_DEFINITIONS.find(
+      (tool) => tool.name === "clips-get-frame",
+    );
+
+    expect(frameTool?.description).toContain("must not be retried");
+  });
+
   it("tells an agent to wait when a shared clip is still uploading", () => {
     const payload = buildAgentDiscoveryPayload({
       recordingId: "rec-1",

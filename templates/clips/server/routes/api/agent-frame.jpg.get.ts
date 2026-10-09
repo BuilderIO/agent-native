@@ -10,6 +10,7 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { getAgentClipReadiness } from "@shared/agent-context";
+import { isLoomEmbedBackedRecording } from "@shared/loom";
 import { isImageRecording } from "@shared/recording-kind";
 import {
   defineEventHandler,
@@ -307,6 +308,18 @@ export default defineEventHandler(async (event: H3Event) => {
       nextStep:
         readiness.instruction ??
         "Do not retry this frame request. Ask the owner to retry or replace the clip.",
+    };
+  }
+
+  if (isLoomEmbedBackedRecording(recording)) {
+    setResponseStatus(event, 422);
+    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
+    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+    return {
+      failureKind: "unsupported",
+      error: "Frame extraction is not available for legacy Loom embed imports.",
+      nextStep:
+        "This clip has an embedded Loom player instead of a Clips-hosted video file. Open the embedded player for visual review, or reimport the video into Clips before requesting frames.",
     };
   }
 

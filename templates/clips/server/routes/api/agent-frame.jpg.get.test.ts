@@ -253,6 +253,31 @@ describe("agent-frame.jpg route", () => {
     expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
   });
 
+  it("reports legacy Loom embeds as unsupported without retry guidance", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          sourceAppName: "Loom",
+          sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+          videoUrl: "/api/video/rec-1",
+        },
+      }),
+    });
+
+    const event = makeEvent({ id: "rec-1", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(422);
+    expect(result).toMatchObject({
+      failureKind: "unsupported",
+      nextStep: expect.stringContaining("reimport the video into Clips"),
+    });
+    expect((result as { nextStep: string }).nextStep).not.toContain("Retry");
+    expect(mockLoadRecordingMediaFile).not.toHaveBeenCalled();
+    expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
+  });
+
   it("does not fetch a screenshot while its clip is still processing", async () => {
     mockLoadPublicAgentAccess.mockResolvedValue({
       ok: true,

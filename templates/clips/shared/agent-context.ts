@@ -90,7 +90,7 @@ export const CLIPS_WEBMCP_TOOL_DEFINITIONS = [
     name: CLIPS_WEBMCP_TOOL_NAMES.frame,
     title: "Get clip frame",
     description:
-      "Get the clip's JPEG frame URL at a requested timestamp. Fetch the returned imageUrl as an image to inspect the video; its scoped access query is already included. On an error, inspect the JSON failureKind and nextStep: access needs a Share with agents link, media means the stored recording media could not be retrieved, processing means the frame request failed and may be retried or reported, and expired means the owner must update the clip expiry before creating another link.",
+      "Get the clip's JPEG frame URL at a requested timestamp. Fetch the returned imageUrl as an image to inspect the video; its scoped access query is already included. On an error, inspect the JSON failureKind and nextStep: access needs a Share with agents link, media means the stored recording media could not be retrieved, processing means the frame request failed and may be retried or reported, unsupported means this source cannot provide frames through Clips and must not be retried, and expired means the owner must update the clip expiry before creating another link.",
     inputSchema: CLIPS_WEBMCP_INPUT_SCHEMAS.frame,
     availability: "ready",
     annotations: { readOnlyHint: true, untrustedContentHint: true },
