@@ -17,6 +17,24 @@ let running = false;
 let listRulesFailureLogged = false;
 const DEFAULT_MAX_RULES_PER_SWEEP = 100;
 const MAX_BIGQUERY_RULES_PER_BATCH = 3;
+const PRIORITY_BIGQUERY_EVENTS = new Set([
+  "agent_run_terminal",
+  "agent_chat_stuck_detected",
+  "http.response",
+]);
+
+function prioritizeBigQueryRules(
+  rules: AnalyticsAlertRule[],
+): AnalyticsAlertRule[] {
+  const pending = new Set(PRIORITY_BIGQUERY_EVENTS);
+  const priority: AnalyticsAlertRule[] = [];
+  const remaining: AnalyticsAlertRule[] = [];
+  for (const rule of rules) {
+    if (rule.eventName && pending.delete(rule.eventName)) priority.push(rule);
+    else remaining.push(rule);
+  }
+  return [...priority, ...remaining];
+}
 
 function maxRulesPerSweep(input?: number): number {
   if (input) return Math.max(1, Math.min(500, Math.floor(input)));
@@ -42,7 +60,6 @@ export async function runAnalyticsAlertsOnce(
 }> {
   if (running) return { processed: 0, triggered: 0, failed: 0, remaining: 0 };
   running = true;
-  const now = new Date();
   let processed = 0;
   let triggered = 0;
   let failed = 0;
@@ -134,6 +151,7 @@ export async function runAnalyticsAlertsOnce(
 
     async function notifyRule(
       rule: AnalyticsAlertRule,
+      now: Date,
       evaluation?: AnalyticsAlertEvaluation,
     ) {
       try {
@@ -149,7 +167,8 @@ export async function runAnalyticsAlertsOnce(
       }
     }
 
-    for (const scopedRules of batches.values()) {
+    for (const rules of batches.values()) {
+      const scopedRules = prioritizeBigQueryRules(rules);
       for (
         let offset = 0;
         offset < scopedRules.length;
@@ -164,6 +183,7 @@ export async function runAnalyticsAlertsOnce(
           if (await claimRule(rule)) batch.push(rule);
         }
         if (!batch.length) continue;
+        const now = new Date();
         let evaluations: Awaited<
           ReturnType<typeof evaluateBigQueryAnalyticsAlertBatch>
         >;
@@ -183,13 +203,13 @@ export async function runAnalyticsAlertsOnce(
           } else if ("error" in result) {
             await failRule(rule, result.error);
           } else {
-            await notifyRule(rule, result.evaluation);
+            await notifyRule(rule, now, result.evaluation);
           }
         }
       }
     }
     for (const rule of individualRules) {
-      if (await claimRule(rule)) await notifyRule(rule);
+      if (await claimRule(rule)) await notifyRule(rule, new Date());
     }
   } finally {
     running = false;

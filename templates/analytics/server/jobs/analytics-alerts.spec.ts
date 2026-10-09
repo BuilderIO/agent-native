@@ -120,7 +120,7 @@ afterEach(() => {
 });
 
 describe("analytics alert sweep batching", () => {
-  it("claims all three before one query with fresh leases and one frozen evaluation window", async () => {
+  it("claims all three before one query with fresh leases and one shared evaluation window", async () => {
     const claimedAt: Date[] = [];
     mocks.claim.mockImplementation(async (_rule, time = new Date()) => {
       expect(mocks.query).not.toHaveBeenCalled();
@@ -141,8 +141,10 @@ describe("analytics alert sweep batching", () => {
       "2026-10-09T12:00:01.000Z",
       "2026-10-09T12:00:02.000Z",
     ]);
-    for (const call of mocks.notify.mock.calls) expect(call[1]).toEqual(now);
-    expect(mocks.query.mock.calls[0][0]).toContain("2026-10-09T12:00:00.000Z");
+    const batchTime = new Date("2026-10-09T12:00:03.000Z");
+    for (const call of mocks.notify.mock.calls)
+      expect(call[1]).toEqual(batchTime);
+    expect(mocks.query.mock.calls[0][0]).toContain(batchTime.toISOString());
     for (const call of mocks.notify.mock.calls)
       expect(call[2]).toEqual({
         triggered: false,
@@ -211,17 +213,24 @@ describe("analytics alert sweep batching", () => {
     ]);
     for (const id of ["other", "individual"])
       expect(claimedAt.get(id)).toEqual(new Date("2026-10-09T12:16:00.000Z"));
-    for (const call of mocks.notify.mock.calls) expect(call[1]).toEqual(now);
-    for (const call of mocks.query.mock.calls)
-      expect(call[0]).toContain("2026-10-09T12:00:00.000Z");
+    for (const call of mocks.notify.mock.calls)
+      expect(call[1]).toEqual(
+        ["other", "individual"].includes(call[0].id)
+          ? new Date("2026-10-09T12:16:00.000Z")
+          : now,
+      );
+    expect(mocks.query.mock.calls[0][0]).toContain(now.toISOString());
+    expect(mocks.query.mock.calls[1][0]).toContain("2026-10-09T12:16:00.000Z");
   });
 
   it("splits a large scope into batches of three and claims only the current chunk", async () => {
     mocks.list.mockResolvedValue([
-      ...targetRules(),
       rule("a"),
+      targetRules()[0],
       rule("b"),
+      targetRules()[1],
       rule("c"),
+      targetRules()[2],
       rule("d"),
     ]);
     const query = mocks.query.getMockImplementation()!;
