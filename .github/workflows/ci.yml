@@ -787,7 +787,7 @@ jobs:
     timeout-minutes: 30
     services:
       postgres:
-        image: postgres:17-alpine
+        image: public.ecr.aws/docker/library/postgres:17-alpine
         env:
           POSTGRES_DB: content_migration_test
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -1150,7 +1150,7 @@ jobs:
       DATABASE_URL: postgresql://postgres@127.0.0.1:5432/agent_native_build
     services:
       postgres:
-        image: postgres:17-alpine
+        image: public.ecr.aws/docker/library/postgres:17-alpine
         env:
           POSTGRES_DB: agent_native_build
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -1312,7 +1312,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:18-alpine
+        image: public.ecr.aws/docker/library/postgres:18-alpine
         env:
           POSTGRES_PASSWORD: neon-budget
           POSTGRES_DB: neon_budget
