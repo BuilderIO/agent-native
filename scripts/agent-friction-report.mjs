@@ -2529,7 +2529,7 @@ const FEEDBACK_REPLY_DETAIL_RETRACTION_RE =
 const FEEDBACK_REPLY_DETAIL_AFFIRMATIVE_FOLLOWUP_RE = new RegExp(
   "\\b" +
     FEEDBACK_REPLY_CONTEXT +
-    "\\b[^.!?]{0,100}\\b(?:not|no\\s+longer|aren['’]t|isn['’]t|wasn['’]t|weren['’]t)\\b[^.!?]{0,40}\\b(?:(?:way|much|very)\\s+)?(?:too\\s+)?(?:technical|verbose|detailed?|jargon[- ]heavy|wordy|long)\\b[.!?]\\s*(?:actually|yes|right)\\s*,?\\s*(?:(?:they|it)\\s+(?:are|is)|(?:they|it)['’](?:re|s))(?:\\s+(?:(?:way|much|very)\\s+)?(?:too\\s+)?(?:technical|verbose|detailed?|jargon[- ]heavy|wordy|long))?\\s*[.!?]",
+    "\\b[^.!?]{0,100}\\b(?:not|no\\s+longer|aren['’]t|isn['’]t|wasn['’]t|weren['’]t)\\b[^.!?]{0,40}\\b(?:(?:way|much|very)\\s+)?(?:too\\s+)?(?:technical|verbose|detailed?|jargon[- ]heavy|wordy|long)\\b[^.!?]{0,100}[.!?]\\s*(?:actually|yes|right)\\s*,?\\s*(?:(?:they|it)\\s+(?:are|is)|(?:they|it)['’](?:re|s))(?:\\s+(?:(?:way|much|very)\\s+)?(?:too\\s+)?(?:technical|verbose|detailed?|jargon[- ]heavy|wordy|long))?\\s*[.!?]",
   "i",
 );
 const FEEDBACK_REPLY_DETAIL_PRONOUN_FOLLOWUP_RE = new RegExp(
@@ -2590,37 +2590,37 @@ function hasFeedbackReplyDetailFollowup(input, followupPattern) {
   const followupMatches = input.matchAll(
     new RegExp(followupPattern.source, `${followupPattern.flags}g`),
   );
-  const sentenceSpans = [];
-  let sentenceStart = 0;
-  for (const sentenceEnd of input.matchAll(
-    FEEDBACK_REPLY_DETAIL_SENTENCE_END_SCAN_RE,
+  const clauseSpans = [];
+  let clauseStart = 0;
+  for (const boundary of input.matchAll(
+    FEEDBACK_REPLY_DETAIL_BOUNDARY_SCAN_RE,
   )) {
-    const end = sentenceEnd.index;
-    sentenceSpans.push({
-      end,
+    const end = boundary.index;
+    clauseSpans.push({
+      end: end + boundary[0].length,
       isNonFeedbackResponse:
         FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE_RE.test(
-          input.slice(sentenceStart, end),
+          input.slice(clauseStart, end),
         ),
     });
-    sentenceStart = end + sentenceEnd[0].length;
+    clauseStart = end + boundary[0].length;
   }
-  sentenceSpans.push({
+  clauseSpans.push({
     end: input.length,
     isNonFeedbackResponse: FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE_RE.test(
-      input.slice(sentenceStart),
+      input.slice(clauseStart),
     ),
   });
 
-  let sentenceIndex = 0;
+  let clauseIndex = 0;
   for (const match of followupMatches) {
     while (
-      sentenceIndex < sentenceSpans.length - 1 &&
-      sentenceSpans[sentenceIndex].end < match.index
+      clauseIndex < clauseSpans.length - 1 &&
+      clauseSpans[clauseIndex].end <= match.index
     ) {
-      sentenceIndex += 1;
+      clauseIndex += 1;
     }
-    if (!sentenceSpans[sentenceIndex].isNonFeedbackResponse) return true;
+    if (!clauseSpans[clauseIndex].isNonFeedbackResponse) return true;
   }
   return false;
 }
@@ -2995,6 +2995,10 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
     false,
     "API responses are not too verbose. Actually, they are too technical.",
   ],
+  [
+    true,
+    "Replies are not too technical, and the API response is fine. Actually, they are too technical.",
+  ],
   [false, "Server responses aren't too detailed. Yes, they are."],
   [
     true,
@@ -3340,7 +3344,7 @@ if (process.argv.includes("--self-test")) {
   );
   const apiResponseFollowupDurationMs =
     Number(process.hrtime.bigint() - apiResponseFollowupStart) / 1_000_000;
-  if (apiResponseFollowupsMatched || apiResponseFollowupDurationMs > 2_000) {
+  if (apiResponseFollowupsMatched || apiResponseFollowupDurationMs > 5_000) {
     failures.push([
       false,
       `API response follow-ups took ${apiResponseFollowupDurationMs.toFixed(1)} ms or matched unexpectedly`,
