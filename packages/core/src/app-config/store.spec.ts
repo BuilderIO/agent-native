@@ -34,6 +34,13 @@ describe("app config store", () => {
     expect(getAppConfig().privateBlob.publicUploadFallback).toBe(true);
     expect(getAppConfig().privateBlob.provider).toBeUndefined();
     expect(getAppConfig().app.homePath).toBeUndefined();
+    expect(getAppConfig().analytics.authSessionReplay).toBe(false);
+  });
+
+  it("opts auth-page replay in through app config", () => {
+    defineAppConfig({ analytics: { authSessionReplay: true } });
+
+    expect(getAppConfig().analytics.authSessionReplay).toBe(true);
   });
 
   it("reads a declared environment alias", () => {

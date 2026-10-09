@@ -229,7 +229,7 @@ function AdjustmentSlider({
         </span>
       </InspectorGridCell>
       <InspectorGridCell span={18} className="flex items-center">
-        {/* Figma's adjustment slider: a neutral pill, the knob at the centre
+        {/* Image adjustment slider: a neutral pill, the knob at the centre
             for zero, and an accent fill from the centre once it moves. */}
         <SliderPrimitive.Root
           value={[value]}
@@ -257,7 +257,7 @@ function AdjustmentSlider({
           <SliderPrimitive.Thumb
             aria-label={label}
             className={
-              /* guard:allow-raw-color — Figma's neutral adjustment knob stays white in both themes. */
+              /* guard:allow-raw-color — The neutral adjustment knob stays white in both themes. */
               "flex size-4 items-center justify-center rounded-full border border-black/10 bg-white shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             }
           >

@@ -49,6 +49,26 @@ function sessionEventIndexMigrationSql(): string[] {
     .filter(Boolean);
 }
 
+function sessionRecordingSessionAssociationsMigrationSql(): string[] {
+  // source-read-ok: execute the real association migration DDL in PGlite.
+  const source = readFileSync(
+    new URL("../plugins/db.ts", import.meta.url),
+    "utf8",
+  );
+  const match = source.match(
+    /name: "session-recording-session-associations",\s*sql: `([\s\S]*?)`/,
+  );
+  if (!match) {
+    throw new Error(
+      "session recording session associations migration not found",
+    );
+  }
+  return match[1]
+    .split(";")
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+}
+
 async function createTables(client: PGliteClient) {
   for (const statement of sessionEventIndexMigrationSql()) {
     await client.query(statement);
@@ -62,6 +82,9 @@ async function createTables(client: PGliteClient) {
       started_at text NOT NULL
     )
   `);
+  for (const statement of sessionRecordingSessionAssociationsMigrationSql()) {
+    await client.query(statement);
+  }
 }
 
 const OWNER = "owner@example.com";
@@ -206,6 +229,7 @@ describe("session event index on Postgres", () => {
     sessionId: string,
     startedAt: string,
     owner: { ownerEmail?: string; orgId?: string | null } = {},
+    observedSessionIds: readonly string[] = [sessionId],
   ) {
     await client.query(
       `INSERT INTO session_recordings (id, session_id, owner_email, org_id, started_at)
@@ -217,6 +241,17 @@ describe("session event index on Postgres", () => {
         owner.orgId === undefined ? ORG : owner.orgId,
         startedAt,
       ],
+    );
+    for (const observedSessionId of observedSessionIds) {
+      await addAssociation(id, observedSessionId);
+    }
+  }
+
+  async function addAssociation(recordingId: string, sessionId: string) {
+    await client.query(
+      `INSERT INTO session_recording_session_associations (id, recording_id, session_id)
+       VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+      [`association-${recordingId}-${sessionId}`, recordingId, sessionId],
     );
   }
 
@@ -277,6 +312,32 @@ describe("session event index on Postgres", () => {
     });
   }
 
+  it("uses legacy session filters while the association migration is pending", async () => {
+    await index(
+      [
+        event({
+          eventName: "recording_started",
+          sessionId: "legacy-session",
+          timestamp: "2026-09-20T10:01:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    await client.query("DROP TABLE session_recording_session_associations");
+    await client.query(
+      `INSERT INTO session_recordings (id, session_id, owner_email, org_id, started_at)
+       VALUES ('r-legacy', 'legacy-session', $1, $2, '2026-09-20T10:00:30.000Z')`,
+      [OWNER, ORG],
+    );
+
+    expect(
+      await matchingRecordings({ didEvents: ["recording_started"] }),
+    ).toEqual(["r-legacy"]);
+    expect(await matchingRecordings({ didNotEvents: ["purchase"] })).toEqual([
+      "r-legacy",
+    ]);
+  });
+
   it("returns exactly the sessions that did one event and not another", async () => {
     await index(
       [
@@ -319,6 +380,101 @@ describe("session event index on Postgres", () => {
     expect(await matchingRecordings({ didNotEvents: ["clip_viewed"] })).toEqual(
       ["r-recorded"],
     );
+  });
+
+  it("excludes a recording when any associated session did a denied event", async () => {
+    await index(
+      [
+        event({
+          eventName: "pageview",
+          sessionId: "s-clear",
+          timestamp: "2026-09-20T10:01:00.000Z",
+        }),
+        event({
+          eventName: "pageview",
+          sessionId: "s-purchased",
+          timestamp: "2026-09-20T10:02:00.000Z",
+        }),
+        event({
+          eventName: "purchase",
+          sessionId: "s-purchased",
+          timestamp: "2026-09-20T10:03:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    await addRecording("r-mixed", "s-clear", "2026-09-20T10:00:30.000Z", {}, [
+      "s-clear",
+      "s-purchased",
+    ]);
+    await addRecording("r-clear", "s-clear", "2026-09-20T10:00:30.000Z");
+
+    expect(await matchingRecordings({ didNotEvents: ["purchase"] })).toEqual([
+      "r-clear",
+    ]);
+  });
+
+  it("requires every associated session to be complete before asserting event absence", async () => {
+    await index(
+      [
+        event({
+          eventName: "pageview",
+          sessionId: "s-clear",
+          timestamp: "2026-09-20T10:01:00.000Z",
+        }),
+        event({
+          eventName: "pageview",
+          sessionId: "s-gap",
+          timestamp: "2026-09-20T10:02:00.000Z",
+        }),
+        event({
+          eventName: "pageview",
+          sessionId: "s-before-coverage",
+          timestamp: "2026-09-20T10:03:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    await client.query(
+      `INSERT INTO analytics_session_event_gaps
+         (id, tenant_key, owner_email, org_id, session_id, recorded_at)
+       VALUES ('gap-s-gap', $1, $2, $3, 's-gap', '2026-09-20T10:04:00.000Z')`,
+      [`org:${ORG}`, OWNER, ORG],
+    );
+    await addRecording(
+      "r-old-sibling",
+      "s-before-coverage",
+      "2026-09-19T09:00:00.000Z",
+    );
+    await addRecording("r-clear", "s-clear", "2026-09-20T10:00:30.000Z");
+    await addRecording(
+      "r-missing-index",
+      "s-clear",
+      "2026-09-20T10:00:30.000Z",
+      {},
+      ["s-clear", "s-unseen"],
+    );
+    await addRecording("r-gap", "s-clear", "2026-09-20T10:00:30.000Z", {}, [
+      "s-clear",
+      "s-gap",
+    ]);
+    await addRecording(
+      "r-precoverage",
+      "s-clear",
+      "2026-09-20T10:00:30.000Z",
+      {},
+      ["s-clear", "s-before-coverage"],
+    );
+
+    expect(await matchingRecordings({ didNotEvents: ["purchase"] })).toEqual([
+      "r-clear",
+    ]);
+    expect(await matchingRecordings({ didEvents: ["pageview"] })).toEqual([
+      "r-clear",
+      "r-gap",
+      "r-missing-index",
+      "r-precoverage",
+    ]);
   });
 
   it("never treats a session the index never saw as not doing an event", async () => {
@@ -555,6 +711,79 @@ describe("session event index on Postgres", () => {
     expect(await matchingRecordings({ didNotEvents: ["clip_viewed"] })).toEqual(
       [],
     );
+  });
+
+  it("matches event filters only through exact observed recording sessions", async () => {
+    await index(
+      [
+        event({
+          eventName: "step_a",
+          sessionId: "s-observed-a",
+          timestamp: "2026-09-20T10:01:00.000Z",
+        }),
+        event({
+          eventName: "step_b",
+          sessionId: "s-observed-b",
+          timestamp: "2026-09-20T10:02:00.000Z",
+        }),
+        event({
+          eventName: "step_current",
+          sessionId: "s-current",
+          timestamp: "2026-09-20T10:03:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    await addRecording(
+      "r-exact",
+      "s-current",
+      "2026-09-20T10:00:30.000Z",
+      {},
+      [],
+    );
+    await addAssociation("r-exact", "s-observed-a");
+    await addAssociation("r-exact", "s-observed-b");
+    await client.query(
+      `INSERT INTO session_recordings (id, session_id, owner_email, org_id, started_at)
+       VALUES ('r-no-history', 's-observed-a', $1, $2, '2026-09-20T10:00:30.000Z')`,
+      [OWNER, ORG],
+    );
+
+    expect(await matchingRecordings({ didEvents: ["step_a"] })).toEqual([
+      "r-exact",
+      "r-no-history",
+    ]);
+    expect(await matchingRecordings({ didEvents: ["step_current"] })).toEqual(
+      [],
+    );
+    expect(
+      await matchingRecordings({ didEvents: ["step_a", "step_b"] }),
+    ).toEqual([]);
+  });
+
+  it("keeps recording-session associations idempotent and prunes them with recordings", async () => {
+    await addRecording("r-idempotent", "s1", "2026-09-20T10:00:30.000Z");
+    await client.query(
+      `INSERT INTO session_recording_session_associations (id, recording_id, session_id)
+       VALUES ('association-second-id', 'r-idempotent', 's1') ON CONFLICT DO NOTHING`,
+    );
+
+    const rows = await client.query(
+      `SELECT recording_id, session_id
+       FROM session_recording_session_associations
+       WHERE recording_id = 'r-idempotent'`,
+    );
+    expect(rows.rows).toEqual([
+      { recording_id: "r-idempotent", session_id: "s1" },
+    ]);
+
+    await client.query(
+      "DELETE FROM session_recordings WHERE id = 'r-idempotent'",
+    );
+    const pruned = await client.query(
+      "SELECT id FROM session_recording_session_associations WHERE recording_id = 'r-idempotent'",
+    );
+    expect(pruned.rows).toEqual([]);
   });
 
   it("accumulates counts across batches and lists names in range", async () => {
@@ -1326,6 +1555,7 @@ describe("session event index on Postgres", () => {
       "analytics_session_event_coverage",
       "analytics_session_event_gaps",
       "analytics_session_events",
+      "session_recording_session_associations",
       "session_recordings",
     ]);
   });

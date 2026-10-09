@@ -702,6 +702,19 @@ export default {
     copied: "Kopiert",
     copy: "Kopie",
     keyActions: "{{name}}-Schlüsselaktionen",
+    manageReplayOrigins: "Replay-Ursprünge verwalten",
+    replayOriginsDescription:
+      "Fügen Sie exakte HTTPS-Ursprünge ein, einen pro Zeile. Vorhandene Ursprünge bleiben erhalten.",
+    currentReplayOrigins: "Derzeit erlaubte Ursprünge",
+    anyReplayOriginAllowed:
+      "Derzeit ist jeder Ursprung zugelassen. Nach dem Hinzufügen sind nur die aufgeführten Ursprünge erlaubt. Fügen Sie daher jede App hinzu, die diesen Schlüssel verwendet.",
+    originsToAdd: "Hinzuzufügende Ursprünge",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "Ursprünge hinzufügen",
+    addingReplayOrigins: "Ursprünge werden hinzugefügt…",
+    replayOriginsUpdateFailed:
+      "Zugelassene Ursprünge konnten nicht aktualisiert werden.",
+    cancel: "Abbrechen",
     lastUsed: "zuletzt verwendeter {{date}}",
     neverUsed: "nie benutzt",
     revoking: "Widerrufen...",
@@ -1106,6 +1119,7 @@ export default {
   },
   sqlDashboard: {
     customRange: "Benutzerdefinierter Zeitraum",
+    allValues: "Alle",
     untitledDashboard: "Unbenanntes Dashboard",
     dashboardFallback: "Dashboard",
     viewOnly: "Sie haben nur Lesezugriff auf dieses Dashboard.",
@@ -1524,6 +1538,8 @@ export default {
     replayPlayer: "Wiedergabe-Player",
     replayLoading: "Wiedergabe wird geladen...",
     replayLoadingProgress: "{{loaded}} von {{total}} Wiedergabe-Chunks geladen",
+    replayTargetFallback:
+      "Der angeforderte Aufnahmezeitpunkt ({{requested}}) ist nicht verfügbar; das nächste Replay-Bild bei {{available}} wird angezeigt.",
     replayUnavailable: "Keine Wiedergabe-Chunks für diese Sitzung",
     replayUnavailableDescription:
       "Die Sitzung enthält Analytics-Ereignisse, aber keine rrweb-Chunk-Ereignisse.",

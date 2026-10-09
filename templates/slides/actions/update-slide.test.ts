@@ -286,6 +286,43 @@ describe("update-slide", () => {
     );
   });
 
+  it("reports only the hygiene problems an edit introduced", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "<div><svg></svg><p>Old</p></div>" }],
+    });
+    const result = (await runSlideActionWithCurrentHash(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "Old", replace: "New" }],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+    // The svg was already there: not this edit's doing.
+    expect(result).not.toHaveProperty("hygieneWarnings");
+
+    const added = (await runSlideActionWithCurrentHash(
+      {
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "<p>New</p>", replace: "<button>Go</button>" }],
+      },
+      { caller: "tool" },
+    )) as { hygieneWarnings?: { warnings: Array<Record<string, unknown>> } };
+    expect(added.hygieneWarnings?.warnings).toEqual([
+      expect.objectContaining({
+        code: "stripped-element",
+        count: 1,
+        slideIds: ["slide-1"],
+      }),
+    ]);
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      "<div><svg></svg><button>Go</button></div>",
+    );
+  });
+
   it("requires a source hash for full-slide and selected-object replacements", async () => {
     await expect(
       action.run({

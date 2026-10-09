@@ -665,6 +665,20 @@ describe("createAnthropicEngine", () => {
     expect(requestParams.output_config).toBeUndefined();
   });
 
+  it("uses adaptive thinking for Claude Haiku 5.5", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-haiku-5-5",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+    });
+
+    expect(requestParams.thinking).toEqual({ type: "adaptive" });
+    expect(requestParams.output_config).toEqual({ effort: "high" });
+    expect(requestParams.temperature).toBeUndefined();
+  });
+
   it("does not enable thinking by default for a non-reasoning model", async () => {
     const requestParams = await captureRequestParams({
       model: "claude-3-5-haiku-20241022",

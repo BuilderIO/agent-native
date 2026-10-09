@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 
 import {
   MIN_SLIDE_OBJECT_SIZE,
+  parseSlideObjectTransformOrigin,
   readSlideObjectTransformSnapshot,
   resizeTransformedSlideObject,
   type ResizeHandle,
@@ -319,32 +320,18 @@ function transformMatrix(
   return null;
 }
 
-function transformOriginOffset(
-  token: string | undefined,
-  dimension: number,
-): number {
-  if (!token || token === "center") return dimension / 2;
-  if (token === "left" || token === "top") return 0;
-  if (token === "right" || token === "bottom") return dimension;
-  const value = Number.parseFloat(token);
-  if (!Number.isFinite(value)) return dimension / 2;
-  if (token.endsWith("%")) return (value * dimension) / 100;
-  return value;
-}
-
 function framePointInCanvas(
   geometry: SlideObjectGeometry,
   transform: SlideObjectTransformSnapshot,
   point: { x: number; y: number },
 ): { x: number; y: number } | null {
   const matrix = transformMatrix(transform.transform);
-  if (!matrix) return null;
+  const origin = parseSlideObjectTransformOrigin(transform.transformOrigin)?.(
+    geometry.width,
+    geometry.height,
+  );
+  if (!matrix || !origin) return null;
   const [a, b, c, d, e, f] = matrix;
-  const tokens = transform.transformOrigin.trim().split(/\s+/);
-  const origin = {
-    x: transformOriginOffset(tokens[0], geometry.width),
-    y: transformOriginOffset(tokens[1], geometry.height),
-  };
   const x = point.x - origin.x;
   const y = point.y - origin.y;
   return {
@@ -359,17 +346,16 @@ function canvasPointInFrame(
   point: { x: number; y: number },
 ): { x: number; y: number } | null {
   const matrix = transformMatrix(transform.transform);
-  if (!matrix) return null;
+  const origin = parseSlideObjectTransformOrigin(transform.transformOrigin)?.(
+    geometry.width,
+    geometry.height,
+  );
+  if (!matrix || !origin) return null;
   const [a, b, c, d, e, f] = matrix;
   const determinant = a * d - b * c;
   if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-8) {
     return null;
   }
-  const tokens = transform.transformOrigin.trim().split(/\s+/);
-  const origin = {
-    x: transformOriginOffset(tokens[0], geometry.width),
-    y: transformOriginOffset(tokens[1], geometry.height),
-  };
   const x = point.x - geometry.x - origin.x - e;
   const y = point.y - geometry.y - origin.y - f;
   return {

@@ -3,14 +3,75 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-09
+
+### Improved
+
+- Onboarding journeys include Builder connection and custom-key outcomes through deeper paths
+- Onboarding journeys now show later activity within a chosen window, mark no-later results as right-censored, and identify when follow-up counts are incomplete.
+- You can add app origins to a public key's replay allowlist without replacing its existing origins.
+
+### Fixed
+
+- Journey captures now flag visible previews missing from the recording instead of saving blank screenshots
+- Journey recordings flag iframe content when clipping, masks, or filters make its visibility uncertain.
+- Onboarding journeys count saved clips and completed deck generations as outputs while showing Slides attempt outcomes separately
+- Session recordings keep their full history and performance insights across browser session changes and large replays.
+- Large onboarding journeys keep their step counts when follow-up coverage exceeds query limits
+
+## 2026-10-08
+
+### Added
+
+- Opted-in pre-auth recordings appear in Sessions as anonymous replays
+- Agents can build the onboarding journey tree with drop-off per step and render a screenshot of each step from session replays.
+
+### Improved
+
+- Set a chart's time range from its options menu.
+- A new Ask chat shows its heading and prompt immediately while existing chat history loads.
+- Sessions can show playable anonymous recordings without labeling them as signup-page captures.
+- Session replay screenshots capture directly without requesting screen sharing.
+
+### Fixed
+
+- Analytics journey paths group short resource IDs consistently across apps
+- Analytics keeps onboarding counts complete when only standalone setup events exceed the journey read limit.
+- Onboarding journey trees show Home chat setup choices in a separately counted tree and group equivalent artifact screens.
+- Agent-shared recording links now load across batched playback chunks
+- Fixed onboarding journey queries against BigQuery.
+- Session replay agent links can read their recording manifest and playback chunks.
+- Onboarding journey screenshots include dialogs at the recorded viewport. The
+  capture manifest discloses that remote assets were not fetched.
+- Onboarding journey replay links and screenshots now align with the selected step's recording timestamp.
+- Onboarding journeys preserve each skipped setup step
+- Onboarding journeys use the current Builder setup label
+- Analytics now reports uncertain storyboard saves without implying the export definitely failed.
+- Replay screenshot exports now report upload timeouts and incomplete cleanup.
+- Storyboard exports now ask you to check Design when Analytics cannot confirm a save.
+
 ## 2026-10-07
 
 ### Added
 
+- Selected session replays can be captured at exact timestamps and sent together to a private Design storyboard.
 - Session replay screenshots can be copied directly into Design.
+
+### Improved
+
+- Analytics chat follows short follow-ups like "what about EMEA?" and recovers from an unknown BigQuery column in one step
+- Thumbs-down on a chat answer now offers quick reasons and a Copy details button that copies the run id and thread link for a report
 
 ### Fixed
 
+- Analytics now treats chart filter changes as data requests and reports when reference catalogs are incomplete.
+- Analytics chat no longer stays on "running" after the agent has finished; the thread reloads so the change is visible without asking again
+- Analytics chat stops retrying a data source that is not connected and says who can connect it
+- Analytics keeps S3 replay setup available when storage status cannot be checked.
+- Automatic learning captures stay private to the user, and shared learning updates require approval.
+- Builder storage setup now waits for renewed file access before confirming it is ready.
+- Personal Analytics memories stay limited to unscoped conversations, keeping organization-specific guidance from following users between organizations.
+- Session replay storyboard screenshots upload directly to Design's private storage, so Analytics does not need its own blob storage provider.
 - Session replay screenshot export captures readable video frames and safe poster images.
 
 ## 2026-10-06

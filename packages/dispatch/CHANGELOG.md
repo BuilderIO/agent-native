@@ -1,5 +1,60 @@
 # @agent-native/dispatch
 
+## 0.40.19
+
+### Patch Changes
+
+- 0889356: Redirect the deprecated Dispatch integrations route into Settings and preserve mounted OAuth return paths.
+- a19c641: Send the Dispatch origin to embedded workspace apps so their chat controls can open the host sidebar.
+- df48a4e: Bind cross-app embed-session tokens to the active organization ID while preserving the authenticated user identity.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [e88f35c]
+- Updated dependencies [80e66f8]
+- Updated dependencies [58b7507]
+- Updated dependencies [58b7507]
+- Updated dependencies [0889356]
+- Updated dependencies [3f0fe0f]
+- Updated dependencies [e174642]
+- Updated dependencies [d6f1e18]
+- Updated dependencies
+- Updated dependencies [792ba44]
+- Updated dependencies [8f0ffa5]
+- Updated dependencies [d6f1e18]
+- Updated dependencies [d6f1e18]
+- Updated dependencies [be0d784]
+- Updated dependencies [68deb1e]
+- Updated dependencies [af7acb9]
+- Updated dependencies [217260d]
+- Updated dependencies [6e9fccf]
+  - @agent-native/toolkit@0.206.0
+
+## 0.40.18
+
+### Patch Changes
+
+- 1b1d976: Distinguish confirmed automation work, explicitly declared no-op skips, and undelivered failures in run history and automation status. Preserve failure causes and recovery codes without pausing legitimate no-op runs.
+- Release all public npm packages with a patch version bump.
+- 401bc5e: Require an organization on the request before creating or materializing a workspace app record, so `workspace_apps` rows are no longer inserted with a null `org_id`. Orgless listing stays read-only, and existing null-org rows are left untouched.
+- 5a3890a: Thread Debug search now matches an exact thread ID, the ID of the app object a thread was opened on (a deck, design, clip, document, and so on), or the thread's source URL, so pasting any of those pulls up the matching threads and their runs.
+- 06bda81: Removed Sentry auth token from sync script
+- Updated dependencies [b7e32e4]
+- Updated dependencies [ab41d2b]
+- Updated dependencies [de66ff4]
+- Updated dependencies [947f911]
+- Updated dependencies [4fe4088]
+- Updated dependencies [cbc151c]
+- Updated dependencies [3dc0aeb]
+- Updated dependencies [9236359]
+- Updated dependencies [1b1d976]
+- Updated dependencies
+- Updated dependencies [f325447]
+- Updated dependencies [cc79bd1]
+- Updated dependencies [8418b84]
+- Updated dependencies [004f2a9]
+- Updated dependencies [701c672]
+- Updated dependencies [ae5aed6]
+  - @agent-native/toolkit@0.205.0
+
 ## 0.40.17
 
 ### Patch Changes
@@ -1160,17 +1215,5 @@
 
 - 6bdf1f7: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
 - 6bdf1f7: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
-
-## 0.27.12
-
-### Patch Changes
-
-- febb983: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-
-## 0.27.11
-
-### Patch Changes
-
-- 802f708: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

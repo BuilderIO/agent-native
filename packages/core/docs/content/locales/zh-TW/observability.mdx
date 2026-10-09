@@ -344,20 +344,23 @@ export default defineAppConfig({
 | `execute_tool {tool}` | 每次操作呼叫一次 | `gen_ai.tool.name`，加上成功/錯誤狀態                                                                     |
 | `chat {model}`        | 每個模型呼叫     | `gen_ai.provider.name`, 計時+正常/錯誤狀態                                                                |
 
-跨度以 OK/ERROR 狀態完成，並紀錄失敗時的錯誤訊息。零/哨兵屬性值被修剪，因此跨度不會因噪音而混亂。該 OTel 層純粹是對內部 `agent_trace_spans` / `agent_trace_summaries` 表的補充，這些表為上面的儀表板提供支援 - 兩者都是由相同的執行事件產生的。
+跨度以 OK/ERROR 狀態完成，並在失敗時紀錄由代碼產生的固定訊息。零/哨兵屬性值被修剪，因此跨度不會因噪音而混亂。該 OTel 層純粹是對內部 `agent_trace_spans` / `agent_trace_summaries` 表的補充，這些表為上面的儀表板提供支援 - 兩者都是由相同的執行事件產生的。
 
 ### 指標 {#otel-metrics}
 
 宿主透過 `@agent-native/core/server` 中的 `registerObservabilityProvider()` 註冊指標提供者（meter provider）後，Core 也會記錄指標。指標會針對每個請求與每次執行記錄，不進行取樣：
 
-| 指標工具                                | 屬性                                                                                         |
-| --------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
-| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
-| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
-| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
-| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
-| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+| 指標工具                                    | 屬性                                                                                         |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`              | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `agent_native.http.server.handoff.duration` | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`          | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`                 | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`                   | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`                   | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures`     | `error.type`, `agent_native.telemetry.signal`                                                |
+
+`agent_native.http.server.handoff.duration` 與 `http.server.request.duration` 具有相同的屬性與分桶，但它不是在回應掛鉤開始時結束，而是在掛鉤把回應交還給執行環境時結束。當它的百分位數與 `http.server.request.duration` 的百分位數拉開差距時，表示已完成的回應正被卡住，例如被內嵌遙測排清卡住。兩個百分位數可能來自不同的請求，因此這個差值只是一個訊號，而不是某個請求的等待時間。沒有 `waitUntil` 時，core 會在該次排清之後記錄樣本，因此樣本會隨下一次排清抵達後端。
 
 在指標中，`gen_ai.tool.name` 是框架動作的名稱或 `other`；只有當引擎將某個模型 ID 列為支援時，`gen_ai.request.model` 才會是該模型 ID，否則為 `_OTHER`。因此，應用程式自訂的工具與呼叫端傳入的模型 ID 不會產生無限增長的序列；span 中會保留確切的值。
 
@@ -401,9 +404,11 @@ interface ObservabilityMeterProvider {
 
 ### 在無伺服器環境中排清 {#otel-flush}
 
-無伺服器函式在兩次呼叫之間會被凍結，因此 SDK 的匯出計時器可能永遠不會觸發。當已註冊的提供者實作了 `forceFlush()` 時，Core 會在每個請求之後從回應掛鉤中呼叫它並等待完成。每次排清都與同一個共用的 2 秒逾時競速，因此遙測占用回應的時間絕不會超過這個上限。
+無伺服器函式在兩次呼叫之間會被凍結，因此 SDK 的匯出計時器可能永遠不會觸發。當已註冊的提供者實作了 `forceFlush()` 時，Core 會在每個請求之後從回應掛鉤中呼叫它並等待完成。每次排清都與同一個共用的 2 秒逾時競速，因此遙測占用回應的時間絕不會超過這個上限。當平台提供 `waitUntil`（Cloudflare，或 Netlify 的呼叫內容）時，Core 會把清空交給它，先送出回應而不是等待。
 
-排清失敗或逾時後，Core 會停止等待它，並將 `agent_native.telemetry.flush_failures` 加 1，下一次排清會匯出這個計數。逾時的匯出會繼續執行，只要執行環境沒有先凍結程序，它仍可能送達。該失敗的 `error.type` 為 `timeout`，執行環境在排清途中凍結程序時為 `suspended`，否則為錯誤名稱。
+Core 每個行程最多每 10 秒呼叫一次指標提供者的 `forceFlush()`，其間的請求會略過它。每次指標匯出都會重新傳送行程持有的所有序列，因此這樣可以避免上傳量隨請求速率成長。被略過的資料點不會遺失：下一次匯出會攜帶它們，除非該執行個體不再處理任何請求。追蹤提供者在每個請求時都會排清。
+
+排清失敗或逾時後，Core 會停止等待它，並將 `agent_native.telemetry.flush_failures` 加 1，下一次排清會匯出這個計數。逾時的匯出會繼續執行，只要執行環境沒有先凍結程序，它仍可能送達。該失敗的 `error.type` 為 `timeout`，執行環境在排清途中凍結程序時為 `suspended`，否則為錯誤名稱。由於持續逾時的收集器永遠收不到該計數，Core 也會在每個程序中依訊號與錯誤類型，向函式記錄寫入一行 `agent-native.telemetry_flush_failed`。
 
 在長時間執行的伺服器上，每次回應後都排清意味著每個請求匯出一次。在這類環境中，請註冊不帶 `forceFlush()` 的提供者，讓 SDK 自己的計時器負責匯出。`@agent-native/core/server` 中的 `isServerlessRuntime()` 可以區分這兩種情況。它在 Netlify、Vercel、AWS Lambda 與 Cloudflare 上為 true。
 
@@ -551,3 +556,7 @@ CLI 的硬編碼 DSN 是有意為之的 - 發布的二進制檔案需要通知�
 - [**Tracking**](/docs/tracking) - 針對您的應用自身事件的產品分析（PostHog、Mixpanel、Amplitude）
 - [**Actions**](/docs/actions-overview) - 在跟蹤中顯示為工具呼叫的操作
 - [**Security**](/docs/security) — 資料範圍和憑證處理
+
+即使啟用了內容擷取，執行失敗訊息也不會傳送至 Analytics 或 Monitoring。`$ai_error` 包含終止代碼、具名原因、是否可重試，以及根據代碼產生的固定訊息。追蹤事件省略 `error_message`、`agent_run_terminal.error_detail` 和失敗工具結果的文字；終止事件保留 `error_code` 和 `error_cause`。`agent_runs.error_detail` 與 `agent_trace_spans.error_message` 仍保存在應用程式自身的資料庫中，供擁有者權限範圍內的除錯使用。
+
+執行與 Builder 閘道例外保留類型、代碼及堆疊框架，但使用固定訊息 `Internal Server Error`，不包含原始訊息或巢狀原因的文字。Monitoring 依應用程式、類型、堆疊框架、錯誤代碼與失敗類別分組，而非依訊息中的姓名分組。`$ai_trace_id` 仍用於連結到執行追蹤。由宿主管理的選用 OpenTelemetry 執行匯出也會省略失敗文字，並保留 `agent.error_code` 和 `agent.error_cause`。其他例外擷取維持原有行為。

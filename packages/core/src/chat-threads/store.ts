@@ -1,8 +1,12 @@
 import crypto from "node:crypto";
 
-import type { AgentRunOptions } from "@agent-native/agentkit/protocol";
+import {
+  parseQueueMessageInput,
+  type AgentRunOptions,
+} from "@agent-native/agentkit/protocol";
 
 import {
+  extractThreadMeta,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   normalizeThreadTitle,
@@ -21,6 +25,7 @@ import {
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
+import { stripInlineBytes } from "../shared/inline-bytes.js";
 import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import { registerShareableResource } from "../sharing/registry.js";
 import { roleSatisfies, type ShareRole } from "../sharing/schema.js";
@@ -1030,10 +1035,13 @@ export async function forkThread(
     return null;
   }
   const id = opts?.id ?? generateId();
-  const threadData = forkThreadData(
-    source.threadData,
-    id,
-    snapshot?.fromMessageId,
+  const threadData = JSON.stringify(
+    stripInlineBytes(
+      JSON.parse(
+        forkThreadData(source.threadData, id, snapshot?.fromMessageId),
+      ),
+      "placeholder",
+    ),
   );
   const now = Date.now();
   const title = source.title ? `${source.title} (fork)` : "";
@@ -1453,24 +1461,41 @@ export async function updateThreadData(
             annotationConflicts.push(conflict),
         },
       );
-      nextThreadData = JSON.stringify(merged);
+      // Client snapshots can predate their upload URL, so inline bytes become a
+      // visible placeholder rather than failing the save; legacy rows are
+      // scrubbed on their next write.
+      nextThreadData = JSON.stringify(stripInlineBytes(merged, "placeholder"));
       nextMessageCount = countThreadMessages(merged, messageCount);
 
       const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
       // Completion persistence can race the separate generated-title save.
       // Keep a title already committed by that save when this caller only has
       // its stale empty snapshot.
+      const preserveCurrentMetadata = options.preserveCurrentMetadata;
       const preserveCurrentTitleAndPreview =
-        options.preserveCurrentMetadata ||
         options.preserveCurrentTitleAndPreview;
-      const nextTitle = preserveCurrentTitleAndPreview
+      const snapshotMetaForBlankFields =
+        !options.preserveCurrentMetadata &&
+        options.preserveCurrentTitleAndPreview &&
+        (!current.title.trim() || !current.preview.trim())
+          ? extractThreadMeta(merged)
+          : undefined;
+      const nextTitle = preserveCurrentMetadata
         ? current.title
-        : title || current.title;
-      const nextPreview = preserveCurrentTitleAndPreview
+        : preserveCurrentTitleAndPreview
+          ? current.title.trim()
+            ? current.title
+            : snapshotMetaForBlankFields?.title || current.title
+          : title || current.title || extractThreadMeta(merged).title;
+      const nextPreview = preserveCurrentMetadata
         ? current.preview
-        : typeof transformed === "object" && transformed.preview !== undefined
-          ? transformed.preview
-          : preview;
+        : preserveCurrentTitleAndPreview
+          ? current.preview.trim()
+            ? current.preview
+            : snapshotMetaForBlankFields?.preview || current.preview
+          : typeof transformed === "object" && transformed.preview !== undefined
+            ? transformed.preview
+            : preview;
       const result = await client.execute({
         sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = COALESCE(?, message_count), updated_at = ? WHERE id = ? AND updated_at = ? AND LOWER(owner_email) = LOWER(?)`,
         args: [
@@ -1580,6 +1605,7 @@ export interface QueuedMessage {
   threadId?: string;
   createdAt?: string;
   attachments?: unknown[];
+  requestAttachments?: unknown[];
   metadata?: Record<string, unknown>;
   options?: AgentRunOptions;
   promotionClaim?: { id: string; expiresAt: number };
@@ -1608,6 +1634,16 @@ export async function mutateThreadQueuedMessages(
   threadId: string,
   mutation: ThreadQueuedMessageMutation,
 ): Promise<ThreadQueuedMessageMutationResult | null> {
+  if (mutation.type === "append") {
+    parseQueueMessageInput(
+      {
+        ...mutation.message,
+        threadId: mutation.message.threadId ?? threadId,
+      },
+      "queuedMessage",
+    );
+  }
+
   return withThreadDataLock(threadId, async () => {
     let result: ThreadQueuedMessageMutationResult | undefined;
     await updateThreadData(threadId, "{}", "", "", 0, {

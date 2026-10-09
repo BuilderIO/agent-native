@@ -403,7 +403,7 @@ describe("hasExplicitGridPlacement", () => {
 });
 
 describe("DEFAULT_NUDGE_AMOUNTS", () => {
-  it("uses the Figma-style 10px Shift nudge independently of the layout grid", () => {
+  it("uses the configured 10px Shift nudge independently of the layout grid", () => {
     expect(DEFAULT_NUDGE_AMOUNTS).toEqual({ small: 1, big: 10 });
   });
 });

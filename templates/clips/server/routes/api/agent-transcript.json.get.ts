@@ -17,6 +17,7 @@ import { isLoomEmbedBackedRecording } from "../../../shared/loom.js";
 import {
   applyAgentJsonHeaders,
   CLIPS_AGENT_ACCESS_PARAM,
+  describeAgentAccessFailure,
   getServerAppBasePath,
   loadAgentTranscript,
   loadPublicAgentAccess,
@@ -133,8 +134,9 @@ export default defineEventHandler(async (event: H3Event) => {
   });
 
   if (!accessResult.ok) {
-    setResponseStatus(event, accessResult.failure.status);
-    return accessResult.failure.body;
+    const failure = describeAgentAccessFailure(accessResult.failure);
+    setResponseStatus(event, failure.status);
+    return failure.body;
   }
 
   let transcriptWindow: AgentTranscriptWindow | null;

@@ -21,12 +21,15 @@ describe("createDrizzleConfig", () => {
   it("passes memory PGlite URLs through as memory data dirs", async () => {
     const { createDrizzleConfig } = await import("./drizzle-config.js");
 
-    vi.stubEnv("DATABASE_URL", "pglite:memory");
-    expect(createDrizzleConfig()).toMatchObject({
-      dialect: "postgresql",
-      driver: "pglite",
-      dbCredentials: { url: "memory://" },
-    });
+    for (const url of ["pglite:memory", "pglite:memory:", "pglite:/memory:"]) {
+      vi.stubEnv("DATABASE_URL", url);
+      expect(createDrizzleConfig()).toMatchObject({
+        dialect: "postgresql",
+        driver: "pglite",
+        dbCredentials: { url: "memory://" },
+      });
+      vi.unstubAllEnvs();
+    }
   });
 
   it.each([

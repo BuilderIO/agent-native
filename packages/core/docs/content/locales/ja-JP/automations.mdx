@@ -5,7 +5,7 @@ description: "自然言語条件を使用したイベントトリガーおよび
 
 # 自動化
 
-**自動化** は、スケジュールまたはイベント発生時にエージェントが実行するタスクです: _X が発生したら Y を実行します_。**Scheduled** と **Event** は 2 つのトリガー種別であり、別々の製品ではありません。
+**自動化** は、スケジュール、イベント発生時、または Webhook の呼び出し時にエージェントが実行するタスクです: _X が発生したら Y を実行します_。**Scheduled**、**Event**、**Webhook** はトリガー種別であり、別々の製品ではありません。
 
 フレームワークは当初、スケジュールされた自動化を **Recurring Jobs** として公開していました。この名称、`jobs/<name>.md` パス、`manage-jobs` ツールは互換性のために残ります。新しいガイドでは **Automations** を包括的な名称として使用します。既存のスケジュールジョブ、組織スコープ、高度なフィールドについては [Recurring Jobs](/docs/recurring-jobs) を参照してください。
 
@@ -21,7 +21,7 @@ description: "自然言語条件を使用したイベントトリガーおよび
   <div class="diagram-card">
     <span class="diagram-pill">Condition</span
     ><small class="diagram-muted"
-      >Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small
+      >Model checks: &ldquo;email ends with @builder.io&rdquo;</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -55,14 +55,21 @@ description: "自然言語条件を使用したイベントトリガーおよび
 
 </Diagram>
 
-## 2 つのトリガー タイプ {#trigger-types}
+## トリガー タイプ {#trigger-types}
 
-| タイプ     | 次の場合に起動                                                 | キーフィールド      |
-| ---------- | -------------------------------------------------------------- | ------------------- |
-| `schedule` | cron 式が一致する (定期的なジョブと同じ)                       | `schedule` (クロン) |
-| `event`    | 一致するイベントがフレームワーク イベント バス上に出力されます | `event` (名前)      |
+| タイプ     | 次の場合に起動                                                 | キーフィールド       |
+| ---------- | -------------------------------------------------------------- | -------------------- |
+| `schedule` | cron 式が一致する (定期的なジョブと同じ)                       | `schedule` (クロン)  |
+| `event`    | 一致するイベントがフレームワーク イベント バス上に出力されます | `event` (名前)       |
+| `webhook`  | 自動化のシークレット Webhook URL に HTTP `POST` が届く         | 作成時に返される URL |
 
-イベント トリガーには、ディスパッチ前にイベント ペイロードに対して Haiku によって評価される自然言語文字列である `condition` を含めることができます。条件が一致しない場合、自動化は通知なくスキップされます。
+イベントと Webhook のトリガーには `condition` を含めることができます。これはディスパッチ前にペイロードに対してモデルが確認する自然言語文字列です。条件が一致しない場合、自動化はスキップされ、`skipped` ステータスが記録されます。条件を評価できない場合は、自動化は実行されません。[条件](#conditions)を参照してください。
+
+### Webhook トリガー {#webhook-triggers}
+
+Webhook 自動化を作成すると、`/_agent-native/automations/webhook/<token>` という形式の URL パスが返されます。トークンがシークレットなので、この URL は呼び出すサービスにだけ渡してください。この URL への各 `POST` が自動化のペイロードになり、上限は 64 KB です。JSON のコンテンツタイプで送信された本文は解析され、それ以外の本文はテキストとして渡されます。エンドポイントは `202` を返し、自動化をバックグラウンドで実行します。
+
+安定したイベント ID を `X-Webhook-Event-Id`、`X-Event-Id`、`X-GitHub-Delivery` のいずれかのヘッダー、または JSON 本文のトップレベルの文字列の `id` で送信してください。同じ ID で繰り返された配信は再びキューに入れられず、重複としてマークされた `200` の応答が返されます。ID が防ぐのは重複した配信だけです。失敗した実行は再試行されることがあり、その再試行では失敗した実行がすでに起こした副作用が繰り返されることがあります。配信が最終的に失敗すると、その ID は解放され、後で同じ ID で届いた配信は新しい配信としてキューに入れられます。
 
 ## オートメーションの作成 {#creating}
 
@@ -74,7 +81,9 @@ description: "自然言語条件を使用したイベントトリガーおよび
 
 ### Automations UI から
 
-フルページの Agent 画面で **Automations** を開き、スケジュールおよびイベントトリガーの自動化を表示・管理します。互換 URL は引き続き `/agent#jobs` なので、既存のリンクやブックマークは動作します。
+**Settings › Automations** を開きます。スケジュール、イベント、Webhook の各トリガーの自動化を表示し、ステータスの確認、今すぐ実行、一時停止と再開、削除ができる主要な場所です。古い `/agent#jobs` リンクはそこにリダイレクトされます。
+
+**Run now** は自動化をテストする最も手軽な方法です。自動化の指示を、実際の副作用を伴ってすぐに実行します。トリガーと条件はスキップされ、次回のスケジュール実行は変わりません。ただし例外が 1 つあります。フレームワークが自動化を一時停止していた場合、実行が成功すると自動化が再び有効になり、スケジュール実行の自動化では次回の実行が再計算されます。エージェントも `manage-automations` と `action=run-now` で同じことができます。
 
 <Callout tone="warning">
 
@@ -106,7 +115,7 @@ description: "自然言語条件を使用したイベントトリガーおよび
     {
       lines: "6",
       label: "ゲート",
-      note: "オプションの自然言語 `condition` 。ディスパッチ前にペイロードに対して Haiku によって評価されます。",
+      note: "オプションの自然言語 `condition` 。ディスパッチ前にペイロードに対してモデルが確認します。",
     },
     {
       lines: "12",
@@ -120,15 +129,15 @@ description: "自然言語条件を使用したイベントトリガーおよび
 
 オートメーションは、[recurring-jobs frontmatter table](/docs/recurring-jobs#frontmatter) のすべてのフィールドを共有します。これらの追加フィールドは、イベント トリガー、条件、実行モードを制御します。
 
-| フィールド    | タイプ                    | デフォルト     | 説明                                                                                                                                                                                         |
-| ------------- | ------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `triggerType` | `"schedule"` \| `"event"` | `"schedule"`   | オートメーションの起動方法                                                                                                                                                                   |
-| `event`       | 文字列                    | _(オプション)_ | サブスクライブするイベント名 (イベント トリガーのみ)                                                                                                                                         |
-| `condition`   | 文字列                    | _(オプション)_ | 発送前に評価される自然言語条件                                                                                                                                                               |
-| `mode`        | `"agentic"`               | `"agentic"`    | 完全なエージェント ループ（唯一サポートされているモード）。`"deterministic"` は削除されました — 実装されたことは一度もなく、これを設定したオートメーションが発火することもありませんでした。 |
-| `domain`      | 文字列                    | _(オプション)_ | グループ化タグ (メール、カレンダー、クリップなど)                                                                                                                                            |
+| フィールド    | タイプ                                   | デフォルト     | 説明                                                                                                                                                                                         |
+| ------------- | ---------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `triggerType` | `"schedule"` \| `"event"` \| `"webhook"` | `"schedule"`   | オートメーションの起動方法                                                                                                                                                                   |
+| `event`       | 文字列                                   | _(オプション)_ | サブスクライブするイベント名 (イベント トリガーのみ)                                                                                                                                         |
+| `condition`   | 文字列                                   | _(オプション)_ | 発送前に評価される自然言語条件 (イベントと Webhook のトリガー)                                                                                                                               |
+| `mode`        | `"agentic"`                              | `"agentic"`    | 完全なエージェント ループ（唯一サポートされているモード）。`"deterministic"` は削除されました — 実装されたことは一度もなく、これを設定したオートメーションが発火することもありませんでした。 |
+| `domain`      | 文字列                                   | _(オプション)_ | グループ化タグ (メール、カレンダー、クリップなど)                                                                                                                                            |
 
-イベント トリガーの場合、`schedule` は `""` (空) です。スケジュール トリガーの場合は cron 式が含まれます。ディスパッチャは、スケジューラと同じ管理対象 `lastRun` / `lastStatus` / `lastError` フィールドに加えて、条件が false と評価された場合の `"skipped"` ステータスも書き込みます。
+イベントまたは Webhook トリガーの場合、`schedule` は `""` (空) です。スケジュール トリガーの場合は cron 式が含まれます。ディスパッチャは、スケジューラと同じ管理対象 `lastRun` / `lastStatus` / `lastError` フィールドに加えて、条件が false と評価された場合の `"skipped"` ステータスも書き込みます。条件を評価できなかった場合に何が記録されるかは、[条件](#conditions) を参照してください。
 
 ## イベントバス {#event-bus}
 
@@ -186,12 +195,17 @@ emit(
 
 ## 条件 {#conditions}
 
-条件は、イベント ペイロードに対して Claude Haiku によって評価される自然言語文字列です。これは、はい/いいえの分類であり、生成タスクではありません。
+条件は、イベントまたは Webhook のペイロードに対してモデルが確認する自然言語文字列です。これは、はい/いいえの分類であり、生成タスクではありません。
 
 - **条件が空または欠落している** = 無条件 (常に起動)。
-- 結果は、5 分間の TTL キャッシュと 500 エントリの LRU キャッシュを使用してメモ化されます (条件 + ペイロードの SHA-256)。
-- ペイロードは Haiku に送信する前に 4000 文字に切り詰められます。
-- API 障害の場合、条件は `false` と評価されます (安全なデフォルト - 自動化はスキップされます)。
+- 結果は 5 分間キャッシュされます。キーは条件とペイロードの SHA-256 ハッシュで、最大 500 エントリです。
+- ペイロードはモデルに送信する前に 4000 文字に切り詰められます。
+
+<Callout tone="info">
+
+評価できない条件は、一致としても不一致としても扱われず、自動化は実行されません。プロバイダーのエラーでは `lastStatus: error` が記録されて理由は `lastError` に入り、イベントは再試行されます。条件を評価するための API キーがない場合、イベントの自動化は一致するイベントごとにエラーを記録し、3 回連続すると自動的に一時停止します。キーが使えるようになると、実行中のスケジューラが約 15 分以内に自動的に再び有効にします。スケジューラが動作していないホストでは、**Settings › Automations** で再び有効にしてください。同じ状態の Webhook の自動化は一時停止しません。配信が失敗し、再試行されます。
+
+</Callout>
 
 条件の例:
 
@@ -228,7 +242,7 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 キーは、自動化に使用するためにユーザーまたはエージェントによって作成されるアドホック シークレットです (例: `SLACK_WEBHOOK`、`HUBSPOT_API_KEY`)。テンプレート定義のメタデータやオンボーディング手順がないという点で、登録済みシークレット (`registerRequiredSecret`) とは異なります。
 
 - 設定 UI または `/_agent-native/secrets/adhoc` API によって作成されます。
-- 各キーには、キーを送信できるオリジンを制限する **URL ホワイトリスト** を含めることができます (オリジン レベルの照合)。
+- API で作成したキーには、キーを送信できるオリジンを制限する `urlAllowlist` を含められます (オリジン レベルの照合)。Settings で追加したキーには許可リストがありません。
 - 生の値が AI に公開されることはありません。エージェントのコンテキストには `${keys.NAME}` プレースホルダーのみが表示されます。
 - 解決はユーザー スコープからワークスペース スコープにフォールバックするため、ユーザーは共有キーをオーバーライドできます。
 
@@ -239,11 +253,13 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 | アクション    | 目的                                                                                             |
 | ------------- | ------------------------------------------------------------------------------------------------ |
 | `list-events` | 説明とペイロード スキーマを含むすべての登録済みイベントを検出します                              |
+| `list-hosts`  | ペア設定済みの実行ホストを一覧表示します。自動化に割り当てる前に使います                         |
 | `list`        | すべてのオートメーションをステータスとともにリストします。ドメインまたは有効によるフィルタリング |
 | `define`      | 新しいオートメーションを作成します (名前、トリガー タイプ、イベント、条件、本文)                 |
 | `update`      | 既存のオートメーションを更新します (有効、条件、本文)                                            |
 | `delete`      | オートメーションを削除します (常に最初にユーザーに確認します)                                    |
-| `fire-test`   | `test.event.fired` イベントを発行して自動化を検証する                                            |
+| `run-now`     | 1 つの自動化を実際の副作用を伴ってすぐに実行します。トリガーと条件はスキップされます             |
+| `fire-test`   | `test.event.fired` イベントを発行します。そのイベントを購読している自動化だけが反応します        |
 
 追加ツール: `web-request` — `${keys.NAME}` 置換を使用したアウトバウンド HTTP。
 
@@ -251,22 +267,23 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ## API エンドポイント {#api}
 
-| エンドポイント                         | メソッド | 説明                                              |
-| -------------------------------------- | -------- | ------------------------------------------------- |
-| `/_agent-native/automations`           | GET      | すべてのオートメーションをリストします (解析済み) |
-| `/_agent-native/automations/fire-test` | POST     | `test.event.fired` イベントを発行する             |
-| `/_agent-native/secrets/adhoc`         | GET      | アドホック キーのリスト (値なし)                  |
-| `/_agent-native/secrets/adhoc`         | POST     | アドホック キーを作成または更新する               |
-| `/_agent-native/secrets/adhoc/:name`   | DELETE   | アドホック キーを削除する                         |
+| エンドポイント                              | メソッド | 説明                                              |
+| ------------------------------------------- | -------- | ------------------------------------------------- |
+| `/_agent-native/automations`                | GET      | すべてのオートメーションをリストします (解析済み) |
+| `/_agent-native/automations/fire-test`      | POST     | `test.event.fired` イベントを発行する             |
+| `/_agent-native/automations/webhook/:token` | POST     | Webhook 自動化をトリガーする                      |
+| `/_agent-native/secrets/adhoc`              | GET      | アドホック キーのリスト (値なし)                  |
+| `/_agent-native/secrets/adhoc`              | POST     | アドホック キーを作成または更新する               |
+| `/_agent-native/secrets/adhoc/:name`        | DELETE   | アドホック キーを削除する                         |
 
-<Endpoint id="doc-block-g6juno" title={"テストイベントを起動する"} method="POST" path="/_agent-native/automations/fire-test" summary={"test.event.fired イベントを発行して、イベントトリガーのオートメーションを検証します。"} responses={[
+<Endpoint id="doc-block-g6juno" title={"テストイベントを起動する"} method="POST" path="/_agent-native/automations/fire-test" summary={"test.event.fired イベントを発行して、それを購読しているオートメーションを検証します。"} responses={[
   {
     "status": "200",
     "description": "Event emitted; matching automations are dispatched through the normal condition + ownership path."
   }
 ]}>
 
-Confirm an automation's wiring and condition without waiting for a real provider event. Equivalent to the `manage-automations` action `fire-test`.
+`test.event.fired` を購読している自動化について、イベントの経路 (一致、所有者スコープ、条件) を確認します。発行するのはそのイベントだけなので、`calendar.booking.created` のような実際のイベントを待ち受ける自動化はトリガーできません。実際の自動化を試すには **Run now** を使ってください。`manage-automations` の `fire-test` アクションと同等です。
 
 </Endpoint>
 
@@ -296,8 +313,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card">
     <span class="diagram-pill warn">condition</span
     ><small class="diagram-muted"
-      >Haiku yes/no on the payload &mdash; false &rarr;
-      <code>skipped</code></small
+      >model yes/no on the payload &mdash; false &rarr; <code>skipped</code>,
+      failure &rarr; <code>error</code></small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>

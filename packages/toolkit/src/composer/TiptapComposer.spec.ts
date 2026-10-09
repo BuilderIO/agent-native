@@ -137,6 +137,8 @@ describe("createTiptapComposerExtensions", () => {
     );
     expect(compactComposerModelName("google/gemini-3.8-flash")).toBe("Flash");
     expect(compactComposerModelName("qwen/qwen3.8-max-0902")).toBe("Max");
+    expect(compactComposerModelName("qwen3-coder")).toBe("Coder");
+    expect(compactComposerModelName("constructor")).toBe("constructor");
     expect(compactComposerModelName("claude-sonnet-5")).toBe("Sonnet");
     expect(compactComposerModelName("claude-sonnet-5-5")).toBe("Sonnet");
     expect(compactComposerModelName("anthropic/claude-opus-5.5")).toBe("Opus");
@@ -144,9 +146,10 @@ describe("createTiptapComposerExtensions", () => {
       "Flash-Lite",
     );
     expect(compactComposerModelName("grok-code-fast")).toBe("Code Fast");
-    expect(compactComposerModelName("deepseek-v3-1")).toBe("DeepSeek");
+    expect(compactComposerModelName("x-ai/grok-build-0.1")).toBe("Build");
+    expect(compactComposerModelName("deepseek-v3-1")).toBe("DeepSeek v3.1");
     expect(compactComposerModelName("deepseek-v4-1-flash")).toBe(
-      "DeepSeek Flash",
+      "DeepSeek V4.1 Flash",
     );
     expect(compactComposerModelName("z-ai-glm-5-3-flash")).toBe(
       "GLM 5.3 Flash",
@@ -2789,6 +2792,98 @@ describe("createTiptapComposerExtensions", () => {
     expect(picker?.textContent).not.toContain("Builder.io");
   });
 
+  it("keeps the selected model visible when the picker hides older versions", () => {
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            availableModels: [
+              {
+                engine: "openai",
+                label: "OpenAI",
+                models: ["gpt-5.6-luna", "gpt-6-luna"],
+                configured: true,
+              },
+            ],
+            selectedModel: "gpt-5.6-luna",
+            selectedEngine: "openai",
+            onModelChange: vi.fn(),
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            providerConnectStatusEnabled: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    const modelButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    );
+    act(() => modelButton?.click());
+    const modelTab = Array.from(document.querySelectorAll('[role="tab"]')).find(
+      (tab) => tab.textContent?.includes("Model"),
+    );
+    act(() => (modelTab as HTMLElement | undefined)?.click());
+    const picker = document.querySelector(
+      '[role="tabpanel"][aria-label="model"]',
+    );
+    expect(picker?.textContent).toContain("GPT-5.6 Luna");
+    expect(picker?.textContent).toContain("GPT-6 Luna");
+  });
+
+  it("disambiguates the selected model when providers expose the same model", () => {
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            availableModels: [
+              {
+                engine: "builder",
+                label: "Builder · Builder.io",
+                models: ["deepseek-v4-pro"],
+                configured: true,
+              },
+              {
+                engine: "ai-sdk:openrouter",
+                label: "OpenRouter",
+                models: ["deepseek/deepseek-v4-pro"],
+                configured: true,
+              },
+            ],
+            selectedModel: "deepseek-v4-pro",
+            selectedEngine: "builder",
+            onModelChange: vi.fn(),
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            providerConnectStatusEnabled: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    const modelButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    );
+    expect(modelButton?.textContent).toContain("DeepSeek V4 Pro · Builder");
+    expect(modelButton?.getAttribute("aria-label")).toContain(
+      "DeepSeek V4 Pro · Builder",
+    );
+  });
+
   it("chooses the newest tier version regardless of catalog order", () => {
     const models = [
       "openai/gpt-5.6-sol",
@@ -3389,7 +3484,7 @@ describe("TiptapComposer slash commands", () => {
 
     expect(editor.textContent).toBe("");
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(onSubmissionPendingChange).toHaveBeenLastCalledWith(true);
+    expect(onSubmissionPendingChange).not.toHaveBeenCalled();
     act(() => focusRef.current?.setText("follow-up prompt"));
 
     await act(async () => {
@@ -3405,6 +3500,7 @@ describe("TiptapComposer slash commands", () => {
       expect.objectContaining({ intent: "immediate" }),
     );
     expect(editor.textContent).toBe("follow-up prompt");
+    expect(onSubmissionPendingChange).toHaveBeenLastCalledWith(true);
     await act(async () => resolveSubmit());
     expect(editor.textContent).toBe("follow-up prompt");
     expect(onSubmissionPendingChange).toHaveBeenLastCalledWith(false);
@@ -3847,6 +3943,7 @@ describe("TiptapComposer slash commands", () => {
 
   it("restores a prompt when async preflight declines it", async () => {
     const onBeforeSubmit = vi.fn(async () => false);
+    const onSubmissionPendingChange = vi.fn();
     const onSubmit = vi.fn();
     const focusRef = React.createRef<TiptapComposerHandle>();
 
@@ -3861,6 +3958,7 @@ describe("TiptapComposer slash commands", () => {
           React.createElement(TiptapComposer, {
             focusRef,
             onBeforeSubmit,
+            onSubmissionPendingChange,
             onSubmit,
             clearOnSubmitImmediately: true,
             includeDefaultSlashSkills: false,
@@ -3883,6 +3981,7 @@ describe("TiptapComposer slash commands", () => {
     });
 
     expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSubmissionPendingChange).not.toHaveBeenCalled();
     expect(
       container.querySelector('[contenteditable="true"]')?.textContent,
     ).toBe("keep this prompt");

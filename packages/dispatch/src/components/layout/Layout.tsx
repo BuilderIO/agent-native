@@ -389,8 +389,6 @@ function chatFirstPrimaryTabForPath(
     return "new-chat";
   }
   if (
-    pathname === "/integrations" ||
-    pathname.startsWith("/integrations/") ||
     pathname === "/admin/integrations" ||
     pathname.startsWith("/admin/integrations/")
   ) {

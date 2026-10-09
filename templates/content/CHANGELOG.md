@@ -3,10 +3,41 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-10-07
+## 2026-10-09
+
+### Improved
+
+- Format Content documents directly in ChatGPT widgets
+- Pages without a collection open faster.
 
 ### Fixed
 
+- Content widget documents remain editable after reopening a chat.
+- Document icons save when edited from a ChatGPT widget.
+
+## 2026-10-08
+
+### Improved
+
+- The Content editor fits ChatGPT's panel sizes and supports direct edits to documents and database rows in the widget.
+- Edits an agent makes now show up in an open page about two seconds sooner when you aren't typing.
+
+### Fixed
+
+- New blank documents open ready to edit without an unrelated collection prompt.
+- The sidebar hides empty Pinned sections and aligns the workspace selector and search with the navigation sections.
+- Unsaved edits stay attached to the latest title when another tab renames a page
+
+## 2026-10-07
+
+### Improved
+
+- Documents opened in a chat side pane now fill the whole pane, with no sidebar, menu, or toolbar above the page.
+
+### Fixed
+
+- A page moved to Trash now shows as trashed for everyone who has it open, without a reload.
+- Keep the latest peer title with an unsaved page recovery draft.
 - ChatGPT widgets identify a stalled Content editor instead of keeping its body skeleton onscreen.
 - ChatGPT widgets open document content without a cookie session
 - Content documents now open in ChatGPT widgets with their full body
@@ -24,6 +55,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Opening Content from Home shows your last page sooner
+- Pages you open from Home appear without waiting on the unsaved-draft check
 - ChatGPT can open Content document and database editors in the existing workspace, and document links use the right label.
 
 ### Fixed
@@ -45,11 +78,14 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- A page opened from a link or a refresh starts loading sooner
+- On phones, a collection's sort and filter chips stay on one line you can swipe, so the table no longer jumps when they load
 - Commenting on text you suggested now replies on that suggestion instead of leaving a comment that loses its place.
 - Collection pages keep selected rows visible through failed refreshes, and review space stays in place while comments refresh.
 
 ### Fixed
 
+- Content keeps its text column readable as panels open; sharing and keyboard focus remain available when toolbar controls fold or panels move.
 - A paragraph suggested just before a heading, list, quote, or code block now shows as a suggestion.
 - Accepting a suggestion whose surrounding text changed now says so and keeps it pending, and separately saved suggestions on the same line now all land.
 - Agent links copied from a document are shorter, so Claude can fetch them without hitting its URL length limit.
@@ -86,6 +122,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- The sidebar, comments and agent panel share the window: the sidebar folds to a rail, then a drawer, before the page or an open comments list runs out of room, comments stay beside the text instead of covering it or the agent panel, and the header keeps the page title readable
 - A page link you can't open now says whether the page exists. "You don't have access to this page" means it does and hasn't been shared with you; "This page doesn't exist" means there's nothing there. If you could open a page that's in the trash, its link says so, with Restore when you're allowed to restore it.
 - Collections fit phones, tablets, and open side panels: view tabs use the full width, narrow column headers stay readable, and a long press selects rows on touch screens
 - After a refresh, the Files sidebar shows the open page's folders in one load instead of one level at a time

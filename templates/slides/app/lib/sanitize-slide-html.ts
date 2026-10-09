@@ -223,6 +223,10 @@ export function sanitizeCssValue(value: string): string | null {
   return value.trim();
 }
 
+/** Vendor-prefixed names (`-webkit-text-fill-color`) fail this and are dropped. */
+export const isKeptCssProperty = (property: string) =>
+  /^(?:--)?[a-zA-Z][\w-]*$/.test(property);
+
 function sanitizeStyle(style: string): string {
   return style
     .split(";")
@@ -231,7 +235,7 @@ function sanitizeStyle(style: string): string {
       if (idx <= 0) return null;
       const property = declaration.slice(0, idx).trim();
       const value = declaration.slice(idx + 1).trim();
-      if (!/^(?:--)?[a-zA-Z][\w-]*$/.test(property) || !value) return null;
+      if (!isKeptCssProperty(property) || !value) return null;
       const safeValue = sanitizeCssValue(value);
       return safeValue ? `${property}: ${safeValue}` : null;
     })
@@ -247,6 +251,9 @@ function sanitizeStyle(style: string): string {
 const EXISTING_SCOPE_PREFIX =
   /^(?:\[data-slide-content-scope(?:=(?:"[^"]*"|'[^']*'|[^\]\s]*))?\](?:\s+|$))+/;
 
+/** `from`, `to`, `50%`: the only selectors valid inside `@keyframes`, never scopable. */
+const KEYFRAME_SELECTOR = /^(?:from|to|\d*\.?\d+%)$/i;
+
 function scopeCssSelector(selector: string, scopeSelector?: string): string {
   const trimmed = selector.trim();
   if (!scopeSelector || !trimmed || trimmed.startsWith("@")) return trimmed;
@@ -258,6 +265,7 @@ function scopeCssSelector(selector: string, scopeSelector?: string): string {
       const item = scoped.replace(EXISTING_SCOPE_PREFIX, "").trim();
       if (!scoped) return "";
       if (!item) return scopeSelector;
+      if (KEYFRAME_SELECTOR.test(item)) return item;
       if (item === "*") return `${scopeSelector}, ${scopeSelector} *`;
       if (/^(?:html|body|:root)\b/i.test(item)) {
         return item.replace(/^(?:html|body|:root)\b/i, scopeSelector);
@@ -268,14 +276,83 @@ function scopeCssSelector(selector: string, scopeSelector?: string): string {
     .join(", ");
 }
 
+function matchingCssBlockEnd(css: string, openingBrace: number): number {
+  let depth = 0;
+  let quote = "";
+  for (let index = openingBrace; index < css.length; index += 1) {
+    const character = css[index];
+    if (quote) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = "";
+      continue;
+    }
+    if (character === "/" && css[index + 1] === "*") {
+      const commentEnd = css.indexOf("*/", index + 2);
+      if (commentEnd < 0) return -1;
+      index = commentEnd + 1;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === "{") {
+      depth += 1;
+    } else if (character === "}" && --depth === 0) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function sanitizeKeyframeRules(css: string): string {
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap(
+    ([, selector, body]) => {
+      const safeSelector = scopeCssSelector(String(selector).trim());
+      const safeBody = sanitizeStyle(String(body));
+      return safeSelector && safeBody
+        ? [`${safeSelector} { ${safeBody}; }`]
+        : [];
+    },
+  );
+  return rules.join(" ");
+}
+
+function extractGeneratedCropKeyframes(css: string): {
+  remaining: string;
+  keyframes: string[];
+} {
+  const pattern = /@keyframes\s+(fmd_crop_[\w-]+)\s*\{/gi;
+  const keyframes: string[] = [];
+  let remaining = "";
+  let copiedThrough = 0;
+  for (let match = pattern.exec(css); match; match = pattern.exec(css)) {
+    const openingBrace = pattern.lastIndex - 1;
+    const closingBrace = matchingCssBlockEnd(css, openingBrace);
+    if (closingBrace < 0) break;
+    remaining += css.slice(copiedThrough, match.index);
+    const body = sanitizeKeyframeRules(
+      css.slice(openingBrace + 1, closingBrace),
+    );
+    if (body.trim()) keyframes.push(`@keyframes ${match[1]} { ${body} }`);
+    copiedThrough = closingBrace + 1;
+    pattern.lastIndex = copiedThrough;
+  }
+  remaining += css.slice(copiedThrough);
+  return { remaining, keyframes };
+}
+
 function sanitizeStyleSheet(css: string, scopeSelector?: string): string {
-  return css
-    .replace(/@import[^;]+;?/gi, "")
-    .replace(/([^{}]+)\{([^{}]*)\}/g, (_match, selector, body) => {
+  const withoutImports = css.replace(/@import[^;]+;?/gi, "");
+  const { remaining, keyframes } =
+    extractGeneratedCropKeyframes(withoutImports);
+  const rules = remaining.replace(
+    /([^{}]+)\{([^{}]*)\}/g,
+    (_match, selector, body) => {
       const safeBody = sanitizeStyle(String(body));
       const safeSelector = scopeCssSelector(String(selector), scopeSelector);
       return safeBody && safeSelector ? `${safeSelector} { ${safeBody}; }` : "";
-    });
+    },
+  );
+  return [...keyframes, rules].filter(Boolean).join(" ");
 }
 
 function cleanNode(

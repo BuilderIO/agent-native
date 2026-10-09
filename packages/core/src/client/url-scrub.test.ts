@@ -22,6 +22,129 @@ describe("scrubUrl", () => {
     );
   });
 
+  it("redacts sensitive query values inside hash routes", () => {
+    const url = "https://app.agent-native.com/auth#/verify?token=secret&step=1";
+
+    const scrubbed = scrubUrl(url);
+
+    expect(scrubbed).toBe(
+      "https://app.agent-native.com/auth#/verify?token=%3Credacted%3E&step=1",
+    );
+    expect(scrubbed).not.toContain("secret");
+  });
+
+  it("redacts sensitive parameters before a question mark in parameter fragments", () => {
+    const url =
+      "https://app.agent-native.com/auth#token=secret&return=/inbox?tab=1";
+
+    const scrubbed = scrubUrl(url);
+
+    expect(scrubbed).toContain("#token=%3Credacted%3E");
+    expect(scrubbed).not.toContain("token=secret");
+  });
+
+  it("redacts sensitive queries when a hash route prefix contains an equals sign", () => {
+    const url = "https://app.agent-native.com/auth#/verify=legacy?token=secret";
+
+    const scrubbed = scrubUrl(url);
+
+    expect(scrubbed).toBe(
+      "https://app.agent-native.com/auth#/verify=legacy?token=%3Credacted%3E",
+    );
+    expect(scrubbed).not.toContain("secret");
+  });
+
+  it.each([
+    [
+      "https://app.agent-native.com/auth#/verify&token=secret?step=1",
+      "https://app.agent-native.com/auth#/verify&token=%3Credacted%3E?step=1",
+    ],
+    [
+      "https://app.agent-native.com/auth#/verify&token=secret",
+      "https://app.agent-native.com/auth#/verify&token=%3Credacted%3E",
+    ],
+    [
+      "https://app.agent-native.com/auth#verify&token=secret",
+      "https://app.agent-native.com/auth#verify&token=%3Credacted%3E",
+    ],
+    [
+      "https://app.agent-native.com/auth#return=/inbox&code=secret?x=1",
+      "https://app.agent-native.com/auth#return=/inbox&code=%3Credacted%3E?x=1",
+    ],
+  ])("redacts sensitive parameters in hash route prefixes", (url, expected) => {
+    const scrubbed = scrubUrl(url);
+
+    expect(scrubbed).toBe(expected);
+    expect(scrubbed).not.toContain("secret");
+  });
+
+  it.each([
+    "https://app.agent-native.com/auth#/verify%3Ftoken%3Dsecret",
+    "https://app.agent-native.com/auth#/verify%253Ftoken%253Dsecret",
+  ])("redacts ambiguous encoded hash route queries", (url) => {
+    const scrubbed = scrubUrl(url);
+
+    expect(scrubbed).toContain("#%3Credacted%3E");
+    expect(scrubbed).not.toContain("secret");
+  });
+
+  it("does not treat a sensitive parameter value as a hash route", () => {
+    const url = "https://app.agent-native.com/auth#token=/inbox?tab=1";
+
+    expect(scrubUrl(url)).toBe(
+      "https://app.agent-native.com/auth#token=%3Credacted%3E",
+    );
+  });
+
+  it.each([
+    "https://app.agent-native.com/auth#return=/inbox?token=secret",
+    "https://app.agent-native.com/auth#return=%2Finbox%3Ftoken%3Dsecret",
+    "https://app.agent-native.com/auth#return=%252Finbox%253Ftoken%253Dsecret",
+    "https://app.agent-native.com/auth#return=%252Finbox%253F%252574oken%253Dsecret",
+  ])("redacts a sensitive query nested inside a hash parameter", (url) => {
+    const scrubbed = scrubUrl(url);
+
+    expect(scrubbed).not.toContain("secret");
+    expect(scrubbed).toContain("return=");
+  });
+
+  it("redacts nested URLs that exceed the decoding bound", () => {
+    let nestedUrl = "/inbox?token=secret";
+    for (let depth = 0; depth < 9; depth += 1) {
+      nestedUrl = encodeURIComponent(nestedUrl);
+    }
+
+    const scrubbed = scrubUrl(
+      `https://app.agent-native.com/auth#return=${nestedUrl}`,
+    );
+
+    expect(scrubbed).toContain("return=%3Credacted%3E");
+    expect(scrubbed).not.toContain("secret");
+  });
+
+  it("preserves a nested hash parameter when its query has no sensitive keys", () => {
+    const url = "https://app.agent-native.com/auth#return=/inbox?tab=1";
+
+    expect(scrubUrl(url)).toBe(url);
+  });
+
+  it("normalizes configured sensitive parameter aliases", () => {
+    const url = "https://app.agent-native.com/sign-in?accessToken=secret";
+
+    expect(scrubUrl(url, ["access_token"])).toBe(
+      "https://app.agent-native.com/sign-in?accessToken=%3Credacted%3E",
+    );
+  });
+
+  it.each([
+    "https://app.agent-native.com/auth#/verify&tab=1?step=2",
+    "https://app.agent-native.com/auth#/verify&tab=1",
+    "https://app.agent-native.com/auth#verify&tab=1",
+    "https://app.agent-native.com/auth#return=/inbox&tab=1?step=2",
+  ])("preserves non-sensitive hash route prefix parameters", (url) => {
+    expect(scrubUrl(url)).toBe(url);
+  });
+
   it("redacts Mail search terms from absolute and relative URLs", () => {
     const query = "private.sender@example.com";
     const absolute = scrubUrl(

@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { withDbTimeout } from "../db/client.js";
@@ -509,11 +511,15 @@ describe("http response telemetry", () => {
     const unregister = registerObservabilityProvider({
       meterProvider: {
         getMeter: () => ({
-          createHistogram: () => ({
+          createHistogram: (name: string) => ({
             record: (
               _value: number,
               attributes?: Record<string, string | number>,
-            ) => recorded.push(attributes),
+            ) => {
+              if (name === "http.server.request.duration") {
+                recorded.push(attributes);
+              }
+            },
           }),
           createCounter: () => ({ add() {} }),
         }),
@@ -548,6 +554,188 @@ describe("http response telemetry", () => {
     }
   });
 
+  describe("flush handoff", () => {
+    const netlifyStoreKey = Symbol.for(
+      "@netlify/functions/request-context-store",
+    );
+    let releaseFlush: () => void = () => undefined;
+    let forceFlush: ReturnType<typeof vi.fn>;
+    let unregister: () => void = () => undefined;
+
+    beforeEach(() => {
+      processState.requestSequence = 5;
+      const pending = new Promise<void>((resolve) => {
+        releaseFlush = resolve;
+      });
+      forceFlush = vi.fn(() => pending);
+      unregister = registerObservabilityProvider({
+        meterProvider: {
+          getMeter: () => ({
+            createHistogram: () => ({ record() {} }),
+            createCounter: () => ({ add() {} }),
+          }),
+          forceFlush,
+        },
+      });
+    });
+
+    afterEach(() => {
+      releaseFlush();
+      unregister();
+      delete (globalThis as Record<symbol, unknown>)[netlifyStoreKey];
+    });
+
+    async function respond(
+      event: ReturnType<typeof eventFor>,
+      run: <T>(fn: () => T) => T = (fn) => fn(),
+    ) {
+      const { requestHooks, responseHooks } = createHooks();
+      await requestHooks[0](event);
+      let settled = false;
+      const hook = run(() =>
+        Promise.resolve(responseHooks[0](new Response("ok"), event)),
+      ).then(() => {
+        settled = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { hook, settled: () => settled };
+    }
+
+    async function expectHandedOffExport(handedOff: Promise<unknown>[]) {
+      expect(handedOff).toHaveLength(1);
+      expect(forceFlush).toHaveBeenCalledOnce();
+      let exported = false;
+      void handedOff[0].then(() => {
+        exported = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(exported).toBe(false);
+      releaseFlush();
+      await handedOff[0];
+      expect(exported).toBe(true);
+    }
+
+    it("returns before the export finishes when the request carries waitUntil", async () => {
+      const event = eventFor("/some/page");
+      const handedOff: Promise<unknown>[] = [];
+      Object.assign(event.req, {
+        waitUntil: (promise: Promise<unknown>) => handedOff.push(promise),
+      });
+
+      const { settled } = await respond(event);
+
+      expect(settled()).toBe(true);
+      await expectHandedOffExport(handedOff);
+    });
+
+    it("uses the Netlify request context store when the request has no waitUntil", async () => {
+      const handedOff: Promise<unknown>[] = [];
+      const store = new AsyncLocalStorage<{
+        context: { waitUntil: (promise: Promise<unknown>) => void };
+      }>();
+      (globalThis as Record<symbol, unknown>)[netlifyStoreKey] = store;
+      const context = {
+        waitUntil: (promise: Promise<unknown>) => {
+          handedOff.push(promise);
+        },
+      };
+
+      const { settled } = await respond(eventFor("/some/page"), (fn) =>
+        store.run({ context }, fn),
+      );
+
+      expect(settled()).toBe(true);
+      await expectHandedOffExport(handedOff);
+    });
+
+    it("waits for the export inline when no waitUntil exists", async () => {
+      const { hook, settled } = await respond(eventFor("/some/page"));
+
+      expect(settled()).toBe(false);
+      releaseFlush();
+      await hook;
+      expect(settled()).toBe(true);
+    });
+  });
+
+  describe("handoff duration", () => {
+    let recorded: Array<{ name: string; value: number }>;
+    let nowSpy: ReturnType<typeof vi.spyOn>;
+    let unregister: () => void = () => undefined;
+    const startedAt = 1_000_000;
+
+    function registerMeter(forceFlush: () => Promise<void>) {
+      unregister = registerObservabilityProvider({
+        meterProvider: {
+          getMeter: () => ({
+            createHistogram: (name: string) => ({
+              record: (value: number) => recorded.push({ name, value }),
+            }),
+            createCounter: () => ({ add() {} }),
+          }),
+          forceFlush,
+        },
+      });
+    }
+
+    beforeEach(() => {
+      processState.requestSequence = 5;
+      recorded = [];
+      nowSpy = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    });
+
+    afterEach(() => {
+      nowSpy.mockRestore();
+      unregister();
+    });
+
+    function durations(name: string) {
+      return recorded.filter((r) => r.name === name).map((r) => r.value);
+    }
+
+    it("includes an inline export that holds the response", async () => {
+      registerMeter(async () => {
+        nowSpy.mockReturnValue(startedAt + 3_200);
+      });
+      const { requestHooks, responseHooks } = createHooks();
+      const event = eventFor("/some/page");
+      await requestHooks[0](event);
+      nowSpy.mockReturnValue(startedAt + 1_200);
+      await responseHooks[0](new Response("ok"), event);
+
+      expect(durations("http.server.request.duration")).toEqual([1.2]);
+      expect(durations("agent_native.http.server.handoff.duration")).toEqual([
+        3.2,
+      ]);
+    });
+
+    it("excludes an export handed to waitUntil", async () => {
+      let releaseFlush: () => void = () => undefined;
+      registerMeter(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseFlush = resolve;
+          }),
+      );
+      const { requestHooks, responseHooks } = createHooks();
+      const event = eventFor("/some/page");
+      const handedOff: Promise<unknown>[] = [];
+      Object.assign(event.req, {
+        waitUntil: (promise: Promise<unknown>) => handedOff.push(promise),
+      });
+      await requestHooks[0](event);
+      nowSpy.mockReturnValue(startedAt + 1_200);
+      await responseHooks[0](new Response("ok"), event);
+
+      expect(durations("agent_native.http.server.handoff.duration")).toEqual([
+        1.2,
+      ]);
+      expect(handedOff).toHaveLength(1);
+      releaseFlush();
+      await handedOff[0];
+    });
+  });
+
   it("attributes a framework 401 to its route on the metric and the span", async () => {
     processState.requestSequence = 5;
     const recorded: Array<Record<string, string | number> | undefined> = [];
@@ -570,11 +758,15 @@ describe("http response telemetry", () => {
     const unregister = registerObservabilityProvider({
       meterProvider: {
         getMeter: () => ({
-          createHistogram: () => ({
+          createHistogram: (name: string) => ({
             record: (
               _value: number,
               attributes?: Record<string, string | number>,
-            ) => recorded.push(attributes),
+            ) => {
+              if (name === "http.server.request.duration") {
+                recorded.push(attributes);
+              }
+            },
           }),
           createCounter: () => ({ add() {} }),
         }),
@@ -613,8 +805,10 @@ describe("http response telemetry", () => {
     const unregister = registerObservabilityProvider({
       meterProvider: {
         getMeter: () => ({
-          createHistogram: () => ({
-            record: (value: number) => recorded.push(value),
+          createHistogram: (name: string) => ({
+            record: (value: number) => {
+              if (name === "http.server.request.duration") recorded.push(value);
+            },
           }),
           createCounter: () => ({ add() {} }),
         }),

@@ -494,7 +494,19 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "स्किल फ़ाइल अपलोड करें",
   "composer.upload": "अपलोड करें",
   "composer.uploadFailed": "चुनी गई फ़ाइल अपलोड नहीं हो सकी।",
+  "composer.fileTooLarge": "यह फ़ाइल {{size}} MB की अपलोड सीमा से बड़ी है।",
+  "composer.sessionExpired":
+    "आपका सत्र समाप्त हो गया है। फिर से साइन इन करें, फिर अपना संदेश भेजें।",
   "composer.unsupportedFileType": "यह फ़ाइल प्रकार समर्थित नहीं है।",
+  "composer.uploadUnavailable":
+    "फ़ाइल अपलोड अभी उपलब्ध नहीं है। कुछ देर बाद फिर कोशिश करें।",
+  "composer.uploadOffline":
+    "अपलोड सर्वर तक नहीं पहुंच सका। अपना कनेक्शन जांचें और फिर कोशिश करें।",
+  "composer.submissionNotReady":
+    "चैट अभी भेजने के लिए तैयार नहीं है। थोड़ा रुकें, फिर दोबारा भेजें।",
+  "composer.submissionScopeChanged":
+    "आपका संदेश भेजे जाने से पहले यह चैट बदल गई। इसे फिर से भेजें।",
+  "composer.attachmentNotSaved": "इस चैट के साथ सहेजा नहीं गया",
   "composer.useAttachedContext": "अटैच किए गए संदर्भ का उपयोग करें।",
   "mentions.commands": "कमांड",
   "mentions.learnMore": "और जानें",
@@ -639,6 +651,8 @@ const messages: ToolkitAgentChatTranslation = {
     "आप साइन आउट हो चुके हैं, इसलिए यह चैट एजेंट को फ़ॉलो नहीं कर सकती। फिर से साइन इन करें, फिर रीलोड करें।",
   "errorMessages.malformedRequestAttachment":
     "मॉडल ने एक संलग्न फ़ाइल अस्वीकार कर दी, इसलिए यह संदेश कभी भेजा ही नहीं गया। अटैचमेंट हटाकर दोबारा प्रयास करें — PDF, सादा टेक्स्ट फ़ाइल, या JPEG, PNG, GIF या WebP छवि सीधे पढ़ी जाती है; अन्य फ़ॉर्मैट अपलोड करके लिंक करने होंगे।",
+  "errorMessages.invalidAttachment":
+    "मॉडल प्रदाता ने इस अटैचमेंट के फ़ॉर्मैट या आकार के कारण इसे अस्वीकार कर दिया। छवियों के लिए छोटी PNG, JPEG, GIF या WebP फ़ाइल निर्यात करें; दस्तावेज़ों के लिए समर्थित फ़ाइल फ़ॉर्मैट इस्तेमाल करें या संबंधित टेक्स्ट चिपकाएँ, फिर उसे दोबारा अटैच करें।",
   "errorMessages.noProviderConnected":
     "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग > एजेंट > AI प्रदाता खोलें, फिर Builder.io (मुफ़्त टियर उपलब्ध) का उपयोग करें या प्रदाता कुंजी जोड़ें।",
   "errorMessages.openBuilderSpaceSettings": "Builder स्पेस सेटिंग्स खोलें",
@@ -1125,6 +1139,7 @@ const messages: ToolkitAgentChatTranslation = {
     "यह रन अब जारी नहीं रखा जा सकता। आगे बढ़ने के लिए एक संदेश भेजें।",
   "recovery.retryAttachmentUnavailable":
     "इस अनुरोध में ऐसी फ़ाइल थी जिसे दोबारा नहीं भेजा जा सकता। उसे संदेश बॉक्स में फिर से जोड़ें, फिर कोशिश करें।",
+  "recovery.retryWithoutAttachment": "अटैचमेंट के बिना फिर से प्रयास करें",
   "recovery.deferredSubmissionFailed":
     "यह संदेश भेजा नहीं जा सका। अपना कनेक्शन या चैट सेटअप जाँचें, फिर दोबारा कोशिश करें।",
   "recovery.credentialRejected":

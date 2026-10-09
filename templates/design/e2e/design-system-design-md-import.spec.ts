@@ -86,7 +86,6 @@ test.afterEach(async () => {
   restoreDesignSystemWorkflows = undefined;
 });
 
-// oracle: none — verifies design.md import state and payload, not Figma parity.
 test("imports design.md guidance through Builder DSI", async ({ page }) => {
   let capturedInput: Record<string, unknown> | null = null;
 

@@ -311,7 +311,7 @@ export function imageFillChangePatch(
 /**
  * Patch for the Fill panel's "+" (add fill) action.
  *
- * Figma parity: clicking "+" always adds a new fill on top of whatever is
+ * Clicking "+" always adds a new fill on top of whatever is
  * already there. The only exception is a genuinely empty fill state (no
  * visible base solid AND no existing background layers) — there "+" just
  * reveals the hidden base solid instead of stacking an empty default
@@ -325,7 +325,7 @@ export function imageFillChangePatch(
  * opposite of what "+" is supposed to do, and it reintroduced the exact
  * phantom-second-fill problem `solidToGradientPatch` exists to avoid.
  */
-// guard:allow-raw-color — Figma's new-fill paint; hex because solid layers need a parseable colour.
+// guard:allow-raw-color — new solid layers need a parseable color value.
 const NEW_FILL_COLOR = "#d9d9d9";
 
 export function addFillLayerPatch(params: {

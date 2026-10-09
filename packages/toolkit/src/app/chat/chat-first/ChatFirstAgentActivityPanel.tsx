@@ -19,6 +19,7 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
+import { SESSION_REPLAY_MASK_PROPS } from "../session-replay-privacy.js";
 import { defaultChatFirstCopy } from "./copy.js";
 import type { ChatFirstCopy } from "./types.js";
 
@@ -111,7 +112,7 @@ export function ChatFirstAgentActivityPanel({
           data-chat-first-agents-error
         >
           <IconAlertCircle size={15} aria-hidden="true" />
-          <span>{error}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{error}</span>
           {onRefresh ? (
             <button
               type="button"

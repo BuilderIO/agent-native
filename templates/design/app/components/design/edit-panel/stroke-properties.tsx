@@ -558,7 +558,7 @@ export function StrokeProperties({
           {strokeIsMixed ? (
             <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
               {
-                "Click + to replace mixed content" /* i18n-ignore figma mixed stroke hint */
+                "Click + to replace mixed content" /* i18n-ignore mixed-content helper text */
               }
             </p>
           ) : borderExists ? (
@@ -667,7 +667,7 @@ function TextStrokeProperties({
       {isMixed ? (
         <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
           {
-            "Click + to replace mixed content" /* i18n-ignore figma mixed stroke hint */
+            "Click + to replace mixed content" /* i18n-ignore mixed-content helper text */
           }
         </p>
       ) : strokeExists ? (
@@ -1003,7 +1003,7 @@ function VectorStrokeProperties({
       {isMixed ? (
         <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
           {
-            "Click + to replace mixed content" /* i18n-ignore figma mixed stroke hint */
+            "Click + to replace mixed content" /* i18n-ignore mixed-content helper text */
           }
         </p>
       ) : strokeExists ? (

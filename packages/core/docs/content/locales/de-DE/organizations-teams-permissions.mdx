@@ -17,6 +17,34 @@ Die App deklariert Rollen und Berechtigungsschlüssel im Code. Admins können Mi
 
 Für verwaltete Einladungen und die Konfiguration siehe [Verwaltete Bereitstellungen](/docs/administered-deployments). Für Datenzugriff siehe [Security → Data Scoping](/docs/security#data-scoping).
 
+## Optionale Berechtigungsrichtlinien
+
+Standardmäßig erfordern Berechtigungsprüfungen eine zugewiesene App-Rolle. Das optionale zweite Argument von `defineAppRoles` ändert diese Richtlinie auf dem Server. Forms verwendet:
+
+```ts
+const formsAccess = defineAppRoles(
+  {
+    appId: "forms",
+    roles: ["editor", "reviewer"] as const,
+    defaultRole: "editor",
+    permissions: {
+      "forms.edit": ["editor"],
+      "forms.review": ["editor", "reviewer"],
+    },
+  },
+  { unassignedRole: "editor", allowOrgAdmins: true },
+);
+```
+
+- `unassignedRole` wendet die Berechtigungen einer deklarierten Rolle auf aktive Mitglieder ohne App-Rollenzuweisungen an. Berechtigungsüberschreibungen gelten weiterhin. Es wird keine Zuweisung erstellt; entfernte Mitglieder und Zuweisungen, die nur aus nicht mehr deklarierten Rollen bestehen, sind ausgeschlossen. Das Löschen aller Zuweisungen stellt dieses Standardverhalten wieder her.
+- `allowOrgAdmins: true` lässt aktive Organisationsinhaber und -administratoren jede Prüfung einer deklarierten App-Berechtigung bestehen, unabhängig von ihren App-Rollen oder Berechtigungsüberschreibungen. App-Administratoren erhalten dadurch keine Rechte zur Organisationsverwaltung.
+
+Diese Optionen wirken nur auf `requirePermission` und `assertPermission`. `resolve`, `requireAny` und `assertAny` verwenden weiterhin explizite Zuweisungen; `defaultRole` dient nur der Anzeige. Ohne diese Optionen bleibt die strikte Richtlinie erhalten. Keine Option ersetzt die Ressourcenautorisierung: Behalten Sie die Prüfungen mit `accessFilter` und `assertAccess` bei.
+
+Forms bewahrt den Bearbeitungszugriff bestehender Mitglieder ohne zugewiesene Rolle. Ein ausdrücklich zugewiesener Reviewer kann Einsendungen prüfen, aber keine Formulare bearbeiten; Editor kann beides. Die Ressourcenfreigabe bestimmt weiterhin, welche Formulare und Einsendungen zugänglich sind.
+
+Bei organisationseigenen Formularen erfordern die Bearbeitung und die Prüfung von Einsendungen eine aktive Mitgliedschaft in der Organisation des Formulars, sofern das Freigabesystem die aufrufende Person nicht als dessen Eigentümer erkennt. Eine direkte Freigabe allein genügt für diese App-Berechtigungsprüfung nicht.
+
 ## Benutzergruppen {#user-groups}
 
 Organisationen können wiederverwendbare Benutzergruppen aus ihren aktuellen Mitgliedern anlegen. Inhaber und Administratoren verwalten die Mitgliedschaft, und eine Person kann mehreren Gruppen angehören. Apps können eine Gruppe nutzen, um eine Ressource freizugeben, die Gruppenfreigaben unterstützt, oder den Zugriff auf eine Workspace-Verbindung einzuschränken.

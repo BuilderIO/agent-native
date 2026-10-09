@@ -48,6 +48,7 @@ vi.mock("../resources/store.js", () => {
   const key = (owner: string, path: string) => `${owner}:${path}`;
   const copy = (row: StoredResource | undefined) => (row ? { ...row } : null);
   return {
+    SHARED_OWNER: "__shared__",
     organizationIdFromResourceOwner: (owner: string) =>
       owner.startsWith("__organization__:")
         ? decodeURIComponent(owner.slice("__organization__:".length))

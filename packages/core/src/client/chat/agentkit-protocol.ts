@@ -17,6 +17,7 @@ import type {
   AgentObjectReference,
   AgentParticipant,
   AgentRunStatus,
+  AgentRequestAttachment,
   AgentTask,
   AgentTaskGroup,
   AgentToolCall,
@@ -37,6 +38,7 @@ import {
   createCapabilityUnavailableError,
   createCapabilityUnsupportedError,
   inferAgentActivityKind,
+  isInlineDataUrl,
   negotiateAgentKitProtocolVersion,
   resumeEntryFromApproval,
   resumeOptionId,
@@ -50,6 +52,8 @@ import {
   CONTINUE_UNAVAILABLE_CODE,
   type AutoContinueRefusalCode,
 } from "../../agent/auto-continue.js";
+import type { AgentChatAttachment } from "../../agent/types.js";
+import { parseBase64DataUrl } from "../../shared/data-url.js";
 import {
   emitChatFirstOpenApp,
   emitChatFirstOpenBrowser,
@@ -240,6 +244,105 @@ const DISCOVERABLE_CAPABILITIES = [
 ] as const satisfies readonly AgentCapabilityId[];
 
 export const AGENT_NATIVE_PROTOCOL_METADATA_KEY = "x-agent-native";
+
+function attachmentMediaType(part: FilePart): string | undefined {
+  const dataUrlMediaType = part.url
+    ? parseBase64DataUrl(part.url)?.mediaType
+    : undefined;
+  const declaredMediaType = part.mediaType
+    ?.split(";", 1)[0]
+    ?.trim()
+    .toLowerCase();
+  return (
+    dataUrlMediaType ??
+    (declaredMediaType && declaredMediaType !== "image"
+      ? declaredMediaType
+      : undefined)
+  );
+}
+
+function runtimeAttachmentFromFilePart(part: FilePart) {
+  const mediaType = attachmentMediaType(part);
+  const isImage =
+    mediaType?.startsWith("image/") === true ||
+    (!mediaType &&
+      part.mediaType?.split(";", 1)[0]?.trim().toLowerCase() === "image");
+  return {
+    type: isImage ? "image" : "file",
+    name: part.name,
+    ...(part.fileId ? { id: part.fileId } : {}),
+    ...(mediaType ? { mediaType, contentType: mediaType } : {}),
+    ...(part.url ? { url: part.url } : {}),
+  };
+}
+
+function runtimeRequestAttachments(args: {
+  message?: AgentMessage;
+  requestAttachments?: AgentRequestAttachment[];
+}): AgentChatAttachment[] {
+  const attachments: AgentChatAttachment[] =
+    args.message?.parts.flatMap((part) =>
+      part.type === "file" ? [runtimeAttachmentFromFilePart(part)] : [],
+    ) ?? [];
+  for (const requestAttachment of args.requestAttachments ?? []) {
+    const originalUrl = requestAttachment.referenceUrl;
+    const originalIndex = originalUrl
+      ? attachments.findIndex((attachment) => attachment.url === originalUrl)
+      : -1;
+    if (typeof requestAttachment.data === "string") {
+      const imageUrl = requestAttachment.url ?? originalUrl;
+      const keepsOriginalReference =
+        originalUrl !== undefined &&
+        imageUrl !== undefined &&
+        originalUrl !== imageUrl;
+      if (keepsOriginalReference) {
+        const original = originalIndex >= 0 ? attachments[originalIndex] : null;
+        const reference = {
+          type: "file",
+          name: original?.name || requestAttachment.name,
+          contentType: original?.contentType || requestAttachment.contentType,
+          url: originalUrl,
+          referenceOnly: true,
+        };
+        if (originalIndex >= 0) attachments.splice(originalIndex, 1, reference);
+        else attachments.push(reference);
+      }
+      const image = {
+        type: "image",
+        name: requestAttachment.name,
+        contentType: requestAttachment.contentType,
+        data: requestAttachment.data,
+        ...(imageUrl ? { url: imageUrl } : {}),
+      };
+      if (originalIndex >= 0 && !keepsOriginalReference) {
+        attachments.splice(originalIndex, 1, image);
+      } else {
+        attachments.push(image);
+      }
+      continue;
+    }
+
+    if (originalIndex >= 0 && originalUrl) {
+      const original = attachments[originalIndex]!;
+      attachments.splice(originalIndex, 1, {
+        type: "file",
+        name: original.name || requestAttachment.name,
+        contentType: original.contentType,
+        url: originalUrl,
+        referenceOnly: true,
+      });
+    }
+    if (typeof requestAttachment.url === "string") {
+      attachments.push({
+        type: "image",
+        name: requestAttachment.name,
+        contentType: requestAttachment.contentType,
+        url: requestAttachment.url,
+      });
+    }
+  }
+  return attachments;
+}
 
 /**
  * Structured Agent-Native references carried through the protocol's metadata
@@ -3474,19 +3577,10 @@ export function createAgentKitProtocolAdapter(
       const createRun = async (): Promise<string> => {
         const session = await getSession(input.threadId, turnMetadata);
         const messages = input.messages.map(protocolMessageToRuntimeMessage);
-        const attachments =
-          latestUserMessage?.parts.flatMap((part) =>
-            part.type === "file"
-              ? [
-                  {
-                    name: part.name,
-                    ...(part.fileId ? { id: part.fileId } : {}),
-                    ...(part.mediaType ? { mediaType: part.mediaType } : {}),
-                    ...(part.url ? { url: part.url } : {}),
-                  },
-                ]
-              : [],
-          ) ?? [];
+        const attachments = runtimeRequestAttachments({
+          message: latestUserMessage,
+          requestAttachments: input.requestAttachments,
+        });
         const turn = await session.startTurn({
           prompt: latestUserPrompt(input.messages),
           messages,
@@ -3951,10 +4045,14 @@ export function createAgentKitProtocolAdapter(
           { code: CONTINUE_UNAVAILABLE_CODE, retryable: false },
         );
       }
+      const attachments = (input.attachments ?? [])
+        .filter((part) => !isInlineDataUrl(part.url))
+        .map(runtimeAttachmentFromFilePart);
       const turn = await session.continueTurn({
         turnId: state.turnId,
         prompt: AUTO_CONTINUE_PROMPT,
         metadata: { [CONTINUE_OF_RUN_METADATA_KEY]: state.runId },
+        ...(attachments.length ? { attachments } : {}),
         abortSignal: readers.signal,
       });
       const runId = await openStartedRun(

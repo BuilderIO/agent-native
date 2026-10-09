@@ -78,6 +78,7 @@ async function mountCanvasWithStyledRange(active = true) {
         contentKey="screen-live"
         screenId="screen-live"
         sourceType="localhost"
+        connectionId="localhost_connection"
         bridgeUrl={bridgeUrl}
         previewToken="text-range-resume-token"
         liveEditCapability="text-range-resume-live-capability"

@@ -185,6 +185,7 @@ export function SessionReplayStoryboardExportDialog({
 
   function captureErrorMessage(error: unknown): string {
     if (error instanceof ReplayScreenshotAssetError) {
+      console.warn("Replay screenshot capture rejected", error.reason);
       return t("sessions.screenshotUnsupportedAssets");
     }
     return error instanceof Error
