@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  MAX_DESIGN_CANVAS_E2E_SPECS,
   QUERY_BUDGET_APPS,
   SSR_BOOT_APPS,
   classifyChangedPaths,
@@ -570,6 +571,33 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     ],
   );
 
+  const fourDesignSpecs = [
+    "templates/design/e2e/interaction-selection.spec.ts",
+    "templates/design/e2e/interaction-drag-move.spec.ts",
+    "templates/design/e2e/interaction-undo-redo.spec.ts",
+    "templates/design/e2e/position-alignment.spec.ts",
+  ];
+  const boundedDesignScope = classifyChangedPaths(fourDesignSpecs);
+  assert.equal(MAX_DESIGN_CANVAS_E2E_SPECS, 4);
+  assert.equal(boundedDesignScope.designCanvasE2eSpecsOverflow, false);
+  assert.equal(
+    boundedDesignScope.designCanvasE2eSpecCount,
+    fourDesignSpecs.length,
+  );
+  assert.equal(
+    boundedDesignScope.designCanvasE2eSpecs.length,
+    fourDesignSpecs.length,
+  );
+
+  const broadDesignScope = classifyChangedPaths([
+    ...fourDesignSpecs,
+    "templates/design/e2e/interaction-pan-zoom-mouse.spec.ts",
+  ]);
+  assert.equal(broadDesignScope.checks.design_canvas_interaction_e2e, true);
+  assert.equal(broadDesignScope.designCanvasE2eSpecsOverflow, true);
+  assert.equal(broadDesignScope.designCanvasE2eSpecCount, 5);
+  assert.deepEqual(broadDesignScope.designCanvasE2eSpecs, []);
+
   assert.equal(
     classifyChangedPaths([".github/workflows/ci.yml"]).checks
       .design_canvas_interaction_e2e,
@@ -599,8 +627,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     changedSpecRegressions,
-    /^        if: startsWith\(matrix\.shard, 'changed-'\)$/m,
-    "changed-spec tests must run only on their dedicated shards",
+    /^        if: \$\{\{ startsWith\(matrix\.shard, 'changed-'\) && needs\.change-scope\.outputs\.design_canvas_e2e_specs_overflow != 'true' && needs\.change-scope\.outputs\.design_canvas_e2e_specs != '\[\]' \}\}$/m,
+    "changed-spec tests need a bounded non-empty selector on dedicated shards",
   );
   assert.match(
     screenSelectionRegressions,
@@ -693,6 +721,29 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     designJob.includes(
       "if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'",
     ),
+  );
+  assert.equal(
+    designJob.match(/^    if: (.+)$/m)?.[1],
+    "needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'",
+    "matrix filtering must stay out of the job-level condition",
+  );
+  assert.ok(
+    designJob.includes(
+      "needs.change-scope.outputs.design_canvas_e2e_specs_overflow != 'true' && needs.change-scope.outputs.design_canvas_e2e_specs != '[]'",
+    ),
+    "large file fan-out must skip dynamic shards and leave fixed regression shards active",
+  );
+  assert.ok(
+    designJob.includes(
+      "if: ${{ startsWith(matrix.shard, 'changed-') && needs.change-scope.outputs.design_canvas_e2e_specs_overflow != 'true' && needs.change-scope.outputs.design_canvas_e2e_specs != '[]' }}",
+    ),
+    "changed-spec execution must require a non-overflowing selector",
+  );
+  assert.ok(
+    workflow.includes(
+      "design_canvas_e2e_specs_overflow: ${{ steps.scope.outputs.design_canvas_e2e_specs_overflow }}",
+    ),
+    "the workflow must receive the bounded selector decision",
   );
   assert.match(
     designJob,

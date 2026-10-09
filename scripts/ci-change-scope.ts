@@ -188,6 +188,10 @@ const CREATIVE_CONTEXT_QUERY_BUDGET_APPS = [
 // its own checkout, install, and dist restore, so a third shard buys less.
 export const QUERY_BUDGET_SHARD_COUNT = 2;
 
+// The required lane keeps dynamic file selection small; larger batches still
+// run fixed regression cases, while the scheduled suite covers every spec.
+export const MAX_DESIGN_CANVAS_E2E_SPECS = 4;
+
 // Apps the SSR cold-start smoke builds and imports. Shared packages rebuild
 // every one; a template change rebuilds only that template.
 export const SSR_BOOT_APPS = ["content", "plan", "clips", "assets"] as const;
@@ -199,6 +203,8 @@ export type CheckSelection = Record<CheckName, boolean>;
 export type ChangeScope = {
   changedPaths: string[];
   designCanvasE2eSpecs: string[];
+  designCanvasE2eSpecCount: number;
+  designCanvasE2eSpecsOverflow: boolean;
   docsOnly: boolean;
   full: boolean;
   nonDocsPaths: string[];
@@ -720,10 +726,19 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
       ) as CheckSelection)
     : buildChecks(changedPaths, full);
   const queryBudgetApps = queryBudgetAppsFor(changedPaths, full, checks);
+  const changedDesignSpecs = changedPaths
+    .filter(isDesignCanvasE2eSpecPath)
+    .sort();
+  const designCanvasE2eSpecsOverflow =
+    changedDesignSpecs.length > MAX_DESIGN_CANVAS_E2E_SPECS;
 
   return {
     changedPaths,
-    designCanvasE2eSpecs: changedPaths.filter(isDesignCanvasE2eSpecPath).sort(),
+    designCanvasE2eSpecs: designCanvasE2eSpecsOverflow
+      ? []
+      : changedDesignSpecs,
+    designCanvasE2eSpecCount: changedDesignSpecs.length,
+    designCanvasE2eSpecsOverflow,
     docsOnly,
     full,
     nonDocsPaths,
@@ -754,6 +769,7 @@ function writeOutputs(scope: ChangeScope): void {
       `full=${scope.full ? "true" : "false"}`,
       `changed_count=${scope.changedPaths.length}`,
       `design_canvas_e2e_specs=${JSON.stringify(scope.designCanvasE2eSpecs)}`,
+      `design_canvas_e2e_specs_overflow=${scope.designCanvasE2eSpecsOverflow ? "true" : "false"}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
       `query_budget_matrix=${JSON.stringify({ include: scope.queryBudgetShards })}`,
@@ -781,6 +797,7 @@ function writeOutputs(scope: ChangeScope): void {
         `- Build selectors: **${scope.workspaceFilters.join(", ") || "none"}**`,
         `- Test/typecheck selectors: **${scope.testWorkspaceFilters.join(", ") || "none"}**`,
         `- Selected checks: **${selectedChecks.join(", ") || "docs"}**`,
+        `- Design E2E changed spec files: **${scope.designCanvasE2eSpecCount}**${scope.designCanvasE2eSpecsOverflow ? ` (over the ${MAX_DESIGN_CANVAS_E2E_SPECS}-file dynamic limit; fixed regression cases remain selected)` : ""}`,
         ...(preview.length > 0
           ? [
               "",

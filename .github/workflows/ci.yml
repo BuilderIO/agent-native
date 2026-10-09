@@ -42,6 +42,7 @@ jobs:
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
       design_canvas_interaction_e2e: ${{ steps.scope.outputs.design_canvas_interaction_e2e }}
       design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
+      design_canvas_e2e_specs_overflow: ${{ steps.scope.outputs.design_canvas_e2e_specs_overflow }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
@@ -468,10 +469,12 @@ jobs:
       - uses: ./.github/actions/free-disk
 
       - uses: ./.github/actions/setup-pnpm
+        if: ${{ !startsWith(matrix.shard, 'changed-') || (needs.change-scope.outputs.design_canvas_e2e_specs_overflow != 'true' && needs.change-scope.outputs.design_canvas_e2e_specs != '[]') }}
         with:
           restore-dist-cache: "true"
 
       - name: Restore Playwright browser cache
+        if: ${{ !startsWith(matrix.shard, 'changed-') || (needs.change-scope.outputs.design_canvas_e2e_specs_overflow != 'true' && needs.change-scope.outputs.design_canvas_e2e_specs != '[]') }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
@@ -479,6 +482,7 @@ jobs:
           restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium
+        if: ${{ !startsWith(matrix.shard, 'changed-') || (needs.change-scope.outputs.design_canvas_e2e_specs_overflow != 'true' && needs.change-scope.outputs.design_canvas_e2e_specs != '[]') }}
         run: pnpm exec playwright install --only-shell chromium
 
       - name: Run focused Screen selection history regressions
@@ -509,7 +513,7 @@ jobs:
             --workers=1
 
       - name: Run changed Design E2E specs
-        if: startsWith(matrix.shard, 'changed-')
+        if: ${{ startsWith(matrix.shard, 'changed-') && needs.change-scope.outputs.design_canvas_e2e_specs_overflow != 'true' && needs.change-scope.outputs.design_canvas_e2e_specs != '[]' }}
         working-directory: templates/design
         timeout-minutes: 6
         env:
