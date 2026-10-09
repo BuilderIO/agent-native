@@ -245,17 +245,24 @@ Do not change code for an unrelated product idea, praise, status update, merge
 or review request, irrelevant bot forward, duplicate, or work outside the
 invocation's ownership.
 
-**Keep subjective UI changes human-in-the-loop.** Automatically fix only
-objective UI defects: broken interactions, misalignment, overlap or clipping,
-unusable controls, or removing clear excess clutter. A reporter request is not
-product signoff. Discoverability complaints and preferences do not authorize
-adding, promoting, moving, or duplicating buttons or other persistent chrome.
-Check overflow, keyboard, Cmd+K, and contextual surfaces first. Adding or
-promoting chrome requires the invoking user's explicit current-task request or
-  :upvote:` below. Otherwise mark **Skipped**. If this run already claimed it,
-  keep our `👀`
-  and post **Skipped** once if the thread does not state it; do not ask the
-  reporter to decide. Measure failures with `text-heavy-ui`.
+**Subjective UX requests require human review.** Requests to add a button or
+other chrome, or to change its visibility, placement, or emphasis, are product
+proposals. A report that a working control is hard to find is still a
+discoverability preference, not a verified defect. Do not implement these
+requests during an automatic sweep. In the run recap, preserve the reporter's
+request, note which existing controls and contextual surfaces you checked, and
+list a small set of possible approaches with your recommendation and tradeoff.
+Record **Skipped** for the sweep, with human product review as the reason; do
+not claim or reply to the reporter just to ask them to choose a design.
+
+Automatically fix UI issues only when the evidence shows an objective defect:
+a broken interaction, wrong result, misalignment, overlap or clipping,
+illegibility, unusable focus or hit target, jank, jitter, measurable slowness,
+or a behavioral regression. A reporter request is useful evidence, but is not
+product signoff. Only the invoking user's explicit current-task approval or
+their `:upvote:` below authorizes a subjective UI change. When the report may
+describe both a defect and a preference, investigate and disposition them
+separately. Measure failures with `text-heavy-ui`.
 
 Requests for a new capability still follow the invoking identity's `:upvote:`
 gate. Content remains Alice's area unless the invocation claims it.

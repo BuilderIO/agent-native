@@ -94,11 +94,18 @@ import {
   type RealtimeVoiceTranscriptMessage,
 } from "@agent-native/toolkit/composer/realtime-voice-transcript";
 import { IconButton } from "@agent-native/toolkit/design-system";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconAlertTriangle,
   IconCircleCheck,
   IconCopy,
+  IconDotsVertical,
   IconMessage,
   IconPlayerStopFilled,
   IconQuote,
@@ -3589,30 +3596,32 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
       {children}
       {activeRunId ? (
         <div
-          className="agentkit-activities-static"
+          className="agentkit-activities-static agentkit-active-run-actions"
           data-agentkit-active-run-id-copy="true"
         >
-          <IconButton
-            label={
-              activeRunRequestIdCopyStatus === "copied"
-                ? t("agentChat.common.copied")
-                : activeRunRequestIdCopyStatus === "failed"
-                  ? t("agentChat.recovery.copyFailed")
-                  : t("agentChat.message.copyRequestId")
-            }
-            title={t("agentChat.message.copyRequestId")}
-            icon={
-              activeRunRequestIdCopyStatus === "copied" ? (
-                <IconCircleCheck aria-hidden="true" />
-              ) : activeRunRequestIdCopyStatus === "failed" ? (
-                <IconAlertTriangle aria-hidden="true" />
-              ) : (
-                <IconCopy aria-hidden="true" />
-              )
-            }
-            size="compact"
-            onPress={() => void copyActiveRunRequestId()}
-          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <IconButton
+                label={t("agentChat.message.actions")}
+                title={t("agentChat.message.actions")}
+                icon={<IconDotsVertical aria-hidden="true" />}
+                size="compact"
+                className="agentkit-active-run-actions-trigger"
+              />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={6}>
+              <DropdownMenuItem onSelect={() => void copyActiveRunRequestId()}>
+                {activeRunRequestIdCopyStatus === "copied" ? (
+                  <IconCircleCheck size={14} aria-hidden="true" />
+                ) : activeRunRequestIdCopyStatus === "failed" ? (
+                  <IconAlertTriangle size={14} aria-hidden="true" />
+                ) : (
+                  <IconCopy size={14} aria-hidden="true" />
+                )}
+                {t("agentChat.message.copyRequestId")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {activeRunRequestIdCopyStatus ? (
             <span
               className="sr-only"

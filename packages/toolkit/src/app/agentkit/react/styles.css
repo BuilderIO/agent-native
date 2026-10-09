@@ -1391,6 +1391,34 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   padding: 0.25rem 0;
 }
 
+.agentkit-active-run-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.agentkit-active-run-actions-trigger {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.agentkit-active-run-actions:hover .agentkit-active-run-actions-trigger,
+.agentkit-active-run-actions:focus-within .agentkit-active-run-actions-trigger,
+.agentkit-active-run-actions-trigger[data-state="open"] {
+  opacity: 1;
+}
+
+@media (hover: none), (any-pointer: coarse) {
+  .agentkit-active-run-actions-trigger {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agentkit-active-run-actions-trigger {
+    transition: none;
+  }
+}
+
 .agentkit-activity-disclosure {
   display: inline-grid;
   inline-size: 1.5rem;
