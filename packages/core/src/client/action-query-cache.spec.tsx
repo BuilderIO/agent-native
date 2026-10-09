@@ -10,23 +10,47 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const sessionMocks = vi.hoisted(() => ({
-  session: null as {
+const sessionMocks = vi.hoisted(() => {
+  type MockSession = {
     email: string;
     userId: string;
     orgId?: string | null;
-  } | null,
-}));
-vi.mock("./use-session.js", () => ({
-  useSession: () => ({
-    session: sessionMocks.session,
-    status: sessionMocks.session ? "authenticated" : "unauthenticated",
-    isLoading: false,
-    error: null,
-    retry: () => {},
-  }),
-  recheckSessionAfterUnauthorized: vi.fn(),
-}));
+  } | null;
+  const listeners = new Set<() => void>();
+  return {
+    session: null as MockSession,
+    listeners,
+    // Stands in for the session re-read: a change re-renders every consumer.
+    set(next: MockSession) {
+      this.session = next;
+      for (const listener of listeners) listener();
+    },
+  };
+});
+vi.mock("./use-session.js", async () => {
+  const { useSyncExternalStore } = await import("react");
+  return {
+    useSession: () => {
+      const session = useSyncExternalStore(
+        (listener) => {
+          sessionMocks.listeners.add(listener);
+          return () => {
+            sessionMocks.listeners.delete(listener);
+          };
+        },
+        () => sessionMocks.session,
+      );
+      return {
+        session,
+        status: session ? "authenticated" : "unauthenticated",
+        isLoading: false,
+        error: null,
+        retry: () => {},
+      };
+    },
+    recheckSessionAfterUnauthorized: vi.fn(),
+  };
+});
 vi.mock("./analytics.js", () => ({ trackEvent: vi.fn() }));
 
 import {
@@ -37,6 +61,7 @@ import {
   type ActionQueryCacheStorage,
 } from "./action-query-cache.js";
 import { useActionMutation, useActionQuery } from "./use-action.js";
+import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
 const ALICE = {
   email: "alice@example.com",
@@ -132,6 +157,7 @@ describe("ActionQueryCacheGate", () => {
 
   beforeEach(() => {
     sessionMocks.session = ALICE;
+    vi.mocked(recheckSessionAfterUnauthorized).mockClear();
   });
 
   afterEach(async () => {
@@ -319,5 +345,48 @@ describe("ActionQueryCacheGate", () => {
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("did not restore in time"),
     );
+  });
+
+  it("clears the stored record when a 401 re-read ends the session", async () => {
+    const { storage, records } = memoryStorage();
+    setActionQueryCacheStorage(storage);
+    stubFetch(() => designsResponse("alice-before-401"));
+    await mount(new QueryClient(), <Designs onRender={() => {}} />);
+    await settle(WRITE_SETTLE_MS);
+    await unmountAll();
+    expect(records.has(ALICE_SCOPE)).toBe(true);
+
+    // The refetch is refused, and the re-read the 401 triggers says signed out.
+    vi.mocked(recheckSessionAfterUnauthorized).mockImplementationOnce(() =>
+      sessionMocks.set(null),
+    );
+    stubFetch(
+      () =>
+        new Response(JSON.stringify({ error: "Not authenticated" }), {
+          status: 401,
+        }),
+    );
+    await mount(new QueryClient(), <Designs onRender={() => {}} />);
+    await settleUntil(() => records.size === 0, 2_000);
+    await settle(WRITE_SETTLE_MS);
+
+    expect(recheckSessionAfterUnauthorized).toHaveBeenCalledTimes(1);
+    expect(records.size).toBe(0);
+  });
+
+  it("clears a stored record when the gate mounts with no session", async () => {
+    const { storage, records } = memoryStorage();
+    setActionQueryCacheStorage(storage);
+    stubFetch(() => designsResponse("alice-private"));
+    await mount(new QueryClient(), <Designs onRender={() => {}} />);
+    await settle(WRITE_SETTLE_MS);
+    await unmountAll();
+    expect(records.has(ALICE_SCOPE)).toBe(true);
+
+    sessionMocks.session = null;
+    await mount(new QueryClient(), <Designs onRender={() => {}} />);
+    await settle(50);
+
+    expect(records.size).toBe(0);
   });
 });

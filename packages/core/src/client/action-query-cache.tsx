@@ -220,18 +220,26 @@ export async function clearActionQueryCache(): Promise<void> {
 
 /**
  * Holds action queries until the session's cached results are in the client,
- * so a revisit paints them instead of a skeleton. Mount it where the session is
- * already known (inside RequireSession); without a session it does nothing.
+ * so a revisit paints them instead of a skeleton. With a signed-out session it
+ * clears the stored results, whichever path ended that session.
  */
 export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  const { session } = useSession();
+  const { session, status } = useSession();
   const scope = session
     ? actionQueryCacheScope(session, clientBuildId())
     : null;
   const [restoredScope, setRestoredScope] = useState<string | null>(null);
 
   useEffect(() => {
+    // "loading", "unavailable" and "signing-out" are not an ended session:
+    // signOut() clears the store itself, and a transient read must not wipe it.
+    if (status === "unauthenticated") {
+      clearActionQueryCache().catch((error) =>
+        console.warn("Unable to clear cached action results", error),
+      );
+      return;
+    }
     if (!scope) return;
     let current = true;
     setRestoredScope(null);
@@ -246,7 +254,7 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
       current = false;
       closeBinding();
     };
-  }, [queryClient, scope]);
+  }, [queryClient, scope, status]);
 
   const restoring = scope !== null && restoredScope !== scope;
   return (
