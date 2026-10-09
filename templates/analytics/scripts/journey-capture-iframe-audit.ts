@@ -114,6 +114,14 @@ export function auditReplayIframeContent({
         current = parentElement(current)
       ) {
         const styles = view.getComputedStyle(current);
+        // Transforms do not apply to non-replaced inline ancestors. The iframe
+        // itself is replaced and remains transformable even with inline display.
+        if (
+          styles.display === "contents" ||
+          (current !== element && styles.display === "inline")
+        ) {
+          continue;
+        }
         if (
           (styles.perspective && styles.perspective !== "none") ||
           (styles.getPropertyValue("offset-path") &&
@@ -121,7 +129,6 @@ export function auditReplayIframeContent({
         ) {
           return null;
         }
-        if (styles.display === "contents") continue;
 
         let local: LinearTransform = { a: 1, b: 0, c: 0, d: 1 };
         const transformValue = styles.transform;
@@ -251,6 +258,63 @@ export function auditReplayIframeContent({
         x: width / 2 + (transform.d * x - transform.c * y) / determinant,
         y: height / 2 + (-transform.b * x + transform.a * y) / determinant,
       };
+    },
+  ];
+
+  const [insetClipPolygon]: [
+    (
+      value: string,
+      geometry: BoxGeometry,
+    ) => { polygon: Point[]; rounded: boolean } | null,
+  ] = [
+    (value, geometry) => {
+      const match = value.match(/^inset\((.*)\)$/i);
+      if (
+        !match ||
+        geometry.uncertain ||
+        geometry.width <= 0 ||
+        geometry.height <= 0
+      ) {
+        return null;
+      }
+
+      const [offsetsValue, roundValue] = match[1]!.split(/\s+round\s+/i, 2);
+      const tokens = offsetsValue!.trim().split(/\s+/);
+      if (tokens.length < 1 || tokens.length > 4) return null;
+      const resolveOffset = (token: string, extent: number): number | null => {
+        const number = token.match(/^(-?(?:\d+(?:\.\d*)?|\.\d+))(px|%)?$/i);
+        if (!number) return null;
+        const amount = Number(number[1]);
+        if (!Number.isFinite(amount)) return null;
+        if (number[2] === "%") return (amount / 100) * extent;
+        if (!number[2] && amount !== 0) return null;
+        return amount;
+      };
+      const top = resolveOffset(tokens[0]!, geometry.height);
+      const right = resolveOffset(tokens[1] ?? tokens[0]!, geometry.width);
+      const bottom = resolveOffset(tokens[2] ?? tokens[0]!, geometry.height);
+      const left = resolveOffset(
+        tokens[3] ?? tokens[1] ?? tokens[0]!,
+        geometry.width,
+      );
+      if (top === null || right === null || bottom === null || left === null) {
+        return null;
+      }
+
+      const x1 = left;
+      const y1 = top;
+      const x2 = geometry.width - right;
+      const y2 = geometry.height - bottom;
+      const polygon =
+        x2 <= x1 || y2 <= y1
+          ? []
+          : [
+              { x: x1, y: y1 },
+              { x: x2, y: y1 },
+              { x: x2, y: y2 },
+              { x: x1, y: y2 },
+            ];
+      return { polygon, rounded: Boolean(roundValue) };
     },
   ];
 
@@ -495,10 +559,25 @@ export function auditReplayIframeContent({
           let establishesContainingBlock = false;
           if (styles.display !== "none" && styles.display !== "contents") {
             const containment = styles.contain.split(/\s+/);
+            const containerType = styles.getPropertyValue("container-type");
+            const transformProperties = [
+              "transform",
+              "perspective",
+              "translate",
+              "rotate",
+              "scale",
+            ];
             const hasContainingBlockProperty = containingBlockProperties.some(
               (property) => {
                 const value = styles.getPropertyValue(property);
-                return value !== "" && value !== "none";
+                return (
+                  value !== "" &&
+                  value !== "none" &&
+                  !(
+                    styles.display === "inline" &&
+                    transformProperties.includes(property)
+                  )
+                );
               },
             );
             const willChange = styles.willChange.split(/\s*,\s*/);
@@ -506,19 +585,27 @@ export function auditReplayIframeContent({
               (position === "absolute" &&
                 styles.position !== "" &&
                 styles.position !== "static") ||
+              ["inline-size", "size"].includes(containerType) ||
               containment.some((value) =>
                 ["layout", "paint", "strict", "content"].includes(value),
               ) ||
               styles.contentVisibility === "auto" ||
               hasContainingBlockProperty ||
               (position === "absolute" && willChange.includes("position")) ||
-              willChange.some((property) =>
-                [
+              willChange.some((property) => {
+                if (
+                  styles.display === "inline" &&
+                  transformProperties.includes(property)
+                ) {
+                  return false;
+                }
+                return [
                   ...containingBlockProperties,
                   "contain",
+                  "container-type",
                   "content-visibility",
-                ].includes(property),
-              );
+                ].includes(property);
+              });
           }
           if (establishesContainingBlock) {
             containingBlock = current;
@@ -590,6 +677,38 @@ export function auditReplayIframeContent({
         ) {
           rendered = false;
           break;
+        }
+        const hasUnsupportedMask = [
+          "mask-image",
+          "-webkit-mask-image",
+          "mask-border-source",
+          "-webkit-mask-box-image-source",
+        ].some((property) => {
+          const value =
+            styles.getPropertyValue(property) ||
+            (current as HTMLElement).style?.getPropertyValue(property);
+          return value !== undefined && value !== "" && value !== "none";
+        });
+        if (hasUnsupportedMask) visibilityUncertain = true;
+        const clipPath =
+          styles.getPropertyValue("clip-path") ||
+          styles.getPropertyValue("-webkit-clip-path") ||
+          (current as HTMLElement).style?.getPropertyValue("clip-path") ||
+          (current as HTMLElement).style?.getPropertyValue("-webkit-clip-path");
+        if (clipPath && clipPath !== "none") {
+          const geometry = geometryFor(current, view);
+          const clippedByShape = insetClipPolygon(clipPath, geometry);
+          if (clippedByShape) {
+            const clipPolygon = clippedByShape.polygon.map((point) =>
+              pointToScreen(geometry, point),
+            );
+            visiblePolygon = intersectPolygons(visiblePolygon, clipPolygon);
+            if (clippedByShape.rounded && hasVisibleArea(visiblePolygon)) {
+              visibilityUncertain = true;
+            }
+          } else {
+            visibilityUncertain = true;
+          }
         }
         if (
           current !== frame &&

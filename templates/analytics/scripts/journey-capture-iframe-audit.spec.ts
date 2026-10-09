@@ -416,6 +416,66 @@ describe("replay iframe audit", () => {
     ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
   });
 
+  it("treats a size query container as an absolute containing block", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const container = replayDocument.createElement("div");
+    container.style.setProperty("container-type", "inline-size");
+    container.style.overflow = "hidden";
+    replayDocument.body.append(container);
+    setBox(container, { left: 0, top: 0, width: 20, height: 20 }, 20, 20);
+    const frame = appendFrame(
+      replayDocument,
+      { left: 30, top: 30, width: 20, height: 20 },
+      20,
+      20,
+      container,
+    );
+    frame.style.position = "absolute";
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
+  });
+
+  it("ignores transforms on non-replaced inline ancestors", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const inline = replayDocument.createElement("span");
+    inline.style.display = "inline";
+    inline.style.transform = "rotate(45deg)";
+    replayDocument.body.append(inline);
+    const frame = appendFrame(
+      replayDocument,
+      { left: -18, top: -18, width: 20, height: 20 },
+      20,
+      20,
+      inline,
+    );
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({ visibleIframeCount: 1, unavailableIframeCount: 1 });
+  });
+
   it("does not clip frames against non-atomic inline ancestors", () => {
     const replayFrame = appendFrame(
       document,
@@ -695,7 +755,7 @@ describe("replay iframe audit", () => {
     );
     const frame = appendFrame(
       replayDocument,
-      { left: 201, top: 100, width: 5, height: 20 },
+      { left: 55, top: 70, width: 5, height: 20 },
       5,
       20,
       contained,
@@ -709,6 +769,74 @@ describe("replay iframe audit", () => {
         recordedIframeParentIds: [1],
       }),
     ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
+  });
+
+  it("ignores an iframe fully excluded by an inset clip-path", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const clipped = replayDocument.createElement("div");
+    clipped.style.clipPath = "inset(40px)";
+    replayDocument.body.append(clipped);
+    setBox(clipped, { left: 0, top: 0, width: 100, height: 100 }, 100, 100);
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 20, height: 20 },
+      20,
+      20,
+      clipped,
+    );
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
+  });
+
+  it("fails closed when a CSS mask has an unknown visible region", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const masked = replayDocument.createElement("div");
+    masked.style.setProperty(
+      "mask-image",
+      "linear-gradient(black, transparent)",
+    );
+    expect(masked.style.getPropertyValue("mask-image")).toBe(
+      "linear-gradient(black, transparent)",
+    );
+    replayDocument.body.append(masked);
+    setBox(masked, { left: 0, top: 0, width: 100, height: 100 }, 100, 100);
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 20, height: 20 },
+      20,
+      20,
+      masked,
+    );
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [],
+      }),
+    ).toEqual({
+      visibleIframeCount: 0,
+      unavailableIframeCount: 0,
+      unverifiableIframeCount: 1,
+    });
   });
 
   it("fails closed when a rounded paint clip may intersect the iframe", () => {
