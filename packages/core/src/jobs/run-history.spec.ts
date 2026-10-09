@@ -99,22 +99,95 @@ describe("automation run history", () => {
     });
   });
 
-  it("accepts an already durable terminal outcome on an idempotent retry", async () => {
-    executeMock.mockImplementation(async (input: DbExecStatement) =>
-      input.sql.startsWith("SELECT")
-        ? {
-            rows: [row({ status: "success", finished_at: Date.now() })],
-            rowsAffected: 0,
-          }
-        : { rows: [], rowsAffected: 0 },
-    );
-    await expect(
-      finishAutomationRun("run-1", "success", undefined, undefined, {
-        requirePersisted: true,
-      }),
-    ).resolves.toBeUndefined();
-    expect(emitMock).not.toHaveBeenCalled();
-  });
+  it.each(["success", "interrupted"] as const)(
+    "accepts an already durable %s outcome on an idempotent retry",
+    async (status) => {
+      executeMock.mockImplementation(async (input: DbExecStatement) =>
+        input.sql.startsWith("SELECT")
+          ? {
+              rows: [row({ status, finished_at: Date.now() })],
+              rowsAffected: 0,
+            }
+          : { rows: [], rowsAffected: 0 },
+      );
+      await expect(
+        finishAutomationRun("run-1", status, undefined, undefined, {
+          requirePersisted: true,
+        }),
+      ).resolves.toBeUndefined();
+      expect(emitMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { error: "Delivery evidence unreadable", errorCode: "worker_stopped" },
+    { error: "Email delivery confirmed", errorCode: "journal_unreadable" },
+  ])(
+    "rejects a same-worker terminal retry with different delivery evidence: %j",
+    async (outcome) => {
+      executeMock.mockImplementation(async (input: DbExecStatement) =>
+        input.sql.startsWith("SELECT")
+          ? {
+              rows: [
+                row({
+                  run_id: "worker",
+                  status: "error",
+                  finished_at: Date.now(),
+                  error: "Email delivery confirmed",
+                  error_code: "worker_stopped",
+                }),
+              ],
+            }
+          : { rows: [], rowsAffected: 0 },
+      );
+      await expect(
+        finishAutomationRun(
+          "run-1",
+          "error",
+          outcome.error,
+          outcome.errorCode,
+          {
+            requirePersisted: true,
+            expectedRunId: "worker",
+          },
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "background_automation_history_write_failed",
+      });
+      expect(emitMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["error", "skipped"] as const)(
+    "accepts an identical normalized %s outcome on retry",
+    async (status) => {
+      const error = "x".repeat(501);
+      const errorCode = "y".repeat(101);
+      executeMock.mockImplementation(async (input: DbExecStatement) =>
+        input.sql.startsWith("SELECT")
+          ? {
+              rows: [
+                row({
+                  run_id: "worker",
+                  status,
+                  finished_at: Date.now(),
+                  error: error.slice(0, 500),
+                  error_code:
+                    status === "skipped" ? null : errorCode.slice(0, 100),
+                }),
+              ],
+            }
+          : { rows: [], rowsAffected: 0 },
+      );
+      await expect(
+        finishAutomationRun("run-1", status, error, errorCode, {
+          requirePersisted: true,
+          expectedRunId: "worker",
+        }),
+      ).resolves.toBeUndefined();
+      expect(emitMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("reports a run abandoned past the liveness ceiling as interrupted", async () => {
     executeMock.mockResolvedValue({

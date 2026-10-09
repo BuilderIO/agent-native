@@ -850,6 +850,11 @@ export async function finishAutomationRun(
   });
   const row = existing.rows?.[0] as Record<string, unknown> | undefined;
   const finishedAt = Date.now();
+  const storedError = error?.slice(0, MAX_ERROR_LENGTH) ?? null;
+  const storedErrorCode =
+    status === "skipped"
+      ? null
+      : (errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null);
   const shouldQueueFailureAlert =
     (status === "error" || status === "interrupted") &&
     options.notify !== false &&
@@ -865,10 +870,8 @@ export async function finishAutomationRun(
     args: [
       status,
       finishedAt,
-      error?.slice(0, MAX_ERROR_LENGTH) ?? null,
-      status === "skipped"
-        ? null
-        : (errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null),
+      storedError,
+      storedErrorCode,
       shouldQueueFailureAlert ? "evaluating" : null,
       shouldQueueFailureAlert ? finishedAt : null,
       id,
@@ -880,13 +883,22 @@ export async function finishAutomationRun(
     options.requirePersisted &&
     (!row || Number(update.rowsAffected ?? 0) === 0)
   ) {
-    const durable = await getAutomationRun(id);
+    // Display history synthesizes interruption messages; retry identity needs stored values.
+    const persisted = await getDbExec().execute({
+      sql: `SELECT status, finished_at, error, error_code, run_id, claimed_at FROM ${TABLE} WHERE id = ? LIMIT 1`,
+      args: [id],
+    });
+    const durable = persisted.rows?.[0] as Record<string, unknown> | undefined;
     if (
       !durable ||
-      durable.finishedAt === null ||
+      durable.finished_at == null ||
       durable.status !== status ||
-      (runGuard && durable.runId !== options.expectedRunId) ||
-      (claimGuard && durable.claimedAt !== options.expectedClaimedAt)
+      (durable.error ?? null) !== storedError ||
+      (durable.error_code ?? null) !== storedErrorCode ||
+      (runGuard && (durable.run_id ?? null) !== options.expectedRunId) ||
+      (claimGuard &&
+        (durable.claimed_at == null ? null : Number(durable.claimed_at)) !==
+          options.expectedClaimedAt)
     )
       throw new AutomationRunHistoryWriteError(id);
   }
@@ -905,11 +917,8 @@ export async function finishAutomationRun(
         runId: row.run_id == null ? null : stringifyValue(row.run_id),
         threadId: row.thread_id == null ? null : stringifyValue(row.thread_id),
         status,
-        error: error?.slice(0, MAX_ERROR_LENGTH) ?? null,
-        errorCode:
-          status === "skipped"
-            ? null
-            : (errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null),
+        error: storedError,
+        errorCode: storedErrorCode,
         durationMs:
           startedAt === null ? null : Math.max(0, finishedAt - startedAt),
       },

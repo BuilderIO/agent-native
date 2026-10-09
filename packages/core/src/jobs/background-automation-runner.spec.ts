@@ -2100,7 +2100,12 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
     }
   });
 
-  it.each(["reassigned", "settled", "pre-claim failure"])(
+  it.each([
+    "reassigned",
+    "settled",
+    "pre-claim failure",
+    "same-worker outcome",
+  ])(
     "does not start or finish a successor after its firing history is %s",
     async (state) => {
       const runStore = await import("../agent/run-store.js");
@@ -2135,7 +2140,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
       const journal = vi
         .spyOn(runStore, "getCurrentTurnRunEventsForThread")
         .mockImplementationOnce(async () => {
-          if (state === "pre-claim failure")
+          if (state === "pre-claim failure" || state === "same-worker outcome")
             throw new Error("journal database temporarily unavailable");
           if (state === "reassigned")
             await history.attachAutomationRunThread(
@@ -2162,9 +2167,19 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
         });
       const turnRef = vi.spyOn(runStore, "getRunTurnRef");
       const evidence = vi.spyOn(runStore, "getCurrentTurnEventsForThread");
-      if (state === "pre-claim failure") {
+      if (state === "pre-claim failure" || state === "same-worker outcome") {
         turnRef.mockResolvedValueOnce({ threadId, turnId });
         evidence.mockImplementationOnce(async () => {
+          if (state === "same-worker outcome") {
+            await history.finishAutomationRun(
+              historyId,
+              "error",
+              "Email delivery confirmed",
+              "worker_stopped",
+              { requirePersisted: true, expectedRunId: "prior" },
+            );
+            throw new Error("delivery evidence temporarily unavailable");
+          }
           await history.attachAutomationRunThread(
             historyId,
             threadId,
@@ -2199,15 +2214,26 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
           ),
         ).rejects.toMatchObject({
           errorCode:
-            state === "pre-claim failure"
+            state === "pre-claim failure" || state === "same-worker outcome"
               ? "background_automation_history_write_failed"
               : "background_automation_claim_lost",
         });
         expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
-        expect(finish).toHaveBeenCalledTimes(state === "reassigned" ? 0 : 1);
+        expect(finish).toHaveBeenCalledTimes(
+          state === "reassigned" ? 0 : state === "same-worker outcome" ? 2 : 1,
+        );
         expect(await history.getAutomationRun(historyId)).toMatchObject({
-          runId: state === "settled" ? "prior" : "live-successor",
-          status: state === "settled" ? "error" : "running",
+          runId:
+            state === "settled" || state === "same-worker outcome"
+              ? "prior"
+              : "live-successor",
+          status:
+            state === "settled" || state === "same-worker outcome"
+              ? "error"
+              : "running",
+          ...(state === "same-worker outcome"
+            ? { error: "Email delivery confirmed", errorCode: "worker_stopped" }
+            : {}),
         });
         const workers = await pglite.query(
           `SELECT id FROM agent_runs WHERE turn_id = $1`,
