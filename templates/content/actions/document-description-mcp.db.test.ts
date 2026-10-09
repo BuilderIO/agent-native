@@ -451,6 +451,58 @@ describe("document descriptions through external MCP", () => {
     );
   });
 
+  it.each(["description", "title", "title-and-description"] as const)(
+    "advances a newer collection timestamp for %s updates",
+    async (fields) => {
+      const spaces = await callJson(ownerClient, "list-content-spaces", {});
+      const space = spaces.spaces.find(
+        (entry: any) => entry.kind === "personal",
+      );
+      const created = await callJson(ownerClient, "create-content-database", {
+        spaceId: space.id,
+        title: "Monotonic database",
+        description: "Before",
+        idempotencyKey: `monotonic-database-${fields}`,
+      });
+      const id = created.database.documentId;
+      const before = await readRow(id);
+      const collectionUpdatedAt = new Date(Date.now() + 60_000).toISOString();
+      await getDb()
+        .update(schema.contentDatabases)
+        .set({ updatedAt: collectionUpdatedAt })
+        .where(eq(schema.contentDatabases.id, created.database.id));
+      const patch = {
+        id,
+        ...(fields !== "description" ? { title: "New title" } : {}),
+        ...(fields !== "title" ? { description: longDescription } : {}),
+      };
+      const updated = await callJson(ownerClient, "update-document", patch);
+      const described = await callJson(
+        ownerClient,
+        "describe-content-database",
+        {
+          databaseId: created.database.id,
+        },
+      );
+      expect(Date.parse(described.database.updatedAt)).toBeGreaterThan(
+        Date.parse(collectionUpdatedAt),
+      );
+      expect(described.database.updatedAt).toBe(updated.updatedAt);
+      expect(described.database.description).toBe(
+        fields === "title" ? "Before" : longDescription,
+      );
+      expect(described.database.title).toBe(
+        fields === "description" ? "Monotonic database" : "New title",
+      );
+      expect((await readRow(id)).content).toBe(before.content);
+      await callJson(ownerClient, "update-document", patch);
+      const retried = await callJson(ownerClient, "describe-content-database", {
+        databaseId: created.database.id,
+      });
+      expect(retried.database.updatedAt).toBe(updated.updatedAt);
+    },
+  );
+
   it("rejects unauthorized updates and external body replacement without applying either patch", async () => {
     const created = await createPage({
       title: "Private description",

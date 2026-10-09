@@ -42,6 +42,7 @@ import {
 } from "../server/lib/document-body-intents.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import { nextDocumentMetadataUpdatedAt } from "../server/lib/document-metadata-updated-at.js";
 import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
@@ -1279,7 +1280,15 @@ export default defineAction({
           contentCasConflict = true;
           return;
         }
-        const updatedAt = nextDocumentUpdatedAt(historyBefore.updatedAt);
+        const updatedAt =
+          lockedTitleChanged || lockedDescriptionChanged
+            ? await nextDocumentMetadataUpdatedAt({
+                db: tx as unknown as ReturnType<typeof getDb>,
+                documentId: id,
+                ownerEmail,
+                currentUpdatedAt: historyBefore.updatedAt,
+              })
+            : nextDocumentUpdatedAt(historyBefore.updatedAt);
         const updates: Record<string, unknown> = { updatedAt };
         if (lockedTitleChanged) updates.title = args.title;
         if (lockedDescriptionChanged)
