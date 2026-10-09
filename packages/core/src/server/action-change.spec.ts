@@ -4,6 +4,7 @@ const mockAppStatePut = vi.hoisted(() => vi.fn());
 const mockRecordChange = vi.hoisted(() => vi.fn());
 const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
 const mockGetRequestUserEmail = vi.hoisted(() => vi.fn());
+const mockGetRequestRunContext = vi.hoisted(() => vi.fn());
 
 vi.mock("../application-state/store.js", () => ({
   appStatePut: (...args: unknown[]) => mockAppStatePut(...args),
@@ -27,7 +28,7 @@ vi.mock("./poll.js", async () => {
 
 vi.mock("./request-context.js", () => ({
   getRequestOrgId: () => mockGetRequestOrgId(),
-  getRequestRunContext: () => undefined,
+  getRequestRunContext: () => mockGetRequestRunContext(),
   getRequestUserEmail: () => mockGetRequestUserEmail(),
 }));
 
@@ -37,6 +38,7 @@ describe("notifyActionChange", () => {
     mockRecordChange.mockReset();
     mockGetRequestOrgId.mockReset();
     mockGetRequestUserEmail.mockReset();
+    mockGetRequestRunContext.mockReset();
   });
 
   it("records in-memory and durable action changes for an owner", async () => {
@@ -186,6 +188,76 @@ describe("notifyActionChange", () => {
 
     expect(mockRecordChange).not.toHaveBeenCalled();
     expect(mockAppStatePut).not.toHaveBeenCalled();
+  });
+
+  it("does not hold a write response on the marker write when waitUntil keeps it alive", async () => {
+    mockAppStatePut.mockImplementation(() => new Promise<void>(() => {}));
+    const handedOff: Promise<unknown>[] = [];
+    mockGetRequestRunContext.mockReturnValue({
+      waitUntil: (promise: Promise<unknown>) => handedOff.push(promise),
+    });
+    const { notifyActionChangeForResponse } =
+      await import("./action-change.js");
+
+    await notifyActionChangeForResponse({
+      actionName: "update-project",
+      owner: "owner@example.com",
+    });
+
+    expect(mockRecordChange).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "update-project" }),
+    );
+    expect(mockAppStatePut).toHaveBeenCalled();
+    expect(handedOff).toHaveLength(1);
+  });
+
+  it("bounds the marker wait to the background deadline when no waitUntil exists", async () => {
+    mockAppStatePut.mockImplementation(() => new Promise<void>(() => {}));
+    const { notifyActionChangeForResponse } =
+      await import("./action-change.js");
+
+    const startedAt = Date.now();
+    await notifyActionChangeForResponse({
+      actionName: "update-project",
+      owner: "owner@example.com",
+    });
+
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
+
+  it("finishes a fast marker write before the response goes out when no waitUntil exists", async () => {
+    let written = false;
+    mockAppStatePut.mockImplementation(async () => {
+      written = true;
+    });
+    const { notifyActionChangeForResponse } =
+      await import("./action-change.js");
+
+    await notifyActionChangeForResponse({
+      actionName: "update-project",
+      owner: "owner@example.com",
+    });
+
+    expect(written).toBe(true);
+  });
+
+  it("logs a failed marker write on the response path instead of rejecting the response", async () => {
+    mockAppStatePut.mockRejectedValue(new Error("database unavailable"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { notifyActionChangeForResponse } =
+      await import("./action-change.js");
+
+    await expect(
+      notifyActionChangeForResponse({
+        actionName: "update-project",
+        owner: "owner@example.com",
+      }),
+    ).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(
+      "[action-change] durable marker write failed:",
+      "database unavailable",
+    );
+    warn.mockRestore();
   });
 });
 

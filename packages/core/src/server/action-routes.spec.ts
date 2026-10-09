@@ -80,6 +80,8 @@ vi.mock("./action-change.js", () => ({
     fallback: boolean,
   ) => entry.readOnly ?? fallback,
   notifyActionChange: (...args: unknown[]) => mockNotifyActionChange(...args),
+  notifyActionChangeForResponse: (...args: unknown[]) =>
+    mockNotifyActionChange(...args),
 }));
 
 vi.mock("../org/context.js", () => ({
