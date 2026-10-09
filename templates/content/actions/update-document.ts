@@ -1340,7 +1340,12 @@ export default defineAction({
               content: schema.documents.content,
             })
             .from(schema.documents)
-            .where(eq(schema.documents.id, id))
+            .where(
+              and(
+                eq(schema.documents.id, id),
+                eq(schema.documents.ownerEmail, ownerEmail),
+              ),
+            )
             .limit(1);
           committedEditorSnapshot = after;
           await recordDocumentHistoryTransition({
@@ -1421,7 +1426,12 @@ export default defineAction({
               content: schema.documents.content,
             })
             .from(schema.documents)
-            .where(eq(schema.documents.id, id))
+            .where(
+              and(
+                eq(schema.documents.id, id),
+                eq(schema.documents.ownerEmail, ownerEmail),
+              ),
+            )
             .limit(1);
           committedEditorSnapshot = snapshot ?? null;
         }
@@ -1468,7 +1478,12 @@ export default defineAction({
         const [current] = await db
           .select()
           .from(schema.documents)
-          .where(eq(schema.documents.id, id));
+          .where(
+            and(
+              eq(schema.documents.id, id),
+              eq(schema.documents.ownerEmail, ownerEmail),
+            ),
+          );
         return scopeDocumentAudit(
           {
             superseded: true,
@@ -1490,7 +1505,12 @@ export default defineAction({
         const [current] = await db
           .select()
           .from(schema.documents)
-          .where(eq(schema.documents.id, id));
+          .where(
+            and(
+              eq(schema.documents.id, id),
+              eq(schema.documents.ownerEmail, ownerEmail),
+            ),
+          );
         return scopeDocumentAudit(
           documentUpdateResponse(
             current,
@@ -1507,7 +1527,12 @@ export default defineAction({
         const [current] = await db
           .select()
           .from(schema.documents)
-          .where(eq(schema.documents.id, id));
+          .where(
+            and(
+              eq(schema.documents.id, id),
+              eq(schema.documents.ownerEmail, ownerEmail),
+            ),
+          );
         return scopeDocumentAudit(
           {
             preservationRequired: true,
@@ -1527,7 +1552,12 @@ export default defineAction({
         const [current] = await db
           .select()
           .from(schema.documents)
-          .where(eq(schema.documents.id, id));
+          .where(
+            and(
+              eq(schema.documents.id, id),
+              eq(schema.documents.ownerEmail, ownerEmail),
+            ),
+          );
         return scopeDocumentAudit(
           documentConflictResponse(current, access.role, currentFavorite),
           ownerEmail,
