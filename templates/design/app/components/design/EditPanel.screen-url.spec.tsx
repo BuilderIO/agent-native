@@ -264,7 +264,7 @@ it("dispatches one source transition for one tab selection", async () => {
   expect(onScreenSourceChange).toHaveBeenCalledTimes(2);
 });
 
-it("allows retry when a source transition fails before pending renders", async () => {
+it("allows retry when a source transition settles before pending renders", async () => {
   let settleTransition: (() => void) | undefined;
   const onScreenSourceChange = vi.fn(
     (
