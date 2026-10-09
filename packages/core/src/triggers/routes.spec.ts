@@ -121,6 +121,7 @@ Hidden legacy organization job.`,
 
     expect(result.map((item) => item.name)).toEqual(["owned", "shared"]);
     expect(result[0]).toMatchObject({
+      scope: "personal",
       enabled: true,
       lastStatus: "error",
       lastError: "Calendar token expired",
@@ -136,11 +137,77 @@ Hidden legacy organization job.`,
     expect(result[0].nextRun).toBeTruthy();
     expect(result[0].nextRun).not.toBe("2026-06-19T16:00:00.000Z");
     expect(result[1]).toMatchObject({
+      scope: "personal",
       triggerType: "event",
       event: "test.event.fired",
       canUpdate: false,
     });
     expect(result[1].orgId).toBeUndefined();
+  });
+
+  it.each(["org-1", "org-2"])(
+    "lists a personal job with execution org %s in personal history",
+    async (orgId) => {
+      const resource = {
+        id: "personal-with-org",
+        owner,
+        path: "jobs/digest.md",
+        content: `---
+schedule: "0 9 * * *"
+enabled: true
+orgId: ${orgId}
+---
+
+Send a digest.`,
+      };
+      resourceListAllOwnersMock.mockResolvedValue([resource]);
+
+      const [automation] = await listAutomationsForOwner(event, owner);
+
+      expect(automation).toMatchObject({
+        owner,
+        orgId,
+        scope: "personal",
+        canUpdate: true,
+      });
+      expect(await listAutomationsForOwner(event, "bob@example.com")).toEqual(
+        [],
+      );
+
+      resourceGetByPathMock.mockResolvedValue(resource);
+      expect(
+        await setAutomationEnabledForOwner(event, owner, {
+          owner,
+          path: resource.path,
+          enabled: false,
+        }),
+      ).toMatchObject({ owner, orgId, scope: "personal", enabled: false });
+    },
+  );
+
+  it("uses organization history for legacy shared jobs with an org id", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "shared-with-org",
+        owner: "__shared__",
+        path: "jobs/digest.md",
+        content: `---
+schedule: "0 9 * * *"
+enabled: true
+orgId: org-1
+---
+
+Send a digest.`,
+      },
+    ]);
+
+    const [automation] = await listAutomationsForOwner(event, owner);
+
+    expect(automation).toMatchObject({
+      owner: "__shared__",
+      orgId: "org-1",
+      scope: "organization",
+    });
   });
 
   it("fails closed for organization automations without an app owner", async () => {
@@ -178,6 +245,7 @@ Organization body.`,
     expect(result.map((item) => item.name)).toEqual(["organization"]);
     expect(result[0]).toMatchObject({
       owner: organizationOwner,
+      scope: "organization",
       canUpdate: false,
       triggerType: "event",
     });

@@ -41,6 +41,7 @@ jobs:
       query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
       design_canvas_interaction_e2e: ${{ steps.scope.outputs.design_canvas_interaction_e2e }}
+      pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}
       design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
@@ -294,7 +295,7 @@ jobs:
             pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
             echo "::endgroup::"
           done < <(
-            node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(`${name}\t${shard}`)'
+            node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
           )
           exit "$status"
 
@@ -351,7 +352,7 @@ jobs:
             while IFS= read -r -d '' file; do
               core_test_files+=("$file")
             done < <(
-              node -e 'for (const file of JSON.parse(process.env.CORE_TEST_FILES)) process.stdout.write(`${file}\0`)'
+              node -e 'for (const file of JSON.parse(process.env.CORE_TEST_FILES)) process.stdout.write(file + "\0")'
             )
             if ((${#core_test_files[@]} == 0)); then
               echo "::error::Planner emitted a changed Core shard with no test files"
@@ -415,7 +416,7 @@ jobs:
             pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
             echo "::endgroup::"
           done < <(
-            node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(`${name}\t${shard}`)'
+            node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
           )
           exit "$status"
 
@@ -446,18 +447,6 @@ jobs:
             position-2a,
             position-2b,
             position-3,
-            changed-1,
-            changed-2,
-            changed-3,
-            changed-4,
-            changed-5,
-            changed-6,
-            changed-7,
-            changed-8,
-            changed-9,
-            changed-10,
-            changed-11,
-            changed-12,
             screen-history-1,
             screen-history-2,
             screen-history-3,
@@ -504,198 +493,158 @@ jobs:
               ;;
           esac
           pnpm exec playwright test \
-            e2e/parity-selection-history-delete-screen.spec.ts \
+            e2e/interaction-selection-history-delete-screen.spec.ts \
             --grep "$grep" \
             --workers=1
 
-      - name: Run changed Design E2E specs
-        if: startsWith(matrix.shard, 'changed-')
+      - name: Run focused Design regression cases
+        if: ${{ !startsWith(matrix.shard, 'screen-history-') }}
         working-directory: templates/design
         timeout-minutes: 4
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.
+          focused_specs_file="$RUNNER_TEMP/design-regression-pins.nul"
+          node --experimental-strip-types ../../scripts/design-e2e-regression-pins.ts "${{ matrix.shard }}" > "$focused_specs_file"
+          mapfile -d '' -t focused_specs < "$focused_specs_file"
+          if (( ${#focused_specs[@]} == 0 )); then
+            echo "::error::No Design regression pins resolved for shard ${{ matrix.shard }}"
+            exit 2
+          fi
+          pnpm exec playwright test "${focused_specs[@]}" --workers=1
+
+  design-canvas-changed-spec-diagnostics:
+    name: Design changed-spec diagnostics (${{ matrix.shard }})
+    needs: change-scope
+    if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          [
+            changed-1,
+            changed-2,
+            changed-3,
+            changed-4,
+            changed-5,
+            changed-6,
+            changed-7,
+            changed-8,
+            changed-9,
+            changed-10,
+            changed-11,
+            changed-12,
+            changed-13,
+            changed-14,
+            changed-15,
+            changed-16,
+            changed-17,
+            changed-18,
+            changed-19,
+            changed-20,
+            changed-21,
+            changed-22,
+            changed-23,
+            changed-24,
+            changed-25,
+            changed-26,
+            changed-27,
+            changed-28,
+            changed-29,
+            changed-30,
+            changed-31,
+            changed-32,
+            changed-33,
+            changed-34,
+            changed-35,
+            changed-36,
+            changed-37,
+            changed-38,
+            changed-39,
+            changed-40,
+            changed-41,
+            changed-42,
+            changed-43,
+            changed-44,
+            changed-45,
+            changed-46,
+            changed-47,
+            changed-48,
+          ]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/free-disk
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Run changed Design E2E specs
+        working-directory: templates/design
+        timeout-minutes: 7
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
         run: |
           set -euo pipefail
           changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
-          node -e '
-            const paths = JSON.parse(process.env.DESIGN_CANVAS_E2E_SPECS || "[]");
-            if (!Array.isArray(paths) || paths.some((path) => typeof path !== "string" || !path.startsWith("templates/design/e2e/"))) {
-              throw new Error("Invalid changed Design E2E spec list");
-            }
-            process.stdout.write(paths.map((path) => path.replace(/^templates\/design\//, "")).join(String.fromCharCode(0)));
-          ' > "$changed_specs_file"
-          mapfile -d '' -t changed_specs < "$changed_specs_file"
-          existing_changed_specs=()
-          for spec in "${changed_specs[@]}"; do
-            if [[ -f "$spec" ]]; then
-              existing_changed_specs+=("$spec")
-            fi
-          done
+          node --experimental-strip-types ../../scripts/design-e2e-spec-selection.ts > "$changed_specs_file"
+          mapfile -d '' -t existing_changed_specs < "$changed_specs_file"
           if ((${#existing_changed_specs[@]} == 0)); then
-            echo "No changed Design E2E specs to run."
+            echo "No runnable changed Design E2E specs remain."
             exit 0
           fi
           changed_shard="${{ matrix.shard }}"
           changed_shard="${changed_shard#changed-}"
-          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/12"
+          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48"
 
-      - name: Run focused Design regression cases
-        if: ${{ !startsWith(matrix.shard, 'screen-history-') && !startsWith(matrix.shard, 'changed-') }}
+  pre-auth-session-replay-smoke:
+    name: Pre-auth session replay smoke
+    needs: change-scope
+    if: needs.change-scope.outputs.pre_auth_session_replay_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/free-disk
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Run pre-auth session replay smoke
         working-directory: templates/design
-        timeout-minutes: 4
+        timeout-minutes: 7
         env:
-          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
-          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
-        run: |
-          set -euo pipefail
-          # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.
-          changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
-          node -e '
-            const paths = JSON.parse(process.env.DESIGN_CANVAS_E2E_SPECS || "[]");
-            if (!Array.isArray(paths) || paths.some((path) => typeof path !== "string" || !path.startsWith("templates/design/e2e/"))) {
-              throw new Error("Invalid changed Design E2E spec list");
-            }
-            process.stdout.write(paths.map((path) => path.replace(/^templates\/design\//, "")).join(String.fromCharCode(0)));
-          ' > "$changed_specs_file"
-          mapfile -d '' -t changed_specs < "$changed_specs_file"
-          existing_changed_specs=()
-          for spec in "${changed_specs[@]}"; do
-            if [[ -f "$spec" ]]; then
-              existing_changed_specs+=("$spec")
-            fi
-          done
-          case "${{ matrix.shard }}" in
-            inspector-1a)
-              fixed_specs=( \
-                e2e/canvas-invariants.spec.ts:508 \
-                e2e/canvas-invariants.spec.ts:1286 \
-                e2e/inspector-styles.spec.ts:176 \
-              )
-              ;;
-            inspector-1b)
-              fixed_specs=( \
-                e2e/inspector-styles.spec.ts:238 \
-                e2e/inspector-styles.spec.ts:314 \
-              )
-              ;;
-            inspector-2)
-              fixed_specs=( \
-                e2e/canvas-invariants.spec.ts:383 \
-                e2e/canvas-invariants.spec.ts:538 \
-                e2e/inspector-styles.spec.ts:452 \
-                e2e/inspector-styles.spec.ts:610 \
-                e2e/inspector-styles.spec.ts:737 \
-              )
-              ;;
-            inspector-3a)
-              fixed_specs=( \
-                e2e/canvas-invariants.spec.ts:1170 \
-                e2e/inspector-styles.spec.ts:833 \
-                e2e/inspector-styles.spec.ts:999 \
-              )
-              ;;
-            inspector-3b)
-              fixed_specs=( \
-                e2e/canvas-invariants.spec.ts:1320 \
-                e2e/inspector-styles.spec.ts:880 \
-              )
-              ;;
-            inspector-4a)
-              fixed_specs=( \
-                e2e/canvas-invariants.spec.ts:553 \
-                e2e/inspector-styles.spec.ts:541 \
-                e2e/inspector-styles.spec.ts:667 \
-              )
-              ;;
-            inspector-4b)
-              fixed_specs=( \
-                e2e/inspector-styles.spec.ts:798 \
-                e2e/inspector-styles.spec.ts:426 \
-              )
-              ;;
-            drag-1a)
-              fixed_specs=( \
-                e2e/corner-radius-handle-drag.spec.ts:239 \
-                e2e/overview-wheel-zoom.spec.ts:185 \
-              )
-              ;;
-            drag-1b)
-              fixed_specs=( \
-                e2e/drag-and-drop.drag-feedback.spec.ts:24 \
-                e2e/drag-and-drop.moving-by-drag.spec.ts:42 \
-              )
-              ;;
-            drag-2a)
-              fixed_specs=( \
-                e2e/drag-and-drop.moving-by-drag.spec.ts:105 \
-                e2e/parity-alt-drag-duplicate.spec.ts:1293 \
-                e2e/parity-selection.spec.ts:313 \
-              )
-              ;;
-            drag-2b)
-              fixed_specs=( \
-                e2e/parity-selection.spec.ts:451 \
-                e2e/parity-selection.spec.ts:572 \
-              )
-              ;;
-            position-1a)
-              fixed_specs=( \
-                e2e/pasted-svg-image-inspector.spec.ts:656 \
-                e2e/pasted-svg-image-inspector.spec.ts:693 \
-                e2e/position-alignment.spec.ts:361 \
-              )
-              ;;
-            position-1b)
-              fixed_specs=( \
-                e2e/position-alignment.spec.ts:431 \
-                e2e/position-alignment.spec.ts:509 \
-              )
-              ;;
-            position-2a)
-              fixed_specs=( \
-                e2e/position-alignment.spec.ts:292 \
-                e2e/position-alignment.spec.ts:570 \
-              )
-              ;;
-            position-2b)
-              fixed_specs=( \
-                e2e/position-alignment.spec.ts:615 \
-                e2e/position-alignment.spec.ts:661 \
-              )
-              ;;
-            position-3)
-              fixed_specs=( \
-                e2e/position-alignment.spec.ts:312 \
-                e2e/position-alignment.spec.ts:708 \
-                e2e/position-alignment.spec.ts:740 \
-                e2e/position-alignment.spec.ts:780 \
-              )
-              ;;
-            *)
-              echo "::error::Unknown Design interaction shard: ${{ matrix.shard }}"
-              exit 1
-              ;;
-          esac
-          focused_specs=()
-          for selector in "${fixed_specs[@]}"; do
-            spec="${selector%%:*}"
-            changed=false
-            for changed_spec in "${existing_changed_specs[@]}"; do
-              if [[ "$spec" == "$changed_spec" ]]; then
-                changed=true
-                break
-              fi
-            done
-            if [[ "$changed" == "false" ]]; then
-              focused_specs+=("$selector")
-            fi
-          done
-          if ((${#focused_specs[@]} == 0)); then
-            echo "All fixed regression cases are included in the changed-spec shard."
-            exit 0
-          fi
-          pnpm exec playwright test "${focused_specs[@]}" --workers=1
+          E2E_DISABLE_AUTO_DEV_ACCOUNT: "1"
+          E2E_RUN_ID: pre-auth-replay-${{ github.run_id }}-${{ github.run_attempt }}
+        run: pnpm exec playwright test e2e/pre-auth-session-replay-smoke.spec.ts --workers=1
 
   fast-tests:
     name: Fast tests
@@ -706,6 +655,7 @@ jobs:
         test-rest,
         test-targeted,
         design-canvas-interaction-acceptance,
+        pre-auth-session-replay-smoke,
       ]
     if: always()
     runs-on: ubuntu-latest
@@ -723,9 +673,25 @@ jobs:
           TEST_TARGETED_RESULT: ${{ needs.test-targeted.result }}
           DESIGN_CANVAS_E2E: ${{ needs.change-scope.outputs.design_canvas_interaction_e2e }}
           DESIGN_CANVAS_RESULT: ${{ needs.design-canvas-interaction-acceptance.result }}
+          PRE_AUTH_REPLAY_E2E: ${{ needs.change-scope.outputs.pre_auth_session_replay_e2e }}
+          PRE_AUTH_REPLAY_RESULT: ${{ needs.pre-auth-session-replay-smoke.result }}
         run: |
           if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
             echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
+            exit 1
+          fi
+          if [ "$PRE_AUTH_REPLAY_E2E" = "true" ]; then
+            if [ "$PRE_AUTH_REPLAY_RESULT" != "success" ]; then
+              echo "::error::pre-auth session replay smoke did not succeed ($PRE_AUTH_REPLAY_RESULT)"
+              exit 1
+            fi
+          elif [ "$PRE_AUTH_REPLAY_E2E" = "false" ]; then
+            if [ "$PRE_AUTH_REPLAY_RESULT" != "skipped" ]; then
+              echo "::error::pre-auth session replay smoke ran outside its selected paths ($PRE_AUTH_REPLAY_RESULT)"
+              exit 1
+            fi
+          else
+            echo "::error::pre-auth replay selection was missing or invalid ($PRE_AUTH_REPLAY_E2E)"
             exit 1
           fi
           if [ "$DOCS_ONLY" = "true" ]; then
@@ -1100,14 +1066,19 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: playwright-${{ runner.os }}-
 
-      - name: Install Playwright Chromium and WebKit
+      - name: Install Playwright browsers
         run: |
           pnpm exec playwright install --only-shell --with-deps chromium
           pnpm exec playwright install --with-deps webkit
+          pnpm exec playwright install --with-deps firefox
 
       - name: Check IME Escape preserves inline slide text editing
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
+
+      - name: Check mobile PowerPoint import pending status
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --mobile-import-status
 
       - name: Check typing fidelity across Slides text surfaces in Chromium
         working-directory: templates/slides
@@ -1129,9 +1100,29 @@ jobs:
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
 
-      - name: Check mixed rich-text authoring operations in Chromium
+      - name: Run deterministic authoring smoke in Chromium
         working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seed 2 --steps 80
+        run: >-
+          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+          --seed 16 --steps 80 --browser chromium
+
+      - name: Run absolute-layout authoring smoke in Chromium
+        working-directory: templates/slides
+        run: >-
+          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+          --seed 2 --steps 80 --browser chromium
+
+      - name: Run deterministic authoring smoke in WebKit
+        working-directory: templates/slides
+        run: >-
+          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+          --seed 16 --steps 80 --browser webkit
+
+      - name: Run deterministic authoring smoke in Firefox
+        working-directory: templates/slides
+        run: >-
+          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+          --seed 16 --steps 80 --browser firefox
 
   brain-evals:
     name: Brain evals
@@ -1154,7 +1145,7 @@ jobs:
         run: pnpm test:brain-privacy-evals
 
   build:
-    name: Build
+    name: Build artifacts
     needs: change-scope
     if: needs.change-scope.result == 'success' && (needs.change-scope.outputs.docs_only == 'true' || needs.change-scope.outputs.build == 'true')
     runs-on: ubuntu-latest
@@ -1197,6 +1188,70 @@ jobs:
       - name: Build docs site
         if: needs.change-scope.outputs.docs_only == 'true'
         run: pnpm --filter @agent-native/docs build
+
+  build-gate:
+    name: Build
+    needs: [change-scope, build, typecheck, guards]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Gate on scoped build, typecheck, and security guard results
+        env:
+          CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
+          DOCS_ONLY: ${{ needs.change-scope.outputs.docs_only }}
+          BUILD_REQUIRED: ${{ needs.change-scope.outputs.build }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          TYPECHECK_REQUIRED: ${{ needs.change-scope.outputs.typecheck }}
+          TYPECHECK_RESULT: ${{ needs.typecheck.result }}
+          GUARDS_REQUIRED: ${{ needs.change-scope.outputs.guards }}
+          GUARDS_RESULT: ${{ needs.guards.result }}
+        run: |
+          set -euo pipefail
+
+          require_selector() {
+            local check_name="$1"
+            local selected="$2"
+            if [[ "$selected" == "true" || "$selected" == "false" ]]; then
+              return 0
+            fi
+            echo "::error::$check_name selection was missing or invalid ($selected)"
+            return 1
+          }
+
+          require_result() {
+            local check_name="$1"
+            local selected="$2"
+            local result="$3"
+            local expected_result="skipped"
+            if [[ "$selected" == "true" ]]; then
+              expected_result="success"
+            fi
+            if [[ "$result" == "$expected_result" ]]; then
+              return 0
+            fi
+            echo "::error::$check_name selected=$selected expected=$expected_result result=$result"
+            return 1
+          }
+
+          status=0
+          if [[ "$CHANGE_SCOPE_RESULT" != "success" ]]; then
+            echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
+            status=1
+          fi
+          require_selector "Docs build" "$DOCS_ONLY" || status=1
+          require_selector "Build artifacts" "$BUILD_REQUIRED" || status=1
+          require_selector "Typecheck" "$TYPECHECK_REQUIRED" || status=1
+          require_selector "Security guards" "$GUARDS_REQUIRED" || status=1
+
+          build_selected=false
+          if [[ "$DOCS_ONLY" == "true" || "$BUILD_REQUIRED" == "true" ]]; then
+            build_selected=true
+          fi
+          require_result "Build artifacts" "$build_selected" "$BUILD_RESULT" || status=1
+          require_result "Typecheck" "$TYPECHECK_REQUIRED" "$TYPECHECK_RESULT" || status=1
+          require_result "Security guards" "$GUARDS_REQUIRED" "$GUARDS_RESULT" || status=1
+          exit "$status"
 
   neon-query-budget:
     name: Cold-request query budget ${{ matrix.shard }}

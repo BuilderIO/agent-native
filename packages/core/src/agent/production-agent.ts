@@ -88,6 +88,10 @@ import {
   writeOptionalKeyCache,
 } from "../secrets/optional-key-cache.js";
 import {
+  AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
+  isAgentChatAiSetupRequiredError,
+} from "../server/agent-chat-ai-setup.js";
+import {
   COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
   preloadJevContextWithStatus,
   type JevPromptContextCandidate,
@@ -837,6 +841,15 @@ export interface ResolvedOwnerApiKey {
   credentialProvenance?: CredentialProvenance;
 }
 
+export class OwnerAgentEngineSettingUnavailableError extends Error {
+  readonly errorCode = "agent_engine_settings_unavailable";
+
+  constructor(cause: unknown) {
+    super("Unable to read the active agent engine setting.", { cause });
+    this.name = "OwnerAgentEngineSettingUnavailableError";
+  }
+}
+
 const NO_OWNER_API_KEY: ResolvedOwnerApiKey = {
   apiKey: undefined,
   apiKeyEnvVar: undefined,
@@ -959,7 +972,9 @@ export async function resolveOwnerEngineApiKey(input: {
   const canUseFallback =
     fallback && canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY");
   if (activeEngineSetting?.status === "unavailable" && !canUseFallback) {
-    throw activeEngineSetting.error;
+    throw new OwnerAgentEngineSettingUnavailableError(
+      activeEngineSetting.error,
+    );
   }
   return fallback && canUseFallback
     ? {
@@ -996,7 +1011,12 @@ export async function resolveChatEngine(input: {
       model: input.model,
     });
   } catch (error) {
-    if (error instanceof CredentialEndpointMismatchError) throw error;
+    if (
+      input.engineOption !== undefined ||
+      error instanceof CredentialEndpointMismatchError
+    ) {
+      throw error;
+    }
     return resolveEngine(key);
   }
 }
@@ -1672,6 +1692,8 @@ export interface PreparedAgentRequest {
 }
 
 export interface ProductionAgentOptions {
+  /** Gate a newly admitted user turn after trusted continuation checks. */
+  assertAiSetupReady: () => Promise<void>;
   actions?: Record<string, ActionEntry>;
   /** @deprecated Use `actions` instead */
   scripts?: Record<string, ActionEntry>;
@@ -1987,6 +2009,84 @@ function generateRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+export class DurableAttachmentReferenceRequiredError extends Error {
+  readonly code = "attachment_storage_required";
+
+  constructor() {
+    super(
+      "An attachment has inline bytes but no durable file URL. Configure file storage and retry this background run.",
+    );
+    this.name = "DurableAttachmentReferenceRequiredError";
+  }
+}
+
+function isDataUrlReference(value: unknown): boolean {
+  return typeof value === "string" && /^\s*data:/i.test(value);
+}
+
+function hasDurableAttachmentUrl(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    !isDataUrlReference(value)
+  );
+}
+
+function sanitizeDurableAttachment(
+  value: unknown,
+  attachmentContext = false,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeDurableAttachment(item));
+  }
+  if (!value || typeof value !== "object") return value;
+
+  const item = value as Record<string, unknown>;
+  const isAttachment =
+    attachmentContext ||
+    item.type === "image" ||
+    item.type === "file" ||
+    item.type === "document";
+  if (
+    isAttachment &&
+    (isDataUrlReference(item.url) || isDataUrlReference(item.referenceUrl))
+  ) {
+    throw new DurableAttachmentReferenceRequiredError();
+  }
+
+  const hasInlineData = isAttachment && item.data !== undefined;
+  if (
+    hasInlineData &&
+    !hasDurableAttachmentUrl(item.url) &&
+    !hasDurableAttachmentUrl(item.referenceUrl)
+  ) {
+    throw new DurableAttachmentReferenceRequiredError();
+  }
+
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(item)) {
+    if (key === "data" && hasInlineData) continue;
+    if (key === "attachments" || key === "requestAttachments") {
+      sanitized[key] = Array.isArray(child)
+        ? child.map((attachment) => sanitizeDurableAttachment(attachment, true))
+        : sanitizeDurableAttachment(child);
+    } else {
+      sanitized[key] = sanitizeDurableAttachment(child);
+    }
+  }
+  return sanitized;
+}
+
+export function serializeDurableDispatchPayload(
+  body: Record<string, unknown>,
+): string {
+  const payload = JSON.stringify(sanitizeDurableAttachment(body));
+  if (typeof payload !== "string") {
+    throw new TypeError("Durable dispatch payload could not be serialized");
+  }
+  return payload;
+}
+
 function toolInputActivityLabel(toolName?: string): string {
   return toolName ? `Preparing ${toolName} action` : "Preparing action input";
 }
@@ -2019,7 +2119,9 @@ export function isRetryableError(err: unknown): boolean {
     return false;
 
   if (engineErr) {
-    if (engineErr.providerRetryable === true) return true;
+    if (engineErr.providerRetryable !== undefined) {
+      return engineErr.providerRetryable;
+    }
     const sc = engineErr.statusCode;
     if (sc === 429 || sc === 500 || sc === 502 || sc === 503 || sc === 529)
       return true;
@@ -2215,6 +2317,35 @@ function dataUrlToFilePart(
   };
 }
 
+function describeUnprocessedAttachment(att: AgentChatAttachment): string {
+  const name = escapeAttachmentAttribute(att.name || "attachment");
+  const contentType = att.contentType
+    ? ` contentType="${escapeAttachmentAttribute(att.contentType)}"`
+    : "";
+  return `<chat-attachment-processing-error code="unsupported-or-malformed-payload" name="${name}"${contentType}>The attachment included file data or a URL reference, but its contents were not sent to the model because the payload could not be converted to a supported attachment. Do not infer or describe its contents. Tell the user it could not be read and ask them to reattach it in a supported format.</chat-attachment-processing-error>`;
+}
+
+function describeReferenceOnlyAttachment(att: AgentChatAttachment): string {
+  const name = escapeAttachmentAttribute(att.name || "attachment");
+  const contentType = att.contentType
+    ? ` contentType="${escapeAttachmentAttribute(att.contentType)}"`
+    : "";
+  const url = escapeAttachmentAttribute(att.url || "");
+  return `<chat-attachment-reference-note code="reference-only-unavailable" name="${name}"${contentType} url="${url}">The attachment has a stored reference URL, but no readable contents were included in this request. Do not claim to have read or describe its contents. Use the URL only with an authorized tool or target that can retrieve it, or tell the user its contents were unavailable.</chat-attachment-reference-note>`;
+}
+
+function describeAttachmentPreUploadFailure(): string {
+  return '<chat-attachment-processing-error code="pre-upload-failed">One or more attachments could not be prepared for this request. Their contents may be missing from the model context. Do not claim to have read or seen them; tell the user attachment processing failed and ask them to retry or provide the relevant content in text.</chat-attachment-processing-error>';
+}
+
+function describeMissingAttachmentPayload(att: AgentChatAttachment): string {
+  const name = escapeAttachmentAttribute(att.name || "attachment");
+  const contentType = att.contentType
+    ? ` contentType="${escapeAttachmentAttribute(att.contentType)}"`
+    : "";
+  return `<chat-attachment-processing-error code="missing-payload" name="${name}"${contentType}>The attachment arrived without readable file contents or a reference. Do not infer or describe its contents. Tell the user it could not be read and ask them to attach it again.</chat-attachment-processing-error>`;
+}
+
 export function buildUserContentWithAttachments(opts: {
   text: string;
   attachments?: AgentChatAttachment[];
@@ -2242,6 +2373,8 @@ export function buildUserContentWithAttachments(opts: {
           textAttachments.push(
             `[${label} was uploaded to ${uploadedUrl}, but was not sent as a vision image because no supported base64 image data was present. Use the URL for embedding/reference if needed.]`,
           );
+        } else {
+          textAttachments.push(describeMissingAttachmentPayload(att));
         }
         continue;
       }
@@ -2367,6 +2500,25 @@ export function buildUserContentWithAttachments(opts: {
         attachmentCharBudget,
       );
     }
+    if (!textAttachment && typeof att.data === "string") {
+      textAttachments.push(describeUnprocessedAttachment(att));
+    } else if (!textAttachment && typeof uploadedUrl === "string") {
+      textAttachments.push(describeReferenceOnlyAttachment(att));
+    } else if (
+      !textAttachment &&
+      !(
+        att.type === "file" &&
+        typeof att.text === "string" &&
+        att.text.length === 0 &&
+        att.contentType
+          ?.split(";", 1)[0]
+          ?.trim()
+          .toLowerCase()
+          .startsWith("text/")
+      )
+    ) {
+      textAttachments.push(describeMissingAttachmentPayload(att));
+    }
   }
 
   userContent.push({
@@ -2378,6 +2530,36 @@ export function buildUserContentWithAttachments(opts: {
   });
 
   return userContent;
+}
+
+export function appendRequestAttachmentContextToResumedHistory(
+  messages: EngineMessage[],
+  attachments: AgentChatAttachment[] | undefined,
+): void {
+  if (!attachments?.length) return;
+  const attachmentContent = buildUserContentWithAttachments({
+    text: "",
+    attachments,
+  }).filter((part) => part.type !== "text" || part.text.trim());
+  if (!attachmentContent.length) return;
+
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (message.role !== "user") continue;
+    const missingContent = attachmentContent.filter(
+      (candidate) =>
+        !message.content.some((existing) =>
+          existing.type === "image" && candidate.type === "image"
+            ? existing.data === candidate.data &&
+              existing.mediaType === candidate.mediaType
+            : existing.type === "text" && candidate.type === "text"
+              ? existing.text === candidate.text
+              : false,
+        ),
+    );
+    message.content.push(...missingContent);
+    return;
+  }
 }
 
 function coerceStructuredToolResultWire(part: {
@@ -3099,6 +3281,13 @@ export function isResumableEngineError(err: unknown): boolean {
   const code =
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (
+    (err instanceof EngineError && err.providerRetryable === false) ||
+    code === "invalid_request" ||
+    code === "invalid_request_error"
+  ) {
+    return false;
+  }
+  if (
     code === "builder_gateway_timeout" ||
     code === "builder_gateway_network_error" ||
     code === "builder_gateway_stream_ended" ||
@@ -3110,6 +3299,9 @@ export function isResumableEngineError(err: unknown): boolean {
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
+    (code === "overloaded_error" &&
+      err instanceof EngineError &&
+      err.providerRetryable === true) ||
     code === "timeout"
   ) {
     return true;
@@ -3151,6 +3343,8 @@ export function isTransientProviderRateLimitError(err: unknown): boolean {
   }
   if (code === "http_429" || code === "http_529") return true;
   if (code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE) return true;
+  if (code === "overloaded_error" && err.providerRetryable === true)
+    return true;
   if (code === "rate_limited" && err.providerRetryable === true) return true;
   return false;
 }
@@ -3178,6 +3372,9 @@ export function continuationReasonForResumableError(
     code === "http_529" ||
     code === "rate_limited" ||
     code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE ||
+    (code === "overloaded_error" &&
+      err instanceof EngineError &&
+      err.providerRetryable === true) ||
     (err instanceof EngineError &&
       (err.statusCode === 429 ||
         err.statusCode === 529 ||
@@ -5045,7 +5242,7 @@ export async function runAgentLoop(opts: {
     });
   };
   if (followUpRunId) send({ type: "suggestions", suggestions: [] });
-  let model = opts.model;
+  let model = normalizeModelForEngine(engine, opts.model);
   let outcomeReported = false;
   const reportOutcome = (outcome: AgentLoopOutcome) => {
     if (outcomeReported) return;
@@ -7856,11 +8053,19 @@ export function isRecoverableContinuationError(event: {
   error: string;
   errorCode?: string;
   recoverable?: boolean;
+  providerRetryable?: boolean;
 }): boolean {
   const code = String(event.errorCode ?? "").toLowerCase();
   const message = event.error.toLowerCase();
-  if (code === "builder_gateway_error") return false;
-  if (event.recoverable === false) return false;
+  if (
+    event.providerRetryable === false ||
+    event.recoverable === false ||
+    code === "builder_gateway_error" ||
+    code === "invalid_request" ||
+    code === "invalid_request_error"
+  ) {
+    return false;
+  }
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
@@ -7881,6 +8086,7 @@ export function isRecoverableContinuationError(event: {
     code === "http_504" ||
     code === "http_529" ||
     code === "run_timeout" ||
+    (code === "overloaded_error" && event.providerRetryable === true) ||
     message.includes("timeout") ||
     isProviderConnectionErrorMessage(message) ||
     message.includes("temporarily unavailable")
@@ -8584,6 +8790,135 @@ async function readTurnStartedAt(
   return Number.isFinite(startedAt) && startedAt > 0 ? startedAt : null;
 }
 
+interface AdmittedQueuedMessagePromotion {
+  id: string;
+  text: string;
+  attachments?: unknown[];
+  metadata?: Record<string, unknown>;
+  options?: Record<string, unknown>;
+}
+
+function queuedPromotionRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+async function readAdmittedQueuedMessagePromotion(opts: {
+  ownerEmail: string | null;
+  orgId: string | null;
+  threadId?: string;
+  messageId: unknown;
+  claimId: unknown;
+  message: string;
+  continuationRequested: boolean;
+}): Promise<AdmittedQueuedMessagePromotion | null> {
+  const messageId =
+    typeof opts.messageId === "string" ? opts.messageId.trim() : "";
+  const claimId = typeof opts.claimId === "string" ? opts.claimId.trim() : "";
+  if (
+    !opts.ownerEmail ||
+    !opts.threadId ||
+    !messageId ||
+    !claimId ||
+    opts.continuationRequested
+  ) {
+    return null;
+  }
+
+  const { resolveThreadAccess } = await import("../chat-threads/store.js");
+  const thread = await resolveThreadAccess(
+    opts.ownerEmail,
+    opts.threadId,
+    "editor",
+    { orgId: opts.orgId ?? undefined },
+  );
+  if (!thread) return null;
+
+  let repository: unknown;
+  try {
+    repository = JSON.parse(thread.threadData || "{}");
+  } catch {
+    // coercion-ok: malformed persisted queue data cannot authorize a continuation.
+    return null;
+  }
+  if (!hasOwn(repository, "queuedMessages")) return null;
+  const queuedMessages = repository.queuedMessages;
+  if (!Array.isArray(queuedMessages)) return null;
+  const queuedMessage = queuedMessages.find(
+    (candidate) => hasOwn(candidate, "id") && candidate.id === messageId,
+  );
+  if (!queuedMessage || !hasOwn(queuedMessage, "promotionClaim")) {
+    return null;
+  }
+
+  const promotionClaim = queuedMessage.promotionClaim;
+  if (
+    !(
+      hasOwn(queuedMessage, "text") &&
+      queuedMessage.text === opts.message &&
+      hasOwn(promotionClaim, "id") &&
+      promotionClaim.id === claimId &&
+      hasOwn(promotionClaim, "expiresAt") &&
+      typeof promotionClaim.expiresAt === "number" &&
+      Number.isFinite(promotionClaim.expiresAt) &&
+      promotionClaim.expiresAt > Date.now()
+    )
+  ) {
+    return null;
+  }
+
+  if (typeof queuedMessage.text !== "string") return null;
+  const attachments = hasOwn(queuedMessage, "attachments")
+    ? queuedMessage.attachments
+    : undefined;
+  const metadata = hasOwn(queuedMessage, "metadata")
+    ? queuedMessage.metadata
+    : undefined;
+  const options = hasOwn(queuedMessage, "options")
+    ? queuedMessage.options
+    : undefined;
+  if (
+    (attachments !== undefined && !Array.isArray(attachments)) ||
+    (Array.isArray(attachments) &&
+      attachments.some((attachment) => {
+        const file = queuedPromotionRecord(attachment);
+        return !file || file.type !== "file" || typeof file.name !== "string";
+      })) ||
+    (metadata !== undefined &&
+      (!metadata || typeof metadata !== "object" || Array.isArray(metadata))) ||
+    (options !== undefined &&
+      (!options || typeof options !== "object" || Array.isArray(options)))
+  ) {
+    return null;
+  }
+
+  return {
+    id: messageId,
+    text: queuedMessage.text,
+    ...(Array.isArray(attachments) ? { attachments } : {}),
+    ...(metadata ? { metadata: metadata as Record<string, unknown> } : {}),
+    ...(options ? { options: options as Record<string, unknown> } : {}),
+  };
+}
+
+function queuedPromotionAttachments(
+  attachments: unknown[],
+): AgentChatAttachment[] {
+  return attachments.map((value) => {
+    const file = queuedPromotionRecord(value)!;
+    return {
+      type: "file",
+      name: file.name,
+      ...(typeof file.fileId === "string" ? { id: file.fileId } : {}),
+      ...(typeof file.mediaType === "string"
+        ? { mediaType: file.mediaType, contentType: file.mediaType }
+        : {}),
+      ...(typeof file.url === "string" ? { url: file.url } : {}),
+    } as AgentChatAttachment;
+  });
+}
+
 async function emitRunText(run: ActiveRun, text: string): Promise<void> {
   const runEvent: RunEvent = {
     seq: run.events.length,
@@ -8842,7 +9177,7 @@ export async function chainServerDrivenContinuation(opts: {
     try {
       await d.insertRun(nextRunId, effectiveThreadId, effectiveTurnId, {
         dispatchMode: "background",
-        dispatchPayload: JSON.stringify(continuationBody),
+        dispatchPayload: serializeDurableDispatchPayload(continuationBody),
         ...(opts.turnInitiator ? { turnInitiator: opts.turnInitiator } : {}),
       });
       nextRowInserted = true;
@@ -8850,7 +9185,8 @@ export async function chainServerDrivenContinuation(opts: {
       if (
         insertErr instanceof AgentTurnInitiatorMismatchError ||
         insertErr instanceof AgentTurnInitiatorUnavailableError ||
-        insertErr instanceof ServicePrincipalRefusedError
+        insertErr instanceof ServicePrincipalRefusedError ||
+        insertErr instanceof DurableAttachmentReferenceRequiredError
       ) {
         throw insertErr;
       }
@@ -9016,6 +9352,10 @@ export async function chainServerDrivenContinuation(opts: {
       reason: continuationReason,
     };
   } catch (chainErr) {
+    const failureCode =
+      chainErr instanceof DurableAttachmentReferenceRequiredError
+        ? chainErr.code
+        : "background_continuation_dispatch_failed";
     await d
       .recordRunDiagnostic(
         runId,
@@ -9033,13 +9373,11 @@ export async function chainServerDrivenContinuation(opts: {
       .updateRunStatusIfRunning(runId, "errored")
       .catch(() => false);
     if (statusUpdated) {
-      await d
-        .setRunTerminalReason(runId, "background_continuation_dispatch_failed")
-        .catch(() => {});
+      await d.setRunTerminalReason(runId, failureCode).catch(() => {});
       await d
         .setRunError(
           runId,
-          "background_continuation_dispatch_failed",
+          failureCode,
           chainErr instanceof Error ? chainErr.message : String(chainErr),
         )
         .catch(() => {});
@@ -9105,6 +9443,16 @@ function isConcreteModelSelection(
 ): model is string {
   const normalized = typeof model === "string" ? model.trim() : "";
   return normalized.length > 0 && normalized !== "auto";
+}
+
+export function resolveAgentExperimentModelOverride(options: {
+  requestModel?: string | null;
+  experimentModel?: string | null;
+}): string | undefined {
+  if (isConcreteModelSelection(options.requestModel)) return undefined;
+  return isConcreteModelSelection(options.experimentModel)
+    ? options.experimentModel
+    : undefined;
 }
 
 export function resolveAgentModelSelection(options: {
@@ -9185,10 +9533,10 @@ export function createProductionAgentHandler(
 
     const {
       message,
-      history = [],
-      structuredHistory,
+      history: submittedHistory = [],
+      structuredHistory: submittedStructuredHistory,
       loadedSkillSlugs: requestedLoadedSkillSlugs,
-      references = [],
+      references: submittedReferences = [],
       threadId,
       attachments,
       displayMessage,
@@ -9196,19 +9544,35 @@ export function createProductionAgentHandler(
       queuedMessageId,
       queuedMessageClaimId,
       agentKitMessageId: requestedAgentKitMessageId,
-      internalContinuation,
+      internalContinuation: submittedInternalContinuation,
       autoContinueOfRunId: requestedAutoContinueOfRunId,
       continueOfRunId: requestedContinueOfRunId,
       turnId: requestTurnId,
-      model: requestModel,
-      engine: requestEngine,
-      effort: requestEffort,
+      model: submittedModel,
+      engine: submittedEngine,
+      effort: submittedEffort,
       browserTabId,
       scope,
-      harness: requestHarness,
+      harness: submittedHarness,
       trackInRunsTray,
       skipPendingSelectionContext,
     } = body;
+    let requestHistory = submittedHistory;
+    let requestStructuredHistory = submittedStructuredHistory;
+    let requestReferences = submittedReferences;
+    let requestModel = submittedModel;
+    let requestEngine = submittedEngine;
+    let requestEffort = submittedEffort;
+    let internalContinuation = submittedInternalContinuation;
+    let requestHarness = submittedHarness;
+    let requestSkipPendingSelectionContext = skipPendingSelectionContext;
+    let requestParentId =
+      parentId === null
+        ? null
+        : typeof parentId === "string" && parentId.trim()
+          ? parentId.trim()
+          : undefined;
+    let requestMetadata = body.metadata;
     const continuedRunId = (requested: unknown) =>
       internalContinuation === true &&
       typeof requested === "string" &&
@@ -9237,15 +9601,9 @@ export function createProductionAgentHandler(
       setResponseStatus(event, 400);
       return { error: "engine must be a string" };
     }
-    const requestParentId =
-      parentId === null
-        ? null
-        : typeof parentId === "string" && parentId.trim()
-          ? parentId.trim()
-          : undefined;
     setupMark("bodyParsed");
 
-    const agentKitMessageId =
+    let agentKitMessageId =
       typeof requestedAgentKitMessageId === "string" &&
       requestedAgentKitMessageId.trim().length <= 200
         ? requestedAgentKitMessageId.trim() || undefined
@@ -9353,11 +9711,10 @@ export function createProductionAgentHandler(
       requestRunCtx.chatScope = requestChatScope;
       requestRunCtx.isBackgroundWorker = isBackgroundWorker;
     }
-    const requestMode: AgentExecutionMode =
-      body.mode === "plan" ? "plan" : "act";
+    let requestMode: AgentExecutionMode = body.mode === "plan" ? "plan" : "act";
     const hasMessageText =
       typeof message === "string" && message.trim().length > 0;
-    const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    let hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     if (!hasMessageText && !hasAttachments) {
       setResponseStatus(event, 400);
       return { error: "message is required" };
@@ -9365,10 +9722,10 @@ export function createProductionAgentHandler(
     let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
     let requestDisplayMessage = displayMessage;
-    const requestContext = buildRecentUserRequestContext({
+    let requestContext = buildRecentUserRequestContext({
       request: requestMessage,
-      history,
-      structuredHistory,
+      history: requestHistory,
+      structuredHistory: requestStructuredHistory,
     });
 
     const ownerEmail = await resolveAgentOwnerEmail(options, event);
@@ -9386,6 +9743,200 @@ export function createProductionAgentHandler(
       setResponseStatus(event, 401);
       return { error: "Background agent runs require a persisted initiator" };
     }
+    const requestedApprovedToolCalls =
+      Array.isArray(body.approvedToolCalls) && body.approvedToolCalls.length > 0
+        ? body.approvedToolCalls
+            .filter((key: unknown): key is string => typeof key === "string")
+            .slice(0, 200)
+        : undefined;
+    const resolvedApprovalTurnId =
+      !isBackgroundWorker &&
+      ownerEmail &&
+      threadId &&
+      requestedApprovedToolCalls?.length
+        ? await resolveAgentToolApprovalTurnId({
+            ownerEmail,
+            orgId: getRequestOrgId() ?? null,
+            threadId,
+            requestedTurnId: requestTurnId,
+            approvalKeys: requestedApprovedToolCalls,
+          })
+        : null;
+    // The continuation marker is client-controlled. Defer setup admission only
+    // for automatic successors when the named stop and turn can be checked
+    // under the run-slot lock. A user's manual Continue starts new work and
+    // still requires current provider readiness.
+    const canDeferSetupGateForContinuationAdmission = Boolean(
+      continueOf?.trigger === "auto" &&
+      continueOf &&
+      typeof threadId === "string" &&
+      threadId.trim() &&
+      typeof requestTurnId === "string" &&
+      requestTurnId.trim(),
+    );
+    const admittedQueuedMessage = await readAdmittedQueuedMessagePromotion({
+      ownerEmail,
+      orgId: getRequestOrgId() ?? null,
+      threadId,
+      messageId: queuedMessageId,
+      claimId: queuedMessageClaimId,
+      message: typeof message === "string" ? message : "",
+      continuationRequested:
+        submittedInternalContinuation === true ||
+        typeof requestedAutoContinueOfRunId === "string" ||
+        typeof requestedContinueOfRunId === "string",
+    });
+    const isQueuedPromotion = admittedQueuedMessage !== null;
+    if (admittedQueuedMessage) {
+      // A claim admits the persisted queue payload, not extra fields in this request.
+      const promotionOptions = admittedQueuedMessage.options ?? {};
+      const promotionMetadata = {
+        ...(admittedQueuedMessage.metadata ?? {}),
+        ...(queuedPromotionRecord(promotionOptions.metadata) ?? {}),
+      };
+      requestMessage = admittedQueuedMessage.text;
+      agentKitMessageId = admittedQueuedMessage.id;
+      requestDisplayMessage = admittedQueuedMessage.text;
+      requestAttachments = queuedPromotionAttachments(
+        admittedQueuedMessage.attachments ?? [],
+      );
+      hasAttachments = requestAttachments.length > 0;
+      requestReferences = [];
+      requestHistory = [];
+      requestStructuredHistory = undefined;
+      internalContinuation = false;
+      requestHarness = undefined;
+      requestSkipPendingSelectionContext = false;
+      requestParentId = undefined;
+      requestMetadata = promotionMetadata;
+      requestModel =
+        typeof promotionOptions.model === "string"
+          ? promotionOptions.model
+          : undefined;
+      const promotionOptionMetadata = queuedPromotionRecord(
+        promotionOptions.metadata,
+      );
+      const promotionEngine =
+        admittedQueuedMessage.metadata?.engine ??
+        promotionOptionMetadata?.engine;
+      requestEngine =
+        typeof promotionEngine === "string" ? promotionEngine : undefined;
+      requestEffort = isReasoningEffort(promotionOptions.reasoningEffort)
+        ? promotionOptions.reasoningEffort
+        : undefined;
+      requestMode = promotionOptions.mode === "plan" ? "plan" : "act";
+      requestContext = buildRecentUserRequestContext({
+        request: requestMessage,
+        history: requestHistory,
+      });
+      const mutableBody = body as unknown as Record<string, unknown>;
+      mutableBody.message = requestMessage;
+      mutableBody.displayMessage = requestDisplayMessage;
+      mutableBody.attachments = requestAttachments;
+      mutableBody.references = requestReferences;
+      mutableBody.history = requestHistory;
+      delete mutableBody.structuredHistory;
+      mutableBody.metadata = requestMetadata;
+      mutableBody.model = requestModel;
+      if (requestEngine === undefined) {
+        delete mutableBody.engine;
+      } else {
+        mutableBody.engine = requestEngine;
+      }
+      mutableBody.effort = requestEffort;
+      mutableBody.mode = requestMode;
+      delete mutableBody.internalContinuation;
+      delete mutableBody.autoContinueOfRunId;
+      delete mutableBody.continueOfRunId;
+      delete mutableBody.harness;
+      delete mutableBody.parentId;
+      delete mutableBody.options;
+      delete mutableBody.skipPendingSelectionContext;
+    }
+    const recordUnstartedTurn = async (failure: {
+      code: string;
+      message: string;
+    }) => {
+      const unstartedTurnId =
+        typeof requestTurnId === "string" && requestTurnId.trim()
+          ? requestTurnId.trim()
+          : undefined;
+      const normalizedThreadId =
+        typeof threadId === "string" ? threadId.trim() : "";
+      if (
+        !options.onRunNotStarted ||
+        !normalizedThreadId ||
+        !unstartedTurnId ||
+        continueOf ||
+        isBackgroundWorker ||
+        runRequestContext?.agentRunAnonymous === true
+      ) {
+        return;
+      }
+      try {
+        await options.onRunNotStarted({
+          runId: unstartedTurnId,
+          turnId: unstartedTurnId,
+          threadId: normalizedThreadId,
+          message:
+            typeof requestDisplayMessage === "string" &&
+            requestDisplayMessage.trim()
+              ? requestDisplayMessage
+              : requestMessage,
+          attachments: requestAttachments,
+          ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
+            ? { queuedMessageId: queuedMessageId.trim() }
+            : {}),
+          ...(agentKitMessageId ? { agentKitMessageId } : {}),
+          retryContext: retryContextFromRequest(body, (dropped) =>
+            console.warn(
+              `[agent-chat] dropped ${dropped} invalid reference(s) from a refused turn's retry context`,
+            ),
+          ),
+          failure,
+        });
+      } catch (error) {
+        console.error(
+          "[agent-chat] could not record a refused turn in its thread:",
+          error,
+        );
+        captureError(error, {
+          route: "agent-chat",
+          tags: {
+            source: "agent-chat",
+            failureClass: "unstarted-turn-persist",
+          },
+          extra: { threadId: normalizedThreadId, runId: unstartedTurnId },
+        });
+      }
+    };
+    if (
+      !isBackgroundWorker &&
+      runRequestContext?.agentRunAnonymous !== true &&
+      !resolvedApprovalTurnId &&
+      !canDeferSetupGateForContinuationAdmission &&
+      !isQueuedPromotion
+    ) {
+      try {
+        await options.assertAiSetupReady();
+      } catch (error) {
+        if (isAgentChatAiSetupRequiredError(error)) {
+          const setupError = error as {
+            statusMessage?: unknown;
+            message?: unknown;
+          };
+          await recordUnstartedTurn({
+            code: AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
+            message:
+              (typeof setupError.statusMessage === "string" &&
+                setupError.statusMessage) ||
+              (typeof setupError.message === "string" && setupError.message) ||
+              "Connect an AI provider before chatting.",
+          });
+        }
+        throw error;
+      }
+    }
     const contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,
@@ -9393,7 +9944,7 @@ export function createProductionAgentHandler(
       message: requestMessage,
       displayMessage: requestDisplayMessage,
       attachments: requestAttachments,
-      references,
+      references: requestReferences,
       threadId,
       requestContext,
       contextPrefetchDeadlineAt,
@@ -9427,8 +9978,8 @@ export function createProductionAgentHandler(
     }
     const jevRequestContext = buildJevRequestContext({
       request: requestMessage,
-      history,
-      structuredHistory,
+      history: requestHistory,
+      structuredHistory: requestStructuredHistory,
     });
     const requestedHostedHarness = normalizeHostedHarnessRuntime(
       requestHarness?.runtime,
@@ -9608,6 +10159,9 @@ export function createProductionAgentHandler(
           "[agent-native] preUploadAttachments failed:",
           err instanceof Error ? err.message : String(err),
         );
+        requestMessage = requestMessage
+          ? `${requestMessage}\n\n${describeAttachmentPreUploadFailure()}`
+          : describeAttachmentPreUploadFailure();
       }
     }
 
@@ -9695,11 +10249,15 @@ export function createProductionAgentHandler(
         const expConfig = await resolveActiveExperimentConfig(ownerEmail);
         if (expConfig) {
           experimentAssignments = [...expConfig.assignments];
-          if (typeof expConfig.configs.model === "string") {
-            effectiveModel = normalizeModelForEngine(
-              engine,
-              expConfig.configs.model,
-            );
+          const experimentModel = resolveAgentExperimentModelOverride({
+            requestModel,
+            experimentModel:
+              typeof expConfig.configs.model === "string"
+                ? expConfig.configs.model
+                : undefined,
+          });
+          if (experimentModel) {
+            effectiveModel = normalizeModelForEngine(engine, experimentModel);
             modelSelectionSource = "experiment";
           }
         }
@@ -9786,7 +10344,7 @@ export function createProductionAgentHandler(
     setupMark("prepDone");
     workerStep("env_config");
     const enrichedMessageThunk = () =>
-      enrichMessage(requestMessage, references);
+      enrichMessage(requestMessage, requestReferences);
     const loopSettingsThunk = () =>
       readAgentLoopSettings({
         userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
@@ -9955,7 +10513,7 @@ export function createProductionAgentHandler(
     const SELECTION_TTL_MS = 5 * 60 * 1000;
     const selectionContextThunk = (): Promise<string> =>
       (async (): Promise<string> => {
-        if (skipPendingSelectionContext === true) return "";
+        if (requestSkipPendingSelectionContext === true) return "";
         try {
           const sel = (await readAppState("pending-selection-context")) as {
             text?: string;
@@ -9989,7 +10547,7 @@ export function createProductionAgentHandler(
         if (options.skipFilesContext || requestedHostedHarness) {
           return filesContext;
         }
-        if (history.length === 0) {
+        if (requestHistory.length === 0) {
           try {
             const {
               resourceListAccessible,
@@ -10360,8 +10918,10 @@ export function createProductionAgentHandler(
         ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
         : systemPrompt;
 
-    const agentRefs = references.filter((r) => r.type === "agent");
-    const customAgentRefs = references.filter((r) => r.type === "custom-agent");
+    const agentRefs = requestReferences.filter((r) => r.type === "agent");
+    const customAgentRefs = requestReferences.filter(
+      (r) => r.type === "custom-agent",
+    );
     const planModeAgentNote =
       requestMode === "plan" && agentRefs.length > 0
         ? "\n\n<plan-mode-note>Connected external agent mentions were not called because Plan mode is read-only. Mention that they can be called after the user switches to Act mode if the plan needs them.</plan-mode-note>"
@@ -10379,8 +10939,8 @@ export function createProductionAgentHandler(
     });
 
     const historyMessages =
-      structuredHistoryToEngineMessages(structuredHistory) ??
-      history
+      structuredHistoryToEngineMessages(requestStructuredHistory) ??
+      requestHistory
         .filter((m) => m.content.trim())
         .map(
           (m): EngineMessage => ({
@@ -10393,23 +10953,17 @@ export function createProductionAgentHandler(
       ...historyMessages,
       { role: "user" as const, content: userContent },
     ];
-    const requestedApprovedToolCalls =
-      Array.isArray(body.approvedToolCalls) && body.approvedToolCalls.length > 0
-        ? body.approvedToolCalls
-            .filter((key: unknown): key is string => typeof key === "string")
-            .slice(0, 200)
-        : undefined;
     // The durable approval row is the authorization boundary. Do not require
     // the client to reproduce the original structured history exactly: the UI
     // may truncate tool arguments and intentionally assigns fresh replay ids.
     // The loop still consumes only a matching server-created grant for the
     // current owner/org/thread/turn/tool/input tuple.
     const exactApprovedToolCall = findApprovedStructuredToolCall(
-      structuredHistory,
+      requestStructuredHistory,
       requestedApprovedToolCalls,
     );
     const firstRequestPayloadDetail = buildFirstRequestPayloadDetail({
-      isFirstRequest: history.length === 0,
+      isFirstRequest: requestHistory.length === 0,
       systemPrompt: requestSystemPrompt,
       messages,
       tools: requestTools,
@@ -10419,19 +10973,6 @@ export function createProductionAgentHandler(
       isBackgroundWorker && backgroundContinuationCount > 0;
     const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
-    const resolvedApprovalTurnId =
-      !isBackgroundWorker &&
-      ownerEmail &&
-      threadId &&
-      requestedApprovedToolCalls?.length
-        ? await resolveAgentToolApprovalTurnId({
-            ownerEmail,
-            orgId: getRequestOrgId() ?? null,
-            threadId,
-            requestedTurnId: requestTurnId,
-            approvalKeys: requestedApprovedToolCalls,
-          })
-        : null;
     const effectiveTurnId =
       typeof backgroundRunMarker?.turnId === "string" &&
       backgroundRunMarker.turnId.trim()
@@ -10440,6 +10981,27 @@ export function createProductionAgentHandler(
           (typeof requestTurnId === "string" && requestTurnId.trim()
             ? requestTurnId.trim()
             : runId));
+    let durableDispatchPayload: string | undefined;
+    if (dispatchToBackground) {
+      try {
+        durableDispatchPayload = serializeDurableDispatchPayload({
+          ...body,
+          ...(Array.isArray(attachments) || requestAttachments.length > 0
+            ? { attachments: requestAttachments }
+            : {}),
+        } as unknown as Record<string, unknown>);
+      } catch (error) {
+        if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
+          throw error;
+        }
+        setResponseStatus(event, 503);
+        return {
+          error: error.message,
+          code: error.code,
+          retryable: false,
+        };
+      }
+    }
     const foregroundSelfChainEligible =
       !isBackgroundWorker &&
       !dispatchToBackground &&
@@ -10485,7 +11047,7 @@ export function createProductionAgentHandler(
               ? "foreground-self-chain"
               : "foreground",
           ...(dispatchToBackground
-            ? { dispatchPayload: JSON.stringify(body) }
+            ? { dispatchPayload: durableDispatchPayload }
             : {}),
           ...(continueOf ? { continueOf } : {}),
         });
@@ -10636,6 +11198,10 @@ export function createProductionAgentHandler(
             journalRead.status === "read" && journalRead.toolCallJournal
               ? buildResumeJournalNote(journalRead.toolCallJournal)
               : null;
+          appendRequestAttachmentContextToResumedHistory(
+            resumed,
+            requestAttachments,
+          );
           appendAgentLoopContinuation(resumed, continuationReason, {
             ...(actionPreparationTool ? { actionPreparationTool } : {}),
             ...(journalNote ? { journalNote } : {}),
@@ -10749,7 +11315,7 @@ export function createProductionAgentHandler(
         try {
           await insertRun(runId, effectiveThreadId, effectiveTurnId, {
             dispatchMode: "background",
-            dispatchPayload: JSON.stringify(body),
+            dispatchPayload: durableDispatchPayload!,
             ...(turnInitiator ? { turnInitiator } : {}),
           });
           backgroundRowInserted = true;
@@ -11061,7 +11627,13 @@ export function createProductionAgentHandler(
                 run,
                 effectiveThreadId,
                 effectiveTurnId,
-                requestBody: body as unknown as Record<string, unknown>,
+                requestBody: {
+                  ...body,
+                  ...(Array.isArray(attachments) ||
+                  requestAttachments.length > 0
+                    ? { attachments: requestAttachments }
+                    : {}),
+                } as unknown as Record<string, unknown>,
                 backgroundContinuationCount,
                 noProgressRepeat,
                 turnInputTokens,

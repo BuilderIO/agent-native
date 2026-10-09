@@ -1135,6 +1135,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Carregar",
   "composer.uploadFailed":
     "Não foi possível fazer upload do arquivo selecionado.",
+  "composer.fileTooLarge":
+    "Este arquivo excede o limite de tamanho para upload.",
+  "composer.sessionExpired":
+    "Sua sessão expirou. Atualize a página e tente novamente.",
   "composer.unsupportedFileType": "Este tipo de arquivo não é compatível.",
   "composer.useAttachedContext": "Use o contexto anexado.",
   "mentions.commands": "Comandos",
@@ -1295,6 +1299,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Você saiu da sua conta, então este chat não consegue acompanhar o agente. Entre novamente e recarregue.",
   "errorMessages.malformedRequestAttachment":
     "O modelo rejeitou um arquivo anexado, então esta mensagem nunca foi enviada. Remova o anexo e tente novamente: um PDF, um arquivo de texto simples ou uma imagem JPEG, PNG, GIF ou WebP é lido diretamente; outros formatos precisam ser enviados e vinculados.",
+  "errorMessages.invalidAttachment":
+    "O provedor do modelo rejeitou este anexo por causa do formato ou tamanho. Para imagens, exporte uma versão menor em PNG, JPEG, GIF ou WebP; para documentos, use um formato de arquivo compatível ou cole o texto relevante e anexe novamente.",
   "errorMessages.noProviderConnected":
     "Nenhum provedor LLM está conectado. Abra Configurações > Agente > Provedores de IA e use o Builder.io (plano gratuito disponível) ou adicione uma chave de provedor.",
   "errorMessages.openBuilderSpaceSettings":

@@ -43,6 +43,7 @@ const DIRECT_MCP_READS = [
   "get-data-program",
   "get-error-issue",
   "get-first-party-analytics-health",
+  "get-onboarding-journey",
   "get-session-replay-summary",
   "get-session-replay-timeline",
   "get-sql-dashboard",
@@ -64,7 +65,10 @@ const DIRECT_MCP_READS = [
   "search-dashboard-references",
 ];
 
-const DIRECT_MCP_WRITES = ["run-gong-native-insight"];
+const DIRECT_MCP_WRITES = [
+  "run-gong-native-insight",
+  "update-analytics-public-key",
+];
 
 // Raw SQL and capability minting stay off every MCP catalog, including the
 // explicit full-catalog opt-in, which otherwise serves every undeclared action.
@@ -223,7 +227,7 @@ describe("Analytics MCP tools/list", () => {
     );
   }, 60_000);
 
-  it("adds only paid Gong synthesis for an mcp:write token", async () => {
+  it("adds only allowlisted writes for an mcp:write token", async () => {
     expect(await listAppTools(["mcp:read", "mcp:write"])).toEqual(
       [...DIRECT_MCP_READS, ...DIRECT_MCP_WRITES].sort(),
     );

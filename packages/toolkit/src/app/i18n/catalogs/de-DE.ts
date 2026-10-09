@@ -1150,6 +1150,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Hochladen",
   "composer.uploadFailed":
     "Die ausgewählte Datei konnte nicht hochgeladen werden.",
+  "composer.fileTooLarge":
+    "Diese Datei überschreitet die zulässige Uploadgröße.",
+  "composer.sessionExpired":
+    "Deine Sitzung ist abgelaufen. Aktualisiere die Seite und versuche es erneut.",
   "composer.unsupportedFileType": "Dieser Dateityp wird nicht unterstützt.",
   "composer.useAttachedContext": "Verwende den angehängten Kontext.",
   "mentions.commands": "Befehle",
@@ -1302,6 +1306,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Sie sind abgemeldet, daher kann dieser Chat dem Agenten nicht folgen. Melden Sie sich erneut an und laden Sie dann neu.",
   "errorMessages.malformedRequestAttachment":
     "Das Modell hat eine angehängte Datei abgelehnt, daher wurde diese Nachricht nie gesendet. Entfernen Sie den Anhang und versuchen Sie es erneut – eine PDF-, eine reine Textdatei oder ein JPEG-, PNG-, GIF- oder WebP-Bild wird direkt gelesen; andere Formate müssen hochgeladen und verlinkt werden.",
+  "errorMessages.invalidAttachment":
+    "Der Modellanbieter hat diesen Anhang wegen seines Formats oder seiner Größe abgelehnt. Exportieren Sie Bilder als kleinere PNG-, JPEG-, GIF- oder WebP-Datei; verwenden Sie für Dokumente ein unterstütztes Dateiformat oder fügen Sie den relevanten Text ein und hängen Sie ihn erneut an.",
   "errorMessages.noProviderConnected":
     "Es ist kein LLM-Anbieter verbunden. Öffne Einstellungen > Agent > KI-Anbieter und nutze dann Builder.io (kostenloser Tarif verfügbar) oder füge einen Anbieterschlüssel hinzu.",
   "errorMessages.openBuilderSpaceSettings":

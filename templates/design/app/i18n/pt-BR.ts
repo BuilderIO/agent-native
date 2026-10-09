@@ -1,4 +1,74 @@
 export default {
+  journeyCanvas: {
+    observedSessionReference: "Referência de sessão observada",
+    sessionsOfAll: "{count} sessões · {percent} do total",
+    sessionsOfAppRoot:
+      "{count} sessões · {percent} da coorte de {app} (n={rootCount})",
+    sessionsOfPrevious: "{count} sessões · {percent} da etapa anterior",
+    sessionsOfParent: "{count} sessões · {percent} de {label}",
+    observedContinuation:
+      "Mesma gravação · exemplo {fromExample} → exemplo {toExample}",
+    observedContinuationCompact: "Ex. {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
+    sessionsOfStep: "{count} sessões · {percent} desta etapa",
+    partialSample: "amostra parcial",
+    continuedOnUnpictured:
+      "Continuação em caminhos não exibidos: {count} · {percent} desta etapa",
+    noLaterStepObserved: "Nenhuma etapa posterior observada",
+    examplePosition: "Galeria {current} de {total}",
+    sourceExampleLabel: "Origem",
+    showExample: "Mostrar exemplo de origem {current}",
+    screenshotExamples: "Exemplos de captura de tela",
+    screenshotAlt:
+      "{label}, exemplo de origem {source}, posição na galeria {current} de {total}, capturado em {date}",
+    screenshotMissing: "Nenhuma captura de tela registrada",
+    recordingUnavailable: "indisponível",
+    eventTime: "Horário do evento (UTC)",
+    generationCompletedEvent: "evento generation_completed (UTC)",
+    replayObservation: "Observação da reprodução",
+    utcTimestamp: "Data e hora UTC",
+    recordingId: "ID da gravação",
+    replayOffset: "Deslocamento da reprodução",
+    replayOffsetUnavailable: "indisponível",
+    replaySeek: "Posição da reprodução",
+    checkpointSeekTarget: "Destino de busca do ponto de verificação",
+    analyticsCheckpointOffset:
+      "Deslocamento do ponto de verificação do Analytics",
+    replayObserved: "Reprodução observada",
+    screenshotCaptured: "Captura de tela registrada",
+    screenshotExportTimestamp: "Horário UTC de exportação da captura",
+    output: "Resultado",
+    outputTitle: "Título do resultado",
+    observedState: "Estado observado",
+    actorRecording: "Ator (gravação)",
+    actorSource: "Origem do ator",
+    recordingMetadata: "metadados da gravação",
+    evidence: "Evidência",
+    generationCompletedEvidence: "evento generation_completed",
+    renderedOutputEvidence:
+      "resultado renderizado observado; nenhum evento de conclusão foi afirmado",
+    openFullPrompt: "Abrir o prompt completo",
+    prompt: "Prompt",
+    promptEnglish: "Prompt (inglês)",
+    promptSource: "Prompt (origem)",
+    source: "Origem",
+    promptNotCaptured: "Prompt não capturado",
+    actorUnavailable: "Ator indisponível",
+    replayDetails: "Detalhes da reprodução e da origem",
+    sourceApp: "Aplicativo de origem",
+    route: "Rota atual no momento da captura",
+    routeUnavailable: "indisponível",
+    captureSourceFingerprint: "Impressão digital da origem da captura",
+    captureSourceUnavailable: "não fornecida",
+    recordingStarted: "Gravação iniciada",
+    appBandHeading: "{app} · {count} sessões",
+    journeyTitleSummary: "{app} · {from} a {to} · {count} sessões{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} a {to} · coortes separadas por aplicativo{partial}",
+    sessionCount: "{count} sessões",
+    otherPaths: "Outros caminhos",
+    htmlLanguage: "pt-BR",
+  },
   composer: { menu: { integrations: "Integrações" } },
   creativeContext: {
     title: "Biblioteca",
@@ -224,6 +294,18 @@ export default {
       exportSvg: "Exportar SVG",
       actionsPrefill: "Revise e envie",
       retry: "Tentar novamente",
+      currentDesign: "o Design atual",
+      chooseDesign: "um Design (pergunte qual devo usar, se necessário)",
+      importFramePrompt:
+        "Importe este frame do Figma em {{destination}} e indique o conteúdo que não pôde ser mantido pelo importador: {{url}}",
+      importFilePrompt:
+        "Abra este arquivo do Figma, liste os frames de nível superior e pergunte qual deles devo importar: {{url}}",
+      inspectFramePrompt:
+        "Inspecione este frame do Figma e resuma sua estrutura, componentes, estilos e tokens reutilizáveis: {{url}}",
+      inspectFilePrompt:
+        "Inspecione este arquivo do Figma e resuma sua estrutura, componentes, estilos e tokens reutilizáveis: {{url}}",
+      exportSvgPrompt:
+        "Exporte a tela atual do Design como SVG para uso no Figma e indique quais partes se tornam conteúdo SVG estático.",
     },
   },
   common: {
@@ -851,6 +933,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} imagem{{plural}} precisa{{plural}} de acesso ao Figma para carregar.",
       figmaPasteImagesDontShowAgain: "Não mostrar novamente",
+      figmaPasteUploadImage: "Enviar imagem",
+      figmaPasteUploadImageFor: "Enviar “{{name}}”",
+      figmaPasteImageFallbackName: "Imagem {{index}}",
+      figmaPasteUploadImageSuccess: "Imagem preenchida",
+      figmaPasteUploadImageInvalid:
+        "Escolha um arquivo de imagem, como SVG, PNG ou JPG.",
+      figmaPasteUploadImageError: "Não foi possível preencher essa imagem",
       figmaHydrationDialogTitle: "Conectar o Figma para carregar imagens",
       figmaHydrationDialogDescription:
         "Insira seu token de acesso do Figma para carregar {{count}} imagem{{plural}} ausente{{plural}} na tela{{screensPlural}} importada{{screensPlural}}.",
@@ -954,6 +1043,8 @@ export default {
       "A geração parou antes de criar arquivos. Tente novamente para continuar do mesmo prompt.",
     generationStoppedCheckAgent:
       "A geração parou antes de criar arquivos. Confira a mensagem do agente ou tente novamente.",
+    invalidCanvasDimensions:
+      "O tamanho de tela solicitado não é compatível. Use dimensões em pixels positivas dentro dos limites do editor.",
     notFound: "Design não encontrado",
     backToDesigns: "Voltar aos designs",
     designNotFoundDescription: "Este design não existe ou foi excluído.",

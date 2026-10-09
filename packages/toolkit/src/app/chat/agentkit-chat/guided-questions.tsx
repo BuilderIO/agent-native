@@ -1,5 +1,6 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
+  isLocalRuntimeEngine,
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
 } from "@agent-native/core/client/agent-chat";
@@ -1068,7 +1069,7 @@ export interface UseGuidedQuestionFlowOptions {
    */
   browserTabId?: string;
   threadId?: string;
-  providerStatusChecksEnabled?: boolean;
+  engine?: string;
   providerStatus?: AgentEngineConfiguredState;
   queryKey?: readonly unknown[];
   refetchInterval?: number | false;
@@ -1108,7 +1109,7 @@ export function useGuidedQuestionFlow({
   stateKey = "show-questions",
   browserTabId,
   threadId,
-  providerStatusChecksEnabled = true,
+  engine,
   providerStatus: providedProviderStatus,
   queryKey = ["show-questions"],
   refetchInterval = false,
@@ -1202,21 +1203,22 @@ export function useGuidedQuestionFlow({
   const needsAgentProvider = Boolean(
     visiblePayload?.questions.length && !visiblePayload.clientResolveId,
   );
+  const providerChecksEnabled = !isLocalRuntimeEngine(engine);
   const queriedProviderStatus = useAgentEngineConfigured(
     enabled &&
       needsAgentProvider &&
-      providerStatusChecksEnabled &&
+      providerChecksEnabled &&
       providedProviderStatus === undefined,
     { tabId: browserTabId, threadId },
   );
-  const providerStatus = providerStatusChecksEnabled
+  const providerStatus = providerChecksEnabled
     ? (providedProviderStatus ?? queriedProviderStatus.state)
     : "configured";
   const isSubmissionBlocked =
     enabled &&
     needsAgentProvider &&
-    providerStatusChecksEnabled &&
-    providerStatus !== "configured";
+    providerChecksEnabled &&
+    providerStatus === "missing";
   const retryProviderStatus = useCallback(() => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));

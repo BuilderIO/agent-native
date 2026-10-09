@@ -6,14 +6,14 @@ import { encodeMagicLinkSignupAttribution } from "./magic-link-attribution.js";
 const tracked: Array<{
   name: string;
   properties: Record<string, unknown>;
-  source?: { userId?: string; anonymousId?: string };
+  source?: { userId?: string; anonymousId?: string; sessionId?: string };
 }> = [];
 
 vi.mock("../tracking/index.js", () => ({
   track: (
     name: string,
     properties: Record<string, unknown>,
-    source?: { userId?: string; anonymousId?: string },
+    source?: { userId?: string; anonymousId?: string; sessionId?: string },
   ) => {
     tracked.push({ name, properties, source });
   },
@@ -73,7 +73,7 @@ describe("emitSignupEventForCreatedUser", () => {
   it("emits an attributed signup for a browser that reached an endpoint", async () => {
     await emitSignupEventForCreatedUser(USER, {
       headers: headersWithCookie(
-        `an_aid=anon_browser_1; ${firstTouchCookie({
+        `an_aid=anon_browser_1; an_sid=session_browser_1; ${firstTouchCookie({
           utm_source: "google",
           utm_campaign: "launch",
           landing_path: "/",
@@ -84,6 +84,7 @@ describe("emitSignupEventForCreatedUser", () => {
     expect(tracked).toHaveLength(1);
     expect(tracked[0].name).toBe("signup");
     expect(tracked[0].source?.anonymousId).toBe("anon_browser_1");
+    expect(tracked[0].source?.sessionId).toBe("session_browser_1");
     expect(tracked[0].properties).toMatchObject({
       auth_provider: "better-auth",
       signup_origin: "browser_signup",
@@ -91,6 +92,24 @@ describe("emitSignupEventForCreatedUser", () => {
       utm_source: "google",
       utm_campaign: "launch",
     });
+  });
+
+  it("attaches only a valid browser session id from the signup request", async () => {
+    await emitSignupEventForCreatedUser(USER, {
+      headers: new Headers({
+        "x-agent-native-session-id": "browser-session-42",
+      }),
+    });
+    expect(tracked[0]?.source?.sessionId).toBe("browser-session-42");
+
+    tracked.length = 0;
+    await emitSignupEventForCreatedUser(USER, {
+      headers: new Headers({
+        "x-agent-native-session-id": "not a session id",
+      }),
+    });
+    expect(tracked[0]?.source?.sessionId).toBeUndefined();
+    expect(tracked[0]?.properties).not.toHaveProperty("session_id");
   });
 
   it("labels a signup created by magic-link verification", async () => {
@@ -152,6 +171,7 @@ describe("emitSignupEventForCreatedUser", () => {
       {
         attribution: { referral_source: "external", utm_source: "newsletter" },
         anonymousId: "anon_magic_1",
+        sessionId: "session_magic_1",
       },
       getAuthSecret(),
     );
@@ -160,7 +180,9 @@ describe("emitSignupEventForCreatedUser", () => {
     )}`;
 
     await emitSignupEventForCreatedUser(USER, {
-      headers: new Headers(),
+      headers: new Headers({
+        "x-agent-native-session-id": "session_recipient_1",
+      }),
       request: {
         url: `https://app.example.com/_agent-native/auth/ba/magic-link/verify?token=t&newUserCallbackURL=${encodeURIComponent(
           callback,
@@ -169,6 +191,7 @@ describe("emitSignupEventForCreatedUser", () => {
     });
 
     expect(tracked[0].source?.anonymousId).toBe("anon_magic_1");
+    expect(tracked[0].source?.sessionId).toBe("session_magic_1");
     expect(tracked[0].properties).toMatchObject({ utm_source: "newsletter" });
     expect(persisted).toEqual([
       {
@@ -176,6 +199,18 @@ describe("emitSignupEventForCreatedUser", () => {
         attribution: expect.objectContaining({ utm_source: "newsletter" }),
       },
     ]);
+  });
+
+  it("does not attach the creating user's session to another user's signup", async () => {
+    await emitSignupEventForCreatedUser(USER, {
+      headers: new Headers({
+        "x-agent-native-session-id": "session_admin_1",
+      }),
+      context: { session: { user: { id: "admin_1" } } },
+    });
+
+    expect(tracked[0]?.source?.sessionId).toBeUndefined();
+    expect(tracked[0]?.properties).not.toHaveProperty("session_id");
   });
 
   it("persists paid first-touch parameters on the user row for a browser signup", async () => {
@@ -259,12 +294,19 @@ describe("emitSignupEventForCreatedUser", () => {
     });
     expect(persisted).toEqual([]);
     expect(tracked).toHaveLength(1);
+    expect(tracked[0].source?.anonymousId).toBeUndefined();
+    expect(tracked[0].source?.sessionId).toBeUndefined();
+    expect(tracked[0].properties).not.toHaveProperty("utm_source");
 
     await emitSignupEventForCreatedUser(USER, {
       headers,
       context: { session: { user: { id: USER.id } } },
     });
     expect(persisted).toHaveLength(1);
+    expect(tracked[1].source?.anonymousId).toBe("anon_admin");
+    expect(tracked[1].properties).toMatchObject({
+      utm_source: "admin-campaign",
+    });
   });
 
   it("persists nothing for a row created with no browser attribution", async () => {

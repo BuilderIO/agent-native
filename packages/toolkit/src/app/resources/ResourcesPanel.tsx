@@ -1,7 +1,7 @@
 import {
-  BUILDER_CLAUDE_SONNET_MODEL_ID,
-  BUILDER_CLAUDE_SONNET_MODEL_LABEL,
-} from "@agent-native/core/agent/model-config";
+  getModelOptionLabel,
+  type ModelEngineConfig,
+} from "@agent-native/core/agent/model-version";
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
@@ -94,6 +94,10 @@ import {
   type FileStorageSetupCloseReason,
 } from "../chat/FileStorageSetupPopover.js";
 import { BuiltinCapabilityDetail } from "./BuiltinCapabilityDetail.js";
+import {
+  getCustomAgentModelOptions,
+  useCustomAgentModelEngine,
+} from "./custom-agent-model-options.js";
 import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
 import { McpServerDetail } from "./McpServerDetail.js";
 import { ResourceEditor } from "./ResourceEditor.js";
@@ -232,17 +236,6 @@ type CreateMenuView =
   | "agent-mode"
   | "agent-prompt"
   | "agent-form";
-
-const AGENT_MODEL_OPTIONS = [
-  { value: "inherit", label: "Default model" },
-  { value: "claude-fable-5", label: "Claude Fable 5" },
-  { value: "claude-opus-5-5", label: "Claude Opus 5.5" },
-  {
-    value: BUILDER_CLAUDE_SONNET_MODEL_ID,
-    label: BUILDER_CLAUDE_SONNET_MODEL_LABEL,
-  },
-  { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
-] as const;
 
 export function slugifyName(value: string): string {
   return (
@@ -433,6 +426,7 @@ function CreateMenu({
   triggerVariant = "icon",
   triggerLabel,
   initialView = "menu",
+  modelEngine,
 }: {
   scope: ResourceScope;
   resourceFilter?: ResourceView;
@@ -466,11 +460,25 @@ function CreateMenu({
   triggerVariant?: "icon" | "outline";
   triggerLabel?: string;
   initialView?: CreateMenuView;
+  modelEngine?: ModelEngineConfig | null;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [view, setView] = useState<CreateMenuView>("menu");
+  const modelEngineLoad = useCustomAgentModelEngine(
+    modelEngine,
+    open && view === "agent-form",
+  );
+  const effectiveModelEngine = modelEngineLoad.engine;
+  const modelLabels = {
+    defaultModel: t("agentResources.defaultModel"),
+    builderFallback: t("agentResources.builderModelFallback"),
+  };
+  const agentModelOptions = getCustomAgentModelOptions(
+    effectiveModelEngine,
+    modelLabels,
+  );
   const showMcpIntegrations = useMemo(
     () => hasAvailableMcpIntegrations(mcpIntegrations),
     [mcpIntegrations],
@@ -941,6 +949,7 @@ The job will run automatically on the schedule. Make the instructions specific â
               </p>
               <PromptComposer
                 autoFocus
+                requireAgentEngine
                 placeholder="e.g. A skill that reviews PRs for security issues and OWASP top 10 vulnerabilities"
                 draftScope="resources:create-skill"
                 onSubmit={(text) => submitSkill(text)}
@@ -1015,6 +1024,7 @@ The job will run automatically on the schedule. Make the instructions specific â
               </p>
               <PromptComposer
                 autoFocus
+                requireAgentEngine
                 placeholder="e.g. Every weekday at 9am, check for overdue scorecards and send a Slack update"
                 draftScope="resources:create-job"
                 onSubmit={(text) => submitJob(text)}
@@ -1075,6 +1085,7 @@ The job will run automatically on the schedule. Make the instructions specific â
               </p>
               <PromptComposer
                 autoFocus
+                requireAgentEngine
                 placeholder="e.g. A design agent that critiques layouts, suggests UI direction, and prefers concise product reasoning"
                 draftScope="resources:create-agent"
                 onSubmit={(text) => submitAgentPrompt(text)}
@@ -1108,11 +1119,28 @@ The job will run automatically on the schedule. Make the instructions specific â
                   onChange={(e) => setAgentModel(e.target.value)}
                   className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none focus:ring-1 focus:ring-accent"
                 >
-                  {AGENT_MODEL_OPTIONS.map((option) => (
+                  {agentModelOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
+                  {modelEngineLoad.state === "unavailable" && (
+                    <option value="__model-options-unavailable" disabled>
+                      {t("agentResources.modelOptionsUnavailable")}
+                    </option>
+                  )}
+                  {agentModel !== "inherit" &&
+                    !agentModelOptions.some(
+                      (option) => option.value === agentModel,
+                    ) && (
+                      <option value={agentModel}>
+                        {getModelOptionLabel(
+                          agentModel,
+                          effectiveModelEngine ?? undefined,
+                          modelLabels.builderFallback,
+                        )}
+                      </option>
+                    )}
                 </select>
                 <label className="block text-[11px] font-medium text-muted-foreground">
                   Instructions
@@ -1240,6 +1268,8 @@ export interface ResourcesPanelProps {
   openResourceRef?: { current: ((id: string) => void) | null };
   /** Called when the editor opens or closes, so a page can yield to it. */
   onEditingChange?: (editing: boolean) => void;
+  /** Exact selected chat engine, when this panel is paired with a chat. */
+  modelEngine?: ModelEngineConfig | null;
 }
 
 /** Owners, admins, and solo deployments (no organization) edit org resources. */
@@ -1348,11 +1378,12 @@ export function ResourcesPanel({
   settingsGroups,
   openResourceRef,
   onEditingChange,
+  modelEngine,
 }: ResourcesPanelProps = {}) {
   const t = useT();
   const { data: org } = useOrg();
   const canEditOrg = canEditOrganizationResources(org);
-
+  const effectiveModelEngine = modelEngine;
   const [activeScope, setActiveScope] = useState<ResourceScope>(() =>
     resolveInitialResourceScope(requestedScope, canEditOrg),
   );
@@ -1918,6 +1949,7 @@ export function ResourcesPanel({
     return (
       <CreateMenu
         scope={targetScope}
+        modelEngine={effectiveModelEngine}
         resourceFilter={resourceFilter}
         personalMcpOnly={mode === "personal-mcp"}
         onCreateFile={(name) => handleCreateFromToolbar(targetScope, name)}
@@ -1962,6 +1994,7 @@ export function ResourcesPanel({
       return (
         <CreateMenu
           scope={targetScope}
+          modelEngine={effectiveModelEngine}
           resourceFilter={resourceFilter}
           personalMcpOnly={mode === "personal-mcp"}
           onCreateFile={(name) => handleCreateFromToolbar(targetScope, name)}
@@ -2232,6 +2265,7 @@ export function ResourcesPanel({
             (!resourceFilter || resourceFilter === "files") && (
               <CreateMenu
                 scope={activeScope}
+                modelEngine={effectiveModelEngine}
                 resourceFilter={resourceFilter}
                 personalMcpOnly={activeCreateMenuMode === "personal-mcp"}
                 onCreateFile={(name) =>
@@ -2349,6 +2383,8 @@ export function ResourcesPanel({
                 onViewChange={setEditorView}
                 hideToolbar
                 readOnly={selectedResourceReadOnly}
+                modelEngine={effectiveModelEngine}
+                builderFallbackLabel={t("agentResources.builderModelFallback")}
               />
             </div>
           ) : resourceQuery.isError ? (

@@ -80,22 +80,21 @@ const TEST_ONLY_PUBLIC_ASSETS = new Set([
 
 const DESIGN_CANVAS_E2E_FILES = new Set([
   "templates/design/e2e/base-url.ts",
-  "templates/design/e2e/chrome-geometry.reference.ts",
   "templates/design/e2e/corner-radius-handle-drag.spec.ts",
-  "templates/design/e2e/cross-screen-auto-layout-parity.spec.ts",
-  "templates/design/e2e/drag-and-drop.auto-layout-parity.spec.ts",
+  "templates/design/e2e/cross-screen-auto-layout.spec.ts",
+  "templates/design/e2e/drag-and-drop.auto-layout.spec.ts",
   "templates/design/e2e/drag-and-drop.reparenting-rules.spec.ts",
   "templates/design/e2e/drag-and-drop.shared.ts",
   "templates/design/e2e/drag-out-of-screen-to-board.spec.ts",
   "templates/design/e2e/global-setup.ts",
   "templates/design/e2e/global-teardown.ts",
   "templates/design/e2e/helpers.ts",
-  "templates/design/e2e/parity-drag-reparent.spec.ts",
-  "templates/design/e2e/parity-report-interactions.spec.ts",
-  "templates/design/e2e/parity-oversized-nested.spec.ts",
-  "templates/design/e2e/parity-alt-drag-duplicate.spec.ts",
-  "templates/design/e2e/z-order-parity.spec.ts",
-  "templates/design/e2e/parity-vector-endpoints.spec.ts",
+  "templates/design/e2e/interaction-drag-reparent.spec.ts",
+  "templates/design/e2e/interaction-report-interactions.spec.ts",
+  "templates/design/e2e/interaction-oversized-nested.spec.ts",
+  "templates/design/e2e/interaction-alt-drag-duplicate.spec.ts",
+  "templates/design/e2e/z-order-behavior.spec.ts",
+  "templates/design/e2e/interaction-vector-endpoints.spec.ts",
   "templates/design/e2e/responsive-overview-regressions.spec.ts",
   "templates/design/playwright.config.ts",
 ]);
@@ -106,6 +105,23 @@ const DESIGN_CANVAS_CONFIG_FILES = new Set([
   "templates/design/package.json",
   "templates/design/react-router.config.ts",
   "templates/design/vite.config.ts",
+]);
+
+const PRE_AUTH_SESSION_REPLAY_E2E_FILES = new Set([
+  "packages/core/src/app-config/analytics.ts",
+  "packages/core/src/client/analytics.ts",
+  "packages/core/src/client/session-replay.ts",
+  "packages/core/src/shared/environment-lanes.ts",
+  "packages/core/src/server/analytics.ts",
+  "packages/toolkit/src/app/auth/AuthPage.tsx",
+  "packages/toolkit/src/app/auth/entry.tsx",
+  "templates/analytics/server/handlers/session-replay.ts",
+  "templates/analytics/server/lib/session-replay.ts",
+  "templates/clips/server/plugins/config.ts",
+  "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+  "templates/design/playwright.config.ts",
+  "templates/design/server/plugins/config.ts",
+  "templates/slides/server/plugins/config.ts",
 ]);
 
 // The two-tab convergence lane also covers its own harness and the build it
@@ -144,6 +160,7 @@ const CHECK_NAMES = [
   "neon_query_budget",
   "neon_connection_budget",
   "design_canvas_interaction_e2e",
+  "pre_auth_session_replay_e2e",
   "slides_chat_e2e",
   "slides_authoring_e2e",
   "changeset",
@@ -200,6 +217,7 @@ export type CheckSelection = Record<CheckName, boolean>;
 export type ChangeScope = {
   changedPaths: string[];
   designCanvasE2eSpecs: string[];
+  designCanvasE2eSpecCount: number;
   docsOnly: boolean;
   full: boolean;
   nonDocsPaths: string[];
@@ -462,6 +480,7 @@ function hasPath(paths: readonly string[], prefix: string): boolean {
 function isDesignCanvasE2eSpecPath(path: string): boolean {
   return (
     path.startsWith("templates/design/e2e/") &&
+    path !== "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts" &&
     /\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path)
   );
 }
@@ -646,6 +665,9 @@ function buildChecks(
     coreChanged ||
     toolkitChanged ||
     hasPath(changedPaths, "packages/creative-context/");
+  const preAuthSessionReplayE2eChanged = changedPaths.some((path) =>
+    PRE_AUTH_SESSION_REPLAY_E2E_FILES.has(path),
+  );
   const contentConvergenceChanged =
     changedPaths.some(isContentConvergenceRuntimePath) || coreChanged;
 
@@ -693,6 +715,7 @@ function buildChecks(
     // move it.
     neon_connection_budget: coreChanged,
     design_canvas_interaction_e2e: designCanvasInteractionE2eChanged,
+    pre_auth_session_replay_e2e: preAuthSessionReplayE2eChanged,
     slides_chat_e2e: slidesChatE2eChanged,
     slides_authoring_e2e: slidesE2eChanged,
     changeset: changedPaths.some(isChangesetPath),
@@ -721,10 +744,14 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
       ) as CheckSelection)
     : buildChecks(changedPaths, full);
   const queryBudgetApps = queryBudgetAppsFor(changedPaths, full, checks);
+  const changedDesignSpecs = changedPaths
+    .filter(isDesignCanvasE2eSpecPath)
+    .sort();
 
   return {
     changedPaths,
-    designCanvasE2eSpecs: changedPaths.filter(isDesignCanvasE2eSpecPath).sort(),
+    designCanvasE2eSpecs: changedDesignSpecs,
+    designCanvasE2eSpecCount: changedDesignSpecs.length,
     docsOnly,
     full,
     nonDocsPaths,
@@ -782,6 +809,7 @@ function writeOutputs(scope: ChangeScope): void {
         `- Build selectors: **${scope.workspaceFilters.join(", ") || "none"}**`,
         `- Test/typecheck selectors: **${scope.testWorkspaceFilters.join(", ") || "none"}**`,
         `- Selected checks: **${selectedChecks.join(", ") || "docs"}**`,
+        `- Design E2E changed spec files: **${scope.designCanvasE2eSpecCount}**`,
         ...(preview.length > 0
           ? [
               "",

@@ -11,6 +11,7 @@
     "format.fix": "oxfmt --write .",
     "typecheck": "agent-native typecheck",
     "migrate:production": "tsx scripts/migrate-production.ts",
+    "journey:capture": "tsx scripts/journey-capture.ts",
     "backfill:first-party-bigquery": "tsx scripts/first-party-analytics-bigquery-backfill.ts",
     "action": "agent-native action",
     "script": "agent-native script"
@@ -27,7 +28,7 @@
     "@electric-sql/pglite": "^0.5.8",
     "@fontsource-variable/inter": "^5.2.8",
     "@resvg/resvg-js": "^2.6.2",
-    "@rrweb/replay": "2.1.0",
+    "@rrweb/replay": "2.1.7",
     "@tabler/icons-react": "catalog:",
     "@tanstack/react-query": "^5.99.2",
     "ai": "^7.0.84",

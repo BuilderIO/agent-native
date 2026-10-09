@@ -145,6 +145,8 @@ export const IPC = {
   QUICK_PROMPT_UPDATE: "quick-prompt:update",
   QUICK_PROMPT_DISMISS: "quick-prompt:dismiss",
   QUICK_PROMPT_SET_PICKER_OPEN: "quick-prompt:set-picker-open",
+  QUICK_PROMPT_SET_SETUP_REQUIRED: "quick-prompt:set-setup-required",
+  QUICK_PROMPT_OPEN_PROVIDER_SETTINGS: "quick-prompt:open-provider-settings",
   QUICK_PROMPT_HIDDEN: "quick-prompt:hidden",
   QUICK_PROMPT_SUBMIT: "quick-prompt:submit",
 } as const;
@@ -1166,6 +1168,7 @@ export interface DesktopOpenRequest {
   path?: string;
   softOpen?: boolean;
   runId?: string;
+  settingsTab?: string;
 }
 
 export interface DesktopChatOpenAppRequest {

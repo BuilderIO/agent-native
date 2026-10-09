@@ -679,6 +679,18 @@ export default {
     copied: "منقول",
     copy: "ينسخ",
     keyActions: "الإجراءات الرئيسية {{name}}",
+    manageReplayOrigins: "إدارة مصادر إعادة التشغيل",
+    replayOriginsDescription:
+      "أضف مصادر HTTPS دقيقة، مصدرًا واحدًا في كل سطر. سيتم الاحتفاظ بالمصادر الحالية.",
+    currentReplayOrigins: "المصادر المسموح بها حاليًا",
+    anyReplayOriginAllowed:
+      "أي مصدر مسموح به حاليًا. ستقيّد إضافة المصادر إعادة التشغيل بها، لذا أدرج كل تطبيق يستخدم هذا المفتاح.",
+    originsToAdd: "المصادر المراد إضافتها",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "إضافة المصادر",
+    addingReplayOrigins: "جارٍ إضافة المصادر…",
+    replayOriginsUpdateFailed: "تعذر تحديث المصادر المسموح بها.",
+    cancel: "إلغاء",
     lastUsed: "آخر استخدام {{date}}",
     neverUsed: "لم تستخدم قط",
     revoking: "جارٍ الإلغاء...",
@@ -1472,6 +1484,8 @@ export default {
     replayLoading: "جارٍ تحميل إعادة التشغيل...",
     replayLoadingProgress:
       "تم تحميل {{loaded}} من {{total}} مقاطع إعادة التشغيل",
+    replayTargetFallback:
+      "موضع التسجيل المطلوب {{requested}} غير متاح؛ يتم عرض أقرب إطار لإعادة التشغيل عند {{available}}.",
     replayUnavailable: "لا توجد مقاطع إعادة تشغيل لهذه الجلسة",
     replayUnavailableDescription:
       "تحتوي الجلسة على أحداث analytics، لكن لم يتم العثور على أحداث مقاطع rrweb.",
@@ -1603,8 +1617,12 @@ export default {
     storyboardNoDesignResponse: "لم يُرجع Design نتيجة للوحة القصصية.",
     storyboardTemporaryCleanupPending:
       "حُفظت لوحة القصص، لكن تعذّر حذف ملفات لقطات الشاشة المؤقتة.",
+    storyboardTemporaryCleanupFailed:
+      "لا يزال تنظيف لقطات الشاشة المؤقتة قيد الانتظار.",
     storyboardUnexpectedResponse:
       "أعاد تصدير لقطات الشاشة استجابة يتعذّر قراءتها. أعد المحاولة.",
+    storyboardSaveOutcomeUnknown:
+      "ربما حفظ Design لوحة القصص. تحقّق من Design قبل إعادة المحاولة.",
     openStoryboard: "فتح اللوحة القصصية في Design",
     cancelStoryboardCapture: "إلغاء الالتقاط",
     captureToDesign: "التقاط وإضافة إلى Design",

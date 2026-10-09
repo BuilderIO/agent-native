@@ -15,17 +15,18 @@ import {
 } from "./sidebar-preferences";
 import { SidebarTriggerContext } from "./sidebar-trigger";
 
-// The startup script marks <html> when the saved sidebar is collapsed.
+// The startup script marks <html> when the sidebar draws as the rail, or as a
+// drawer behind a menu button.
 const EXPANDED_ONLY = "[html[data-content-sidebar-collapsed]_&]:hidden";
 const COLLAPSED_ONLY = "hidden [html[data-content-sidebar-collapsed]_&]:flex";
 const SIDEBAR_SKELETON_CLASS_NAME =
   "rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10";
 
-// Below the compact breakpoint the app drops the sidebar for a menu button.
+// Without room for the rail, the app drops the sidebar for a menu button.
 const compactSidebarTrigger = (
   <div
     aria-hidden="true"
-    className="hidden size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground max-[1100px]:flex"
+    className="hidden size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground [html[data-content-sidebar-drawer]_&]:flex"
   >
     <IconMenu2 size={18} />
   </div>
@@ -54,7 +55,7 @@ export function ContentStartupShell({
       <div
         aria-hidden="true"
         className={cn(
-          "agent-layout-left-drawer flex shrink-0 max-[1100px]:hidden",
+          "agent-layout-left-drawer flex shrink-0 max-[1100px]:hidden [html[data-content-sidebar-drawer]_&]:hidden",
           HIDDEN_IN_WIDGET_CLASS_NAME,
         )}
       >

@@ -249,6 +249,8 @@ export interface AgentSidebarProps {
   /** @deprecated Use `defaultSidebarWidth` — this prop is mount-only. */
   sidebarWidth?: number;
   position?: "left" | "right";
+  /** Render the open panel over content even above the mobile breakpoint. */
+  forceOverlay?: boolean;
   defaultOpen?: boolean;
   disableChatShortcut?: boolean;
   showCollapseButton?: boolean;
@@ -268,6 +270,7 @@ export interface AgentSidebarProps {
   suppressInlineOpenApp?: AssistantChatProps["suppressInlineOpenApp"];
   composerPlaceholder?: AssistantChatProps["composerPlaceholder"];
   showMissingApiKeySetup?: AssistantChatProps["showMissingApiKeySetup"];
+  setupCardOwner?: AssistantChatProps["setupCardOwner"];
   showGuidedQuestions?: AssistantChatProps["showGuidedQuestions"];
   openOnChatRunning?: boolean;
   onFullscreenRequest?: (threadId?: string) => void;
@@ -326,6 +329,7 @@ export function AgentSidebar({
   defaultSidebarWidth,
   sidebarWidth,
   position,
+  forceOverlay = false,
   defaultOpen,
   disableChatShortcut = false,
   showCollapseButton = true,
@@ -344,6 +348,7 @@ export function AgentSidebar({
   suppressInlineOpenApp,
   composerPlaceholder,
   showMissingApiKeySetup,
+  setupCardOwner,
   showGuidedQuestions,
   openOnChatRunning = false,
   onFullscreenRequest,
@@ -978,10 +983,12 @@ export function AgentSidebar({
   const handleResizeEnd = useCallback(() => setIsResizing(false), []);
 
   const isLeft = effectivePosition === "left";
-  const wideDrawerEnabled = isWideDrawer && !isMobile;
-  const mobileAnimationEnabled = !presentationMode && isMobile && animateMobile;
+  const isOverlay = isMobile || forceOverlay;
+  const wideDrawerEnabled = isWideDrawer && !isOverlay;
+  const mobileAnimationEnabled =
+    !presentationMode && isOverlay && animateMobile;
   const desktopAnimationEnabled =
-    !presentationMode && !isMobile && effectiveAnimateDesktop;
+    !presentationMode && !isOverlay && effectiveAnimateDesktop;
   const sidebarAnimationEnabled =
     mobileAnimationEnabled || desktopAnimationEnabled;
   const [renderAnimatedPanel, setRenderAnimatedPanel] =
@@ -1014,15 +1021,17 @@ export function AgentSidebar({
     enabled &&
     (sidebarAnimationEnabled ? renderAnimatedPanel : shouldMountPanel);
   const panelOpen = enabled && open && shouldMountPanel;
-  const panelLayout = isMobile
-    ? "mobile"
+  const panelLayout = isOverlay
+    ? forceOverlay && !isMobile
+      ? "overlay"
+      : "mobile"
     : wideDrawerEnabled
       ? "drawer"
       : "desktop";
-  const showResizeHandle = !isMobile && !wideDrawerEnabled && panelOpen;
+  const showResizeHandle = !isOverlay && !wideDrawerEnabled && panelOpen;
 
   let panelStyle: AgentPanelStyle;
-  if (isMobile) {
+  if (isOverlay) {
     panelStyle = {
       ...AGENT_PANEL_ROOT_STYLE,
       position: "fixed",
@@ -1164,14 +1173,15 @@ export function AgentSidebar({
             suppressInlineOpenApp={suppressInlineOpenApp}
             composerPlaceholder={composerPlaceholder}
             showMissingApiKeySetup={showMissingApiKeySetup}
+            setupCardOwner={setupCardOwner}
             showGuidedQuestions={showGuidedQuestions}
             missingApiKeySetupLayout="sidebar"
             defaultMode={defaultMode}
             onCollapse={() => setOpenPersisted(false)}
             showCollapseButton={showCollapseButton}
-            onSnapTo75Percent={isMobile ? undefined : snapTo75Percent}
-            isWideDrawer={isMobile ? false : isWideDrawer}
-            onExitWideDrawer={isMobile ? undefined : exitWideDrawer}
+            onSnapTo75Percent={isOverlay ? undefined : snapTo75Percent}
+            isWideDrawer={isOverlay ? false : isWideDrawer}
+            onExitWideDrawer={isOverlay ? undefined : exitWideDrawer}
             onFullViewRequest={onFullscreenRequest}
             onOpenSettings={onOpenSettings}
             onNewCliTab={onNewCliTab}
@@ -1232,8 +1242,8 @@ export function AgentSidebar({
         data-agent-native-hosted-chat={isPerAppChatHosted ? "true" : undefined}
         data-agent-sidebar-resizing={isResizing ? "true" : undefined}
       >
-        {/* Mobile backdrop — tapping it closes the sidebar */}
-        {isMobile &&
+        {/* Overlay backdrop — tapping it closes the sidebar */}
+        {isOverlay &&
           !isPerAppChatHosted &&
           !presentationMode &&
           enabled &&
@@ -1265,7 +1275,7 @@ export function AgentSidebar({
           className="agent-sidebar-main-surface flex flex-1 flex-col overflow-auto min-w-0"
           data-agent-sidebar-main-position={effectivePosition}
           data-agent-sidebar-main-state={
-            !isMobile && !presentationMode && panelOpen ? "open" : "closed"
+            !isOverlay && !presentationMode && panelOpen ? "open" : "closed"
           }
           data-agent-sidebar-resizing={isResizing ? "true" : undefined}
         >

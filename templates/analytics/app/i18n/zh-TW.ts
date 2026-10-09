@@ -651,6 +651,17 @@ export default {
     copied: "已複製",
     copy: "複製",
     keyActions: "{{name}} 關鍵動作",
+    manageReplayOrigins: "管理回放來源",
+    replayOriginsDescription: "每行新增一個精確的 HTTPS 來源。現有來源會保留。",
+    currentReplayOrigins: "目前允許的來源",
+    anyReplayOriginAllowed:
+      "目前允許任何來源。新增來源後，回放將限制為清單中的來源，因此請加入所有使用此金鑰的應用程式。",
+    originsToAdd: "要新增的來源",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "新增來源",
+    addingReplayOrigins: "正在新增來源…",
+    replayOriginsUpdateFailed: "無法更新允許的來源。",
+    cancel: "取消",
     lastUsed: "最後使用 {{date}}",
     neverUsed: "從未使用過",
     revoking: "撤銷...",
@@ -1505,6 +1516,8 @@ export default {
     askSessionPlaceholder: "此工作階段發生了什麼？",
     replayPlayer: "回放播放器",
     replayLoading: "正在載入回放...",
+    replayTargetFallback:
+      "無法顯示要求的錄製偏移 {{requested}}；目前顯示 {{available}} 的最接近回放畫面。",
     replayUnavailable: "此工作階段沒有回放分塊",
     replayUnavailableDescription:
       "此工作階段有分析事件，但未找到 rrweb 分塊事件。",
@@ -1627,7 +1640,10 @@ export default {
       "回放 {{replayId}} 在 {{timestamp}} 時的路由無法使用。",
     storyboardNoDesignResponse: "Design 未傳回故事板結果。",
     storyboardTemporaryCleanupPending: "故事板已儲存，但無法刪除暫存截圖檔案。",
+    storyboardTemporaryCleanupFailed: "暫存截圖清理仍在等待處理。",
     storyboardUnexpectedResponse: "截圖匯出傳回了無法讀取的回應。請重試。",
+    storyboardSaveOutcomeUnknown:
+      "Design 可能已儲存故事板。重試前請先檢查 Design。",
     openStoryboard: "在 Design 中開啟故事板",
     cancelStoryboardCapture: "取消擷取",
     captureToDesign: "擷取並新增至 Design",

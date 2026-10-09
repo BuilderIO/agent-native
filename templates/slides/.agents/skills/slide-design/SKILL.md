@@ -72,7 +72,10 @@ Type does most of the work.
   related, far for unrelated. Equal gaps everywhere read as amateur.
 - **Optical alignment:** nudge large type to look flush with small text.
 - **One focal point.** Squint; one thing should land first.
-- Keep layout in normal flex/grid flow; `slide-editing` owns fit constraints.
+- **One idea per slide; split, do not shrink.** A slide over the `create-deck`
+  Fit budget becomes two slides, not smaller type or clipped overflow.
+- Keep layout in normal flex/grid flow; `slide-editing` owns flow and fit
+  constraints.
 
 ## Color
 
@@ -106,7 +109,8 @@ With a system or reference, use only its colors; these rules govern how.
   + image, split, grid of 3, quote, closing. Alternate dense and sparse; avoid
   three identical layouts in a row.
 - Fixed chrome in the same place on every slide: a small running head, a page
-  number like `04 / 12`, maybe a hairline.
+  number like `04 / 12` from the `create-deck` slide-number tokens (never typed
+  digits, which go stale on reorder), maybe a hairline.
 - Title and section slides carry the strongest expression of the direction.
 
 ## What reads as generic

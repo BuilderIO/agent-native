@@ -14,6 +14,7 @@ import {
   clientPointToSlideCoordinates,
   cloneSlideObject,
   collectMovableSlideObjects,
+  duplicateSlideObjectMembers,
   computeSlideObjectZOrder,
   clampSlideObjectPlacementPosition,
   computeSlideObjectZOrderForSelection,
@@ -43,7 +44,9 @@ import {
   preserveSlideObjectLayoutSpacer,
   persistSlideObjectZOrderFromDom,
   removeSlideObjectAndLayoutSpacer,
+  removeSlideObjectLayoutSpacer,
   resolveSlideObjectContainingBlock,
+  resolveSelectionOwner,
   resolveSlideObjectGroupRoot,
   resolveSlideObjectInsertionContainingBlock,
   resolveSlideObjectMoveRoots,
@@ -52,6 +55,7 @@ import {
   resizeSlideObjectMembers,
   resizeTransformedSlideObject,
   scaleSlideObjectGroupMembers,
+  readEditableSlideObjectRotation,
   readSlideObjectRotation,
   readSlideObjectTransformSnapshot,
   resolveSlideObjectRotationDelta,
@@ -65,7 +69,25 @@ import {
   ungroupSlideObject,
   SLIDE_OBJECT_PASTE_OFFSET,
   distributeSlideObjectMembers,
+  clientPointToContainingBlockOffset,
+  hasFitTextMinHeight,
+  isFitTextObject,
+  isLayoutSpacer,
+  planSlideObjectGeometry,
+  resolveFitTextBoxResize,
+  resolveFreeformSizing,
+  resolveSelectionIdentity,
+  resolveSlideSelectionAnchor,
+  clientRectToContainingBlockBox,
+  hasRotatedAncestor,
+  parseSlideObjectTransformOrigin,
+  probeScreenBasis,
+  screenDeltaToLocal,
+  wrapImageInCropFrame,
+  wrapSlideObjectRotation,
   type SlideObjectGeometry,
+  type SlideObjectGeometryApplier,
+  type SlideObjectGeometryPlan,
   type SlideObjectGroupResizeMember,
   type SlideObjectRotationMember,
 } from "./slide-object-interactions";
@@ -100,7 +122,7 @@ function rotationMember(
   objectId: string,
   element: HTMLElement,
   start: SlideObjectGeometry,
-  rotation: number,
+  rotation: number | null,
 ): SlideObjectRotationMember {
   return {
     objectId,
@@ -466,6 +488,40 @@ describe("slide object interactions", () => {
     layer.remove();
   });
 
+  it("removes only the spacer owned by the object, within the given scope", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div id="card">
+        <div class="fmd-layout-spacer" data-slide-layout-spacer-for="a"></div>
+        <div id="a" data-slide-object-id="a" style="position:absolute"></div>
+      </div>
+      <div class="fmd-layout-spacer" data-slide-layout-spacer-for="b"></div>
+      <div id="b" data-slide-object-id="b"></div>
+    `;
+    document.body.append(root);
+    const a = root.querySelector<HTMLElement>("#a")!;
+    const b = root.querySelector<HTMLElement>("#b")!;
+    const spacerFor = (id: string) =>
+      root.querySelector(`[data-slide-layout-spacer-for="${id}"]`);
+
+    removeSlideObjectLayoutSpacer(a);
+    expect(spacerFor("a")).toBeNull();
+    expect(spacerFor("b")).not.toBeNull();
+    expect(a.isConnected).toBe(true);
+
+    // A spacer outside the object's parent needs the wider owner to be found.
+    const stray = document.createElement("div");
+    stray.setAttribute("data-slide-layout-spacer-for", "a");
+    root.insertBefore(stray, b);
+    removeSlideObjectLayoutSpacer(a);
+    expect(spacerFor("a")).not.toBeNull();
+    removeSlideObjectLayoutSpacer(a, root);
+    expect(spacerFor("a")).toBeNull();
+    removeSlideObjectLayoutSpacer(b);
+    expect(spacerFor("b")).toBeNull();
+    root.remove();
+  });
+
   it("keeps an object dropped inside its box as the box's child", () => {
     const layer = document.createElement("div");
     layer.innerHTML = `
@@ -646,7 +702,8 @@ describe("slide object interactions", () => {
           ? ({
               transform: "matrix(0, 1, -1, 0, 0, 0)",
               transformOrigin: "50px 25px",
-            } as CSSStyleDeclaration)
+              getPropertyValue: () => "",
+            } as unknown as CSSStyleDeclaration)
           : getComputedStyle.call(window, target, pseudoElement),
       );
 
@@ -1184,6 +1241,31 @@ describe("slide object interactions", () => {
     expect(ensureSlideObjectId(object)).toBe("original");
   });
 
+  it("rekeys preserved layout spacers to the cloned child ids", () => {
+    const row = document.createElement("div");
+    row.dataset.slideObjectId = "row";
+    row.innerHTML = `
+      <div data-slide-layout-spacer-for="child"></div>
+      <div data-slide-object-id="child">Child</div>
+    `;
+
+    const clone = cloneSlideObject(row);
+    const cloneChild = clone.querySelector<HTMLElement>(
+      "[data-slide-object-id]",
+    )!;
+    const cloneSpacer = clone.querySelector("[data-slide-layout-spacer-for]")!;
+
+    expect(cloneChild.dataset.slideObjectId).not.toBe("child");
+    expect(cloneSpacer.getAttribute("data-slide-layout-spacer-for")).toBe(
+      cloneChild.dataset.slideObjectId,
+    );
+    expect(
+      row
+        .querySelector("[data-slide-layout-spacer-for]")!
+        .getAttribute("data-slide-layout-spacer-for"),
+    ).toBe("child");
+  });
+
   it("remints DOM ids and keeps clone-local references attached", () => {
     const object = document.createElement("div");
     object.id = "source-root";
@@ -1335,7 +1417,7 @@ describe("slide object interactions", () => {
     ).toEqual({ x: 130, y: 57.5, width: 170, height: 85 });
   });
 
-  it("keeps height auto only for a width-only drag on a text object", () => {
+  it("keeps height auto for every handle on a fit text box", () => {
     const textBox = document.createElement("div");
     textBox.className = "fmd-text-box";
     textBox.textContent = "Some text";
@@ -1343,15 +1425,55 @@ describe("slide object interactions", () => {
     const shape = document.createElement("div");
     shape.setAttribute("data-slide-shape", "rectangle");
 
-    for (const handle of ["e", "w"] as const) {
+    for (const handle of [
+      "n",
+      "ne",
+      "e",
+      "se",
+      "s",
+      "sw",
+      "w",
+      "nw",
+    ] as const) {
       expect(isAutoHeightTextResize(textBox, handle, false)).toBe(true);
-      expect(isAutoHeightTextResize(textBox, handle, true)).toBe(false);
+      expect(isAutoHeightTextResize(textBox, handle, true)).toBe(true);
       expect(isAutoHeightTextResize(shape, handle, false)).toBe(false);
     }
+  });
 
-    for (const handle of ["nw", "ne", "sw", "se", "n", "s"] as const) {
-      expect(isAutoHeightTextResize(textBox, handle, false)).toBe(false);
+  it("keeps height auto only for a width-only drag on a fixed-height text leaf", () => {
+    const text = document.createElement("p");
+    text.textContent = "Some text";
+    text.style.height = "80px";
+
+    for (const handle of ["e", "w"] as const) {
+      expect(isAutoHeightTextResize(text, handle, false)).toBe(true);
+      expect(isAutoHeightTextResize(text, handle, true)).toBe(false);
     }
+    for (const handle of ["nw", "ne", "sw", "se", "n", "s"] as const) {
+      expect(isAutoHeightTextResize(text, handle, false)).toBe(false);
+    }
+  });
+
+  it("keeps the explicit height of a painted text leaf on an E/W drag", () => {
+    const rect = document.createElement("div");
+    rect.textContent = "Some text";
+    rect.style.height = "200px";
+    rect.style.backgroundColor = "rgb(20, 24, 29)";
+
+    for (const handle of ["e", "w"] as const) {
+      expect(isAutoHeightTextResize(rect, handle, false)).toBe(false);
+    }
+  });
+
+  it("keeps the height of a bottom-anchored text leaf on an E/W drag", () => {
+    const text = document.createElement("p");
+    text.textContent = "Footer";
+    text.style.position = "absolute";
+    text.style.bottom = "40px";
+
+    expect(isFitTextObject(text)).toBe(false);
+    expect(isAutoHeightTextResize(text, "e", false)).toBe(false);
   });
 
   it("freezes an in-flow text block without removing its layout slot", () => {
@@ -1835,6 +1957,49 @@ describe("slide object interactions", () => {
     ).toEqual([label]);
   });
 
+  it("duplicates members at the end of their parent with fresh ids and no builder ids", () => {
+    const parent = document.createElement("div");
+    const a = createFreeformObject("a", { left: 10, top: 20 });
+    a.dataset.builderId = "b-1";
+    const group = createFreeformObject("group", { left: 30, top: 40 });
+    const nested = createFreeformObject("nested", { left: 1, top: 2 });
+    nested.dataset.builderId = "b-3";
+    group.append(nested);
+    const tail = createFreeformObject("tail");
+    parent.append(a, group, tail);
+    const members = collectMovableSlideObjects([a, group], (element) => ({
+      x: Number.parseFloat(element.style.left),
+      y: Number.parseFloat(element.style.top),
+      width: 50,
+      height: 50,
+    }));
+
+    const clones = duplicateSlideObjectMembers(members);
+
+    // Appended so animations' child-index paths for tail and the originals
+    // keep pointing at the same elements.
+    expect(Array.from(parent.children)).toEqual([
+      a,
+      group,
+      tail,
+      clones[0].element,
+      clones[1].element,
+    ]);
+    const ids = Array.from(
+      parent.querySelectorAll("[data-slide-object-id]"),
+    ).map((element) => element.getAttribute("data-slide-object-id"));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(clones.map((clone) => clone.objectId)).toEqual(
+      clones.map((clone) => clone.element.getAttribute("data-slide-object-id")),
+    );
+    expect(clones.map((clone) => clone.start)).toEqual(
+      members.map((member) => member.start),
+    );
+    expect(clones[1].element.querySelector("[data-builder-id]")).toBeNull();
+    expect(clones[0].element.hasAttribute("data-builder-id")).toBe(false);
+    expect(a.dataset.builderId).toBe("b-1");
+  });
+
   it("does not promote a bordered flow card with positioned descendants", () => {
     const slideContent = document.createElement("div");
     const card = document.createElement("div");
@@ -1904,7 +2069,7 @@ describe("slide object interactions", () => {
     const objectA = createFreeformObject("a", { left: 10, top: 20 });
     const objectB = createFreeformObject("b", { left: 30, top: 40 });
     document.body.append(objectA, objectB);
-    const applied = new Map<string, SlideObjectGeometry>();
+    const applied = new Map<string, SlideObjectGeometryPlan>();
     const members = collectMovableSlideObjects(
       [objectA, objectB],
       (element) => ({
@@ -1915,10 +2080,7 @@ describe("slide object interactions", () => {
       }),
     );
 
-    const applyGeometry = (
-      element: HTMLElement,
-      geometry: SlideObjectGeometry,
-    ) => {
+    const applyGeometry: SlideObjectGeometryApplier = (element, geometry) => {
       applied.set(element.dataset.slideObjectId as string, geometry);
     };
 
@@ -1942,11 +2104,13 @@ describe("slide object interactions", () => {
 
     expect(result.deltaX).toBe(20);
     expect(result.deltaY).toBe(0);
+    // The guide spans the two objects it aligns (peer 50..130, moved 160..200),
+    // not the slide.
     expect(result.guides).toContainEqual({
       orientation: "vertical",
       position: 200,
-      start: 0,
-      end: 720,
+      start: 50,
+      end: 200,
     });
   });
 
@@ -2418,7 +2582,7 @@ describe("slide object groups and rotation", () => {
     entries: Array<[HTMLElement, SlideObjectGeometry]>,
   ): {
     get: (element: HTMLElement) => SlideObjectGeometry;
-    apply: (element: HTMLElement, geometry: SlideObjectGeometry) => void;
+    apply: SlideObjectGeometryApplier;
   } => {
     const geometries = new Map(entries);
     const get = (element: HTMLElement) => {
@@ -2431,12 +2595,14 @@ describe("slide object groups and rotation", () => {
         height: Number.parseFloat(element.style.height) || 0,
       };
     };
-    const apply = (element: HTMLElement, geometry: SlideObjectGeometry) => {
-      geometries.set(element, geometry);
+    const apply: SlideObjectGeometryApplier = (element, geometry) => {
+      geometries.set(element, { ...get(element), ...geometry });
       element.style.left = `${geometry.x}px`;
       element.style.top = `${geometry.y}px`;
       element.style.width = `${geometry.width}px`;
-      element.style.height = `${geometry.height}px`;
+      if (geometry.height !== undefined) {
+        element.style.height = `${geometry.height}px`;
+      }
     };
     return { get, apply };
   };
@@ -2455,6 +2621,28 @@ describe("slide object groups and rotation", () => {
     expect(resolveSlideObjectGroupRoot(member, boundary)).toBe(inner);
     expect(resolveSlideObjectGroupRoot(inner, boundary)).toBe(inner);
     expect(resolveSlideObjectGroupRoot(boundary, boundary)).toBeNull();
+  });
+
+  it("resolves a selection owner to its group, else its table, else itself", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <table id="plain"><tbody><tr id="plainRow"><td id="plainCell"><p id="cellText">a</p></td></tr></tbody></table>
+      <div class="fmd-slide-group" data-slide-group="true" id="group">
+        <table id="grouped"><tbody><tr><td id="groupedCell">b</td></tr></tbody></table>
+        <p id="free">c</p>
+      </div>
+      <p id="loose">d</p>`;
+    const byId = (id: string) => root.querySelector<HTMLElement>(`#${id}`)!;
+
+    expect(resolveSelectionOwner(byId("plainCell"), root)).toBe(byId("plain"));
+    expect(resolveSelectionOwner(byId("cellText"), root)).toBe(byId("plain"));
+    expect(resolveSelectionOwner(byId("plainRow"), root)).toBe(byId("plain"));
+    expect(resolveSelectionOwner(byId("plain"), root)).toBe(byId("plain"));
+    expect(resolveSelectionOwner(byId("groupedCell"), root)).toBe(
+      byId("group"),
+    );
+    expect(resolveSelectionOwner(byId("free"), root)).toBe(byId("group"));
+    expect(resolveSelectionOwner(byId("loose"), root)).toBe(byId("loose"));
   });
 
   it("groups absolute siblings into one durable wrapper and ungroups at its stack position", () => {
@@ -3029,7 +3217,10 @@ describe("slide object groups and rotation", () => {
     ].join(", ")})`;
 
     expect(readSlideObjectRotation(element)).toBeCloseTo(angle);
-    setSlideObjectRotation(element, readSlideObjectRotation(element) + 15);
+    setSlideObjectRotation(
+      element,
+      (readSlideObjectRotation(element) ?? 0) + 15,
+    );
     expect(readSlideObjectRotation(element)).toBeCloseTo(angle + 15);
   });
 
@@ -3114,5 +3305,2713 @@ describe("layer drop and arrange guards", () => {
 
     expect(arrangeSlideLayerInParent(bg, "front")).toBe(false);
     expect(bg.style.zIndex).toBe("-1");
+  });
+});
+
+describe("fit text objects", () => {
+  const flowLayout = {
+    display: "block",
+    flexGrow: "0",
+    flexShrink: "1",
+    flexBasis: "auto",
+    alignSelf: "auto",
+  };
+
+  const createFitTextBox = (
+    id: string,
+    { left = 0, top = 0, width = 200 } = {},
+  ): HTMLElement => {
+    const element = createFreeformObject(id, { left, top });
+    element.className = "fmd-text-box";
+    element.style.width = `${width}px`;
+    element.textContent = "Some text";
+    return element;
+  };
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("classifies fit text by its missing inline height", () => {
+    const textBox = createFitTextBox("box");
+    expect(isFitTextObject(textBox)).toBe(true);
+
+    textBox.style.height = "auto";
+    expect(isFitTextObject(textBox)).toBe(true);
+
+    textBox.style.minHeight = "120px";
+    expect(isFitTextObject(textBox)).toBe(true);
+    expect(hasFitTextMinHeight(textBox)).toBe(true);
+
+    textBox.style.height = "120px";
+    expect(isFitTextObject(textBox)).toBe(false);
+
+    const heading = document.createElement("h1");
+    heading.textContent = "Title";
+    expect(isFitTextObject(heading)).toBe(true);
+    expect(hasFitTextMinHeight(heading)).toBe(false);
+  });
+
+  it("does not treat painted cards, images, or imported PPTX text as fit text", () => {
+    const card = document.createElement("div");
+    card.textContent = "Card";
+    card.style.backgroundColor = "rgb(240, 240, 240)";
+    expect(isFitTextObject(card)).toBe(false);
+
+    const bordered = document.createElement("div");
+    bordered.textContent = "Card";
+    bordered.style.border = "2px solid rgb(0, 0, 0)";
+    expect(isFitTextObject(bordered)).toBe(false);
+
+    const image = document.createElement("img");
+    expect(isFitTextObject(image)).toBe(false);
+
+    const imported = createFitTextBox("imported");
+    imported.setAttribute("data-imported-pptx", "true");
+    expect(isFitTextObject(imported)).toBe(false);
+
+    const filledTextBox = createFitTextBox("filled");
+    filledTextBox.style.backgroundColor = "rgb(255, 255, 0)";
+    expect(isFitTextObject(filledTextBox)).toBe(true);
+  });
+
+  it("picks fit for text, min for painted cards, and fixed for everything else", () => {
+    const heading = document.createElement("h2");
+    heading.textContent = "Heading";
+    expect(resolveFreeformSizing(heading)).toBe("fit");
+
+    const card = document.createElement("div");
+    card.textContent = "Card";
+    card.style.backgroundColor = "rgb(240, 240, 240)";
+    expect(resolveFreeformSizing(card)).toBe("min");
+
+    const fixedCard = card.cloneNode(true) as HTMLElement;
+    fixedCard.style.height = "300px";
+    expect(resolveFreeformSizing(fixedCard)).toBe("fixed");
+
+    const bar = document.createElement("div");
+    bar.style.backgroundColor = "rgb(0, 0, 0)";
+    expect(resolveFreeformSizing(bar)).toBe("fixed");
+
+    expect(resolveFreeformSizing(document.createElement("img"))).toBe("fixed");
+    const placeholder = document.createElement("div");
+    placeholder.className = "fmd-img-placeholder";
+    placeholder.textContent = "Image";
+    placeholder.style.backgroundColor = "rgb(240, 240, 240)";
+    expect(resolveFreeformSizing(placeholder)).toBe("fixed");
+  });
+
+  it.each([
+    ["fit", "", ""],
+    ["min", "", "64px"],
+    ["fixed", "64px", ""],
+  ] as const)(
+    "promotes a flow block with %s sizing",
+    (sizing, height, minHeight) => {
+      const parent = document.createElement("div");
+      const text = document.createElement("h1");
+      text.textContent = "Slide title";
+      parent.append(text);
+
+      const spacer = freezeSlideElementForFreeform(
+        text,
+        { x: 120, y: 80, width: 420, height: 64 },
+        flowLayout,
+        undefined,
+        { sizing },
+      );
+
+      expect(text.style.position).toBe("absolute");
+      expect(text.style.left).toBe("120px");
+      expect(text.style.top).toBe("80px");
+      expect(text.style.width).toBe("420px");
+      expect(text.style.height).toBe(height);
+      expect(text.style.minHeight).toBe(minHeight);
+      expect(spacer.style.width).toBe("420px");
+      expect(spacer.style.height).toBe("64px");
+      expect(Number.parseFloat(spacer.style.minHeight)).toBe(0);
+    },
+  );
+
+  it("promotes with a fixed height when no sizing is given", () => {
+    const parent = document.createElement("div");
+    const text = document.createElement("h1");
+    text.textContent = "Slide title";
+    parent.append(text);
+
+    freezeSlideElementForFreeform(
+      text,
+      { x: 0, y: 0, width: 420, height: 64 },
+      flowLayout,
+    );
+
+    expect(text.style.height).toBe("64px");
+    expect(text.style.minHeight).toBe("");
+  });
+
+  it("omits height from geometry plans of fit text only", () => {
+    const fit = createFitTextBox("fit");
+    const image = createFreeformObject("image");
+    const geometry = { x: 1, y: 2, width: 30, height: 40 };
+
+    expect(planSlideObjectGeometry(fit, geometry)).toEqual({
+      x: 1,
+      y: 2,
+      width: 30,
+    });
+    expect("height" in planSlideObjectGeometry(fit, geometry)).toBe(false);
+    expect(planSlideObjectGeometry(image, geometry)).toEqual(geometry);
+  });
+
+  it("moves, aligns, and distributes fit text without a height", () => {
+    const fitA = createFitTextBox("a", { left: 10, top: 20 });
+    const fitB = createFitTextBox("b", { left: 110, top: 80 });
+    const shape = createFreeformObject("c", { left: 230, top: 140 });
+    shape.style.height = "20px";
+    document.body.append(fitA, fitB, shape);
+    const geometries = new Map<HTMLElement, SlideObjectGeometry>([
+      [fitA, { x: 10, y: 20, width: 50, height: 31 }],
+      [fitB, { x: 110, y: 80, width: 30, height: 62 }],
+      [shape, { x: 230, y: 140, width: 40, height: 20 }],
+    ]);
+    const members = collectMovableSlideObjects(
+      [fitA, fitB, shape],
+      (element) => geometries.get(element)!,
+    );
+
+    const moved = new Map<string, SlideObjectGeometryPlan>();
+    applySlideObjectMoveDelta(members, 5, 6, (element, geometry) => {
+      moved.set(element.dataset.slideObjectId!, geometry);
+    });
+    expect(moved.get("a")).toEqual({ x: 15, y: 26, width: 50 });
+    expect("height" in moved.get("a")!).toBe(false);
+    expect(moved.get("c")).toEqual({ x: 235, y: 146, width: 40, height: 20 });
+
+    const aligned = alignSlideObjectMembers(members, "middle");
+    expect("height" in aligned.get("a")!).toBe(false);
+    expect(aligned.get("a")?.y).toBeCloseTo(20 + (140 - 31) / 2, 5);
+    expect(aligned.get("c")?.height).toBe(20);
+
+    const distributed = distributeSlideObjectMembers(members, "horizontal");
+    expect("height" in distributed.get("b")!).toBe(false);
+    expect(distributed.get("c")?.height).toBe(20);
+  });
+
+  it("groups and ungroups fit text without writing its height", () => {
+    const parent = document.createElement("div");
+    const fit = createFitTextBox("fit", { left: 20, top: 30 });
+    const shape = createFreeformObject("shape", { left: 140, top: 60 });
+    shape.style.width = "50px";
+    shape.style.height = "30px";
+    parent.append(fit, shape);
+    document.body.append(parent);
+    const geometry = new Map<HTMLElement, SlideObjectGeometry>([
+      [fit, { x: 20, y: 30, width: 200, height: 31 }],
+      [shape, { x: 140, y: 60, width: 50, height: 30 }],
+    ]);
+    const get = (element: HTMLElement) =>
+      geometry.get(element) ?? { x: 0, y: 0, width: 0, height: 0 };
+    const apply: SlideObjectGeometryApplier = (element, next) => {
+      geometry.set(element, { ...get(element), ...next });
+      element.style.left = `${next.x}px`;
+      element.style.top = `${next.y}px`;
+      element.style.width = `${next.width}px`;
+      if (next.height !== undefined) element.style.height = `${next.height}px`;
+    };
+
+    const group = groupSlideObjects([fit, shape], get, apply);
+    expect(group).not.toBeNull();
+    expect(fit.style.height).toBe("");
+    expect(shape.style.height).toBe("30px");
+
+    geometry.set(group!, { x: 20, y: 30, width: 200, height: 60 });
+    ungroupSlideObject(group!, get, apply);
+    expect(fit.style.height).toBe("");
+    expect(fit.style.left).toBe("20px");
+    expect(shape.style.height).toBe("30px");
+  });
+
+  it("omits height when resizing members and group members around fit text", () => {
+    const fit = createFitTextBox("fit");
+    const shape = createFreeformObject("shape");
+    const fitStart = { x: 0, y: 0, width: 100, height: 31 };
+    const shapeStart = { x: 0, y: 40, width: 100, height: 60 };
+
+    const plan = resizeSlideObjectMembers(
+      [
+        { objectId: "fit", element: fit, start: fitStart },
+        { objectId: "shape", element: shape, start: shapeStart },
+      ],
+      { handle: "se", dx: 100, dy: 100 },
+    );
+    expect("height" in plan.get("fit")!).toBe(false);
+    expect(plan.get("fit")?.width).toBe(200);
+    expect(plan.get("shape")?.height).toBeGreaterThan(60);
+
+    const scaled = scaleSlideObjectGroupMembers(
+      [
+        groupResizeMember("fit", fit, fitStart),
+        groupResizeMember("shape", shape, shapeStart),
+      ],
+      { width: 100, height: 100 },
+      { width: 200, height: 200 },
+    );
+    expect("height" in scaled.get(fit)!.geometry).toBe(false);
+    expect(scaled.get(fit)?.geometry.width).toBe(200);
+    expect(scaled.get(shape)?.geometry.height).toBe(120);
+  });
+});
+
+describe("resolveFitTextBoxResize", () => {
+  const resize = (
+    handle: Parameters<typeof resolveFitTextBoxResize>[0]["handle"],
+    start: SlideObjectGeometry,
+    dx: number,
+    dy: number,
+    options: { hasMinHeight?: boolean; alt?: boolean; shift?: boolean } = {},
+  ) =>
+    resolveFitTextBoxResize({
+      handle,
+      start,
+      delta: { dx, dy },
+      minWidth: 24,
+      hasMinHeight: options.hasMinHeight ?? false,
+      alt: options.alt ?? false,
+      shift: options.shift ?? false,
+    });
+
+  // Slide-unit boxes from gs-truth-text.md section 2 (T.4, 2.1-2.8).
+  const box = { x: 825.1, y: 234.6, width: 628, height: 370 };
+
+  it("never returns a height", () => {
+    for (const handle of [
+      "n",
+      "ne",
+      "e",
+      "se",
+      "s",
+      "sw",
+      "w",
+      "nw",
+    ] as const) {
+      expect("height" in resize(handle, box, 30, 40)).toBe(false);
+      expect("minHeight" in resize(handle, box, 30, 40)).toBe(false);
+    }
+  });
+
+  it("2.1: the S handle changes nothing without a min-height", () => {
+    for (const dy of [80, -50]) {
+      expect(resize("s", box, 0, dy)).toEqual({
+        x: box.x,
+        y: box.y,
+        width: box.width,
+      });
+    }
+  });
+
+  it("2.2: the N handle translates the box and leaves its width alone", () => {
+    expect(resize("n", box, 0, 31)).toEqual({
+      x: box.x,
+      y: box.y + 31,
+      width: box.width,
+    });
+    expect(resize("n", box, 0, -39).y).toBeCloseTo(195.6, 5);
+  });
+
+  it("2.3: E keeps the left edge fixed", () => {
+    const start = { ...box, x: 100, width: 576 };
+    expect(resize("e", start, -149, 25)).toEqual({
+      x: 100,
+      y: box.y,
+      width: 427,
+    });
+    expect(resize("e", { ...start, width: 427 }, 201, 0).width).toBe(628);
+  });
+
+  it("2.4: W keeps the right edge fixed", () => {
+    const next = resize("w", box, 100, -20);
+    expect(next.width).toBe(528);
+    expect(next.x + next.width).toBeCloseTo(box.x + box.width, 5);
+    expect(next.y).toBe(box.y);
+  });
+
+  it("2.5: south corners apply the horizontal component only", () => {
+    const start = { x: 0, y: 50, width: 586, height: 332 };
+    expect(resize("se", start, 63, 40)).toEqual({ x: 0, y: 50, width: 649 });
+    expect(resize("se", { ...start, width: 649 }, -79, -30).width).toBe(570);
+    expect(resize("se", start, 63, 40).y).toBe(50);
+  });
+
+  it("2.6: NE follows dx for width and dy for the top edge", () => {
+    const start = { x: 900, y: 226.6, width: 570, height: 332 };
+    const next = resize("ne", start, 51, 61);
+    expect(next.x).toBe(900);
+    expect(next.y).toBeCloseTo(287.6, 5);
+    expect(next.width).toBe(621);
+  });
+
+  it("2.7: SW ignores dy and NW also moves the top edge", () => {
+    const start = { x: 100, y: 200, width: 600, height: 332 };
+    const southWest = resize("sw", start, 71, 50);
+    expect(southWest).toEqual({ x: 171, y: 200, width: 529 });
+
+    const northWest = resize("nw", start, -39, 41);
+    expect(northWest).toEqual({ x: 61, y: 241, width: 639 });
+    expect(northWest.x + northWest.width).toBe(start.x + start.width);
+  });
+
+  it("2.8/2.9: Shift changes nothing because there is no aspect to lock", () => {
+    for (const handle of ["se", "nw", "e", "n"] as const) {
+      expect(resize(handle, box, 40, -30, { shift: true })).toEqual(
+        resize(handle, box, 40, -30),
+      );
+    }
+  });
+
+  it("2.10: Alt resizes width about the centre and moves the top edge", () => {
+    const start = { x: 899.1, y: 328.6, width: 530, height: 370 };
+    const next = resize("se", start, 61, 41, { alt: true });
+    expect(next.width).toBe(652);
+    expect(next.x).toBeCloseTo(838.1, 5);
+    expect(next.y).toBeCloseTo(287.6, 5);
+
+    const northEast = resize("ne", start, 61, -41, { alt: true });
+    expect(northEast.width).toBe(652);
+    expect(northEast.y).toBeCloseTo(287.6, 5);
+
+    const west = resize("w", start, -61, 0, { alt: true });
+    expect(west.width).toBe(652);
+    expect(west.x + west.width / 2).toBeCloseTo(start.x + start.width / 2, 5);
+  });
+
+  it("clamps width at the minimum and keeps the fixed edge fixed", () => {
+    const east = resize("e", { ...box, width: 100 }, -500, 0);
+    expect(east.width).toBe(24);
+    expect(east.x).toBe(box.x);
+
+    const west = resize("w", { ...box, width: 100 }, 500, 0);
+    expect(west.width).toBe(24);
+    expect(west.x + west.width).toBeCloseTo(box.x + 100, 5);
+  });
+
+  it("edits min-height from N and S when the box carries one", () => {
+    const start = { x: 10, y: 100, width: 300, height: 200 };
+    expect(resize("s", start, 0, 60, { hasMinHeight: true })).toEqual({
+      x: 10,
+      y: 100,
+      width: 300,
+      minHeight: 260,
+    });
+    expect(resize("n", start, 0, -40, { hasMinHeight: true })).toEqual({
+      x: 10,
+      y: 60,
+      width: 300,
+      minHeight: 240,
+    });
+  });
+
+  it("keeps min-height at one line and the bottom edge fixed when clamped", () => {
+    const start = { x: 10, y: 100, width: 300, height: 200 };
+    expect(resize("s", start, 0, -500, { hasMinHeight: true }).minHeight).toBe(
+      24,
+    );
+
+    const north = resize("n", start, 0, 500, { hasMinHeight: true });
+    expect(north.minHeight).toBe(24);
+    expect(north.y + north.minHeight!).toBe(start.y + start.height);
+
+    const floored = resolveFitTextBoxResize({
+      handle: "s",
+      start,
+      delta: { dx: 0, dy: -500 },
+      hasMinHeight: true,
+      floorHeight: 93,
+    });
+    expect(floored.minHeight).toBe(93);
+  });
+
+  it("leaves corners on the fit rule even with a min-height", () => {
+    const start = { x: 10, y: 100, width: 300, height: 200 };
+    expect(resize("se", start, 20, 90, { hasMinHeight: true })).toEqual({
+      x: 10,
+      y: 100,
+      width: 320,
+    });
+  });
+});
+
+describe("object interaction geometry hardening", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("measures the selection frame from the content height when asked", () => {
+    const element = createFreeformObject("editing");
+    Object.defineProperty(element, "offsetWidth", { value: 100 });
+    Object.defineProperty(element, "offsetHeight", { value: 31 });
+    Object.defineProperty(element, "scrollHeight", { value: 93 });
+    const rect = { left: 10, top: 20, width: 100, height: 31 } as DOMRect;
+
+    expect(readSlideObjectSelectionFrame(element, rect)?.height).toBe(31);
+    expect(
+      readSlideObjectSelectionFrame(element, rect, { contentHeight: "scroll" })
+        ?.height,
+    ).toBe(93);
+    expect(
+      readSlideObjectSelectionFrame(element, rect, { contentHeight: 120 })
+        ?.height,
+    ).toBe(120);
+    expect(
+      readSlideObjectSelectionFrame(element, rect, { contentHeight: 10 })
+        ?.height,
+    ).toBe(31);
+
+    const zoomed = readSlideObjectSelectionFrame(
+      element,
+      { left: 20, top: 40, width: 200, height: 62 } as DOMRect,
+      { contentHeight: "scroll" },
+    );
+    expect(zoomed?.height).toBe(186);
+    expect(zoomed?.width).toBe(200);
+    expect(zoomed?.top).toBe(40);
+  });
+
+  it.each([
+    ["backdrop-filter", "blur(4px)"],
+    ["-webkit-backdrop-filter", "blur(4px)"],
+    ["will-change", "transform"],
+    ["will-change", "opacity, filter"],
+    ["will-change", "perspective"],
+    ["translate", "10px 0px"],
+    ["rotate", "10deg"],
+    ["scale", "1.1"],
+    ["container-type", "inline-size"],
+    ["container-type", "size"],
+    ["content-visibility", "auto"],
+  ])("treats %s: %s as a containing block", (property, value) => {
+    const layer = document.createElement("div");
+    const card = document.createElement("div");
+    const text = document.createElement("p");
+    card.style.setProperty(property, value);
+    card.append(text);
+    layer.append(card);
+    document.body.append(layer);
+
+    expect(resolveSlideObjectContainingBlock(text, layer)).toBe(card);
+  });
+
+  it.each([
+    ["will-change", "opacity"],
+    ["will-change", "auto"],
+    ["container-type", "normal"],
+    ["content-visibility", "visible"],
+    ["translate", "none"],
+    ["backdrop-filter", "none"],
+  ])("ignores inert %s: %s", (property, value) => {
+    const layer = document.createElement("div");
+    const card = document.createElement("div");
+    const text = document.createElement("p");
+    card.style.setProperty(property, value);
+    card.append(text);
+    layer.append(card);
+    document.body.append(layer);
+
+    expect(resolveSlideObjectContainingBlock(text, layer)).toBe(layer);
+  });
+
+  it("converts a client point against the padding box of a bordered block", () => {
+    const card = document.createElement("div");
+    card.style.position = "relative";
+    card.style.border = "4px solid black";
+    document.body.append(card);
+    Object.defineProperty(card, "offsetWidth", { value: 208 });
+    Object.defineProperty(card, "offsetHeight", { value: 108 });
+    Object.defineProperty(card, "clientLeft", { value: 4 });
+    Object.defineProperty(card, "clientTop", { value: 4 });
+    const rect = (scale: number) =>
+      ({
+        left: 100,
+        top: 50,
+        width: 208 * scale,
+        height: 108 * scale,
+      }) as DOMRect;
+
+    vi.spyOn(card, "getBoundingClientRect").mockReturnValue(rect(1));
+    expect(clientPointToContainingBlockOffset(110, 60, card)).toEqual({
+      x: 6,
+      y: 6,
+    });
+
+    vi.spyOn(card, "getBoundingClientRect").mockReturnValue(rect(2));
+    expect(clientPointToContainingBlockOffset(120, 70, card)).toEqual({
+      x: 6,
+      y: 6,
+    });
+  });
+
+  it("recognises layout spacers by class or owner attribute", () => {
+    const byClass = document.createElement("div");
+    byClass.className = "fmd-layout-spacer";
+    const byAttribute = document.createElement("div");
+    byAttribute.setAttribute("data-slide-layout-spacer-for", "x");
+
+    expect(isLayoutSpacer(byClass)).toBe(true);
+    expect(isLayoutSpacer(byAttribute)).toBe(true);
+    expect(isLayoutSpacer(document.createElement("div"))).toBe(false);
+  });
+
+  it("keeps selection on the promoted element when a spacer is inserted before it", () => {
+    const root = document.createElement("div");
+    const row = document.createElement("div");
+    const before = document.createElement("p");
+    const heading = document.createElement("h1");
+    heading.textContent = "Title";
+    row.append(before, heading);
+    root.append(row);
+    document.body.append(root);
+
+    const unpromoted = resolveSelectionIdentity(heading, root);
+    expect(unpromoted).toEqual({ objectId: null, path: [0, 1] });
+
+    freezeSlideElementForFreeform(
+      heading,
+      { x: 0, y: 0, width: 100, height: 30 },
+      {
+        display: "block",
+        flexGrow: "0",
+        flexShrink: "1",
+        flexBasis: "auto",
+        alignSelf: "auto",
+      },
+    );
+
+    expect(resolveSelectionIdentity(heading, root).path).toEqual([0, 1]);
+    expect(resolveSlideSelectionAnchor(root, unpromoted)).toBe(heading);
+  });
+
+  it("prefers the object id over a stale path and never resolves a spacer", () => {
+    const root = document.createElement("div");
+    const row = document.createElement("div");
+    const spacer = document.createElement("div");
+    spacer.className = "fmd-layout-spacer";
+    const moved = createFreeformObject("moved");
+    const other = document.createElement("p");
+    other.textContent = "other";
+    row.append(spacer, other);
+    root.append(row, moved);
+    document.body.append(root);
+
+    expect(
+      resolveSlideSelectionAnchor(root, { objectId: "moved", path: [0, 0] }),
+    ).toBe(moved);
+    expect(resolveSelectionIdentity(moved, root).objectId).toBe("moved");
+    expect(
+      resolveSlideSelectionAnchor(root, { objectId: null, path: [0, 0] }),
+    ).toBe(other);
+    expect(
+      resolveSlideSelectionAnchor(root, { objectId: null, path: [0, 1] }),
+    ).toBeNull();
+  });
+
+  it("snaps within 4 screen px at any zoom", () => {
+    const snap = (deltaX: number, scale?: number) =>
+      snapSlideObjectMove({
+        moving: { x: 100, y: 0, width: 80, height: 40 },
+        deltaX,
+        deltaY: 0,
+        peers: [{ x: 200, y: 300, width: 50, height: 50 }],
+        scale,
+      });
+
+    // Right edge lands at 197 / 195 on a peer edge at 200.
+    expect(snap(17, 1).deltaX).toBe(20);
+    expect(snap(15, 1).deltaX).toBe(15);
+    // 3 screen px = 6 slide units and 5 screen px = 10 at scale 0.5.
+    expect(snap(14, 0.5).deltaX).toBe(20);
+    expect(snap(10, 0.5).deltaX).toBe(10);
+    // 3 screen px = 1.5 slide units and 5 screen px = 2.5 at scale 2.
+    expect(snap(18.5, 2).deltaX).toBe(20);
+    expect(snap(17.5, 2).deltaX).toBe(17.5);
+  });
+
+  it("keeps the 8-unit default tolerance without a scale", () => {
+    const snap = (deltaX: number) =>
+      snapSlideObjectMove({
+        moving: { x: 100, y: 0, width: 80, height: 40 },
+        deltaX,
+        deltaY: 0,
+        peers: [{ x: 200, y: 300, width: 50, height: 50 }],
+      });
+
+    expect(snap(13).deltaX).toBe(20);
+    expect(snap(11).deltaX).toBe(11);
+  });
+
+  it("snaps at 3 screen px and not at 4 (gs-truth 9.1)", () => {
+    const snap = (deltaX: number) =>
+      snapSlideObjectMove({
+        moving: { x: 100, y: 0, width: 80, height: 40 },
+        deltaX,
+        deltaY: 0,
+        peers: [{ x: 200, y: 300, width: 50, height: 50 }],
+        scale: 1,
+      });
+
+    expect(snap(17).deltaX).toBe(20);
+    expect(snap(16).deltaX).toBe(16);
+  });
+
+  it("spans an alignment guide across every object it aligns, and the slide for slide anchors (gs-truth 9.2)", () => {
+    const canvas = { width: 1280, height: 720 };
+    const result = snapSlideObjectMove({
+      moving: { x: 300, y: 500, width: 80, height: 40 },
+      deltaX: 1,
+      deltaY: 0,
+      peers: [
+        { x: 100, y: 100, width: 80, height: 40 },
+        { x: 301, y: 200, width: 60, height: 60 },
+        { x: 301, y: 340, width: 60, height: 60 },
+      ],
+      canvas,
+    });
+
+    expect(result.deltaX).toBe(1);
+    // Left edge 301 is shared with the second and third peers: A.top..C.bottom.
+    expect(result.guides).toContainEqual({
+      orientation: "vertical",
+      position: 301,
+      start: 200,
+      end: 540,
+    });
+    expect(
+      result.guides.filter((guide) => guide.orientation === "vertical"),
+    ).toHaveLength(1);
+
+    const centred = snapSlideObjectMove({
+      moving: { x: 590, y: 100, width: 100, height: 40 },
+      deltaX: 1,
+      deltaY: 0,
+      peers: [{ x: 700, y: 400, width: 60, height: 60 }],
+      canvas,
+    });
+    expect(centred.guides).toContainEqual({
+      orientation: "vertical",
+      position: 640,
+      start: 0,
+      end: 720,
+    });
+    expect(
+      snapSlideObjectMove({
+        moving: { x: 590, y: 100, width: 100, height: 40 },
+        deltaX: 1,
+        deltaY: 0,
+        peers: [],
+      }).guides,
+    ).toEqual([]);
+  });
+
+  it("snaps to equal spacing and draws one blue guide per gap (gs-truth 9.4)", () => {
+    const peers = [
+      { x: 100, y: 100, width: 100, height: 60 },
+      { x: 300, y: 100, width: 100, height: 60 },
+    ];
+    // A [100,200], B [300,400]: a gap of 100 puts the next object at x=500.
+    const chain = snapSlideObjectMove({
+      moving: { x: 450, y: 115, width: 100, height: 40 },
+      deltaX: 51,
+      deltaY: 0,
+      peers,
+      scale: 1,
+    });
+    expect(chain.deltaX).toBe(50);
+    expect(chain.guides.filter((guide) => guide.equalSpacing)).toEqual([
+      {
+        orientation: "horizontal",
+        position: 168,
+        start: 200,
+        end: 300,
+        equalSpacing: true,
+      },
+      {
+        orientation: "horizontal",
+        position: 168,
+        start: 400,
+        end: 500,
+        equalSpacing: true,
+      },
+    ]);
+
+    // Within 3 px it snaps, at 4 or 5 px it does not.
+    const near = (deltaX: number) =>
+      snapSlideObjectMove({
+        moving: { x: 450, y: 115, width: 100, height: 40 },
+        deltaX,
+        deltaY: 0,
+        peers,
+        scale: 1,
+      });
+    expect(near(53).deltaX).toBe(50);
+    expect(near(54).deltaX).toBe(54);
+    expect(near(55).guides).toEqual([]);
+
+    // Centred between A and B: gaps of 100 either side of a 100-wide object.
+    const centred = snapSlideObjectMove({
+      moving: { x: 190, y: 115, width: 100, height: 40 },
+      deltaX: 7,
+      deltaY: 0,
+      peers: [
+        { x: 0, y: 100, width: 100, height: 60 },
+        { x: 400, y: 100, width: 100, height: 60 },
+      ],
+      scale: 1,
+    });
+    expect(centred.deltaX).toBe(10);
+    expect(
+      centred.guides
+        .filter((guide) => guide.equalSpacing)
+        .map((g) => [g.start, g.end]),
+    ).toEqual([
+      [100, 200],
+      [300, 400],
+    ]);
+  });
+
+  it("measures equal spacing down a column and ignores objects outside the row", () => {
+    const column = snapSlideObjectMove({
+      moving: { x: 110, y: 297, width: 60, height: 40 },
+      deltaX: 0,
+      deltaY: 1,
+      peers: [
+        { x: 100, y: 100, width: 100, height: 40 },
+        { x: 100, y: 200, width: 100, height: 40 },
+      ],
+      scale: 1,
+    });
+    expect(column.deltaY).toBe(3);
+    expect(
+      column.guides.filter(
+        (guide) => guide.equalSpacing && guide.orientation === "vertical",
+      ),
+    ).toHaveLength(2);
+
+    const offRow = snapSlideObjectMove({
+      moving: { x: 450, y: 600, width: 100, height: 40 },
+      deltaX: 51,
+      deltaY: 0,
+      peers: [
+        { x: 100, y: 100, width: 100, height: 60 },
+        { x: 300, y: 100, width: 100, height: 60 },
+      ],
+      scale: 1,
+    });
+    expect(offRow.deltaX).toBe(51);
+    expect(offRow.guides.some((guide) => guide.equalSpacing)).toBe(false);
+  });
+
+  it("takes row membership from the dragged position, not the drag start", () => {
+    const peers = [
+      { x: 0, y: 0, width: 100, height: 100 },
+      { x: 200, y: 0, width: 100, height: 100 },
+    ];
+    // Started below the row, dragged up into it: the gaps of 100 apply.
+    const into = snapSlideObjectMove({
+      moving: { x: 500, y: 500, width: 100, height: 100 },
+      deltaX: -98.5,
+      deltaY: -500,
+      peers,
+      scale: 1,
+    });
+    expect(into.deltaX).toBe(-100);
+    expect(into.guides.filter((guide) => guide.equalSpacing)).toHaveLength(2);
+
+    // Started in the row, dragged out of it: nothing to space against.
+    const out = snapSlideObjectMove({
+      moving: { x: 500, y: 0, width: 100, height: 100 },
+      deltaX: -98.5,
+      deltaY: 400,
+      peers,
+      scale: 1,
+    });
+    expect(out.deltaX).toBe(-98.5);
+    expect(out.guides.some((guide) => guide.equalSpacing)).toBe(false);
+  });
+
+  it("measures gaps between neighbours only, never across an object in between", () => {
+    const result = snapSlideObjectMove({
+      moving: { x: 500, y: 0, width: 100, height: 100 },
+      deltaX: 101.5,
+      deltaY: 0,
+      peers: [
+        { x: 0, y: 0, width: 100, height: 100 },
+        { x: 150, y: 0, width: 100, height: 100 },
+        { x: 300, y: 0, width: 100, height: 100 },
+      ],
+      scale: 1,
+    });
+    // (A, C) would give 600 over a gap of 200 spanning B; (B, C) gives 450.
+    expect(result.deltaX).toBe(101.5);
+    expect(result.guides.some((guide) => guide.equalSpacing)).toBe(false);
+  });
+
+  it("keeps the spacing guide on the slide for a row at the bottom edge", () => {
+    const result = snapSlideObjectMove({
+      moving: { x: 450, y: 440, width: 100, height: 60 },
+      deltaX: 51,
+      deltaY: 0,
+      peers: [
+        { x: 100, y: 440, width: 100, height: 60 },
+        { x: 300, y: 440, width: 100, height: 60 },
+      ],
+      canvas: { width: 960, height: 505 },
+      scale: 1,
+    });
+    const guides = result.guides.filter((guide) => guide.equalSpacing);
+    expect(guides).toHaveLength(2);
+    for (const guide of guides) expect(guide.position).toBe(504);
+  });
+
+  it("does not snap to equal spacing when Cmd/Ctrl bypasses snapping (gs-truth 9.6)", () => {
+    const result = snapSlideObjectMove({
+      moving: { x: 450, y: 115, width: 100, height: 40 },
+      deltaX: 51,
+      deltaY: 0,
+      peers: [
+        { x: 100, y: 100, width: 100, height: 60 },
+        { x: 300, y: 100, width: 100, height: 60 },
+      ],
+      scale: 1,
+      bypass: true,
+    });
+    expect(result).toEqual({ deltaX: 51, deltaY: 0, guides: [] });
+  });
+});
+
+describe("fit text geometry boundaries", () => {
+  it("treats a bottom-anchored absolute text leaf as fixed, so top + bottom cannot stretch it", () => {
+    const footer = document.createElement("p");
+    footer.textContent = "Footer";
+    footer.style.position = "absolute";
+    footer.style.bottom = "40px";
+
+    expect(isFitTextObject(footer)).toBe(false);
+    expect(resolveFreeformSizing(footer)).toBe("fixed");
+    expect(
+      planSlideObjectGeometry(footer, {
+        x: 10,
+        y: 480,
+        width: 300,
+        height: 24,
+      }),
+    ).toEqual({ x: 10, y: 480, width: 300, height: 24 });
+
+    footer.style.bottom = "auto";
+    expect(isFitTextObject(footer)).toBe(true);
+  });
+
+  it("resizes a rotated fit text box without ever producing a height change", () => {
+    const start = { x: 100, y: 80, width: 100, height: 50 };
+    const transform = {
+      transform: "matrix(0, 1, -1, 0, 0, 0)",
+      transformOrigin: "50% 50%",
+    };
+
+    expect(
+      resizeTransformedSlideObject(start, transform, {
+        handle: "s",
+        dx: 20,
+        dy: 0,
+        preserveAspectRatio: false,
+        fitText: true,
+      }),
+    ).toEqual(start);
+
+    const corner = resizeTransformedSlideObject(start, transform, {
+      handle: "se",
+      dx: 20,
+      dy: 30,
+      preserveAspectRatio: true,
+      fitText: true,
+    });
+    expect(corner?.width).toBe(130);
+    expect(corner?.height).toBe(50);
+
+    const withHeight = resizeTransformedSlideObject(start, transform, {
+      handle: "s",
+      dx: 20,
+      dy: 0,
+      preserveAspectRatio: false,
+    });
+    expect(withHeight?.height).not.toBe(50);
+  });
+
+  it("drops contain: size when a flow block is promoted as fit or min, keeps it for fixed", () => {
+    const promote = (sizing: "fit" | "min" | "fixed") => {
+      const parent = document.createElement("div");
+      const block = document.createElement("div");
+      block.textContent = "Edited in flow";
+      block.style.setProperty("contain", "size");
+      block.style.setProperty("contain-intrinsic-size", "auto 64px");
+      parent.append(block);
+      document.body.append(parent);
+      freezeSlideElementForFreeform(
+        block,
+        { x: 10, y: 20, width: 300, height: 64 },
+        {
+          display: "block",
+          flexGrow: "0",
+          flexShrink: "1",
+          flexBasis: "auto",
+          alignSelf: "auto",
+        },
+        undefined,
+        { sizing },
+      );
+      return block;
+    };
+
+    for (const sizing of ["fit", "min"] as const) {
+      const block = promote(sizing);
+      expect(block.style.getPropertyValue("contain")).toBe("");
+      expect(block.style.getPropertyValue("contain-intrinsic-size")).toBe("");
+    }
+    expect(promote("fixed").style.getPropertyValue("contain")).toBe("size");
+  });
+
+  it("plans every member of a move before the first geometry write", () => {
+    const first = document.createElement("p");
+    const second = document.createElement("p");
+    for (const element of [first, second]) element.textContent = "Text";
+    const plans: unknown[] = [];
+
+    applySlideObjectMoveDelta(
+      [
+        {
+          objectId: "a",
+          element: first,
+          start: { x: 0, y: 0, width: 100, height: 20 },
+        },
+        {
+          objectId: "b",
+          element: second,
+          start: { x: 0, y: 50, width: 100, height: 20 },
+        },
+      ],
+      5,
+      5,
+      (element, plan) => {
+        plans.push(plan);
+        // A write that changes how the other member classifies.
+        second.style.height = "20px";
+        expect(element).toBeDefined();
+      },
+    );
+
+    expect(plans).toEqual([
+      { x: 5, y: 5, width: 100 },
+      { x: 5, y: 55, width: 100 },
+    ]);
+  });
+});
+
+describe("default text box colour", () => {
+  it("uses the ink a dark slide declares when it has no text yet", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div data-slide-canvas style="background-color: rgb(255, 255, 255)">
+        <div class="slide-content">
+          <div class="fmd-slide" style="--deck-ink: #F2EFE6; background: #14110F; color: var(--deck-ink)"></div>
+        </div>
+      </div>
+    `;
+    document.body.append(root);
+    const layer = root.querySelector<HTMLElement>(".fmd-slide")!;
+
+    expect(getSlideTextBoxDefaultColor(null, layer)).toBe("#F2EFE6");
+    root.remove();
+  });
+});
+
+describe("transform-origin parsing", () => {
+  it.each([
+    ["top left", 0, 0],
+    ["left top", 0, 0],
+    ["top", 50, 0],
+    ["bottom", 50, 20],
+    ["right", 100, 10],
+    ["left", 0, 10],
+    ["center", 50, 10],
+    ["center top", 50, 0],
+    ["top center", 50, 0],
+    ["center left", 0, 10],
+    ["bottom right", 100, 20],
+    ["20% bottom", 20, 20],
+    ["left 10px", 0, 10],
+    ["10px top", 10, 0],
+    ["top left 0px", 0, 0],
+    ["left top 5px", 0, 0],
+    ["50% 50%", 50, 10],
+    ["10px 20px", 10, 20],
+    ["0 0", 0, 0],
+    ["-10px 150%", -10, 30],
+    ["  TOP   LEFT ", 0, 0],
+    ["", 50, 10],
+  ])("resolves %j in a 100x20 box to (%s, %s)", (value, x, y) => {
+    expect(parseSlideObjectTransformOrigin(value)?.(100, 20)).toEqual({ x, y });
+  });
+
+  it("resolves percentages and keywords against the dimensions it is given", () => {
+    const origin = parseSlideObjectTransformOrigin("25% bottom");
+    expect(origin?.(100, 20)).toEqual({ x: 25, y: 20 });
+    expect(origin?.(40, 80)).toEqual({ x: 10, y: 80 });
+  });
+
+  it.each([
+    "top 20px",
+    "bottom 25%",
+    "20px left",
+    "left right",
+    "top bottom",
+    "left left",
+    "constructor",
+    "calc(50% + 10px) top",
+    "var(--origin)",
+    "10em 0",
+    "50% 50% 50%",
+    "left top 10%",
+    "1 2 3 4",
+    "10 20",
+    "1e999px 0",
+  ])("refuses %j rather than guessing a centre", (value) => {
+    expect(parseSlideObjectTransformOrigin(value)).toBeNull();
+  });
+});
+
+describe("the effective transform of a slide object", () => {
+  const radians = (degrees: number) => (degrees * Math.PI) / 180;
+  const matrixOf = (transform: string) =>
+    transform
+      .match(/^matrix\((.+)\)$/)?.[1]
+      ?.split(",")
+      .map(Number);
+  const mount = (
+    declarations: Record<string, string>,
+    size = { width: 100, height: 20 },
+  ) => {
+    const element = createFreeformObject("effective");
+    for (const [property, value] of Object.entries(declarations)) {
+      element.style.setProperty(property, value);
+    }
+    resize(element, size);
+    return element;
+  };
+  const resize = (
+    element: HTMLElement,
+    size: { width: number; height: number },
+  ) => {
+    Object.defineProperty(element, "offsetWidth", {
+      value: size.width,
+      configurable: true,
+    });
+    Object.defineProperty(element, "offsetHeight", {
+      value: size.height,
+      configurable: true,
+    });
+  };
+
+  it.each([
+    [
+      "rotate",
+      { rotate: "20deg" },
+      [
+        Math.cos(radians(20)),
+        Math.sin(radians(20)),
+        -Math.sin(radians(20)),
+        Math.cos(radians(20)),
+        0,
+        0,
+      ],
+    ],
+    ["scale", { scale: "1.4" }, [1.4, 0, 0, 1.4, 0, 0]],
+    ["scale on both axes", { scale: "1.4 1.2" }, [1.4, 0, 0, 1.2, 0, 0]],
+    ["a percentage scale", { scale: "150%" }, [1.5, 0, 0, 1.5, 0, 0]],
+    ["translate", { translate: "30px 10px" }, [1, 0, 0, 1, 30, 10]],
+    ["translate along x", { translate: "30px" }, [1, 0, 0, 1, 30, 0]],
+    [
+      "translate by the object's own box",
+      { translate: "10% 50%" },
+      [1, 0, 0, 1, 10, 10],
+    ],
+    ["a turn of rotation", { rotate: "0.25turn" }, [0, 1, -1, 0, 0, 0]],
+    ["an explicit z axis", { rotate: "z 90deg" }, [0, 1, -1, 0, 0, 0]],
+  ])("composes %s into one matrix", (_name, declarations, expected) => {
+    const matrix = matrixOf(
+      readSlideObjectTransformSnapshot(mount(declarations)).transform,
+    );
+
+    expect(matrix).toHaveLength(6);
+    expected.forEach((value, index) => {
+      expect(matrix?.[index]).toBeCloseTo(value, 9);
+    });
+  });
+
+  it("applies translate, rotate, scale, then transform, as CSS does", () => {
+    const element = mount({
+      translate: "10px 0px",
+      rotate: "90deg",
+      scale: "2",
+      transform: "matrix(1, 0, 0, 1, 5, 0)",
+    });
+
+    // (x, y) -> transform: (x + 5, y) -> scale: (2x + 10, 2y)
+    // -> rotate: (-2y, 2x + 10) -> translate: (-2y + 10, 2x + 10)
+    const matrix = matrixOf(
+      readSlideObjectTransformSnapshot(element).transform,
+    );
+    [0, 2, -2, 0, 10, 10].forEach((value, index) => {
+      expect(matrix?.[index]).toBeCloseTo(value, 9);
+    });
+  });
+
+  it("leaves the transform property untouched when no longhand is set", () => {
+    expect(
+      readSlideObjectTransformSnapshot(
+        mount({
+          transform: "matrix(1.5, 0, 0, 1.5, 20, 8)",
+          rotate: "none",
+          scale: "none",
+          translate: "none",
+        }),
+      ).transform,
+    ).toBe("matrix(1.5, 0, 0, 1.5, 20, 8)");
+    expect(readSlideObjectTransformSnapshot(mount({})).transform).toBe("none");
+  });
+
+  it.each([
+    ["an axis keyword", { rotate: "x 20deg" }],
+    ["a 3D axis", { rotate: "1 1 0 20deg" }],
+    ["a z scale", { scale: "2 2 2" }],
+    ["a z translation", { translate: "10px 10px 10px" }],
+    ["a relative unit", { translate: "2em 0px" }],
+  ])(
+    "reports %s as a transform no consumer can read, not as none",
+    (_name, declarations) => {
+      const element = mount({ position: "absolute", ...declarations });
+      const { transform } = readSlideObjectTransformSnapshot(element);
+
+      expect(transform).not.toBe("none");
+      expect(matrixOf(transform)).toBeUndefined();
+      expect(
+        readSlideObjectSelectionFrame(element, {
+          left: 0,
+          top: 0,
+          width: 100,
+          height: 20,
+        } as DOMRect),
+      ).toBeNull();
+    },
+  );
+
+  it("keeps an unreadable transform property unreadable when a longhand is also set", () => {
+    const { transform } = readSlideObjectTransformSnapshot(
+      mount({
+        rotate: "20deg",
+        transform: "perspective(400px) rotateY(30deg)",
+      }),
+    );
+
+    expect(transform).not.toBe("none");
+    expect(matrixOf(transform)).toBeUndefined();
+  });
+
+  it("reads the rotation a rotate property adds to the transform", () => {
+    expect(readSlideObjectRotation(mount({ rotate: "20deg" }))).toBeCloseTo(
+      20,
+      9,
+    );
+    expect(
+      readSlideObjectRotation(
+        mount({ rotate: "20deg", transform: "rotate(10deg)" }),
+      ),
+    ).toBeCloseTo(30, 9);
+    expect(
+      readSlideObjectRotation(mount({ transform: "rotate(200deg)" })),
+    ).toBe(200);
+  });
+
+  it("reads the rotation of the matrix the browser painted, not of the authored string", () => {
+    const element = mount({
+      position: "absolute",
+      transform: "translate(-50%, -50%) rotate(15deg)",
+      rotate: "30deg",
+    });
+    const getComputedStyle = window.getComputedStyle;
+    const mock = vi
+      .spyOn(window, "getComputedStyle")
+      .mockImplementation((target, pseudoElement) =>
+        target === element
+          ? ({
+              transform: `matrix(${Math.cos(radians(15))}, ${Math.sin(radians(15))}, ${-Math.sin(radians(15))}, ${Math.cos(radians(15))}, -50, -10)`,
+              transformOrigin: "50px 10px",
+              getPropertyValue: (property: string) =>
+                property === "rotate" ? "30deg" : "",
+            } as unknown as CSSStyleDeclaration)
+          : getComputedStyle.call(window, target, pseudoElement),
+      );
+
+    try {
+      expect(readSlideObjectRotation(element)).toBeCloseTo(45, 9);
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  it.each([
+    ["an axis keyword", { rotate: "x 30deg" }],
+    ["a z scale", { rotate: "30deg", scale: "1 1 2" }],
+    [
+      "a calc() translation",
+      { rotate: "30deg", translate: "calc(50% - 10px)" },
+    ],
+    [
+      "a transform list that has a percentage in it",
+      { rotate: "30deg", transform: "translate(-50%, -50%) rotate(15deg)" },
+    ],
+  ])("has no rotation to read for %s", (_name, declarations) => {
+    expect(readSlideObjectRotation(mount(declarations))).toBeNull();
+  });
+
+  describe("the one range a rotation is read in", () => {
+    // Chromium reports every computed transform as a matrix of six significant
+    // digits, whatever function or property authored it.
+    const serialised = (degrees: number) => {
+      const angle = radians(degrees);
+      const [a, b, c, d] = [
+        Math.cos(angle),
+        Math.sin(angle),
+        -Math.sin(angle),
+        Math.cos(angle),
+      ].map((value) => Number(value.toPrecision(6)));
+      return `matrix(${a}, ${b}, ${c}, ${d}, 0, 0)`;
+    };
+    const paintedAs = (element: HTMLElement, transform: string) => {
+      const getComputedStyle = window.getComputedStyle;
+      vi.spyOn(window, "getComputedStyle").mockImplementation(
+        (target, pseudoElement) =>
+          target === element
+            ? ({
+                transform,
+                transformOrigin: "50px 10px",
+                getPropertyValue: () => "",
+              } as unknown as CSSStyleDeclaration)
+            : getComputedStyle.call(window, target, pseudoElement),
+      );
+    };
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it.each([
+      [200, 200],
+      [-30, 330],
+      [370, 10],
+      [360, 0],
+      [-360, 0],
+      [-0.5, 359.5],
+      [180, 180],
+      [90, 90],
+      [0, 0],
+    ])(
+      "reads a painted %sdeg as %s clockwise degrees in [0, 360)",
+      (authored, expected) => {
+        const element = mount({ position: "absolute" });
+        paintedAs(element, serialised(authored));
+
+        const rotation = readSlideObjectRotation(element);
+
+        expect(rotation).toBeCloseTo(expected, 3);
+        expect(rotation).toBeGreaterThanOrEqual(0);
+        expect(rotation).toBeLessThan(360);
+      },
+    );
+
+    it.each([
+      ["a horizontal mirror", "matrix(-1, 0, 0, 1, 0, 0)", 0],
+      ["a vertical mirror", "matrix(1, 0, 0, -1, 0, 0)", 180],
+      ["a turned mirror", `matrix(-0.866025, -0.5, -0.5, 0.866025, 0, 0)`, 30],
+    ])(
+      "reads %s as its rotation about the mirrored x axis",
+      (_name, transform, expected) => {
+        const element = mount({ position: "absolute" });
+        paintedAs(element, transform);
+
+        expect(readSlideObjectRotation(element)).toBeCloseTo(expected, 3);
+      },
+    );
+
+    it.each([
+      ["a point", "matrix(0, 0, 0, 0, 0, 0)"],
+      ["a line", "matrix(0.866025, 0.5, 0, 0, 0, 0)"],
+    ])(
+      "has no rotation to read for an object collapsed to %s",
+      (_name, transform) => {
+        const element = mount({ position: "absolute" });
+        paintedAs(element, transform);
+
+        expect(readSlideObjectRotation(element)).toBeNull();
+        expect(setSlideObjectRotation(element, 30)).toBe(false);
+        expect(element.style.transform).toBe("");
+      },
+    );
+
+    it.each([
+      ["a transform function", { transform: "rotate(200deg)" }, 200],
+      ["a negative transform function", { transform: "rotate(-30deg)" }, 330],
+      ["more than a turn", { transform: "rotate(370deg)" }, 10],
+      ["the rotate property", { rotate: "200deg" }, 200],
+      ["a negative rotate property", { rotate: "-30deg" }, 330],
+      [
+        "a rotate property added to a transform",
+        { rotate: "-40deg", transform: "matrix(2, 0, 0, 2, 10, 5)" },
+        320,
+      ],
+    ])(
+      "reads %s as authored, folded into the same range",
+      (_name, declarations, expected) => {
+        expect(readSlideObjectRotation(mount(declarations))).toBeCloseTo(
+          expected,
+          6,
+        );
+      },
+    );
+  });
+
+  describe("setting the rotation", () => {
+    const withStylesheet = (rule: string, run: () => void) => {
+      const sheet = document.createElement("style");
+      sheet.textContent = rule;
+      document.head.append(sheet);
+      try {
+        run();
+      } finally {
+        sheet.remove();
+      }
+    };
+    const matrixValues = (element: HTMLElement) =>
+      matrixOf(readSlideObjectTransformSnapshot(element).transform) ?? [];
+
+    it("keeps the scale and translation a stylesheet gives the object", () => {
+      withStylesheet(
+        ".scaled-by-rule { transform: matrix(2, 0, 0, 2, 10, 20); }",
+        () => {
+          const element = mount({ position: "absolute" });
+          element.className = "scaled-by-rule";
+          document.body.append(element);
+          try {
+            expect(setSlideObjectRotation(element, 30)).toBe(true);
+
+            const [a = 0, b = 0, , , tx, ty] = matrixValues(element);
+            expect(Math.hypot(a, b)).toBeCloseTo(2, 6);
+            expect([tx, ty]).toEqual([10, 20]);
+            expect(readSlideObjectRotation(element)).toBeCloseTo(30, 6);
+          } finally {
+            element.remove();
+          }
+        },
+      );
+    });
+
+    it("sets the whole rotation of an object that rotates through a stylesheet property", () => {
+      withStylesheet(".rotated-by-rule { rotate: 20deg; }", () => {
+        const element = mount({ position: "absolute" });
+        element.className = "rotated-by-rule";
+        document.body.append(element);
+        try {
+          expect(setSlideObjectRotation(element, 45)).toBe(true);
+
+          expect(readSlideObjectRotation(element)).toBeCloseTo(45, 6);
+        } finally {
+          element.remove();
+        }
+      });
+    });
+
+    it("writes a pure rotation back as a rotate() the author can read", () => {
+      const element = mount({ transform: "rotate(15deg)" });
+
+      expect(setSlideObjectRotation(element, 30)).toBe(true);
+
+      expect(element.style.transform).toBe("rotate(30deg)");
+    });
+
+    it("writes nothing to an object whose transform cannot be read", () => {
+      const element = mount({ rotate: "x 20deg" });
+
+      expect(setSlideObjectRotation(element, 30)).toBe(false);
+
+      expect(element.style.transform).toBe("");
+      expect(element.style.getPropertyValue("rotate")).toBe("x 20deg");
+    });
+
+    it("leaves an object a stylesheet !important transform keeps painting as it was, and says so", () => {
+      withStylesheet(".pinned { transform: rotate(50deg) !important; }", () => {
+        const element = mount({ transform: "rotate(10deg)" });
+        element.className = "pinned";
+        document.body.append(element);
+        try {
+          const style = element.getAttribute("style");
+
+          expect(setSlideObjectRotation(element, 90)).toBe(false);
+
+          expect(element.getAttribute("style")).toBe(style);
+          expect(readSlideObjectRotation(element)).toBeCloseTo(50, 6);
+        } finally {
+          element.remove();
+        }
+      });
+    });
+
+    it.each([
+      ["with an inline transform", { transform: "rotate(10deg)" }],
+      ["with none", {}],
+    ])(
+      "leaves an object a stylesheet !important none keeps flat as it was, %s",
+      (_name, inline) => {
+        withStylesheet(".flat { transform: none !important; }", () => {
+          const element = mount(inline);
+          element.className = "flat";
+          document.body.append(element);
+          try {
+            const style = element.getAttribute("style");
+
+            expect(setSlideObjectRotation(element, 90)).toBe(false);
+
+            expect(element.getAttribute("style")).toBe(style);
+            expect(readSlideObjectRotation(element)).toBeCloseTo(0, 6);
+            expect(readEditableSlideObjectRotation(element)).toBeNull();
+          } finally {
+            element.remove();
+          }
+        });
+      },
+    );
+
+    it("says so when the painted rotation is the one asked for, whichever declaration paints it", () => {
+      withStylesheet(".pinned { transform: rotate(50deg) !important; }", () => {
+        const element = mount({ transform: "rotate(10deg)" });
+        element.className = "pinned";
+        document.body.append(element);
+        try {
+          expect(setSlideObjectRotation(element, 50)).toBe(true);
+
+          expect(readSlideObjectRotation(element)).toBeCloseTo(50, 6);
+        } finally {
+          element.remove();
+        }
+      });
+    });
+
+    it("restores the style when an animation the DOM cannot model keeps painting another rotation", () => {
+      const element = mount({ transform: "rotate(10deg)" });
+      const getComputedStyle = window.getComputedStyle;
+      const mock = vi
+        .spyOn(window, "getComputedStyle")
+        .mockImplementation((target, pseudoElement) =>
+          target === element
+            ? ({
+                transform:
+                  "matrix(0.642788, 0.766044, -0.766044, 0.642788, 0, 0)",
+                transformOrigin: "50px 10px",
+                getPropertyValue: () => "",
+              } as unknown as CSSStyleDeclaration)
+            : getComputedStyle.call(window, target, pseudoElement),
+        );
+      try {
+        const style = element.getAttribute("style");
+
+        expect(setSlideObjectRotation(element, 90)).toBe(false);
+
+        expect(element.getAttribute("style")).toBe(style);
+      } finally {
+        mock.mockRestore();
+      }
+    });
+
+    it("keeps the priority of the inline transform it replaces", () => {
+      const element = mount({});
+      element.style.setProperty("transform", "rotate(10deg)", "important");
+
+      expect(setSlideObjectRotation(element, 30)).toBe(true);
+
+      expect(element.style.getPropertyValue("transform")).toBe("rotate(30deg)");
+      expect(element.style.getPropertyPriority("transform")).toBe("important");
+    });
+
+    it("offers a rotation to edit only when an inline transform would paint", () => {
+      withStylesheet(".pinned { transform: rotate(50deg) !important; }", () => {
+        const pinned = mount({ transform: "rotate(10deg)" });
+        pinned.className = "pinned";
+        const free = mount({ transform: "rotate(10deg)" });
+        const collapsed = mount({ transform: "scale(0)" });
+        document.body.append(pinned, free, collapsed);
+        try {
+          const style = pinned.getAttribute("style");
+
+          expect(readEditableSlideObjectRotation(pinned)).toBeNull();
+          expect(readEditableSlideObjectRotation(free)).toBeCloseTo(10, 6);
+          expect(readEditableSlideObjectRotation(collapsed)).toBeNull();
+          expect(pinned.getAttribute("style")).toBe(style);
+        } finally {
+          pinned.remove();
+          free.remove();
+          collapsed.remove();
+        }
+      });
+    });
+  });
+
+  it("plans no rotation for a member whose rotation could not be read", () => {
+    const element = mount({ position: "absolute" });
+
+    expect(
+      rotateSlideObjectMembers(
+        [
+          rotationMember(
+            "a",
+            element,
+            { x: 0, y: 0, width: 100, height: 20 },
+            null,
+          ),
+        ],
+        30,
+      ).size,
+    ).toBe(0);
+  });
+
+  it("ungroups nothing when the group's rotation cannot be read", () => {
+    const group = document.createElement("div");
+    group.className = "fmd-slide-group";
+    group.setAttribute("data-slide-group", "true");
+    group.style.position = "absolute";
+    group.style.setProperty("rotate", "30deg");
+    group.style.setProperty("translate", "calc(50% - 10px) 0px");
+    const first = createFreeformObject("first");
+    const second = createFreeformObject("second");
+    group.append(first, second);
+    document.body.append(group);
+    const geometries = new Map<HTMLElement, SlideObjectGeometry>([
+      [group, { x: 100, y: 100, width: 200, height: 100 }],
+      [first, { x: 20, y: 20, width: 40, height: 20 }],
+      [second, { x: 120, y: 50, width: 30, height: 20 }],
+    ]);
+    const applied: HTMLElement[] = [];
+
+    try {
+      expect(
+        ungroupSlideObject(
+          group,
+          (element) => geometries.get(element)!,
+          (element) => applied.push(element),
+        ),
+      ).toBeNull();
+      expect(applied).toEqual([]);
+      expect(group.isConnected).toBe(true);
+    } finally {
+      group.remove();
+    }
+  });
+
+  it("ungroups nothing when a member keeps a transform the ungrouping has to write", () => {
+    const sheet = document.createElement("style");
+    sheet.textContent = ".pinned { transform: rotate(10deg) !important; }";
+    document.head.append(sheet);
+    const group = document.createElement("div");
+    group.className = "fmd-slide-group";
+    group.setAttribute("data-slide-group", "true");
+    group.style.position = "absolute";
+    group.style.setProperty("rotate", "30deg");
+    const first = createFreeformObject("first");
+    first.className = "pinned";
+    const second = createFreeformObject("second");
+    group.append(first, second);
+    document.body.append(group);
+    const geometries = new Map<HTMLElement, SlideObjectGeometry>([
+      [group, { x: 100, y: 100, width: 200, height: 100 }],
+      [first, { x: 20, y: 20, width: 40, height: 20 }],
+      [second, { x: 120, y: 50, width: 30, height: 20 }],
+    ]);
+    const applied: HTMLElement[] = [];
+
+    try {
+      expect(
+        ungroupSlideObject(
+          group,
+          (element) => geometries.get(element)!,
+          (element) => applied.push(element),
+        ),
+      ).toBeNull();
+      expect(applied).toEqual([]);
+      expect(group.isConnected).toBe(true);
+      expect(first.parentElement).toBe(group);
+    } finally {
+      group.remove();
+      sheet.remove();
+    }
+  });
+
+  it("reads the origin a stylesheet !important declaration paints over an inline one", () => {
+    const sheet = document.createElement("style");
+    sheet.textContent = ".pinned { transform-origin: 100% 100% !important; }";
+    document.head.append(sheet);
+    const element = mount({
+      position: "absolute",
+      transform: "rotate(20deg)",
+      "transform-origin": "0 0",
+    });
+    element.className = "pinned";
+    document.body.append(element);
+
+    try {
+      expect(readSlideObjectTransformSnapshot(element).transformOrigin).toBe(
+        "100% 100%",
+      );
+    } finally {
+      element.remove();
+      sheet.remove();
+    }
+  });
+
+  it("falls back to the origin the browser resolved when the authored one is not a value we parse", () => {
+    const element = mount({
+      position: "absolute",
+      transform: "rotate(20deg)",
+      "transform-origin": "calc(50% + 10px) 0",
+    });
+    const getComputedStyle = window.getComputedStyle;
+    const mock = vi
+      .spyOn(window, "getComputedStyle")
+      .mockImplementation((target, pseudoElement) =>
+        target === element
+          ? ({
+              transform: "matrix(0.9397, 0.342, -0.342, 0.9397, 0, 0)",
+              transformOrigin: "60px 0px",
+              getPropertyValue: () => "",
+            } as unknown as CSSStyleDeclaration)
+          : getComputedStyle.call(window, target, pseudoElement),
+      );
+
+    try {
+      expect(readSlideObjectTransformSnapshot(element).transformOrigin).toBe(
+        "60% 0%",
+      );
+      expect(
+        readSlideObjectSelectionFrame(element, {
+          left: 0,
+          top: 0,
+          width: 100,
+          height: 20,
+        } as DOMRect),
+      ).not.toBeNull();
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  it("keeps an authored origin it cannot parse when the browser resolved none", () => {
+    const element = mount({
+      position: "absolute",
+      transform: "rotate(20deg)",
+      "transform-origin": "calc(50% + 10px) 0",
+    });
+    const getComputedStyle = window.getComputedStyle;
+    const mock = vi
+      .spyOn(window, "getComputedStyle")
+      .mockImplementation((target, pseudoElement) =>
+        target === element
+          ? ({
+              transform: "matrix(0.9397, 0.342, -0.342, 0.9397, 0, 0)",
+              transformOrigin: "",
+              getPropertyValue: () => "",
+            } as unknown as CSSStyleDeclaration)
+          : getComputedStyle.call(window, target, pseudoElement),
+      );
+
+    try {
+      expect(readSlideObjectTransformSnapshot(element).transformOrigin).toBe(
+        "calc(50% + 10px) 0",
+      );
+      expect(
+        readSlideObjectSelectionFrame(element, {
+          left: 0,
+          top: 0,
+          width: 100,
+          height: 20,
+        } as DOMRect),
+      ).toBeNull();
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  it("bounds a group around a member that is rotated by the rotate property", () => {
+    const parent = document.createElement("div");
+    const first = createFreeformObject("first");
+    const second = createFreeformObject("second");
+    first.style.setProperty("rotate", "90deg");
+    Object.defineProperty(first, "offsetWidth", { value: 100 });
+    Object.defineProperty(first, "offsetHeight", { value: 20 });
+    parent.append(first, second);
+    const geometries = new Map<HTMLElement, SlideObjectGeometry>([
+      [first, { x: 10, y: 10, width: 100, height: 20 }],
+      [second, { x: 90, y: 10, width: 20, height: 20 }],
+    ]);
+
+    const group = groupSlideObjects(
+      [first, second],
+      (element) => geometries.get(element)!,
+      (element, geometry) =>
+        geometries.set(element, { ...geometries.get(element)!, ...geometry }),
+    );
+
+    expect(group?.style.left).toBe("50px");
+    expect(group?.style.top).toBe("-30px");
+    expect(group?.style.width).toBe("60px");
+    expect(group?.style.height).toBe("100px");
+  });
+
+  // The editor writes a plan's `transform` over the inline transform and
+  // leaves the object's translate, rotate and scale in place, so what a plan
+  // writes must paint the planned transform on top of them.
+  describe("writing a plan back while the longhands stay on the element", () => {
+    const effective = (element: HTMLElement) => {
+      const matrix = matrixOf(
+        readSlideObjectTransformSnapshot(element).transform,
+      );
+      expect(matrix).toHaveLength(6);
+      return matrix ?? [];
+    };
+    const rotated = (matrix: number[], degrees: number, scale: number) => [
+      scale * Math.cos(radians(degrees)),
+      scale * Math.sin(radians(degrees)),
+      -scale * Math.sin(radians(degrees)),
+      scale * Math.cos(radians(degrees)),
+      matrix[4] ?? 0,
+      matrix[5] ?? 0,
+    ];
+    const expectMatrix = (actual: number[], expected: number[]) => {
+      expected.forEach((value, index) => {
+        expect(actual[index]).toBeCloseTo(value, 6);
+      });
+    };
+
+    it("rotates an object that sets translate, rotate and scale once, not twice", () => {
+      const element = mount({
+        position: "absolute",
+        translate: "10% 20%",
+        rotate: "20deg",
+        scale: "2",
+        transform: "matrix(1, 0, 0, 1, 6, 2)",
+      });
+      const before = effective(element);
+      const member = rotationMember(
+        "effective",
+        element,
+        { x: 0, y: 0, width: 100, height: 20 },
+        readSlideObjectRotation(element),
+      );
+      expect(member.rotation).toBeCloseTo(20, 9);
+
+      const next = rotateSlideObjectMembers([member], 30).get("effective")!;
+      element.style.transform = next.transform;
+
+      expect(next.rotation).toBeCloseTo(50, 9);
+      expectMatrix(effective(element), rotated(before, 50, 2));
+      expect(element.style.getPropertyValue("rotate")).toBe("20deg");
+    });
+
+    it("rotates an object whose translate, rotate and scale come from a stylesheet", () => {
+      const style = document.createElement("style");
+      style.textContent =
+        ".slide-longhand-test { rotate: 20deg; scale: 2; translate: 10px 0px; }";
+      document.head.append(style);
+      const element = mount({ position: "absolute" });
+      element.classList.add("slide-longhand-test");
+      document.body.append(element);
+
+      try {
+        const before = effective(element);
+        const member = rotationMember(
+          "effective",
+          element,
+          { x: 0, y: 0, width: 100, height: 20 },
+          readSlideObjectRotation(element),
+        );
+
+        const next = rotateSlideObjectMembers([member], -35).get("effective")!;
+        element.style.transform = next.transform;
+
+        expectMatrix(effective(element), rotated(before, -15, 2));
+      } finally {
+        element.remove();
+        style.remove();
+      }
+    });
+
+    it("keeps an object's translate, rotate and scale in step with its resized group", () => {
+      const element = mount({
+        position: "absolute",
+        translate: "10% 4px",
+        rotate: "20deg",
+        transform: "matrix(1.5, 0, 0, 1.5, 6, 2)",
+        "transform-origin": "25% 75%",
+      });
+      const before = effective(element);
+      const member = groupResizeMember("effective", element, {
+        x: 10,
+        y: 10,
+        width: 100,
+        height: 20,
+      });
+
+      const plan = scaleSlideObjectGroupMembers(
+        [member],
+        { width: 200, height: 100 },
+        { width: 400, height: 200 },
+      ).get(element)!;
+      resize(element, { width: 200, height: 40 });
+      element.style.transform = plan.transform!;
+      element.style.transformOrigin = plan.transformOrigin!;
+
+      // Doubling the group doubles the object's translation and nothing else.
+      expectMatrix(effective(element), [
+        before[0] ?? 0,
+        before[1] ?? 0,
+        before[2] ?? 0,
+        before[3] ?? 0,
+        2 * (before[4] ?? 0),
+        2 * (before[5] ?? 0),
+      ]);
+    });
+
+    it.each([
+      ["a longhand it cannot read", { rotate: "x 20deg" }],
+      ["a scale that collapses the object", { scale: "0" }],
+    ])("plans nothing for %s", (_name, declarations) => {
+      const element = mount({ position: "absolute", ...declarations });
+      const start = { x: 0, y: 0, width: 100, height: 20 };
+
+      expect(
+        rotateSlideObjectMembers([rotationMember("a", element, start, 0)], 30)
+          .size,
+      ).toBe(0);
+      expect(
+        scaleSlideObjectGroupMembers(
+          [groupResizeMember("a", element, start)],
+          { width: 200, height: 100 },
+          { width: 400, height: 200 },
+        ).size,
+      ).toBe(0);
+    });
+
+    it("ungroups a rotate-property child into the rotated group's frame once", () => {
+      const parent = document.createElement("div");
+      const group = document.createElement("div");
+      group.className = "fmd-slide-group";
+      group.setAttribute("data-slide-group", "true");
+      group.style.position = "absolute";
+      const first = createFreeformObject("first");
+      const second = createFreeformObject("second");
+      first.style.setProperty("rotate", "20deg");
+      first.style.transformOrigin = "50% 50%";
+      group.append(first, second);
+      parent.append(group);
+      document.body.append(parent);
+      const geometries = new Map<HTMLElement, SlideObjectGeometry>([
+        [group, { x: 100, y: 100, width: 200, height: 100 }],
+        [first, { x: 20, y: 20, width: 40, height: 20 }],
+        [second, { x: 120, y: 50, width: 30, height: 20 }],
+      ]);
+      setSlideObjectRotation(group, 90);
+
+      ungroupSlideObject(
+        group,
+        (element) => geometries.get(element)!,
+        (element, geometry) => {
+          geometries.set(element, { ...geometries.get(element)!, ...geometry });
+        },
+      );
+
+      const next = geometries.get(first)!;
+      // The child's centre (140, 130) turns 90deg about the group's (200, 150).
+      expect(next.x + next.width / 2).toBeCloseTo(220, 6);
+      expect(next.y + next.height / 2).toBeCloseTo(90, 6);
+      expect(readSlideObjectRotation(first)).toBeCloseTo(110, 5);
+      expect(first.style.getPropertyValue("rotate")).toBe("20deg");
+      parent.remove();
+    });
+  });
+});
+
+describe("rotated containing block basis", () => {
+  const rotation = (degrees: number, scale: number) => {
+    const radians = (degrees * Math.PI) / 180;
+    return {
+      a: Math.cos(radians) * scale,
+      b: Math.sin(radians) * scale,
+      c: -Math.sin(radians) * scale,
+      d: Math.cos(radians) * scale,
+    };
+  };
+
+  it("inverts a rotated and scaled basis back to local axes", () => {
+    const basis = rotation(20, 0.8);
+    const screen = {
+      x: 3 * basis.a + 4 * basis.c,
+      y: 3 * basis.b + 4 * basis.d,
+    };
+    const local = screenDeltaToLocal(basis, screen);
+    expect(local.x).toBeCloseTo(3, 9);
+    expect(local.y).toBeCloseTo(4, 9);
+  });
+
+  it("probes the basis from where a hidden marker lands, then removes it", () => {
+    const basis = rotation(30, 0.5);
+    const space = document.createElement("div");
+    document.body.append(space);
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const left = Number.parseFloat(this.style.left || "0");
+        const top = Number.parseFloat(this.style.top || "0");
+        return DOMRect.fromRect({
+          x: 50 + basis.a * left + basis.c * top,
+          y: 70 + basis.b * left + basis.d * top,
+        });
+      });
+
+    const probed = probeScreenBasis(space);
+    rectSpy.mockRestore();
+
+    expect(probed?.a).toBeCloseTo(basis.a, 9);
+    expect(probed?.b).toBeCloseTo(basis.b, 9);
+    expect(probed?.c).toBeCloseTo(basis.c, 9);
+    expect(probed?.d).toBeCloseTo(basis.d, 9);
+    expect(space.children).toHaveLength(0);
+    space.remove();
+  });
+
+  it("reports no basis when the block collapses to a point", () => {
+    const space = document.createElement("div");
+    document.body.append(space);
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue(DOMRect.fromRect({ x: 5, y: 5 }));
+    expect(probeScreenBasis(space)).toBeNull();
+    rectSpy.mockRestore();
+    space.remove();
+  });
+
+  describe("promotion geometry", () => {
+    const mountPromotion = (transform: string) => {
+      const canvas = document.createElement("div");
+      canvas.innerHTML = `<div id="block" style="position: relative; transform: ${transform}"><p id="leaf"></p></div>`;
+      document.body.append(canvas);
+      return {
+        canvas,
+        block: canvas.querySelector<HTMLElement>("#block")!,
+        leaf: canvas.querySelector<HTMLElement>("#leaf")!,
+      };
+    };
+
+    it("recovers the local box of a leaf inside a rotated, scaled block from its bounding hull", () => {
+      const { canvas, block, leaf } = mountPromotion(
+        "rotate(25deg) scale(0.8)",
+      );
+      const radians = (25 * Math.PI) / 180;
+      const basis = {
+        a: Math.cos(radians) * 0.8,
+        b: Math.sin(radians) * 0.8,
+        c: -Math.sin(radians) * 0.8,
+        d: Math.cos(radians) * 0.8,
+      };
+      const origin = { x: 300, y: 120 };
+      const toScreen = (x: number, y: number) => ({
+        x: origin.x + basis.a * x + basis.c * y,
+        y: origin.y + basis.b * x + basis.d * y,
+      });
+      const local = { x: 40, y: 30, width: 100, height: 20 };
+      const corners = [
+        toScreen(local.x, local.y),
+        toScreen(local.x + local.width, local.y),
+        toScreen(local.x, local.y + local.height),
+        toScreen(local.x + local.width, local.y + local.height),
+      ];
+      const left = Math.min(...corners.map((c) => c.x));
+      const top = Math.min(...corners.map((c) => c.y));
+      const hull = DOMRect.fromRect({
+        x: left,
+        y: top,
+        width: Math.max(...corners.map((c) => c.x)) - left,
+        height: Math.max(...corners.map((c) => c.y)) - top,
+      });
+      Object.defineProperty(leaf, "offsetWidth", { value: local.width });
+      Object.defineProperty(leaf, "offsetHeight", { value: local.height });
+      const rectSpy = vi
+        .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+        .mockImplementation(function (this: HTMLElement) {
+          const x = Number.parseFloat(this.style.left || "0");
+          const y = Number.parseFloat(this.style.top || "0");
+          const point = toScreen(x, y);
+          return DOMRect.fromRect(point);
+        });
+
+      const box = clientRectToContainingBlockBox(hull, leaf, block, canvas);
+      rectSpy.mockRestore();
+
+      expect(box?.x).toBeCloseTo(local.x, 6);
+      expect(box?.y).toBeCloseTo(local.y, 6);
+      expect(box?.width).toBe(local.width);
+      expect(box?.height).toBe(local.height);
+      expect(block.children).toHaveLength(1);
+      canvas.remove();
+    });
+
+    describe.each([
+      ["an unrotated block", "none", 0, 0.5],
+      ["a rotated, scaled block", "rotate(25deg) scale(0.8)", 25, 0.8],
+    ])(
+      "a leaf with its own transform in %s",
+      (_name, blockTransform, degrees, scale) => {
+        it.each([
+          [
+            "rotate(20deg)",
+            "0 0",
+            [Math.cos(Math.PI / 9), Math.sin(Math.PI / 9)],
+          ],
+          [
+            "rotate(20deg)",
+            "100% 0",
+            [Math.cos(Math.PI / 9), Math.sin(Math.PI / 9)],
+          ],
+          [
+            "rotate(20deg)",
+            "20% 80%",
+            [Math.cos(Math.PI / 9), Math.sin(Math.PI / 9)],
+          ],
+          ["matrix(1.4, 0, 0, 1.4, 0, 0)", "0 0", [1.4, 0]],
+          ["matrix(1.4, 0, 0, 1.4, 0, 0)", "100% 100%", [1.4, 0]],
+        ])(
+          "returns the layout box, not the transformed hull (%s about %s)",
+          (leafTransform, origin, [cos = 1, sin = 0]) => {
+            const { canvas, block, leaf } = mountPromotion(blockTransform);
+            leaf.style.transform = leafTransform;
+            leaf.style.transformOrigin = origin;
+            const radians = (degrees * Math.PI) / 180;
+            const basis = {
+              a: Math.cos(radians) * scale,
+              b: Math.sin(radians) * scale,
+              c: -Math.sin(radians) * scale,
+              d: Math.cos(radians) * scale,
+            };
+            const toScreen = (x: number, y: number) => ({
+              x: 300 + basis.a * x + basis.c * y,
+              y: 120 + basis.b * x + basis.d * y,
+            });
+            const local = { x: 40, y: 30, width: 100, height: 20 };
+            const [ox = 0, oy = 0] = origin
+              .split(" ")
+              .map((token, axis) =>
+                token.endsWith("%")
+                  ? (Number.parseFloat(token) / 100) *
+                    (axis ? local.height : local.width)
+                  : Number.parseFloat(token),
+              );
+            const corners = [
+              [0, 0],
+              [local.width, 0],
+              [0, local.height],
+              [local.width, local.height],
+            ].map(([x = 0, y = 0]) =>
+              toScreen(
+                local.x + ox + cos * (x - ox) - sin * (y - oy),
+                local.y + oy + sin * (x - ox) + cos * (y - oy),
+              ),
+            );
+            const left = Math.min(...corners.map((c) => c.x));
+            const top = Math.min(...corners.map((c) => c.y));
+            const hull = DOMRect.fromRect({
+              x: left,
+              y: top,
+              width: Math.max(...corners.map((c) => c.x)) - left,
+              height: Math.max(...corners.map((c) => c.y)) - top,
+            });
+            Object.defineProperty(leaf, "offsetWidth", { value: local.width });
+            Object.defineProperty(leaf, "offsetHeight", {
+              value: local.height,
+            });
+            const rectSpy = vi
+              .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+              .mockImplementation(function (this: HTMLElement) {
+                const x = Number.parseFloat(this.style.left || "0");
+                const y = Number.parseFloat(this.style.top || "0");
+                return DOMRect.fromRect(toScreen(x, y));
+              });
+
+            const box = clientRectToContainingBlockBox(
+              hull,
+              leaf,
+              block,
+              canvas,
+            );
+            rectSpy.mockRestore();
+
+            expect(box?.x).toBeCloseTo(local.x, 5);
+            expect(box?.y).toBeCloseTo(local.y, 5);
+            expect(box?.width).toBe(local.width);
+            expect(box?.height).toBe(local.height);
+            canvas.remove();
+          },
+        );
+      },
+    );
+
+    it("reports no box when the leaf's own transform is not a 2D matrix", () => {
+      const { canvas, block, leaf } = mountPromotion("none");
+      leaf.style.transform = "perspective(400px) rotateY(30deg)";
+      const rectSpy = vi
+        .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+        .mockImplementation(function (this: HTMLElement) {
+          return DOMRect.fromRect({
+            x: Number.parseFloat(this.style.left || "0"),
+            y: Number.parseFloat(this.style.top || "0"),
+          });
+        });
+
+      const box = clientRectToContainingBlockBox(
+        DOMRect.fromRect({ x: 0, y: 0, width: 10, height: 10 }),
+        leaf,
+        block,
+        canvas,
+      );
+      rectSpy.mockRestore();
+
+      expect(box).toBeNull();
+      canvas.remove();
+    });
+
+    describe("a leaf painted through transform-origin keywords or the translate, rotate and scale properties", () => {
+      type Matrix = [number, number, number, number, number, number];
+      type Corner = [number, number];
+      const BOX = { x: 40, y: 30, width: 100, height: 20 };
+      const rotationOf = (degrees: number): Matrix => {
+        const radians = (degrees * Math.PI) / 180;
+        return [
+          Math.cos(radians),
+          Math.sin(radians),
+          -Math.sin(radians),
+          Math.cos(radians),
+          0,
+          0,
+        ];
+      };
+      const translationOf = (x: number, y: number): Matrix => [
+        1,
+        0,
+        0,
+        1,
+        x,
+        y,
+      ];
+      const scalingOf = (x: number, y: number): Matrix => [x, 0, 0, y, 0, 0];
+      const product = (...matrices: Matrix[]) =>
+        matrices.reduce(
+          (m, n): Matrix => [
+            m[0] * n[0] + m[2] * n[1],
+            m[1] * n[0] + m[3] * n[1],
+            m[0] * n[2] + m[2] * n[3],
+            m[1] * n[2] + m[3] * n[3],
+            m[0] * n[4] + m[2] * n[5] + m[4],
+            m[1] * n[4] + m[3] * n[5] + m[5],
+          ],
+        );
+      const nested = product(translationOf(5, 7), rotationOf(10));
+      const sheared = product(scalingOf(1.5, 0.5), rotationOf(15));
+
+      // `hull` is [left, top, width, height] of the box headless Chromium
+      // painted for the same declarations, relative to the layout box. `matrix`
+      // is the transform CSS composes from them (translate, rotate, scale, then
+      // transform) about `origin`.
+      const cases: {
+        name: string;
+        declarations: Record<string, string>;
+        origin: Corner;
+        matrix: Matrix;
+        hull: [number, number, number, number];
+      }[] = [
+        {
+          name: "rotate: 20deg",
+          declarations: { rotate: "20deg" },
+          origin: [50, 10],
+          matrix: rotationOf(20),
+          hull: [-0.404831, -16.497932, 100.809662, 52.995865],
+        },
+        {
+          name: "scale: 1.4",
+          declarations: { scale: "1.4" },
+          origin: [50, 10],
+          matrix: scalingOf(1.4, 1.4),
+          hull: [-20, -4, 140, 28],
+        },
+        {
+          name: "translate: 30px 10px",
+          declarations: { translate: "30px 10px" },
+          origin: [50, 10],
+          matrix: translationOf(30, 10),
+          hull: [30, 10, 100, 20],
+        },
+        {
+          name: "translate: 10% 50%",
+          declarations: { translate: "10% 50%" },
+          origin: [50, 10],
+          matrix: translationOf(10, 10),
+          hull: [10, 10, 100, 20],
+        },
+        {
+          name: "rotate: 20deg about top left",
+          declarations: { rotate: "20deg", "transform-origin": "top left" },
+          origin: [0, 0],
+          matrix: rotationOf(20),
+          hull: [-6.840408, 0, 100.809677, 52.995865],
+        },
+        {
+          name: "rotate: 20deg about top",
+          declarations: { rotate: "20deg", "transform-origin": "top" },
+          origin: [50, 0],
+          matrix: rotationOf(20),
+          hull: [-3.825027, -17.101006, 100.809662, 52.995865],
+        },
+        {
+          name: "transform: rotate(20deg) about top left",
+          declarations: {
+            transform: "rotate(20deg)",
+            "transform-origin": "top left",
+          },
+          origin: [0, 0],
+          matrix: rotationOf(20),
+          hull: [-6.840408, 0, 100.809677, 52.995865],
+        },
+        {
+          name: "transform: rotate(20deg) about top",
+          declarations: {
+            transform: "rotate(20deg)",
+            "transform-origin": "top",
+          },
+          origin: [50, 0],
+          matrix: rotationOf(20),
+          hull: [-3.825027, -17.101006, 100.809662, 52.995865],
+        },
+        {
+          name: "translate, rotate, scale and transform about 20% 80%",
+          declarations: {
+            translate: "30px 10px",
+            rotate: "20deg",
+            scale: "1.4 1.2",
+            transform: `matrix(${nested.join(", ")})`,
+            "transform-origin": "20% 80%",
+          },
+          origin: [20, 16],
+          matrix: product(
+            translationOf(30, 10),
+            rotationOf(20),
+            scalingOf(1.4, 1.2),
+            nested,
+          ),
+          hull: [26.688065, 6.502625, 135.084091, 87.283524],
+        },
+        {
+          name: "rotate and a sheared transform about right bottom",
+          declarations: {
+            rotate: "20deg",
+            transform: `matrix(${sheared.join(", ")})`,
+            "transform-origin": "right bottom",
+          },
+          origin: [100, 20],
+          matrix: product(rotationOf(20), sheared),
+          hull: [-31.724937, -48.136524, 142.324921, 68.13652],
+        },
+        {
+          name: "translate, rotate and scale about 100% 0",
+          declarations: {
+            translate: "10% 50%",
+            rotate: "30deg",
+            scale: "0.5 2",
+            "transform-origin": "100% 0",
+          },
+          origin: [100, 0],
+          matrix: product(
+            translationOf(10, 10),
+            rotationOf(30),
+            scalingOf(0.5, 2),
+          ),
+          hull: [46.69873, -15, 63.30127, 59.641014],
+        },
+      ];
+
+      /** The bounding box of the painted layout box, in screen space. */
+      const paintedRect =
+        (matrix: Matrix, [ox, oy]: Corner) =>
+        (toScreen: (x: number, y: number) => { x: number; y: number }) => {
+          const points = (
+            [
+              [0, 0],
+              [BOX.width, 0],
+              [0, BOX.height],
+              [BOX.width, BOX.height],
+            ] as Corner[]
+          ).map(([x, y]) =>
+            toScreen(
+              BOX.x +
+                ox +
+                matrix[0] * (x - ox) +
+                matrix[2] * (y - oy) +
+                matrix[4],
+              BOX.y +
+                oy +
+                matrix[1] * (x - ox) +
+                matrix[3] * (y - oy) +
+                matrix[5],
+            ),
+          );
+          const left = Math.min(...points.map((point) => point.x));
+          const top = Math.min(...points.map((point) => point.y));
+          return DOMRect.fromRect({
+            x: left,
+            y: top,
+            width: Math.max(...points.map((point) => point.x)) - left,
+            height: Math.max(...points.map((point) => point.y)) - top,
+          });
+        };
+
+      const promote = (
+        declarations: Record<string, string>,
+        block: { transform: string; degrees: number; scale: number },
+        rectFor: (
+          toScreen: (x: number, y: number) => { x: number; y: number },
+        ) => DOMRect,
+      ) => {
+        const {
+          canvas,
+          block: blockElement,
+          leaf,
+        } = mountPromotion(block.transform);
+        for (const [property, value] of Object.entries(declarations)) {
+          leaf.style.setProperty(property, value);
+        }
+        const radians = (block.degrees * Math.PI) / 180;
+        const toScreen = (x: number, y: number) => ({
+          x:
+            300 +
+            Math.cos(radians) * block.scale * x -
+            Math.sin(radians) * block.scale * y,
+          y:
+            120 +
+            Math.sin(radians) * block.scale * x +
+            Math.cos(radians) * block.scale * y,
+        });
+        Object.defineProperty(leaf, "offsetWidth", { value: BOX.width });
+        Object.defineProperty(leaf, "offsetHeight", { value: BOX.height });
+        const rectSpy = vi
+          .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+          .mockImplementation(function (this: HTMLElement) {
+            return DOMRect.fromRect(
+              toScreen(
+                Number.parseFloat(this.style.left || "0"),
+                Number.parseFloat(this.style.top || "0"),
+              ),
+            );
+          });
+        try {
+          return clientRectToContainingBlockBox(
+            rectFor(toScreen),
+            leaf,
+            blockElement,
+            canvas,
+          );
+        } finally {
+          rectSpy.mockRestore();
+          canvas.remove();
+        }
+      };
+
+      const expectLayoutBox = (
+        box: ReturnType<typeof clientRectToContainingBlockBox>,
+      ) => {
+        expect(box).not.toBeNull();
+        expect(box?.x).toBeCloseTo(BOX.x, 2);
+        expect(box?.y).toBeCloseTo(BOX.y, 2);
+        expect(box?.width).toBe(BOX.width);
+        expect(box?.height).toBe(BOX.height);
+      };
+
+      it.each(cases)(
+        "$name: the reference model paints the box Chromium painted",
+        ({ matrix, origin, hull }) => {
+          const rect = paintedRect(matrix, origin)((x, y) => ({ x, y }));
+
+          expect(rect.x - BOX.x).toBeCloseTo(hull[0], 3);
+          expect(rect.y - BOX.y).toBeCloseTo(hull[1], 3);
+          expect(rect.width).toBeCloseTo(hull[2], 3);
+          expect(rect.height).toBeCloseTo(hull[3], 3);
+        },
+      );
+
+      it.each(cases)(
+        "$name: promotes from the hull Chromium painted back to the layout box",
+        ({ declarations, hull }) => {
+          const box = promote(
+            declarations,
+            { transform: "none", degrees: 0, scale: 1 },
+            (toScreen) => {
+              const { x, y } = toScreen(BOX.x + hull[0], BOX.y + hull[1]);
+              return DOMRect.fromRect({
+                x,
+                y,
+                width: hull[2],
+                height: hull[3],
+              });
+            },
+          );
+
+          expectLayoutBox(box);
+        },
+      );
+
+      it.each(cases)(
+        "$name: promotes back to the layout box inside a rotated, scaled block",
+        ({ declarations, matrix, origin }) => {
+          const box = promote(
+            declarations,
+            { transform: "rotate(25deg) scale(0.8)", degrees: 25, scale: 0.8 },
+            paintedRect(matrix, origin),
+          );
+
+          expectLayoutBox(box);
+        },
+      );
+
+      it.each([
+        ["an axis keyword", { rotate: "x 20deg" }],
+        ["a 3D axis", { rotate: "1 1 0 20deg" }],
+        ["a z scale", { scale: "2 2 2" }],
+        ["a z translation", { translate: "10px 10px 10px" }],
+        [
+          "an origin it cannot read",
+          { rotate: "20deg", "transform-origin": "calc(50% + 4px) top" },
+        ],
+      ])("reports no box for %s", (_name, declarations) => {
+        const box = promote(
+          declarations,
+          { transform: "none", degrees: 0, scale: 1 },
+          paintedRect(rotationOf(20), [50, 10]),
+        );
+
+        expect(box).toBeNull();
+      });
+    });
+
+    it("keeps the bounding-rect conversion for unrotated blocks", () => {
+      const { canvas, block, leaf } = mountPromotion("scale(0.5)");
+      Object.defineProperty(block, "offsetWidth", { value: 208 });
+      Object.defineProperty(block, "offsetHeight", { value: 108 });
+      Object.defineProperty(block, "clientLeft", { value: 4 });
+      Object.defineProperty(block, "clientTop", { value: 4 });
+      const rectSpy = vi
+        .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+        .mockReturnValue(
+          DOMRect.fromRect({ x: 100, y: 50, width: 104, height: 54 }),
+        );
+
+      const box = clientRectToContainingBlockBox(
+        DOMRect.fromRect({ x: 110, y: 60, width: 52, height: 27 }),
+        leaf,
+        block,
+        canvas,
+      );
+      rectSpy.mockRestore();
+
+      expect(box).toEqual({ x: 16, y: 16, width: 104, height: 54 });
+      canvas.remove();
+    });
+
+    it("reports no box when a rotated block has no invertible mapping", () => {
+      const { canvas, block, leaf } = mountPromotion("rotate(25deg)");
+      const rectSpy = vi
+        .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+        .mockReturnValue(DOMRect.fromRect({ x: 5, y: 5 }));
+
+      const box = clientRectToContainingBlockBox(
+        DOMRect.fromRect({ x: 0, y: 0, width: 10, height: 10 }),
+        leaf,
+        block,
+        canvas,
+      );
+      rectSpy.mockRestore();
+
+      expect(box).toBeNull();
+      canvas.remove();
+    });
+  });
+
+  it("finds rotation on the block or an ancestor, but not a plain scale", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `<div id="scaled" style="transform: scale(0.5)"><div id="group" style="transform: rotate(20deg)"><div id="member"></div></div></div>`;
+    document.body.append(root);
+    const scaled = root.querySelector<HTMLElement>("#scaled")!;
+    const group = root.querySelector<HTMLElement>("#group")!;
+    const member = root.querySelector<HTMLElement>("#member")!;
+
+    expect(hasRotatedAncestor(scaled, root)).toBe(false);
+    expect(hasRotatedAncestor(group, root)).toBe(true);
+    expect(hasRotatedAncestor(member, root)).toBe(true);
+    expect(hasRotatedAncestor(member, group)).toBe(true);
+    root.remove();
+  });
+});
+
+describe("wrapping an image in its crop frame", () => {
+  const withRule = (rule: string, run: () => void) => {
+    const sheet = document.createElement("style");
+    sheet.textContent = rule;
+    document.head.append(sheet);
+    try {
+      run();
+    } finally {
+      sheet.remove();
+    }
+  };
+  const mountImage = (className: string, style = "") => {
+    const parent = document.createElement("div");
+    parent.innerHTML = `<img class="${className}" src="x.png" style="position:absolute;left:20px;top:10px;${style}">`;
+    document.body.append(parent);
+    const image = parent.querySelector("img")!;
+    for (const [property, value] of [
+      ["offsetWidth", 160],
+      ["offsetHeight", 90],
+      ["offsetLeft", 20],
+      ["offsetTop", 10],
+    ] as const) {
+      Object.defineProperty(image, property, { value, configurable: true });
+    }
+    return { parent, image };
+  };
+
+  it("gives the frame the stacking order a stylesheet rule gives the image", () => {
+    withRule(".stacked { z-index: 7; }", () => {
+      const { parent, image } = mountImage("stacked");
+      try {
+        expect(wrapImageInCropFrame(image)?.frame.style.zIndex).toBe("7");
+      } finally {
+        parent.remove();
+      }
+    });
+  });
+
+  it("prefers the stacking order the image declares inline", () => {
+    withRule(".stacked { z-index: 7; }", () => {
+      const { parent, image } = mountImage("stacked", "z-index:3");
+      try {
+        expect(wrapImageInCropFrame(image)?.frame.style.zIndex).toBe("3");
+      } finally {
+        parent.remove();
+      }
+    });
+  });
+
+  it("leaves a frame no stacking order for an image that has none", () => {
+    const { parent, image } = mountImage("plain");
+    try {
+      expect(wrapImageInCropFrame(image)?.frame.style.zIndex).toBe("");
+    } finally {
+      parent.remove();
+    }
+  });
+
+  it("moves an inline transform to the frame as authored and switches it off on the image", () => {
+    const { parent, image } = mountImage(
+      "plain",
+      "transform:rotate(20deg);transform-origin:top left;scale:1.3",
+    );
+    try {
+      const wrapped = wrapImageInCropFrame(image)!;
+
+      expect(wrapped.frame.style.transform).toBe("rotate(20deg)");
+      expect(wrapped.frame.style.getPropertyValue("scale")).toBe("1.3");
+      expect(wrapped.frame.style.transformOrigin).toBe("top left");
+      expect(image.style.transform).toBe("none");
+      expect(image.style.getPropertyValue("scale")).toBe("none");
+      expect(image.parentElement).toBe(wrapped.viewport);
+    } finally {
+      parent.remove();
+    }
+  });
+
+  it("moves the transform a stylesheet !important rule paints, not the inline one it beats", () => {
+    withRule(".pinned { transform: rotate(50deg) !important; }", () => {
+      const { parent, image } = mountImage("pinned", "transform:rotate(20deg)");
+      try {
+        const { frame } = wrapImageInCropFrame(image)!;
+
+        expect(frame.style.transform).toBe("rotate(50deg)");
+        expect(image.style.getPropertyValue("transform")).toBe("none");
+        expect(image.style.getPropertyPriority("transform")).toBe("important");
+      } finally {
+        parent.remove();
+      }
+    });
+  });
+
+  it("moves no transform to the frame when an !important none switches the inline one off", () => {
+    withRule(".pinned { transform: none !important; }", () => {
+      const { parent, image } = mountImage("pinned", "transform:rotate(20deg)");
+      try {
+        const { frame } = wrapImageInCropFrame(image)!;
+
+        expect(frame.style.transform).toBe("");
+        expect(frame.style.transformOrigin).toBe("");
+      } finally {
+        parent.remove();
+      }
+    });
+  });
+
+  it("does not write a default transform origin for an image with no transform", () => {
+    const { parent, image } = mountImage("plain");
+    try {
+      const { frame } = wrapImageInCropFrame(image)!;
+
+      expect(frame.style.transform).toBe("");
+      expect(frame.style.transformOrigin).toBe("");
+    } finally {
+      parent.remove();
+    }
+  });
+});
+
+describe("wrapping a rotation into [0, 360)", () => {
+  it.each([
+    [0, 0],
+    [200, 200],
+    [-30, 330],
+    [370, 10],
+    [360, 0],
+    [-360, 0],
+    [720.5, 0.5],
+    [360 - 2 ** -44, 0],
+    [-1.4e-14, 0],
+    [359.9999999, 359.9999999],
+  ])("wraps %s to %s", (degrees, expected) => {
+    expect(wrapSlideObjectRotation(degrees)).toBeCloseTo(expected, 9);
+    expect(wrapSlideObjectRotation(degrees)).toBeLessThan(360);
+    expect(wrapSlideObjectRotation(degrees)).toBeGreaterThanOrEqual(0);
   });
 });

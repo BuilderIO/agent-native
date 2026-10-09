@@ -211,6 +211,8 @@ interface PromptPopoverProps {
   submissionDisabled?: boolean;
   showModelSelector?: boolean;
   modelStatusChecksEnabled?: boolean;
+  requireAgentEngine?: boolean;
+  showMissingApiKeySetup?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
@@ -305,6 +307,8 @@ export default function PromptPopover({
   submissionDisabled = false,
   showModelSelector,
   modelStatusChecksEnabled,
+  requireAgentEngine,
+  showMissingApiKeySetup,
   open,
   onOpenChange: onPopoverOpenChange,
   title,
@@ -683,6 +687,8 @@ export default function PromptPopover({
       ariaLabel={placeholder ?? t("home.describeBuild")}
       showModelSelector={showModelSelector}
       modelStatusChecksEnabled={modelStatusChecksEnabled}
+      requireAgentEngine={requireAgentEngine}
+      showMissingApiKeySetup={showMissingApiKeySetup}
       placeholder={placeholder ?? t("home.describeBuild")}
       onSubmit={handleSubmit}
       onBeforeSubmit={onBeforeSubmit}

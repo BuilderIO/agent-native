@@ -38,6 +38,15 @@ runs:
       shell: bash
       run: pnpm qa:agentkit-chat-acceptance
 
+    - name: Upload standalone Chat screenshots
+      if: failure()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: standalone-chat-acceptance-screenshots-${{ github.run_attempt }}
+        path: .tmp/action-cards-gallery/
+        if-no-files-found: ignore
+        retention-days: 7
+
     - name: Cross-surface sign-in matrix
       shell: bash
       run: pnpm qa:sign-in

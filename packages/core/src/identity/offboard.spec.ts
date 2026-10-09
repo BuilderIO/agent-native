@@ -5,7 +5,7 @@ import type { DbExec } from "../db/client.js";
 import { __resetSchemaSnapshotForTests } from "../db/ddl-guard.js";
 import {
   ensureConnectTables,
-  isJtiRevoked,
+  lookupConnectTokenOrg,
   recordMintedToken,
 } from "../mcp/connect-store.js";
 import { withMcpCredentialIssuance } from "../mcp/credential-issuance.js";
@@ -252,7 +252,9 @@ describe("offboardMember", () => {
               );
             },
           );
-          expect(await isJtiRevoked("example-first-connect-grant")).toBe(false);
+          expect(
+            await lookupConnectTokenOrg("example-first-connect-grant"),
+          ).toMatchObject({ status: "found" });
         }
         const result = await exec.execute(query);
         if (sql.includes("information_schema.columns")) {
@@ -278,7 +280,9 @@ describe("offboardMember", () => {
       INSERT INTO org_members VALUES
         ('readded-member', 'org-1', 'old@example.test', 'member', NULL);
     `);
-    expect(await isJtiRevoked("example-first-connect-grant")).toBe(true);
+    expect(await lookupConnectTokenOrg("example-first-connect-grant")).toEqual({
+      status: "revoked",
+    });
     expect(await getOAuthCode(oauthCode)).toBeNull();
     expect(
       await getOAuthRefreshToken("example-first-oauth-refresh"),

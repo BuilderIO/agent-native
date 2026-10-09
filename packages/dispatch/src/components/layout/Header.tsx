@@ -10,7 +10,6 @@ const pageTitles: Record<string, string> = {
   "/": "Overview",
   "/overview": "Overview",
   "/vault": "Vault",
-  "/integrations": "Integrations",
   "/workspace": "Resources",
   "/messaging": "Messaging",
   "/agents": "Agents",

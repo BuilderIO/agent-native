@@ -12,6 +12,18 @@ A slide's `content` is a self-contained HTML string rendered at its aspect
 ratio's intrinsic size: 16:9 is 960x540, 1:1 is 1080x1080, 9:16 is 540x960,
 and 4:5 is 864x1080. Never assume a 1920x1080 canvas.
 
+## Read before
+
+Read a reference with `docs-search --slug "skill-slide-editing--references-<file>"`,
+for example `skill-slide-editing--references-animations`.
+
+| Situation | Read |
+| --- | --- |
+| Changing only colors, borders, shadows, or backgrounds, or matching every slide to one slide's look | `references/style-only-edits.md` |
+| Adding, changing, or removing click-to-reveal animations | `references/animations.md` |
+| Adding, moving, duplicating, or restyling hand-placed text boxes and other freeform objects | `references/freeform-objects.md` |
+| Adding or editing a video | `references/video.md` |
+
 ## Wrapper and styling
 
 Every slide's outer `.fmd-slide` div carries the semantic `--deck-*` contract;
@@ -28,7 +40,10 @@ or "make it beautiful", read `slide-design`; a linked system's tokens still win.
 ## Updating a slide
 
 1. Call `view-screen` for the active deck, slide ID, HTML, and any
-   `slides-selection` target.
+   `slides-selection` target. The user navigates and reselects between turns:
+   on any turn that says this, here, that slide, or the selected one, call
+   `view-screen` again and never reuse a previous turn's slide ID or
+   selection. If nothing is selected or the target is unclear, ask which slide.
 2. When the edit changes facts, brand language, or layout, follow
    `creative-context` first. If retrieval yields a new context pack, keep its
    `contextPackId` with the deck provenance; existing HTML is not proof of
@@ -66,50 +81,14 @@ slide was not restyled. `update-slide` fails with `slide_edit_noop`, and both
 reject a batch where nothing changed, so re-read and send different content
 instead of describing changes that did not land.
 
-## Style-only edits
-
-For appearance-only changes (colors, borders, shadows, background), set
-`styleOnly: true`. It accepts only the `edits` array (`fullContent` and the
-legacy top-level `find` / `replace` / `objectId` are rejected) and refuses any
-result that changes text, markup, element order, or protected layout CSS
-(padding, margin, gap, font-size, line-height, dimensions, positioning).
-
-```jsonc
-{ "deckId": "...", "slideId": "...", "styleOnly": true, "baseContentHash": "<contentHash>",
-  "edits": [{ "find": "background:#111111", "replace": "background:#f4f0e8", "occurrence": 1 }] }
-```
-
-Use `occurrence: 1`, not `expectedMatches: 1`, when a declaration may repeat:
-the edits path rejects ambiguous literals, so `expectedMatches` turns a repeat
-into a failure. Use `all: true` when every occurrence should change. `objectId`
-replaces inner content only and cannot reach an element's own `style`.
-
-### Matching one slide's look across the deck
-
-Use one `patch-deck` call with a `patch-slide` operation per slide, not
-parallel `update-slide` calls: a mistake in one repeats across all of them
-before any rejection returns.
-
-1. Read the reference and targets in one `get-deck` call (`slideIds`,
-   `compact=false`; the full deck if IDs are unknown). Take the background from
-   the reference's `.fmd-slide` wrapper, not a child and not `deckStyle`, which
-   also summarizes interior gradients. Keep each `contentHash`.
-2. Send one `patch-deck` with every slide, its `baseContentHash`, and
-   `styleOnly: true` for CSS-only changes (content changes omit it and send the
-   full intended HTML). Verify once with the same `get-deck` read.
-
-Change only the wrapper's background unless asked otherwise; leave card fills,
-image backgrounds, and gradients alone. A wrapper with no background
-declaration needs one added to its `style`. When a person is actively editing,
-prefer a scoped `update-slide` with `baseContentHash`.
-
 ## Fit and layout checks
 
 The `create-deck` Fit budget applies: on 16:9 with `64px 80px` padding the
 content area is 800x412px, so use at most two title lines, three short bullets
-or cards, and two or three items per column, and split dense material. Body
-text stays at least 16px. Never hide overflow with zoom, `transform: scale()`,
-clipping, or scroll; reducing explicit padding is allowed.
+or cards, and two or three items per column. When an edit adds or lengthens
+text, redo the height arithmetic and split the slide instead of shrinking.
+Body text stays at least 16px. Never hide overflow with zoom,
+`transform: scale()`, clipping, or scroll; reducing explicit padding is allowed.
 
 After all edits, call `get-layout-overflows` once, and once more only after
 repairing a measured overflow. It reads the open editor's latest measurements
@@ -137,42 +116,45 @@ re-audit once if slides come back skipped as `stale-render`. Skipped slides and
 unverified text (over images, gradients, or effects) were not checked: name
 them, and do not call the deck accessible or those slides fine.
 
-## Objects, media, and placeholders
+## Flow layout and the editor
 
-- Freeform objects (text boxes, shapes) are absolutely positioned `.fmd-slide`
-  children with a stable `data-slide-object-id`. Preserve it when editing,
-  moving, or styling; mint a new one when duplicating. Never save runtime
+Keep generated flex and grid content in normal flow; create a deliberate
+freeform object instead of absolute-positioning a layout child to make it
+draggable. The editor presents flow content as flat objects the way Google
+Slides does, so write markup that maps cleanly:
+
+- A card is one painted box (background, border, or shadow on a single element)
+  that owns its text. Never stack separately positioned text over a card
+  background.
+- Text containers, including `.fmd-text-box`, have no fixed `height`
+  (`min-height` only for a deliberate minimum), so text grows instead of
+  overflowing.
+- Never write `contain` or `contain-intrinsic-size`; they break the editor's
+  measuring and the PPTX export.
+- No inline `<svg>`; the sanitizer removes it. Use styled divs or an `<img>`.
+- Keep nesting shallow. Unpainted wrappers with no direct text (grid rows,
+  columns) are fine; the pointer skips them.
+- Ids belong to freeform objects only. Never stamp `data-slide-object-id` on a
+  flow region: any id marks an object freeform and `export-pptx` rejects it.
+  Preserve existing ids when rewriting a slide, and never save runtime
   `data-builder-id` values.
-- Keep generated flex/grid content in normal flow; create a deliberate freeform
-  object instead of absolute-positioning a layout child to make it draggable.
-- Build shapes from styled HTML such as `div`; the sanitizer strips inline SVG.
-- Use `fmd-img-placeholder` divs (see `create-deck`) for diagrams, charts, and
+- An empty hidden `.fmd-layout-spacer[data-slide-layout-spacer-for="ID"]`
+  reserves the flow slot of a hand-moved object. Keep it while its owner
+  exists and delete both together.
+- Keep the empty `<span data-slide-number></span>` and
+  `<span data-slide-total></span>` tokens when restyling or rewriting a footer.
+  They are empty in the saved HTML on purpose; never type digits over them.
+- Use `fmd-img-placeholder` divs whose text names the content to show (see
+  `create-deck` `references/slide-templates.md`) for diagrams, charts, and
   photos, then generate real images; never rebuild complex visuals in HTML/CSS.
-- Video: MP4 or WebM, ideally dropped on the slide (uploaded to file storage,
-  50 MB limit) as a positioned `<video controls playsinline preload="metadata">`
-  whose `data-slide-object-id` you preserve. It plays on click; `autoplay`
-  (muted, inline) starts it when the slide is reached and `loop` repeats.
-  Thumbnails and PDF disable autoplay; verify an export keeps playable video
-  before claiming it does.
+
+Slide writes can return `hygieneWarnings` (inline svg and other markup the
+sanitizer strips, typed page numbers, fixed px heights on text, `contain`,
+stacked absolute text, deep nesting, tiny text). Fix them with `update-slide`
+before finishing; a missing field means the lint found nothing.
 
 ## Skipping slides
 
 A `patch-deck` `patch-slide` with `skipped: true` hides a slide from
 Present/Presenter without deleting it; `skipped: false` restores it. The rail's
 right-click Skip slide does the same.
-
-## Click-to-reveal animations
-
-Animations are metadata over the final HTML, not alternate markup. Read the
-full slide and patch the complete ordered `animations` list; omitted elements
-show immediately. Never add hidden duplicates, spacers, absolute copies,
-transforms, or placeholders to fake reveals. When content and reveals change
-together, send both in one `patch-deck` operation; `animations: []` removes
-reveals, then verify the persisted slide.
-
-Array order is reveal order. Each entry needs a non-empty, unique `id` (the
-editor keys reveals by id, so duplicates break remove and change-type), a
-0-based `elementIndex`, and a `type` of `appear`, `fade`, `slide-up`, or
-`zoom`. Take `elementPath` from the exact final HTML: it is positional, and a
-stale path silently falls back to `elementIndex` and reveals the wrong element.
-`get-deck` with `compact=true` reports each step for verification.

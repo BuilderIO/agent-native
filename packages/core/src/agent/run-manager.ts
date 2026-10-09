@@ -18,6 +18,7 @@ import {
   describeErrorWithCauses,
   isProviderConnectionError,
 } from "./engine/error-detail.js";
+import { runErrorTelemetryProperties } from "./engine/error-telemetry.js";
 import { getAgentEngineEntry } from "./engine/registry.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineRequestShape } from "./engine/types.js";
@@ -533,8 +534,6 @@ function terminalReasonForRun(
   return "done";
 }
 
-const MAX_RUN_ERROR_DETAIL_LENGTH = 500;
-
 function emitRunBoundaryTrackingEvent(args: {
   runId: string;
   threadId: string;
@@ -586,7 +585,6 @@ function emitRunTerminalTrackingEvent(args: {
   status: "completed" | "errored" | "aborted" | "truncated";
   terminalReason: string;
   errorCode?: string;
-  errorDetail?: string;
   dispatchMode?: string;
   abortReason?: string;
   durationMs: number;
@@ -617,11 +615,7 @@ function emitRunTerminalTrackingEvent(args: {
     status: args.status,
     terminal_reason: args.terminalReason,
     error_code: args.errorCode,
-    error_detail: args.errorDetail
-      ? args.errorDetail.length > MAX_RUN_ERROR_DETAIL_LENGTH
-        ? `${args.errorDetail.slice(0, MAX_RUN_ERROR_DETAIL_LENGTH)}…`
-        : args.errorDetail
-      : undefined,
+    ...(args.errorCode ? runErrorTelemetryProperties(args.errorCode) : {}),
     dispatch_mode: args.dispatchMode,
     abort_reason: args.abortReason,
     duration_ms: args.durationMs,
@@ -1337,6 +1331,7 @@ export function startRun(
     captureError(error, {
       route: "/_agent-native/agent-chat",
       aiTraceId: runId,
+      errorMessagePolicy: "omit",
       tags: {
         source: "agent-run-manager",
         phase,
@@ -1482,8 +1477,8 @@ export function startRun(
         ...(err instanceof EngineError && err.upgradeUrl
           ? { upgradeUrl: err.upgradeUrl }
           : {}),
-        ...(err instanceof EngineError && err.providerRetryable === true
-          ? { providerRetryable: true }
+        ...(err instanceof EngineError && err.providerRetryable !== undefined
+          ? { providerRetryable: err.providerRetryable }
           : {}),
         ...(err instanceof EngineError && err.contextOverflow === true
           ? { contextOverflow: true }
@@ -1495,7 +1490,6 @@ export function startRun(
       let terminalPersistenceError: unknown = null;
       let eventPersistenceError: unknown = null;
       let runTerminalErrorCode: string | undefined;
-      let runTerminalErrorDetail: string | undefined;
       let terminalPersistenceEstablished = false;
       try {
         await persistenceChain;
@@ -1720,7 +1714,6 @@ export function startRun(
         }
         errorCode ??= classifyTerminalErrorCode(errorDetail);
         runTerminalErrorCode = errorCode ?? "unknown";
-        runTerminalErrorDetail = errorDetail;
         await setRunError(runId, errorCode ?? "unknown", errorDetail);
       }
 
@@ -1748,7 +1741,6 @@ export function startRun(
           status: persistedStatus,
           terminalReason,
           errorCode: runTerminalErrorCode,
-          errorDetail: runTerminalErrorDetail,
           dispatchMode: options?.dispatchMode,
           abortReason: run.abortReason,
           durationMs: Date.now() - run.startedAt,
