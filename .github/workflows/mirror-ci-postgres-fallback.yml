@@ -36,7 +36,7 @@ jobs:
         run: |
           set -euo pipefail
           docker buildx version
-          source_repository="public.ecr.aws/docker/library/postgres"
+          source_repository="docker.io/library/postgres"
           mirror_repository="ghcr.io/builderio/agent-native-ci-postgres-fallback"
 
           for tag in 17-alpine 18-alpine; do
