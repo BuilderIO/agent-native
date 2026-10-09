@@ -2056,6 +2056,10 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
   it("distinguishes persisted threads from a new chat in header state", async () => {
     let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    let threadNew = false;
+    threadMocks.isNewThread.mockImplementation(
+      (id) => id === "thread-new" && threadNew,
+    );
 
     await act(async () => {
       root.render(
@@ -2074,6 +2078,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     expect(headerProps?.activeTabIsPersisted).toBe(true);
 
+    threadNew = true;
     threadMocks.createThread.mockImplementationOnce(async () => {
       const id = "thread-new";
       threadMocks.activeThreadId = id;
@@ -2099,6 +2104,21 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     expect(headerProps?.activeTabId).toBe("thread-new");
     expect(headerProps?.activeTabIsPersisted).toBe(false);
+
+    threadNew = false;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+
+    expect(headerProps?.activeTabIsPersisted).toBe(true);
   });
 
   it("keeps a chat mounted when scoped navigation has no saved open tabs", async () => {

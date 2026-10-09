@@ -315,6 +315,9 @@ describe("AgentPanel header tab visibility", () => {
     expect(
       shouldShowAgentPanelPageHeader([chatTab("main")], "main", 0, false, true),
     ).toBe(true);
+    expect(
+      shouldShowAgentPanelPageNewChatButton([chatTab("main")], "main", 0, true),
+    ).toBe(true);
   });
 
   it("can keep the page history menu visible for an empty chat", () => {

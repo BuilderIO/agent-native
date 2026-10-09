@@ -3065,9 +3065,7 @@ export function MultiTabAssistantChat({
       ? (messageCounts[activeThreadId] ?? 0)
       : 0,
     activeTabIsPersisted: Boolean(
-      activeThreadId &&
-      !newThreadIds.current.has(activeThreadId) &&
-      !isNewThread(activeThreadId),
+      activeThreadId && !isNewThread(activeThreadId),
     ),
     setActiveTabId: switchThread,
     addTab,

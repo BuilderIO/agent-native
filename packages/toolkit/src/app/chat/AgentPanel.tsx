@@ -403,11 +403,14 @@ export function shouldShowAgentPanelPageNewChatButton(
   tabs: MultiTabAssistantChatHeaderProps["tabs"],
   activeTabId: string,
   activeTabMessageCount: number,
+  activeTabIsPersisted = false,
 ) {
   return shouldShowAgentPanelPageHeader(
     tabs,
     activeTabId,
     activeTabMessageCount,
+    false,
+    activeTabIsPersisted,
   );
 }
 
@@ -1668,6 +1671,7 @@ function AgentPanelInner({
           tabs,
           activeTabId,
           activeTabMessageCount,
+          activeTabIsPersisted,
         );
 
       return (
