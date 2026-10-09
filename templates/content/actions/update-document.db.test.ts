@@ -2178,6 +2178,40 @@ describe("update-document compare-and-swap", () => {
 });
 
 describe("update-document save outcome counts", () => {
+  it.each(["changed", "unchanged", "refused"] as const)(
+    "does not count a %s personal favorite toggle as a document save",
+    async (outcome) => {
+      const id = await createDocument({ content: "Body" });
+      const invoke = (documentId: string) =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          updateDocumentAction.run(
+            { id: documentId, isFavorite: true },
+            { caller: "frontend", userEmail: OWNER },
+          ),
+        );
+      if (outcome === "unchanged") await invoke(id);
+      const before = await documentRow(id);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      outcomeCounter.mockClear();
+      if (outcome === "refused") {
+        await expect(
+          invoke(nextId("missing-favorite-document")),
+        ).rejects.toThrow();
+      } else {
+        expect(await invoke(id)).toMatchObject({ isFavorite: true });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(outcomeCounter).not.toHaveBeenCalled();
+      expect(await documentRow(id)).toEqual(before);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, id)),
+      ).toHaveLength(0);
+    },
+  );
+
   it.each(["baseUpdatedAt", "recoveryExpectedUpdatedAt"] as const)(
     "observes the matching %s key on a successful body write",
     async (field) => {

@@ -9,6 +9,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withContentRecoverySaveContext } from "./_content-save-outcomes.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 import {
   lockPreviewDocumentDraftSettlement,
@@ -704,8 +705,6 @@ export default defineAction({
           current.bodyRevision,
           current.content,
         );
-        const requestHeaders = new Headers(ctx?.requestHeaders);
-        requestHeaders.set("X-Content-Save-Origin", "recovery");
         const saved = await updateDocument.run(
           {
             id: args.documentId,
@@ -729,7 +728,7 @@ export default defineAction({
             preserveLeadingTitleHeading: true,
             reuseLabels: [],
           },
-          { ...ctx, caller: "frontend", requestHeaders },
+          withContentRecoverySaveContext({ ...ctx, caller: "frontend" }),
         );
         if ("conflict" in saved && saved.conflict === true) {
           const [winner] = await db
@@ -849,8 +848,6 @@ export default defineAction({
     let created;
     try {
       try {
-        const requestHeaders = new Headers(ctx?.requestHeaders);
-        requestHeaders.set("X-Content-Save-Origin", "recovery");
         created = await createDocument.run(
           {
             id: destinationId,
@@ -859,7 +856,10 @@ export default defineAction({
             preserveLeadingTitleHeading: true,
             reuseLabels: [],
           },
-          { ...ctx, caller: ctx?.caller ?? "frontend", requestHeaders },
+          withContentRecoverySaveContext({
+            ...ctx,
+            caller: ctx?.caller ?? "frontend",
+          }),
         );
       } catch (error) {
         const existing = await findExistingRecovery();

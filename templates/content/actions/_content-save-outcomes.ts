@@ -132,6 +132,15 @@ export function recordContentSaveOutcome(
 
 const outcomeSymbol = Symbol("contentSaveOutcome");
 const auditOutcomes = new AsyncLocalStorage<{ outcome?: ContentSaveOutcome }>();
+const recoverySaveContexts = new WeakSet<ActionRunContext>();
+
+export function withContentRecoverySaveContext(
+  ctx: ActionRunContext,
+): ActionRunContext {
+  const recoveryContext = { ...ctx };
+  recoverySaveContexts.add(recoveryContext);
+  return recoveryContext;
+}
 
 export function contentSaveAuditOutcome(): ContentSaveOutcome | undefined {
   return auditOutcomes.getStore()?.outcome;
@@ -164,7 +173,10 @@ export function observeDocumentUpdateOutcome<Args, Result extends object>(
   save: (
     args: Args,
     ctx: ActionRunContext | undefined,
-    measurement: ContentSaveOutcomeDimensions & { settled?: boolean },
+    measurement: ContentSaveOutcomeDimensions & {
+      settled?: boolean;
+      record?: boolean;
+    },
   ) => Promise<Result>,
 ): (args: Args, ctx?: ActionRunContext) => Promise<Result> {
   return observeContentSaveOutcome("update_document", save);
@@ -174,7 +186,10 @@ export function observeRecoveryDocumentCreate<Args, Result extends object>(
   save: (
     args: Args,
     ctx: ActionRunContext | undefined,
-    measurement: ContentSaveOutcomeDimensions & { settled?: boolean },
+    measurement: ContentSaveOutcomeDimensions & {
+      settled?: boolean;
+      record?: boolean;
+    },
   ) => Promise<Result>,
 ): (args: Args, ctx?: ActionRunContext) => Promise<Result> {
   return observeContentSaveOutcome("create_document", save);
@@ -211,17 +226,25 @@ function observeContentSaveOutcome<Args, Result extends object>(
   save: (
     args: Args,
     ctx: ActionRunContext | undefined,
-    measurement: ContentSaveOutcomeDimensions & { settled?: boolean },
+    measurement: ContentSaveOutcomeDimensions & {
+      settled?: boolean;
+      record?: boolean;
+    },
   ) => Promise<Result>,
 ): (args: Args, ctx?: ActionRunContext) => Promise<Result> {
   return async (args, ctx) => {
-    const measurement: ContentSaveOutcomeDimensions & { settled?: boolean } = {
+    const measurement: ContentSaveOutcomeDimensions & {
+      settled?: boolean;
+      record?: boolean;
+    } = {
       outcome: "unchanged",
       origin:
-        ctx?.requestHeaders?.get("x-content-save-origin") === "recovery"
+        ctx && recoverySaveContexts.has(ctx)
           ? "recovery"
           : ctx?.caller === "frontend"
-            ? "browser"
+            ? ctx.requestHeaders?.get("x-content-save-origin") === "recovery"
+              ? "recovery"
+              : "browser"
             : "agent",
       stale_base: "unknown",
       history_effect: "none",
@@ -249,7 +272,8 @@ function observeContentSaveOutcome<Args, Result extends object>(
       const audit = auditOutcomes.getStore();
       if (operation === "update_document" && audit)
         audit.outcome = measurement.outcome;
-      recordContentSaveOutcome(operation, measurement);
+      if (measurement.record !== false)
+        recordContentSaveOutcome(operation, measurement);
     }
   };
 }

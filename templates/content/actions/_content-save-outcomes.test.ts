@@ -1,3 +1,4 @@
+import type { ActionCaller, ActionRunContext } from "@agent-native/core/action";
 import { ForbiddenError } from "@agent-native/core/sharing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -9,9 +10,11 @@ import {
   contentSaveAuditOutcome,
   contentSaveOutcome,
   observeDocumentUpdateOutcome,
+  observeRecoveryDocumentCreate,
   recordContentSaveOutcome,
   scopeContentSaveAudit,
   scopeContentSaveOutcome,
+  withContentRecoverySaveContext,
 } from "./_content-save-outcomes.js";
 
 afterEach(() => {
@@ -20,6 +23,183 @@ afterEach(() => {
 });
 
 describe("Content save outcome delivery", () => {
+  it.each(
+    [
+      "tool",
+      "http",
+      "frontend",
+      "mcp-widget",
+      "cli",
+      "mcp",
+      "webmcp",
+      "a2a",
+      "automation",
+      undefined,
+    ].flatMap((caller) =>
+      [false, true].map((recoveryHeader) => ({
+        caller: caller as ActionCaller | undefined,
+        recoveryHeader,
+      })),
+    ),
+  )(
+    "classifies caller $caller with recovery header $recoveryHeader",
+    async ({ caller, recoveryHeader }) => {
+      vi.useFakeTimers();
+      const ctx = {
+        caller: caller as ActionCaller,
+        requestHeaders: new Headers(
+          recoveryHeader ? { "X-Content-Save-Origin": "recovery" } : {},
+        ),
+      };
+      const save = observeDocumentUpdateOutcome(
+        async (_args, _ctx, measurement) => {
+          measurement.outcome = "written";
+          return { saved: true };
+        },
+      );
+      expect(await save({}, ctx)).toEqual({ saved: true });
+      expect(counter).not.toHaveBeenCalled();
+      await vi.runAllTimersAsync();
+      expect(counter).toHaveBeenCalledExactlyOnceWith(
+        "content_save_outcome_counts",
+        expect.objectContaining({
+          origin:
+            caller === "frontend"
+              ? recoveryHeader
+                ? "recovery"
+                : "browser"
+              : "agent",
+        }),
+      );
+    },
+  );
+
+  it.each<ActionCaller>([
+    "tool",
+    "http",
+    "frontend",
+    "mcp-widget",
+    "cli",
+    "mcp",
+    "webmcp",
+    "a2a",
+    "automation",
+  ])(
+    "marks server recovery for caller %s without changing the caller or request",
+    async (caller) => {
+      vi.useFakeTimers();
+      const original: ActionRunContext = {
+        caller,
+        userEmail: "owner@example.test",
+        requestHeaders: new Headers({ "X-Content-Save-Origin": "ignored" }),
+      };
+      const recovery = withContentRecoverySaveContext(original);
+      expect(recovery).not.toBe(original);
+      expect(recovery).toEqual(original);
+      expect(recovery.requestHeaders).toBe(original.requestHeaders);
+      const save = observeRecoveryDocumentCreate(
+        async (_args, ctx, measurement) => {
+          expect(ctx?.caller).toBe(caller);
+          measurement.outcome = "written";
+          return { id: "created" };
+        },
+      );
+      const result = await save({}, recovery);
+      expect(JSON.stringify(result)).toBe('{"id":"created"}');
+      await vi.runAllTimersAsync();
+      expect(counter).toHaveBeenCalledExactlyOnceWith(
+        "content_save_outcome_counts",
+        expect.objectContaining({
+          operation: "create_document",
+          origin: "recovery",
+          outcome: "written",
+        }),
+      );
+    },
+  );
+
+  it("isolates nested recovery from concurrent and subsequent saves using the original context", async () => {
+    vi.useFakeTimers();
+    const ctx: ActionRunContext = {
+      caller: "tool",
+      requestHeaders: new Headers({ "X-Content-Save-Origin": "recovery" }),
+    };
+    const nested = observeDocumentUpdateOutcome(
+      async (_args, _ctx, measurement) => {
+        measurement.outcome = "written";
+        return { saved: true };
+      },
+    );
+    const outer = observeDocumentUpdateOutcome(
+      async (_args, outerCtx, measurement) => {
+        await nested({}, withContentRecoverySaveContext(outerCtx!));
+        measurement.outcome = "unchanged";
+        return { saved: false };
+      },
+    );
+    expect(await Promise.all([outer({}, ctx), nested({}, ctx)])).toEqual([
+      { saved: false },
+      { saved: true },
+    ]);
+    await nested({}, ctx);
+    await vi.runAllTimersAsync();
+    expect(
+      counter.mock.calls.map(([, dimensions]) => [
+        dimensions.origin,
+        dimensions.outcome,
+      ]),
+    ).toEqual([
+      ["recovery", "written"],
+      ["agent", "written"],
+      ["agent", "unchanged"],
+      ["agent", "written"],
+    ]);
+    expect(ctx.requestHeaders?.get("X-Content-Save-Origin")).toBe("recovery");
+  });
+
+  it("does not count an agent-created document whose request claims recovery", async () => {
+    vi.useFakeTimers();
+    const create = observeRecoveryDocumentCreate(
+      async (_args, _ctx, measurement) => {
+        measurement.outcome = "written";
+        return { id: "created" };
+      },
+    );
+    const result = await create(
+      {},
+      {
+        caller: "tool",
+        requestHeaders: new Headers({ "X-Content-Save-Origin": "recovery" }),
+      },
+    );
+    expect(result).toEqual({ id: "created" });
+    await vi.runAllTimersAsync();
+    expect(counter).not.toHaveBeenCalled();
+  });
+
+  it("retains the audit outcome and response without counting excluded saves", async () => {
+    vi.useFakeTimers();
+    const result = { content: "existing body" };
+    const save = observeDocumentUpdateOutcome(
+      async (_args, _ctx, measurement) => {
+        measurement.record = false;
+        measurement.outcome = "written";
+        return result;
+      },
+    );
+    const audited = scopeContentSaveAudit(async () => {
+      const saved = await save({});
+      expect(contentSaveAuditOutcome()).toBe("written");
+      return saved;
+    });
+    expect(await audited({})).toBe(result);
+    expect(contentSaveOutcome(result)).toBe("written");
+    expect(JSON.stringify(result)).toBe('{"content":"existing body"}');
+    expect(Object.keys(result)).toEqual(["content"]);
+    await vi.runAllTimersAsync();
+    expect(counter).not.toHaveBeenCalled();
+  });
+
   it("keeps committed audit outcomes separate across overlapping invocations", async () => {
     vi.useFakeTimers();
     let finishWritten!: () => void;

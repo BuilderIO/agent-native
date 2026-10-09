@@ -2607,12 +2607,58 @@ describe("mountActionRoutes", () => {
 
     const event = {
       _method: "OPTIONS",
-      _headers: { origin: "https://evil.example" },
+      _headers: {
+        origin: "https://evil.example",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type,x-content-save-origin",
+      },
     };
     const result = await mounted[0].handler(event);
 
     expect(result).toBe("");
     expect(event._status).toBe(403);
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(actions.mutate.run).not.toHaveBeenCalled();
+  });
+
+  it("allows recovery telemetry headers on credentialed action preflights", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "owner@example.com");
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      mutate: { run: vi.fn(async () => ({ ok: true })) } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, { getOwnerFromEvent });
+
+    const event = {
+      _method: "OPTIONS",
+      _headers: {
+        origin: "tauri://localhost",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type,x-content-save-origin",
+      },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toBe("");
+    expect(event._status).toBe(204);
+    expect(event._responseHeaders["access-control-allow-origin"]).toBe(
+      "tauri://localhost",
+    );
+    expect(event._responseHeaders["access-control-allow-credentials"]).toBe(
+      "true",
+    );
+    expect(
+      event._responseHeaders["access-control-allow-headers"]
+        .toLowerCase()
+        .split(","),
+    ).toContain("x-content-save-origin");
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
     expect(actions.mutate.run).not.toHaveBeenCalled();
   });
@@ -2638,6 +2684,8 @@ describe("mountActionRoutes", () => {
       _method: "OPTIONS",
       _headers: {
         origin: "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type,x-content-save-origin",
       },
     };
     const result = await mounted[0].handler(event);
@@ -2656,6 +2704,7 @@ describe("mountActionRoutes", () => {
     expect(allowHeaders).toContain("x-request-source");
     expect(allowHeaders).toContain("x-user-timezone");
     expect(allowHeaders).toContain("x-agent-native-session-id");
+    expect(allowHeaders.split(",")).toContain("x-content-save-origin");
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
     expect(actions.mutate.run).not.toHaveBeenCalled();
   });

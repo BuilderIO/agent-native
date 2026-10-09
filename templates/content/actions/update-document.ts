@@ -583,6 +583,7 @@ const updateDocumentAction = defineAction({
   },
   changeResource: (input) => documentChangeResource(input.id),
   run: observeDocumentUpdateOutcome(async (args, ctx, measurement) => {
+    measurement.record = !isFavoriteOnlyUpdate(args);
     const id = args.id;
     if (!id) throw new Error("--id is required");
     if (
