@@ -11,6 +11,7 @@ import {
   planCapture,
   replayIframeParentIdsAt,
   reasonFromError,
+  replayFrameUrlFromAgentLink,
   replayAtFromRecordingStart,
   stripBearer,
   TreeFormatError,
@@ -216,6 +217,7 @@ describe("manifest", () => {
     const manifest = buildManifest({
       generatedAt: "2026-10-08T00:00:00.000Z",
       appUrl: "https://a.test",
+      captureMode: "browser",
       outDir: "/tmp/frames",
       frames: [
         {
@@ -227,6 +229,7 @@ describe("manifest", () => {
           height: 1,
           localPath: "b-0.png",
           capturedAt: "t",
+          assetStatus: "not_fetched",
           sourceEventAt: null,
           replayAt: null,
         },
@@ -239,6 +242,7 @@ describe("manifest", () => {
           height: 1,
           localPath: "a-1.png",
           capturedAt: "t",
+          assetStatus: "preflighted",
           sourceEventAt: null,
           replayAt: null,
         },
@@ -262,6 +266,8 @@ describe("manifest", () => {
     ]);
     expect(manifest.failures).toHaveLength(1);
     expect(manifest.skipped).toHaveLength(1);
+    expect(manifest.captureMode).toBe("browser");
+    expect(manifest.remoteAssets).toBe("browser-preflight-per-frame");
   });
 
   it("fails the run only when no frame was captured", () => {
@@ -283,12 +289,41 @@ describe("manifest", () => {
       height: 1,
       localPath: "p",
       capturedAt: "t",
+      assetStatus: "not_fetched" as const,
       sourceEventAt: null,
       replayAt: null,
     };
     expect(exitCodeFor({ frames: [], failures: [failure] })).toBe(1);
     expect(exitCodeFor({ frames: [frame], failures: [failure] })).toBe(0);
     expect(exitCodeFor({ frames: [], failures: [] })).toBe(0);
+  });
+});
+
+describe("replayFrameUrlFromAgentLink", () => {
+  it("adds frame mode only to the recording-scoped Analytics link", () => {
+    const url = replayFrameUrlFromAgentLink(
+      "https://analytics.example.test/base/sessions/sr_1?agent_access=scoped",
+      "https://analytics.example.test/base",
+      "sr_1",
+    );
+    expect(new URL(url).pathname).toBe("/base/sessions/sr_1");
+    expect(new URL(url).searchParams.get("frame")).toBe("1");
+    expect(new URL(url).searchParams.get("agent_access")).toBe("scoped");
+  });
+
+  it.each([
+    "https://other.example.test/sessions/sr_1?agent_access=scoped",
+    "https://analytics.example.test/sessions/sr_2?agent_access=scoped",
+    "https://analytics.example.test/sessions/sr_1?agent_access=scoped&token=app",
+    "https://analytics.example.test/sessions/sr_1?agent_access=scoped#fragment",
+  ])("rejects an unscoped or expanded frame URL: %s", (url) => {
+    expect(() =>
+      replayFrameUrlFromAgentLink(
+        url,
+        "https://analytics.example.test",
+        "sr_1",
+      ),
+    ).toThrow("replay_link_invalid");
   });
 });
 
@@ -426,6 +461,7 @@ describe("unattemptedFailures", () => {
         height: 1,
         localPath: "p",
         capturedAt: "t",
+        assetStatus: "not_fetched" as const,
         sourceEventAt: null,
         replayAt: null,
       },

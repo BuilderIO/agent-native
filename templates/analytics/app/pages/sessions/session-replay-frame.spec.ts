@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   blobToBase64,
+  extractVisibleReplayUserMessages,
   isReplayFrameRequest,
   replayFrameFailureReason,
   replayFramePath,
@@ -92,6 +93,65 @@ describe("replayFrameFailureReason", () => {
     );
     expect(replayFrameFailureReason("boom")).toBe("boom");
     expect(replayFrameFailureReason(new Error(""))).toBe("unknown_error");
+    expect(
+      replayFrameFailureReason(
+        new Error(
+          "request failed https://analytics.example.test/path?agent_access=secret",
+        ),
+      ),
+    ).toBe("request failed https://analytics.example.test/path?[redacted]");
+  });
+});
+
+describe("extractVisibleReplayUserMessages", () => {
+  it("reads only visible user-role message text and removes controls", () => {
+    const replayDocument = document;
+    replayDocument.body.innerHTML = `
+      <p>arbitrary page text</p>
+      <article class="agentkit-message" data-role="assistant"><div class="agentkit-user-message-text-content">assistant text</div></article>
+      <article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content">Visible request <button>button value</button><input type="password" value="password value"><span contenteditable="true">editor value</span><span aria-hidden="true">hidden value</span></div></article>
+      <article class="agentkit-message" data-role="user" hidden><div class="agentkit-user-message-text-content">hidden request</div></article>
+      <div style="display: none"><article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content">ancestor-hidden request</div></article></div>
+      <article class="agentkit-message" data-role="user" style="opacity: 0"><div class="agentkit-user-message-text-content">transparent request</div></article>
+    `;
+
+    expect(
+      extractVisibleReplayUserMessages(
+        replayDocument,
+        548_922,
+        75,
+        "2026-10-09T00:00:00.000Z",
+      ),
+    ).toEqual({
+      observedOffsetMs: 548_922,
+      playheadOffsetMs: 75,
+      observedAt: "2026-10-09T00:00:00.000Z",
+      messages: [{ role: "user", text: "Visible request" }],
+      truncatedMessages: false,
+      truncatedCharacters: false,
+    });
+  });
+
+  it("bounds message count and aggregate text size with explicit truncation", () => {
+    const replayDocument = document.implementation.createHTMLDocument();
+    replayDocument.body.innerHTML = Array.from(
+      { length: 13 },
+      () =>
+        `<article class="agentkit-message" data-role="user"><div class="agentkit-user-message-text-content">${"x".repeat(3_000)}</div></article>`,
+    ).join("");
+
+    const result = extractVisibleReplayUserMessages(
+      replayDocument,
+      10,
+      10,
+      "now",
+    );
+    expect(result.messages).toHaveLength(4);
+    expect(result.messages.map(({ text }) => text.length)).toEqual([
+      2_000, 2_000, 2_000, 2_000,
+    ]);
+    expect(result.truncatedMessages).toBe(true);
+    expect(result.truncatedCharacters).toBe(true);
   });
 });
 

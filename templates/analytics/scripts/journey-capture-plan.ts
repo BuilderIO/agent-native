@@ -5,6 +5,8 @@
  */
 import path from "node:path";
 
+import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "../shared/session-replay-agent-access.js";
+
 export const DEFAULT_APP_URL = "https://analytics.agent-native.com";
 
 export interface TreeExample {
@@ -210,6 +212,7 @@ export interface ManifestFrame {
   height: number;
   localPath: string;
   capturedAt: string;
+  assetStatus: "not_fetched" | "preflighted";
   sourceEventAt: string | null;
   replayAt: string | null;
   route?: string;
@@ -224,6 +227,7 @@ export interface ManifestFailure {
   reason: string;
   sourceEventAt: string | null;
   replayAt: string | null;
+  assetStatus?: "preflight_failed";
   code?:
     | "replay_iframe_content_unavailable"
     | "replay_iframe_visibility_unverifiable";
@@ -285,7 +289,9 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 export interface CaptureManifest {
   generatedAt: string;
   appUrl: string;
-  remoteAssets: "not-fetched";
+  captureMode: "offline" | "browser";
+  remoteAssets: "not-fetched" | "browser-preflight-per-frame";
+  promptProvenancePath?: string;
   frames: ManifestFrame[];
   failures: ManifestFailure[];
   skipped: SkippedExample[];
@@ -320,6 +326,8 @@ export function unattemptedFailures(
 export function buildManifest(input: {
   generatedAt: string;
   appUrl: string;
+  captureMode: "offline" | "browser";
+  promptProvenancePath?: string;
   frames: ManifestFrame[];
   failures: ManifestFailure[];
   skipped: SkippedExample[];
@@ -334,7 +342,14 @@ export function buildManifest(input: {
   return {
     generatedAt: input.generatedAt,
     appUrl: input.appUrl,
-    remoteAssets: "not-fetched",
+    captureMode: input.captureMode,
+    remoteAssets:
+      input.captureMode === "browser"
+        ? "browser-preflight-per-frame"
+        : "not-fetched",
+    ...(input.promptProvenancePath
+      ? { promptProvenancePath: input.promptProvenancePath }
+      : {}),
     frames: [...input.frames]
       .map((frame) => ({
         ...frame,
@@ -368,6 +383,35 @@ export function normalizeAppUrl(raw: string): string {
     );
   }
   return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+}
+
+export function replayFrameUrlFromAgentLink(
+  pageUrl: string,
+  appUrl: string,
+  recordingId: string,
+): string {
+  let link: URL;
+  try {
+    link = new URL(pageUrl);
+  } catch {
+    throw new Error("replay_link_invalid");
+  }
+  const app = new URL(appUrl);
+  const basePath = app.pathname.replace(/\/+$/, "");
+  const expectedPath = `${basePath}/sessions/${encodeURIComponent(recordingId)}`;
+  if (
+    link.username ||
+    link.password ||
+    link.hash ||
+    link.origin !== app.origin ||
+    link.pathname !== expectedPath ||
+    !link.searchParams.get(SESSION_REPLAY_AGENT_ACCESS_PARAM) ||
+    link.searchParams.size !== 1
+  ) {
+    throw new Error("replay_link_invalid");
+  }
+  link.searchParams.set("frame", "1");
+  return link.toString();
 }
 
 export function isLoopbackHost(hostname: string): boolean {
