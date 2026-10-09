@@ -632,7 +632,26 @@ export function createAgentNativeBrowserSessionBridge(
     );
     requestExpiryTimers.add(expiryTimer);
     try {
-      const result = await executeBrowserSessionRequest(request, options);
+      let result: unknown;
+      try {
+        result = await executeBrowserSessionRequest(request, options);
+      } catch (error) {
+        try {
+          await postJson(
+            options,
+            `/${encodePathSegment(currentSessionId)}/requests/${encodePathSegment(
+              request.id,
+            )}/complete`,
+            { ok: false, error: messageError(error).message },
+          );
+        } catch (completionError) {
+          throw new AggregateError(
+            [error, completionError],
+            `Browser-session request "${request.id}" failed and its failure could not be reported`,
+          );
+        }
+        return request;
+      }
       await postJson(
         options,
         `/${encodePathSegment(currentSessionId)}/requests/${encodePathSegment(
@@ -640,14 +659,6 @@ export function createAgentNativeBrowserSessionBridge(
         )}/complete`,
         { ok: true, result },
       );
-    } catch (error) {
-      await postJson(
-        options,
-        `/${encodePathSegment(currentSessionId)}/requests/${encodePathSegment(
-          request.id,
-        )}/complete`,
-        { ok: false, error: messageError(error).message },
-      ).catch(() => {});
     } finally {
       clearTimeout(expiryTimer);
       requestExpiryTimers.delete(expiryTimer);
@@ -757,7 +768,14 @@ export function createAgentNativeBrowserSessionBridge(
         void deleteJson(
           options,
           `/${encodePathSegment(currentSessionId)}`,
-        ).catch(() => {});
+        ).catch((error) => {
+          requestPoll.onError(
+            new Error(
+              `Failed to disconnect browser session "${currentSessionId}" after stop; outstanding requests may remain active until expiry: ${messageError(error).message}`,
+            ),
+            { force: true },
+          );
+        });
       }
     },
     refreshRegistration,

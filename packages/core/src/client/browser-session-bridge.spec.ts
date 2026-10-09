@@ -232,6 +232,58 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("reports successful actions whose completion request fails", async () => {
+    const completionBodies: unknown[] = [];
+    const runAction = vi.fn(async () => ({ selected: "row-1" }));
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/requests/claim")) {
+        return jsonResponse({
+          ok: true,
+          request: {
+            id: "req-completion-failed",
+            sessionId: "tab-1",
+            type: "run-action",
+            name: "select-row",
+            args: { rowId: "row-1" },
+            status: "claimed",
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 60_000,
+          },
+        });
+      }
+      if (url.endsWith("/requests/req-completion-failed/complete")) {
+        completionBodies.push(JSON.parse(String(init?.body)));
+        return jsonResponse(
+          { ok: false, error: "Completion service unavailable" },
+          { status: 503 },
+        );
+      }
+      throw new Error(`Unexpected fetch ${init?.method} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      sessionId: "tab-1",
+      getContext: () => ({}),
+      actions: [
+        {
+          name: "select-row",
+          description: "Select a visible row",
+          schema: { type: "object" },
+          run: runAction,
+        },
+      ],
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await expect(bridge.claimOnce()).rejects.toThrow(
+      "Completion service unavailable",
+    );
+
+    expect(runAction).toHaveBeenCalledOnce();
+    expect(completionBodies).toEqual([
+      { ok: true, result: { selected: "row-1" } },
+    ]);
+  });
+
   it("aborts an in-flight polling claim when stopped", async () => {
     const onError = vi.fn();
     let claimSignal: AbortSignal | undefined;
@@ -287,6 +339,81 @@ describe("createAgentNativeBrowserSessionBridge", () => {
 
     expect(claimSignal?.aborted).toBe(true);
     expect(onError).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          url === "/_agent-native/browser-sessions/tab-1" &&
+          init?.method === "DELETE",
+      ),
+    ).toBe(true);
+  });
+
+  it("reports when stopping cannot confirm claimed-request cleanup", async () => {
+    const onError = vi.fn();
+    let claimSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (
+        url === "/_agent-native/browser-sessions/tab-1/requests/claim" &&
+        init?.method === "POST"
+      ) {
+        claimSignal = init.signal ?? undefined;
+        return new Promise<Response>((_resolve, reject) => {
+          claimSignal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      }
+      if (
+        url === "/_agent-native/browser-sessions" &&
+        init?.method === "POST"
+      ) {
+        const body = JSON.parse(String(init.body));
+        return Promise.resolve(
+          jsonResponse({
+            ok: true,
+            session: {
+              sessionId: body.sessionId,
+              session: body.session,
+              active: true,
+              actions: body.actions,
+            },
+          }),
+        );
+      }
+      if (
+        url === "/_agent-native/browser-sessions/tab-1" &&
+        init?.method === "DELETE"
+      ) {
+        return Promise.resolve(
+          jsonResponse(
+            { ok: false, error: "Session service unavailable" },
+            { status: 503 },
+          ),
+        );
+      }
+      throw new Error(`Unexpected fetch ${init?.method} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      session: { id: "tab-1" },
+      fetch: fetchMock as unknown as typeof fetch,
+      onError,
+    });
+
+    bridge.start();
+    await vi.waitFor(() => expect(claimSignal).toBeDefined());
+    bridge.stop();
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining(
+          "outstanding requests may remain active until expiry",
+        ),
+      }),
+      "poll",
+    );
   });
 
   it("aborts a polling claim while its response body is loading when stopped", async () => {
