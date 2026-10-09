@@ -32,8 +32,8 @@ import { serializeDocumentSource } from "./_document-source.js";
 import { previewDocumentDraftAnswer } from "./_preview-document-draft.js";
 import {
   getDatabaseById,
+  getDatabaseMembershipForDocument,
   listPropertiesForDocument,
-  resolvePropertyDatabaseForDocument,
   serializeDatabase,
 } from "./_property-utils.js";
 import {
@@ -261,7 +261,7 @@ export default defineAction({
           : await getDatabaseById(selectedDatabaseId)))
       : (database ??
         (databaseItems.length > 0
-          ? await resolvePropertyDatabaseForDocument(doc)
+          ? ((await getDatabaseMembershipForDocument(doc.id))?.database ?? null)
           : null));
     const hasPropertyDatabaseAccess = Boolean(
       propertyDatabase && accessibleDatabases.has(propertyDatabase.documentId),
@@ -287,7 +287,6 @@ export default defineAction({
     if (selectedDatabaseId && !propertyDatabase) {
       throw new Error(`Database "${selectedDatabaseId}" not found`);
     }
-    const bodyHydrationAccess = await readBodyHydrationAccess();
     const bodyHydration = bodyHydrationMembership
       ? serializeDatabaseMembership(bodyHydrationMembership).bodyHydration
       : null;
@@ -301,25 +300,29 @@ export default defineAction({
         : deferFailure(
             getDocumentContextPath(doc, { databaseId: args.databaseId }),
           );
-    const [properties] = await Promise.all([
-      listPropertiesForDocument(doc, selectedDatabaseId, {
-        // A share authorizes the exact page and its membership-local fields,
-        // not the private database document that owns those definitions.
-        requireDatabaseAccess: hasPropertyDatabaseAccess,
-        database: propertyDatabase,
-      }),
-      // Reading the collection's own fields also takes resolveAccess on its
-      // document, which can refuse a document accessibleDocumentIds admits.
-      selectedDatabaseId && hasPropertyDatabaseAccess
-        ? assertAccess(
-            "document",
-            propertyDatabase!.documentId,
-            "viewer",
-            undefined,
-            { skipResourceBody: true },
-          )
-        : undefined,
-    ]);
+    const readProperties = deferFailure(
+      Promise.all([
+        listPropertiesForDocument(doc, selectedDatabaseId, {
+          // A share authorizes the exact page and its membership-local fields,
+          // not the private database document that owns those definitions.
+          requireDatabaseAccess: hasPropertyDatabaseAccess,
+          database: propertyDatabase,
+        }),
+        // Reading the collection's own fields also takes resolveAccess on its
+        // document, which can refuse a document accessibleDocumentIds admits.
+        selectedDatabaseId && hasPropertyDatabaseAccess
+          ? assertAccess(
+              "document",
+              propertyDatabase!.documentId,
+              "viewer",
+              undefined,
+              { skipResourceBody: true },
+            )
+          : undefined,
+      ]),
+    );
+    const bodyHydrationAccess = await readBodyHydrationAccess();
+    const [properties] = await readProperties();
     const contextPath = readContextPath ? await readContextPath() : [];
     let isExternallyLinked = false;
     let hasBodyTarget = true;

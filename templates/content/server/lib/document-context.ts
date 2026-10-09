@@ -11,6 +11,8 @@ export type DocumentContextPathEntry = {
   description: string;
 };
 
+const CONTEXT_ACCESS_BATCH_SIZE = 4;
+
 async function canReadContextDocument(
   documentId: string,
   directlyGranted: boolean,
@@ -133,20 +135,39 @@ export async function getDocumentContextPath(
   ]);
 
   const path: DocumentContextPathEntry[] = [];
-  for (const ancestor of ancestors) {
-    if (
-      !(await canReadContextDocument(
+  let blocked = false;
+  for (
+    let offset = 0;
+    offset < ancestors.length;
+    offset += CONTEXT_ACCESS_BATCH_SIZE
+  ) {
+    const batch = ancestors.slice(offset, offset + CONTEXT_ACCESS_BATCH_SIZE);
+    const accessChecks = batch.map((ancestor) =>
+      canReadContextDocument(
         ancestor.id,
         ancestor.directlyGranted === true,
-      ))
-    )
-      break;
-    path.unshift({
-      id: ancestor.databaseId ?? ancestor.id,
-      kind: ancestor.databaseId ? "database" : "page",
-      title: ancestor.databaseTitle ?? ancestor.title,
-      description: ancestor.description,
-    });
+      ).then(
+        (accessible) => ({ ok: true as const, accessible }),
+        (error: unknown) => ({ ok: false as const, error }),
+      ),
+    );
+
+    for (const [index, ancestor] of batch.entries()) {
+      const result = await accessChecks[index]!;
+      if (!result.ok) throw result.error;
+      if (!result.accessible) {
+        blocked = true;
+        break;
+      }
+
+      path.unshift({
+        id: ancestor.databaseId ?? ancestor.id,
+        kind: ancestor.databaseId ? "database" : "page",
+        title: ancestor.databaseTitle ?? ancestor.title,
+        description: ancestor.description,
+      });
+    }
+    if (blocked) break;
   }
 
   if (

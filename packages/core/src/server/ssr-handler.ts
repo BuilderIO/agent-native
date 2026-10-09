@@ -284,9 +284,10 @@ function applyDefaultSsrCacheHeader(
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
-  // Recovery URLs use the single fixed marker already included in the
-  // Netlify query allowlist. Never vary by the full query here: recovery
-  // nonces and unrelated parameters are caller-controlled and unbounded.
+  // Route recovery uses one fixed path alias, not a caller-controlled query
+  // value. Netlify's atomic deploy cache invalidation refreshes this shared
+  // alias when a new production or branch deploy becomes active. Keep recovery
+  // variation bounded so arbitrary values cannot force origin cache misses.
   const varyByQuery = responseRequestsQueryVary;
 
   // A public shell must never set a viewer cookie or vary by credentials.
