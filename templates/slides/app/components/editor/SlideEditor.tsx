@@ -8880,6 +8880,7 @@ export default function SlideEditor({
               }
             }
             frozen.restoreMarkdownTree();
+            restoreOriginalImageStyleAttribute();
             restoreCropTransitions();
             restoreOriginalImageStyleAttribute();
             activeCrop.restoreAnimations();
@@ -8899,6 +8900,7 @@ export default function SlideEditor({
               image.setAttribute(name, value);
             }
           }
+          restoreOriginalImageStyleAttribute();
           restoreCropTransitions();
           restoreOriginalImageStyleAttribute();
           activeCrop.restoreAnimations();

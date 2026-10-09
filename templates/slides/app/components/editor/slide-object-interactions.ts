@@ -1290,6 +1290,11 @@ export function findPersistedImageObject(
 }
 
 const TRANSFORM_PROPERTIES = ["transform", "translate", "rotate", "scale"];
+const TRANSFORM_TRANSITION_PROPERTIES = new Set([
+  ...TRANSFORM_PROPERTIES,
+  "transform-origin",
+]);
+const CSS_VAR_REFERENCE = /var\(\s*(--(?:[\w-]|[^\u0000-\u007f])+)/gu;
 
 // A value that reads the element's own cascade (a custom property its class
 // defines, a length against its font size) means something else on a frame.
@@ -1512,6 +1517,82 @@ function restoreInlineTransitionsAfterTransformSettles(
   element.style.setProperty("transition", "none", "important");
   window.getComputedStyle(element).getPropertyValue("transform");
   restoreInlineTransitions(element, declarations);
+}
+
+/**
+ * CSS transitions have higher cascade priority than Web Animations, so clone
+ * unrelated in-flight transitions before disabling the source's transition
+ * declarations. The copies keep effects such as opacity and filter moving while
+ * the crop frame takes over transform.
+ */
+function preserveUnrelatedTransitions(
+  element: HTMLElement,
+  transitions: Animation[],
+): void {
+  for (const transition of transitions) {
+    const property = (transition as Animation & { transitionProperty?: string })
+      .transitionProperty;
+    const effect = transition.effect;
+    if (
+      !property ||
+      TRANSFORM_TRANSITION_PROPERTIES.has(property) ||
+      !(effect instanceof KeyframeEffect) ||
+      transition.playState === "finished"
+    ) {
+      continue;
+    }
+    const copy = element.animate(effect.getKeyframes(), effect.getTiming());
+    copy.playbackRate = transition.playbackRate;
+    if (transition.currentTime !== null) {
+      copy.currentTime = transition.currentTime;
+    }
+    if (transition.playState === "paused") copy.pause();
+  }
+}
+
+function transformCustomPropertyReferences(
+  source: HTMLElement,
+  plans: SplitCssAnimation[],
+  keyframes: Map<SplitCssAnimation, Set<string>>,
+  authoredByPlan: Map<SplitCssAnimation, AuthoredKeyframe[]>,
+): Map<string, Set<string>> {
+  const references = new Map<string, Set<string>>();
+  const addReferences = (property: string, value: string) => {
+    const properties = references.get(property) ?? new Set<string>();
+    for (const match of value.matchAll(CSS_VAR_REFERENCE)) {
+      properties.add(match[1]);
+    }
+    if (properties.size > 0) references.set(property, properties);
+  };
+  for (const property of [...TRANSFORM_PROPERTIES, "transform-origin"]) {
+    addReferences(property, source.style.getPropertyValue(property));
+  }
+  visitActiveCssRules(
+    source.ownerDocument,
+    (rule, activity) => {
+      if (rule.type !== CSSRule.STYLE_RULE || activity !== true) return;
+      const styleRule = rule as CSSStyleRule;
+      if (!source.matches(styleRule.selectorText)) return;
+      for (const property of [...TRANSFORM_PROPERTIES, "transform-origin"]) {
+        addReferences(property, styleRule.style.getPropertyValue(property));
+      }
+    },
+    () => {},
+  );
+  for (const plan of plans) {
+    const properties = keyframes.get(plan)!;
+    for (const property of [...TRANSFORM_PROPERTIES, "transform-origin"]) {
+      if (!properties.has(property)) continue;
+      for (const value of animationKeyframeValues(
+        plan.animation,
+        property,
+        authoredByPlan.get(plan)!,
+      )) {
+        addReferences(property, value);
+      }
+    }
+  }
+  return references;
 }
 
 export function restoreSlideObjectTransformSnapshots(
@@ -2090,13 +2171,12 @@ function copyAnimationEnvironment(
       }
     }
   };
-  const varPattern = /var\(\s*(--[\w-]+)/g;
   const propertiesToInspect = [...customProperties];
   for (let index = 0; index < propertiesToInspect.length; index++) {
     const property = propertiesToInspect[index];
     if (!property.startsWith("--")) continue;
     const addDependencies = (value: string) => {
-      for (const match of value.matchAll(varPattern)) {
+      for (const match of value.matchAll(CSS_VAR_REFERENCE)) {
         const dependency = match[1];
         if (customProperties.has(dependency)) continue;
         customProperties.add(dependency);
@@ -2237,6 +2317,29 @@ function moveSlideObjectTransform(
   const candidateAnimatedProperties = cropAnimatedProperties.filter(
     (property) => keyframedProperties.has(property),
   );
+  const runningTransitions =
+    typeof source.getAnimations === "function"
+      ? source
+          .getAnimations()
+          .filter(
+            (animation) =>
+              typeof (animation as Animation & { transitionProperty?: string })
+                .transitionProperty === "string",
+          )
+      : [];
+  const hasCustomPropertyTransition = runningTransitions.some((transition) =>
+    (
+      transition as Animation & { transitionProperty: string }
+    ).transitionProperty.startsWith("--"),
+  );
+  const transformCustomProperties = hasCustomPropertyTransition
+    ? transformCustomPropertyReferences(
+        source,
+        plans,
+        keyframes,
+        authoredByPlan,
+      )
+    : new Map<string, Set<string>>();
   const painted = new Map(
     cropAnimatedProperties.map((property) => [
       property,
@@ -2247,15 +2350,12 @@ function moveSlideObjectTransform(
   // A transition takes precedence over CSS animations and even important
   // declarations. Sample it first, then stop it before suppressing the image's
   // transform so it cannot continue to paint inside the new crop frame.
-  const transitions =
-    typeof source.getAnimations === "function"
-      ? source.getAnimations().filter((animation) => {
-          const property = (
-            animation as Animation & { transitionProperty?: string }
-          ).transitionProperty;
-          return cropAnimatedProperties.includes(property ?? "");
-        })
-      : [];
+  const transitions = runningTransitions.filter((animation) =>
+    cropAnimatedProperties.includes(
+      (animation as Animation & { transitionProperty: string })
+        .transitionProperty,
+    ),
+  );
   const transitionedProperties = new Set(
     transitions.map(
       (animation) =>
@@ -2263,6 +2363,21 @@ function moveSlideObjectTransform(
           .transitionProperty,
     ),
   );
+  for (const property of cropAnimatedProperties) {
+    const dependencies = transformCustomProperties.get(property);
+    if (
+      dependencies?.size &&
+      runningTransitions.some((transition) =>
+        dependencies.has(
+          (transition as Animation & { transitionProperty: string })
+            .transitionProperty,
+        ),
+      )
+    ) {
+      transitionedProperties.add(property);
+    }
+  }
+  preserveUnrelatedTransitions(source, runningTransitions);
   source.style.setProperty("transition", "none", "important");
   for (const transition of transitions) transition.cancel();
 
@@ -2307,7 +2422,6 @@ function moveSlideObjectTransform(
   // A transform keyframe that uses var(--x) must travel with the custom
   // property track that supplies it, including chained custom properties.
   const referencedCustomProperties = new Set<string>();
-  const varPattern = /var\(\s*(--(?:[\w-]|[^\u0000-\u007f])+)/g;
   for (const plan of plans) {
     const properties = keyframes.get(plan)!;
     for (const property of activeFrameProperties) {
@@ -2317,7 +2431,7 @@ function moveSlideObjectTransform(
         property,
         authoredByPlan.get(plan)!,
       )) {
-        for (const match of value.matchAll(varPattern)) {
+        for (const match of value.matchAll(CSS_VAR_REFERENCE)) {
           referencedCustomProperties.add(match[1]);
         }
       }
@@ -2335,7 +2449,7 @@ function moveSlideObjectTransform(
           property,
           authoredByPlan.get(plan)!,
         )) {
-          for (const match of value.matchAll(varPattern)) {
+          for (const match of value.matchAll(CSS_VAR_REFERENCE)) {
             if (!referencedCustomProperties.has(match[1])) {
               referencedCustomProperties.add(match[1]);
               foundCustomProperty = true;
@@ -2389,14 +2503,13 @@ function moveSlideObjectTransform(
   let moved = activeFrameProperties.size > 0;
   for (const property of TRANSFORM_PROPERTIES) {
     const authored = source.style.getPropertyValue(property);
-    const value =
-      authored &&
-      !READS_OWN_CASCADE.test(authored) &&
-      inlineValuePaints(source, property)
+    const value = transitionedProperties.has(property)
+      ? painted.get(property)
+      : authored &&
+          !READS_OWN_CASCADE.test(authored) &&
+          inlineValuePaints(source, property)
         ? authored
-        : transitionedProperties.has(property)
-          ? painted.get(property)
-          : underlayValues.get(property);
+        : underlayValues.get(property);
     if (value && value !== "none") {
       // A paused copied animation still beats normal inline values. Keep the
       // transition's sampled pose above it until crop commit resumes the track.

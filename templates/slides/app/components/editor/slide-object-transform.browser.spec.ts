@@ -909,16 +909,19 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       "@keyframes variable-turn { from { transform: rotate(0deg); } to { transform: rotate(var(--turn)); } } .ruled { --turn: 180deg; animation: variable-turn 4s linear infinite; }";
     const page = await openPage(css, imageHtml());
     try {
-      await page.evaluate(() => {
-        document.getElementById("pic")!.getAnimations()[0].currentTime = 600;
-      });
-      const painted = await hullOf(page, "#pic");
-      await page.evaluate(() => {
+      const started = await page.evaluate(() => {
         const image = document.getElementById("pic") as HTMLImageElement;
+        const rect = (element: Element) => {
+          const { left, top, width, height } = element.getBoundingClientRect();
+          return { left, top, width, height };
+        };
+        image.getAnimations()[0].currentTime = 600;
+        const painted = rect(image);
         const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
         wrapped.frame.id = "frame";
+        return { painted, frame: rect(wrapped.frame) };
       });
-      expectSameHull(await hullOf(page, "#frame"), painted, 1);
+      expectSameHull(started.frame, started.painted, 1);
 
       const saved = await page.evaluate(
         () => document.getElementById("frame")!.outerHTML,
@@ -1092,7 +1095,7 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
 
   it("keeps local custom-property dependencies with crop animations", async () => {
     const css =
-      ".ruled { --angle: 120deg; --turn: var(--angle); animation: variable-turn 4s linear infinite; } @keyframes variable-turn { from { transform: rotate(0deg); } to { transform: rotate(var(--turn)); } }";
+      ".ruled { --角度: 120deg; --转向: var(--角度); animation: variable-turn 4s linear infinite; } @keyframes variable-turn { from { transform: rotate(0deg); } to { transform: rotate(var(--转向)); } }";
     const page = await openPage(css, imageHtml());
     try {
       const saved = await page.evaluate(() => {
@@ -1102,12 +1105,12 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
         wrapped.frame.id = "frame";
         return {
           markup: wrapped.frame.outerHTML,
-          inlineAngle: wrapped.frame.style.getPropertyValue("--angle"),
-          inlineTurn: wrapped.frame.style.getPropertyValue("--turn"),
+          inlineAngle: wrapped.frame.style.getPropertyValue("--角度"),
+          inlineTurn: wrapped.frame.style.getPropertyValue("--转向"),
         };
       });
       expect(saved.inlineAngle).toBe("120deg");
-      expect(saved.inlineTurn).toBe("var(--angle)");
+      expect(saved.inlineTurn).toBe("var(--角度)");
 
       const reopened = await openPage(css, saved.markup);
       const reference = await openPage(css, imageHtml());
@@ -1605,7 +1608,7 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
         const painted = rect(image);
         const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
         wrapped.frame.id = "frame";
-        const transitionDuringCrop = getComputedStyle(image).transition;
+        const transitionDuringCrop = getComputedStyle(image).transitionProperty;
         wrapped.restoreTransitions();
         return {
           painted,
@@ -1628,6 +1631,148 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
           () => getComputedStyle(document.getElementById("pic")!).transform,
         ),
       ).toBe("none");
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("preserves an active opacity transition while wrapping the image", async () => {
+    const css =
+      ".ruled { transform: rotate(0deg); opacity: 0.2; transition: transform 1s linear, opacity 2s linear; } .moving { transform: rotate(90deg); opacity: 0.8; }";
+    const page = await openPage(css, imageHtml());
+    try {
+      await page.evaluate(() => {
+        const image = document.getElementById("pic")!;
+        image.classList.add("ruled");
+        void getComputedStyle(image).opacity;
+        image.classList.add("moving");
+      });
+      await page.waitForTimeout(300);
+      const wrapped = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const before = Number(getComputedStyle(image).opacity);
+        const result = window.slideObjects.wrapImageInCropFrame(image)!;
+        result.frame.id = "frame";
+        return {
+          before,
+          transitionProperty: getComputedStyle(image).transitionProperty,
+          runningOpacityEffect: image
+            .getAnimations()
+            .some(
+              (animation) =>
+                animation.effect instanceof KeyframeEffect &&
+                animation.effect
+                  .getKeyframes()
+                  .some((keyframe) => "opacity" in keyframe),
+            ),
+        };
+      });
+      await page.waitForTimeout(200);
+      const after = await page.evaluate(() =>
+        Number(getComputedStyle(document.getElementById("pic")!).opacity),
+      );
+
+      expect(wrapped.transitionProperty).toBe("none");
+      expect(wrapped.runningOpacityEffect).toBe(true);
+      expect(after).toBeGreaterThan(wrapped.before + 0.04);
+      expect(after).toBeLessThan(0.8);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("keeps the sampled pose when an inline transform transition is active", async () => {
+    const page = await openPage(
+      ".ruled { transform: rotate(0deg); transition: transform 1s linear; }",
+      imageHtml(),
+    );
+    try {
+      await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        image.classList.add("ruled");
+        image.style.transform = "rotate(90deg)";
+      });
+      await page.waitForTimeout(300);
+      const result = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const rect = (element: Element) => {
+          const { left, top, width, height } = element.getBoundingClientRect();
+          return { left, top, width, height };
+        };
+        const painted = rect(image);
+        const paintedTransform = getComputedStyle(image).transform;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return {
+          painted,
+          paintedTransform,
+          frame: rect(wrapped.frame),
+          frameTransform: getComputedStyle(wrapped.frame).transform,
+        };
+      });
+
+      expectSameHull(result.frame, result.painted, 1);
+      expect(result.frameTransform).toBe(result.paintedTransform);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("samples a registered custom-property transition that drives the transform", async () => {
+    const css =
+      '@property --angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; } .ruled { --angle: 0deg; transform: rotate(var(--angle)); transition: --angle 1s linear; } .moving { --angle: 90deg; }';
+    const page = await openPage(css, imageHtml());
+    try {
+      await page.evaluate(() => {
+        const image = document.getElementById("pic")!;
+        image.classList.add("ruled");
+        void getComputedStyle(image).getPropertyValue("--angle");
+        image.classList.add("moving");
+      });
+      await page.waitForTimeout(300);
+      const result = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const rect = (element: Element) => {
+          const { left, top, width, height } = element.getBoundingClientRect();
+          return { left, top, width, height };
+        };
+        const painted = rect(image);
+        const paintedTransform = getComputedStyle(image).transform;
+        const paintedAngle = Number.parseFloat(
+          getComputedStyle(image).getPropertyValue("--angle"),
+        );
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        wrapped.frame.id = "frame";
+        return {
+          painted,
+          paintedTransform,
+          paintedAngle,
+          frame: rect(wrapped.frame),
+          frameTransform: getComputedStyle(wrapped.frame).transform,
+          customPropertyEffectRunning: image
+            .getAnimations()
+            .some(
+              (animation) =>
+                animation.effect instanceof KeyframeEffect &&
+                animation.effect
+                  .getKeyframes()
+                  .some((keyframe) => "--angle" in keyframe),
+            ),
+        };
+      });
+      await page.waitForTimeout(100);
+      const angleAfter = await page.evaluate(() =>
+        Number.parseFloat(
+          getComputedStyle(document.getElementById("pic")!).getPropertyValue(
+            "--angle",
+          ),
+        ),
+      );
+
+      expect(result.customPropertyEffectRunning).toBe(true);
+      expect(angleAfter).toBeGreaterThan(result.paintedAngle);
+      expectSameHull(result.frame, result.painted, 1);
+      expect(result.frameTransform).toBe(result.paintedTransform);
     } finally {
       await page.close();
     }
