@@ -192,6 +192,54 @@ describe("parseJourneyEventRow", () => {
       )?.stepIndex,
     ).toBeNull();
   });
+
+  it("keeps only complete exact replay ID and start links for internal lookup", () => {
+    const replayStartedAt = "2026-10-01T14:00:03+02";
+    expect(
+      parseJourneyEventRow(
+        eventRow("s1", "pageview", 3, {
+          session_replay_id: "client-replay-test",
+          session_replay_started_at: replayStartedAt,
+        }),
+      ),
+    ).toMatchObject({
+      sessionReplayId: "client-replay-test",
+      sessionReplayStartedAt: "2026-10-01T12:00:03.000Z",
+    });
+    expect(
+      parseJourneyEventRow(
+        eventRow("s1", "pageview", 3, {
+          session_replay_id: "client-replay-test",
+          session_replay_started_at: "not-a-time",
+        }),
+      ),
+    ).toMatchObject({
+      sessionReplayId: null,
+      sessionReplayStartedAt: null,
+    });
+    expect(
+      parseJourneyEventRow(
+        eventRow("s1", "pageview", 3, {
+          session_replay_id: "client-replay-test",
+          session_replay_started_at: "2026-02-30T12:00:03.000Z",
+        }),
+      ),
+    ).toMatchObject({
+      sessionReplayId: null,
+      sessionReplayStartedAt: null,
+    });
+    expect(
+      parseJourneyEventRow(
+        eventRow("s1", "pageview", 3, {
+          session_replay_id: "r".repeat(257),
+          session_replay_started_at: replayStartedAt,
+        }),
+      ),
+    ).toMatchObject({
+      sessionReplayId: null,
+      sessionReplayStartedAt: null,
+    });
+  });
 });
 
 describe("getOnboardingJourney", () => {
@@ -274,6 +322,39 @@ describe("getOnboardingJourney", () => {
     expect(serialized).not.toContain("private-attempt-id");
     expect(serialized).not.toContain("output_id");
     expect(serialized).not.toContain("generation_attempt_id");
+  });
+
+  it("passes exact replay ID and start links into scoped recording lookup", async () => {
+    const replayStartedAt = "2026-10-01T12:00:03.000Z";
+    const rows = journeyRows();
+    rows.push(
+      eventRow("s1", "pageview", 3, {
+        session_replay_id: "client-replay-test",
+        session_replay_started_at: replayStartedAt,
+      }),
+    );
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({ rows, schema: [] });
+
+    const tree = (await getOnboardingJourney(scope, ARGS)) as JourneyTree;
+    const serialized = JSON.stringify(tree);
+
+    expect(mocks.listJourneyRecordings).toHaveBeenCalledWith(
+      scope,
+      ["s1", "s2", "s3"],
+      expect.objectContaining({
+        fromIso: expect.any(String),
+        toIso: expect.any(String),
+      }),
+      [
+        {
+          sessionId: "s1",
+          clientRecordingId: "client-replay-test",
+          startedAt: replayStartedAt,
+        },
+      ],
+    );
+    expect(serialized).not.toContain("client-replay-test");
+    expect(serialized).not.toContain("sessionReplayId");
   });
 
   it("keeps distinct consecutive Slides attempts in the tree without exposing ids", async () => {
@@ -1290,6 +1371,23 @@ describe("getOnboardingJourney", () => {
       JourneyRecordingsError,
     );
     log.mockRestore();
+  });
+
+  it("keeps the tree when an exact replay link has no visible recording", async () => {
+    const rows = journeyRows();
+    Object.assign(rows[0], {
+      session_replay_id: "client-recording-test",
+      session_replay_started_at: "2026-10-01T12:00:00.000Z",
+    });
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({ rows, schema: [] });
+    mocks.listJourneyRecordings.mockResolvedValue({
+      recordings: [recordingFor("s2")],
+      complete: true,
+    });
+
+    const tree = (await getOnboardingJourney(scope, ARGS)) as JourneyTree;
+
+    expect(tree.coverage.sessionsWithReplay).toBe(1);
   });
 
   it("does not turn an unreadable event store into an empty tree", async () => {
