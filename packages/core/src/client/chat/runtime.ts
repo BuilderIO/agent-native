@@ -1775,6 +1775,40 @@ function nativeHistoryFromMessages(
     .filter((message) => message.content.trim());
 }
 
+const MAX_LOADED_SKILL_SLUGS = 16;
+
+function runtimeToolResultText(part: AgentChatRuntimeToolResultPart): string {
+  if (typeof part.resultText === "string") return part.resultText;
+  return typeof part.result === "string" ? part.result : "";
+}
+
+// Scans the whole thread because structured history is capped and drops older
+// skill reads; the server rebuilds those pages from these slugs.
+export function loadedSkillSlugsFromMessages(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+): string[] {
+  const slugByCallId = new Map<string, string>();
+  const loaded: string[] = [];
+  for (const message of messages ?? []) {
+    for (const part of message.content) {
+      if (part.type === "tool-call" && part.toolName === "docs-search") {
+        const slug = (part.input as { slug?: unknown } | undefined)?.slug;
+        if (typeof slug === "string" && slug.startsWith("skill-")) {
+          slugByCallId.set(part.toolCallId, slug);
+        }
+      } else if (part.type === "tool-result" && !part.isError) {
+        const slug = slugByCallId.get(part.toolCallId);
+        if (slug && runtimeToolResultText(part).startsWith("# Skill:")) {
+          const index = loaded.indexOf(slug);
+          if (index >= 0) loaded.splice(index, 1);
+          loaded.push(slug);
+        }
+      }
+    }
+  }
+  return loaded.slice(-MAX_LOADED_SKILL_SLUGS);
+}
+
 const MAX_TOOL_HISTORY_VALUE_BYTES = 64 * 1024;
 const MAX_TOOL_HISTORY_SERIALIZATION_STEPS = 64 * 1024;
 const MAX_TOOL_HISTORY_SERIALIZATION_DEPTH = 512;
@@ -4224,6 +4258,7 @@ export function createAgentNativeChatRuntime(
           ? turnEngine
           : options.engine;
       const history = nativeHistoryFromMessages(turn.messages, prompt);
+      const loadedSkillSlugs = loadedSkillSlugsFromMessages(turn.messages);
       const pendingApprovalHistory =
         approvedToolCalls && continuationMessageState
           ? pendingApprovalRuntimeMessages(continuationMessageState)
@@ -4245,6 +4280,7 @@ export function createAgentNativeChatRuntime(
         displayMessage: prompt,
         history,
         ...(structuredHistory?.length ? { structuredHistory } : {}),
+        ...(loadedSkillSlugs.length ? { loadedSkillSlugs } : {}),
         turnId: continuationTurnId ?? turn.queuePromotion?.turnId ?? turnId,
         threadId: session.threadId ?? options.threadId,
         ...(turn.queuePromotion

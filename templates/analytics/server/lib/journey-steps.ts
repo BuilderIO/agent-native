@@ -15,6 +15,8 @@ export interface JourneyEventRow {
   journeyKind: "onboarding" | "standalone_setup";
   tsMs: number;
   eventName: string;
+  authUserId?: string | null;
+  app?: string | null;
   templateName: string | null;
   path: string | null;
   flow: string | null;
@@ -32,6 +34,8 @@ export interface JourneyStep {
   key: string;
   label: string;
   tsMs: number;
+  authUserId?: string;
+  app?: string;
 }
 
 /** Display names match the `onboarding-setup-choice` metric's method list. */
@@ -548,6 +552,12 @@ export function projectSessionSteps(
       if (seenAliases.has(aliasStep)) continue;
       seenAliases.add(aliasStep);
     }
+    const projectedStep: JourneyStep = {
+      ...step,
+      tsMs: row.tsMs,
+      ...(row.authUserId ? { authUserId: row.authUserId } : {}),
+      ...(row.app ? { app: row.app } : {}),
+    };
     const attemptId = row.attemptId?.trim();
     if (attemptId) {
       // Keep raw attempt IDs in this local dedup set; tree keys use ordinals.
@@ -559,14 +569,13 @@ export function projectSessionSteps(
       const occurrence = (attemptOccurrences.get(step.key) ?? 0) + 1;
       attemptOccurrences.set(step.key, occurrence);
       steps.push({
-        ...step,
+        ...projectedStep,
         key: occurrence === 1 ? step.key : `${step.key}:${occurrence}`,
-        tsMs: row.tsMs,
       });
       continue;
     }
     if (steps[steps.length - 1]?.key === step.key) continue;
-    steps.push({ ...step, tsMs: row.tsMs });
+    steps.push(projectedStep);
   }
   return steps;
 }
