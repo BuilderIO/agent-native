@@ -5,6 +5,7 @@ import {
   isArtifactReceipt,
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
+import { stripInlineBytes } from "../shared/inline-bytes.js";
 import type { AgentChatEvent, AgentToolInput } from "./types.js";
 
 export interface ToolCallJournalEntry {
@@ -50,6 +51,18 @@ export function isRedactedToolCallInput(input: unknown): boolean {
   if (!input || typeof input !== "object") return false;
   if ("omitted" in input && input.omitted === "inline-bytes") return true;
   return Object.values(input).some(isRedactedToolCallInput);
+}
+
+export function isConsistentToolCallInputFingerprint(
+  input: unknown,
+  fingerprint: string | undefined,
+): boolean {
+  return (
+    fingerprint === undefined ||
+    input === undefined ||
+    isRedactedToolCallInput(input) ||
+    toolCallInputFingerprint(input) === fingerprint
+  );
 }
 
 function canonicalizeForSignature(
@@ -169,22 +182,44 @@ function takeMatchingOpenEntry(
   event: Extract<AgentChatEvent, { type: "tool_done" }>,
 ): ToolCallJournalEntry | undefined {
   if (!queue || queue.length === 0) return undefined;
+  if (
+    !isConsistentToolCallInputFingerprint(event.input, event.inputFingerprint)
+  )
+    return undefined;
   const hasIdentity =
     event.id !== undefined ||
     event.inputFingerprint !== undefined ||
     event.input !== undefined;
-  if (!hasIdentity) return queue.length === 1 ? queue.shift() : undefined;
+  if (!hasIdentity && queue.length !== 1) return undefined;
 
   const doneSig =
-    event.input === undefined ? undefined : inputSignature(event.input);
+    event.input === undefined
+      ? undefined
+      : inputSignature(
+          event.inputFingerprint === undefined
+            ? event.input
+            : stripInlineBytes(event.input, "placeholder"),
+        );
   const matches = queue.filter((entry) => {
+    if (
+      !isConsistentToolCallInputFingerprint(entry.input, entry.inputFingerprint)
+    )
+      return false;
     if (event.id !== undefined && entry.id !== event.id) return false;
-    if (event.inputFingerprint !== undefined)
-      return (
-        (entry.inputFingerprint ?? toolCallInputFingerprint(entry.input)) ===
+    if (
+      event.inputFingerprint !== undefined &&
+      (entry.inputFingerprint ?? toolCallInputFingerprint(entry.input)) !==
         event.inputFingerprint
-      );
-    return doneSig === undefined || inputSignature(entry.input) === doneSig;
+    )
+      return false;
+    return (
+      doneSig === undefined ||
+      inputSignature(
+        event.inputFingerprint === undefined
+          ? entry.input
+          : stripInlineBytes(entry.input, "placeholder"),
+      ) === doneSig
+    );
   });
   if (matches.length === 0 || (event.id !== undefined && matches.length !== 1))
     return undefined;

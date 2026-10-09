@@ -8,6 +8,7 @@ import {
 import {
   classifyToolCallJournal,
   findCompletedJournalEntry,
+  toolCallInputFingerprint,
 } from "./tool-call-journal.js";
 
 const mocks = vi.hoisted(() => ({
@@ -58,6 +59,31 @@ beforeEach(() => {
     return { rows: [], rowsAffected: 0 };
   });
 });
+
+it.each(["tool_start", "tool_done"])(
+  "rejects %s fingerprints that contradict unredacted arguments",
+  async (type) => {
+    mocks.events = [
+      {
+        ...done,
+        event_data: JSON.stringify({
+          type,
+          tool: "send-message",
+          id: "call-a",
+          input: { destination: "b" },
+          inputFingerprint: toolCallInputFingerprint({ destination: "a" }),
+          result: "B sent",
+        }),
+      },
+    ];
+    await expect(
+      getCurrentTurnEventsForThread("thread", "turn"),
+    ).rejects.toMatchObject({
+      errorCode: "tool_call_journal_unreadable",
+      reason: "invalid_event",
+    });
+  },
+);
 
 describe.each([
   ["run events", getCurrentTurnRunEventsForThread],

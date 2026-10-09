@@ -33,6 +33,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
 import {
+  isConsistentToolCallInputFingerprint,
   isRedactedToolCallInput,
   toolCallInputFingerprint,
 } from "./tool-call-journal.js";
@@ -2854,6 +2855,10 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
         (value.inputFingerprint === undefined ||
           (typeof value.inputFingerprint === "string" &&
             /^[a-f0-9]{64}$/.test(value.inputFingerprint))) &&
+        isConsistentToolCallInputFingerprint(
+          value.input,
+          value.inputFingerprint as string | undefined,
+        ) &&
         (!isRedactedToolCallInput(value.input) ||
           value.inputFingerprint !== undefined) &&
         (type === "tool_start"
