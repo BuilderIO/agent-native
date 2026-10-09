@@ -1,5 +1,7 @@
 /** set-chapters' errorCode when the stored list isn't the one expected. */
 export const CHAPTERS_CHANGED = "chapters_changed";
+/** set-chapters' errorCode when guarded updates kept missing; safe to retry. */
+export const CHAPTERS_BUSY = "chapters_busy";
 
 export type StoredChapter = { startMs: number; title: string };
 

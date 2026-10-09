@@ -1526,6 +1526,8 @@ const messages = {
     empty: "لا توجد فصول بعد.",
     remove: "إزالة الفصل",
     saveFailed: "تعذّر حفظ الفصول",
+    changedElsewhere:
+      "تم تغيير الفصول في مكان آخر، لذلك لم يتم حفظ تغييرك الأخير.",
     duplicateAtPoint: "يوجد فصل بالفعل في هذه النقطة",
     defaultTitle: "الفصل {{count}}",
     seekTo: "الانتقال إلى {{time}}",

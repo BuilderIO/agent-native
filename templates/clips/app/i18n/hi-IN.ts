@@ -1500,6 +1500,8 @@ const messages = {
     empty: "अभी कोई अध्याय नहीं है।",
     remove: "अध्याय हटाएँ",
     saveFailed: "अध्याय सहेजे नहीं जा सके",
+    changedElsewhere:
+      "अध्याय कहीं और बदल दिए गए, इसलिए आपका पिछला बदलाव सहेजा नहीं गया।",
     duplicateAtPoint: "इस बिंदु पर पहले से एक अध्याय है",
     defaultTitle: "अध्याय {{count}}",
     seekTo: "{{time}} पर जाएँ",

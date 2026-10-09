@@ -11,11 +11,16 @@ import {
 } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import {
+  CHAPTERS_BUSY,
   CHAPTERS_CHANGED,
   parseStoredChapters,
   sameChapters,
   sameCuts,
 } from "../shared/stored-chapters.js";
+import { chaptersVersionOf } from "./lib/chapters-version.js";
+
+/** Guarded updates that keep missing give up rather than spin. */
+const MAX_ATTEMPTS = 4;
 
 const cutRanges = (editsJson: string) => cutRangesOf(parseEdits(editsJson));
 
@@ -66,6 +71,13 @@ export default defineAction({
       .optional()
       .describe(
         "Optional. The chapters this edit started from; if the stored chapters differ, nothing is written and the call fails with errorCode chapters_changed.",
+      ),
+    expectedVersion: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Optional. The chapters' version token this edit started from (regenerate-chapters gives one); if the stored chapters' version differs, nothing is written and the call fails with errorCode chapters_changed.",
       ),
     expectedCuts: z
       .union([z.string(), z.array(CutRangeSchema)])
@@ -124,7 +136,9 @@ export default defineAction({
     // The current list and cuts go back with a refusal, so the editor can
     // check against them without reloading the page's data. A stored list
     // that already holds what was asked for is no conflict.
-    const guarded = expected !== null || expectedCuts !== null;
+    const expectedVersion = args.expectedVersion ?? null;
+    const guardChapters = expected !== null || expectedVersion !== null;
+    const guarded = guardChapters || expectedCuts !== null;
     const refuse = (row: { chaptersJson: string; editsJson: string }) =>
       fail(
         "The chapters or cuts changed since this edit started. Read them again before saving.",
@@ -140,9 +154,8 @@ export default defineAction({
     const done = () => ({ id: args.recordingId, chapters });
 
     // A write can land between a check and the update. The update only
-    // matches the row as checked; on a miss the row is checked once more and
-    // written if it still fits, so an unrelated edit (a thumbnail, say)
-    // doesn't refuse the save.
+    // matches the row as checked; on a miss the row is read and checked
+    // again, so an unrelated edit (a thumbnail, say) doesn't refuse the save.
     let row: { chaptersJson: string; editsJson: string } = existing;
     for (let attempt = 1; ; attempt++) {
       if (guarded) {
@@ -150,10 +163,18 @@ export default defineAction({
         if (sameChapters(stored, chapters)) return done();
         if (
           (expected && !sameChapters(stored, expected)) ||
+          (expectedVersion !== null &&
+            chaptersVersionOf(row.chaptersJson) !== expectedVersion) ||
           (expectedCuts && !sameCuts(cutRanges(row.editsJson), expectedCuts))
         ) {
           refuse(row);
         }
+      }
+      if (attempt > MAX_ATTEMPTS) {
+        fail("The recording kept changing during the save. Try again.", {
+          errorCode: CHAPTERS_BUSY,
+          statusCode: 409,
+        });
       }
       const written = await db
         .update(schema.recordings)
@@ -162,16 +183,20 @@ export default defineAction({
           updatedAt: new Date().toISOString(),
         })
         .where(
-          guarded
-            ? and(
-                eq(schema.recordings.id, args.recordingId),
-                eq(schema.recordings.chaptersJson, row.chaptersJson),
-                eq(schema.recordings.editsJson, row.editsJson),
-              )
-            : eq(schema.recordings.id, args.recordingId),
+          and(
+            eq(schema.recordings.id, args.recordingId),
+            // Only what the caller guarded: an unguarded field changing
+            // (the editor's autosaved trims, say) mustn't miss the update.
+            guardChapters
+              ? eq(schema.recordings.chaptersJson, row.chaptersJson)
+              : undefined,
+            expectedCuts
+              ? eq(schema.recordings.editsJson, row.editsJson)
+              : undefined,
+          ),
         )
         .returning({ id: schema.recordings.id });
-      if (!guarded || written.length > 0) break;
+      if (written.length > 0) break;
 
       const [latest] = await db
         .select({
@@ -185,12 +210,6 @@ export default defineAction({
           errorCode: "recording_not_found",
           statusCode: 404,
         });
-      }
-      if (attempt === 2) {
-        if (sameChapters(parseStoredChapters(latest.chaptersJson), chapters)) {
-          return done();
-        }
-        refuse(latest);
       }
       row = latest;
     }

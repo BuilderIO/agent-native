@@ -1552,6 +1552,8 @@ const messages = {
     empty: "Ainda não há capítulos.",
     remove: "Remover capítulo",
     saveFailed: "Não foi possível salvar os capítulos",
+    changedElsewhere:
+      "Os capítulos foram alterados em outro lugar, então sua última alteração não foi salva.",
     duplicateAtPoint: "Já existe um capítulo neste ponto",
     defaultTitle: "Capítulo {{count}}",
     seekTo: "Ir para {{time}}",

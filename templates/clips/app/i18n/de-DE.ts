@@ -1565,6 +1565,8 @@ const messages = {
     empty: "Noch keine Kapitel.",
     remove: "Kapitel entfernen",
     saveFailed: "Kapitel konnten nicht gespeichert werden",
+    changedElsewhere:
+      "Die Kapitel wurden an anderer Stelle geändert, daher wurde deine letzte Änderung nicht gespeichert.",
     duplicateAtPoint: "An dieser Stelle gibt es bereits ein Kapitel",
     defaultTitle: "Kapitel {{count}}",
     seekTo: "Zu {{time}} springen",

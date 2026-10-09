@@ -1566,6 +1566,8 @@ const messages = {
     empty: "Aucun chapitre pour l'instant.",
     remove: "Supprimer le chapitre",
     saveFailed: "Impossible d'enregistrer les chapitres",
+    changedElsewhere:
+      "Les chapitres ont été modifiés ailleurs : votre dernière modification n'a pas été enregistrée.",
     duplicateAtPoint: "Un chapitre existe déjà à cet endroit",
     defaultTitle: "Chapitre {{count}}",
     seekTo: "Aller à {{time}}",

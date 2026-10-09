@@ -1455,6 +1455,7 @@ const messages = {
     empty: "还没有章节。",
     remove: "删除章节",
     saveFailed: "无法保存章节",
+    changedElsewhere: "章节已在其他地方被修改，因此你的最后一次更改未保存。",
     duplicateAtPoint: "此处已有章节",
     defaultTitle: "第 {{count}} 章",
     seekTo: "跳转到 {{time}}",

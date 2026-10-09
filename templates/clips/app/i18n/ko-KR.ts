@@ -1521,6 +1521,8 @@ const messages = {
     empty: "아직 챕터가 없습니다.",
     remove: "챕터 삭제",
     saveFailed: "챕터를 저장하지 못했습니다",
+    changedElsewhere:
+      "챕터가 다른 곳에서 변경되어 마지막 변경 사항이 저장되지 않았습니다.",
     duplicateAtPoint: "이 위치에 이미 챕터가 있습니다",
     defaultTitle: "챕터 {{count}}",
     seekTo: "{{time}}(으)로 이동",

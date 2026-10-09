@@ -1,11 +1,13 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { CHAPTERS_CHANGED, sameChapters } from "@shared/stored-chapters";
 import {
   IconBookmarks,
   IconPlus,
   IconTrash,
   IconGripVertical,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -44,26 +46,72 @@ export function ChaptersEditor({
   const [local, setLocal] = useState<Chapter[]>(chapters);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The stored list each save is checked against, so a save never replaces
+  // chapters changed elsewhere (the chapter list, the agent) meanwhile.
+  const storedRef = useRef<Chapter[]>(chapters);
+  // Edits not yet settled: one for a waiting debounce, one per queued save.
+  // While any are, refetched props are ignored; they may predate the edit.
+  const busyRef = useRef(0);
+  // Saves run one at a time; a failure drops the ones queued behind it.
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const failedRef = useRef(0);
 
   const mutation = useActionMutation("set-chapters");
+  const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (dragIndex == null) setLocal(chapters);
+    if (dragIndex != null || busyRef.current > 0) return;
+    // Our own save coming back; resetting would drop a trailing space.
+    if (sameChapters(chapters, storedRef.current)) return;
+    storedRef.current = chapters;
+    setLocal(chapters);
   }, [chapters, dragIndex]);
+
+  const save = async (next: Chapter[], failed: number) => {
+    if (failed !== failedRef.current) return;
+    try {
+      const result = await mutation.mutateAsync({
+        recordingId,
+        chapters: next.map((c) => ({ startMs: c.startMs, title: c.title })),
+        expectedChapters: storedRef.current,
+      });
+      storedRef.current =
+        (result as { chapters?: Chapter[] })?.chapters ?? next;
+    } catch (err: any) {
+      failedRef.current++;
+      const changed = err?.errorCode === CHAPTERS_CHANGED;
+      const latest = err?.details?.chapters;
+      if (changed && Array.isArray(latest)) storedRef.current = latest;
+      setLocal(storedRef.current);
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-recording-player-data", { recordingId }],
+      });
+      // The hook's error text is English and for developers.
+      console.error("[clips] set-chapters failed", err);
+      toast.error(
+        t(changed ? "chapters.changedElsewhere" : "chapters.saveFailed"),
+      );
+    }
+  };
 
   const commit = (next: Chapter[]) => {
     setLocal(next);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
-      try {
-        await mutation.mutateAsync({
-          recordingId,
-          chapters: next.map((c) => ({ startMs: c.startMs, title: c.title })),
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+      busyRef.current--;
+    }
+    // A cleared title is mid-edit, and set-chapters refuses empty titles.
+    if (next.some((c) => !c.title.trim())) return;
+    busyRef.current++;
+    const failed = failedRef.current;
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      queueRef.current = queueRef.current
+        .then(() => save(next, failed))
+        .finally(() => {
+          busyRef.current--;
         });
-      } catch (err: any) {
-        console.error(err);
-        toast.error(err?.message ?? t("chapters.saveFailed"));
-      }
     }, 300);
   };
 

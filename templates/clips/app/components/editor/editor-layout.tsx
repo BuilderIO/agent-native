@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
+import { parseStoredChapters } from "@shared/stored-chapters";
 import {
   IconArrowLeft,
   IconCheck,
@@ -372,14 +373,13 @@ export function EditorLayout({
     () => parseEdits(recording?.editsJson),
     [recording?.editsJson],
   );
-  const chapters: Array<{ startMs: number; title: string }> = useMemo(() => {
-    if (Array.isArray(playerData?.chapters)) return playerData.chapters;
-    try {
-      return recording?.chaptersJson ? JSON.parse(recording.chaptersJson) : [];
-    } catch {
-      return [];
-    }
-  }, [playerData?.chapters, recording?.chaptersJson]);
+  const chapters: Array<{ startMs: number; title: string }> = useMemo(
+    () =>
+      Array.isArray(playerData?.chapters)
+        ? playerData.chapters
+        : parseStoredChapters(recording?.chaptersJson),
+    [playerData?.chapters, recording?.chaptersJson],
+  );
 
   const savedEdits: EditsJson = useMemo(() => {
     const next = pendingTrims ? { ...edits, trims: pendingTrims } : edits;

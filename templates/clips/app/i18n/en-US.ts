@@ -1455,6 +1455,8 @@ const messages = {
     empty: "No chapters yet.",
     remove: "Remove chapter",
     saveFailed: "Failed to save chapters",
+    changedElsewhere:
+      "Chapters were changed elsewhere, so your last change wasn't saved.",
     duplicateAtPoint: "A chapter already exists at this point",
     defaultTitle: "Chapter {{count}}",
     seekTo: "Seek to {{time}}",

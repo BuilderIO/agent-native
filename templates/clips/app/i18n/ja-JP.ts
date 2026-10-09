@@ -1541,6 +1541,8 @@ const messages = {
     empty: "チャプターはまだありません。",
     remove: "チャプターを削除",
     saveFailed: "チャプターを保存できませんでした",
+    changedElsewhere:
+      "チャプターが別の場所で変更されたため、最後の変更は保存されませんでした。",
     duplicateAtPoint: "この位置にはすでにチャプターがあります",
     defaultTitle: "チャプター {{count}}",
     seekTo: "{{time}} に移動",
