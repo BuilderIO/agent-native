@@ -384,6 +384,14 @@ button[title="Open agent sidebar"] {
   --slides-editor-surface: hsl(var(--background));
 }
 
+.deck-editor-shell[data-slides-widget="true"] .deck-editor-toolbar,
+.deck-editor-shell[data-slides-widget="true"]
+  .deck-editor-context-toolbar-host {
+  min-width: 0;
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
+}
+
 .deck-editor-context-toolbar-host {
   min-width: 0;
   overflow: auto;
@@ -403,6 +411,13 @@ button[title="Open agent sidebar"] {
   min-width: 0;
   width: 100%;
   flex: 1 1 auto;
+}
+
+@container deck-editor (max-width: 36rem) {
+  .deck-editor-shell[data-slides-widget="true"] .deck-editor-toolbar,
+  .deck-editor-shell[data-slides-widget="true"] .slide-context-toolbar {
+    padding-inline: 0.375rem;
+  }
 }
 
 @container (max-width: 36rem) {

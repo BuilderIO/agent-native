@@ -1,3 +1,9 @@
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+
 export const CHATGPT_DIRECTORY_TOOL_NAMES = [
   "list-designs",
   "list-design-templates",
@@ -26,10 +32,53 @@ function id(...values: unknown[]): string | null {
   );
 }
 
+function generatedScreenId(designId: string, result: unknown): string | null {
+  const urlPath = record(result).urlPath;
+  if (typeof urlPath !== "string") return null;
+  const queryStart = urlPath.indexOf("?");
+  const pathname = queryStart < 0 ? urlPath : urlPath.slice(0, queryStart);
+  if (pathname !== `/design/${encodeURIComponent(designId)}`) return null;
+  const query = queryStart < 0 ? "" : urlPath.slice(queryStart + 1);
+  return id(new URLSearchParams(query.split("#", 1)[0]).get("screen"));
+}
+
+type WidgetWriteAuthorizationInput = {
+  toolName: string;
+  args: Record<string, unknown>;
+  result: unknown;
+  target: { targetPath: string; resourceIds: Record<string, string> };
+  identity: { userEmail?: string; orgId?: string | null };
+};
+
 export const CHATGPT_DIRECTORY_PROFILE = {
   connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
   widgets: true,
   widgetDomain: "https://design.agent-native.com",
+  authorizeWidgetWrite: async ({
+    target,
+    identity,
+  }: WidgetWriteAuthorizationInput) => {
+    const designId = target.resourceIds.designId;
+    const identityEmail = identity.userEmail?.trim().toLowerCase();
+    const requestEmail = getRequestUserEmail()?.trim().toLowerCase();
+    const requestOrgId = getRequestOrgId() ?? undefined;
+    if (!designId?.trim() || !identityEmail || requestEmail !== identityEmail) {
+      return false;
+    }
+    if (
+      identity.orgId !== undefined &&
+      (identity.orgId ?? undefined) !== requestOrgId
+    ) {
+      return false;
+    }
+    try {
+      await assertAccess("design", designId, "editor");
+      return true;
+    } catch (error) {
+      if (error instanceof ForbiddenError) return false;
+      throw error;
+    }
+  },
   widgetTargets: {
     "create-design": (_args: Record<string, unknown>, result: unknown) => {
       const designId = id(record(result).id, record(result).designId);
@@ -37,6 +86,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         ? {
             targetPath: `/design/${encodeURIComponent(designId)}`,
             resourceIds: { designId },
+            writeActions: ["update-design", "update-file", "create-file"],
           }
         : null;
     },
@@ -53,15 +103,22 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         ? {
             targetPath: `/design/${encodeURIComponent(designId)}`,
             resourceIds: { designId },
+            writeActions: ["update-design", "update-file", "create-file"],
           }
         : null;
     },
     "generate-design": (args: Record<string, unknown>, result: unknown) => {
       const designId = id(args.designId, record(result).designId);
+      const screenId = designId ? generatedScreenId(designId, result) : null;
       return designId
         ? {
-            targetPath: `/design/${encodeURIComponent(designId)}`,
+            targetPath: `/design/${encodeURIComponent(designId)}${
+              screenId
+                ? `?editorView=overview&screen=${encodeURIComponent(screenId)}`
+                : ""
+            }`,
             resourceIds: { designId },
+            writeActions: ["update-design", "update-file", "create-file"],
           }
         : null;
     },
@@ -74,6 +131,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         ? {
             targetPath: `/design/${encodeURIComponent(designId)}`,
             resourceIds: { designId },
+            writeActions: ["update-design", "update-file", "create-file"],
           }
         : null;
     },
@@ -81,6 +139,33 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   widgetReadActionArguments: {
     "get-design-snapshot": { designId: "designId" },
     "get-design": { id: "designId" },
+  },
+  widgetWriteActionArguments: {
+    "create-file": {
+      designId: "designId",
+      filename: { type: "actionSchema" as const },
+      content: { type: "actionSchema" as const },
+      fileType: { type: "actionSchema" as const },
+    },
+    "update-design": {
+      id: "designId",
+      title: { type: "actionSchema" as const },
+      dataOperations: { type: "actionSchema" as const },
+      operationSource: { type: "actionSchema" as const },
+      operationRevision: { type: "actionSchema" as const },
+    },
+    "update-file": {
+      id: {
+        type: "actionSchemaResourceBound" as const,
+        resourceKey: "designId",
+      },
+      content: { type: "actionSchema" as const },
+      syncCollab: { type: "actionSchema" as const },
+      identityOnly: { type: "actionSchema" as const },
+      expectedVersionHash: { type: "actionSchema" as const },
+      operationSource: { type: "actionSchema" as const },
+      operationRevision: { type: "actionSchema" as const },
+    },
   },
   widgetReadPublicActions: ["get-design"],
   keyToolNames: [

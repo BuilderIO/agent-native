@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ActionMcpAppResourceConfig } from "../action.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
@@ -68,6 +68,8 @@ describe("embedApp", () => {
     );
     expect(html).toContain("function embedStartUrlFrom(params, data)");
     expect(html).toContain("function toolResultMeta(params)");
+    expect(html).toContain("const mcpToolResult = direct.mcp_tool_result");
+    expect(html).toContain("toolResponseMetadata = toolResultMeta(params)");
     expect(html).toContain("return toolResultMeta(params.result)");
     expect(html).toContain("return toolResultMeta(params.toolResult)");
     expect(html).toContain('"agent-native/embedStart"');
@@ -355,7 +357,10 @@ describe("embedApp", () => {
     expect(html).not.toContain("const buttonUrl = openUrl || openStartUrl");
     expect(html).toContain("appFrameLoadTimer");
     expect(html).toContain("startFrameReadyTimer(frame)");
-    expect(html).toContain("function embedSessionArgsFor(value)");
+    expect(html).toContain(
+      'function embedSessionArgsFor(\n      value,\n      renewInPlace = false,\n      renewalSourceTicket = "",\n    )',
+    );
+    expect(html).toContain("rememberActiveEmbedSessionTicket(src)");
     expect(html).toContain("? { path: value, chrome }");
     expect(html).toContain(
       "callEmbedSessionTool(embedSessionArgsFor(embedUrl))",
@@ -445,7 +450,7 @@ describe("embedApp", () => {
     expect(csp?.resourceDomains).not.toContain("https://esm.sh");
   });
 
-  it("renews directory widget sessions from saved tool output without embedStart metadata", () => {
+  it("renews directory widget sessions from saved widget metadata without embedStart", () => {
     const resource = embedApp({ title: "Directory widget" });
     const html =
       typeof resource.html === "function"
@@ -457,10 +462,98 @@ describe("embedApp", () => {
           })
         : resource.html;
 
+    const metaFunctions = html.match(
+      /(function metadataRecord\(value\) \{[\s\S]*?\n    \})\n\n    (function toolResultMeta\(params\) \{[\s\S]*?\n    \})/,
+    );
+    expect(metaFunctions).toBeDefined();
+    const toolResultMeta = new Function(
+      "metadataRecord",
+      `${metaFunctions?.[1]}; ${metaFunctions?.[2]}; return toolResultMeta;`,
+    )((value: unknown) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null;
+      }
+      const meta = (value as { _meta?: unknown })._meta;
+      return meta && typeof meta === "object" && !Array.isArray(meta)
+        ? meta
+        : null;
+    }) as (params: unknown) => Record<string, unknown>;
+    const normalizedMetadata = toolResultMeta({
+      _meta: {
+        status: "complete",
+        call_tool_result: { structuredContent: { id: "document-1" } },
+        mcp_tool_result: {
+          content: [{ type: "text", text: "Document opened." }],
+          _meta: {
+            "agent-native/widgetSource": { sourceTicket: "saved-ticket" },
+          },
+        },
+      },
+    });
+
+    const functions = html.match(
+      /(function embedTicketFromStartUrl\(value\) \{[\s\S]*?\n    \})\n\n    (function rememberActiveEmbedSessionTicket\(value\) \{[\s\S]*?\n    \})\n\n    (function embedSessionArgsFor\([\s\S]*?\n    \})/,
+    );
+    expect(functions).toBeDefined();
+    const {
+      embedSessionArgsFor,
+      rememberActiveEmbedSessionTicket,
+      activeTicket,
+    } = new Function(
+      "window",
+      "body",
+      "toolInput",
+      "toolResponseMetadata",
+      "objectValue",
+      "openStartUrl",
+      `let activeEmbedSessionTicket = ""; ${functions?.[1]}; ${functions?.[2]}; ${functions?.[3]}; return { embedSessionArgsFor, rememberActiveEmbedSessionTicket, activeTicket: () => activeEmbedSessionTicket };`,
+    )(
+      { location: { href: "https://content.agent-native.com/" } },
+      { dataset: { catalogMode: "directory" } },
+      { chrome: "full" },
+      normalizedMetadata,
+      (value: unknown) =>
+        value && typeof value === "object" && !Array.isArray(value)
+          ? value
+          : {},
+      "",
+    ) as {
+      embedSessionArgsFor: (
+        value: string,
+        renewInPlace?: boolean,
+        renewalSourceTicket?: string,
+      ) => Record<string, unknown>;
+      rememberActiveEmbedSessionTicket: (value: string) => void;
+      activeTicket: () => string;
+    };
+
+    expect(embedSessionArgsFor("/page/document-1")).toEqual({
+      sourceTicket: "saved-ticket",
+    });
+    expect(embedSessionArgsFor("/page/document-1")).not.toHaveProperty(
+      "toolOutput",
+    );
+    expect(() => embedSessionArgsFor("/page/document-1", true)).toThrow(
+      "The active widget session ticket is unavailable.",
+    );
+    rememberActiveEmbedSessionTicket(
+      "https://content.agent-native.com/_agent-native/embed/start?ticket=mounted-ticket",
+    );
+    expect(activeTicket()).toBe("mounted-ticket");
+    expect(embedSessionArgsFor("/page/document-1")).toEqual({
+      sourceTicket: "saved-ticket",
+    });
+    expect(
+      embedSessionArgsFor("/page/document-1", true, activeTicket()),
+    ).toEqual({
+      sourceTicket: "mounted-ticket",
+      renewInPlace: true,
+    });
+
     expect(html).toContain('data-start-tool="create_embed_session"');
     expect(html).toContain('data-catalog-mode="directory"');
     expect(html).toContain('toolResponseMetadata["agent-native/widgetSource"]');
-    expect(html).toContain("toolOutput: toolResultData");
+    expect(html).toContain("widgetSource.sourceTicket");
     expect(html).toContain(
       "const result = await callEmbedSessionTool(embedSessionArgsFor(embedUrl))",
     );
@@ -475,6 +568,24 @@ describe("embedApp", () => {
         : resource.html;
 
     expect(html.endsWith("</body>\n</html>")).toBe(true);
+  });
+
+  it("uses the configured launcher label for compact directory cards", () => {
+    const resource = embedApp({ title: "Deck", openLabel: "Open deck" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({
+            actionName: "create-deck",
+            appId: "slides",
+            catalogMode: "directory",
+          })
+        : resource.html;
+
+    expect(html).toContain('data-open-label="Open deck"');
+    expect(html).toContain(
+      'openButton.textContent = body.dataset.openLabel || "Open in app";',
+    );
+    expect(html).not.toContain('? "Open"');
   });
 
   it("allows full-app embeds to request a 900px canvas", () => {
@@ -508,7 +619,9 @@ describe("embedApp", () => {
       expect(html).toContain("height: 100vh; height: 100dvh;");
       expect(html).toContain(`${attribute} .bar { display: none; }`);
       expect(html).toContain("height: 100% !important");
-      expect(html).toContain("if (applyHostFillMode()) return;");
+      expect(html).toContain(
+        "if (applyHostFillMode() && !compactInline) return;",
+      );
       expect(html).toContain('appFrame.style.height = "";');
     });
 
@@ -564,7 +677,7 @@ describe("embedApp", () => {
       const functionSource = (html: string, name: string) => {
         const source = html.match(
           new RegExp(
-            `    function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n    \\}\\n`,
+            `    (?:async )?function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n    \\}\\n`,
           ),
         )?.[0];
         expect(source, name).toBeTruthy();
@@ -575,6 +688,237 @@ describe("embedApp", () => {
         availableDisplayModes: ["inline"],
         containerDimensions: { maxHeight: 360, maxWidth: 568 },
       };
+
+      const renewalHarness = (options: {
+        frame: { contentWindow: object; src?: string };
+        documentState: { loadGeneration: number };
+        callEmbedSessionTool: ReturnType<typeof vi.fn>;
+        sendToAppFrame: ReturnType<typeof vi.fn>;
+      }) => {
+        const html = htmlFor("directory");
+        const source = functionSource(html, "renewExpiredEmbedSession");
+        return new Function(
+          "appFrame",
+          "body",
+          "openUrl",
+          "openStartUrl",
+          "activeEmbedSessionTicket",
+          "embedSessionRefreshAttempts",
+          "maxEmbedSessionRefreshAttempts",
+          "callEmbedSessionTool",
+          "embedSessionArgsFor",
+          "parseToolResult",
+          "sendToAppFrame",
+          "appFrameTargetOrigin",
+          "withChatBridgeParam",
+          "appFrameDocumentState",
+          "window",
+          "isEmbedStartUrl",
+          "clearFrameReadyTimer",
+          "clearFrameLoadTimer",
+          "frameLoadTimeoutMs",
+          "setTimeout",
+          "renderFrameFallback",
+          "appFrameReady",
+          "appFrameLoadTimer",
+          "lastFrameSrc",
+          `${source}; return { renewExpiredEmbedSession, state: () => ({ openStartUrl, appFrameReady, appFrameLoadTimer, lastFrameSrc }) };`,
+        )(
+          options.frame,
+          { dataset: { catalogMode: "directory" } },
+          "https://app.example/slides/deck-1",
+          "https://app.example/_agent-native/embed/start?ticket=old",
+          "mounted-current-ticket",
+          0,
+          2,
+          options.callEmbedSessionTool,
+          (_url: string, renewInPlace = false, renewalSourceTicket = "") => ({
+            sourceTicket: renewalSourceTicket || "old-source",
+            ...(renewInPlace ? { renewInPlace: true } : {}),
+          }),
+          (result: unknown) => result,
+          options.sendToAppFrame,
+          () => "https://app.example",
+          (url: string) => url,
+          options.documentState,
+          { location: { href: "https://wrapper.example/" } },
+          (url: string) =>
+            new URL(url).pathname === "/_agent-native/embed/start",
+          vi.fn(),
+          vi.fn(),
+          45_000,
+          vi.fn(() => 123),
+          vi.fn(),
+          true,
+          null,
+          "https://app.example/_agent-native/embed/start?ticket=old",
+        ) as {
+          renewExpiredEmbedSession: (
+            requestId: string,
+            currentFrame: unknown,
+            loadGeneration: number,
+          ) => Promise<void>;
+          state: () => Record<string, unknown>;
+        };
+      };
+
+      it("renews a write session in place to preserve pending editor state", async () => {
+        const frame = {
+          contentWindow: {},
+          src: "https://app.example/design/d1",
+        };
+        const documentState = { loadGeneration: 3 };
+        const sendToAppFrame = vi.fn();
+        const callEmbedSessionTool = vi.fn(async () => ({
+          renewed: true,
+          expiresAt: Date.now() + 60_000,
+        }));
+        const harness = renewalHarness({
+          frame,
+          documentState,
+          callEmbedSessionTool,
+          sendToAppFrame,
+        });
+
+        await harness.renewExpiredEmbedSession("renew-1", frame, 3);
+
+        expect(callEmbedSessionTool).toHaveBeenCalledWith({
+          sourceTicket: "mounted-current-ticket",
+          renewInPlace: true,
+        });
+        expect(frame.src).toBe("https://app.example/design/d1");
+        expect(sendToAppFrame).toHaveBeenCalledWith({
+          type: "agentNative.embedSessionRenewed",
+          data: {
+            requestId: "renew-1",
+            ok: true,
+          },
+        });
+        expect(JSON.stringify(sendToAppFrame.mock.calls)).not.toContain(
+          "startUrl",
+        );
+        expect(JSON.stringify(sendToAppFrame.mock.calls)).not.toContain(
+          "ticket=",
+        );
+        expect(harness.state()).toMatchObject({
+          openStartUrl:
+            "https://app.example/_agent-native/embed/start?ticket=old",
+          appFrameReady: true,
+        });
+      });
+
+      it("does not acknowledge a renewal after the app document navigates", async () => {
+        const frame = {
+          contentWindow: {},
+          src: "https://app.example/design/d1",
+        };
+        const documentState = { loadGeneration: 3 };
+        const sendToAppFrame = vi.fn();
+        let finishMint!: (result: { renewed: true; expiresAt: number }) => void;
+        const callEmbedSessionTool = vi.fn(
+          () =>
+            new Promise<{ renewed: true; expiresAt: number }>((resolve) => {
+              finishMint = resolve;
+            }),
+        );
+        const harness = renewalHarness({
+          frame,
+          documentState,
+          callEmbedSessionTool,
+          sendToAppFrame,
+        });
+        const pendingRenewal = harness.renewExpiredEmbedSession(
+          "renew-1",
+          frame,
+          documentState.loadGeneration,
+        );
+        documentState.loadGeneration += 1;
+        finishMint({ renewed: true, expiresAt: Date.now() + 60_000 });
+        await pendingRenewal;
+
+        expect(frame.src).toBe("https://app.example/design/d1");
+        expect(sendToAppFrame).not.toHaveBeenCalled();
+      });
+
+      it("does not acknowledge an in-place renewal unless the server confirms it", async () => {
+        const frame = {
+          contentWindow: {},
+          src: "https://app.example/design/d1",
+        };
+        const documentState = { loadGeneration: 3 };
+        const sendToAppFrame = vi.fn();
+        const callEmbedSessionTool = vi.fn(async () => ({
+          startUrl:
+            "https://attacker.example/_agent-native/embed/start?ticket=secret",
+        }));
+        const harness = renewalHarness({
+          frame,
+          documentState,
+          callEmbedSessionTool,
+          sendToAppFrame,
+        });
+
+        await harness.renewExpiredEmbedSession("renew-1", frame, 3);
+
+        expect(frame.src).toBe("https://app.example/design/d1");
+        expect(sendToAppFrame).toHaveBeenCalledWith({
+          type: "agentNative.embedSessionRenewed",
+          data: { requestId: "renew-1", ok: false },
+        });
+      });
+
+      it("targets opaque directory frames with non-secret bridge messages", () => {
+        const html = htmlFor("directory");
+        const frame = {
+          contentWindow: { postMessage: vi.fn() },
+          src: "https://attacker.example/changed-document",
+        };
+        const sendToAppFrame = new Function(
+          "body",
+          "appFrame",
+          "openStartUrl",
+          "openUrl",
+          "window",
+          `${functionSource(html, "appFrameTargetOrigin")}
+${functionSource(html, "sendToAppFrame")}
+return sendToAppFrame;`,
+        )(
+          { dataset: { catalogMode: "directory" } },
+          frame,
+          "https://app.example/_agent-native/embed/start?ticket=source",
+          "https://app.example/design/d1",
+          { location: { href: "https://wrapper.example/" } },
+        ) as (message: unknown) => void;
+
+        sendToAppFrame({ type: "agentNative.embedSessionRenewed" });
+
+        expect(frame.contentWindow.postMessage).toHaveBeenCalledWith(
+          { type: "agentNative.embedSessionRenewed" },
+          "*",
+        );
+      });
+
+      it("accepts opaque and configured app frame origins", () => {
+        const html = htmlFor("directory");
+        const isTrustedAppFrameOrigin = new Function(
+          "body",
+          "openStartUrl",
+          "openUrl",
+          "window",
+          `${functionSource(html, "appFrameTargetOrigin")}
+${functionSource(html, "isTrustedAppFrameOrigin")}
+return isTrustedAppFrameOrigin;`,
+        )(
+          { dataset: { catalogMode: "directory" } },
+          "https://app.example/_agent-native/embed/start?ticket=source",
+          "https://app.example/design/d1",
+          { location: { href: "https://wrapper.example/" } },
+        ) as (origin: string) => boolean;
+
+        expect(isTrustedAppFrameOrigin("https://app.example")).toBe(true);
+        expect(isTrustedAppFrameOrigin("https://attacker.example")).toBe(false);
+        expect(isTrustedAppFrameOrigin("null")).toBe(true);
+      });
 
       function paneFillHeightFor(
         html: string,
@@ -656,6 +1000,8 @@ return paneFillHeight;`,
         const reported: Array<{ height: number }> = [];
         const notifyHostHeight = new Function(
           "fillsPane",
+          "updateDirectoryWidgetLayout",
+          "isCompactDirectoryWidget",
           "applyHostFillMode",
           "paneFillHeight",
           "hostState",
@@ -667,6 +1013,8 @@ return paneFillHeight;`,
           `${functionSource(html, "notifyHostHeight")}; return notifyHostHeight;`,
         )(
           true,
+          () => false,
+          () => false,
           () => false,
           () => 860,
           () => ({ context: codexInline }),
@@ -687,26 +1035,100 @@ return paneFillHeight;`,
         expect(reported).toEqual([{ height: 860 }, { height: 860 }]);
       });
 
+      it("reports a compact inline launcher height of 56px", () => {
+        const reported: Array<{ height: number }> = [];
+        const notifyHostHeight = new Function(
+          "fillsPane",
+          "updateDirectoryWidgetLayout",
+          "isCompactDirectoryWidget",
+          "applyHostFillMode",
+          "openAiBridge",
+          "app",
+          "console",
+          `${functionSource(htmlFor("directory"), "notifyHostHeight")}; return notifyHostHeight;`,
+        )(
+          true,
+          () => true,
+          () => true,
+          () => false,
+          null,
+          {
+            sendSizeChanged: (size: { height: number }) => reported.push(size),
+          },
+          { warn: () => {} },
+        ) as () => void;
+
+        notifyHostHeight();
+
+        expect(reported).toEqual([{ height: 56 }]);
+      });
+
+      it("keeps the compact inline row at 56px when the host reports a fixed height", () => {
+        const reported: Array<{ height: number }> = [];
+        const notifyHostHeight = new Function(
+          "fillsPane",
+          "updateDirectoryWidgetLayout",
+          "isCompactDirectoryWidget",
+          "applyHostFillMode",
+          "openAiBridge",
+          "app",
+          "console",
+          `${functionSource(htmlFor("directory"), "notifyHostHeight")}; return notifyHostHeight;`,
+        )(
+          true,
+          () => true,
+          () => true,
+          () => true,
+          null,
+          {
+            sendSizeChanged: (size: { height: number }) => reported.push(size),
+          },
+          { warn: () => {} },
+        ) as () => void;
+
+        notifyHostHeight();
+
+        expect(reported).toEqual([{ height: 56 }]);
+      });
+
       it("never reports a height while the host owns the frame", () => {
         const reported: unknown[] = [];
         const notifyHostHeight = new Function(
           "fillsPane",
+          "updateDirectoryWidgetLayout",
+          "isCompactDirectoryWidget",
           "applyHostFillMode",
           "app",
           `${functionSource(htmlFor("directory"), "notifyHostHeight")}; return notifyHostHeight;`,
-        )(true, () => true, {
-          sendSizeChanged: (size: unknown) => reported.push(size),
-        }) as () => void;
+        )(
+          true,
+          () => false,
+          () => false,
+          () => true,
+          {
+            sendSizeChanged: (size: unknown) => reported.push(size),
+          },
+        ) as () => void;
 
         notifyHostHeight();
 
         expect(reported).toEqual([]);
       });
 
-      it("fills the frame with CSS from first paint, and leaves app mode content-sized", () => {
-        const attribute = `${MCP_APP_HOST_FILL_ATTRIBUTE}="1"`;
+      it("starts directory widgets as a compact launcher and keeps app mode content-sized", () => {
+        const html = htmlFor("directory");
 
-        expect(htmlFor("directory")).toContain(`<html lang="en" ${attribute}>`);
+        expect(html).toContain('<html lang="en">');
+        expect(html).not.toContain(
+          `<html lang="en" ${MCP_APP_HOST_FILL_ATTRIBUTE}="1">`,
+        );
+        expect(html).toContain('data-widget-mode="inline"');
+        expect(html).toContain(
+          "height: 56px; min-height: 56px; max-height: 56px",
+        );
+        expect(html).toContain(
+          'data-catalog-mode="directory"][data-widget-mode="inline"] .stage { display: none; }',
+        );
         expect(htmlFor("app")).toContain('<html lang="en">');
         expect(htmlFor("app")).toContain("const fillsPane = false;");
       });
@@ -717,6 +1139,7 @@ return paneFillHeight;`,
           "objectValue",
           "fillsPane",
           "hostState",
+          "isCompactDirectoryWidget",
           "hostFillsContainer",
           "paneFillHeight",
           `${functionSource(html, "hostStateForApp")}; return hostStateForApp;`,
@@ -724,6 +1147,7 @@ return paneFillHeight;`,
           objectValue,
           true,
           () => ({ context: codexInline, version: "codex" }),
+          () => false,
           mcpAppHostFillsContainer,
           () => 860,
         )() as { context: unknown; version: string };
@@ -735,6 +1159,283 @@ return paneFillHeight;`,
         });
         expect(mcpAppHostFillsContainer(hostStateForApp.context)).toBe(true);
         expect(mcpAppHostFillsContainer(codexInline)).toBe(false);
+      });
+
+      it("requests fullscreen when Open is clicked before the host reports a display mode", async () => {
+        const html = htmlFor("directory");
+        const requested: string[] = [];
+        const calls: string[] = [];
+        let context: Record<string, unknown> = {};
+        const openDirectoryWidget = new Function(
+          "hostState",
+          "supportedDisplayMode",
+          "requestHostDisplayMode",
+          "updateDirectoryWidgetLayout",
+          "notifyHostHeight",
+          "launchEmbed",
+          "openHostLink",
+          `let directoryWidgetOpenRequested = false;
+${functionSource(html, "openDirectoryWidget")}
+return { openDirectoryWidget, isOpen: () => directoryWidgetOpenRequested };`,
+        )(
+          () => ({ context }),
+          () => true,
+          async (mode: string) => {
+            requested.push(mode);
+            context = { displayMode: mode };
+            return { mode };
+          },
+          () => calls.push("layout"),
+          () => calls.push("height"),
+          async () => calls.push("embed"),
+          async () => calls.push("external"),
+        ) as {
+          openDirectoryWidget: (url: string) => Promise<void>;
+          isOpen: () => boolean;
+        };
+
+        await openDirectoryWidget.openDirectoryWidget(
+          "https://design.example/design/1",
+        );
+
+        expect(requested).toEqual(["fullscreen"]);
+        expect(calls).toContain("embed");
+        expect(calls).not.toContain("external");
+        expect(openDirectoryWidget.isOpen()).toBe(true);
+      });
+
+      it("opens the editor in-pane when the host keeps the widget inline", async () => {
+        const html = htmlFor("directory");
+        const requested: string[] = [];
+        const calls: string[] = [];
+        const openDirectoryWidget = new Function(
+          "hostState",
+          "supportedDisplayMode",
+          "requestHostDisplayMode",
+          "updateDirectoryWidgetLayout",
+          "notifyHostHeight",
+          "launchEmbed",
+          "openHostLink",
+          `let directoryWidgetOpenRequested = false;
+${functionSource(html, "openDirectoryWidget")}
+return { openDirectoryWidget, isOpen: () => directoryWidgetOpenRequested };`,
+        )(
+          () => ({ context: { displayMode: "inline" } }),
+          () => true,
+          async (mode: string) => {
+            requested.push(mode);
+            return { mode: "inline" };
+          },
+          () => calls.push("layout"),
+          () => calls.push("height"),
+          async () => calls.push("embed"),
+          async () => calls.push("external"),
+        ) as {
+          openDirectoryWidget: (url: string) => Promise<void>;
+          isOpen: () => boolean;
+        };
+
+        await openDirectoryWidget.openDirectoryWidget(
+          "https://design.example/design/1",
+        );
+
+        expect(requested).toEqual(["fullscreen"]);
+        expect(calls).toContain("height");
+        expect(calls).not.toContain("external");
+        expect(calls).toContain("embed");
+        expect(openDirectoryWidget.isOpen()).toBe(true);
+      });
+
+      it("launches the app in the pane when fullscreen is unavailable", async () => {
+        const html = htmlFor("directory");
+        const calls: string[] = [];
+        const body = { dataset: { widgetMode: "inline" } };
+        const openDirectoryWidget = new Function(
+          "fillsPane",
+          "hostState",
+          "body",
+          "supportedDisplayMode",
+          "requestHostDisplayMode",
+          "notifyHostHeight",
+          "openStartUrl",
+          "openUrl",
+          "wantsEmbed",
+          "shouldSelfNavigateToApp",
+          "setMessage",
+          "withChatBridgeParam",
+          "isEmbedStartUrl",
+          "shouldTransplantAppDocument",
+          "shouldRenderControlledAppFrame",
+          "renderFrame",
+          `let directoryWidgetOpenRequested = false;
+let lastHostDisplayMode = "";
+let startedFor = "";
+let appFrame = null;
+${functionSource(html, "updateDirectoryWidgetLayout")}
+${functionSource(html, "isCompactDirectoryWidget")}
+${functionSource(html, "openDirectoryWidget")}
+${functionSource(html, "launchEmbed")}
+return {
+  openDirectoryWidget,
+  isOpen: () => directoryWidgetOpenRequested,
+  widgetMode: () => body.dataset.widgetMode
+};`,
+        )(
+          true,
+          () => ({ context: { displayMode: "inline" } }),
+          body,
+          () => false,
+          async () => calls.push("request"),
+          () => calls.push("height"),
+          "https://design.example/design/1",
+          "",
+          () => true,
+          () => {
+            calls.push("launch");
+            return true;
+          },
+          (message: string) => calls.push(message),
+          (url: string) => url,
+          () => true,
+          () => false,
+          () => true,
+          (url: string) => calls.push(`frame:${url}`),
+        ) as {
+          openDirectoryWidget: () => Promise<void>;
+          isOpen: () => boolean;
+          widgetMode: () => string;
+        };
+
+        await openDirectoryWidget.openDirectoryWidget();
+
+        expect(calls).toContain("height");
+        expect(calls).not.toContain("request");
+        expect(calls).toContain("launch");
+        expect(calls).toContain("frame:https://design.example/design/1");
+        expect(openDirectoryWidget.isOpen()).toBe(true);
+        expect(openDirectoryWidget.widgetMode()).toBe("pane");
+      });
+
+      it("restores the compact transcript row when the host returns from fullscreen", () => {
+        const html = htmlFor("directory");
+        const body = { dataset: { widgetMode: "pane" } };
+        const restored = new Function(
+          "fillsPane",
+          "hostState",
+          "body",
+          `let directoryWidgetOpenRequested = true;
+let lastHostDisplayMode = "fullscreen";
+${functionSource(html, "updateDirectoryWidgetLayout")}
+updateDirectoryWidgetLayout();
+return { mode: body.dataset.widgetMode, openRequested: directoryWidgetOpenRequested };`,
+        )(true, () => ({ context: { displayMode: "inline" } }), body) as {
+          mode: string;
+          openRequested: boolean;
+        };
+
+        expect(restored).toEqual({ mode: "inline", openRequested: false });
+      });
+
+      it("mounts the widget when the native host expands an existing result", () => {
+        const html = htmlFor("directory");
+        const body = { dataset: { widgetMode: "inline" } };
+        const context = { displayMode: "fullscreen" };
+        const updateDirectoryWidgetLayout = new Function(
+          "fillsPane",
+          "hostState",
+          "body",
+          `let directoryWidgetOpenRequested = false;
+let lastHostDisplayMode = "inline";
+${functionSource(html, "updateDirectoryWidgetLayout")}
+return updateDirectoryWidgetLayout;`,
+        )(true, () => ({ context }), body) as () => boolean;
+        const isCompactDirectoryWidget = new Function(
+          "fillsPane",
+          "body",
+          `${functionSource(html, "isCompactDirectoryWidget")}; return isCompactDirectoryWidget;`,
+        )(true, body) as () => boolean;
+        const calls: string[] = [];
+        const handleHostContextChanged = new Function(
+          "fillsPane",
+          "updateDirectoryWidgetLayout",
+          "updateDisplayButton",
+          "notifyHostHeight",
+          "sendHostContext",
+          "isCompactDirectoryWidget",
+          "openStartUrl",
+          "openUrl",
+          "launchEmbed",
+          `${functionSource(html, "handleHostContextChanged")}; return handleHostContextChanged;`,
+        )(
+          true,
+          updateDirectoryWidgetLayout,
+          () => calls.push("display"),
+          () => calls.push("height"),
+          () => calls.push("context"),
+          isCompactDirectoryWidget,
+          "/_agent-native/embed/start?ticket=ready",
+          "/design/design-123",
+          () => calls.push("embed"),
+        ) as () => void;
+        const nativeBridge = {
+          onhostcontextchanged: () => handleHostContextChanged(),
+        };
+
+        nativeBridge.onhostcontextchanged();
+
+        expect(body.dataset.widgetMode).toBe("pane");
+        expect(calls).toEqual(["display", "height", "context", "embed"]);
+      });
+
+      it("does not try to launch before a tool result provides an app URL", () => {
+        const html = htmlFor("directory");
+        const body = { dataset: { widgetMode: "inline" } };
+        const updateDirectoryWidgetLayout = new Function(
+          "fillsPane",
+          "hostState",
+          "body",
+          `let directoryWidgetOpenRequested = false;
+let lastHostDisplayMode = "inline";
+${functionSource(html, "updateDirectoryWidgetLayout")}
+return updateDirectoryWidgetLayout;`,
+        )(
+          true,
+          () => ({ context: { displayMode: "fullscreen" } }),
+          body,
+        ) as () => boolean;
+        const isCompactDirectoryWidget = new Function(
+          "fillsPane",
+          "body",
+          `${functionSource(html, "isCompactDirectoryWidget")}; return isCompactDirectoryWidget;`,
+        )(true, body) as () => boolean;
+        let embedLaunchCount = 0;
+        const handleHostContextChanged = new Function(
+          "fillsPane",
+          "updateDirectoryWidgetLayout",
+          "updateDisplayButton",
+          "notifyHostHeight",
+          "sendHostContext",
+          "isCompactDirectoryWidget",
+          "openStartUrl",
+          "openUrl",
+          "launchEmbed",
+          `${functionSource(html, "handleHostContextChanged")}; return handleHostContextChanged;`,
+        )(
+          true,
+          updateDirectoryWidgetLayout,
+          () => {},
+          () => {},
+          () => {},
+          isCompactDirectoryWidget,
+          "",
+          "",
+          () => embedLaunchCount++,
+        ) as () => void;
+
+        handleHostContextChanged();
+
+        expect(body.dataset.widgetMode).toBe("pane");
+        expect(embedLaunchCount).toBe(0);
       });
 
       describe("asking for fullscreen", () => {

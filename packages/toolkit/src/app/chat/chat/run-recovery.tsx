@@ -615,11 +615,13 @@ export function BuilderSetupCard({
         "agent-builder-setup-card",
         sidebarLayout && "agent-builder-setup-card--sidebar",
         attached && "agent-builder-setup-card--attached",
-        fullWidth
-          ? "w-full p-3"
-          : sidebarLayout
-            ? "mx-auto w-full max-w-[42rem] p-3"
-            : "mx-auto w-full max-w-[42rem] p-3 sm:w-fit",
+        attached
+          ? "p-3"
+          : fullWidth
+            ? "w-full p-3"
+            : sidebarLayout
+              ? "mx-auto w-full max-w-[42rem] p-3"
+              : "mx-auto w-full max-w-[42rem] p-3 sm:w-fit",
       )}
     >
       <div
@@ -664,6 +666,7 @@ export function RunErrorRecoveryCard({
   info,
   onContinue,
   onRetry,
+  onRetryWithoutAttachments,
   retryHasUnavailableAttachment = false,
   onFork,
   onDismiss,
@@ -675,6 +678,11 @@ export function RunErrorRecoveryCard({
   onContinue?: () => void;
   continueError?: string | null;
   onRetry: () => void;
+  /**
+   * Resends the request without the attachments a provider rejected. Plain
+   * retry would resend the same attachment and fail the same way.
+   */
+  onRetryWithoutAttachments?: () => void;
   retryHasUnavailableAttachment?: boolean;
   onFork?: () => void | boolean | Promise<void | boolean>;
   onDismiss: () => void;
@@ -692,7 +700,11 @@ export function RunErrorRecoveryCard({
     provisionAccount: true,
     trackingSource: "assistant_chat_reconnect_error",
   });
-  const canRecover = info.recoverable === true;
+  // Retrying or continuing sends the rejected attachment again.
+  const attachmentRejected = info.errorCode === "invalid_attachment";
+  const canRecover = info.recoverable === true && !attachmentRejected;
+  const canRetryWithoutAttachments =
+    attachmentRejected && onRetryWithoutAttachments;
   const isBuilderCreditsLimit = isCreditsLimitErrorCode(info.errorCode);
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
   const isProviderAuthError = isProviderAuthenticationError(
@@ -963,6 +975,18 @@ export function RunErrorRecoveryCard({
           >
             <IconPlayerPlay size={13} />
             <span className="truncate">{t("agentChat.common.continue")}</span>
+          </button>
+        )}
+        {canRetryWithoutAttachments && (
+          <button
+            type="button"
+            onClick={onRetryWithoutAttachments}
+            className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90"
+          >
+            <IconRefresh size={13} />
+            <span className="truncate">
+              {t("agentChat.recovery.retryWithoutAttachment")}
+            </span>
           </button>
         )}
         <div className="flex shrink-0 items-center gap-0.5">

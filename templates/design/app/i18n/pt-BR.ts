@@ -933,6 +933,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} imagem{{plural}} precisa{{plural}} de acesso ao Figma para carregar.",
       figmaPasteImagesDontShowAgain: "Não mostrar novamente",
+      figmaPasteUploadImage: "Enviar imagem",
+      figmaPasteUploadImageFor: "Enviar “{{name}}”",
+      figmaPasteImageFallbackName: "Imagem {{index}}",
+      figmaPasteUploadImageSuccess: "Imagem preenchida",
+      figmaPasteUploadImageInvalid:
+        "Escolha um arquivo de imagem, como SVG, PNG ou JPG.",
+      figmaPasteUploadImageError: "Não foi possível preencher essa imagem",
       figmaHydrationDialogTitle: "Conectar o Figma para carregar imagens",
       figmaHydrationDialogDescription:
         "Insira seu token de acesso do Figma para carregar {{count}} imagem{{plural}} ausente{{plural}} na tela{{screensPlural}} importada{{screensPlural}}.",
@@ -1620,6 +1627,7 @@ export default {
     fork: "Ramificar",
     fullView: "Vista completa",
     preview: "Prévia",
+    focusScreen: "Focar tela",
     openAndDuplicate:
       "Selecione {{display}}. Use Interagir para rolagem focada.",
     openAndPreview: "Selecione {{display}}. Use Interagir para rolagem focada.",

@@ -16,10 +16,12 @@ different APIs and data, so their capabilities and limitations differ.
   nodes when the clipboard provides it. With a token, it can fetch those nodes
   through the REST path. Without a token, the local decoder supports a subset of
   geometry, text, and styles; image references can remain unresolved until the
-  user supplies a token or the source file.
+  user supplies a token or the source file, or uploads the image itself
+  (`fill-figma-paste-image` fills that placeholder in place).
 - **`.fig` upload:** the local decoder handles supported file variants without
-  a REST request. It is best-effort input; uploads are capped at 50 MiB and
-  decompressed data at 96 MiB.
+  a REST request. It is best-effort input. Browser imports accept files up to
+  2 GiB (`BROWSER_FIG_LIMITS`); server-side decoding stays capped at 50 MiB
+  uploads and 96 MiB of decompressed data (`SERVER_FIG_LIMITS`).
 
 Imported screens can contain approximations or image fallbacks for constructs
 that the Design HTML/CSS representation cannot express. The import action

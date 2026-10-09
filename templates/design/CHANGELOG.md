@@ -3,6 +3,30 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-09
+
+### Added
+
+- Journey boards can show verified same-recording continuations without implying cohort movement.
+
+### Improved
+
+- Design widgets now support scoped edits and screen creation directly on the all-screens canvas.
+- Journey canvases place app cohorts side by side, lead with onboarding paths, and keep replay details expandable
+- Onboarding trees keep setup choices together while showing deeper paths clearly.
+- Template previews are now included in session recordings
+
+### Fixed
+
+- Duplicated screens in ChatGPT widgets keep their safe layout settings.
+- Component property edits now persist for unlinked components
+- Design keeps quick-start suggestions available when model settings are temporarily unreadable.
+- Design widget edits check the file version before saving, protecting newer changes from stale updates.
+- Design widget edits continue after reopening a chat.
+- Design widgets report a conflict when a stale edit cannot be saved.
+- Large reference images stay visible to the agent when several are attached together.
+- Switching a screen from a live URL to saved content no longer reports a conflict.
+
 ## 2026-10-08
 
 ### Added
@@ -11,21 +35,46 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- A progress toast now stays on screen while a .fig file is analyzed, converted, and saved, even if you switch panels
+- Import prompts call out content that could not be carried over, and SVG export prompts explain which parts become static.
+- Improved onboarding journey storyboards with localized captions, exact replay timing, and resumable private screenshot imports.
+- Journey storyboards support up to 1,000 steps
+- Long journey step titles are available on hover
+- Signup and login sessions are available in Analytics with all form inputs masked.
+- Storyboards can show separately observed steps without cohort counts, display reviewed output captions, switch between screenshot examples in place, and stage native PNG frames in resumable Design-owned private storage without copying blobs again.
+- Zoom menu view options (pixel grid, snap to pixel grid, rulers, multiplayer cursors, comments) are now saved to your account.
+- The overview canvas keeps screen selections centered without switching modes, and its compact style panel overlays the canvas.
 - Click a design's name in the editor to open a file menu with Rename, Duplicate, Version history, Save as template, Import, Export, and Delete.
 
 ### Fixed
 
+- Arabic journey storyboard cards now use right-to-left direction
+- Design keeps prompts beside AI setup, shows one provider retry hint, and blocks generation until a provider is connected.
+- Design now honors ad and social canvas sizes and uses uploaded reference images in generated artwork.
+- Design now recovers saved storyboard updates after a lost response and shows the correct generation-completion time.
+- Design preserves requested canvas sizes and reads large uploaded reference images.
+- Design uses uploaded image references and preserves requested artwork dimensions without extra mobile frames
+- Journey canvases keep staged screenshot provenance accurate by requiring the actual replay seek offset.
+- Journey screenshots upload without holding the Design editor lock
+- Uploaded documents remain readable when longer chat tasks continue in the background.
+- Onboarding storyboards show replay context and clearly mark where no later step was observed.
 - Design now reports pending screenshot cleanup and uncertain storyboard rollback after export failures.
 - Failed screenshot exports report when temporary image cleanup is still pending.
+
+### Changed
+
+- Replay screenshots use the encrypted upload fallback only when you enable it for the action.
 
 ## 2026-10-07
 
 ### Added
 
+- Missing images from a Figma paste can be filled by uploading an image or SVG straight from the notice
 - Design storyboards can receive private, timestamped screenshots from Analytics session replays.
 
 ### Improved
 
+- Figma .fig files up to 2 GB now import in the browser, including images and hundreds of frames
 - A new top bar across the editor holds the Interact / Design switch, zoom, presence, Share and Review changes.
 - Designs in a chat side pane now fill the pane down to its bottom edge, with a short screen reflowing to the pane's height
 - Designs opened in a chat side pane now fill the whole pane, with your first screen scaled to the pane width from the top edge.
@@ -450,6 +499,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Large Figma files with hundreds of frames import without freezing the editor, preserve source canvas positions, and render component slots and instance overrides.
 - Continue open Pen paths from the selected end anchor after Enter
 - Apps start with an app-shaped skeleton while session data loads immediately.
 - Canvas saves are faster because version checkpoints are taken at most every few minutes while you edit.
@@ -523,6 +573,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Auto-layout drops preserve screen-root flow, responsive sizing, and grid track order.
 - Auto-layout drops preserve Screen-root flow, responsive sizing, and grid track order.
 - Cross-screen moves recover cleanly when a save conflict interrupts either file
 - Design auto-layout drag and drop keeps wrapped rows and grid placement previews aligned
@@ -793,6 +844,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Pasting a frame from Figma now preserves union-shape outlines and clips masked artwork to the selected shape.
+- Imported layouts retain their source positions, and large images remain available when the design is exported.
 - Grid auto layout places a frame's children in cells and draws the grid on canvas, with a track picker and separate column and row gap fields.
 - Pasting a frame from Figma uses the same conversion path as file import; union shapes keep their outlines, and masked artwork is clipped to the intended shape.
 - Figma import preserves source layout, and large images remain available when the design is exported back.
@@ -1130,6 +1183,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- View-only designs now support layer inspection without edit handles or drag controls
 - Manage agent navigation now uses the connected-nodes icon.
 - Narrow breakpoint previews keep their device labels readable
 - Responsive peers now use a softer selection highlight without resize handles.
@@ -1138,6 +1192,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Imported and pasted frames preserve layout, groups, and clipping; this fixes off-canvas layers and frames that could render as black boxes.
 - Connecting a Figma token now actually fills in a pasted design's images (placeholders were previously left unresolved).
 - Design owners can keep editing their designs after switching workspaces
 - Figma line/arrow vectors and stroked icons now render instead of vanishing — fixed clipping of strokes and zero-size line vectors.
@@ -1270,6 +1325,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Complex Figma masks, arcs, rich text, transformed images, and advanced strokes now preserve their appearance with explicit fallbacks instead of importing incorrectly.
 - Canvas edits now reject malformed HTML before it can corrupt a screen, and reconnect warnings only appear for real connection failures.
 - Complex designs now export as valid, secure SVGs and crisp raster/PDF files, and undo can restore the design from before an agent redesign.
 - Figma masks, arcs, rich text, transformed images, and advanced strokes now import with explicit fallbacks when the source construct is unsupported.
@@ -1326,6 +1382,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Editor sidebars use consistent default widths for a roomier canvas.
 - Drawing annotations sent to the agent now include a rendered screenshot with the drawing composited on top, not just coordinates
 - Editor sidebars now use consistent default widths for a roomier canvas.
 - Design keyboard shortcuts, drawing annotations, and cross-screen drag interactions are now faster and more reliable.

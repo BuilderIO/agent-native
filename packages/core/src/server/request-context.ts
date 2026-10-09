@@ -110,6 +110,8 @@ export interface RequestContext {
   verifiedServiceIdentity?: { userEmail: string; orgId: string };
   identityAuthenticatedAtMs?: number;
   identitySessionToken?: string;
+  /** Signed MCP credential issue time, used to revoke derived widget grants. */
+  mcpCredentialIssuedAtMs?: number | null;
   authUserId?: string;
   agentRunAnonymous?: boolean;
   userName?: string;
@@ -393,6 +395,18 @@ export function runWithRequestContext<T>(
       Number.isFinite(context.identityAuthenticatedAtMs)
         ? context.identityAuthenticatedAtMs
         : undefined;
+    const inheritedMcpCredentialIssuedAtMs =
+      inheritedUserEmail === contextUserEmail &&
+      typeof inheritedContext?.mcpCredentialIssuedAtMs === "number" &&
+      Number.isSafeInteger(inheritedContext?.mcpCredentialIssuedAtMs)
+        ? inheritedContext.mcpCredentialIssuedAtMs
+        : undefined;
+    const contextMcpCredentialIssuedAtMs =
+      typeof context.mcpCredentialIssuedAtMs === "number" &&
+      Number.isSafeInteger(context.mcpCredentialIssuedAtMs)
+        ? context.mcpCredentialIssuedAtMs
+        : undefined;
+    const clearMcpCredentialIssuedAt = context.mcpCredentialIssuedAtMs === null;
     const inheritedSessionToken =
       inheritedUserEmail === contextUserEmail &&
       typeof inheritedContext?.identitySessionToken === "string"
@@ -405,17 +419,35 @@ export function runWithRequestContext<T>(
         inheritedAuthTime !== undefined
           ? Math.min(inheritedAuthTime, contextAuthTime ?? inheritedAuthTime)
           : (contextAuthTime ?? Date.now()),
+      ...(clearMcpCredentialIssuedAt
+        ? { mcpCredentialIssuedAtMs: null }
+        : inheritedMcpCredentialIssuedAtMs !== undefined ||
+            contextMcpCredentialIssuedAtMs !== undefined
+          ? {
+              mcpCredentialIssuedAtMs:
+                inheritedUserEmail === contextUserEmail &&
+                inheritedMcpCredentialIssuedAtMs !== undefined
+                  ? Math.min(
+                      inheritedMcpCredentialIssuedAtMs,
+                      contextMcpCredentialIssuedAtMs ??
+                        inheritedMcpCredentialIssuedAtMs,
+                    )
+                  : contextMcpCredentialIssuedAtMs,
+            }
+          : {}),
       ...(context.identitySessionToken === undefined && inheritedSessionToken
         ? { identitySessionToken: inheritedSessionToken }
         : {}),
     };
   } else if (
     context.identityAuthenticatedAtMs !== undefined ||
-    context.identitySessionToken !== undefined
+    context.identitySessionToken !== undefined ||
+    context.mcpCredentialIssuedAtMs !== undefined
   ) {
     const contextWithoutIdentityTime = { ...context };
     delete contextWithoutIdentityTime.identityAuthenticatedAtMs;
     delete contextWithoutIdentityTime.identitySessionToken;
+    delete contextWithoutIdentityTime.mcpCredentialIssuedAtMs;
     context = contextWithoutIdentityTime;
   }
   if (
