@@ -1143,6 +1143,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "Subir archivo de habilidad",
   "composer.upload": "Subir",
   "composer.uploadFailed": "No se pudo cargar el archivo seleccionado.",
+  "composer.fileTooLarge":
+    "Este archivo supera el límite de tamaño para subirlo.",
+  "composer.sessionExpired":
+    "Tu sesión ha caducado. Actualiza la página e inténtalo de nuevo.",
   "composer.unsupportedFileType": "Este tipo de archivo no es compatible.",
   "composer.useAttachedContext": "Usa el contexto adjunto.",
   "mentions.commands": "Comandos",
@@ -1304,6 +1308,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Cerraste sesión, así que este chat no puede seguir al agente. Vuelve a iniciar sesión y recarga.",
   "errorMessages.malformedRequestAttachment":
     "El modelo rechazó un archivo adjunto, así que este mensaje nunca se envió. Quita el adjunto y vuelve a intentarlo: un PDF, un archivo de texto plano o una imagen JPEG, PNG, GIF o WebP se leen directamente; los demás formatos deben subirse y enlazarse.",
+  "errorMessages.invalidAttachment":
+    "El proveedor del modelo rechazó este archivo adjunto por su formato o tamaño. Para las imágenes, exporta una versión más pequeña en PNG, JPEG, GIF o WebP; para los documentos, usa un formato compatible o pega el texto pertinente y vuelve a adjuntarlo.",
   "errorMessages.noProviderConnected":
     "No hay ningún proveedor de LLM conectado. Abre Configuración > Agente > Proveedores de IA y usa Builder.io (plan gratuito disponible) o añade una clave de proveedor.",
   "errorMessages.openBuilderSpaceSettings":
@@ -2217,7 +2223,7 @@ const messages: ToolkitAgentChatTranslation = {
     "No se pudo desconectar Builder.io.",
   "settingsShell.builder.disconnectTitle": "¿Desconectar Builder.io?",
   "settingsShell.builder.grantsFailed":
-    "No se pudo comprobar la conexión con Builder.io.",
+    "El estado de la conexión no está disponible. Vuelve a intentarlo para comprobarlo.",
   "settingsShell.builder.setupStartFailed":
     "No se pudo iniciar la configuración de Builder.io. Actualiza esta página e inténtalo de nuevo.",
   "settingsShell.builder.setupHostFailed":
@@ -2669,7 +2675,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "Acceso a modelos, automatización del navegador, almacenamiento de archivos e identidad del espacio de trabajo. Hay un plan gratuito.",
   "settingsShell.integrations.builderStatusFailed":
-    "No se pudo comprobar la conexión de Builder.io.",
+    "El estado de la conexión no está disponible. Vuelve a intentarlo para comprobarlo.",
   "settingsShell.integrations.category.analytics": "Analítica",
   "settingsShell.integrations.category.design": "Diseño",
   "settingsShell.integrations.category.engineering": "Ingeniería",
@@ -2823,6 +2829,11 @@ const messages: ToolkitAgentChatTranslation = {
     "El respaldo de la implementación está disponible. Usa tu propia cuenta de Builder.io para sustituirlo.",
   "settingsInfra.builderStorageHint":
     "El almacenamiento de objetos conserva los archivos subidos y permite reutilizar sus URL en todo el hilo. Usa Builder.io o el bucket compatible con S3 de abajo.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io está conectado, pero todavía no puede guardar archivos subidos. Vuelve a autorizarlo para permitir las cargas o configura un bucket abajo.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "No se pudo comprobar el acceso de carga de Builder.io. Vuelve a intentarlo o configura un bucket abajo.",
+  "settingsInfra.reconnectBuilderUploads": "Conceder acceso de carga",
   "settingsInfra.builderUnknown":
     "No se pudo comprobar la conexión con Builder.io.",
   "settingsInfra.manage": "Gestionar",

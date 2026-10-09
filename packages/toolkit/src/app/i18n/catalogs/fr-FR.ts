@@ -1152,6 +1152,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "Télécharger le fichier de compétences",
   "composer.upload": "Télécharger",
   "composer.uploadFailed": "Impossible de télécharger le fichier sélectionné.",
+  "composer.fileTooLarge":
+    "Ce fichier dépasse la taille maximale autorisée pour l’envoi.",
+  "composer.sessionExpired":
+    "Votre session a expiré. Actualisez la page et réessayez.",
   "composer.unsupportedFileType":
     "Ce type de fichier n'est pas pris en charge.",
   "composer.useAttachedContext": "Utilisez le contexte ci-joint.",
@@ -1314,6 +1318,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Vous êtes déconnecté, cette conversation ne peut donc pas suivre l’agent. Reconnectez-vous, puis rechargez.",
   "errorMessages.malformedRequestAttachment":
     "Le modèle a rejeté un fichier joint, donc ce message n’a jamais été envoyé. Retirez la pièce jointe et réessayez : un PDF, un fichier texte brut ou une image JPEG, PNG, GIF ou WebP est lu directement ; les autres formats doivent être téléversés puis liés.",
+  "errorMessages.invalidAttachment":
+    "Le fournisseur du modèle a rejeté cette pièce jointe en raison de son format ou de sa taille. Pour les images, exportez une version plus petite en PNG, JPEG, GIF ou WebP ; pour les documents, utilisez un format de fichier pris en charge ou collez le texte pertinent, puis joignez-le à nouveau.",
   "errorMessages.noProviderConnected":
     "Aucun fournisseur LLM n’est connecté. Ouvrez Paramètres > Agent > Fournisseurs IA, puis utilisez Builder.io (offre gratuite disponible) ou ajoutez une clé de fournisseur.",
   "errorMessages.openBuilderSpaceSettings":
@@ -2237,7 +2243,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Impossible de déconnecter Builder.io.",
   "settingsShell.builder.disconnectTitle": "Déconnecter Builder.io ?",
   "settingsShell.builder.grantsFailed":
-    "Impossible de vérifier la connexion à Builder.io.",
+    "L’état de la connexion est indisponible. Réessayez pour le vérifier.",
   "settingsShell.builder.setupStartFailed":
     "Impossible de démarrer la configuration de Builder.io. Actualisez cette page, puis réessayez.",
   "settingsShell.builder.setupHostFailed":
@@ -2692,7 +2698,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "Accès aux modèles, automatisation du navigateur, stockage de fichiers et identité de l’espace de travail. Offre gratuite disponible.",
   "settingsShell.integrations.builderStatusFailed":
-    "Impossible de vérifier la connexion Builder.io.",
+    "L’état de la connexion est indisponible. Réessayez pour le vérifier.",
   "settingsShell.integrations.category.analytics": "Analytique",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Ingénierie",
@@ -2852,6 +2858,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Le repli du déploiement est disponible. Utilisez votre propre compte Builder.io pour le remplacer.",
   "settingsInfra.builderStorageHint":
     "Le stockage objet conserve les fichiers envoyés et permet de réutiliser leurs URL tout au long du fil. Utilisez Builder.io ou le compartiment compatible S3 ci-dessous.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io est connecté, mais ne peut pas encore stocker les fichiers importés. Reconnectez-le pour autoriser les imports, ou configurez un bucket ci-dessous.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Impossible de vérifier l'accès de Builder.io aux imports. Réessayez ou configurez un bucket ci-dessous.",
+  "settingsInfra.reconnectBuilderUploads": "Autoriser les imports",
   "settingsInfra.builderUnknown":
     "Impossible de vérifier la connexion Builder.io.",
   "settingsInfra.manage": "Gérer",

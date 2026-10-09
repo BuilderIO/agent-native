@@ -1,11 +1,8 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
-const source = readFileSync(
-  new URL("./DesignEditor.tsx", import.meta.url),
-  "utf8",
-);
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
+const source = readDesignEditorSource();
 
 describe("empty design", () => {
   it("shares composer context with signed-in editor chats, not capability-only sessions", () => {

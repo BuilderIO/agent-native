@@ -346,7 +346,7 @@ export default defineAppConfig({
 | `execute_tool {tool}` | アクション呼び出しごとに 1 回 | `gen_ai.tool.name`、および成功/エラーステータス                                                           |
 | `chat {model}`        | モデル呼び出しごと            | `gen_ai.provider.name`, タイミング + OK/エラーステータス                                                  |
 
-スパンは OK/ERROR ステータスで終了し、失敗した場合はエラー メッセージを記録します。ゼロ/センチネルの属性値はプルーニングされ、スパンがノイズで乱雑にならないようにします。この OTel レイヤーは、上記のダッシュボードを強化する社内の `agent_trace_spans` / `agent_trace_summaries` テーブルに純粋に追加されます。両方とも同じ実行イベントから生成されます。
+スパンは OK/ERROR ステータスで終了し、失敗した場合はコードに基づく固定メッセージを記録します。ゼロ/センチネルの属性値はプルーニングされ、スパンがノイズで乱雑にならないようにします。この OTel レイヤーは、上記のダッシュボードを強化する社内の `agent_trace_spans` / `agent_trace_summaries` テーブルに純粋に追加されます。両方とも同じ実行イベントから生成されます。
 
 ### メトリクス {#otel-metrics}
 
@@ -362,6 +362,8 @@ export default defineAppConfig({
 | `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
 
 メトリクスでは、`gen_ai.tool.name` はフレームワークのアクション名または `other` になり、`gen_ai.request.model` はエンジンがサポート対象として挙げているモデル ID の場合のみその値、それ以外は `_OTHER` になります。そのため、アプリ定義のツールや呼び出し元が指定したモデル ID によって系列が無制限に増えることはありません。スパンには正確な値が残ります。
+
+`http.route` はすべてのリクエストに設定され、閉じた集合のいずれかの値になります。フレームワークのエンドポイントのルートテンプレート（`/_agent-native/auth/session`、`/_agent-native/agent-chat/runs/:runId/events`）、アクションが宣言したテンプレート、アプリ自身の Nitro ファイルルート（`/api/clips/:id`）、またはバケットです。バケットは、これらの名前空間内で一覧にないパスに対する `/_agent-native/*`、`/mcp/*`、`/.well-known/*`、その他の API パスに対する `/api/*`、ファイルリクエストに対する `static`、その他の `GET` または `HEAD` に対する `page`、そして `other` です。生のリクエストパスが記録されることはありません。`http.server` スパンにも同じ値が入ります。
 
 ## OpenTelemetry バックエンドへの接続 {#otel-provider}
 
@@ -551,3 +553,7 @@ CLI のハードコードされた DSN は意図的です。公開されたバ�
 - [**Tracking**](/docs/tracking) — アプリ独自のイベントの製品分析 (PostHog、Mixpanel、Amplitude)
 - [**Actions**](/docs/actions-overview) — トレース内のツール呼び出しとして表示される操作
 - [**Security**](/docs/security) — データのスコープと資格情報の処理
+
+実行の失敗メッセージは、コンテンツのキャプチャを有効にしても Analytics と Monitoring に送信されません。`$ai_error` には終了コード、名前付きの原因、再試行可否、コードから生成した固定メッセージが含まれます。追跡イベントは `error_message`、`agent_run_terminal.error_detail`、失敗したツール結果の本文を省略し、終了イベントは `error_code` と `error_cause` を保持します。`agent_runs.error_detail` と `agent_trace_spans.error_message` は、所有者のアクセス権に基づくデバッグ用にアプリ自身のデータベースに残ります。
+
+実行と Builder ゲートウェイの例外は、型、コード、スタックフレームを保持しますが、元のメッセージや入れ子の原因の本文は固定文字列 `Internal Server Error` に置き換えます。Monitoring はメッセージ内の名前ではなく、アプリ、型、フレーム、エラーコード、失敗クラスで問題を分類します。`$ai_trace_id` によるトレースへのリンクは維持されます。ホストが管理する任意の OpenTelemetry 実行エクスポートも失敗の本文を省略し、`agent.error_code` と `agent.error_cause` を保持します。他の例外のキャプチャは変わりません。

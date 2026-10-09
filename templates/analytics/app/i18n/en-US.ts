@@ -1568,6 +1568,8 @@ export default {
     replayPlayer: "Replay player",
     replayLoading: "Loading replay...",
     replayLoadingProgress: "{{loaded}} of {{total}} replay chunks loaded",
+    replayTargetFallback:
+      "Requested recording offset {{requested}} is unavailable; showing the nearest replay frame at {{available}}.",
     replayUnavailable: "No playable replay for this session",
     replayUnavailableDescription:
       "This recording has metadata, but no playable replay events were found.",
@@ -1698,8 +1700,12 @@ export default {
     storyboardNoDesignResponse: "Design returned no storyboard result.",
     storyboardTemporaryCleanupPending:
       "The storyboard was saved, but temporary screenshot files could not be removed.",
+    storyboardTemporaryCleanupFailed:
+      "Temporary screenshot cleanup is still pending.",
     storyboardUnexpectedResponse:
       "The screenshot export returned an unreadable response. Retry the export.",
+    storyboardSaveOutcomeUnknown:
+      "Design may have saved the storyboard. Check Design before retrying.",
     openStoryboard: "Open storyboard in Design",
     cancelStoryboardCapture: "Cancel capture",
     captureToDesign: "Capture and add to Design",

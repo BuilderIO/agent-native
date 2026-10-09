@@ -12,6 +12,7 @@ import {
   isBuilderConnectComplete,
   useBuilderStatus,
   useBuilderConnectFlow,
+  requestBuilderAccountActivation,
   withBuilderConnectTrackingParams,
   type BuilderConnectionScope,
 } from "./useBuilderStatus.js";
@@ -292,6 +293,7 @@ describe("useBuilderStatus", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    Reflect.deleteProperty(window.location, "hostname");
     vi.unstubAllGlobals();
   });
 
@@ -498,6 +500,7 @@ describe("useBuilderConnectFlow", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    Reflect.deleteProperty(window.location, "hostname");
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -776,6 +779,12 @@ describe("useBuilderConnectFlow", () => {
 
     for (const host of ["desktop", "embedded", "browser"] as const) {
       it(`creates the account with one request and no popup (${host})`, async () => {
+        Object.defineProperty(window.location, "hostname", {
+          configurable: true,
+          value: "design.custom-domain.com",
+        });
+        vi.stubGlobal("__AGENT_NATIVE_APP_ID__", "agent-native-clips");
+        vi.stubGlobal("__AGENT_NATIVE_TEMPLATE__", "clips");
         setUserAgent(
           host === "desktop"
             ? "Mozilla/5.0 AgentNativeDesktop/1.0"
@@ -809,10 +818,47 @@ describe("useBuilderConnectFlow", () => {
         expect(posts[0]!.url.searchParams.get("agentNativeFlow")).toBe(
           "connect_llm",
         );
+        expect(posts[0]!.url.searchParams.get("agentNativeApp")).toBe(
+          "agent-native-clips",
+        );
+        expect(posts[0]!.url.searchParams.get("agentNativeTemplate")).toBe(
+          "clips",
+        );
         expect(container.textContent).toContain("configured idle resolved");
         expect(onConnected).toHaveBeenCalledOnce();
       });
     }
+
+    it.each([
+      "localhost",
+      "127.0.0.1",
+      "www.agent-native.com",
+      "design.custom-domain.com",
+    ])("does not infer signup attribution from %s", async (hostname) => {
+      Object.defineProperty(window.location, "hostname", {
+        configurable: true,
+        value: hostname,
+      });
+      const posts = mockActivation(() => activationResponse(200, { ok: true }));
+
+      await requestBuilderAccountActivation({ provisioningToken });
+
+      expect(posts).toHaveLength(1);
+      expect(posts[0]!.url.searchParams.get("agentNativeApp")).toBeNull();
+      expect(posts[0]!.url.searchParams.get("agentNativeTemplate")).toBeNull();
+    });
+
+    it("does not infer a template from the injected app ID", async () => {
+      vi.stubGlobal("__AGENT_NATIVE_APP_ID__", "private-workspace");
+      const posts = mockActivation(() => activationResponse(200, { ok: true }));
+
+      await requestBuilderAccountActivation({ provisioningToken });
+
+      expect(posts[0]!.url.searchParams.get("agentNativeApp")).toBe(
+        "private-workspace",
+      );
+      expect(posts[0]!.url.searchParams.get("agentNativeTemplate")).toBeNull();
+    });
 
     it("activates an account for the organization's connection", async () => {
       const posts = mockActivation(() =>
@@ -941,7 +987,7 @@ describe("useBuilderConnectFlow", () => {
       ).toBe("The previous connection failed.");
       const statusNotice = document.body.querySelector('[role="status"]');
       expect(statusNotice?.textContent).toContain(
-        "Couldn't check your Builder.io connection.",
+        "Connection status is unavailable. Retry to check again.",
       );
       expect(
         document.body.querySelector('[role="alert"]')?.textContent ?? "",
@@ -1037,7 +1083,7 @@ describe("useBuilderConnectFlow", () => {
         `Couldn't save Builder credentials: ${message}.`,
       );
       expect(container.textContent).not.toContain(
-        "Couldn't check the Builder.io connection.",
+        "Connection status is unavailable. Retry to check again.",
       );
     });
 
@@ -1104,7 +1150,7 @@ describe("useBuilderConnectFlow", () => {
         `Couldn't save Builder credentials: ${message}.`,
       );
       expect(container.textContent).not.toContain(
-        "Couldn't check the Builder.io connection.",
+        "Connection status is unavailable. Retry to check again.",
       );
     });
 
@@ -1990,7 +2036,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector('[data-testid="terminal-error"]')?.textContent,
     ).toBe("none");
     expect(container.textContent).toContain(
-      "Couldn't check the Builder.io connection.",
+      "Connection status is unavailable. Retry to check again.",
     );
 
     await act(async () => {
@@ -2008,7 +2054,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector('[data-testid="terminal-error"]')?.textContent,
     ).toBe("none");
     expect(container.textContent).not.toContain(
-      "Couldn't check the Builder.io connection.",
+      "Connection status is unavailable. Retry to check again.",
     );
   });
 
@@ -2052,7 +2098,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector('[data-testid="error-kind"]')?.textContent,
     ).toBe("status-read");
     expect(container.textContent).toContain(
-      "Couldn't check the Builder.io connection.",
+      "Connection status is unavailable. Retry to check again.",
     );
     expect(
       container.querySelector('[data-testid="terminal-error"]')?.textContent,
@@ -2082,7 +2128,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector('[data-testid="error-kind"]')?.textContent,
     ).toBe("status-read");
     expect(container.textContent).toContain(
-      "Couldn't check the Builder.io connection.",
+      "Connection status is unavailable. Retry to check again.",
     );
   });
 
@@ -2604,6 +2650,9 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured idle");
     expect(container.textContent).toContain("Didn't hear back from Builder");
+    expect(
+      container.querySelector('[data-testid="error-kind"]')?.textContent,
+    ).toBe("connection");
   });
 
   it("clears a stale status-read error after a readable incomplete callback status", async () => {
@@ -2643,7 +2692,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector('[data-testid="error-kind"]')?.textContent,
     ).toBe("status-read");
     expect(container.textContent).toContain(
-      "Couldn't check the Builder.io connection.",
+      "Connection status is unavailable. Retry to check again.",
     );
 
     await act(async () => {
@@ -2673,7 +2722,7 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector('[data-testid="error-kind"]')?.textContent,
     ).toBe("");
     expect(container.textContent).not.toContain(
-      "Couldn't check the Builder.io connection.",
+      "Connection status is unavailable. Retry to check again.",
     );
   });
 

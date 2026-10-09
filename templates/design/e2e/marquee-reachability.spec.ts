@@ -115,7 +115,6 @@ test.beforeEach(async ({ page }, testInfo) => {
 });
 
 test.describe("modifier-held marquee reachability", () => {
-  // oracle: none — checks modifier-held marquee reachability; native Figma behavior is unmeasured.
   test("from empty screen space rubber-bands its children", async ({
     page,
   }) => {
@@ -138,7 +137,6 @@ test.describe("modifier-held marquee reachability", () => {
       .toEqual(["Box A", "Box B"]);
   });
 
-  // oracle: none — checks modifier-held marquee reachability; native Figma behavior is unmeasured.
   test("catches an element whose runtime node id is missing", async ({
     page,
   }) => {
@@ -178,7 +176,6 @@ test.describe("modifier-held marquee reachability", () => {
     await expect.poll(swept).toEqual("Unnamed");
   });
 
-  // oracle: none — checks modifier-held marquee reachability; native Figma behavior is unmeasured.
   test("catches a zero-height row", async ({ page }) => {
     const id = await newDesign(page);
     await gotoEditor(page, id);

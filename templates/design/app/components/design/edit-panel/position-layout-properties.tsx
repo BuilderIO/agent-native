@@ -682,9 +682,8 @@ export function PositionLayoutProperties({
             span={INSPECTOR_GRID_ACTION_SPAN}
             className="flex items-center justify-center"
           >
-            {/* Figma: constraints cannot apply to a child of an auto layout
-              frame — the parent's layout owns the position. An absolutely
-              positioned descendant is out of that flow and still anchors. */}
+            {/* Auto-layout containers position in-flow children. An absolutely
+              positioned descendant leaves that flow and can still use anchors. */}
             {constraintsSuppressed ? null : (
               <Tooltip>
                 <TooltipTrigger asChild>

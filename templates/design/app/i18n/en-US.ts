@@ -1,4 +1,7 @@
+import { enUSJourneyCanvasMessages } from "../../shared/journey-canvas-messages.js";
+
 export default {
+  journeyCanvas: enUSJourneyCanvasMessages,
   composer: { menu: { integrations: "Integrations" } },
   creativeContext: {
     title: "Library",
@@ -222,6 +225,18 @@ export default {
       exportSvg: "Export SVG",
       actionsPrefill: "Review, then send",
       retry: "Retry",
+      currentDesign: "the current Design",
+      chooseDesign: "a Design (ask me which Design to use if needed)",
+      importFramePrompt:
+        "Import this Figma frame into {{destination}} and identify any content the importer could not carry over: {{url}}",
+      importFilePrompt:
+        "Open this Figma file, list its top-level frames, and ask me which frame to import: {{url}}",
+      inspectFramePrompt:
+        "Inspect this Figma frame and summarize its structure, components, styles, and reusable tokens: {{url}}",
+      inspectFilePrompt:
+        "Inspect this Figma file and summarize its structure, components, styles, and reusable tokens: {{url}}",
+      exportSvgPrompt:
+        "Export the current Design screen as SVG for use in Figma and identify which parts become static SVG content.",
     },
   },
   common: {
@@ -935,6 +950,8 @@ export default {
         figmaPasteFailed: "Figma paste import failed",
         uploadFailed: "File upload failed",
         invalidFigFile: "Choose a file ending in .fig.",
+        unsupportedFileType: "Choose a .fig, .html, or .htm file.",
+        importBusy: "Another import is in progress. Finish or cancel it first.",
         figFileTooLarge:
           "That .fig is too large — uploads are limited to {{max}} MB. In Figma, copy just the frame you want into a new file and export that as .fig, or use Paste from Figma instead.",
       },
@@ -947,6 +964,8 @@ export default {
       "Generation stopped before creating files. Try again to continue from the same prompt.",
     generationStoppedCheckAgent:
       "Generation stopped before creating files. Check the agent message or try again.",
+    invalidCanvasDimensions:
+      "The requested canvas size isn't supported. Use positive pixel dimensions within the editor limits.",
     notFound: "Design not found",
     backToDesigns: "Back to designs",
     designNotFoundDescription:
@@ -975,7 +994,17 @@ export default {
     saveTemplate: "Save template",
     templateSaved: "Template saved to library",
     templateSaveFailed: "Could not save this template",
-    clickToRename: "Click to rename",
+    fileMenu: {
+      pendingEditsBlocked:
+        "Apply or discard your pending visual edits before duplicating.",
+      designs: "Designs",
+      rename: "Rename",
+      duplicate: "Duplicate",
+      versionHistory: "Version history",
+      import: "Import…",
+      delete: "Delete",
+      deleteError: "Could not delete this design",
+    },
     collaborators: "Collaborators",
     share: "Share",
     signUpToSave: "Sign up",
@@ -995,6 +1024,10 @@ export default {
       draw: "Draw",
       interact: "Interact",
       screens: "Screens",
+    },
+    topBar: {
+      modeDesign: "Design",
+      modeSwitch: "Editor mode",
     },
     fileTabs: "Files",
     tools: {

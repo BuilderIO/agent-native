@@ -112,14 +112,16 @@ describe("MultiScreenCanvas auto-fit framing", () => {
         <MultiScreenCanvas
           screens={screens}
           zoom={zoom}
-          activeTool="move"
-          geometryById={geometryById}
+          creation={{ activeTool: "move" }}
+          geometry={{ geometryById }}
           onPick={() => {}}
-          chromeInsetLeft={chromeInsetLeft}
-          chromeInsetRight={chromeInsetRight}
-          initialFitScreenId={initialFitScreenId}
-          fillFocusedViewport={fillFocusedViewport}
-          selectedScreenIds={selectedScreenIds}
+          camera={{
+            chromeInsetLeft,
+            chromeInsetRight,
+            initialFitScreenId,
+            fillFocusedViewport,
+          }}
+          selection={{ selectedScreenIds }}
         />,
       );
     });
@@ -184,16 +186,18 @@ describe("MultiScreenCanvas auto-fit framing", () => {
         <MultiScreenCanvas
           screens={[]}
           zoom={100}
-          activeTool="move"
-          geometryById={{}}
+          creation={{ activeTool: "move" }}
+          geometry={{ geometryById: {} }}
           onPick={() => {}}
-          boardFileId="__board__"
-          boardFileContent={`<!doctype html><html><body><div data-agent-native-node-id="board-rect" style="position:absolute;left:${boardObjectLeft}px;top:${boardObjectTop}px;width:200px;height:120px"></div></body></html>`}
-          boardFrameGeometry={{
-            x: -65536,
-            y: -65536,
-            width: 131072,
-            height: 131072,
+          board={{
+            boardFileId: "__board__",
+            boardFileContent: `<!doctype html><html><body><div data-agent-native-node-id="board-rect" style="position:absolute;left:${boardObjectLeft}px;top:${boardObjectTop}px;width:200px;height:120px"></div></body></html>`,
+            boardFrameGeometry: {
+              x: -65536,
+              y: -65536,
+              width: 131072,
+              height: 131072,
+            },
           }}
         />,
       );

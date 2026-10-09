@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./read-design-editor-source";
+
 const HOST_COMPUTED_COMMANDS = [
   "add-auto-layout",
   "change-selected-z-index",
@@ -56,13 +58,10 @@ describe("host-computed edits must not suppress the canvas repaint", () => {
   });
 
   it("align, distribute and tidy repaint after committing positions", () => {
-    const editorSource = readFileSync(
-      new URL("../DesignEditor.tsx", import.meta.url),
-      "utf8",
-    );
+    const editorSource = readDesignEditorSource();
     const commit = editorSource.slice(
       editorSource.indexOf("const commitNodePositions"),
-      editorSource.indexOf("// Item 3: Figma's Alignment row"),
+      editorSource.indexOf("const handleApplyLayoutFlow = useCallback("),
     );
     expect(commit).toContain(
       "applyLocalContentUpdate(content, { forcePreviewFullDocument: true })",

@@ -30,6 +30,10 @@ import {
 } from "../agent/run-manager.js";
 import { claimBackgroundRun, insertRun } from "../agent/run-store.js";
 import {
+  buildCurrentTimeUserContext,
+  buildRuntimeContextPrompt,
+} from "../agent/runtime-context.js";
+import {
   buildAssistantMessage,
   buildUserMessage,
   extractThreadMeta,
@@ -52,7 +56,6 @@ import { automationOutcomeMessagesForUser } from "../localization/automation-out
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
-  organizationResourceOwner,
   type Resource,
 } from "../resources/store.js";
 import { captureError } from "../server/capture-error.js";
@@ -80,10 +83,12 @@ import {
   withDeliveryNote,
   type AutomationFailure,
 } from "./automation-outcome.js";
+import { effectiveTimezone } from "./cron.js";
 import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
 } from "./frontmatter.js";
+import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   attachAutomationRunThread,
   finishAutomationRun,
@@ -516,17 +521,14 @@ export async function runBackgroundAutomation(
     historyId = options.historyId;
   } else {
     try {
-      const historyOwner = options.orgId
-        ? organizationResourceOwner(options.orgId)
-        : automation.resource.owner === "__shared__"
-          ? options.ownerEmail
-          : automation.resource.owner;
       historyId = await startAutomationRun({
-        owner: historyOwner,
+        ...automationRunOwnership(
+          automation.resource.owner,
+          options.ownerEmail,
+          options.orgId,
+        ),
         automation: automation.name,
         path: automation.resource.path,
-        scope: options.orgId ? "organization" : "personal",
-        orgId: options.orgId ?? null,
         appId: deps.appId,
         notificationEmail: await notificationEmailFor(
           automation.name,
@@ -1047,16 +1049,27 @@ async function executeBackgroundAutomation(
           runId,
           thread.id,
           async (send, signal, control) => {
+            const runtimeContext = {
+              now: new Date(),
+              timezone: effectiveTimezone(automation.meta.timezone),
+            };
             const loopOpts = {
               engine,
               model,
-              systemPrompt,
+              systemPrompt:
+                systemPrompt + buildRuntimeContextPrompt(runtimeContext),
               tools,
               availableTools,
               messages: [
                 {
                   role: "user" as const,
-                  content: [{ type: "text" as const, text: prompt }],
+                  content: [
+                    {
+                      type: "text" as const,
+                      text:
+                        prompt + buildCurrentTimeUserContext(runtimeContext),
+                    },
+                  ],
                 },
               ],
               actions,

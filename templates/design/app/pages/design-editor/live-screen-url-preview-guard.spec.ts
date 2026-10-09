@@ -22,11 +22,9 @@ import {
   isStandaloneHttpUrl,
   previewContentReplaceNeedsRenderFallback,
 } from "./editor-state";
+import { readDesignEditorSource } from "./read-design-editor-source";
 
-const editorSource = readFileSync(
-  new URL("../DesignEditor.tsx", import.meta.url),
-  "utf8",
-);
+const editorSource = readDesignEditorSource();
 
 const commitVisualStylesSource = readFileSync(
   new URL("./commands/commit-visual-styles.ts", import.meta.url),
@@ -98,7 +96,7 @@ describe("live screen URL preview guard", () => {
   it("refuses design-state preview and restore on a live screen", () => {
     const section = sourceSection(
       "const handleDesignStateSelect = useCallback(",
-      "// ── Inspector header quick actions",
+      "const liveScreenIds = useMemo(",
     );
     const guard = "if (isStandaloneHttpUrl(activeContent))";
 

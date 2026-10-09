@@ -680,7 +680,7 @@ const frFR = {
         "Installe la planification visuelle comme skill adossée à une app. Votre agent de code ouvre des plans structurés avec diagrammes, wireframes, prototypes, annotations, commentaires et liens de revue.",
     },
     design: {
-      replaces: "Remplace ou complète les outils de prototypage design",
+      replaces: "Studio de design Agent-Native",
       description:
         "Transforme vos instructions en designs interactifs conformes à votre système de design tandis que l’agent affine chaque écran selon vos retours.",
     },
@@ -1459,7 +1459,7 @@ const frFR = {
       s003: "Générer",
       s004: "Affiner",
       s005: "Tous les modèles",
-      s006: "Le studio de prototypage open source AI HTML",
+      s006: "Espace de conception open source",
       s007: "Créez des designs et des prototypes interactifs. Affinez avec des outils familiers ou effectuez des modifications conversationnelles. Exportez où vous voulez.",
       s008: "Créez quelque chose",
       s009: "Comment ça marche",
@@ -1906,7 +1906,6 @@ const frFR = {
       heroDescription:
         "Plans est un outil de planification visuelle gratuit et open source pour examiner l'approche de votre agent de code, donner des retours et comprendre les modifications de code grâce à des diagrammes, des wireframes et du code annoté.",
       heroCta: "Planifiez visuellement",
-      heroSecondaryCta: "Ouvrir Plans",
       useCasesHeading: "Que pouvez-vous faire avec Plans ?",
       useCasesBody:
         "Examinez une approche d'implémentation, travaillez sur une interface ou comprenez une modification déjà effectuée avec votre agent de code IA.",

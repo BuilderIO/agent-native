@@ -139,6 +139,13 @@ function toolButton(page: Page, name: string): Locator {
   return page.locator(`button[aria-label="${name}"]`).first();
 }
 
+function modeButton(
+  page: Page,
+  mode: "annotate" | "edit" | "interact",
+): Locator {
+  return page.locator(`[data-design-top-bar] [data-design-mode="${mode}"]`);
+}
+
 function selectedLayerRow(page: Page): Locator {
   return page.locator('[role="treeitem"][aria-selected="true"]').first();
 }
@@ -1122,50 +1129,49 @@ function expectCloseToFrameSize(
   expect(Math.abs(viewport.height - frame.height)).toBeLessThanOrEqual(2);
 }
 
-test("toolbar modes toggle the editor mode buttons", async ({ page }) => {
-  await expect(toolButton(page, "Edit")).toHaveAttribute(
+test("top bar modes toggle the editor mode buttons", async ({ page }) => {
+  await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(toolButton(page, "Interact")).toHaveAttribute(
+  await expect(modeButton(page, "interact")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+  await expect(modeButton(page, "annotate")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
 
-  await toolButton(page, "Interact").click();
+  await modeButton(page, "interact").click();
   const exitInteract = page.getByRole("button", {
     name: "Exit responsive preview",
   });
   await expect(exitInteract).toBeVisible();
   await expect(page.locator("[data-design-bottom-toolbar]")).toHaveCount(0);
   await exitInteract.click();
-  await expect(toolButton(page, "Edit")).toHaveAttribute(
+  await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
 
-  await toolButton(page, "Annotate").click();
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+  await modeButton(page, "annotate").click();
+  await expect(modeButton(page, "annotate")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(toolButton(page, "Interact")).toHaveAttribute(
+  await expect(modeButton(page, "interact")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
 
-  await toolButton(page, "Edit").click();
-  await expect(toolButton(page, "Edit")).toHaveAttribute(
+  await modeButton(page, "edit").click();
+  await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
 });
 
-// oracle: none — verifies dialog behavior, focus and iframe stability, not measured Figma geometry.
 test("keyboard shortcuts dialog opens without remounting the overview iframe", async ({
   page,
 }) => {
@@ -1341,7 +1347,6 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
   await expect(page.getByRole("button", { name: "More" })).toBeFocused();
 });
 
-// oracle: none — verifies the dialog stays inside a narrow viewport, not Figma parity.
 test("keyboard shortcuts dialog fits a narrow window and stacks its categories", async ({
   page,
 }) => {
@@ -1401,8 +1406,8 @@ test("overview Annotate draws around screens with stable iframes and stroke undo
       };
     });
 
-  await toolButton(page, "Annotate").click();
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+  await modeButton(page, "annotate").click();
+  await expect(modeButton(page, "annotate")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -1446,7 +1451,7 @@ test("overview Annotate draws around screens with stable iframes and stroke undo
     "true",
   );
   await expect(page.locator("[data-draw-overlay]")).toHaveClass(/invisible/);
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+  await expect(modeButton(page, "annotate")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
@@ -3507,6 +3512,10 @@ test("overview undo does not restore ghost geometry for deleted screens", async 
     content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
     fileType: "html",
   });
+  // The 48px top bar shortens the canvas, which lowers the fit zoom until
+  // Home's bottom hit area overlaps About's title strip, where this test
+  // grabs it. Add the bar's height back so the canvas keeps its original size.
+  await page.setViewportSize({ width: 1440, height: 1000 + 48 });
   await gotoEditor(page, designId);
   await expect(screenShell(page, "About")).toBeVisible();
 

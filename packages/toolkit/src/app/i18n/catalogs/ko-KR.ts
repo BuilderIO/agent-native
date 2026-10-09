@@ -498,6 +498,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "스킬 파일 업로드",
   "composer.upload": "업로드",
   "composer.uploadFailed": "선택한 파일을 업로드할 수 없습니다.",
+  "composer.fileTooLarge": "이 파일은 업로드 크기 제한을 초과했습니다.",
+  "composer.sessionExpired":
+    "세션이 만료되었습니다. 페이지를 새로고침한 후 다시 시도하세요.",
   "composer.unsupportedFileType": "지원되지 않는 파일 형식입니다.",
   "composer.useAttachedContext": "첨부된 컨텍스트를 사용하세요.",
   "mentions.commands": "명령",
@@ -642,6 +645,8 @@ const messages: ToolkitAgentChatTranslation = {
     "로그아웃되어 이 채팅에서 에이전트를 추적할 수 없습니다. 다시 로그인한 후 새로고침하세요.",
   "errorMessages.malformedRequestAttachment":
     "모델이 첨부 파일을 거부하여 이 메시지는 전송되지 않았습니다. 첨부를 제거하고 다시 시도하세요. PDF, 일반 텍스트 파일, JPEG·PNG·GIF·WebP 이미지는 직접 읽을 수 있지만 다른 형식은 업로드한 뒤 링크해야 합니다.",
+  "errorMessages.invalidAttachment":
+    "모델 제공업체가 첨부 파일의 형식 또는 크기 때문에 거부했습니다. 이미지는 더 작은 PNG, JPEG, GIF 또는 WebP로 내보내세요. 문서는 지원되는 파일 형식을 사용하거나 관련 텍스트를 붙여 넣은 다음 다시 첨부하세요.",
   "errorMessages.noProviderConnected":
     "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 열고 Builder.io(무료 플랜 제공)를 사용하거나 제공업체 키를 추가하세요.",
   "errorMessages.openBuilderSpaceSettings": "Builder 스페이스 설정 열기",
@@ -2044,7 +2049,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io 연결을 해제하지 못했습니다.",
   "settingsShell.builder.disconnectTitle": "Builder.io 연결을 해제할까요?",
   "settingsShell.builder.grantsFailed":
-    "Builder.io 연결을 확인하지 못했습니다.",
+    "연결 상태를 확인할 수 없습니다. 다시 시도해 주세요.",
   "settingsShell.builder.setupStartFailed":
     "Builder.io 설정을 시작할 수 없습니다. 이 페이지를 새로고침한 후 다시 시도하세요.",
   "settingsShell.builder.setupHostFailed":
@@ -2472,7 +2477,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "모델 액세스, 브라우저 자동화, 파일 스토리지, 워크스페이스 ID. 무료 요금제가 있습니다.",
   "settingsShell.integrations.builderStatusFailed":
-    "Builder.io 연결을 확인하지 못했습니다.",
+    "연결 상태를 확인할 수 없습니다. 다시 시도해 주세요.",
   "settingsShell.integrations.category.analytics": "분석",
   "settingsShell.integrations.category.design": "디자인",
   "settingsShell.integrations.category.engineering": "엔지니어링",
@@ -2626,6 +2631,11 @@ const messages: ToolkitAgentChatTranslation = {
     "배포 대체 설정을 사용할 수 있습니다. 이를 재정의하려면 내 Builder.io 계정을 사용하세요.",
   "settingsInfra.builderStorageHint":
     "객체 스토리지는 업로드 파일을 보존하고 스레드 전체에서 URL을 재사용할 수 있게 합니다. 아래에서 Builder.io 또는 S3 호환 버킷을 사용하세요.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io가 연결되어 있지만 아직 업로드 파일을 저장할 수 없습니다. 업로드 권한을 부여하려면 다시 연결하거나 아래에서 버킷을 설정하세요.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Builder.io 업로드 권한을 확인할 수 없습니다. 다시 시도하거나 아래에서 버킷을 설정하세요.",
+  "settingsInfra.reconnectBuilderUploads": "업로드 권한 부여",
   "settingsInfra.builderUnknown": "Builder.io 연결을 확인할 수 없습니다.",
   "settingsInfra.manage": "관리",
   "settingsInfra.connect": "연결",

@@ -102,9 +102,11 @@ describe("StorageSetupCard", () => {
   let container: HTMLDivElement;
   let root: Root;
 
-  async function renderCard(onConfigured = vi.fn()) {
+  async function renderCard(onConfigured = vi.fn(), onSkip?: () => void) {
     await act(async () => {
-      root.render(<StorageSetupCard onConfigured={onConfigured} />);
+      root.render(
+        <StorageSetupCard onConfigured={onConfigured} onSkip={onSkip} />,
+      );
     });
     // The shared popover is lazy-loaded; wait for it to replace its fallback.
     await act(async () => {
@@ -465,6 +467,83 @@ describe("StorageSetupCard", () => {
     expect(container.textContent).toContain("storageSetup.builderConnected");
   });
 
+  it("lets Skip take precedence over the delayed setup completion", async () => {
+    const onConfigured = vi.fn();
+    const onSkip = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          configured: true,
+          builderConfigured: true,
+          builderUploadConfigured: true,
+        }),
+      ),
+    );
+    await renderCard(onConfigured, onSkip);
+    await createAndActivate();
+
+    const connectOptions = mocks.useBuilderConnectFlow.mock.calls[0]?.[0] as {
+      onConnected: () => void;
+    };
+    act(() => connectOptions.onConnected());
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("storageSetup.builderConnected");
+    const skipButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "agentChat.onboarding.skipForNow",
+    );
+    expect(skipButton).toBeDefined();
+    act(() => skipButton?.click());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(800);
+    });
+
+    expect(onSkip).toHaveBeenCalledOnce();
+    expect(onConfigured).not.toHaveBeenCalled();
+  });
+
+  it("cancels delayed setup completion when the card unmounts", async () => {
+    const onConfigured = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          configured: true,
+          builderConfigured: true,
+          builderUploadConfigured: true,
+        }),
+      ),
+    );
+    await renderCard(onConfigured);
+    await createAndActivate();
+
+    const connectOptions = mocks.useBuilderConnectFlow.mock.calls[0]?.[0] as {
+      onConnected: () => void;
+    };
+    act(() => connectOptions.onConnected());
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root.render(<div />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(800);
+    });
+
+    expect(onConfigured).not.toHaveBeenCalled();
+  });
+
   it("stops on an AI-only Builder grant that still needs upload authorization", async () => {
     const onConfigured = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue(
@@ -667,7 +746,7 @@ describe("StorageSetupCard", () => {
 
   it("offers the storage option when Builder setup fails", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
-      flowState({ error: "Builder setup failed" }),
+      flowState({ error: "Builder setup failed", errorKind: "connection" }),
     );
     await renderCard();
 
@@ -716,6 +795,9 @@ describe("StorageSetupCard", () => {
     expect(
       container.querySelector('a[href="/settings/infra#uploads"]')?.textContent,
     ).toBe("settings.s3Title");
+    expect(container.textContent).not.toContain(
+      "AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO",
+    );
   });
 
   it("asks members to find an owner or admin when they can't set up storage", async () => {

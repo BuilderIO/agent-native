@@ -1467,7 +1467,7 @@ async function addNativeArtworkGradient(page: Page, layerName: string) {
   );
   const originalImage = await persistedLayer(page, layerName);
   const originalImageUrl = savedImageUrl(originalImage.tag);
-  expect(originalImageUrl).toContain("/api/qa-figma-import-assets/");
+  expect(originalImageUrl).toContain("/api/qa-import-assets/");
   const previousRows = await paintRows.count();
   await fillSection
     .getByRole("button", { name: "Add fill", exact: true })
@@ -1526,7 +1526,7 @@ async function addNativeArtworkGradient(page: Page, layerName: string) {
   const updatedTarget = target!;
   expect(updatedTarget.nodeId).toBeTruthy();
   const imageUrl = savedImageUrl(updatedTarget.tag);
-  expect(imageUrl).toContain("/api/qa-figma-import-assets/");
+  expect(imageUrl).toContain("/api/qa-import-assets/");
   const live = designFrame(page, updatedTarget.fileId).locator(
     `[data-agent-native-node-id="${updatedTarget.nodeId}"]`,
   );
@@ -1568,9 +1568,7 @@ async function setFillImage(page: Page, layerName: string, imagePath: string) {
       applied = await persistedLayer(page, layerName);
       const url = savedImageUrl(applied.tag);
       return Boolean(
-        url &&
-        url !== previousUrl &&
-        url.includes("/api/qa-figma-import-assets/"),
+        url && url !== previousUrl && url.includes("/api/qa-import-assets/"),
       );
     })
     .toBe(true);
@@ -2450,7 +2448,7 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     page.on("response", onResponse);
     page.on("framenavigated", onFrameNavigated);
     const proof: Record<string, unknown> = {
-      figmaStep:
+      workflowStep:
         "Auto Layout > Work with objects > Arrange or reorder objects (horizontal flow)",
       designId,
       screenId,
@@ -3370,14 +3368,14 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
         playButton: mobilePlayButtonMetrics,
         player: mobilePlayerMetrics,
         playButtonAdaptation:
-          "Frame with the reference SVG image; Figma source uses a component instance",
+          "Frame with the reference SVG image; the local design uses a component instance",
       },
       null,
       2,
     ),
     contentType: "application/json",
   });
-  expect(mobileImageSource).toContain("/api/qa-figma-import-assets/");
+  expect(mobileImageSource).toContain("/api/qa-import-assets/");
   expect.soft(mobileMainMetrics.width).toBeCloseTo(350, 0);
   expect.soft(mobileMainMetrics.height).toBeCloseTo(438, 0);
   expect.soft(mobileCardMetrics.width).toBeCloseTo(302, 0);
@@ -3645,7 +3643,7 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   );
   expect(desktopArtworkTag).not.toBeNull();
   const desktopArtworkImageUrl = savedImageUrl(desktopArtworkTag!);
-  expect(desktopArtworkImageUrl).toContain("/api/qa-figma-import-assets/");
+  expect(desktopArtworkImageUrl).toContain("/api/qa-import-assets/");
   expect(afterReloadMetrics.desktopArtwork.backgroundImage).toContain(
     "linear-gradient",
   );

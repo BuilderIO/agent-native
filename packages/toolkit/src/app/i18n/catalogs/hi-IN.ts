@@ -494,6 +494,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "स्किल फ़ाइल अपलोड करें",
   "composer.upload": "अपलोड करें",
   "composer.uploadFailed": "चुनी गई फ़ाइल अपलोड नहीं हो सकी।",
+  "composer.fileTooLarge": "यह फ़ाइल अपलोड की अधिकतम सीमा से बड़ी है।",
+  "composer.sessionExpired":
+    "आपका सत्र समाप्त हो गया है। पेज रीफ़्रेश करें और फिर कोशिश करें।",
   "composer.unsupportedFileType": "यह फ़ाइल प्रकार समर्थित नहीं है।",
   "composer.useAttachedContext": "अटैच किए गए संदर्भ का उपयोग करें।",
   "mentions.commands": "कमांड",
@@ -639,6 +642,8 @@ const messages: ToolkitAgentChatTranslation = {
     "आप साइन आउट हो चुके हैं, इसलिए यह चैट एजेंट को फ़ॉलो नहीं कर सकती। फिर से साइन इन करें, फिर रीलोड करें।",
   "errorMessages.malformedRequestAttachment":
     "मॉडल ने एक संलग्न फ़ाइल अस्वीकार कर दी, इसलिए यह संदेश कभी भेजा ही नहीं गया। अटैचमेंट हटाकर दोबारा प्रयास करें — PDF, सादा टेक्स्ट फ़ाइल, या JPEG, PNG, GIF या WebP छवि सीधे पढ़ी जाती है; अन्य फ़ॉर्मैट अपलोड करके लिंक करने होंगे।",
+  "errorMessages.invalidAttachment":
+    "मॉडल प्रदाता ने इस अटैचमेंट के फ़ॉर्मैट या आकार के कारण इसे अस्वीकार कर दिया। छवियों के लिए छोटी PNG, JPEG, GIF या WebP फ़ाइल निर्यात करें; दस्तावेज़ों के लिए समर्थित फ़ाइल फ़ॉर्मैट इस्तेमाल करें या संबंधित टेक्स्ट चिपकाएँ, फिर उसे दोबारा अटैच करें।",
   "errorMessages.noProviderConnected":
     "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग > एजेंट > AI प्रदाता खोलें, फिर Builder.io (मुफ़्त टियर उपलब्ध) का उपयोग करें या प्रदाता कुंजी जोड़ें।",
   "errorMessages.openBuilderSpaceSettings": "Builder स्पेस सेटिंग्स खोलें",
@@ -2047,7 +2052,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.disconnectFailed":
     "Builder.io को डिस्कनेक्ट नहीं किया जा सका।",
   "settingsShell.builder.disconnectTitle": "Builder.io डिस्कनेक्ट करें?",
-  "settingsShell.builder.grantsFailed": "Builder.io कनेक्शन की जांच नहीं हो सकी।",
+  "settingsShell.builder.grantsFailed":
+    "कनेक्शन की स्थिति उपलब्ध नहीं है। दोबारा जांचने के लिए फिर से कोशिश करें।",
   "settingsShell.builder.setupStartFailed":
     "Builder.io सेटअप शुरू नहीं हो सका। इस पेज को रीफ़्रेश करके फिर कोशिश करें।",
   "settingsShell.builder.setupHostFailed":
@@ -2464,7 +2470,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "मॉडल एक्सेस, ब्राउज़र ऑटोमेशन, फ़ाइल स्टोरेज और वर्कस्पेस पहचान। फ़्री टियर उपलब्ध है।",
   "settingsShell.integrations.builderStatusFailed":
-    "Builder.io कनेक्शन जाँचा नहीं जा सका।",
+    "कनेक्शन की स्थिति उपलब्ध नहीं है। दोबारा जांचने के लिए फिर से कोशिश करें।",
   "settingsShell.integrations.category.analytics": "एनालिटिक्स",
   "settingsShell.integrations.category.design": "डिज़ाइन",
   "settingsShell.integrations.category.engineering": "इंजीनियरिंग",
@@ -2615,6 +2621,11 @@ const messages: ToolkitAgentChatTranslation = {
     "डिप्लॉयमेंट फ़ॉलबैक उपलब्ध है। इसे बदलने के लिए अपने Builder.io खाते का उपयोग करें।",
   "settingsInfra.builderStorageHint":
     "ऑब्जेक्ट स्टोरेज अपलोड की गई फ़ाइलों को सुरक्षित रखता है और पूरे थ्रेड में उनके URL फिर से इस्तेमाल करने देता है। नीचे Builder.io या S3-संगत बकेट का उपयोग करें।",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io कनेक्ट है, लेकिन अभी अपलोड की गई फ़ाइलें संग्रहीत नहीं कर सकता। अपलोड की अनुमति देने के लिए इसे फिर से जोड़ें, या नीचे बकेट सेट करें।",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Builder.io की अपलोड अनुमति की पुष्टि नहीं हो सकी। फिर कोशिश करें या नीचे बकेट सेट करें।",
+  "settingsInfra.reconnectBuilderUploads": "अपलोड एक्सेस दें",
   "settingsInfra.builderUnknown": "Builder.io कनेक्शन जाँचा नहीं जा सका।",
   "settingsInfra.manage": "प्रबंधित करें",
   "settingsInfra.connect": "कनेक्ट करें",

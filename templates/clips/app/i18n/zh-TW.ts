@@ -206,6 +206,7 @@ const messages = {
   recordingPage: {
     back: "返回",
     done: "完成",
+    backToClip: "返回片段",
     untitledClip: "無標題剪輯",
     recordingNotFound: "找不到錄製",
     noAccess: "您可能無權存取此剪輯。",
@@ -294,6 +295,7 @@ const messages = {
     silenceWorking: "正在消除靜音…",
     silenceCompleted: "靜音消除完成",
     silenceFailed: "靜音消除失敗",
+    silenceEditsUnreadable: "無法讀取已儲存的編輯，因此未移除靜音片段。",
     generatePrSummary: "產生 PR 摘要",
     generateSop: "產生 SOP",
     generateSopTooltip:
@@ -1282,6 +1284,10 @@ const messages = {
     burningRedactions: "正在將遮蔽算進影片…",
     burningRedactionsPercent: "正在將遮蔽算進影片… {{percent}}%",
     editFailed: "無法儲存該編輯",
+    refreshFailed: "無法載入最新編輯內容。請重試後再進行編輯。",
+    autoSaveHint: "編輯內容會自動儲存到此片段",
+    savingChanges: "正在儲存變更…",
+    changesSaved: "變更已儲存到此片段",
     nothingToRedo: "沒有可重做的動作",
   },
   transcriptEditor: {

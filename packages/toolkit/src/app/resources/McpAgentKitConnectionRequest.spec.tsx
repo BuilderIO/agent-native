@@ -11,7 +11,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { dispatchIntegrationsHref } from "../org/workspace-app-links.js";
+import { dispatchApiKeysHref } from "../org/workspace-app-links.js";
 import {
   McpAgentKitConnectionRequestCard,
   McpAgentKitConnectionResume,
@@ -262,7 +262,7 @@ describe("McpAgentKitConnectionRequestCard", () => {
     await act(async () => container.querySelector("button")?.click());
     expect(open).toHaveBeenCalledTimes(2);
     expect(popup.opener).toBeNull();
-    expect(locationAssign).toHaveBeenCalledWith(dispatchIntegrationsHref([]));
+    expect(locationAssign).toHaveBeenCalledWith(dispatchApiKeysHref([]));
     expect(container.textContent).toContain("Try again google_drive");
     expect(onConnected).not.toHaveBeenCalled();
     await act(async () => container.querySelector("button")?.click());
@@ -366,7 +366,7 @@ describe("McpAgentKitConnectionRequestCard", () => {
     await act(async () => container.querySelector("button")?.click());
     expect(open).toHaveBeenCalledWith("", "_blank");
     expect(popup.opener).toBeNull();
-    expect(locationAssign).toHaveBeenCalledWith(dispatchIntegrationsHref([]));
+    expect(locationAssign).toHaveBeenCalledWith(dispatchApiKeysHref([]));
     expect(onConnected).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Try again slack");
     await act(async () => container.querySelector("button")?.click());

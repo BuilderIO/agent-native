@@ -351,7 +351,7 @@ async function uploadBeforePickerCloses(
     const responseBody = await response.text();
     expect(response.status(), responseBody).toBe(200);
     const payload = JSON.parse(responseBody) as { url?: string };
-    expect(payload.url).toMatch(/^\/api\/qa-figma-import-assets\//);
+    expect(payload.url).toMatch(/^\/api\/qa-import-assets\//);
     await assertImageSavedAndRendered(
       page,
       designId,
@@ -471,7 +471,7 @@ async function uploadAfterPickerCloses(
     const clientBody = await clientResponse.text();
     expect(clientResponse.status(), clientBody).toBe(200);
     const clientPayload = JSON.parse(clientBody) as { url?: string };
-    expect(clientPayload.url).toMatch(/^\/api\/qa-figma-import-assets\//);
+    expect(clientPayload.url).toMatch(/^\/api\/qa-import-assets\//);
     expect(uploadPayload?.url).toBe(clientPayload.url);
     await assertImageSavedAndRendered(
       page,

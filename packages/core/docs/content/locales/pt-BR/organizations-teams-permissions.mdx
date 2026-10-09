@@ -17,6 +17,34 @@ O aplicativo declara as funções e as chaves de permissão no código. Um admin
 
 Consulte [Implantações administradas](/docs/administered-deployments) para convites e configuração. Consulte [Escopo de dados](/docs/security#data-scoping) para acesso a dados.
 
+## Políticas de permissão opcionais
+
+Por padrão, as verificações de permissão exigem uma função de aplicativo atribuída. O segundo argumento opcional de `defineAppRoles` altera essa política no servidor. O Forms usa:
+
+```ts
+const formsAccess = defineAppRoles(
+  {
+    appId: "forms",
+    roles: ["editor", "reviewer"] as const,
+    defaultRole: "editor",
+    permissions: {
+      "forms.edit": ["editor"],
+      "forms.review": ["editor", "reviewer"],
+    },
+  },
+  { unassignedRole: "editor", allowOrgAdmins: true },
+);
+```
+
+- `unassignedRole` aplica as permissões de uma função declarada aos membros ativos sem atribuições de funções de aplicativo. As substituições de permissões continuam valendo. Não cria uma atribuição nem se aplica a membros removidos ou a atribuições que contêm apenas funções retiradas. Limpar todas as atribuições restaura esse comportamento padrão.
+- `allowOrgAdmins: true` permite que proprietários e administradores ativos da organização passem em qualquer verificação de permissão de aplicativo declarada, independentemente de suas funções de aplicativo ou das substituições de permissões. Isso não concede administração da organização a administradores de aplicativo.
+
+Essas opções afetam apenas `requirePermission` e `assertPermission`. `resolve`, `requireAny` e `assertAny` continuam usando atribuições explícitas; `defaultRole` serve apenas para exibição. Sem essas opções, a política estrita permanece. Nenhuma substitui a autorização de recursos: mantenha as verificações `accessFilter` e `assertAccess`.
+
+O Forms mantém o acesso de edição dos membros existentes sem função atribuída. Um Reviewer explicitamente atribuído pode revisar envios, mas não editar formulários; Editor pode fazer ambos. O compartilhamento continua determinando quais formulários e envios podem ser acessados.
+
+Para formulários pertencentes a uma organização, editar e revisar envios exige participação ativa nessa organização, a menos que o sistema de compartilhamento reconheça a pessoa como proprietária do formulário. Um compartilhamento direto, por si só, não satisfaz essa verificação de permissão de aplicativo.
+
 ## Grupos de usuários {#user-groups}
 
 Uma organização pode ter grupos reutilizáveis formados por seus membros atuais. Proprietários e administradores gerenciam a associação, e uma pessoa pode fazer parte de vários grupos. Os aplicativos podem usar um grupo para compartilhar um recurso compatível com compartilhamento por grupo ou limitar o acesso a uma conexão do workspace.

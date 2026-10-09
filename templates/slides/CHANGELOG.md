@@ -3,6 +3,13 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-08
+
+### Fixed
+
+- Image uploads work reliably in Slides.
+- Right-click menus on slides open instantly without the browser menu or image dragging
+
 ## 2026-10-07
 
 ### Added
@@ -11,10 +18,27 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Decks opened in a chat side pane now fill the whole pane with a compact slide strip and the current slide scaled to the pane width from the top, with no toolbar rows or speaker-notes strip.
+- Decks in a chat side pane keep going below a short slide with the following slides, so the pane has no empty space
+- Google Drive setup now explains that pasted document links still work when the file picker is unavailable.
+- Long decks stay responsive as you move through slides.
+- Slides opened in a read-only chat widget now show view-only controls instead of allowing unsaved edits.
 - Long slide text-editing sessions can be undone without losing their earlier steps.
 
 ### Fixed
 
+- A deck deleted while someone else has it open now shows as unavailable within seconds
+- A new deck that could not be saved now says so, instead of reporting that you lost access
+- A teammate's edit to a different text box now appears on your slide while you are still typing in another one
+- Failed slide generation now explains where to find details and how to retry.
+- Large video uploads now recover when a connection drops during finalization.
+- New presentation prompts no longer attach a recent deck automatically. Choose a deck when you want to use it as a reference.
+- Previously uploaded images stay available after workspace scoping.
+- Recover completed video uploads after ambiguous final responses and show format-specific upload errors
+- Slides keeps an explicitly selected reference deck when restoring a saved draft.
+- Video uploads recover after delayed finalization and clean up failed storage writes
+- Video uploads recover safely when storage or database responses are delayed.
+- Video uploads stay editable while uploading and work with larger videos
 - A deck whose access is revoked while it is open now says access was lost, keeps your edits on screen, and recovers when access returns.
 - Forward Delete preserves styled bullet rows when joining paragraphs.
 - Markdown divider shortcuts and autocorrect replacements remain undoable while preserving slide text styling.
@@ -1034,7 +1058,7 @@ time from the command menu (Cmd+K → "What's new").
 ### Improved
 
 - Design system setup now indexes Figma, code, and design.md sources through Builder DSI.
-- Slide editing is cleaner and more Figma-like, with direct style controls for selected elements.
+- Slide editing has direct style controls for selected elements.
 - Slide editing now keeps thumbnails, speaker notes, styling, and the canvas in stable resizable panes with cleaner top controls.
 - Undo/redo is now precise and safe with collaborators: it only reverts your own changes, never a teammate's or the AI's, and unsaved edits flush when you close the tab
 

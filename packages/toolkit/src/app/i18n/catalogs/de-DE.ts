@@ -1150,6 +1150,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Hochladen",
   "composer.uploadFailed":
     "Die ausgewählte Datei konnte nicht hochgeladen werden.",
+  "composer.fileTooLarge":
+    "Diese Datei überschreitet die zulässige Uploadgröße.",
+  "composer.sessionExpired":
+    "Deine Sitzung ist abgelaufen. Aktualisiere die Seite und versuche es erneut.",
   "composer.unsupportedFileType": "Dieser Dateityp wird nicht unterstützt.",
   "composer.useAttachedContext": "Verwende den angehängten Kontext.",
   "mentions.commands": "Befehle",
@@ -1302,6 +1306,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Sie sind abgemeldet, daher kann dieser Chat dem Agenten nicht folgen. Melden Sie sich erneut an und laden Sie dann neu.",
   "errorMessages.malformedRequestAttachment":
     "Das Modell hat eine angehängte Datei abgelehnt, daher wurde diese Nachricht nie gesendet. Entfernen Sie den Anhang und versuchen Sie es erneut – eine PDF-, eine reine Textdatei oder ein JPEG-, PNG-, GIF- oder WebP-Bild wird direkt gelesen; andere Formate müssen hochgeladen und verlinkt werden.",
+  "errorMessages.invalidAttachment":
+    "Der Modellanbieter hat diesen Anhang wegen seines Formats oder seiner Größe abgelehnt. Exportieren Sie Bilder als kleinere PNG-, JPEG-, GIF- oder WebP-Datei; verwenden Sie für Dokumente ein unterstütztes Dateiformat oder fügen Sie den relevanten Text ein und hängen Sie ihn erneut an.",
   "errorMessages.noProviderConnected":
     "Es ist kein LLM-Anbieter verbunden. Öffne Einstellungen > Agent > KI-Anbieter und nutze dann Builder.io (kostenloser Tarif verfügbar) oder füge einen Anbieterschlüssel hinzu.",
   "errorMessages.openBuilderSpaceSettings":
@@ -2193,7 +2199,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io konnte nicht getrennt werden.",
   "settingsShell.builder.disconnectTitle": "Builder.io trennen?",
   "settingsShell.builder.grantsFailed":
-    "Die Verbindung zu Builder.io konnte nicht überprüft werden.",
+    "Der Verbindungsstatus ist nicht verfügbar. Versuche es erneut, um ihn zu prüfen.",
   "settingsShell.builder.setupStartFailed":
     "Das Builder.io-Setup konnte nicht gestartet werden. Aktualisiere diese Seite und versuche es erneut.",
   "settingsShell.builder.setupHostFailed":
@@ -2647,7 +2653,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "Modellzugriff, Browserautomatisierung, Dateispeicher und Workspace-Identität. Kostenloser Tarif verfügbar.",
   "settingsShell.integrations.builderStatusFailed":
-    "Die Builder.io-Verbindung konnte nicht geprüft werden.",
+    "Der Verbindungsstatus ist nicht verfügbar. Versuche es erneut, um ihn zu prüfen.",
   "settingsShell.integrations.category.analytics": "Analytics",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Entwicklung",
@@ -2803,6 +2809,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Ein Deployment-Fallback ist verfügbar. Nutze dein eigenes Builder.io-Konto, um ihn zu überschreiben.",
   "settingsInfra.builderStorageHint":
     "Objektspeicher bewahrt hochgeladene Dateien dauerhaft auf und hält ihre URLs im gesamten Thread wiederverwendbar. Nutze Builder.io oder den S3-kompatiblen Bucket unten.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io ist verbunden, kann aber noch keine hochgeladenen Dateien speichern. Autorisiere Builder.io erneut für Uploads oder richte unten einen Bucket ein.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Die Upload-Berechtigung von Builder.io konnte nicht geprüft werden. Versuche es erneut oder richte unten einen Bucket ein.",
+  "settingsInfra.reconnectBuilderUploads": "Upload-Zugriff gewähren",
   "settingsInfra.builderUnknown":
     "Die Builder.io-Verbindung konnte nicht geprüft werden.",
   "settingsInfra.manage": "Verwalten",

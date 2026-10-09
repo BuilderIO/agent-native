@@ -51,7 +51,6 @@ import type { WorkflowKind } from "@shared/workflow";
 import {
   IconCalendar,
   IconAlertTriangle,
-  IconCheck,
   IconEdit,
   IconHelpCircle,
   IconBolt,
@@ -76,6 +75,7 @@ import { toast } from "sonner";
 import { ClipsAvatar } from "@/components/clips-avatar";
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
 import { EditorLayout } from "@/components/editor/editor-layout";
+import { RecordingEditorBoundary } from "@/components/editor/recording-editor-boundary";
 import {
   PageBreadcrumb,
   PageHeader,
@@ -935,6 +935,9 @@ export default function RecordingPage() {
     kind: ClipsAiRequestKind;
     requestedAt: string | null;
   } | null>(null);
+  const retryAiRequestRef = useRef<((kind: ClipsAiRequestKind) => void) | null>(
+    null,
+  );
   const transcriptLifecycleActiveRef = useRef(false);
   const transcriptLifecycleRecordingIdRef = useRef<string | null>(null);
   const transcriptPendingObservedRef = useRef(false);
@@ -1429,6 +1432,14 @@ export default function RecordingPage() {
         ...(aiRequestStatus.message
           ? { description: aiRequestStatus.message }
           : {}),
+        ...(kind === "remove-filler-words" || kind === "remove-silences"
+          ? {
+              action: {
+                label: t("agentChat.common.retry"),
+                onClick: () => retryAiRequestRef.current?.(kind),
+              },
+            }
+          : {}),
         duration: Number.POSITIVE_INFINITY,
       });
       cancelCompletionCue();
@@ -1649,10 +1660,23 @@ export default function RecordingPage() {
     startAiRequestToast(t(aiRequestProgressKey(kind)));
   };
   const handleBackgroundAiError = (err: Error) => {
+    const retryKind = activeAiRequestRef.current?.kind;
+    const errorCode = (err as Error & { errorCode?: unknown }).errorCode;
     activeAiRequestRef.current = null;
     cancelCompletionCue();
     failAiRequestToast(t("recordingPage.aiRequestFailed"), {
-      description: actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment"),
+      description:
+        errorCode === "edits_unreadable"
+          ? t("recordingPage.silenceEditsUnreadable")
+          : (actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment")),
+      ...(retryKind === "remove-filler-words" || retryKind === "remove-silences"
+        ? {
+            action: {
+              label: t("agentChat.common.retry"),
+              onClick: () => retryAiRequestRef.current?.(retryKind),
+            },
+          }
+        : {}),
       duration: Number.POSITIVE_INFINITY,
     });
   };
@@ -1791,10 +1815,27 @@ export default function RecordingPage() {
         };
         startAiRequestToast(t(aiRequestProgressKey("remove-silences")));
         void aiRequestStatusQ.refetch();
+      } else if (result?.status === "completed") {
+        activeAiRequestRef.current = null;
+        completeAiRequestToast(t("recordingPage.silenceCompleted"));
+        playCompletionCue();
+        void playerDataQ.refetch();
       }
     },
     onError: handleBackgroundAiError,
   });
+  retryAiRequestRef.current = (kind) => {
+    if (!recording?.id) return;
+    beginAiRequest(kind);
+    if (kind === "remove-filler-words") {
+      removeFillerWords.mutate({ recordingId: recording.id } as any);
+    } else if (kind === "remove-silences") {
+      removeSilences.mutate({
+        recordingId: recording.id,
+        thresholdMs: 1200,
+      } as any);
+    }
+  };
   const addReaction = useActionMutation("react-to-recording" as any);
   const aiRequestBusy =
     regenerateTitle.isPending ||
@@ -2489,23 +2530,6 @@ export default function RecordingPage() {
       ) : null}
 
       <div className="flex items-center gap-2">
-        {canUseNativeEditor && editing ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <ViewerIconButton
-                variant="secondary"
-                onClick={() => setEditing(false)}
-                aria-label={t("recordingPage.done")}
-              >
-                <IconCheck className="size-4" />
-              </ViewerIconButton>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {t("recordingPage.done")}
-            </TooltipContent>
-          </Tooltip>
-        ) : null}
-
         {/* Reactions are pinned to a moment on the timeline, so they have
             nowhere to land on a still. */}
         {!editing && recording.enableReactions && !isImage ? (
@@ -2811,7 +2835,13 @@ export default function RecordingPage() {
             )}
           >
             {editing && canUseNativeEditor ? (
-              <EditorLayout recordingId={recording.id} className="flex-1" />
+              <RecordingEditorBoundary recordingId={recording.id}>
+                <EditorLayout
+                  recordingId={recording.id}
+                  onBack={() => setEditing(false)}
+                  className="flex-1"
+                />
+              </RecordingEditorBoundary>
             ) : (
               <div className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-0 sm:gap-4 lg:max-w-[min(100%,1600px,calc(177.778dvh-35.556rem))]">
                 <div className="flex w-full shrink-0 justify-center">

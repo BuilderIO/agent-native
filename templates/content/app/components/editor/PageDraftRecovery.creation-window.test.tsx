@@ -16,7 +16,12 @@ const state = vi.hoisted(() => ({
     isError?: boolean;
     isFetching?: boolean;
   },
+  queryClient: {
+    getQueryCache: () => ({ findAll: () => [], subscribe: () => () => {} }),
+    refetchQueries: vi.fn(),
+  },
   refetch: vi.fn(),
+  ensureDraftRead: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -37,12 +42,12 @@ vi.mock("./document-save-rebase", () => ({
   saveDocumentWithRebase: vi.fn(),
 }));
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ refetchQueries: vi.fn() }),
+  useQueryClient: () => state.queryClient,
 }));
 vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@/hooks/use-documents", () => ({
   documentQueryFilter: (id: string) => ({ id }),
-  ensurePreviewDocumentDraftRead: vi.fn().mockResolvedValue(undefined),
+  ensurePreviewDocumentDraftRead: state.ensureDraftRead,
   isDocumentUpdateConflict: () => false,
   isDocumentUpdatePreservationRequired: () => false,
   isDocumentUpdateSuperseded: () => false,
@@ -54,12 +59,23 @@ vi.mock("@/hooks/use-documents", () => ({
 vi.mock("./DocumentEditorSkeleton", () => ({
   DocumentEditorSkeleton: () => <div data-testid="editor-skeleton" />,
 }));
+import {
+  clearDocumentCreationConfirmed,
+  markDocumentCreationConfirmed,
+  markDocumentCreationPending,
+} from "@/lib/optimistic-document";
+
 import { PageDraftRecovery } from "./PageDraftRecovery";
 
 describe("Page draft recovery during the creation window", () => {
   let root: Root;
   let container: HTMLDivElement;
-  const page = { id: "page", title: "", content: "" } as Document;
+  const page = {
+    id: "page",
+    title: "",
+    content: "",
+    canEdit: true,
+  } as Document;
   const render = () =>
     act(() =>
       root.render(
@@ -82,6 +98,9 @@ describe("Page draft recovery during the creation window", () => {
   });
 
   afterEach(() => {
+    clearDocumentCreationConfirmed(state.queryClient as never, {
+      id: "fresh-page",
+    });
     act(() => root.unmount());
     container.remove();
   });
@@ -95,6 +114,76 @@ describe("Page draft recovery during the creation window", () => {
     ).not.toBeNull();
     expect(container.textContent).not.toContain("empty.genericError");
     expect(container.textContent).not.toContain("database.retry");
+  });
+
+  it("keeps a new page editable while creation settles and after its response", () => {
+    state.draftQuery = { data: undefined, isError: true, isFetching: false };
+    const pending = markDocumentCreationPending(state.queryClient as never, {
+      ...page,
+      id: "fresh-page",
+    });
+    const created = markDocumentCreationConfirmed(state.queryClient as never, {
+      ...page,
+      id: "fresh-page",
+    });
+
+    act(() =>
+      root.render(
+        <PageDraftRecovery document={pending}>
+          <textarea defaultValue="Live editor" />
+        </PageDraftRecovery>,
+      ),
+    );
+    expect(container.querySelector("textarea")).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="editor-skeleton"]'),
+    ).toBeNull();
+    expect(container.textContent).not.toContain("empty.genericError");
+
+    act(() =>
+      root.render(
+        <PageDraftRecovery document={created}>
+          <textarea defaultValue="Live editor" />
+        </PageDraftRecovery>,
+      ),
+    );
+    expect(container.querySelector("textarea")).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="editor-skeleton"]'),
+    ).toBeNull();
+    expect(container.textContent).not.toContain("empty.genericError");
+    expect(state.ensureDraftRead).not.toHaveBeenCalled();
+  });
+
+  it("skips recovery for the creation mount, then checks drafts on a later visit", async () => {
+    state.draftQuery = { data: { draft: null }, isError: false };
+    const created = markDocumentCreationConfirmed(state.queryClient as never, {
+      ...page,
+      id: "fresh-page",
+    });
+    const renderCreated = () =>
+      act(() =>
+        root.render(
+          <PageDraftRecovery document={created}>
+            <textarea defaultValue="Live editor" />
+          </PageDraftRecovery>,
+        ),
+      );
+
+    renderCreated();
+    clearDocumentCreationConfirmed(state.queryClient as never, created);
+    renderCreated();
+    await act(async () => {});
+    expect(state.ensureDraftRead).not.toHaveBeenCalled();
+
+    act(() => root.render(null));
+    renderCreated();
+    await act(async () => {});
+    expect(state.ensureDraftRead).toHaveBeenCalledWith(
+      state.queryClient,
+      "fresh-page",
+      page.createdAt,
+    );
   });
 
   it("mounts the editor once the created row answers", async () => {

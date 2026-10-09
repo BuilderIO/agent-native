@@ -1,5 +1,11 @@
 import { testIdentityEmailSql } from "@agent-native/core/shared";
 
+import {
+  JOURNEY_COHORT_EVENT_NAMES,
+  JOURNEY_INTEGRATION_EVENT_NAMES,
+  JOURNEY_STEP_EVENT_NAMES,
+} from "./journey-steps.js";
+
 export type MetricWindow = "30d" | "90d" | "all";
 
 export const FIRST_PARTY_DASHBOARD_ID = "agent-native-templates-first-party";
@@ -1043,7 +1049,7 @@ const FUNNEL_EVENTS_CTE = `WITH auth_identity_bridge AS (
   JOIN signup_cohort c ON c.funnel_user_key = e.funnel_user_key
 )`;
 const ONBOARDING_EVENTS_CTE = `WITH auth_identity_bridge AS (
-  SELECT linked_email, MIN(auth_user_id) AS auth_user_id
+  SELECT linked_email, MIN(identities.auth_user_id) AS auth_user_id
   FROM (
     SELECT lower(COALESCE(
       CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
@@ -1056,9 +1062,9 @@ const ONBOARDING_EVENTS_CTE = `WITH auth_identity_bridge AS (
       AND ${FIRST_PARTY_TEMPLATE_FILTER}
   ) AS identities
   WHERE linked_email IS NOT NULL
-    AND auth_user_id IS NOT NULL
+    AND identities.auth_user_id IS NOT NULL
   GROUP BY linked_email
-  HAVING COUNT(DISTINCT auth_user_id) = 1
+  HAVING COUNT(DISTINCT identities.auth_user_id) = 1
 ), scoped_onboarding_events AS (
   SELECT e.*,
     COALESCE(
@@ -1304,7 +1310,7 @@ const ONBOARDING_SETUP_CHOICE_SQL = `${ONBOARDING_EVENTS_CTE}, choice_viewers AS
   FROM attempts
   GROUP BY method_id
 ), method_list AS (
-  SELECT 'builder_create_account' AS method_id, 'Create Builder.io account' AS method_label
+  SELECT 'builder_create_account' AS method_id, 'Use Builder.io' AS method_label
   UNION ALL SELECT 'builder_sign_in', 'Sign in with Builder.io account'
   UNION ALL SELECT 'custom_keys', 'Configure custom keys'
 )
@@ -1328,6 +1334,140 @@ LEFT JOIN first_choice_summary ON first_choice_summary.method_id = method_list.m
 LEFT JOIN selection_summary ON selection_summary.method_id = method_list.method_id
 LEFT JOIN attempt_summary ON attempt_summary.method_id = method_list.method_id
 ORDER BY method_list.method_id`;
+const sqlNameList = (names: readonly string[]) =>
+  names.map((name) => `'${name}'`).join(", ");
+/**
+ * Onboarding sessions and standalone Home integration sessions are selected
+ * separately so chat setup never changes onboarding cohort denominators.
+ * Same window, app scope, and identity predicates as the onboarding metrics
+ * above (the test-identity matcher and the @builder.io rule), applied to the
+ * whole session instead of per event: an employee's anonymous pre-signup
+ * events would otherwise survive as a session that appears to end at signup,
+ * and `only_builder` would keep identified events but drop the anonymous ones
+ * that came first.
+ */
+const ONBOARDING_JOURNEY_EVENTS_SQL = `${ONBOARDING_EVENTS_CTE}, identified_events AS (
+  SELECT session_id,
+    ${testIdentityEmailSql("funnel_user_email")} AS is_test,
+    lower(coalesce(funnel_user_email, '')) LIKE '%@builder.io' AS is_builder
+  FROM scoped_onboarding_events
+  WHERE NULLIF(session_id, '') IS NOT NULL
+), session_identity AS (
+  SELECT session_id,
+    MAX(CASE WHEN is_test THEN 1 ELSE 0 END) AS has_test,
+    MAX(CASE WHEN is_builder THEN 1 ELSE 0 END) AS has_builder
+  FROM identified_events
+  GROUP BY session_id
+), included_sessions AS (
+  SELECT session_id
+  FROM session_identity
+  WHERE has_test = 0
+    AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND has_builder = 0) OR ('{{emailFilter}}' = 'only_builder' AND has_builder = 1))
+), cohort_sessions AS (
+  SELECT DISTINCT i.session_id
+  FROM included_sessions i
+  JOIN scoped_onboarding_events c ON c.session_id = i.session_id
+  WHERE c.event_name IN (${sqlNameList(JOURNEY_COHORT_EVENT_NAMES)})
+), standalone_setup_sessions AS (
+  SELECT DISTINCT i.session_id
+  FROM included_sessions i
+  JOIN scoped_onboarding_events setup ON setup.session_id = i.session_id
+  WHERE setup.event_name IN (${sqlNameList(JOURNEY_INTEGRATION_EVENT_NAMES)})
+    AND NOT EXISTS (
+      SELECT 1 FROM cohort_sessions c WHERE c.session_id = i.session_id
+    )
+), journey_events AS (
+  SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
+    e.properties, 'onboarding' AS journey_kind
+  FROM scoped_onboarding_events e
+  JOIN cohort_sessions s ON s.session_id = e.session_id
+  WHERE e.event_name IN (${sqlNameList(JOURNEY_STEP_EVENT_NAMES)})
+  UNION ALL
+  SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
+    e.properties, 'standalone_setup' AS journey_kind
+  FROM scoped_onboarding_events e
+  JOIN standalone_setup_sessions s ON s.session_id = e.session_id
+  WHERE e.event_name IN (${sqlNameList(JOURNEY_STEP_EVENT_NAMES)})
+)
+SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
+  e.journey_kind,
+  NULLIF(e.properties::jsonb ->> 'flow', '') AS flow,
+  NULLIF(e.properties::jsonb ->> 'step_id', '') AS step_id,
+  NULLIF(e.properties::jsonb ->> 'step_index', '') AS step_index,
+  NULLIF(e.properties::jsonb ->> 'method_id', '') AS method_id,
+  NULLIF(e.properties::jsonb ->> 'outcome', '') AS outcome,
+  NULLIF(e.properties::jsonb ->> 'action', '') AS action
+FROM journey_events e
+ORDER BY e.journey_kind, e.session_id, e.timestamp, e.id
+LIMIT {{journeyLimit}} OFFSET {{journeyOffset}}`;
+
+export interface OnboardingJourneyEventsFilters {
+  /** Inclusive UTC event dates, `YYYY-MM-DD`. */
+  dateFrom: string;
+  dateTo: string;
+  app: "all" | (typeof FIRST_PARTY_TEMPLATE_NAMES)[number];
+  emailFilter: "all" | "exclude_builder" | "only_builder";
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * A real `YYYY-MM-DD` day. `Date.parse` alone rolls 2026-02-31 over to March
+ * 2, so the date is round-tripped: the SQL compares the string as given.
+ */
+export function isCalendarDate(value: string): boolean {
+  if (!ISO_DATE.test(value)) return false;
+  const ms = Date.parse(`${value}T00:00:00Z`);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === value;
+}
+
+/** One page of journey events; every interpolated value is validated first. */
+export function buildOnboardingJourneyEventsSql(
+  filters: OnboardingJourneyEventsFilters,
+  page: { limit: number; offset: number },
+): string {
+  for (const date of [filters.dateFrom, filters.dateTo]) {
+    if (!isCalendarDate(date)) {
+      throw new Error(`Journey window dates must be YYYY-MM-DD, got "${date}"`);
+    }
+  }
+  if (
+    filters.app !== "all" &&
+    !(FIRST_PARTY_TEMPLATE_NAMES as readonly string[]).includes(filters.app)
+  ) {
+    throw new Error(`Unknown first-party app "${filters.app}"`);
+  }
+  if (
+    !["all", "exclude_builder", "only_builder"].includes(filters.emailFilter)
+  ) {
+    throw new Error(`Unknown email filter "${filters.emailFilter}"`);
+  }
+  if (!Number.isSafeInteger(page.limit) || page.limit < 1) {
+    throw new Error("Journey page limit must be a positive integer");
+  }
+  if (!Number.isSafeInteger(page.offset) || page.offset < 0) {
+    throw new Error("Journey page offset must be a non-negative integer");
+  }
+  const values: Record<string, string> = {
+    timeRange: "custom",
+    timeRangeStart: filters.dateFrom,
+    timeRangeEnd: filters.dateTo,
+    emailFilter: filters.emailFilter,
+    appFilter: filters.app,
+    journeyLimit: String(page.limit),
+    journeyOffset: String(page.offset),
+  };
+  return ONBOARDING_JOURNEY_EVENTS_SQL.replace(
+    /{{\s*([A-Za-z0-9_]+)\s*}}/g,
+    (_match, key: string) => {
+      const value = values[key];
+      if (value === undefined) {
+        throw new Error(`Journey SQL has an unresolved placeholder {{${key}}}`);
+      }
+      return value;
+    },
+  );
+}
 const SHARING_ACTIONS_BY_APP_SQL = `${FUNNEL_EVENTS_CTE} SELECT ${TEMPLATE_EXPR} AS app, event_name AS action, COUNT(*) AS events, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name IN ('share_view', 'share_cta_click', 'share_invite_sent', 'share_visibility_change', 'share_link_copied') AND ${FUNNEL_SCOPE_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER} GROUP BY 1, 2 ORDER BY app, events DESC`;
 
 const ACTION_SUCCESS_RATE_OVER_TIME_SQL = `WITH action_events AS (SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS app, ${ACTION_RESPONSE_DEPLOYMENT_ENV_SQL} AS deployment_env, session_id, ${ACTION_RESPONSE_OUTCOME_CLASS_SQL} AS outcome_class, ${ACTION_RESPONSE_WEIGHT_SQL} AS weight FROM analytics_events WHERE ${ACTION_RESPONSE_EVENT_FILTER}), grid AS (SELECT d.date, s.app, s.deployment_env FROM (SELECT DISTINCT date FROM action_events) d CROSS JOIN (SELECT DISTINCT app, deployment_env FROM action_events) s), agg AS (SELECT date, app, deployment_env, SUM(CASE WHEN outcome_class = 'success' THEN weight ELSE 0 END) AS success_weight, SUM(CASE WHEN outcome_class = 'failure' THEN weight ELSE 0 END) AS failure_weight, SUM(CASE WHEN outcome_class = 'cancelled' THEN weight ELSE 0 END) AS cancelled_weight, SUM(CASE WHEN outcome_class = 'suspended' THEN weight ELSE 0 END) AS suspended_weight, COUNT(DISTINCT session_id) AS sessions, COUNT(DISTINCT CASE WHEN outcome_class = 'failure' THEN session_id END) AS failure_sessions FROM action_events GROUP BY date, app, deployment_env) SELECT g.date, g.app, g.deployment_env, g.app || ' / ' || g.deployment_env AS series, COALESCE(a.success_weight, 0) AS success_weight, COALESCE(a.failure_weight, 0) AS failure_weight, COALESCE(a.cancelled_weight, 0) AS cancelled_weight, COALESCE(a.suspended_weight, 0) AS suspended_weight, CASE WHEN a.date IS NULL THEN NULL ELSE COALESCE(a.success_weight, 0)::float / NULLIF(COALESCE(a.success_weight, 0) + COALESCE(a.failure_weight, 0), 0) END AS rate, COALESCE(a.sessions, 0) AS sessions, CASE WHEN a.date IS NULL THEN NULL ELSE COALESCE(a.failure_sessions, 0)::float / NULLIF(a.sessions, 0) END AS session_failure_share FROM grid g LEFT JOIN agg a ON a.date = g.date AND a.app = g.app AND a.deployment_env = g.deployment_env ORDER BY g.date, g.app, g.deployment_env`;

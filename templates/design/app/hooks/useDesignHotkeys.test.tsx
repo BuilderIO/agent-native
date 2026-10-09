@@ -143,7 +143,7 @@ async function withNavigatorPlatform(
   }
 }
 
-describe("useDesignHotkeys — current Figma tool bindings", () => {
+describe("useDesignHotkeys — drawing tool bindings", () => {
   it("routes history chords from marked design controls only", async () => {
     const onUndo = vi.fn();
     await withHotkeys({ onUndo }, () => {
@@ -343,7 +343,7 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     expect(onArrowTool).toHaveBeenCalledTimes(1);
   });
 
-  it("binds Figma's I to the eyedropper on every platform", async () => {
+  it("binds I to the eyedropper on every platform", async () => {
     const onEyedropper = vi.fn();
     await withNavigatorPlatform("Win32", () =>
       withHotkeys({ onEyedropper }, () => {
@@ -404,7 +404,7 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
   });
 });
 
-describe("useDesignHotkeys — Figma selection and frame traversal", () => {
+describe("useDesignHotkeys — selection and frame traversal", () => {
   it("keeps Tab / Shift+Tab available for sibling traversal", async () => {
     const onTab = vi.fn();
     await withHotkeys({ onTab }, () => {
@@ -507,7 +507,7 @@ describe("useDesignHotkeys — Figma selection and frame traversal", () => {
   });
 });
 
-describe("useDesignHotkeys — Figma navigation and find", () => {
+describe("useDesignHotkeys — navigation and find", () => {
   it("routes Cmd+F on Apple and Ctrl+F on non-Apple platforms", async () => {
     const onAppleFind = vi.fn();
     await withNavigatorPlatform("MacIntel", () =>
@@ -779,7 +779,7 @@ describe("useDesignHotkeys — zoom keys", () => {
     expect(onZoomOut).toHaveBeenCalledTimes(1);
   });
 
-  it('Shift+= (the "+" keystroke on a US layout) zooms in like Figma', async () => {
+  it('Shift+= (the "+" keystroke on a US layout) zooms in', async () => {
     const onZoomIn = vi.fn();
     await withHotkeys({ onZoomIn }, () => {
       dispatchKey("+", { shiftKey: true, code: "Equal" });
