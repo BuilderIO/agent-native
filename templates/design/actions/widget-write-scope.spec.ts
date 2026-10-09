@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assertDesignWidgetFileWriteScope } from "./widget-write-scope.js";
+import { assertDesignWidgetWriteScope } from "./widget-write-scope.js";
 
 describe("Design widget file write scope", () => {
   const context = {
@@ -14,31 +14,39 @@ describe("Design widget file write scope", () => {
 
   it("allows files within the bound design", () => {
     expect(() =>
-      assertDesignWidgetFileWriteScope("design-123", context),
+      assertDesignWidgetWriteScope("design-123", context, {
+        actionName: "update-file",
+      }),
     ).not.toThrow();
   });
 
   it("rejects a file from a different design", () => {
     expect(() =>
-      assertDesignWidgetFileWriteScope("design-elsewhere", context),
+      assertDesignWidgetWriteScope("design-elsewhere", context, {
+        actionName: "update-file",
+      }),
     ).toThrow("This widget write capability is scoped to a different design.");
   });
 
   it("rejects a grant for another app", () => {
     expect(() =>
-      assertDesignWidgetFileWriteScope("design-123", {
-        ...context,
-        mcpDirectoryWidgetWrite: {
-          ...context.mcpDirectoryWidgetWrite,
-          appId: "slides",
+      assertDesignWidgetWriteScope(
+        "design-123",
+        {
+          ...context,
+          mcpDirectoryWidgetWrite: {
+            ...context.mcpDirectoryWidgetWrite,
+            appId: "slides",
+          },
         },
-      }),
-    ).toThrow("This widget write capability is scoped to a different design.");
+        { actionName: "update-file" },
+      ),
+    ).toThrow("This widget write capability is scoped to a different app.");
   });
 
   it("rejects a file action that is not in the widget grant", () => {
     expect(() =>
-      assertDesignWidgetFileWriteScope(
+      assertDesignWidgetWriteScope(
         "design-123",
         {
           ...context,
@@ -50,13 +58,30 @@ describe("Design widget file write scope", () => {
         { actionName: "create-file" },
       ),
     ).toThrow(
-      "This widget write capability does not permit this design file action.",
+      "This widget write capability does not permit this Design action.",
     );
   });
 
   it("keeps ordinary editor requests on their existing authorization path", () => {
     expect(() =>
-      assertDesignWidgetFileWriteScope("design-123", undefined),
+      assertDesignWidgetWriteScope("design-123", undefined, {
+        actionName: "update-file",
+      }),
     ).not.toThrow();
+  });
+
+  it("fails closed when the widget caller has no write grant", () => {
+    expect(() =>
+      assertDesignWidgetWriteScope(
+        "design-123",
+        { caller: "mcp-widget-write" },
+        { actionName: "update-file" },
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "mcp_widget_grant_required",
+        statusCode: 403,
+      }),
+    );
   });
 });

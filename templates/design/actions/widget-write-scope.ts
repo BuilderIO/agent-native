@@ -1,7 +1,45 @@
 import { ActionContractError } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
 
-export function assertDesignWidgetFileWriteScope(
+function widgetWriteScopeError(
+  message: string,
+  errorCode: string,
+  statusCode = 403,
+): ActionContractError {
+  return new ActionContractError(message, { errorCode, statusCode });
+}
+
+export function designWidgetWriteDesignId(
+  context: ActionRunContext | undefined,
+  actionName: string,
+): string | null {
+  if (context?.caller !== "mcp-widget-write") return null;
+
+  const grant = context.mcpDirectoryWidgetWrite;
+  const designId = grant?.resourceIds.designId;
+  if (!grant || typeof designId !== "string" || !designId.trim()) {
+    throw widgetWriteScopeError(
+      "This Design widget write capability is missing or invalid.",
+      "mcp_widget_grant_required",
+    );
+  }
+  if (grant.appId !== "design") {
+    throw widgetWriteScopeError(
+      "This widget write capability is scoped to a different app.",
+      "mcp_widget_resource_mismatch",
+    );
+  }
+  if (!grant.actionNames.includes(actionName)) {
+    throw widgetWriteScopeError(
+      "This widget write capability does not permit this Design action.",
+      "mcp_widget_action_not_allowed",
+    );
+  }
+
+  return designId;
+}
+
+export function assertDesignWidgetWriteScope(
   designId: string,
   context: ActionRunContext | undefined,
   write?: {
@@ -11,30 +49,31 @@ export function assertDesignWidgetFileWriteScope(
     syncCollab?: boolean;
   },
 ): void {
+  const grantedDesignId = designWidgetWriteDesignId(
+    context,
+    write?.actionName ?? "update-file",
+  );
+  if (!grantedDesignId) return;
+
   const grant = context?.mcpDirectoryWidgetWrite;
-  if (!grant) return;
-  if (grant.appId !== "design" || grant.resourceIds.designId !== designId) {
-    throw new ActionContractError(
+  if (!grant || grant.resourceIds.designId !== designId) {
+    throw widgetWriteScopeError(
       "This widget write capability is scoped to a different design.",
-      { errorCode: "mcp_widget_resource_mismatch", statusCode: 403 },
-    );
-  }
-  if (!grant.actionNames.includes(write?.actionName ?? "update-file")) {
-    throw new ActionContractError(
-      "This widget write capability does not permit this design file action.",
-      { errorCode: "mcp_widget_action_not_allowed", statusCode: 403 },
+      "mcp_widget_resource_mismatch",
     );
   }
   if (write?.content !== undefined && !write.expectedVersionHash?.trim()) {
-    throw new ActionContractError(
+    throw widgetWriteScopeError(
       "Widget content updates require expectedVersionHash from a current file read.",
-      { errorCode: "mcp_widget_expected_version_required", statusCode: 400 },
+      "mcp_widget_expected_version_required",
+      400,
     );
   }
   if (write?.content !== undefined && write.syncCollab === false) {
-    throw new ActionContractError(
+    throw widgetWriteScopeError(
       "Widget content updates cannot disable collaboration sync.",
-      { errorCode: "mcp_widget_sync_required", statusCode: 400 },
+      "mcp_widget_sync_required",
+      400,
     );
   }
 }

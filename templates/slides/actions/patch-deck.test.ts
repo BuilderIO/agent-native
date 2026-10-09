@@ -171,6 +171,18 @@ async function runPatchDeckAction(args: any, context?: any) {
   return patchDeckAction.run({ ...args, operations }, context);
 }
 
+function widgetWriteContext(overrides: Record<string, unknown> = {}) {
+  return {
+    caller: "mcp-widget-write",
+    mcpDirectoryWidgetWrite: {
+      appId: "slides",
+      resourceIds: { deckId: "deck-1" },
+      actionNames: ["patch-deck"],
+    },
+    ...overrides,
+  };
+}
+
 describe("applyOperation — patch-slide", () => {
   it("updates only the specified fields of a slide", () => {
     const deck = {
@@ -1790,7 +1802,7 @@ describe("run() — asynchronous layout fit metadata", () => {
         deckId: "deck-1",
         operations: [{ op: "patch-deck-fields", fields }],
       },
-      { caller: "mcp-widget-write" },
+      widgetWriteContext(),
     ).catch((caught: unknown) => caught);
 
     expect(error).toMatchObject({
@@ -1859,7 +1871,7 @@ describe("run() — asynchronous layout fit metadata", () => {
           { op: "reorder-slides", orderedIds: ["slide-3", "slide-1"] },
         ],
       },
-      { caller: "mcp-widget-write" },
+      widgetWriteContext(),
     );
 
     const savedDeck = JSON.parse(String(mockDeckRow?.data));
@@ -1962,7 +1974,7 @@ describe("run() — asynchronous layout fit metadata", () => {
           },
         ],
       },
-      { caller: "mcp-widget-write" },
+      widgetWriteContext(),
     );
 
     expect(JSON.parse(String(mockDeckRow.data)).tweaks).toEqual({
@@ -1999,7 +2011,7 @@ describe("run() — asynchronous layout fit metadata", () => {
           },
         ],
       },
-      { caller: "mcp-widget-write" },
+      widgetWriteContext(),
     ).catch((caught: unknown) => caught);
 
     expect(error).toMatchObject({
@@ -2138,7 +2150,7 @@ describe("run() — asynchronous layout fit metadata", () => {
         },
         operations: [dismissal],
       },
-      { caller: "mcp-widget-write" },
+      widgetWriteContext(),
     );
 
     const savedDeck = JSON.parse(String(mockDeckRow?.data));
@@ -2182,7 +2194,7 @@ describe("run() — asynchronous layout fit metadata", () => {
         },
         operations: [restoration],
       },
-      { caller: "mcp-widget-write" },
+      widgetWriteContext(),
     );
 
     const savedDeck = JSON.parse(String(mockDeckRow?.data));
@@ -2223,7 +2235,7 @@ describe("run() — asynchronous layout fit metadata", () => {
           },
         ],
       },
-      { caller: "mcp-widget-write" },
+      widgetWriteContext(),
     ).catch((caught: unknown) => caught);
 
     expect(error).toMatchObject({ errorCode: "slide_field_stale" });
@@ -2380,7 +2392,7 @@ describe("run() — asynchronous layout fit metadata", () => {
           },
         ],
       },
-      { caller: "mcp-widget-write" },
+      widgetWriteContext(),
     ).catch((caught: unknown) => caught);
 
     expect(error).toMatchObject({
@@ -2396,7 +2408,7 @@ describe("run() — asynchronous layout fit metadata", () => {
         deckId: "deck-1",
         operations: [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
       },
-      { caller: "mcp-widget-write" },
+      widgetWriteContext(),
     ).catch((caught: unknown) => caught);
 
     expect(error).toMatchObject({
@@ -2404,6 +2416,91 @@ describe("run() — asynchronous layout fit metadata", () => {
       statusCode: 409,
     });
     expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it.each([
+    ["missing grant", { caller: "mcp-widget-write" }],
+    [
+      "wrong app",
+      widgetWriteContext({
+        mcpDirectoryWidgetWrite: {
+          appId: "design",
+          resourceIds: { deckId: "deck-1" },
+          actionNames: ["patch-deck"],
+        },
+      }),
+    ],
+    [
+      "wrong deck",
+      widgetWriteContext({
+        mcpDirectoryWidgetWrite: {
+          appId: "slides",
+          resourceIds: { deckId: "deck-elsewhere" },
+          actionNames: ["patch-deck"],
+        },
+      }),
+    ],
+    [
+      "missing action",
+      widgetWriteContext({
+        mcpDirectoryWidgetWrite: {
+          appId: "slides",
+          resourceIds: { deckId: "deck-1" },
+          actionNames: [],
+        },
+      }),
+    ],
+  ])("fails closed for a widget patch with %s", async (_name, context) => {
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
+      },
+      context,
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "mcp_widget_write_scope_mismatch",
+      statusCode: 403,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("rejects widget writes when stored slide IDs are not unique", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        { id: "duplicate-slide", content: "First" },
+        { id: "duplicate-slide", content: "Second" },
+      ],
+    });
+
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
+      },
+      widgetWriteContext(),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "duplicate_deck_slide_ids",
+      statusCode: 409,
+      details: { slideId: "duplicate-slide" },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 
   it("rejects stale widget slide-rail writes", async () => {
@@ -2417,7 +2514,7 @@ describe("run() — asynchronous layout fit metadata", () => {
         },
         operations: [{ op: "delete-slide", slideId: "slide-2" }],
       },
-      { caller: "mcp-widget-write" },
+      widgetWriteContext(),
     ).catch((caught: unknown) => caught);
 
     expect(error).toMatchObject({ errorCode: "deck_revision_conflict" });

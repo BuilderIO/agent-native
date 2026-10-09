@@ -998,6 +998,7 @@ describe("requestMatchesEmbedTarget", () => {
   ) {
     const requestHeaders = new Headers(headers);
     const requestUrl = new URL(path, `http://${headers.host ?? "mail.test"}`);
+    const responseHeaders = new Headers();
     return {
       path,
       req: {
@@ -1014,7 +1015,8 @@ describe("requestMatchesEmbedTarget", () => {
           socket: { remoteAddress: options.clientAddress },
         },
       },
-      res: { headers: new Headers(), status: 200 },
+      res: { headers: responseHeaders, status: 200 },
+      responseHeaders,
     } as any;
   }
 
@@ -1766,6 +1768,25 @@ describe("requestMatchesEmbedTarget", () => {
       targetPath: "/picker?mediaType=image",
     });
     expect(requestHasEmbedAuthMarker(event)).toBe(true);
+  });
+
+  it("sets no-referrer when exchanging a query token for an embed cookie", async () => {
+    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "mail.test",
+      targetPath: "/inbox",
+      ttlSeconds: 60,
+    });
+    const event = fakeEvent(
+      `/inbox?embedded=1&__an_embed_token=${encodeURIComponent(token)}`,
+      { host: "mail.test" },
+    );
+
+    await expect(resolveEmbedSessionFromRequest(event)).resolves.toMatchObject({
+      email: "owner@example.com",
+    });
+    expect(event.responseHeaders.get("referrer-policy")).toBe("no-referrer");
   });
 
   it("binds capability sessions to their visual-edit target on data requests", async () => {

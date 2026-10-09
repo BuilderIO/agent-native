@@ -10,11 +10,9 @@ import {
 import { withCollapsedAgentSidebarParam } from "../shared/agent-sidebar-url.js";
 import {
   EMBED_MODE_QUERY_PARAM,
-  EMBED_SESSION_RENEWAL_QUERY_PARAM,
   EMBED_START_PATH,
   EMBED_TOKEN_QUERY_PARAM,
   isMcpDirectoryWidgetCapabilityScope,
-  isMcpDirectoryWidgetWriteCapabilityScope,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   MCP_DIRECTORY_WIDGET_QUERY_PARAM,
 } from "../shared/embed-auth.js";
@@ -352,18 +350,6 @@ export function createEmbedStartRouteHandler(
       return expiredEmbedSessionResponse(event);
     }
 
-    const sessionRenewalRequested =
-      firstQueryValue(query[EMBED_SESSION_RENEWAL_QUERY_PARAM]) === "1";
-    if (
-      sessionRenewalRequested &&
-      !isMcpDirectoryWidgetWriteCapabilityScope(consumed.scope)
-    ) {
-      if (consumeDiagnostic) {
-        logEmbedConsumeResult(event, consumeDiagnostic, 403);
-      }
-      return textResponse(event, "Session renewal is not permitted.", 403);
-    }
-
     const target = normalizeEmbedTargetPath(consumed.targetPath);
     if (!target) {
       if (consumeDiagnostic) {
@@ -407,8 +393,7 @@ export function createEmbedStartRouteHandler(
         appendEmbedParams(target, token, chatBridgeActive),
       ),
     );
-    const transplant =
-      sessionRenewalRequested || wantsTransplantLocationResponse(event);
+    const transplant = wantsTransplantLocationResponse(event);
     if (consumeDiagnostic) {
       logEmbedConsumeResult(event, consumeDiagnostic, transplant ? 200 : 302);
     }

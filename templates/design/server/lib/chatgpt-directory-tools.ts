@@ -1,3 +1,9 @@
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+
 export const CHATGPT_DIRECTORY_TOOL_NAMES = [
   "list-designs",
   "list-design-templates",
@@ -36,10 +42,43 @@ function generatedScreenId(designId: string, result: unknown): string | null {
   return id(new URLSearchParams(query.split("#", 1)[0]).get("screen"));
 }
 
+type WidgetWriteAuthorizationInput = {
+  toolName: string;
+  args: Record<string, unknown>;
+  result: unknown;
+  target: { targetPath: string; resourceIds: Record<string, string> };
+  identity: { userEmail?: string; orgId?: string | null };
+};
+
 export const CHATGPT_DIRECTORY_PROFILE = {
   connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
   widgets: true,
   widgetDomain: "https://design.agent-native.com",
+  authorizeWidgetWrite: async ({
+    target,
+    identity,
+  }: WidgetWriteAuthorizationInput) => {
+    const designId = target.resourceIds.designId;
+    const identityEmail = identity.userEmail?.trim().toLowerCase();
+    const requestEmail = getRequestUserEmail()?.trim().toLowerCase();
+    const requestOrgId = getRequestOrgId() ?? undefined;
+    if (!designId?.trim() || !identityEmail || requestEmail !== identityEmail) {
+      return false;
+    }
+    if (
+      identity.orgId !== undefined &&
+      (identity.orgId ?? undefined) !== requestOrgId
+    ) {
+      return false;
+    }
+    try {
+      await assertAccess("design", designId, "editor");
+      return true;
+    } catch (error) {
+      if (error instanceof ForbiddenError) return false;
+      throw error;
+    }
+  },
   widgetTargets: {
     "create-design": (_args: Record<string, unknown>, result: unknown) => {
       const designId = id(record(result).id, record(result).designId);
@@ -103,10 +142,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   },
   widgetWriteActionArguments: {
     "create-file": {
-      designId: {
-        type: "actionSchemaResourceBound" as const,
-        resourceKey: "designId",
-      },
+      designId: "designId",
       filename: { type: "actionSchema" as const },
       content: { type: "actionSchema" as const },
       fileType: { type: "actionSchema" as const },

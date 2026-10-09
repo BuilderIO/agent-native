@@ -913,6 +913,29 @@ describe("createDesignVersionSnapshot", () => {
     expect(captureMocks.revisions).toHaveLength(2);
   });
 
+  it("captures a pre-edit checkpoint for a scoped widget editor write", async () => {
+    const checkpoint = await snapshotDesignBeforeAgentEdit("design-1", {
+      caller: "mcp-widget-write",
+      actionName: "update-file",
+      mcpDirectoryWidgetWrite: {
+        appId: "design",
+        resourceIds: { designId: "design-1" },
+        actionNames: ["update-file"],
+      },
+    });
+
+    expect(checkpoint).not.toBeNull();
+    expect(checkpoint).not.toMatchObject({ skipped: true });
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(
+      JSON.parse(captureMocks.revisions[0]!.chatContext as string),
+    ).toMatchObject({
+      surface: "editor",
+      caller: "mcp-widget-write",
+      actionName: "update-file",
+    });
+  });
+
   it("does not throttle a frontend save against a legacy editor checkpoint recorded before caller tracking existed", async () => {
     await snapshotDesignBeforeAgentEdit("design-1", {
       caller: "frontend",

@@ -1,3 +1,9 @@
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+
 export const CHATGPT_DIRECTORY_TOOL_NAMES = [
   "list-documents",
   "search-documents",
@@ -26,11 +32,43 @@ function id(...values: unknown[]): string | null {
   );
 }
 
+type WidgetWriteAuthorizationInput = {
+  toolName: string;
+  args: Record<string, unknown>;
+  result: unknown;
+  target: { targetPath: string; resourceIds: Record<string, string> };
+  identity: { userEmail?: string; orgId?: string | null };
+};
+
 export const CHATGPT_DIRECTORY_PROFILE = {
   connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
   widgets: true,
   widgetDomain: "https://content.agent-native.com",
   widgetResourceTitle: false as const,
+  authorizeWidgetWrite: async ({
+    target,
+    identity,
+  }: WidgetWriteAuthorizationInput) => {
+    const documentId = target.resourceIds.documentId;
+    const requestEmail = getRequestUserEmail()?.trim().toLowerCase();
+    const requestOrgId = getRequestOrgId() ?? undefined;
+    if (
+      !documentId ||
+      !identity.userEmail ||
+      requestEmail !== identity.userEmail.trim().toLowerCase() ||
+      (identity.orgId !== undefined &&
+        (identity.orgId ?? undefined) !== requestOrgId)
+    ) {
+      return false;
+    }
+    try {
+      await assertAccess("document", documentId, "editor");
+      return true;
+    } catch (error) {
+      if (error instanceof ForbiddenError) return false;
+      throw error;
+    }
+  },
   widgetTargets: {
     "create-document": (_args: Record<string, unknown>, result: unknown) => {
       const documentId = id(record(result).id, record(result).documentId);

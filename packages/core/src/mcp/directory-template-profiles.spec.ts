@@ -258,10 +258,7 @@ describe("ChatGPT directory template profiles", () => {
         actions["create-file"]?.tool?.parameters?.properties,
       ).toHaveProperty("designId");
       expect(createFileArguments).toMatchObject({
-        designId: {
-          type: "actionSchemaResourceBound",
-          resourceKey: "designId",
-        },
+        designId: "designId",
         filename: { type: "actionSchema" },
         content: { type: "actionSchema" },
         fileType: { type: "actionSchema" },
@@ -276,6 +273,10 @@ describe("ChatGPT directory template profiles", () => {
       expect(generatedTarget?.writeActions).toContain("create-file");
 
       const resourceUri = "ui://design/shell-v69";
+      const materializedCreateFileArguments = {
+        ...createFileArguments,
+        designId: "design-123",
+      };
       const capability = createMcpDirectoryWidgetWriteCapability({
         appId: "design",
         resourceUri,
@@ -283,7 +284,9 @@ describe("ChatGPT directory template profiles", () => {
         userEmail: "reviewer@example.test",
         expiresAtMs: Date.now() + 60_000,
         readActionArguments: {},
-        writeActionArguments: { "create-file": createFileArguments },
+        writeActionArguments: {
+          "create-file": materializedCreateFileArguments,
+        },
       });
       expect(capability).toBeDefined();
       if (!capability) throw new Error("Failed to create test capability.");
@@ -305,6 +308,9 @@ describe("ChatGPT directory template profiles", () => {
         });
 
       expect(normalize(args)).toEqual(args);
+      expect(
+        normalize({ ...args, designId: "design-outside-scope" }),
+      ).toBeUndefined();
       expect(normalize({ ...args, replaceExisting: true })).toBeUndefined();
     },
     ACTION_REGISTRY_TEST_TIMEOUT_MS,

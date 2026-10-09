@@ -64,12 +64,17 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("@agent-native/core/action", () => ({
+vi.mock("@agent-native/core/action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
   defineAction: (config: unknown) => config,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
+}));
+
+vi.mock("../server/lib/design-versions.js", () => ({
+  snapshotDesignBeforeAgentEdit: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -188,6 +193,15 @@ const BASE_DATA = {
 };
 
 describe("update-design data concurrency", () => {
+  const widgetWriteContext = {
+    caller: "mcp-widget-write" as const,
+    mcpDirectoryWidgetWrite: {
+      appId: "design",
+      resourceIds: { designId: "design-1" },
+      actionNames: ["update-design"],
+    },
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.state.row = {
@@ -209,6 +223,185 @@ describe("update-design data concurrency", () => {
       "At least one design field or data operation is required.",
     );
     expect(mocks.state.row.updatedAt).toBe(previousUpdatedAt);
+  });
+
+  it("fails closed when a widget write is missing a matching action grant", async () => {
+    await expect(
+      action.run(
+        { id: "design-1", title: "Widget edit" } as never,
+        { caller: "mcp-widget-write" } as never,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_grant_required",
+      statusCode: 403,
+    });
+
+    await expect(
+      action.run(
+        { id: "design-elsewhere", title: "Widget edit" } as never,
+        widgetWriteContext as never,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_resource_mismatch",
+      statusCode: 403,
+    });
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: "source mode",
+      operation: { op: "set", path: ["sourceType"], value: "fusion" },
+    },
+    {
+      label: "fusion URL",
+      operation: { op: "set", path: ["fusionUrl"], value: "https://host" },
+    },
+    {
+      label: "nested screen source type",
+      operation: {
+        op: "set",
+        path: ["screenMetadata", "frame-a", "sourceType"],
+        value: "fusion",
+      },
+    },
+    {
+      label: "whole screen bridge metadata",
+      operation: {
+        op: "set",
+        path: ["screenMetadata", "frame-a"],
+        value: { width: 400, bridgeUrl: "https://host" },
+      },
+    },
+    {
+      label: "localhost connection metadata",
+      operation: {
+        op: "set",
+        path: ["localhostScreens", "frame-a"],
+        value: { width: 400, connectionId: "connection-1" },
+      },
+    },
+    {
+      label: "extra layout-grid metadata",
+      operation: {
+        op: "set",
+        path: ["layoutGrids", "frame-a"],
+        value: {
+          kind: "uniform",
+          size: 8,
+          visible: true,
+          previewUrl: "https://host",
+        },
+      },
+    },
+  ])(
+    "rejects widget data operations that write $label",
+    async ({ operation }) => {
+      const before = mocks.state.row.data;
+
+      await expect(
+        action.run(
+          { id: "design-1", dataOperations: [operation] } as never,
+          widgetWriteContext as never,
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "mcp_widget_data_path_not_allowed",
+        statusCode: 403,
+      });
+
+      expect(mocks.state.row.data).toBe(before);
+    },
+  );
+
+  it.each([
+    {
+      label: "a nonnumeric nested frame coordinate",
+      operation: {
+        op: "set",
+        path: ["canvasFrames", "frame-a", "x"],
+        value: "800px",
+      },
+    },
+    {
+      label: "a nonfinite nested frame dimension",
+      operation: {
+        op: "set",
+        path: ["canvasFrames", "frame-a", "width"],
+        value: Number.POSITIVE_INFINITY,
+      },
+    },
+    {
+      label: "a malformed whole frame entry",
+      operation: {
+        op: "set",
+        path: ["canvasFrames", "frame-a"],
+        value: { x: 0, y: 0, width: "800", height: 600 },
+      },
+    },
+  ])("rejects widget writes with $label", async ({ operation }) => {
+    const before = mocks.state.row.data;
+
+    await expect(
+      action.run(
+        { id: "design-1", dataOperations: [operation] } as never,
+        widgetWriteContext as never,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_data_path_not_allowed",
+      statusCode: 403,
+    });
+
+    expect(mocks.state.row.data).toBe(before);
+  });
+
+  it("allows the editor geometry and layout operations in a widget write grant", async () => {
+    await action.run(
+      {
+        id: "design-1",
+        dataOperations: [
+          { op: "set", path: ["canvasFrames", "frame-a", "x"], value: 24 },
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-c"],
+            value: {
+              width: 900,
+              height: 1200,
+              heightPinned: true,
+              heightMode: "fixed",
+            },
+          },
+          {
+            op: "set",
+            path: ["localhostScreens", "frame-c"],
+            value: { width: 900, height: 1200 },
+          },
+          {
+            op: "set",
+            path: ["layoutGrids", "frame-c"],
+            value: { kind: "uniform", size: 8, visible: true },
+          },
+        ],
+      } as never,
+      widgetWriteContext as never,
+    );
+
+    const persisted = JSON.parse(mocks.state.row.data!);
+    expect(persisted.canvasFrames["frame-a"].x).toBe(24);
+    expect(persisted.screenMetadata["frame-c"]).toEqual({
+      width: 900,
+      height: 1200,
+      heightPinned: true,
+      heightMode: "fixed",
+    });
+    expect(persisted.localhostScreens["frame-c"]).toEqual({
+      width: 900,
+      height: 1200,
+    });
+    expect(persisted.layoutGrids["frame-c"]).toEqual({
+      kind: "uniform",
+      size: 8,
+      visible: true,
+    });
   });
 
   it("rejects one ambiguous legacy snapshot instead of silently losing a concurrent frame edit", async () => {

@@ -2362,6 +2362,167 @@ describe("mountActionRoutes", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
+  it("requires authenticated callers for every directory widget write route", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const actionNames = [
+      "update-document",
+      "add-database-item",
+      "update-database-item",
+      "update-design",
+      "update-file",
+      "create-file",
+      "patch-deck",
+    ];
+    const actions = Object.fromEntries(
+      actionNames.map((name) => [
+        name,
+        {
+          http: { method: "POST" },
+          readOnly: false,
+          requiresAuth: true,
+          run,
+        } as any,
+      ]),
+    );
+    const getOwnerContextFromEvent = vi.fn(async () => ({
+      owner: "public-00000000-0000-4000-8000-000000000001@agent-native.local",
+      anonymous: true,
+    }));
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      actions,
+      {
+        appId: "content",
+        mcpDirectoryWidgetAppId: "content",
+        mcpDirectoryWidgetResourceUri: "ui://content/shell-v69",
+        mcpDirectoryWidgetWriteActionArguments: Object.fromEntries(
+          actionNames.map((name) => [name, ["id"]]),
+        ),
+        getOwnerContextFromEvent,
+        getOwnerFromEvent: async () =>
+          "public-00000000-0000-4000-8000-000000000001@agent-native.local",
+      },
+    );
+
+    const outcomes = await Promise.all(
+      actionNames.map(async (name) => {
+        const event: any = {
+          _method: "POST",
+          _headers: {
+            "x-agent-native-frontend": "1",
+            host: "content.agent-native.test",
+            origin: "https://content.agent-native.test",
+            referer: "https://content.agent-native.test/p/public-document",
+            cookie: "viewer-id=00000000-0000-4000-8000-000000000001",
+          },
+          req: {
+            url: `https://content.agent-native.test/_agent-native/actions/${name}`,
+            json: async () => ({ id: "public-document" }),
+          },
+        };
+        const route = mounted.find(
+          ({ path }) => path === `/_agent-native/actions/${name}`,
+        );
+        const result = await route!.handler(event);
+        return { name, status: event._status ?? 200, result };
+      }),
+    );
+
+    expect(outcomes).toEqual(
+      actionNames.map((name) => ({
+        name,
+        status: 401,
+        result: { error: "Unauthorized" },
+      })),
+    );
+    expect(getOwnerContextFromEvent).toHaveBeenCalledTimes(actionNames.length);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("rechecks workspace app access for authenticated non-widget write calls", async () => {
+    vi.resetModules();
+    const workspaceAccess = vi.fn(async () => false);
+    vi.doMock("../org/workspace-app-access.js", () => ({
+      isWorkspaceAppAccessAllowed: workspaceAccess,
+      WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
+      WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
+        "Workspace app access is temporarily unavailable.",
+    }));
+
+    try {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          "patch-deck": {
+            http: { method: "POST" },
+            readOnly: false,
+            requiresAuth: true,
+            run,
+          } as any,
+        },
+        {
+          appId: "slides",
+          mcpDirectoryWidgetAppId: "slides",
+          mcpDirectoryWidgetResourceUri: "ui://slides/shell-v69",
+          mcpDirectoryWidgetWriteActionArguments: {
+            "patch-deck": ["deckId"],
+          },
+          actionRouteAuth: {
+            resolveCaller: async () => ({
+              owner: "reviewer@example.com",
+              anonymous: false,
+              orgId: "org-1",
+            }),
+          },
+        },
+      );
+
+      const event: any = {
+        _method: "POST",
+        _headers: {
+          "x-agent-native-frontend": "1",
+          host: "slides.agent-native.test",
+          origin: "https://slides.agent-native.test",
+        },
+        req: {
+          url: "https://slides.agent-native.test/_agent-native/actions/patch-deck",
+          json: async () => ({ deckId: "deck-1" }),
+        },
+      };
+      const route = mounted.find(
+        ({ path }) => path === "/_agent-native/actions/patch-deck",
+      );
+      const result = await route!.handler(event);
+
+      expect(event._status).toBe(403);
+      expect(result).toEqual({
+        error: "You do not have access to this workspace app.",
+      });
+      expect(workspaceAccess).toHaveBeenCalledWith("slides", {
+        email: "reviewer@example.com",
+        orgId: "org-1",
+      });
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("../org/workspace-app-access.js");
+      vi.resetModules();
+    }
+  });
+
   it("returns 401 only for an expired widget write grant bound to this caller", async () => {
     const { createMcpDirectoryWidgetWriteCapability } =
       await import("../shared/embed-auth.js");

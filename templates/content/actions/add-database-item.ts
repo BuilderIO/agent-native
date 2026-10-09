@@ -70,7 +70,7 @@ export default defineAction({
   },
   run: async (args, context): Promise<ContentDatabaseRowMutationResult> => {
     if (context?.caller === "mcp") agentSchema.parse(args);
-    assertDatabaseWidgetWriteTarget(args.target, context);
+    assertDatabaseWidgetWriteTarget(args.target, "add-database-item", context);
     const result = await createDatabaseRow(
       canonicalizeDatabasePropertyInput(args),
     );

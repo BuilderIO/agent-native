@@ -1,3 +1,9 @@
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+
 export const CHATGPT_DIRECTORY_TOOL_NAMES = [
   "list-decks",
   "get-deck",
@@ -26,10 +32,42 @@ function id(...values: unknown[]): string | null {
   );
 }
 
+type WidgetWriteAuthorizationInput = {
+  toolName: string;
+  args: Record<string, unknown>;
+  result: unknown;
+  target: { targetPath: string; resourceIds: Record<string, string> };
+  identity: { userEmail?: string; orgId?: string | null };
+};
+
 export const CHATGPT_DIRECTORY_PROFILE = {
   connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
   widgets: true,
   widgetDomain: "https://slides.agent-native.com",
+  authorizeWidgetWrite: async ({
+    target,
+    identity,
+  }: WidgetWriteAuthorizationInput) => {
+    const deckId = target.resourceIds.deckId;
+    const requestEmail = getRequestUserEmail()?.trim().toLowerCase();
+    const requestOrgId = getRequestOrgId() ?? undefined;
+    if (
+      !deckId ||
+      !identity.userEmail ||
+      requestEmail !== identity.userEmail.trim().toLowerCase() ||
+      (identity.orgId !== undefined &&
+        (identity.orgId ?? undefined) !== requestOrgId)
+    ) {
+      return false;
+    }
+    try {
+      await assertAccess("deck", deckId, "editor");
+      return true;
+    } catch (error) {
+      if (error instanceof ForbiddenError) return false;
+      throw error;
+    }
+  },
   widgetTargets: {
     "create-deck": (args: Record<string, unknown>, result: unknown) => {
       const deckId = id(record(result).id, args.deckId);

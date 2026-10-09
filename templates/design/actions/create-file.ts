@@ -26,7 +26,7 @@ import {
 } from "../shared/html-integrity.js";
 import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
-import { assertDesignWidgetFileWriteScope } from "./widget-write-scope.js";
+import { assertDesignWidgetWriteScope } from "./widget-write-scope.js";
 
 const CREATED_SCREEN_WIDTH = 1440;
 const CREATED_SCREEN_HEIGHT = 1024;
@@ -47,7 +47,7 @@ export default defineAction({
       .describe("Type of file"),
   }),
   run: async ({ designId, filename, content, fileType }, context) => {
-    assertDesignWidgetFileWriteScope(designId, context, {
+    assertDesignWidgetWriteScope(designId, context, {
       actionName: "create-file",
     });
     if (
@@ -58,7 +58,6 @@ export default defineAction({
       throw new Error("Invalid filename: path traversal not allowed");
     }
 
-    assertDesignWidgetFileWriteScope(designId, context);
     await assertAccess("design", designId, "editor");
     const checkpoint = await snapshotDesignBeforeAgentEdit(designId, context, {
       allowCheckpointFailureSkip: true,

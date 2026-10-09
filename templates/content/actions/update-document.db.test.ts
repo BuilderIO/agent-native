@@ -976,7 +976,7 @@ describe("update-document compare-and-swap", () => {
       },
     };
     await expect(deliver(wrongDocument)).rejects.toMatchObject({
-      errorCode: "INVALID_BROWSER_SAVE_ATTEMPT",
+      errorCode: "mcp_widget_write_scope_mismatch",
     });
     await expect(
       deliver({
@@ -986,7 +986,9 @@ describe("update-document compare-and-swap", () => {
           actionNames: [],
         },
       }),
-    ).rejects.toMatchObject({ errorCode: "INVALID_BROWSER_SAVE_ATTEMPT" });
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_write_scope_mismatch",
+    });
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
         updateDocumentAction.run(args, {
@@ -996,6 +998,67 @@ describe("update-document compare-and-swap", () => {
       ),
     ).rejects.toMatchObject({ errorCode: "INVALID_BROWSER_SAVE_ATTEMPT" });
   });
+
+  it.each([
+    "missing grant",
+    "wrong document",
+    "wrong app",
+    "wrong action",
+  ] as const)(
+    "rejects favorite-only widget writes with %s before provisioning",
+    async (reason) => {
+      const id = await createDocument({
+        title: "Widget favorite scope",
+        content: "Favorite writes need a document grant.",
+      });
+      const grantContext = {
+        caller: "mcp-widget-write" as const,
+        mcpDirectoryWidgetWrite: {
+          appId: "content",
+          resourceIds: { documentId: id },
+          actionNames: ["update-document"],
+        },
+      };
+      const context =
+        reason === "missing grant"
+          ? { caller: "mcp-widget-write" as const }
+          : reason === "wrong document"
+            ? {
+                ...grantContext,
+                mcpDirectoryWidgetWrite: {
+                  ...grantContext.mcpDirectoryWidgetWrite,
+                  resourceIds: { documentId: "another-document" },
+                },
+              }
+            : reason === "wrong app"
+              ? {
+                  ...grantContext,
+                  mcpDirectoryWidgetWrite: {
+                    ...grantContext.mcpDirectoryWidgetWrite,
+                    appId: "design",
+                  },
+                }
+              : {
+                  ...grantContext,
+                  mcpDirectoryWidgetWrite: {
+                    ...grantContext.mcpDirectoryWidgetWrite,
+                    actionNames: ["add-database-item"],
+                  },
+                };
+
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          updateDocumentAction.run({ id, isFavorite: true }, context),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "mcp_widget_write_scope_mismatch",
+        statusCode: 403,
+      });
+      expect(await documentRow(id)).toMatchObject({
+        title: "Widget favorite scope",
+      });
+    },
+  );
 
   it("preserves newer body content when a widget save omits its base", async () => {
     const id = await createDocument({ content: "Before" });

@@ -30,7 +30,10 @@ import {
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
-import { assertDesignWidgetFileWriteScope } from "./widget-write-scope.js";
+import {
+  assertDesignWidgetWriteScope,
+  designWidgetWriteDesignId,
+} from "./widget-write-scope.js";
 
 function logSaveConflictDebug(
   event: string,
@@ -182,6 +185,7 @@ export default defineAction({
       throw new Error("Invalid filename: path traversal not allowed");
     }
 
+    const widgetDesignId = designWidgetWriteDesignId(context, "update-file");
     const db = getDb();
     const now = new Date().toISOString();
 
@@ -203,6 +207,9 @@ export default defineAction({
       .where(
         and(
           eq(schema.designFiles.id, id),
+          ...(widgetDesignId
+            ? [eq(schema.designFiles.designId, widgetDesignId)]
+            : []),
           accessFilter(schema.designs, schema.designShares),
         ),
       )
@@ -213,7 +220,7 @@ export default defineAction({
       throw fileNotFound(id);
     }
 
-    assertDesignWidgetFileWriteScope(file.designId, context, {
+    assertDesignWidgetWriteScope(file.designId, context, {
       actionName: "update-file",
       content,
       expectedVersionHash,

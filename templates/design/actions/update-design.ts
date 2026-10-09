@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
@@ -8,6 +9,7 @@ import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
+import { assertDesignWidgetWriteScope } from "./widget-write-scope.js";
 
 const MAX_DATA_CAS_ATTEMPTS = 5;
 const MAX_DATA_OPERATION_SOURCES = 128;
@@ -21,6 +23,22 @@ const FORBIDDEN_DATA_PATH_SEGMENTS = new Set([
   "constructor",
   "prototype",
 ]);
+const WIDGET_CANVAS_FRAME_KEYS = new Set([
+  "x",
+  "y",
+  "width",
+  "height",
+  "rotation",
+  "z",
+]);
+const WIDGET_SCREEN_METADATA_KEYS = new Set([
+  "width",
+  "height",
+  "heightPinned",
+  "heightMode",
+]);
+const WIDGET_LOCALHOST_SCREEN_KEYS = new Set(["width", "height"]);
+const WIDGET_LAYOUT_GRID_KEYS = new Set(["kind", "size", "visible"]);
 
 function tweakDefinitionsWriteError(value: unknown): string | null {
   return tweakDefinitionsSchema.safeParse(value).success
@@ -129,6 +147,129 @@ function affectedRowCount(result: unknown): number | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function widgetDataOperationError(): ActionContractError {
+  return new ActionContractError(
+    "This Design widget write capability does not permit this design data path.",
+    { errorCode: "mcp_widget_data_path_not_allowed", statusCode: 403 },
+  );
+}
+
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  allowedKeys: ReadonlySet<string>,
+): boolean {
+  return Object.keys(value).every((key) => allowedKeys.has(key));
+}
+
+function validWidgetMetadataEntry(
+  value: unknown,
+  allowedKeys: ReadonlySet<string>,
+): value is Record<string, unknown> {
+  if (!isRecord(value) || !hasOnlyKeys(value, allowedKeys)) return false;
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "width" || key === "height") {
+      if (typeof entry !== "number" || !Number.isFinite(entry)) return false;
+    } else if (key === "heightPinned") {
+      if (typeof entry !== "boolean") return false;
+    } else if (
+      key === "heightMode" &&
+      entry !== "auto" &&
+      entry !== "fixed" &&
+      entry !== "hug"
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function assertWidgetDataOperations(
+  operations: readonly DataOperation[],
+): void {
+  for (const operation of operations) {
+    const [map, entryId, field, ...rest] = operation.path;
+    if (rest.length > 0) throw widgetDataOperationError();
+
+    if (map === "canvasFrames") {
+      if (!entryId || (!field && operation.path.length > 2)) {
+        throw widgetDataOperationError();
+      }
+      if (operation.path.length === 2 && operation.op === "set") {
+        if (
+          !isRecord(operation.value) ||
+          !hasOnlyKeys(operation.value, WIDGET_CANVAS_FRAME_KEYS) ||
+          designDataWriteError(operation.path, operation.value)
+        ) {
+          throw widgetDataOperationError();
+        }
+      } else if (
+        operation.path.length === 3 &&
+        (!field || !WIDGET_CANVAS_FRAME_KEYS.has(field))
+      ) {
+        throw widgetDataOperationError();
+      } else if (
+        operation.path.length === 3 &&
+        operation.op === "set" &&
+        designDataWriteError(operation.path, operation.value)
+      ) {
+        throw widgetDataOperationError();
+      }
+      continue;
+    }
+
+    if (map === "screenMetadata" || map === "localhostScreens") {
+      const allowedKeys =
+        map === "screenMetadata"
+          ? WIDGET_SCREEN_METADATA_KEYS
+          : WIDGET_LOCALHOST_SCREEN_KEYS;
+      if (!entryId || operation.path.length > 3) {
+        throw widgetDataOperationError();
+      }
+      if (operation.path.length === 2 && operation.op === "set") {
+        if (
+          !validWidgetMetadataEntry(operation.value, allowedKeys) ||
+          designDataWriteError(operation.path, operation.value)
+        ) {
+          throw widgetDataOperationError();
+        }
+      } else if (
+        operation.path.length === 3 &&
+        (!field || !allowedKeys.has(field))
+      ) {
+        throw widgetDataOperationError();
+      } else if (
+        operation.path.length === 3 &&
+        operation.op === "set" &&
+        !validWidgetMetadataEntry({ [field!]: operation.value }, allowedKeys)
+      ) {
+        throw widgetDataOperationError();
+      }
+      continue;
+    }
+
+    if (
+      map === "layoutGrids" &&
+      entryId &&
+      operation.path.length === 2 &&
+      (operation.op === "delete" ||
+        (isRecord(operation.value) &&
+          hasOnlyKeys(operation.value, WIDGET_LAYOUT_GRID_KEYS) &&
+          Object.keys(operation.value).length ===
+            WIDGET_LAYOUT_GRID_KEYS.size &&
+          operation.value.kind === "uniform" &&
+          typeof operation.value.size === "number" &&
+          Number.isFinite(operation.value.size) &&
+          operation.value.size >= 1 &&
+          operation.value.size <= 1000 &&
+          typeof operation.value.visible === "boolean"))
+    ) {
+      continue;
+    }
+
+    throw widgetDataOperationError();
+  }
 }
 
 function parsePersistedDataRecord(
@@ -405,6 +546,21 @@ export default defineAction({
     },
     context,
   ) => {
+    if (context?.caller === "mcp-widget-write") {
+      assertDesignWidgetWriteScope(id, context, {
+        actionName: "update-design",
+      });
+      if (
+        data !== undefined ||
+        description !== undefined ||
+        projectType !== undefined ||
+        designSystemId !== undefined
+      ) {
+        throw widgetDataOperationError();
+      }
+      if (dataOperations) assertWidgetDataOperations(dataOperations);
+    }
+
     if (data !== undefined) {
       let parsedSnapshot: unknown;
       try {

@@ -207,9 +207,28 @@ function isScopedWidgetDocumentWriter(
   return (
     ctx?.caller === "mcp-widget-write" &&
     grant?.appId === "content" &&
+    Array.isArray(grant.actionNames) &&
     grant.actionNames.includes("update-document") &&
-    grant.resourceIds.documentId === documentId
+    grant.resourceIds?.documentId === documentId
   );
+}
+
+function assertWidgetDocumentWriteScope(
+  ctx: ActionRunContext | undefined,
+  documentId: string,
+) {
+  if (
+    ctx?.caller === "mcp-widget-write" &&
+    !isScopedWidgetDocumentWriter(ctx, documentId)
+  ) {
+    throw new ActionContractError(
+      "This Content widget write capability is missing or scoped to a different document or action.",
+      {
+        errorCode: "mcp_widget_write_scope_mismatch",
+        statusCode: 403,
+      },
+    );
+  }
 }
 
 const reuseLabelSchema = z.object({
@@ -606,6 +625,7 @@ export default defineAction({
   > => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    assertWidgetDocumentWriteScope(ctx, id);
     if (
       (args.editorSessionId === undefined) !==
       (args.editorEditGeneration === undefined)

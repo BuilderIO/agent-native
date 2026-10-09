@@ -23,7 +23,7 @@ describe("Content database widget write scope", () => {
 
   it("allows the collection bound to the widget", () => {
     expect(() =>
-      assertDatabaseWidgetWriteTarget(target, context),
+      assertDatabaseWidgetWriteTarget(target, "add-database-item", context),
     ).not.toThrow();
   });
 
@@ -33,15 +33,44 @@ describe("Content database widget write scope", () => {
       { ...target, databaseDocumentId: "database-document-elsewhere" },
       { ...target, spaceId: "space-elsewhere" },
     ]) {
-      expect(() => assertDatabaseWidgetWriteTarget(changed, context)).toThrow(
-        "This widget write capability is scoped to a different Content collection.",
+      expect(() =>
+        assertDatabaseWidgetWriteTarget(changed, "add-database-item", context),
+      ).toThrow(
+        "This Content widget write capability is missing or scoped to a different collection or action.",
       );
     }
   });
 
+  it("fails closed when the write grant is missing or does not include the action", () => {
+    expect(() =>
+      assertDatabaseWidgetWriteTarget(target, "add-database-item", {
+        caller: "mcp-widget-write",
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "mcp_widget_write_scope_mismatch",
+        statusCode: 403,
+      }),
+    );
+    expect(() =>
+      assertDatabaseWidgetWriteTarget(target, "add-database-item", {
+        ...context,
+        mcpDirectoryWidgetWrite: {
+          ...context.mcpDirectoryWidgetWrite,
+          actionNames: ["update-database-item"],
+        },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "mcp_widget_write_scope_mismatch",
+        statusCode: 403,
+      }),
+    );
+  });
+
   it("keeps ordinary editor requests on their existing authorization path", () => {
     expect(() =>
-      assertDatabaseWidgetWriteTarget(target, undefined),
+      assertDatabaseWidgetWriteTarget(target, "add-database-item", undefined),
     ).not.toThrow();
   });
 });

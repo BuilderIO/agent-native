@@ -1743,7 +1743,7 @@ export async function resolveEmbedSessionFromRequest(
     if (candidate.source === "query" && candidate.token) {
       try {
         setEmbedSessionCookie(event, candidate.token);
-        setResponseHeader(event, "Referrer-Policy", "same-origin");
+        setResponseHeader(event, "Referrer-Policy", "no-referrer");
       } catch {
         // Some tests and edge runtimes expose read-only request shims. The
         // query token itself is still valid for this request.

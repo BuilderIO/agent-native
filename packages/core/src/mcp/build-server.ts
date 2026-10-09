@@ -183,6 +183,13 @@ export interface MCPConfig {
         result: unknown,
       ) => McpDirectoryWidgetTarget | null
     >;
+    authorizeWidgetWrite?: (input: {
+      toolName: string;
+      args: Record<string, unknown>;
+      result: unknown;
+      target: McpDirectoryWidgetTarget;
+      identity: MCPCallerIdentity;
+    }) => boolean | Promise<boolean>;
     widgetReadActionArguments?: Record<
       string,
       Record<string, McpDirectoryWidgetReadArgument>
@@ -1469,7 +1476,7 @@ async function withServerMintedMcpAppEmbedStart(
     targetPath,
     scope,
     ...(directoryWidget?.capability.mode === "write"
-      ? { ttlSeconds: 15 * 60 }
+      ? { ttlSeconds: 5 * 60 }
       : {}),
     ...(restrictDirectoryWidgetCapability
       ? { revocationAnchorCreatedAtMs }
@@ -1501,7 +1508,7 @@ function withoutMcpAppEmbedTicket(result: unknown): unknown {
   return output;
 }
 
-function mcpDirectoryWidgetCapabilityForTool(
+async function mcpDirectoryWidgetCapabilityForTool(
   config: MCPConfig,
   resource: ResolvedMcpAppResource,
   toolName: string,
@@ -1630,9 +1637,31 @@ function mcpDirectoryWidgetCapabilityForTool(
     return undefined;
   }
 
+  let editorAccessAllowed = false;
   if (
     Object.keys(writeActionArguments).length > 0 &&
-    hasVerifiedMcpUserIdentity(identity)
+    hasVerifiedMcpUserIdentity(identity) &&
+    profile.authorizeWidgetWrite
+  ) {
+    try {
+      editorAccessAllowed = await profile.authorizeWidgetWrite({
+        toolName,
+        args,
+        result,
+        target,
+        identity,
+      });
+    } catch {
+      console.error(
+        `[mcp] Directory widget editor authorization failed for ${toolName}; issuing a read-only capability.`,
+      );
+    }
+  }
+
+  if (
+    Object.keys(writeActionArguments).length > 0 &&
+    hasVerifiedMcpUserIdentity(identity) &&
+    editorAccessAllowed
   ) {
     const requestOrgId = getRequestContext()?.orgId;
     const value: McpDirectoryWidgetWriteCapabilityInput = {
@@ -3393,7 +3422,7 @@ export async function createMCPServerForRequest(
             mcpAppResourceCandidate &&
             typeof trustedCredentialIssuedAtMs === "number" &&
             Number.isSafeInteger(trustedCredentialIssuedAtMs)
-              ? mcpDirectoryWidgetCapabilityForTool(
+              ? await mcpDirectoryWidgetCapabilityForTool(
                   config,
                   mcpAppResourceCandidate,
                   name,

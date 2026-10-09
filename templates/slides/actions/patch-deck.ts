@@ -12,9 +12,11 @@
  */
 import {
   AgentActionStopError,
+  ActionContractError,
   isActionContractError,
 } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   getGenerationCreativeContext,
@@ -622,6 +624,29 @@ function firstDuplicate(values: readonly string[]): string | undefined {
   return undefined;
 }
 
+export function assertSlidesWidgetWriteScope(
+  deckId: string,
+  context: ActionRunContext | undefined,
+): void {
+  if (context?.caller !== "mcp-widget-write") return;
+
+  const grant = context.mcpDirectoryWidgetWrite;
+  if (
+    !grant ||
+    grant.appId !== "slides" ||
+    grant.resourceIds.deckId !== deckId ||
+    !grant.actionNames.includes("patch-deck")
+  ) {
+    throw new ActionContractError(
+      "This Slides widget write capability is missing or scoped to a different deck or action.",
+      {
+        errorCode: "mcp_widget_write_scope_mismatch",
+        statusCode: 403,
+      },
+    );
+  }
+}
+
 export function assertSourceImportSlidesCovered(
   metadata: SourceImportMetadata | null,
   operations: Operation[],
@@ -1206,6 +1231,7 @@ export default defineAction({
     },
     ctx,
   ) => {
+    assertSlidesWidgetWriteScope(deckId, ctx);
     await assertAccess("deck", deckId, "editor");
     const isAgentCaller = isAgentPatchCaller(ctx?.caller);
 
@@ -1284,6 +1310,22 @@ export default defineAction({
       };
 
       const currentSlides = Array.isArray(deck.slides) ? deck.slides : [];
+      if (ctx?.caller === "mcp-widget-write") {
+        const storedSlideIds = currentSlides
+          .map((slide: { id?: unknown }) => slide?.id)
+          .filter((id: unknown): id is string => typeof id === "string");
+        const duplicateSlideId = firstDuplicate(storedSlideIds);
+        if (duplicateSlideId !== undefined) {
+          fail(
+            "The Slides widget cannot edit a deck with duplicate slide IDs. Repair the deck in the Slides editor first.",
+            {
+              errorCode: "duplicate_deck_slide_ids",
+              statusCode: 409,
+              details: { slideId: duplicateSlideId },
+            },
+          );
+        }
+      }
       const sourceContentHashes = new Map<string, string>(
         currentSlides.map(
           (slide: { id: string; content?: unknown }) =>

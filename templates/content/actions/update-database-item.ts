@@ -73,7 +73,11 @@ export default defineAction({
   },
   run: (args, context) => {
     if (context?.caller === "mcp") agentSchema.parse(args);
-    assertDatabaseWidgetWriteTarget(args.target, context);
+    assertDatabaseWidgetWriteTarget(
+      args.target,
+      "update-database-item",
+      context,
+    );
     return updateDatabaseRow(canonicalizeDatabasePropertyInput(args));
   },
   link: ({ result }) => {

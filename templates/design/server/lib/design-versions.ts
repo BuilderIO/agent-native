@@ -45,7 +45,7 @@ export interface DesignVersionChatContext {
   actionName?: string;
   phase?: "start" | "end";
   surface?: "editor";
-  caller?: "frontend" | "webmcp";
+  caller?: "frontend" | "webmcp" | "mcp-widget-write";
 }
 
 export interface DesignVersionFile {
@@ -188,7 +188,11 @@ function parseChatContext(
     context.phase = value.phase;
   }
   if (value.surface === "editor") context.surface = "editor";
-  if (value.caller === "frontend" || value.caller === "webmcp") {
+  if (
+    value.caller === "frontend" ||
+    value.caller === "webmcp" ||
+    value.caller === "mcp-widget-write"
+  ) {
     context.caller = value.caller;
   }
   return Object.keys(context).length > 0 ? context : undefined;
@@ -410,7 +414,11 @@ function actionChatContext(
 function editorActionContext(
   context: ActionRunContext,
 ): DesignVersionChatContext | null {
-  if (context.caller !== "frontend" && context.caller !== "webmcp") {
+  if (
+    context.caller !== "frontend" &&
+    context.caller !== "webmcp" &&
+    context.caller !== "mcp-widget-write"
+  ) {
     return null;
   }
   return {

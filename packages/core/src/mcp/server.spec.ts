@@ -2200,6 +2200,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       directoryProfile: {
         connectorCatalog: ["create-design"],
         widgetDomain: "https://design.agent-native.com",
+        authorizeWidgetWrite: vi.fn(async () => true),
         widgetTargets: {
           "create-design": (_args: unknown, result: unknown) => {
             const designId = (result as { designId?: unknown }).designId;
@@ -2262,6 +2263,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenLastCalledWith(
       expect.objectContaining({
         revocationAnchorCreatedAtMs: credentialIssuedAtMs,
+        ttlSeconds: 5 * 60,
       }),
     );
     const scope =
@@ -2278,6 +2280,71 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       resourceIds: { designId: "design-1" },
       actionNames: ["update-file"],
     });
+
+    const getDesign = defineAction({
+      description: "Read one design.",
+      schema: z.object({ id: z.string() }),
+      readOnly: true,
+      http: { method: "GET" },
+      requiresAuth: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ designId: "design-1" }),
+    });
+    const authorizeDeniedWrite = vi.fn(async () => false);
+    const deniedConfig = {
+      ...directoryConfig,
+      directoryProfile: {
+        ...directoryConfig.directoryProfile,
+        authorizeWidgetWrite: authorizeDeniedWrite,
+        widgetReadActionArguments: { "get-design": { id: "designId" } },
+        widgetReadAuthenticatedActions: ["get-design"],
+      },
+      actions: { "create-design": createDesign, "get-design": getDesign },
+    };
+    const denied = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 142,
+        method: "tools/call",
+        params: { name: "create-design", arguments: {} },
+      },
+      {
+        headers: { ...headers, host: "design.agent-native.com" },
+        config: deniedConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(denied.result.isError).not.toBe(true);
+    expect(authorizeDeniedWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: "create-design",
+        args: {},
+        result: { designId: "design-1" },
+        target: expect.objectContaining({
+          resourceIds: { designId: "design-1" },
+          writeActions: ["update-file"],
+        }),
+        identity: expect.objectContaining({ userEmail: "oauth@example.com" }),
+      }),
+    );
+    const deniedScope =
+      embedSessionMocks.createEmbedSessionTicket.mock.calls.at(-1)?.[0]?.scope;
+    const {
+      getMcpDirectoryWidgetWriteCapabilityGrant: getDeniedWriteGrant,
+      isMcpDirectoryWidgetReadCapabilityScope,
+    } = await import("../shared/embed-auth.js");
+    expect(isMcpDirectoryWidgetReadCapabilityScope(deniedScope)).toBe(true);
+    expect(
+      getDeniedWriteGrant(deniedScope, {
+        appId: "design",
+        resourceUri: "ui://design/shell-v69",
+        userEmail: "oauth@example.com",
+      }),
+    ).toBeUndefined();
   });
 
   it("issues Content database row write grants for resource-bound actions", async () => {
@@ -2335,6 +2402,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       directoryProfile: {
         connectorCatalog: ["create-content-database"],
         widgetDomain: "https://content.agent-native.com",
+        authorizeWidgetWrite: async () => true,
         widgetTargets: {
           "create-content-database": (_args: unknown, result: unknown) => {
             const database = (result as { database?: Record<string, unknown> })
@@ -2590,6 +2658,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       directoryProfile: {
         connectorCatalog: ["create-document", "get-document"],
         widgetDomain: "https://mail.agent-native.com",
+        authorizeWidgetWrite: async () => true,
         widgetTargets: {
           "create-document": (_args: unknown, result: unknown) => {
             const record = result as { id?: unknown };

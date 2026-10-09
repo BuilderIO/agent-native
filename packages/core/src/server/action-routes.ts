@@ -39,6 +39,11 @@ import {
   resolveOrgIdForEmail,
 } from "../org/context.js";
 import {
+  isWorkspaceAppAccessAllowed,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
+} from "../org/workspace-app-access.js";
+import {
   LLM_PROVIDER_MISSING_ERROR_CODE,
   LLM_PROVIDER_MISSING_STATUS,
 } from "../shared/action-error-codes.js";
@@ -76,6 +81,7 @@ import {
   readBrowserTabIdHeader,
   readAnalyticsClientPlatformHeader,
   readSyntheticTrafficHeader,
+  resolveAgentRunOrgId,
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
@@ -767,6 +773,8 @@ function mountActionRoutesInternal(
           options?.mcpDirectoryWidgetReadActionArguments?.[name] !==
             undefined &&
           options?.mcpDirectoryWidgetReadPublicActions?.includes(name) !== true;
+        const directoryWidgetWriteRoute =
+          options?.mcpDirectoryWidgetWriteActionArguments?.[name] !== undefined;
         if (
           directoryWidgetCapability &&
           !directoryWidgetReadAllowed &&
@@ -869,6 +877,69 @@ function mountActionRoutesInternal(
               setResponseStatus(event, 401);
               return { error: "Unauthorized" };
             }
+          }
+        }
+        if (directoryWidgetWriteRoute && !directoryWidgetWriteAllowed) {
+          let ownerContext: AgentRunOwnerContext;
+          if (resolvedCaller) {
+            if (resolvedCaller.anonymous) {
+              setResponseStatus(event, 401);
+              return { error: "Unauthorized" };
+            }
+            ownerContext = resolvedCaller;
+          } else {
+            if (!options?.getOwnerContextFromEvent) {
+              setResponseStatus(event, 401);
+              return { error: "Unauthorized" };
+            }
+            try {
+              ownerContext = await options.getOwnerContextFromEvent(event);
+            } catch (error) {
+              if (!isAuthResolutionFailure(error)) throw error;
+              setResponseStatus(event, 401);
+              return { error: "Unauthorized" };
+            }
+            if (ownerContext.anonymous) {
+              setResponseStatus(event, 401);
+              return { error: "Unauthorized" };
+            }
+            userEmail = ownerContext.owner;
+            userName = ownerContext.name;
+            authUserId = ownerContext.authUserId;
+            ownerContextResolved = true;
+          }
+
+          const workspaceAppId =
+            options?.appId ?? options?.mcpDirectoryWidgetAppId;
+          if (!workspaceAppId) {
+            setResponseStatus(event, 503);
+            return { error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
+          }
+          const workspaceOrgId = resolvedCaller
+            ? resolvedCaller.orgId === null
+              ? undefined
+              : (normalizeOrgId(resolvedCaller.orgId) ??
+                (resolvedCaller.owner && !resolvedCaller.anonymous
+                  ? await storedActiveOrgId(resolvedCaller.owner)
+                  : undefined))
+            : await resolveAgentRunOrgId({
+                event,
+                ownerContext,
+                resolveOrgId: options?.resolveOrgId,
+              });
+          const workspaceAppAccess = await isWorkspaceAppAccessAllowed(
+            workspaceAppId,
+            { email: ownerContext.owner, orgId: workspaceOrgId },
+          );
+          if (workspaceAppAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
+            setResponseStatus(event, 503);
+            return { error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
+          }
+          if (!workspaceAppAccess) {
+            setResponseStatus(event, 403);
+            return {
+              error: "You do not have access to this workspace app.",
+            };
           }
         }
         if (
