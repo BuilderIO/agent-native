@@ -64,7 +64,7 @@ function runFastTestsSummary(
       CI_FULL: "false",
       FAST_TESTS: "true",
       HAS_TESTS: "true",
-      DOCS_RESULT: "success",
+      DOCS_RESULT: "skipped",
       TEST_REST_RESULT: "skipped",
       TEST_TARGETED_RESULT: "success",
       DESIGN_CANVAS_E2E: "false",
@@ -1206,6 +1206,13 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
         "Design canvas interaction acceptance (matrix jobs): did not succeed (expected success, received failure)",
     },
     {
+      name: "non-docs changes require the docs job to skip",
+      overrides: { DOCS_RESULT: "success" },
+      status: 1,
+      outputIncludes:
+        "Docs checks: ran outside its selected paths (expected skipped, received success)",
+    },
+    {
       name: "an unselected Design lane must skip",
       overrides: {},
       status: 0,
@@ -1442,6 +1449,7 @@ test("fast-tests summary reports every prerequisite failure with the Actions URL
     DESIGN_CANVAS_RESULT: "skipped",
     PRE_AUTH_REPLAY_E2E: "true",
     PRE_AUTH_REPLAY_RESULT: "failure",
+    DOCS_RESULT: "failure",
     TEST_TARGETED_RESULT: "failure",
     TEST_REST_RESULT: "failure",
   });
@@ -1449,11 +1457,12 @@ test("fast-tests summary reports every prerequisite failure with the Actions URL
   assert.equal(result.status, 1);
   assert.match(
     result.output,
-    /found 4 failing or unexpectedly skipped prerequisite\(s\)/,
+    /found 5 failing or unexpectedly skipped prerequisite\(s\)/,
   );
   for (const job of [
     "Design canvas interaction acceptance (matrix jobs): was unexpectedly skipped",
     "Pre-auth session replay smoke: did not succeed",
+    "Docs checks: ran outside its selected paths (expected skipped, received failure)",
     "Fast tests targeted (test-targeted matrix): did not succeed",
     "Fast tests (test-rest matrix): ran outside its selected paths (expected skipped, received failure)",
   ]) {
@@ -1463,7 +1472,7 @@ test("fast-tests summary reports every prerequisite failure with the Actions URL
     result.output.match(
       /Actions run: https:\/\/github\.com\/BuilderIO\/agent-native\/actions\/runs\/123/g,
     )?.length,
-    4,
+    5,
   );
 });
 

@@ -738,6 +738,7 @@ jobs:
               require_skipped "Fast tests targeted (test-targeted matrix)" "$TEST_TARGETED_RESULT" "ran outside its selected paths"
               success_message="Docs-only change: docs checks passed; fast-test lanes are not required."
             else
+              require_skipped "Docs checks" "$DOCS_RESULT" "ran outside its selected paths"
               if [[ "$CI_FULL" == "true" ]]; then
                 if [[ "$HAS_TESTS" != "true" ]]; then
                   record_failure "Determine change scope" "full fast-test lanes were selected without test lanes (has_tests=$HAS_TESTS)"
