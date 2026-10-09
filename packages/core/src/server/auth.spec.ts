@@ -5622,6 +5622,44 @@ describe("server/auth", () => {
       );
     });
 
+    it("allows Content recovery headers in configured frontend preflights before auth", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://content-ui.example.test");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/_agent-native/actions/update-document",
+        headers: {
+          origin: "https://content-ui.example.test",
+          "access-control-request-method": "POST",
+          "access-control-request-headers":
+            "content-type,x-content-save-origin",
+        },
+      });
+      event.req.method = "OPTIONS";
+      event.node.req.method = "OPTIONS";
+
+      expect(await guard(event)).toBe("");
+      expect(event.res.status).toBe(204);
+      expect(event.res.headers.get("access-control-allow-origin")).toBe(
+        "https://content-ui.example.test",
+      );
+      expect(event.res.headers.get("access-control-allow-credentials")).toBe(
+        "true",
+      );
+      expect(event.res.headers.get("access-control-allow-headers")).toContain(
+        "X-Content-Save-Origin",
+      );
+    });
+
     it("rejects disallowed cross-origin preflight before auth", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

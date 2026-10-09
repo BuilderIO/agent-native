@@ -4,6 +4,7 @@ import {
   JOURNEY_COHORT_EVENT_NAMES,
   JOURNEY_INTEGRATION_EVENT_NAMES,
   JOURNEY_STEP_EVENT_NAMES,
+  SLIDES_GENERATION_ATTEMPT_EVENT_NAMES,
 } from "./journey-steps.js";
 
 export type MetricWindow = "30d" | "90d" | "all";
@@ -1391,21 +1392,77 @@ const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
     AND NOT EXISTS (
       SELECT 1 FROM cohort_sessions c WHERE c.session_id = i.session_id
     )
+), eligible_output_links AS (
+  SELECT DISTINCT lower(${TEMPLATE_EXPR}) AS template_name,
+    NULLIF(e.properties::jsonb ->> 'output_id', '') AS output_id,
+    CASE
+      WHEN lower(${TEMPLATE_EXPR}) = 'clips'
+        THEN NULLIF(e.properties::jsonb ->> 'recording_attempt_id', '')
+      WHEN lower(${TEMPLATE_EXPR}) = 'slides'
+        THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
+    END AS attempt_id,
+    e.session_id
+  FROM scoped_onboarding_events e
+  JOIN cohort_sessions s ON s.session_id = e.session_id
+  WHERE (
+    (lower(${TEMPLATE_EXPR}) = 'clips'
+      AND e.event_name = 'recording_started')
+    OR (lower(${TEMPLATE_EXPR}) = 'slides'
+      AND e.event_name IN (
+        'generation_started', 'generation_request_accepted', 'output_viewed'
+      ))
+  )
+    AND NULLIF(e.properties::jsonb ->> 'output_id', '') IS NOT NULL
+    AND CASE
+      WHEN lower(${TEMPLATE_EXPR}) = 'clips'
+        THEN NULLIF(e.properties::jsonb ->> 'recording_attempt_id', '')
+      WHEN lower(${TEMPLATE_EXPR}) = 'slides'
+        THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
+    END IS NOT NULL
+), unique_output_links AS (
+  SELECT template_name, output_id, attempt_id, MIN(session_id) AS session_id
+  FROM eligible_output_links
+  GROUP BY template_name, output_id, attempt_id
+  HAVING COUNT(DISTINCT session_id) = 1
 ), journey_events AS (
   SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
-    e.properties, 'onboarding' AS journey_kind
+    e.properties, lower(${TEMPLATE_EXPR}) AS template_name, 'onboarding' AS journey_kind
   FROM scoped_onboarding_events e
   JOIN cohort_sessions s ON s.session_id = e.session_id
   WHERE e.event_name IN (${sqlNameList(JOURNEY_STEP_EVENT_NAMES)})
   UNION ALL
   SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
-    e.properties, 'standalone_setup' AS journey_kind
+    e.properties, lower(${TEMPLATE_EXPR}) AS template_name, 'standalone_setup' AS journey_kind
   FROM scoped_onboarding_events e
   JOIN standalone_setup_sessions s ON s.session_id = e.session_id
   WHERE e.event_name IN (${sqlNameList(JOURNEY_STEP_EVENT_NAMES)})
+  UNION ALL
+  SELECT e.id, links.session_id, e.timestamp, e.event_name, e.path,
+    e.properties, lower(${TEMPLATE_EXPR}) AS template_name, 'onboarding' AS journey_kind
+  FROM scoped_onboarding_events e
+  JOIN unique_output_links links
+    ON links.template_name = lower(${TEMPLATE_EXPR})
+    AND links.output_id = NULLIF(e.properties::jsonb ->> 'output_id', '')
+    AND links.attempt_id = CASE
+      WHEN lower(${TEMPLATE_EXPR}) = 'clips'
+        THEN NULLIF(e.properties::jsonb ->> 'recording_attempt_id', '')
+      WHEN lower(${TEMPLATE_EXPR}) = 'slides'
+        THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
+    END
+  WHERE NULLIF(e.session_id, '') IS NULL
+    AND (
+      (lower(${TEMPLATE_EXPR}) = 'clips'
+        AND e.event_name = 'recording_ready')
+      OR (lower(${TEMPLATE_EXPR}) = 'slides'
+        AND e.event_name IN (${sqlNameList([
+          ...SLIDES_GENERATION_ATTEMPT_EVENT_NAMES,
+          "generation_completed",
+        ])}))
+    )
 )
 SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
   e.journey_kind,
+  e.template_name,
   COALESCE(
     NULLIF(e.properties::jsonb ->> 'flow', ''),
     NULLIF(e.properties::jsonb ->> 'agent_native_flow', '')
@@ -1419,6 +1476,17 @@ SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
   NULLIF(e.properties::jsonb ->> 'method_id', '') AS method_id,
   NULLIF(e.properties::jsonb ->> 'outcome', '') AS outcome,
   NULLIF(e.properties::jsonb ->> 'action', '') AS action,
+  CASE
+    WHEN e.template_name = 'clips'
+      AND e.event_name IN ('recording_started', 'recording_ready')
+      THEN NULLIF(e.properties::jsonb ->> 'recording_attempt_id', '')
+    WHEN e.template_name = 'slides'
+      AND e.event_name IN (${sqlNameList([
+        ...SLIDES_GENERATION_ATTEMPT_EVENT_NAMES,
+        "generation_completed",
+      ])})
+      THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
+  END AS attempt_id,
   NULLIF(e.properties::jsonb ->> 'event_alias_id', '') AS alias_id
 FROM journey_events e
 ORDER BY e.journey_kind, e.session_id, e.timestamp, e.id

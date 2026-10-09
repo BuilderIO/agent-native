@@ -24,6 +24,9 @@ describe("MCP embed headers", () => {
   });
 
   it("allows frontend action-client headers from embedded apps", () => {
+    expect(MCP_EMBED_CORS_ALLOW_HEADERS.split(",")).toContain(
+      "X-Content-Save-Origin",
+    );
     expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain("X-Agent-Native-Frontend");
     expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain(
       "X-Agent-Native-Client-Compatibility",

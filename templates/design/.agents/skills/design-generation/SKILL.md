@@ -357,9 +357,9 @@ follow-up ambiguity instead of resolving it.
 
 **Carry the form-factor answer through to generation — do not just ask and discard it.** Map the answer to the design's device SET, not to separate per-device screen files. Device widths of the SAME page are breakpoint frames of one document (see the `responsive-breakpoints` skill), never a `mobile.html` + `desktop.html` pair. Pass the answer through `generate-design`'s `devices` param — `("mobile"|"tablet"|"desktop")[]`, default `["desktop","mobile"]`:
 
-- An exact pixel size in the original user request defines one fixed-size canvas. Use those exact dimensions and pass `devices: []` unless the user explicitly asks for device variants; then preserve exactly those requested devices. For `present-design-variants`, use `responsive: false` for a single fixed canvas. Keep each action prompt to one distinct exact canvas size; make separate calls scoped to each screen when a request names different sizes.
-- Ads, banners, social posts/stories, flyers, posters, logos, and other static artwork are fixed canvases, not responsive apps. Do not add mobile or tablet breakpoints unless the user explicitly asks for device variants; if they do, preserve exactly those choices and add no others. If a `present-design-variants` chat caption is generic, pass the original request separately as `brief` so its size and output type stay attached to the variants.
-- For a follow-up edit to an existing fixed canvas, carry its current exact `width` and `height` forward. Pass `devices: []` unless the user explicitly asks for device variants, then preserve exactly those devices. If the user asks for a different fixed format (for example, “now a story version”), resolve that format from the conversation and pass its exact dimensions with `devices: []`; do not infer responsive intent from the short follow-up alone.
+- An exact pixel size or a platform preset (LinkedIn ad, Instagram story — sizes under "Non-web sizes" below) in the original request defines one fixed canvas. Pass that exact size and `devices: []`; `generate-design` ignores `devices` for exact sizes and presets (the result lists `ignoredDevices`), so each additional size or version is its own call. For `present-design-variants`, use `responsive: false` for a single fixed canvas. Keep each action prompt to one distinct exact canvas size.
+- Ads, banners, social posts/stories, flyers, posters, logos, and other static artwork are fixed canvases, not responsive apps, and get no mobile or tablet breakpoints. If a `present-design-variants` chat caption is generic, pass the original request separately as `brief` so its size and output type stay attached to the variants.
+- Follow-ups on an existing fixed canvas stay fixed. A short follow-up alone ("make it taller", "now a story version", "make it 1080x1920") reads as a responsive app, so pass `devices: []` and write `prompt` with the output type and the exact target size as `<W>x<H> canvas`: the current size for a content edit, the new size for a resize, or the preset size for a format change (e.g. "Instagram story version of the ad, 1080x1920 canvas"). Size `canvasFrames` to match.
 - If the prompt/answer names specific devices, generate EXACTLY those, deduped ("mobile" only → one mobile frame; "mobile, tablet, desktop" → all three).
 - If no exact pixel size or form factor is specified — or the answer is "Both / responsive" or "Decide for me" — default to `["desktop","mobile"]`: a Desktop base + a Mobile frame only. Never auto-add a tablet, a redundant desktop, or a stray duplicate frame.
 
@@ -394,7 +394,7 @@ screen name.
 
 Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **structurally and compositionally distinct** — different layout grammars, hierarchy, density, and focal points — never just color swaps. When a design system is linked, keep its tokens, typography, components, and imagery rules fixed across variants; vary those only when the user explicitly asks to explore a replacement system. Label the directions with concrete names ("Editorial split", not "Variant A").
 
-Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — the example above is desktop-sized. When the original brief specifies exact pixel dimensions, use that exact size on every variant; Design will preserve it even if a variant supplied another size. Static artwork has no responsive frames even if `responsive: true` is passed. When `content` is omitted, `present-design-variants` infers a size from the brief/label/description text and the width/height you pass still wins when given.
+Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — the example above is desktop-sized. When the original brief specifies exact pixel dimensions, use that exact size on every variant; Design will preserve it even if a variant supplied another size. Static artwork has no responsive frames even if `responsive: true` is passed. Omit `content` only for open-ended app exploration: a fixed canvas, attached reference image, layout spec, or linked design system rejects direction-only variants. When `content` is omitted, `present-design-variants` infers a size from the brief/label/description text and the width/height you pass still wins when given.
 
 Wait for the user's pick before refining. Once they choose, keep the selected
 screen, delete the unchosen variant screens with `delete-file`, and continue
@@ -430,8 +430,7 @@ Pass the `devices` param (`("mobile"|"tablet"|"desktop")[]`, default `["desktop"
 
 `canvasFrames` accepts exact `width`/`height` in px, so "create a 300x250
 ad" style requests work the same way — use the requested dimensions verbatim
-and pass `devices: []` by default. If the user asks for device variants,
-preserve exactly those devices. Keep each action prompt to one distinct exact
+and pass `devices: []`. Keep each action prompt to one distinct exact
 size; use separate calls for screens with different dimensions. This also
 applies to exact-size email and social assets. The editor's own Frame tool preset
 list (`shared/frame-size-presets.ts`) documents the
