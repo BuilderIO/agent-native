@@ -205,13 +205,13 @@ export async function recordGenerationCreativeContext(
       inserted: true,
     };
   }
-  if (recorded.inserted) {
+  if (recorded.inserted || input.onlyIfMissing) {
     await getCreativeContext().projections?.generation?.record({
-      appId: input.appId,
-      artifactType: input.artifactType,
-      artifactId: input.artifactId,
-      contextPackId: input.contextPackId,
-      elementProvenance,
+      appId: recorded.record.appId,
+      artifactType: recorded.record.artifactType,
+      artifactId: recorded.record.artifactId,
+      contextPackId: recorded.record.contextPackId,
+      elementProvenance: recorded.record.elementProvenance,
     });
   }
   return recorded.record;

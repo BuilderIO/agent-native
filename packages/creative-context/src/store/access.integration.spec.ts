@@ -641,6 +641,75 @@ describe("creative context access and revocation", () => {
     expect(stored.rows[0]?.id).toBe(records[0]?.id);
   });
 
+  it("repairs a missing generation projection when onlyIfMissing is retried", async () => {
+    const { runWithRequestContext, store } = await setup();
+    const server = await import("../server/index.js");
+    const projectionRecord = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("projection unavailable"))
+      .mockResolvedValue(undefined);
+    server.configureCreativeContext({
+      projections: { generation: { record: projectionRecord } },
+    });
+
+    const input = {
+      appId: "content",
+      artifactType: "document",
+      artifactId: "projection-retry",
+      contextMode: "off" as const,
+      contextPackId: null,
+      reuseLabels: [],
+      elementProvenance: [
+        { elementId: "original-element", influence: "generated" as const },
+      ],
+      onlyIfMissing: true,
+    };
+    const record = (request: typeof input) =>
+      runWithRequestContext({ userEmail: "alice@example.test" }, () =>
+        store.recordGenerationCreativeContext(request),
+      );
+
+    await expect(record(input)).rejects.toThrow("projection unavailable");
+    expect(projectionRecord).toHaveBeenCalledTimes(1);
+
+    const persisted = await runWithRequestContext(
+      { userEmail: "alice@example.test" },
+      () =>
+        store.getGenerationCreativeContext({
+          appId: input.appId,
+          artifactType: input.artifactType,
+          artifactId: input.artifactId,
+        }),
+    );
+    expect(persisted).toMatchObject({
+      elementProvenance: input.elementProvenance,
+    });
+
+    const retry = {
+      ...input,
+      elementProvenance: [
+        { elementId: "retry-element", influence: "generated" as const },
+      ],
+    };
+    const retried = await record(retry);
+
+    expect(retried).toMatchObject({
+      id: persisted?.id,
+      elementProvenance: input.elementProvenance,
+    });
+    expect(projectionRecord).toHaveBeenCalledTimes(2);
+    expect(projectionRecord).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        appId: input.appId,
+        artifactType: input.artifactType,
+        artifactId: input.artifactId,
+        contextPackId: null,
+        elementProvenance: input.elementProvenance,
+      }),
+    );
+  });
+
   it("appends media enrichment while preserving version-pinned pack evidence", async () => {
     const { exec, runWithRequestContext, store } = await setup();
     await exec.execute({
