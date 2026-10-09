@@ -1363,6 +1363,17 @@ export default defineAction({
           contentCasConflict = true;
           return;
         }
+        if (lockedDescriptionChanged) {
+          await tx
+            .update(schema.contentDatabases)
+            .set({ updatedAt })
+            .where(
+              and(
+                eq(schema.contentDatabases.documentId, id),
+                eq(schema.contentDatabases.ownerEmail, ownerEmail),
+              ),
+            );
+        }
         documentFieldsApplied = lockedDocumentFieldsChanged;
         if (lockedIconChanged) {
           await syncPrivateIconReference(

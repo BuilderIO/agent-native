@@ -388,7 +388,7 @@ describe("document descriptions through external MCP", () => {
     });
     const id = created.database.documentId;
     const before = await readRow(id);
-    await callJson(ownerClient, "update-document", {
+    const updated = await callJson(ownerClient, "update-document", {
       id,
       description: longDescription,
     });
@@ -399,16 +399,56 @@ describe("document descriptions through external MCP", () => {
       databaseId: created.database.id,
     });
     expect(described.database.description).toBe(longDescription);
+    expect(described.database.updatedAt).toBe(updated.updatedAt);
+    expect(Date.parse(described.database.updatedAt)).toBeGreaterThan(
+      Date.parse(created.database.updatedAt),
+    );
     const read = await callJson(ownerClient, "get-content-database", {
       databaseId: created.database.id,
       limit: 1,
     });
     expect(read.database.description).toBe(longDescription);
+    expect(read.database.updatedAt).toBe(updated.updatedAt);
     expect(await readRow(id)).toMatchObject({
       title: before.title,
       content: before.content,
       bodyRevision: before.bodyRevision,
     });
+    await callJson(ownerClient, "update-document", {
+      id,
+      description: longDescription,
+    });
+    const retried = await callJson(ownerClient, "describe-content-database", {
+      databaseId: created.database.id,
+    });
+    expect(retried.database.updatedAt).toBe(updated.updatedAt);
+    const rejected = await readOnlyClient.callTool({
+      name: "update-document",
+      arguments: { id, description: "Must not apply" },
+    });
+    expect(rejected.isError).toBe(true);
+    const afterRejection = await callJson(ownerClient, "get-content-database", {
+      databaseId: created.database.id,
+      limit: 1,
+    });
+    expect(afterRejection.database.updatedAt).toBe(updated.updatedAt);
+    expect(afterRejection.database.description).toBe(longDescription);
+    const cleared = await callJson(ownerClient, "update-document", {
+      id,
+      description: "",
+    });
+    const afterClear = await callJson(
+      ownerClient,
+      "describe-content-database",
+      {
+        databaseId: created.database.id,
+      },
+    );
+    expect(afterClear.database.description).toBe("");
+    expect(afterClear.database.updatedAt).toBe(cleared.updatedAt);
+    expect(Date.parse(afterClear.database.updatedAt)).toBeGreaterThan(
+      Date.parse(updated.updatedAt),
+    );
   });
 
   it("rejects unauthorized updates and external body replacement without applying either patch", async () => {
