@@ -243,6 +243,7 @@ it("shows undo and redo controls in an editable directory widget", async () => {
     <MemoryRouter>
       <TooltipProvider>
         <DocumentToolbar
+          documentId="doc-1"
           canEdit
           canUndo
           canRedo
