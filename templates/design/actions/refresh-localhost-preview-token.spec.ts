@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
+  getRequestUserEmail: vi.fn(),
   resolveScope: vi.fn(),
   eq: vi.fn(),
   connections: [] as Array<{
@@ -14,6 +15,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -50,7 +55,6 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 import {
-  deriveDesignScopedReadOnlyPreviewToken,
   deriveLiveEditCapability,
   deriveLiveEditRegistrationCapability,
 } from "./connect-localhost.js";
@@ -58,6 +62,7 @@ import action from "./refresh-localhost-preview-token.js";
 
 beforeEach(() => {
   mocks.assertAccess.mockReset();
+  mocks.getRequestUserEmail.mockReset();
   mocks.resolveScope.mockReset();
   mocks.eq.mockReset();
   mocks.connections = [
@@ -85,7 +90,7 @@ beforeEach(() => {
 });
 
 describe("refresh-localhost-preview-token", () => {
-  it("binds public preview reads to a connection used by the design", async () => {
+  it("does not issue a bridge token to a public viewer", async () => {
     mocks.connections = [
       {
         id: "conn_2",
@@ -100,20 +105,26 @@ describe("refresh-localhost-preview-token", () => {
         connectionId: "conn_2",
         publicVisualEdit: true,
       }),
-    ).resolves.toMatchObject({
-      previewToken: deriveDesignScopedReadOnlyPreviewToken(
-        "owner-bridge-token",
-        "design_1",
-      ),
-      bridgeUrl: "http://127.0.0.1:7331",
+    ).resolves.toEqual({
+      status: "unavailable",
+      errorCode: "public_localhost_preview_unavailable",
     });
-    expect(mocks.resolveScope).toHaveBeenCalledWith({
-      designId: "design_1",
-      allowPublicViewer: true,
-    });
+    expect(mocks.resolveScope).not.toHaveBeenCalled();
   });
 
   it("refreshes only requested connections when stale metadata remains", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("editor@example.com");
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "editor",
+      resource: {
+        visibility: "public",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          screenMetadata: { secondary: { connectionId: "conn_2" } },
+        }),
+      },
+    });
     const result = await action.run({
       designId: "design_1",
       connectionIds: ["conn_2"],
@@ -129,6 +140,7 @@ describe("refresh-localhost-preview-token", () => {
   });
 
   it("derives a restart-safe preview token from the stored bridge token", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("editor@example.com");
     mocks.assertAccess.mockResolvedValueOnce({
       role: "editor",
       resource: {
@@ -171,7 +183,7 @@ describe("refresh-localhost-preview-token", () => {
     );
   });
 
-  it("gives a copied public viewer registration only, never pending access", async () => {
+  it("does not expose preview or registration credentials to public viewers", async () => {
     mocks.connections = [
       {
         id: "conn_2",
@@ -187,20 +199,115 @@ describe("refresh-localhost-preview-token", () => {
       publicVisualEdit: true,
     });
 
-    expect(result.previewToken).toBe(
-      deriveDesignScopedReadOnlyPreviewToken("stored-bridge-token", "design_1"),
-    );
-    expect(result.liveEditRegistrationCapability).toBe(
-      deriveLiveEditRegistrationCapability("stored-bridge-token", "design_1"),
-    );
-    expect(result).not.toHaveProperty("liveEditCapability");
-    expect(mocks.resolveScope).toHaveBeenCalledWith({
-      designId: "design_1",
-      allowPublicViewer: true,
+    expect(result).toEqual({
+      status: "unavailable",
+      errorCode: "public_localhost_preview_unavailable",
     });
+    expect(result).not.toHaveProperty("previewToken");
+    expect(result).not.toHaveProperty("liveEditRegistrationCapability");
+    expect(result).not.toHaveProperty("liveEditCapability");
+    expect(mocks.resolveScope).not.toHaveBeenCalled();
   });
 
-  it("lets public commenters refresh registration credentials in the design scope", async () => {
+  it("withholds public viewer credentials when the request omits or disables the public flag", async () => {
+    mocks.connections = [
+      {
+        id: "conn_2",
+        previewToken: "legacy-random-preview",
+        bridgeToken: "stored-bridge-token",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+    ];
+
+    for (const publicVisualEdit of [undefined, false]) {
+      const result = await action.run({
+        designId: "design_1",
+        connectionId: "conn_2",
+        ...(publicVisualEdit === undefined ? {} : { publicVisualEdit }),
+      });
+
+      expect(result).toEqual({
+        status: "unavailable",
+        errorCode: "public_localhost_preview_unavailable",
+      });
+      expect(result).not.toHaveProperty("previewToken");
+      expect(result).not.toHaveProperty("liveEditRegistrationCapability");
+      expect(result).not.toHaveProperty("liveEditCapability");
+    }
+
+    expect(mocks.resolveScope).not.toHaveBeenCalled();
+  });
+
+  it("withholds public credentials from a capability-only session with editor access", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "editor",
+      resource: {
+        visibility: "public",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "conn_2",
+        }),
+      },
+    });
+    mocks.connections = [
+      {
+        id: "conn_2",
+        previewToken: "legacy-random-preview",
+        bridgeToken: "stored-bridge-token",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+    ];
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_2",
+      publicVisualEdit: false,
+    });
+
+    expect(result).toEqual({
+      status: "unavailable",
+      errorCode: "public_localhost_preview_unavailable",
+    });
+    expect(mocks.resolveScope).not.toHaveBeenCalled();
+  });
+
+  it("withholds credentials from the read-only local visual-edit principal even if it resolves as owner", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "owner",
+      resource: {
+        visibility: "public",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "conn_2",
+        }),
+      },
+    });
+    mocks.getRequestUserEmail.mockReturnValue(
+      "bridge+abc123@local.visual-edit.agent-native.invalid",
+    );
+    mocks.connections = [
+      {
+        id: "conn_2",
+        previewToken: "legacy-random-preview",
+        bridgeToken: "stored-bridge-token",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+    ];
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_2",
+      publicVisualEdit: false,
+    });
+
+    expect(result).toEqual({
+      status: "unavailable",
+      errorCode: "public_localhost_preview_unavailable",
+    });
+    expect(mocks.resolveScope).not.toHaveBeenCalled();
+  });
+
+  it("does not expose bridge credentials to public commenters", async () => {
     mocks.assertAccess.mockResolvedValueOnce({
       role: "commenter",
       resource: {
@@ -226,20 +333,15 @@ describe("refresh-localhost-preview-token", () => {
       publicVisualEdit: true,
     });
 
-    expect(result.previewToken).toBe(
-      deriveDesignScopedReadOnlyPreviewToken("stored-bridge-token", "design_1"),
-    );
-    expect(result.liveEditRegistrationCapability).toBe(
-      deriveLiveEditRegistrationCapability("stored-bridge-token", "design_1"),
-    );
-    expect(result).not.toHaveProperty("liveEditCapability");
-    expect(mocks.resolveScope).toHaveBeenCalledWith({
-      designId: "design_1",
-      allowPublicViewer: true,
+    expect(result).toEqual({
+      status: "unavailable",
+      errorCode: "public_localhost_preview_unavailable",
     });
+    expect(mocks.resolveScope).not.toHaveBeenCalled();
   });
 
   it("issues live-edit capabilities to the design owner", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
     mocks.assertAccess.mockResolvedValueOnce({
       role: "owner",
       resource: {
@@ -274,6 +376,7 @@ describe("refresh-localhost-preview-token", () => {
   });
 
   it("does not expose a design owner's connection to a shared editor", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("editor@example.com");
     mocks.connections = [];
     mocks.resolveScope.mockResolvedValueOnce({
       ownerEmail: "editor@example.com",
@@ -443,6 +546,18 @@ describe("refresh-localhost-preview-token", () => {
   });
 
   it("marks a scoped connection without credentials as unavailable", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("editor@example.com");
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "editor",
+      resource: {
+        visibility: "public",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          screenMetadata: { secondary: { connectionId: "conn_2" } },
+        }),
+      },
+    });
     mocks.connections = [
       {
         id: "conn_2",
@@ -529,7 +644,7 @@ describe("refresh-localhost-preview-token", () => {
     expect(mocks.resolveScope).not.toHaveBeenCalled();
   });
 
-  it("allows a public mixed-source design to refresh its localhost screen", async () => {
+  it("marks public localhost screens unavailable in mixed-source designs", async () => {
     mocks.connections = [
       {
         id: "conn_1",
@@ -555,15 +670,13 @@ describe("refresh-localhost-preview-token", () => {
         connectionId: "conn_1",
         publicVisualEdit: true,
       }),
-    ).resolves.toMatchObject({
-      previewToken: deriveDesignScopedReadOnlyPreviewToken(
-        "bridge-token-1",
-        "design_1",
-      ),
+    ).resolves.toEqual({
+      status: "unavailable",
+      errorCode: "public_localhost_preview_unavailable",
     });
   });
 
-  it("returns every bound connection for the public canvas", async () => {
+  it("marks each localhost connection unavailable for a public canvas", async () => {
     mocks.connections = [
       {
         id: "conn_1",
@@ -587,31 +700,27 @@ describe("refresh-localhost-preview-token", () => {
     ).resolves.toMatchObject({
       connections: {
         conn_1: {
-          previewToken: deriveDesignScopedReadOnlyPreviewToken(
-            "bridge-token-1",
-            "design_1",
-          ),
+          status: "unavailable",
+          errorCode: "public_localhost_preview_unavailable",
         },
         conn_2: {
-          previewToken: deriveDesignScopedReadOnlyPreviewToken(
-            "bridge-token-2",
-            "design_1",
-          ),
+          status: "unavailable",
+          errorCode: "public_localhost_preview_unavailable",
         },
       },
     });
   });
 
-  it("does not expose a connection-wide token to public viewers without a bridge token", async () => {
+  it("marks public preview unavailable even when only a legacy preview token exists", async () => {
     await expect(
       action.run({
         designId: "design_1",
         connectionId: "conn_2",
         publicVisualEdit: true,
       }),
-    ).rejects.toMatchObject({
-      errorCode: "localhost_preview_credentials_unavailable",
-      statusCode: 424,
+    ).resolves.toEqual({
+      status: "unavailable",
+      errorCode: "public_localhost_preview_unavailable",
     });
   });
 });

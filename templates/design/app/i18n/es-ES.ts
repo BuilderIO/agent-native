@@ -1584,6 +1584,8 @@ export default {
         "Las credenciales de la vista previa local no están disponibles",
       previewCredentialsUnavailableDescription:
         "Vuelve a conectar la conexión localhost de esta pantalla en el inspector y vuelve a intentarlo.",
+      publicPreviewUnavailableDescription:
+        "Las vistas previas de localhost no se comparten con los visitantes públicos. Abre este diseño como colaborador para ver esta pantalla.",
       previewCredentialsRetry: "Reintentar credenciales",
     },
   },

@@ -1517,6 +1517,8 @@ export default {
         "Local preview credentials are unavailable",
       previewCredentialsUnavailableDescription:
         "Reconnect this Screen's localhost connection in the inspector, then retry.",
+      publicPreviewUnavailableDescription:
+        "Localhost previews are not shared with public viewers. Open this Design as a collaborator to view this Screen.",
       previewCredentialsRetry: "Retry credentials",
       confirmationRetryExhausted:
         "Live editor bridge did not confirm after several attempts.",

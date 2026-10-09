@@ -1512,6 +1512,8 @@ export default {
       previewCredentialsUnavailableTitle: "本地预览凭据不可用",
       previewCredentialsUnavailableDescription:
         "请在检查器中重新连接此屏幕的 localhost 连接，然后重试。",
+      publicPreviewUnavailableDescription:
+        "localhost 预览不会与公开访问者共享。请以协作者身份打开此设计以查看此屏幕。",
       previewCredentialsRetry: "重试获取凭据",
     },
   },

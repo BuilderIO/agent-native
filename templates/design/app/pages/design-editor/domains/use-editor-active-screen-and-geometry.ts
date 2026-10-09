@@ -38,7 +38,12 @@ import type { KScaleStyleChangesByFrameId } from "@/components/design/multi-scre
 import type { DeviceFrameType } from "@/components/design/types";
 import { DEVICE_FRAME_VIEWPORTS } from "@/components/design/types";
 import { type DesignEditorCommand } from "@/hooks/use-navigation-state";
-import { createDesignSaveOutboxEntry } from "@/lib/design-save-outbox";
+import {
+  createDesignSaveOutboxEntry,
+  isRejectedRestoreClaimError,
+  reconcileRejectedRestoreClaimOutboxEntry,
+  stripRejectedRestoreClaimAssignments,
+} from "@/lib/design-save-outbox";
 import {
   clearPendingGeneration,
   hasPendingGenerationOutput,
@@ -65,6 +70,7 @@ import {
   pendingDesignDataOperations,
   stagePendingDesignDataOperations,
   type DesignDataOperation,
+  type PendingDesignDataOperations,
 } from "../data-operations";
 import { deriveDesignBreakpoints } from "../derive/design-breakpoints";
 import {
@@ -396,6 +402,9 @@ export function useEditorActiveScreenAndGeometry({
   const pendingFrameGeometryRestoreClaimsRef = useRef<
     PendingFrameGeometryRestoreClaim[]
   >([]);
+  const rejectedFrameGeometryRestoreClaimsRef = useRef<
+    Array<{ designId: string; claim: FileDeletionRestoreClaim }>
+  >([]);
   const frameGeometryMutationChainRef = useRef<Promise<void>>(
     Promise.resolve(),
   );
@@ -528,11 +537,23 @@ export function useEditorActiveScreenAndGeometry({
       }
       const revision = frameGeometryOperationRevisionRef.current + 1;
       frameGeometryOperationRevisionRef.current = revision;
+      const incomingRestoreClaims = options?.restoreClaims ?? [];
+      if (incomingRestoreClaims.length > 0) {
+        const retryTargetFileIds = new Set(
+          incomingRestoreClaims.map((claim) => claim.targetFileId),
+        );
+        rejectedFrameGeometryRestoreClaimsRef.current =
+          rejectedFrameGeometryRestoreClaimsRef.current.filter(
+            (item) =>
+              item.designId !== id ||
+              !retryTargetFileIds.has(item.claim.targetFileId),
+          );
+      }
       pendingFrameGeometryRestoreClaimsRef.current =
         stageFrameGeometryRestoreClaims(
           pendingFrameGeometryRestoreClaimsRef.current,
           id,
-          options?.restoreClaims ?? [],
+          incomingRestoreClaims,
           revision,
         );
       pendingFrameGeometryOperationsForUnloadRef.current =
@@ -550,9 +571,17 @@ export function useEditorActiveScreenAndGeometry({
       const current = previous
         .catch(() => {})
         .then(async () => {
+          let outboxEntry: ReturnType<typeof createFrameGeometryOutboxEntry> =
+            null;
           try {
-            const outboxEntry = createFrameGeometryOutboxEntry(
+            const rejectedAssignments = stripRejectedRestoreClaimAssignments(
               operationsForRevision,
+              rejectedFrameGeometryRestoreClaimsRef.current
+                .filter((item) => item.designId === id)
+                .map((item) => item.claim),
+            );
+            outboxEntry = createFrameGeometryOutboxEntry(
+              rejectedAssignments.operations as DesignDataOperation[],
               revision,
               operationSource,
             );
@@ -565,7 +594,67 @@ export function useEditorActiveScreenAndGeometry({
                 revision,
               );
             await acknowledgeFrameGeometryOutboxEntry(outboxEntry);
-          } catch {
+          } catch (error: unknown) {
+            const restoreClaims = Array.isArray(
+              outboxEntry?.payload.restoreClaims,
+            )
+              ? (outboxEntry.payload
+                  .restoreClaims as FileDeletionRestoreClaim[])
+              : [];
+            if (
+              outboxEntry &&
+              restoreClaims.length > 0 &&
+              isRejectedRestoreClaimError(error)
+            ) {
+              const rejectedEntry = outboxEntry;
+              const rejectedIds = new Set(
+                rejectedFrameGeometryRestoreClaimsRef.current
+                  .filter((item) => item.designId === rejectedEntry.designId)
+                  .map((item) => item.claim.claimId),
+              );
+              rejectedFrameGeometryRestoreClaimsRef.current = [
+                ...rejectedFrameGeometryRestoreClaimsRef.current,
+                ...restoreClaims
+                  .filter((claim) => !rejectedIds.has(claim.claimId))
+                  .map((claim) => ({
+                    designId: rejectedEntry.designId,
+                    claim,
+                  })),
+              ];
+              pendingFrameGeometryRestoreClaimsRef.current =
+                acknowledgeFrameGeometryRestoreClaims(
+                  pendingFrameGeometryRestoreClaimsRef.current,
+                  rejectedEntry.designId,
+                  restoreClaims,
+                );
+              const reconciledEntry =
+                reconcileRejectedRestoreClaimOutboxEntry(rejectedEntry);
+              const reconciledOperations = reconciledEntry
+                ? (reconciledEntry.payload
+                    .dataOperations as DesignDataOperation[])
+                : [];
+              let pendingOperations: PendingDesignDataOperations =
+                clearAcknowledgedDesignDataOperationsThroughRevision(
+                  pendingFrameGeometryOperationsForUnloadRef.current,
+                  revision,
+                );
+              for (const operation of reconciledOperations) {
+                const key = JSON.stringify(operation.path);
+                if (pendingOperations[key]) continue;
+                pendingOperations = stagePendingDesignDataOperations(
+                  pendingOperations,
+                  [operation],
+                  revision,
+                );
+              }
+              pendingFrameGeometryOperationsForUnloadRef.current =
+                pendingOperations;
+              if (reconciledEntry) {
+                await journalOutboxEntry(reconciledEntry);
+              } else {
+                await acknowledgeFrameGeometryOutboxEntry(outboxEntry);
+              }
+            }
             void queryClient.invalidateQueries({
               queryKey: ["action", "get-design"],
             });

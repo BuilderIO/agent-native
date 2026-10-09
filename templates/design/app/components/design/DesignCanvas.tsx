@@ -619,6 +619,7 @@ interface DesignCanvasProps {
    * this browser component. */
   previewToken?: string;
   localhostPreviewUnavailable?: boolean;
+  localhostPreviewUnavailablePublic?: boolean;
   onRetryLocalhostPreview?: () => void;
   localhostPreviewRetryPending?: boolean;
   liveEditCapability?: string;
@@ -1316,6 +1317,7 @@ export function DesignCanvas({
   fusionUrl,
   previewToken,
   localhostPreviewUnavailable = false,
+  localhostPreviewUnavailablePublic = false,
   onRetryLocalhostPreview,
   localhostPreviewRetryPending = false,
   liveEditCapability,
@@ -2090,6 +2092,13 @@ export function DesignCanvas({
   );
   const rawExternalPreviewUrl = useMemo(() => {
     if (snapshotOnly && sourceType === "localhost") return null;
+    if (
+      sourceType === "localhost" &&
+      connectionId &&
+      (!bridgeUrl || !effectivePreviewToken)
+    ) {
+      return null;
+    }
     const overrideUrl = getExternalPreviewUrl(previewUrlOverride ?? "");
     if (overrideUrl) return overrideUrl;
     const contentUrl = getExternalPreviewUrl(
@@ -2110,6 +2119,9 @@ export function DesignCanvas({
     return null;
   }, [
     content,
+    bridgeUrl,
+    connectionId,
+    effectivePreviewToken,
     fusionUrl,
     previewUrlOverride,
     renderedContent,
@@ -7592,10 +7604,12 @@ export function DesignCanvas({
               </div>
               <div className="text-xs text-muted-foreground">
                 {t(
-                  "designCanvas.localBridge.previewCredentialsUnavailableDescription",
+                  localhostPreviewUnavailablePublic
+                    ? "designCanvas.localBridge.publicPreviewUnavailableDescription"
+                    : "designCanvas.localBridge.previewCredentialsUnavailableDescription",
                 )}
               </div>
-              {onRetryLocalhostPreview ? (
+              {onRetryLocalhostPreview && !localhostPreviewUnavailablePublic ? (
                 <Button
                   type="button"
                   variant="outline"

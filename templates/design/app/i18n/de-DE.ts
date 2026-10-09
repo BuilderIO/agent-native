@@ -1600,6 +1600,8 @@ export default {
         "Anmeldedaten für die lokale Vorschau sind nicht verfügbar",
       previewCredentialsUnavailableDescription:
         "Verbinde die Localhost-Verbindung dieses Screens im Inspektor erneut und versuche es dann noch einmal.",
+      publicPreviewUnavailableDescription:
+        "Localhost-Vorschauen werden nicht mit öffentlichen Betrachtern geteilt. Öffne dieses Design als Mitwirkender, um diesen Screen zu sehen.",
       previewCredentialsRetry: "Anmeldedaten erneut abrufen",
     },
   },

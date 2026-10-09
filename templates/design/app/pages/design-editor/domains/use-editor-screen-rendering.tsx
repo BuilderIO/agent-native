@@ -666,9 +666,17 @@ export function useEditorScreenRendering({
       );
       const localhostPreviewUnavailable = Boolean(
         !screenSnapshotOnly &&
-        (canEditDesign || canEditLiveScreen(screen.id)) &&
         screenSourceType === "localhost" &&
-        refreshedLocalhostConnection?.status === "unavailable",
+        refreshedLocalhostConnection?.status === "unavailable" &&
+        (canEditDesign ||
+          canEditLiveScreen(screen.id) ||
+          (publicVisualEdit &&
+            refreshedLocalhostConnection.errorCode ===
+              "public_localhost_preview_unavailable")),
+      );
+      const localhostPreviewUnavailablePublic = Boolean(
+        refreshedLocalhostConnection?.errorCode ===
+        "public_localhost_preview_unavailable",
       );
       const screenSnapshot = liveScreenSnapshotsById[screen.id]?.html;
       const useRuntimeReplacement = shouldUseOverviewRuntimeReplacement({
@@ -810,6 +818,7 @@ export function useEditorScreenRendering({
           sharedSnapshotPollActive={screenIsActive}
           previewToken={screenSnapshotOnly ? undefined : screenPreviewToken}
           localhostPreviewUnavailable={localhostPreviewUnavailable}
+          localhostPreviewUnavailablePublic={localhostPreviewUnavailablePublic}
           onRetryLocalhostPreview={() =>
             void localhostPreviewTokenQuery.refetch()
           }

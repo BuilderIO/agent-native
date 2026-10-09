@@ -1132,6 +1132,48 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     });
   });
 
+  it("does not load a connected localhost URL before preview credentials arrive", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) =>
+      Promise.reject(new Error(`Unexpected fetch: ${requestInfoUrl(input)}`)),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/library"
+          contentKey="screen-library"
+          screenId="screen-library"
+          sourceType="localhost"
+          bridgeUrl="http://127.0.0.1:7331"
+          connectionId="localhost_connection"
+          designId="design_public"
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    const appOrBridgeRequests = fetchMock.mock.calls
+      .map(([input]) => requestInfoUrl(input))
+      .filter(
+        (url) =>
+          url.startsWith("http://localhost:5173") ||
+          url.startsWith("http://127.0.0.1:7331"),
+      );
+    expect(appOrBridgeRequests).toEqual([]);
+    expect(
+      container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      )?.getAttribute("src"),
+    ).not.toBe("http://localhost:5173/library");
+  });
+
   it("refreshes a stale public preview token after a bridge restart", async () => {
     let registrationCount = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
@@ -1892,6 +1934,38 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
     expect((readyRetryButton as HTMLButtonElement).disabled).toBe(false);
     await act(async () => readyRetryButton?.click());
     expect(retryLocalhostPreview).toHaveBeenCalledOnce();
+  });
+
+  it("explains why public viewers cannot open localhost previews", async () => {
+    await act(async () =>
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/settings"
+          contentKey="screen-settings"
+          screenId="screen-settings"
+          sourceType="localhost"
+          localhostPreviewUnavailable
+          localhostPreviewUnavailablePublic
+          onRetryLocalhostPreview={vi.fn()}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      ),
+    );
+
+    expect(container.textContent).toContain(
+      "Localhost previews are not shared with public viewers.",
+    );
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("Retry credentials"),
+      ),
+    ).toBe(false);
   });
 
   it("keeps an entitled viewer on the proxied document instead of the snapshot", async () => {

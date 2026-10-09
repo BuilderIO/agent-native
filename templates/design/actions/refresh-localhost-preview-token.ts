@@ -1,21 +1,22 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
+import { isLocalVisualEditPrincipal } from "../shared/local-visual-edit-principal.js";
 import { designConnectionIdsFromData } from "../shared/source-mode.js";
 import {
   deriveLiveEditCapability,
   deriveLiveEditRegistrationCapability,
-  deriveDesignScopedReadOnlyPreviewToken,
   derivePreviewToken,
 } from "./connect-localhost.js";
 
 export default defineAction({
   description:
-    "Refresh localhost preview credentials. Public visual-edit viewers and commenters receive a design-scoped read-only preview token and registration capability for ephemeral DOM editing; the publicVisualEdit flag grants no pending-edit read, write, or agent handoff access.",
+    "Refresh localhost preview credentials. Public visual-edit viewers, commenters, and capability-only sessions cannot receive localhost bridge credentials because the bridge cannot yet restrict them to resources authorized by the shared Design. The publicVisualEdit flag grants no pending-edit read, write, or agent handoff access.",
   schema: z.object({
     designId: z.string().describe("Design project ID."),
     connectionId: z
@@ -34,7 +35,7 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "Marks a public /visual-edit preview request; the flag grants no access by itself. The server verifies public visibility and may return read-only preview plus registration-only credentials. Pending edits and agent handoff still require the separate design-scoped capability.",
+        "Marks a public /visual-edit request; the flag grants no access by itself. The server verifies public visibility, and unauthenticated viewers/commenters receive no localhost credentials until the bridge can restrict them to resources authorized by this Design.",
       ),
   }),
   readOnly: true,
@@ -45,10 +46,9 @@ export default defineAction({
     const access = await assertAccess("design", designId, "viewer");
     const designData = (access.resource as { data?: unknown }).data;
     const designConnectionIds = designConnectionIdsFromData(designData);
-    if (
-      publicVisualEdit === true &&
-      (access.resource as { visibility?: unknown }).visibility !== "public"
-    ) {
+    const designIsPublic =
+      (access.resource as { visibility?: unknown }).visibility === "public";
+    if (publicVisualEdit === true && !designIsPublic) {
       fail("This Design is not available for public preview.", {
         errorCode: "design_public_preview_unavailable",
         statusCode: 403,
@@ -92,17 +92,31 @@ export default defineAction({
       access.role === "editor";
     const canIssueRegistrationCapability =
       canIssueLiveEditCapability || publicVisualEdit === true;
-    const needsDesignScopedReadOnlyPreviewToken =
-      publicVisualEdit === true &&
-      (access.role === "viewer" || access.role === "commenter");
-    const connectionScope =
-      publicVisualEdit === true &&
-      (access.role === "viewer" || access.role === "commenter")
-        ? await resolveLocalhostConnectionScope({
-            designId,
-            allowPublicViewer: true,
-          })
-        : await resolveLocalhostConnectionScope({ designId });
+    const requestUserEmail = getRequestUserEmail();
+    const hasAccountPrincipal =
+      Boolean(requestUserEmail) &&
+      !isLocalVisualEditPrincipal(requestUserEmail);
+    const publicReadOnlyViewer =
+      designIsPublic &&
+      (access.role === "viewer" ||
+        access.role === "commenter" ||
+        !hasAccountPrincipal);
+    if (publicReadOnlyViewer) {
+      const unavailable = {
+        status: "unavailable" as const,
+        errorCode: "public_localhost_preview_unavailable" as const,
+      };
+      if (connectionId) return unavailable;
+      return {
+        connections: Object.fromEntries(
+          requestedConnectionIds.map((requestedId) => [
+            requestedId,
+            unavailable,
+          ]),
+        ),
+      };
+    }
+    const connectionScope = await resolveLocalhostConnectionScope({ designId });
     const { ownerEmail, orgId } = connectionScope;
     const connections = await getDb()
       .select({
@@ -135,18 +149,7 @@ export default defineAction({
         ? derivePreviewToken(connection.bridgeToken)
         : connection.previewToken;
 
-    const previewTokenForRequest = (connection: {
-      bridgeToken?: string | null;
-      previewToken?: string | null;
-    }) =>
-      needsDesignScopedReadOnlyPreviewToken
-        ? connection.bridgeToken
-          ? deriveDesignScopedReadOnlyPreviewToken(
-              connection.bridgeToken,
-              designId,
-            )
-          : null
-        : previewTokenFor(connection);
+    const previewTokenForRequest = previewTokenFor;
 
     const credentialsFor = (connection: (typeof connections)[number]) => {
       const previewToken = previewTokenForRequest(connection);

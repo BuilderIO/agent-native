@@ -1583,6 +1583,8 @@ export default {
         "As credenciais da pré-visualização local não estão disponíveis",
       previewCredentialsUnavailableDescription:
         "Reconecte a conexão localhost desta tela no inspetor e tente novamente.",
+      publicPreviewUnavailableDescription:
+        "Pré-visualizações do localhost não são compartilhadas com visitantes públicos. Abra este Design como colaborador para ver esta tela.",
       previewCredentialsRetry: "Tentar credenciais novamente",
     },
   },

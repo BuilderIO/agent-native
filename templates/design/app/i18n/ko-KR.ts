@@ -1565,6 +1565,8 @@ export default {
         "로컬 미리보기 자격 증명을 사용할 수 없습니다",
       previewCredentialsUnavailableDescription:
         "검사기에서 이 화면의 localhost 연결을 다시 연결한 후 다시 시도하세요.",
+      publicPreviewUnavailableDescription:
+        "로컬호스트 미리보기는 공개 사용자와 공유되지 않습니다. 이 화면을 보려면 공동작업자로 이 디자인을 여세요.",
       previewCredentialsRetry: "자격 증명 다시 시도",
     },
   },

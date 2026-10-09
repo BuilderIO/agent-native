@@ -39,6 +39,7 @@ import {
   makeLocalhostRouteId,
   titleFromRoutePath,
 } from "../shared/source-mode.js";
+import { LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN } from "../shared/local-visual-edit-principal.js";
 import addLocalhostScreensAction, {
   pathFromUrl,
   routeUrl,
@@ -234,8 +235,6 @@ function isLoopbackUrl(value: string): boolean {
 }
 
 const LOCAL_VISUAL_EDIT_TICKET_TTL_SECONDS = 5 * 60;
-const LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN =
-  "local.visual-edit.agent-native.invalid";
 const VISUAL_EDIT_BOOTSTRAP_CAPABILITY_PREFIX =
   "capability:visual-edit-bootstrap:";
 

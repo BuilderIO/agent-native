@@ -1257,7 +1257,9 @@ export function useEditorFilesAndSaving({
         liveEditRegistrationCapability?: string;
         bridgeUrl?: string;
         status?: "available" | "unavailable";
-        errorCode?: "localhost_preview_credentials_unavailable";
+        errorCode?:
+          | "localhost_preview_credentials_unavailable"
+          | "public_localhost_preview_unavailable";
       }
     >;
   }>(
