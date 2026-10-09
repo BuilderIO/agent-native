@@ -288,6 +288,7 @@ export interface AgentChatRequest {
   displayMessage?: string;
   history?: AgentMessage[];
   structuredHistory?: AgentChatStructuredMessage[];
+  loadedSkillSlugs?: string[];
   references?: AgentChatReference[];
   threadId?: string;
   parentId?: string | null;

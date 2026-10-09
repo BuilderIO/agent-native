@@ -769,6 +769,9 @@ export default {
       tools: "उपकरण",
       tokens: "टोकन",
       label: "डिज़ाइन कार्यक्षेत्र",
+      account: "खाता",
+      collapse: "साइडबार समेटें",
+      expand: "साइडबार फैलाएँ",
     },
     breakpointBar: {
       base: "आधार",
@@ -858,12 +861,10 @@ export default {
       "{{path}} इसके खुलने के बाद डिस्क पर बदल गई है। स्क्रीन को रीलोड करें और फिर से प्रयास करें।",
     applyToSourceError: "स्रोत में सहेजा नहीं जा सका: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "टोकन इम्पोर्ट करें",
       importTitle: "टोकन इम्पोर्ट करें",
       importHint:
@@ -875,6 +876,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "पेस्ट किए गए टोकन इम्पोर्ट करें",
       importedCount: "{{count}} टोकन इम्पोर्ट हुए",
+      count: "{{count}} टोकन",
+      search: "टोकन खोजें",
+      noMatches: "कोई मेल खाता टोकन नहीं",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1585,6 +1589,12 @@ export default {
       permissionPromptSettingsInstructions:
         "ऐड्रेस बार के बाईं ओर साइट कंट्रोल आइकन पर क्लिक करें, साइट सेटिंग खोलें, फिर लोकल नेटवर्क को ‘अनुमति दें’ पर सेट करें।",
       permissionPromptRetry: "कनेक्शन फिर से आज़माएँ",
+      previewCredentialsUnavailableTitle: "लोकल प्रीव्यू क्रेडेंशियल उपलब्ध नहीं हैं",
+      previewCredentialsUnavailableDescription:
+        "इंस्पेक्टर में इस स्क्रीन का localhost कनेक्शन फिर से जोड़ें, फिर दोबारा कोशिश करें।",
+      publicPreviewUnavailableDescription:
+        "लोकलहोस्ट प्रीव्यू सार्वजनिक दर्शकों के साथ साझा नहीं किए जाते। इस स्क्रीन को देखने के लिए इस डिज़ाइन को सहयोगी के रूप में खोलें।",
+      previewCredentialsRetry: "क्रेडेंशियल फिर से आज़माएँ",
     },
   },
   multiScreenCanvas: {

@@ -766,6 +766,9 @@ export default {
       tools: "الأدوات",
       tokens: "الرموز",
       label: "مساحة عمل التصميم",
+      account: "الحساب",
+      collapse: "طي الشريط الجانبي",
+      expand: "توسيع الشريط الجانبي",
     },
     breakpointBar: {
       base: "الأساس",
@@ -855,12 +858,10 @@ export default {
       "تم تغيير {{path}} على القرص منذ فتحه. أعد تحميل الشاشة وحاول مرة أخرى.",
     applyToSourceError: "تعذّر الحفظ في المصدر: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "استيراد الرموز",
       importTitle: "استيراد الرموز",
       importHint:
@@ -872,6 +873,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "استيراد الرموز الملصقة",
       importedCount: "تم استيراد {{count}} رمزا",
+      count: "{{count}} رمز",
+      search: "البحث في الرموز",
+      noMatches: "لا توجد رموز مطابقة",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1579,6 +1583,13 @@ export default {
       permissionPromptSettingsInstructions:
         "انقر على رمز عناصر التحكم بالموقع إلى يسار شريط العناوين، وافتح إعدادات الموقع، ثم اضبط الشبكة المحلية على «السماح».",
       permissionPromptRetry: "إعادة محاولة الاتصال",
+      previewCredentialsUnavailableTitle:
+        "بيانات اعتماد المعاينة المحلية غير متاحة",
+      previewCredentialsUnavailableDescription:
+        "أعِد توصيل اتصال localhost لهذه الشاشة من المفتش، ثم أعد المحاولة.",
+      publicPreviewUnavailableDescription:
+        "لا تتم مشاركة معاينات localhost مع المشاهدين العامة. افتح هذا التصميم بصفتك متعاونًا لعرض هذه الشاشة.",
+      previewCredentialsRetry: "إعادة محاولة بيانات الاعتماد",
     },
   },
   multiScreenCanvas: {

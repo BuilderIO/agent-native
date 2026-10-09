@@ -1352,6 +1352,7 @@ export async function queryFirstPartyAnalyticsInBigQuery(
   scopedSql: string,
   args: Array<string | null>,
   table: BigQueryTableRef,
+  options: { maxBytesBilled?: number } = {},
 ): Promise<{
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
@@ -1359,6 +1360,7 @@ export async function queryFirstPartyAnalyticsInBigQuery(
 }> {
   const result = await runQuery(
     `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table)}) AS first_party_analytics_query LIMIT 5000`,
+    { maxBytesBilled: options.maxBytesBilled },
   );
   return {
     rows: result.rows,

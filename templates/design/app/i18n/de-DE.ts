@@ -778,12 +778,15 @@ export default {
     },
     leftRail: {
       file: "Datei",
-      agent: "Agent",
+      agent: "Agenten",
       assets: "Ressourcen",
       import: "Import",
       tools: "Werkzeuge",
       tokens: "Design-Tokens",
       label: "Design-Arbeitsbereich",
+      account: "Konto",
+      collapse: "Seitenleiste einklappen",
+      expand: "Seitenleiste ausklappen",
     },
     breakpointBar: {
       base: "Basis",
@@ -875,12 +878,10 @@ export default {
       "{{path}} wurde seit dem Öffnen auf der Festplatte geändert. Bildschirm neu laden und erneut versuchen.",
     applyToSourceError: "Speichern in Quelle fehlgeschlagen: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Tokens importieren",
       importTitle: "Tokens importieren",
       importHint:
@@ -892,6 +893,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Eingefügte Tokens importieren",
       importedCount: "{{count}} Tokens importiert",
+      count: "{{count}} Tokens",
+      search: "Tokens suchen",
+      noMatches: "Keine passenden Tokens",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1634,6 +1638,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Klicke links neben der Adressleiste auf das Symbol für Website-Einstellungen, öffne die Website-Einstellungen und setze Lokales Netzwerk auf Zulassen.",
       permissionPromptRetry: "Verbindung wiederholen",
+      previewCredentialsUnavailableTitle:
+        "Anmeldedaten für die lokale Vorschau sind nicht verfügbar",
+      previewCredentialsUnavailableDescription:
+        "Verbinde die Localhost-Verbindung dieses Screens im Inspektor erneut und versuche es dann noch einmal.",
+      publicPreviewUnavailableDescription:
+        "Localhost-Vorschauen werden nicht mit öffentlichen Betrachtern geteilt. Öffne dieses Design als Mitwirkender, um diesen Screen zu sehen.",
+      previewCredentialsRetry: "Anmeldedaten erneut abrufen",
     },
   },
   multiScreenCanvas: {

@@ -1079,6 +1079,7 @@ export default {
   },
   sqlDashboard: {
     customRange: "نطاق مخصص",
+    allValues: "الكل",
     untitledDashboard: "لوحة تحكم بلا عنوان",
     dashboardFallback: "لوحة المعلومات",
     viewOnly: "لديك حق الوصول للعرض فقط إلى لوحة المعلومات هذه.",

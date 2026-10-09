@@ -822,10 +822,12 @@ const editor = {
     linkToNotionPage: "Link zur Notion-Seite",
     localFile: "Lokale Datei",
     morePageActions: "Weitere Seitenaktionen",
+    formatting: "Formatierung",
     noPagesFound: "Keine Seiten gefunden",
     notifications: "Benachrichtigungen",
     notionSync: "Begriffssynchronisierung",
     openInNotion: "In Notion öffnen",
+    openInAgentNative: "In Agent-Native öffnen",
     orgCanFindAndView:
       "Jeder in Ihrer Organisation kann sie finden und anzeigen",
     orgLinkCanView:

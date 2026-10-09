@@ -69,6 +69,7 @@ async function zoomTo100(page: Page) {
   await expect(zoom).toHaveText(/100%/);
 }
 
+// oracle: none — verifies persisted app metadata after undo, not a Figma comparison.
 test("Undo restores deleted Screen metadata and variant membership", async ({
   page,
 }) => {
@@ -382,5 +383,122 @@ test("Undo restores deleted Screen metadata and variant membership", async ({
       .toBeCloseTo(640 / 700, 2);
   } finally {
     await action(page, "delete-design", { id: designId });
+  }
+});
+
+// oracle: none — verifies multi-screen deletion and app state, not visual parity.
+test("Delete removes all selected Screens", async ({ page }) => {
+  test.setTimeout(120_000);
+  const created = await action(page, "create-design", {
+    title: `Delete selected Screens ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId = created.id ?? created.data?.id;
+  if (typeof designId !== "string") {
+    throw new Error("create-design did not return an id");
+  }
+
+  try {
+    const firstFile = await action(page, "create-file", {
+      designId,
+      filename: "index.html",
+      content: ALPHA_HTML,
+      fileType: "html",
+    });
+    const secondFile = await action(page, "create-file", {
+      designId,
+      filename: "beta.html",
+      content: BETA_HTML,
+      fileType: "html",
+    });
+    const firstScreenId = firstFile.id ?? firstFile.data?.id;
+    const secondScreenId = secondFile.id ?? secondFile.data?.id;
+    if (
+      typeof firstScreenId !== "string" ||
+      typeof secondScreenId !== "string"
+    ) {
+      throw new Error("create-file did not return both Screen ids");
+    }
+
+    await gotoEditor(page, designId);
+    await expandAllLayers(page);
+    const layers = page.getByRole("tree", { name: "Layers" });
+    const firstLayer = layers
+      .locator(`[data-layer-row-button][data-layer-node-id="${firstScreenId}"]`)
+      .locator("xpath=ancestor::*[@role='treeitem']");
+    const secondLayer = layers
+      .locator(
+        `[data-layer-row-button][data-layer-node-id="${secondScreenId}"]`,
+      )
+      .locator("xpath=ancestor::*[@role='treeitem']");
+    await expect(firstLayer).toHaveCount(1);
+    await expect(secondLayer).toHaveCount(1);
+    await firstLayer.locator("[data-layer-row-button]").click();
+    await secondLayer
+      .locator("[data-layer-row-button]")
+      .click({ modifiers: ["Shift"] });
+    await expect(
+      layers.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(2);
+
+    await page.keyboard.press("Delete");
+    await expect
+      .poll(async () => {
+        const files = (await readDesign(page, designId)).files ?? [];
+        return [firstScreenId, secondScreenId].map((screenId) =>
+          files.some((candidate) => candidate.id === screenId),
+        );
+      })
+      .toEqual([false, false]);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+// oracle: none — verifies the app's final-screen deletion behavior, not a measured Figma result.
+test("Delete removes the last selected Screen", async ({ page }) => {
+  test.setTimeout(120_000);
+  const created = await action(page, "create-design", {
+    title: `Delete final Screen ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId = created.id ?? created.data?.id;
+  if (typeof designId !== "string") {
+    throw new Error("create-design did not return an id");
+  }
+
+  try {
+    const file = await action(page, "create-file", {
+      designId,
+      filename: "index.html",
+      content: ALPHA_HTML,
+      fileType: "html",
+    });
+    const screenId = file.id ?? file.data?.id;
+    if (typeof screenId !== "string") {
+      throw new Error("create-file did not return a Screen id");
+    }
+
+    await gotoEditor(page, designId);
+    const screenTitle = page.locator(
+      `[data-screen-shell][data-frame-id="${screenId}"] [data-frame-title]`,
+    );
+    await expect(screenTitle).toBeVisible();
+    await screenTitle.click();
+    await expect(
+      page.getByRole("button", { name: "Remove screen" }),
+    ).toBeVisible();
+
+    await page.keyboard.press("Delete");
+    await expect
+      .poll(async () => {
+        const files = (await readDesign(page, designId)).files ?? [];
+        return files.some((candidate) => candidate.id === screenId);
+      })
+      .toBe(false);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
   }
 });

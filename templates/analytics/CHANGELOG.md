@@ -15,6 +15,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Journey captures now flag visible previews missing from the recording instead of saving blank screenshots
 - Journey recordings flag iframe content when clipping, masks, or filters make its visibility uncertain.
+- Onboarding journeys count saved clips and completed deck generations as outputs while showing Slides attempt outcomes separately
+- Session recordings keep their full history and performance insights across browser session changes and large replays.
 - Large onboarding journeys keep their step counts when follow-up coverage exceeds query limits
 
 ## 2026-10-08

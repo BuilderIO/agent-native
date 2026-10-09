@@ -22,6 +22,7 @@ import {
   parseResumeRunInput,
   parseAgentThreadSnapshot,
   parseStartRunInput,
+  persistableFilePart,
 } from "./index.js";
 
 const event = {
@@ -595,6 +596,57 @@ describe("AgentKit protocol validation", () => {
         value: "positive",
       }),
     ).toThrow("submitFeedback.messageSeq");
+  });
+
+  it("stores inline file bytes only as a named omission marker", () => {
+    const marker = persistableFilePart({
+      type: "file",
+      name: "photo.png",
+      mediaType: "image/png",
+      url: "data:image/png;base64,SGVsbG8=",
+    });
+    expect(marker).toEqual({
+      type: "file",
+      name: "photo.png",
+      mediaType: "image/png",
+      omitted: "inline-bytes",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        url: "data:image/png;base64,SGVsbG8=",
+        fileId: "file-1",
+      }),
+    ).toEqual({ type: "file", name: "photo.png", fileId: "file-1" });
+    const durable = {
+      type: "file" as const,
+      name: "photo.png",
+      url: "https://storage.example.test/photo.png",
+    };
+    expect(persistableFilePart(durable)).toBe(durable);
+
+    const snapshot = {
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      messages: [{ id: "message-1", role: "user", parts: [marker] }],
+    };
+    expect(parseAgentThreadSnapshot(snapshot).messages[0]?.parts).toEqual([
+      marker,
+    ]);
+    expect(() =>
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [{ ...marker, omitted: "everything" }],
+          },
+        ],
+      }),
+    ).toThrow("unsupported omission marker");
   });
 
   it("validates rich snapshots as one internally consistent projection", () => {

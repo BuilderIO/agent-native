@@ -1096,6 +1096,7 @@ export default {
   },
   sqlDashboard: {
     customRange: "カスタム範囲",
+    allValues: "すべて",
     untitledDashboard: "無題のダッシュボード",
     dashboardFallback: "ダッシュボード",
     viewOnly: "このダッシュボードには表示のみのアクセス権があります。",

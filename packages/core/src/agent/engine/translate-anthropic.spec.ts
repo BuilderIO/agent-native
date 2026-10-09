@@ -250,7 +250,10 @@ describe("engineMessagesToAnthropic", () => {
     expect(replay[0]).toMatchObject({
       type: "tool_result",
       tool_use_id: "tc-1",
-      content: "Interrupted before this tool returned a result.",
+      content: expect.stringMatching(
+        /^Interrupted before this tool returned a result\. Its outcome is UNKNOWN: the tool may have run\. Verify the current state before repeating any write\.$/,
+      ),
+      is_error: true,
     });
   });
 
@@ -432,7 +435,8 @@ describe("engineMessagesToAnthropic", () => {
       tool_use_id: "history_tc_1",
       tool_name: "chat-history",
       tool_input: '{"action":"search"}',
-      content: "Interrupted before this tool returned a result.",
+      content: expect.stringContaining("Its outcome is UNKNOWN"),
+      is_error: true,
     });
     expect(replay[1]).toMatchObject({
       type: "text",

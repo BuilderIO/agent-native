@@ -1124,6 +1124,7 @@ export default {
   },
   sqlDashboard: {
     customRange: "自訂範圍",
+    allValues: "全部",
     untitledDashboard: "無標題儀表板",
     dashboardFallback: "儀表板",
     viewOnly: "您對此儀表板只有檢視權限。",
