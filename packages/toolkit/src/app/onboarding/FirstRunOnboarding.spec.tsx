@@ -2138,7 +2138,7 @@ describe("FirstRunOnboarding", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("routes manual setup through an inferred mount with local route definitions", async () => {
+  it("routes manual setup through the declared mount with local route definitions", async () => {
     mocks.useActualRouter = true;
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
@@ -2148,7 +2148,10 @@ describe("FirstRunOnboarding", () => {
     vi.stubEnv("VITE_APP_BASE_PATH", "");
     vi.stubEnv("APP_BASE_PATH", "");
     Object.assign(window, {
-      __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceAppId: "dispatch",
+        workspaceAppPath: "/dispatch",
+      },
       __reactRouterManifest: {
         routes: {
           root: { id: "root", path: "/" },
