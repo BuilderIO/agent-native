@@ -2284,55 +2284,72 @@ const FEEDBACK_REPLY_CONTEXT =
   /(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)/i
     .source;
 const FEEDBACK_REPLY_DETAIL_ISSUE =
-  /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|(?:should\s+not|shouldn't)\s+(?:(?:include|contain|have)\s+)?(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|should\s+(?:include|contain|have)\s+no\s+(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|(?:without|free\s+of)\s+(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information))/i
+  /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|less\s+technical|less\s+detail|(?:should\s+not|shouldn't)\s+(?:(?:include|contain|have)\s+)?(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|should\s+(?:include|contain|have)\s+no\s+(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|(?:without|free\s+of)\s+(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information))/i
     .source;
 const FEEDBACK_REPLY_DETAIL_TARGET =
-  /(?:(?:technical|implementation|internal|deployment)\s+(?:details?|information)|(?:commit|branch|ci|publisher|deployment|run|workflow)\s+(?:details?|hash(?:es)?|results?|mentions?|status|ids?|names?)|hash(?:es)?|results?)/i
+  /(?:(?:technical|implementation|internal|deployment)\s+(?:details?|information)|(?:commit|branch|ci|publisher|deployment|run|workflow)(?:\s+(?:details?|hash(?:es)?|results?|mentions?|status|ids?|names?))?|hash(?:es)?|results?)/i
     .source;
 const FEEDBACK_REPLY_DETAIL_OMISSION =
-  /(?:don't|do not|avoid|skip|omit|leave out|remove|stop(?:\s+(?:including|mentioning))?)/i
+  /(?:(?:don't|do not)\s+(?:include|mention|say|write|share|post|list|describe|cover|discuss|add|use|quote)|(?:avoid|skip|omit|remove)\s+(?:(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using)\s+)?|leave out|stop\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using))/i
     .source;
+// A request to preserve detail is not a correction about excessive detail.
+const FEEDBACK_REPLY_DETAIL_NEGATION = [
+  "\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?;]{0,100}\\b(?:(?:is|are|seem|seems|look|looks|sound|sounds)\\s+)?(?:not|isn't|aren't|wasn't|weren't)\\s+(?:too\\s+)?(?:technical|detailed?|too\\s+much\\s+(?:(?:technical|implementation|internal|deployment)\\s+)?detail)\\b",
+  "\\b(?:don't|do not|shouldn't|should not)\\b[^.!?;]{0,100}\\b(?:make|keep|write|use)\\b[^.!?;]{0,100}\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?;]{0,100}\\bless\\s+(?:technical|detail)\\b",
+].join("|");
 const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
-  [
-    "\\b" +
-      FEEDBACK_REPLY_CONTEXT +
-      "\\b[^.!?]{0,100}\\b" +
-      FEEDBACK_REPLY_DETAIL_ISSUE +
-      "\\b",
-    "\\b" +
-      FEEDBACK_REPLY_DETAIL_ISSUE +
-      "\\b[^.!?]{0,100}\\b" +
-      FEEDBACK_REPLY_CONTEXT +
-      "\\b",
-    "\\b" +
-      FEEDBACK_REPLY_CONTEXT +
-      "\\b[^.!?]{0,100}\\b" +
-      FEEDBACK_REPLY_DETAIL_OMISSION +
-      "\\b[^.!?]{0,120}\\b" +
-      FEEDBACK_REPLY_DETAIL_TARGET +
-      "\\b",
-    "\\b" +
-      FEEDBACK_REPLY_DETAIL_OMISSION +
-      "\\b[^.!?]{0,120}\\b" +
-      FEEDBACK_REPLY_DETAIL_TARGET +
-      "\\b[^.!?]{0,120}\\b(?:in|from|for|when)\\b[^.!?]{0,30}\\b(?:you\\s+)?" +
-      FEEDBACK_REPLY_CONTEXT +
-      "\\b",
-    "\\bno\\b[^.!?]{0,120}\\b" +
-      FEEDBACK_REPLY_DETAIL_TARGET +
-      "\\b[^.!?]{0,120}\\b(?:in|from|for|when)\\b[^.!?]{0,30}\\b(?:you\\s+)?" +
-      FEEDBACK_REPLY_CONTEXT +
-      "\\b",
-  ].join("|"),
+  "^(?![\\s\\S]*(?:" +
+    FEEDBACK_REPLY_DETAIL_NEGATION +
+    "))[\\s\\S]*(?:" +
+    [
+      "\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b[^.!?]{0,100}\\b" +
+        FEEDBACK_REPLY_DETAIL_ISSUE +
+        "\\b",
+      "\\b" +
+        FEEDBACK_REPLY_DETAIL_ISSUE +
+        "\\b[^.!?]{0,100}\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b",
+      "\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b[^.!?]{0,100}\\b" +
+        FEEDBACK_REPLY_DETAIL_OMISSION +
+        "\\b\\s+(?:(?:all|any|these|those|the|some|extra|unnecessary)\\s+){0,3}" +
+        FEEDBACK_REPLY_DETAIL_TARGET +
+        "\\b",
+      "\\b" +
+        FEEDBACK_REPLY_DETAIL_OMISSION +
+        "\\b\\s+(?:(?:all|any|these|those|the|some|extra|unnecessary)\\s+){0,3}" +
+        FEEDBACK_REPLY_DETAIL_TARGET +
+        "\\b[^.!?;]{0,120}\\b(?:in|from|for|when)\\b[^.!?;]{0,30}\\b(?:you\\s+)?" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b",
+      "\\bno\\b[^.!?]{0,120}\\b" +
+        FEEDBACK_REPLY_DETAIL_TARGET +
+        "\\b[^.!?]{0,120}\\b(?:in|from|for|when)\\b[^.!?]{0,30}\\b(?:you\\s+)?" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b",
+    ].join("|") +
+    ")",
   "i",
 );
 const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "When you reply, don't include all those technical details."],
   [true, "Too much technical detail in replies."],
+  [true, "Make replies less technical."],
+  [true, "Use less detail in replies."],
   [true, "Your replies\nare too technical."],
   [true, "Replies are too technical."],
   [true, "Leave out publisher details from replies."],
   [true, "Don't include commit hashes or CI results in replies."],
+  [true, "Do not mention CI in replies."],
+  [true, "Leave out publisher from replies."],
   [true, "Replies should not contain technical details."],
   [true, "Replies should contain no technical details."],
   [true, "Keep replies without technical details."],
@@ -2341,6 +2358,8 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [false, "Please reply with technical details."],
   [false, "Please reply with very technical details."],
   [false, "Don't make replies less technical."],
+  [false, "Replies are not too technical."],
+  [false, "Replies aren't too technical."],
   [false, "Reply once there are no CI results yet."],
   [false, "Reply once there are\nno CI results yet."],
   [false, "Reply after CI is green; don't post until deployment is done."],
