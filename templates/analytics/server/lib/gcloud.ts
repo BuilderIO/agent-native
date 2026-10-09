@@ -80,7 +80,7 @@ function throwIfSignalAborted(signal?: AbortSignal): void {
   }
 }
 
-function resolveCredentialUntilAborted<T>(
+export function raceWithAbort<T>(
   promise: Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> {
@@ -197,7 +197,7 @@ async function getServiceAccountCredentials(signal?: AbortSignal) {
   const ctx = requireRequestCredentialContext(
     "GOOGLE_APPLICATION_CREDENTIALS_JSON",
   );
-  const credsJson = await resolveCredentialUntilAborted(
+  const credsJson = await raceWithAbort(
     resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
     signal,
   );

@@ -16,7 +16,10 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("./credentials", () => ({ resolveCredential }));
 
-vi.mock("./gcloud", () => ({ getAccessToken }));
+vi.mock("./gcloud", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./gcloud")>()),
+  getAccessToken,
+}));
 
 const {
   BigQueryBackendError,
@@ -327,6 +330,38 @@ describe("runQuery cancellation", () => {
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/cancel");
   });
 
+  it("stops waiting when the configured event table credential lookup stalls", async () => {
+    let resolveTable!: (value: string | null) => void;
+    let signalTableLookupStarted!: () => void;
+    const tableLookupStarted = new Promise<void>((resolve) => {
+      signalTableLookupStarted = resolve;
+    });
+    resolveCredential.mockImplementation(async (key: string) => {
+      if (key === "BIGQUERY_PROJECT_ID") return "test-project";
+      if (key === "ANALYTICS_BIGQUERY_EVENTS_TABLE") {
+        const pending = new Promise<string | null>((resolve) => {
+          resolveTable = resolve;
+        });
+        signalTableLookupStarted();
+        return pending;
+      }
+      return null;
+    });
+    const fetchMock = vi.fn<typeof globalThis.fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+
+    const pending = runQuery("SELECT 1 AS table_credential_deadline_test", {
+      signal: controller.signal,
+    });
+    await tableLookupStarted;
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    resolveTable("analytics.events_partitioned");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("keeps a delayed poll failure classified as a backend error", async () => {
     vi.useFakeTimers();
     const fetchMock = vi
@@ -403,6 +438,90 @@ describe("runQuery cancellation", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the submit deadline active while reading the response body", async () => {
+    vi.useFakeTimers();
+    let jobId = "";
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/jobs")) {
+          const request = JSON.parse(String(init?.body)) as {
+            jobReference: { jobId: string };
+          };
+          jobId = request.jobReference.jobId;
+          const signal = init?.signal;
+          return {
+            ok: true,
+            status: 200,
+            json: () =>
+              new Promise((_resolve, reject) => {
+                const abort = () => reject(signal?.reason);
+                if (signal?.aborted) abort();
+                else signal?.addEventListener("abort", abort, { once: true });
+              }),
+          } as Response;
+        }
+        if (url.includes("/jobs?")) {
+          return jsonResponse({
+            jobs: [{ jobReference: { jobId, location: "US" } }],
+          });
+        }
+        return jsonResponse({});
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = runQuery("SELECT 1 AS submit_body_timeout_test");
+    const timeoutAssertion = expect(pending).rejects.toBeInstanceOf(
+      BigQueryQueryTimeoutError,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(10_001);
+
+    await timeoutAssertion;
+  });
+
+  it("preserves a submit backend error when response parsing finishes after the deadline", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/jobs")) {
+          return {
+            ok: false,
+            status: 403,
+            text: async () => {
+              await vi.advanceTimersByTimeAsync(10_001);
+              return JSON.stringify({
+                error: {
+                  errors: [
+                    {
+                      reason: "accessDenied",
+                      message: "Warehouse access denied",
+                    },
+                  ],
+                },
+              });
+            },
+          } as Response;
+        }
+        if (url.includes("/jobs?")) return jsonResponse({ jobs: [] });
+        return jsonResponse({});
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      runQuery("SELECT 1 AS delayed_submit_backend_error_test"),
+    ).rejects.toMatchObject({
+      name: "BigQueryBackendError",
+      operation: "submit",
+      backendStatus: 403,
+      backendReason: "access_denied",
+      providerDetail: "Warehouse access denied",
+    });
+  });
+
   it("recognizes the billed-byte cap marker in a non-JSON response", async () => {
     const fetchMock = vi.fn<typeof globalThis.fetch>().mockResolvedValue({
       ok: false,
@@ -442,6 +561,49 @@ describe("runQuery cancellation", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps successful rows when a completed query reports a warning", async () => {
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [{ name: "value", type: "STRING" }] },
+        rows: [{ f: [{ v: "kept" }] }],
+        totalRows: "1",
+        totalBytesProcessed: "8",
+        errors: [{ reason: "other", message: "A nonfatal query warning" }],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(runQuery("SELECT 'kept' AS value")).resolves.toMatchObject({
+      rows: [{ value: "kept" }],
+      totalRows: 1,
+    });
+  });
+
+  it("keeps fatal completed-job details for schema recovery", async () => {
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        errors: [
+          {
+            reason: "invalidQuery",
+            message: "Unrecognized name: private_field at [1:8]",
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(runQuery("SELECT private_field FROM t")).rejects.toMatchObject(
+      {
+        name: "BigQueryBackendError",
+        operation: "job",
+        backendReason: "invalid_query",
+        providerDetail: "Unrecognized name: private_field at [1:8]",
+      },
+    );
+  });
+
   it("returns only an allowlisted reason for backend query errors", async () => {
     const fetchMock = vi.fn<typeof globalThis.fetch>().mockResolvedValue({
       ok: false,
@@ -472,8 +634,10 @@ describe("runQuery cancellation", () => {
       operation: "submit",
       backendStatus: 400,
       backendReason: "invalid_query",
+      providerDetail: "Invalid query contains private customer SQL",
     });
     expect((failure as Error).message).not.toContain("private customer SQL");
+    expect(Object.keys(failure as object)).not.toContain("providerDetail");
   });
 
   it("cancels a submitted job when the caller aborts before the response arrives", async () => {

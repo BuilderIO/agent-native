@@ -1569,10 +1569,12 @@ describe("getOnboardingJourney", () => {
   });
 
   it("does not turn an unreadable event store into an empty tree", async () => {
+    const providerDetail = "Unrecognized name: private_customer_field";
     const backendFailure = new BigQueryBackendError(
       "submit",
       400,
       "invalid_query",
+      providerDetail,
     );
     mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(backendFailure);
     let failure: unknown;
@@ -1592,6 +1594,8 @@ describe("getOnboardingJourney", () => {
       backendOperation: "submit",
       page: 1,
     });
+    expect((failure as Error).message).not.toContain(providerDetail);
+    expect(JSON.stringify(failure)).not.toContain(providerDetail);
   });
 
   it("gives an empty window an empty tree with zero coverage", async () => {

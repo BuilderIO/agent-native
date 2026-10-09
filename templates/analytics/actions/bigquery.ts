@@ -4,7 +4,7 @@ import { getRequestRunContext } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import { runQuery } from "../server/lib/bigquery";
+import { BigQueryBackendError, runQuery } from "../server/lib/bigquery";
 import { recoverFromSchemaMiss } from "../server/lib/bigquery-schema-recovery";
 
 function extractBigQueryMessage(message: string): string {
@@ -154,6 +154,8 @@ export default defineAction({
       if (context?.signal?.aborted) stopForBigQueryCancellation();
 
       const msg = err instanceof Error ? err.message : String(err);
+      const providerDetail =
+        err instanceof BigQueryBackendError ? err.providerDetail : null;
       if (
         /GOOGLE_APPLICATION_CREDENTIALS_JSON not configured/i.test(msg) ||
         /BIGQUERY_PROJECT_ID/i.test(msg) ||
@@ -173,7 +175,7 @@ export default defineAction({
         };
       }
       if (/BigQuery (API|poll|job) error/i.test(msg)) {
-        const message = extractBigQueryMessage(msg);
+        const message = extractBigQueryMessage(providerDetail ?? msg);
         const recovery = await recoverFromSchemaMiss(
           args.sql,
           message,
