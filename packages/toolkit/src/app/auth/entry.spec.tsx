@@ -156,6 +156,25 @@ describe("auth session replay gate", () => {
     expect(options?.endpoint).toBe("/api/analytics/replay");
   });
 
+  it("strips search parameters and fragments from absolute replay endpoints", () => {
+    const options = authSessionReplayOptions(
+      {
+        agentNativeAnalyticsPublicKey: "anpk_test",
+        agentNativeAnalyticsEndpoint:
+          "https://analytics.agent-native.com/api/analytics/track?token=secret#callback",
+        authSessionReplay: true,
+      },
+      "/signup",
+      "",
+      "clips.agent-native.com",
+    );
+
+    expect(options?.endpoint).toBe(
+      "https://analytics.agent-native.com/api/analytics/replay",
+    );
+    expect(options?.endpoint).not.toContain("secret");
+  });
+
   it("skips invalid optional replay without blocking auth hydration", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const options = authSessionReplayOptions(

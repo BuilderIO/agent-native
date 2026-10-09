@@ -147,7 +147,8 @@ export function scrubUrl(
     const hash = u.hash.slice(1);
     const hashRouteQueryIndex = hash.indexOf("?");
     const hashRoutePrefix =
-      hashRouteQueryIndex === -1 ? "" : hash.slice(0, hashRouteQueryIndex);
+      hashRouteQueryIndex === -1 ? hash : hash.slice(0, hashRouteQueryIndex);
+    const routePrefixParamsIndex = hashRoutePrefix.indexOf("&");
     const routePrefixParam = /^([^&=]+)=\//.exec(hashRoutePrefix)?.[1];
     const hasHashRoutePathPrefix =
       hash.startsWith("/") ||
@@ -156,31 +157,33 @@ export function scrubUrl(
     const hashUsesRouteQuery =
       hashRouteQueryIndex > 0 &&
       (hasHashRoutePathPrefix || !hashRoutePrefix.includes("="));
+    const hashUsesRoutePrefixParams =
+      hashRouteQueryIndex === -1 &&
+      hash.startsWith("/") &&
+      routePrefixParamsIndex !== -1;
     const hashQuery = hashUsesRouteQuery
       ? hash.slice(hashRouteQueryIndex + 1)
-      : hash;
-    let scrubbedHashRoutePrefix = hashRoutePrefix;
+      : hashUsesRoutePrefixParams
+        ? ""
+        : hash;
+    let scrubbedHashRoutePrefix = hashUsesRoutePrefixParams
+      ? hashRoutePrefix.slice(0, routePrefixParamsIndex)
+      : hashRoutePrefix;
     let hashRoutePrefixMutated = false;
-    if (hashUsesRouteQuery) {
-      const routePrefixParamsIndex = hashRoutePrefix.indexOf("&");
-      if (routePrefixParamsIndex !== -1) {
-        const routePrefixPath = hashRoutePrefix.slice(
-          0,
-          routePrefixParamsIndex,
-        );
-        const routePrefixParams = new URLSearchParams(
-          hashRoutePrefix.slice(routePrefixParamsIndex + 1),
-        );
-        if (
-          redactSensitiveQueryParams(
-            routePrefixParams,
-            additionalSensitiveParams,
-          )
-        ) {
-          mutated = true;
-          hashRoutePrefixMutated = true;
-          scrubbedHashRoutePrefix = `${routePrefixPath}&${routePrefixParams.toString()}`;
-        }
+    if (
+      (hashUsesRouteQuery || hashUsesRoutePrefixParams) &&
+      routePrefixParamsIndex !== -1
+    ) {
+      const routePrefixPath = hashRoutePrefix.slice(0, routePrefixParamsIndex);
+      const routePrefixParams = new URLSearchParams(
+        hashRoutePrefix.slice(routePrefixParamsIndex + 1),
+      );
+      if (
+        redactSensitiveQueryParams(routePrefixParams, additionalSensitiveParams)
+      ) {
+        mutated = true;
+        hashRoutePrefixMutated = true;
+        scrubbedHashRoutePrefix = `${routePrefixPath}&${routePrefixParams.toString()}`;
       }
     }
     let scrubbedHashQuery = hashQuery;
@@ -195,6 +198,11 @@ export function scrubUrl(
     }
     if (hashUsesRouteQuery && (hashRoutePrefixMutated || hashQueryMutated)) {
       u.hash = `${scrubbedHashRoutePrefix}?${scrubbedHashQuery}`;
+    } else if (
+      hashUsesRoutePrefixParams &&
+      (hashRoutePrefixMutated || hashQueryMutated)
+    ) {
+      u.hash = scrubbedHashRoutePrefix;
     } else if (!hashUsesRouteQuery && hashQueryMutated) {
       u.hash = scrubbedHashQuery;
     }

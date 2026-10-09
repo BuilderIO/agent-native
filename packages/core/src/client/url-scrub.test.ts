@@ -60,6 +60,10 @@ describe("scrubUrl", () => {
       "https://app.agent-native.com/auth#/verify&token=%3Credacted%3E?step=1",
     ],
     [
+      "https://app.agent-native.com/auth#/verify&token=secret",
+      "https://app.agent-native.com/auth#/verify&token=%3Credacted%3E",
+    ],
+    [
       "https://app.agent-native.com/auth#return=/inbox&code=secret?x=1",
       "https://app.agent-native.com/auth#return=/inbox&code=%3Credacted%3E?x=1",
     ],
@@ -120,6 +124,7 @@ describe("scrubUrl", () => {
 
   it.each([
     "https://app.agent-native.com/auth#/verify&tab=1?step=2",
+    "https://app.agent-native.com/auth#/verify&tab=1",
     "https://app.agent-native.com/auth#return=/inbox&tab=1?step=2",
   ])("preserves non-sensitive hash route prefix parameters", (url) => {
     expect(scrubUrl(url)).toBe(url);

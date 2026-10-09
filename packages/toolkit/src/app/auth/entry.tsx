@@ -155,10 +155,14 @@ function replayEndpointFromAnalyticsEndpoint(
         /\/api\/analytics\/track$/,
         "/api/analytics/replay",
       );
+      url.search = "";
+      url.hash = "";
       return url.toString();
     }
     if (url.pathname.endsWith("/track")) {
       url.pathname = url.pathname.replace(/\/track$/, "/api/analytics/replay");
+      url.search = "";
+      url.hash = "";
       return url.toString();
     }
   }
