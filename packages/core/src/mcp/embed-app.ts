@@ -1491,6 +1491,58 @@ export function embedApp(
       void launchEmbed();
     }
 
+    async function renewExpiredEmbedSession(requestId, frame) {
+      if (!requestId || !frame || frame !== appFrame) return;
+      if (!openUrl) {
+        sendToAppFrame({
+          type: "agentNative.embedSessionRenewed",
+          data: { requestId, ok: false },
+        });
+        return;
+      }
+      if (embedSessionRefreshAttempts >= maxEmbedSessionRefreshAttempts) {
+        sendToAppFrame({
+          type: "agentNative.embedSessionRenewed",
+          data: { requestId, ok: false },
+        });
+        return;
+      }
+
+      embedSessionRefreshAttempts += 1;
+      try {
+        const result = await callEmbedSessionTool(
+          embedSessionArgsFor(
+            body.dataset.catalogMode === "directory"
+              ? openStartUrl || openUrl
+              : openUrl,
+          ),
+        );
+        const data = parseToolResult(result);
+        if (typeof data.startUrl !== "string" || !data.startUrl) {
+          sendToAppFrame({
+            type: "agentNative.embedSessionRenewed",
+            data: { requestId, ok: false },
+          });
+          return;
+        }
+        if (appFrame !== frame) return;
+        sendToAppFrame({
+          type: "agentNative.embedSessionRenewed",
+          data: {
+            requestId,
+            ok: true,
+            startUrl: withChatBridgeParam(data.startUrl),
+          },
+        });
+      } catch {
+        if (appFrame !== frame) return;
+        sendToAppFrame({
+          type: "agentNative.embedSessionRenewed",
+          data: { requestId, ok: false },
+        });
+      }
+    }
+
     function shouldSelfNavigateToApp() {
       const render = renderModeSource();
       const mode = render.mode;
@@ -1902,7 +1954,19 @@ export function embedApp(
         return;
       }
       if (message.type === "agentNative.embedSessionExpired") {
-        refreshExpiredEmbedSession();
+        if (expiredSessionMessage) {
+          refreshExpiredEmbedSession();
+        } else if (typeof data.requestId === "string") {
+          void renewExpiredEmbedSession(data.requestId, appFrame);
+        } else {
+          // Older app frames do not include a renewal id, so preserve their
+          // existing full-refresh fallback until they load the renewal client.
+          refreshExpiredEmbedSession();
+        }
+        return;
+      }
+      if (message.type === "agentNative.embedSessionRenewalApplied") {
+        embedSessionRefreshAttempts = 0;
         return;
       }
       if (message.type === "agentNative.submitChat") {

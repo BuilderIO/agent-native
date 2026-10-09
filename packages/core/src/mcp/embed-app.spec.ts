@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ActionMcpAppResourceConfig } from "../action.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
@@ -655,6 +655,59 @@ describe("embedApp", () => {
         availableDisplayModes: ["inline"],
         containerDimensions: { maxHeight: 360, maxWidth: 568 },
       };
+
+      it("renews a write session without replacing its live app frame", async () => {
+        const html = htmlFor("directory");
+        const frame = { contentWindow: {} };
+        const sendToAppFrame = vi.fn();
+        const callEmbedSessionTool = vi.fn(async () => ({
+          startUrl:
+            "https://app.example/_agent-native/embed/start?ticket=fresh",
+        }));
+        const renew = new Function(
+          "appFrame",
+          "body",
+          "openUrl",
+          "openStartUrl",
+          "embedSessionRefreshAttempts",
+          "maxEmbedSessionRefreshAttempts",
+          "callEmbedSessionTool",
+          "embedSessionArgsFor",
+          "parseToolResult",
+          "sendToAppFrame",
+          "withChatBridgeParam",
+          `${functionSource(html, "renewExpiredEmbedSession")}; return renewExpiredEmbedSession;`,
+        )(
+          frame,
+          { dataset: { catalogMode: "directory" } },
+          "/slides/deck-1",
+          "/_agent-native/embed/start?ticket=old",
+          0,
+          2,
+          callEmbedSessionTool,
+          (url: string) => ({
+            sourceTicket: url.endsWith("ticket=old") ? "old-source" : "source",
+          }),
+          (result: unknown) => result,
+          sendToAppFrame,
+          (url: string) => url,
+        ) as (requestId: string, currentFrame: unknown) => Promise<void>;
+
+        await renew("renew-1", frame);
+
+        expect(callEmbedSessionTool).toHaveBeenCalledWith({
+          sourceTicket: "old-source",
+        });
+        expect(sendToAppFrame).toHaveBeenCalledWith({
+          type: "agentNative.embedSessionRenewed",
+          data: {
+            requestId: "renew-1",
+            ok: true,
+            startUrl:
+              "https://app.example/_agent-native/embed/start?ticket=fresh",
+          },
+        });
+      });
 
       function paneFillHeightFor(
         html: string,

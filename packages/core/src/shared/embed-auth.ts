@@ -1,4 +1,5 @@
 export const EMBED_START_PATH = "/_agent-native/embed/start";
+export const EMBED_SESSION_RENEWAL_QUERY_PARAM = "__an_embed_renewal";
 export const EMBED_TOKEN_QUERY_PARAM = "__an_embed_token";
 export const EMBED_TARGET_QUERY_PARAM = "__an_embed_target";
 export const EMBED_MODE_QUERY_PARAM = "embedded";

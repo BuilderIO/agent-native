@@ -428,24 +428,103 @@ describe("embed auth client", () => {
       const writeCapability =
         "capability:mcp-directory-widget-write:" +
         encodeURIComponent(JSON.stringify({ version: 1 }));
+      const oldToken = `${tokenWithScope(writeCapability).split(".")[0]}.old`;
+      const freshToken = `${tokenWithScope(writeCapability).split(".")[0]}.fresh`;
+      const startUrl = new URL(
+        "/_agent-native/embed/start?ticket=renewed-ticket",
+        window.location.href,
+      ).toString();
+      let writeAttempts = 0;
+      const originalFetch = vi.fn(async (input: RequestInfo | URL) => {
+        const request =
+          input instanceof Request ? input : new Request(input.toString());
+        const url = new URL(request.url);
+        if (url.pathname.endsWith("/_agent-native/embed/start")) {
+          expect(url.searchParams.get("__an_embed_renewal")).toBe("1");
+          return new Response(
+            JSON.stringify({
+              location: `/design/d1?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=${encodeURIComponent(freshToken)}&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1`,
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          );
+        }
+        writeAttempts += 1;
+        if (writeAttempts === 1) return serverRefusal();
+        expect(request.headers.get("Authorization")).toBe(
+          `Bearer ${freshToken}`,
+        );
+        return new Response("saved");
+      });
+      Object.defineProperty(window, "fetch", {
+        configurable: true,
+        writable: true,
+        value: originalFetch,
+      });
+      window.history.replaceState(
+        null,
+        "",
+        `/design/d1?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=${encodeURIComponent(oldToken)}`,
+      );
+      const originalOrigin = Object.getOwnPropertyDescriptor(
+        window.location,
+        "origin",
+      );
+      Object.defineProperty(window.location, "origin", {
+        configurable: true,
+        get: () => "null",
+      });
+      const module = await loadEmbedAuth();
+      module.ensureEmbedAuthFetchInterceptor();
       const postMessage = vi
         .spyOn(window.parent, "postMessage")
-        .mockImplementation(() => {});
-      const { originalFetch } = await interceptedFetch(writeCapability, {
-        upstream: async () => serverRefusal(),
-      });
+        .mockImplementation((message) => {
+          const renewal = message as {
+            type?: string;
+            data?: { requestId?: string };
+          };
+          if (renewal.type !== "agentNative.embedSessionExpired") return;
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              source: window.parent,
+              data: {
+                type: "agentNative.embedSessionRenewed",
+                data: {
+                  requestId: renewal.data?.requestId,
+                  ok: true,
+                  startUrl,
+                },
+              },
+            }),
+          );
+        });
 
-      const response = await window.fetch(
-        "/_agent-native/actions/update-document",
-        { method: "POST", body: "{}" },
-      );
+      try {
+        const response = await window.fetch(
+          "/_agent-native/actions/update-document",
+          { method: "POST", body: "{}" },
+        );
 
-      expect(response.status).toBe(401);
-      expect(postMessage).toHaveBeenCalledWith(
-        { type: "agentNative.embedSessionExpired" },
-        "*",
-      );
-      expect(originalFetch).toHaveBeenCalledOnce();
+        expect(response.status).toBe(200);
+        expect(writeAttempts).toBe(2);
+        expect(postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "agentNative.embedSessionExpired",
+            data: expect.objectContaining({ requestId: expect.any(String) }),
+          }),
+          "*",
+        );
+        expect(originalFetch).toHaveBeenCalledTimes(3);
+        expect(module.getEmbedAuthToken()).toBe(freshToken);
+
+        const reloadedModule = await loadEmbedAuth();
+        expect(reloadedModule.getEmbedAuthToken()).toBe(freshToken);
+      } finally {
+        if (originalOrigin) {
+          Object.defineProperty(window.location, "origin", originalOrigin);
+        } else {
+          delete (window.location as unknown as { origin?: string }).origin;
+        }
+      }
     });
 
     it("hands consumers the same failure the server's 401 produces", async () => {

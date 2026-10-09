@@ -570,6 +570,56 @@ describe("createEmbedStartRouteHandler", () => {
     expect(res.headers.get("Content-Type")).not.toContain("application/json");
   });
 
+  it("returns a write-widget renewal location to its opaque app frame", async () => {
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "steve@example.com",
+      orgId: "builder",
+      targetPath: "/design/d1",
+      scope: "capability:mcp-directory-widget-write:%7B%22version%22%3A1%7D",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const handler = createEmbedStartRouteHandler();
+    const res: Response = await handler(
+      fakeEvent(
+        "GET",
+        { ticket: "renewal-ticket", __an_embed_renewal: "1" },
+        { origin: "null" },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("null");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    await expect(res.json()).resolves.toEqual({
+      location:
+        "/design/d1?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1&agentSidebar=closed",
+    });
+  });
+
+  it("does not expose a renewal location for a full-session ticket", async () => {
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "steve@example.com",
+      orgId: "builder",
+      targetPath: "/design/d1",
+      scope: "full",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const handler = createEmbedStartRouteHandler();
+    const res: Response = await handler(
+      fakeEvent(
+        "GET",
+        { ticket: "renewal-ticket", __an_embed_renewal: "1" },
+        { origin: "null" },
+      ),
+    );
+
+    expect(res.status).toBe(403);
+    expect(res.headers.get("Content-Type")).toContain("text/plain");
+    await expect(res.text()).resolves.toBe("Session renewal is not permitted.");
+  });
+
   it("preserves the MCP chat bridge flag on the signed app route", async () => {
     consumeEmbedSessionTicket.mockResolvedValue({
       ownerEmail: "steve@example.com",
