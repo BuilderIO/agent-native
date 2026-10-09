@@ -148,12 +148,10 @@ describe("workspace connection provider catalog", () => {
         {
           key: "semanticLayerBaseUrl",
           required: true,
-          defaultValue: "https://wg204.semantic-layer.us1.dbt.com/api/graphql",
         },
         {
           key: "semanticLayerEnvironmentId",
           required: true,
-          defaultValue: "166567",
         },
       ],
     });

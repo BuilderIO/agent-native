@@ -498,7 +498,6 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
         description:
           "HTTPS GraphQL endpoint for this dbt account. The host must belong to dbt.com or getdbt.com.",
         required: true,
-        defaultValue: "https://wg204.semantic-layer.us1.dbt.com/api/graphql",
       },
       {
         key: "semanticLayerEnvironmentId",
@@ -506,7 +505,6 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
         description:
           "Environment that contains the approved Semantic Layer definitions.",
         required: true,
-        defaultValue: "166567",
       },
     ],
     capabilities: ["search"],

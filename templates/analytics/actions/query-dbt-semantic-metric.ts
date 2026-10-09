@@ -4,7 +4,6 @@ import {
   fail,
   isAgentConnectionRequiredError,
 } from "@agent-native/core/action";
-import { getWorkspaceConnectionProvider } from "@agent-native/core/connections";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -32,8 +31,8 @@ const COUNT_METRICS = `query AnalyticsMetricCount($environmentId: BigInt!) {
   }
 }`;
 
-const CREATE_METRIC_QUERY = `mutation AnalyticsMetricQuery($environmentId: BigInt!, $metricName: String!, $limit: Int!) {
-  createQuery(environmentId: $environmentId, metrics: [{ name: $metricName }], limit: $limit) {
+const CREATE_METRIC_QUERY = `mutation AnalyticsMetricQuery($environmentId: BigInt!, $metricName: String!, $queryRowCap: Int!) {
+  createQuery(environmentId: $environmentId, metrics: [{ name: $metricName }], limit: $queryRowCap) {
     queryId
   }
 }`;
@@ -50,12 +49,8 @@ const READ_METRIC_QUERY = `query AnalyticsMetricResult($environmentId: BigInt!, 
 const MAX_POLL_ATTEMPTS = 8;
 const POLL_INTERVAL_MS = 400;
 const MAX_METADATA_PAGES = 10;
+const MAX_METRIC_QUERY_ROWS = 1_000;
 const DBT_ENVIRONMENT_FIELD = "semanticLayerEnvironmentId";
-const DBT_DEFAULT_ENVIRONMENT_ID = getWorkspaceConnectionProvider(
-  "dbt",
-)?.configurationFields?.find(
-  ({ key }) => key === DBT_ENVIRONMENT_FIELD,
-)?.defaultValue;
 const metricConnectionSchema = z.object({ id: z.string(), label: z.string() });
 const queryMetricOutputSchema = z.discriminatedUnion("status", [
   z.object({
@@ -111,6 +106,7 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
     rows: z.array(z.unknown()),
     rowCount: z.number(),
     truncated: z.boolean(),
+    truncationReason: z.literal("query_row_cap").optional(),
     nextPage: z.string().optional(),
     queryId: z.string(),
     connection: metricConnectionSchema,
@@ -118,6 +114,15 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
   }),
   z.object({
     status: z.literal("pending"),
+    metricName: z.string(),
+    queryId: z.string(),
+    nextPage: z.string().optional(),
+    message: z.string(),
+    connection: metricConnectionSchema,
+    source: z.literal("dbt-semantic-layer"),
+  }),
+  z.object({
+    status: z.literal("incomplete_result"),
     metricName: z.string(),
     queryId: z.string(),
     nextPage: z.string().optional(),
@@ -157,7 +162,7 @@ type DbtFailureState =
   | "empty_semantic_manifest"
   | "permission_denied";
 
-const METRIC_RESULT_CURSOR_PREFIX = "metric-results-v1.";
+const METRIC_RESULT_CURSOR_PREFIX = "metric-results-v2.";
 
 type MetricResultCursor = {
   metricName: string;
@@ -166,6 +171,7 @@ type MetricResultCursor = {
   environmentId: string;
   pageNum: number;
   rowOffset: number;
+  rowsBeforePage: number;
 };
 
 function encodeMetricResultCursor(cursor: MetricResultCursor): string {
@@ -189,7 +195,10 @@ function decodeMetricResultCursor(value: string): MetricResultCursor | null {
       (parsed.pageNum as number) > 100_000 ||
       !Number.isSafeInteger(parsed.rowOffset) ||
       (parsed.rowOffset as number) < 0 ||
-      (parsed.rowOffset as number) > 1_000_000
+      (parsed.rowOffset as number) > 1_000_000 ||
+      !Number.isSafeInteger(parsed.rowsBeforePage) ||
+      (parsed.rowsBeforePage as number) < 0 ||
+      (parsed.rowsBeforePage as number) > MAX_METRIC_QUERY_ROWS
     ) {
       return null;
     }
@@ -208,6 +217,24 @@ class DbtSemanticLayerError extends Error {
     super(message);
     this.name = "DbtSemanticLayerError";
   }
+}
+
+class DbtRequestTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DbtRequestTimeoutError";
+  }
+}
+
+function isProviderRequestTimeout(error: unknown): boolean {
+  const item = record(error);
+  const cause = record(item.cause);
+  return (
+    (typeof item.message === "string" &&
+      /^Provider API request timed out after \d+ms\b/i.test(item.message)) ||
+    item.name === "TimeoutError" ||
+    cause.name === "AbortError"
+  );
 }
 
 function graphQlErrors(value: unknown): {
@@ -323,6 +350,15 @@ async function executeGraphQl(args: {
     })) as GraphQlResult;
   } catch (error) {
     if (isAgentConnectionRequiredError(error)) throw error;
+    if (args.signal?.aborted) throw error;
+    if (isProviderRequestTimeout(error)) {
+      throw new DbtRequestTimeoutError(
+        error instanceof Error
+          ? safeDbtMessage(error.message) ||
+              "The dbt Semantic Layer request timed out."
+          : "The dbt Semantic Layer request timed out.",
+      );
+    }
     throw new DbtSemanticLayerError(
       "connection_error",
       error instanceof Error
@@ -333,6 +369,11 @@ async function executeGraphQl(args: {
   }
   const response = result.response;
   if (!response || response.ok === false) {
+    if (response?.status === 408 || response?.status === 504) {
+      throw new DbtRequestTimeoutError(
+        `The dbt Semantic Layer request timed out with HTTP ${response.status}.`,
+      );
+    }
     const failure = classifyDbtFailure(response?.json, response?.status);
     if (failure) throw failure;
     throw new DbtSemanticLayerError(
@@ -412,7 +453,7 @@ export default defineAction({
         .string()
         .max(2_048)
         .regex(
-          /^(?:metric-metadata:[1-9]\d{0,3}|metric-results-v1\.[A-Za-z0-9_-]{1,2000})$/,
+          /^(?:metric-metadata:[1-9]\d{0,3}|metric-results-v2\.[A-Za-z0-9_-]{1,2000})$/,
         )
         .optional()
         .describe(
@@ -424,7 +465,9 @@ export default defineAction({
         .min(1)
         .max(100)
         .default(20)
-        .describe("Maximum result rows; defaults to 20 and is capped at 100"),
+        .describe(
+          "Maximum rows per action response; defaults to 20 and is capped at 100. Each MetricFlow query is separately capped at 1,000 total rows.",
+        ),
     })
     .strict()
     .superRefine(({ queryId, nextPage }, context) => {
@@ -517,11 +560,19 @@ export default defineAction({
 
     const configuredEnvironmentId = selected.config[DBT_ENVIRONMENT_FIELD];
     const environmentId =
-      typeof configuredEnvironmentId === "string" &&
-      configuredEnvironmentId.trim()
+      typeof configuredEnvironmentId === "string"
         ? configuredEnvironmentId.trim()
-        : DBT_DEFAULT_ENVIRONMENT_ID;
-    if (!environmentId || !/^\d+$/.test(environmentId)) {
+        : "";
+    if (!environmentId) {
+      return {
+        status: "connection_error",
+        metricName,
+        connection: { id: selected.id, label: selected.label },
+        message:
+          "Set the dbt environment ID for this workspace connection in Settings → Integrations, then retry.",
+      };
+    }
+    if (!/^\d+$/.test(environmentId)) {
       fail("The dbt workspace connection has an invalid environment ID.", {
         errorCode: "dbt_environment_invalid",
         statusCode: 400,
@@ -683,7 +734,11 @@ export default defineAction({
           signal: controller.signal,
           body: {
             query: CREATE_METRIC_QUERY,
-            variables: { environmentId, metricName, limit },
+            variables: {
+              environmentId,
+              metricName,
+              queryRowCap: MAX_METRIC_QUERY_ROWS,
+            },
           },
         });
         const returnedQueryId = record(created.createQuery).queryId;
@@ -732,21 +787,43 @@ export default defineAction({
         }
         if (status === "SUCCESSFUL") {
           const rows = parseRows(query.jsonResult);
-          const totalPages =
-            typeof query.totalPages === "number" ? query.totalPages : 1;
-          if (rows.length > 0 && resultRowOffset >= rows.length) {
+          const totalPages = query.totalPages;
+          if (
+            typeof totalPages !== "number" ||
+            !Number.isSafeInteger(totalPages) ||
+            totalPages < resultPageNum ||
+            totalPages > 100_000
+          ) {
+            return {
+              status: "incomplete_result",
+              metricName,
+              queryId: activeQueryId,
+              ...(resultCursor ? { nextPage } : {}),
+              message:
+                "MetricFlow marked the query successful but returned missing or invalid pagination metadata. Retry this query page; result completeness is unknown.",
+              connection: { id: selected.id, label: selected.label },
+              source: "dbt-semantic-layer",
+            };
+          }
+          const rowsBeforePage = resultCursor?.rowsBeforePage ?? 0;
+          const queryRowsRemaining = MAX_METRIC_QUERY_ROWS - rowsBeforePage;
+          const pageRows = rows.slice(0, queryRowsRemaining);
+          if (rows.length > 0 && resultRowOffset >= pageRows.length) {
             fail("dbt Semantic Layer returned an invalid metric result page.", {
               errorCode: "dbt_invalid_result_page",
               statusCode: 502,
             });
           }
-          const resultRows = rows.slice(
+          const resultRows = pageRows.slice(
             resultRowOffset,
             resultRowOffset + limit,
           );
           const nextRowOffset = resultRowOffset + resultRows.length;
-          const nextPage =
-            nextRowOffset < rows.length
+          const rowsBeforeNextPage = rowsBeforePage + pageRows.length;
+          const queryRowCapReached =
+            rowsBeforeNextPage >= MAX_METRIC_QUERY_ROWS;
+          const nextResultPage =
+            nextRowOffset < pageRows.length
               ? encodeMetricResultCursor({
                   metricName,
                   queryId: activeQueryId,
@@ -754,8 +831,9 @@ export default defineAction({
                   environmentId,
                   pageNum: resultPageNum,
                   rowOffset: nextRowOffset,
+                  rowsBeforePage,
                 })
-              : resultPageNum < totalPages
+              : resultPageNum < totalPages && !queryRowCapReached
                 ? encodeMetricResultCursor({
                     metricName,
                     queryId: activeQueryId,
@@ -763,6 +841,7 @@ export default defineAction({
                     environmentId,
                     pageNum: resultPageNum + 1,
                     rowOffset: 0,
+                    rowsBeforePage: rowsBeforeNextPage,
                   })
                 : undefined;
           return {
@@ -795,8 +874,11 @@ export default defineAction({
             },
             rows: resultRows,
             rowCount: resultRows.length,
-            truncated: nextPage !== undefined,
-            ...(nextPage ? { nextPage } : {}),
+            truncated: nextResultPage !== undefined || queryRowCapReached,
+            ...(queryRowCapReached
+              ? { truncationReason: "query_row_cap" as const }
+              : {}),
+            ...(nextResultPage ? { nextPage: nextResultPage } : {}),
             queryId: activeQueryId,
             connection: { id: selected.id, label: selected.label },
             source: "dbt-semantic-layer",
@@ -834,15 +916,44 @@ export default defineAction({
           message: error.message,
         };
       }
-      if (controller.signal.aborted) {
+      if (error instanceof DbtRequestTimeoutError) {
+        if (activeQueryId) {
+          return {
+            status: "pending",
+            metricName,
+            queryId: activeQueryId,
+            ...(resultCursor ? { nextPage } : {}),
+            message: `${error.message} Retry with the same queryId${resultCursor ? " and nextPage" : ""} to resume.`,
+            connection: { id: selected.id, label: selected.label },
+            source: "dbt-semantic-layer",
+          };
+        }
         return {
-          status: "pending",
+          status: "connection_error",
           metricName,
-          ...(activeQueryId ? { queryId: activeQueryId } : {}),
-          message:
-            "The MetricFlow query exceeded the action time budget. Retry with the returned queryId when available.",
           connection: { id: selected.id, label: selected.label },
-          source: "dbt-semantic-layer",
+          message:
+            "The dbt Semantic Layer request timed out before a resumable query ID was received. Retry the metric request.",
+        };
+      }
+      if (controller.signal.aborted) {
+        if (activeQueryId) {
+          return {
+            status: "pending",
+            metricName,
+            queryId: activeQueryId,
+            ...(resultCursor ? { nextPage } : {}),
+            message: `The MetricFlow query exceeded the action time budget. Retry with the same queryId${resultCursor ? " and nextPage" : ""} to resume.`,
+            connection: { id: selected.id, label: selected.label },
+            source: "dbt-semantic-layer",
+          };
+        }
+        return {
+          status: "connection_error",
+          metricName,
+          connection: { id: selected.id, label: selected.label },
+          message:
+            "The dbt Semantic Layer request exceeded the action time budget before a resumable query ID was received. Retry the metric request.",
         };
       }
       throw error;

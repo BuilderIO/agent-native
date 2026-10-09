@@ -102,7 +102,6 @@ interface GlobalSearchScanState {
 
 interface GlobalSearchCursor {
   scan: GlobalSearchScanState;
-  offset: number;
   scannedDatasets: number;
   scannedTables: number;
   matches: number;
@@ -121,7 +120,7 @@ function encodeGlobalSearchCursor(
   cursor: GlobalSearchCursor,
 ): string {
   const encoded = Buffer.from(JSON.stringify(cursor)).toString("base64url");
-  const result = `bqg1.${globalSearchCursorHash(projectId, search)}.${encoded}`;
+  const result = `bqg2.${globalSearchCursorHash(projectId, search)}.${encoded}`;
   if (result.length > GLOBAL_SEARCH_CURSOR_MAX_LENGTH) {
     fail("BigQuery returned an oversized continuation token.", {
       errorCode: "invalid_bigquery_page_token",
@@ -139,13 +138,12 @@ function decodeGlobalSearchCursor(
   if (!value) {
     return {
       scan: { datasetIndex: 0 },
-      offset: 0,
       scannedDatasets: 0,
       scannedTables: 0,
       matches: 0,
     };
   }
-  const match = value.match(/^bqg1\.([a-f0-9]{16})\.([A-Za-z0-9_-]+)$/);
+  const match = value.match(/^bqg2\.([a-f0-9]{16})\.([A-Za-z0-9_-]+)$/);
   if (
     value.length > GLOBAL_SEARCH_CURSOR_MAX_LENGTH ||
     !match ||
@@ -167,11 +165,10 @@ function decodeGlobalSearchCursor(
     if (
       !scan ||
       typeof scan !== "object" ||
+      "offset" in cursor ||
       !Number.isSafeInteger(scan.datasetIndex) ||
       scan.datasetIndex < 0 ||
       scan.datasetIndex > 1_000 ||
-      !Number.isSafeInteger(cursor.offset) ||
-      cursor.offset! < 0 ||
       (cursor.scannedDatasets !== undefined &&
         (!Number.isSafeInteger(cursor.scannedDatasets) ||
           cursor.scannedDatasets < 0)) ||
@@ -193,7 +190,6 @@ function decodeGlobalSearchCursor(
     }
     return {
       scan,
-      offset: cursor.offset!,
       scannedDatasets: cursor.scannedDatasets ?? 0,
       scannedTables: cursor.scannedTables ?? 0,
       matches: cursor.matches ?? 0,
@@ -335,11 +331,16 @@ async function listDatasetsPage(
 async function scanGlobalTables(
   projectId: string,
   initial: GlobalSearchScanState,
+  maxTables: number,
 ): Promise<{
   tables: BigQueryTableSummary[];
   datasetsScanned: number;
   nextScan: GlobalSearchScanState | null;
 }> {
+  const tableLimit = Math.min(
+    GLOBAL_SEARCH_TABLE_LIMIT,
+    Math.max(1, maxTables),
+  );
   const tables: BigQueryTableSummary[] = [];
   let datasetsScanned = 0;
   let datasetsVisited = 0;
@@ -358,7 +359,7 @@ async function scanGlobalTables(
   while (true) {
     if (
       datasetsVisited >= GLOBAL_SEARCH_DATASET_LIMIT ||
-      tables.length >= GLOBAL_SEARCH_TABLE_LIMIT
+      tables.length >= tableLimit
     ) {
       return { tables, datasetsScanned, nextScan: cursor };
     }
@@ -424,7 +425,7 @@ async function scanGlobalTables(
         };
       }
 
-      const remaining = GLOBAL_SEARCH_TABLE_LIMIT - tables.length;
+      const remaining = tableLimit - tables.length;
       const tablePage = await listBigQueryTablesPage(
         projectId,
         dataset.datasetId,
@@ -437,7 +438,7 @@ async function scanGlobalTables(
       if (tablePage.nextPageToken) {
         tablePageToken = tablePage.nextPageToken;
         if (
-          tables.length >= GLOBAL_SEARCH_TABLE_LIMIT ||
+          tables.length >= tableLimit ||
           tablePagesScanned >= GLOBAL_SEARCH_TABLE_LIMIT
         ) {
           return {
@@ -458,7 +459,7 @@ async function scanGlobalTables(
         return { tables, datasetsScanned, nextScan: null };
       }
       if (
-        tables.length >= GLOBAL_SEARCH_TABLE_LIMIT ||
+        tables.length >= tableLimit ||
         datasetsVisited >= GLOBAL_SEARCH_DATASET_LIMIT
       ) {
         return { tables, datasetsScanned, nextScan: cursor };
@@ -476,7 +477,11 @@ async function searchAcrossDatasets(
 ) {
   const requestCursor = decodeGlobalSearchCursor(projectId, search, nextPage);
   const scanStart = requestCursor.scan;
-  const scan = await scanGlobalTables(projectId, scanStart);
+  const scan = await scanGlobalTables(
+    projectId,
+    scanStart,
+    Math.min(limit, GLOBAL_SEARCH_TABLE_LIMIT),
+  );
   const { tables, datasetsScanned } = scan;
 
   const matches: Array<{
@@ -561,32 +566,18 @@ async function searchAcrossDatasets(
     );
   });
   const rankedMatches = matches;
-  const offset = requestCursor.offset;
-  if (offset > rankedMatches.length) {
-    fail("The search cursor is no longer valid; restart the search.", {
-      errorCode: "invalid_search_cursor",
-      statusCode: 400,
-    });
-  }
-  const end = offset + limit;
-  const hasMoreMatches = end < rankedMatches.length;
   const scannedDatasets = requestCursor.scannedDatasets + datasetsScanned;
   const scannedTables = requestCursor.scannedTables + tables.length;
   const totalMatches = requestCursor.matches + rankedMatches.length;
-  const nextCursor = hasMoreMatches
-    ? { ...requestCursor, scan: scanStart, offset: end }
-    : scan.nextScan
-      ? {
-          scan: scan.nextScan,
-          offset: 0,
-          scannedDatasets,
-          scannedTables,
-          matches: totalMatches,
-        }
-      : null;
-  const pageResults = rankedMatches
-    .slice(offset, end)
-    .map((match) => match.table);
+  const nextCursor = scan.nextScan
+    ? {
+        scan: scan.nextScan,
+        scannedDatasets,
+        scannedTables,
+        matches: totalMatches,
+      }
+    : null;
+  const pageResults = rankedMatches.map((match) => match.table);
   const page = {
     results: pageResults,
     searched: scannedTables,

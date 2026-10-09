@@ -29,17 +29,15 @@ export default defineAction({
     const index = bundle as SourceIndexBundle;
     await putOrgSetting(admin.orgId, SOURCE_INDEX_SETTING_KEY, index);
     invalidateSourceIndexCache(admin.orgId);
-    const scanSummary = index.scanSummary ?? {
-      unsafeEntriesOmitted: 0,
-      unsafeFieldsOmitted: 0,
-      truncatedFields: 0,
-    };
+    const scanSummary = index.scanSummary ?? null;
     return {
       entryCount: index.entries.length,
       generatedAt: index.generatedAt,
       sources: index.sources.map((source) => source.id),
       scanSummary,
-      message: `Replaced the source index with ${index.entries.length} unapproved entries; omitted ${scanSummary.unsafeEntriesOmitted} unsafe entries and ${scanSummary.unsafeFieldsOmitted} unsafe fields, and marked ${scanSummary.truncatedFields} truncated fields.`,
+      message: scanSummary
+        ? `Replaced the source index with ${index.entries.length} unapproved entries; omitted ${scanSummary.unsafeEntriesOmitted} unsafe entries and ${scanSummary.unsafeFieldsOmitted} unsafe fields, and marked ${scanSummary.truncatedFields} truncated fields.`
+        : `Replaced the source index with ${index.entries.length} unapproved entries. Scan quality counts are unavailable for this bundle.`,
     };
   },
 });

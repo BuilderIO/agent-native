@@ -91,6 +91,14 @@ function providerResult(json: unknown, status = 200, ok = true) {
   return { response: { ok, status, json } };
 }
 
+function providerRequestTimeoutError() {
+  const cause = Object.assign(new Error("aborted"), { name: "AbortError" });
+  return new Error(
+    "Provider API request timed out after 3000ms: POST dbt Semantic Layer",
+    { cause },
+  );
+}
+
 describe("query-dbt-semantic-metric", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -201,6 +209,29 @@ describe("query-dbt-semantic-metric", () => {
       message: "Environment needs a successful dbt run",
     });
     expect(mocks.executeProviderApiRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires an environment ID on the selected workspace connection", async () => {
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([
+      {
+        ...connection,
+        config: {
+          semanticLayerBaseUrl: connection.config.semanticLayerBaseUrl,
+        },
+      },
+    ]);
+
+    await expect(
+      action.run({ metricName: "active_workspaces", limit: 20 }),
+    ).resolves.toMatchObject({
+      status: "connection_error",
+      connection: { id: connection.id },
+      message: expect.stringContaining("Set the dbt environment ID"),
+    });
+    expect(
+      mocks.resolveWorkspaceConnectionCredentialForApp,
+    ).not.toHaveBeenCalled();
+    expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
   });
 
   it("returns a clear empty state for dbt's empty semantic manifest response", async () => {
@@ -500,6 +531,219 @@ describe("query-dbt-semantic-metric", () => {
     expect(requests[2]?.body.variables.pageNum).toBe(1);
     expect(requests[3]?.body.variables.pageNum).toBe(1);
     expect(requests[4]?.body.variables.pageNum).toBe(2);
+    expect(requests[1]?.body.variables.queryRowCap).toBe(1_000);
+    expect(requests[1]?.body.variables.limit).toBeUndefined();
+  });
+
+  it("pages within a separately capped query and flags the total row cap", async () => {
+    const cappedRows = Array.from({ length: 1_000 }, (_, index) => [index + 1]);
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            metricsPaginated: {
+              items: [{ name: "active_workspaces", dimensions: [] }],
+              totalItems: 1,
+              totalPages: 1,
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({ data: { createQuery: { queryId: "fake_query_1" } } }),
+      )
+      .mockResolvedValue(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({ data: cappedRows }),
+            },
+          },
+        }),
+      );
+
+    const receivedRows: unknown[] = [];
+    let result = (await action.run({
+      metricName: "active_workspaces",
+      limit: 100,
+    })) as any;
+    for (;;) {
+      receivedRows.push(...result.rows);
+      if (!result.nextPage) break;
+      result = (await action.run({
+        metricName: "active_workspaces",
+        queryId: result.queryId,
+        nextPage: result.nextPage,
+        limit: 100,
+      })) as any;
+    }
+
+    expect(receivedRows).toHaveLength(1_000);
+    expect(result).toMatchObject({
+      status: "success",
+      rowCount: 100,
+      truncated: true,
+      truncationReason: "query_row_cap",
+    });
+    expect(result).not.toHaveProperty("nextPage");
+    expect(
+      mocks.executeProviderApiRequest.mock.calls[1]?.[0].body.variables,
+    ).toMatchObject({
+      queryRowCap: 1_000,
+    });
+  });
+
+  it.each([
+    { label: "missing", totalPages: undefined },
+    { label: "non-integer", totalPages: 1.5 },
+    { label: "below the current page", totalPages: 0 },
+  ])(
+    "returns incomplete_result for $label totalPages",
+    async ({ totalPages }) => {
+      const query: Record<string, unknown> = {
+        status: "SUCCESSFUL",
+        jsonResult: JSON.stringify({ data: [[42]] }),
+      };
+      if (totalPages !== undefined) query.totalPages = totalPages;
+      mocks.executeProviderApiRequest
+        .mockResolvedValueOnce(
+          providerResult({
+            data: {
+              metricsPaginated: {
+                items: [{ name: "active_workspaces", dimensions: [] }],
+                totalItems: 1,
+                totalPages: 1,
+              },
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          providerResult({
+            data: { createQuery: { queryId: "fake_query_1" } },
+          }),
+        )
+        .mockResolvedValueOnce(providerResult({ data: { query } }));
+
+      const result = await action.run({
+        metricName: "active_workspaces",
+        limit: 20,
+      });
+
+      expect(result).toMatchObject({
+        status: "incomplete_result",
+        queryId: "fake_query_1",
+        message: expect.stringContaining("result completeness is unknown"),
+      });
+      expect(action.outputSchema.parse(result)).toEqual(result);
+    },
+  );
+
+  it("keeps a timed-out poll pending with its query ID and result cursor", async () => {
+    const firstPageRows = Array.from({ length: 25 }, (_, index) => [index + 1]);
+    mocks.executeProviderApiRequest
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            metricsPaginated: {
+              items: [{ name: "active_workspaces", dimensions: [] }],
+              totalItems: 1,
+              totalPages: 1,
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({ data: { createQuery: { queryId: "fake_query_1" } } }),
+      )
+      .mockResolvedValueOnce(
+        providerResult({
+          data: {
+            query: {
+              status: "SUCCESSFUL",
+              totalPages: 1,
+              jsonResult: JSON.stringify({ data: firstPageRows }),
+            },
+          },
+        }),
+      )
+      .mockRejectedValueOnce(providerRequestTimeoutError());
+
+    const first = (await action.run({
+      metricName: "active_workspaces",
+      limit: 20,
+    })) as any;
+    const pending = await action.run({
+      metricName: "active_workspaces",
+      queryId: first.queryId,
+      nextPage: first.nextPage,
+      limit: 20,
+    });
+
+    expect(pending).toMatchObject({
+      status: "pending",
+      queryId: first.queryId,
+      nextPage: first.nextPage,
+      connection: { id: connection.id },
+      source: "dbt-semantic-layer",
+    });
+    expect(action.outputSchema.parse(pending)).toEqual(pending);
+  });
+
+  it("returns a connection error for a provider timeout before query creation", async () => {
+    mocks.executeProviderApiRequest.mockRejectedValueOnce(
+      providerRequestTimeoutError(),
+    );
+
+    const result = await action.run({
+      metricName: "active_workspaces",
+      limit: 20,
+    });
+
+    expect(result).toMatchObject({ status: "connection_error" });
+    expect(result).not.toHaveProperty("queryId");
+    expect(action.outputSchema.parse(result)).toEqual(result);
+  });
+
+  it("keeps an HTTP 504 during a resumable poll pending", async () => {
+    mocks.executeProviderApiRequest.mockResolvedValueOnce(
+      providerResult({ errors: [{ message: "Gateway timeout" }] }, 504, false),
+    );
+
+    const result = await action.run({
+      metricName: "active_workspaces",
+      queryId: "fake_query_1",
+      limit: 20,
+    });
+
+    expect(result).toMatchObject({
+      status: "pending",
+      queryId: "fake_query_1",
+      message: expect.stringContaining("HTTP 504"),
+    });
+    expect(action.outputSchema.parse(result)).toEqual(result);
+  });
+
+  it("does not return pending without a query ID when the action deadline aborts metadata lookup", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.executeProviderApiRequest.mockImplementationOnce(async () => {
+        await vi.advanceTimersByTimeAsync(12_000);
+        throw Object.assign(new Error("aborted"), { name: "AbortError" });
+      });
+
+      const result = await action.run({
+        metricName: "active_workspaces",
+        limit: 20,
+      });
+
+      expect(result).toMatchObject({ status: "connection_error" });
+      expect(result).not.toHaveProperty("queryId");
+      expect(action.outputSchema.parse(result)).toEqual(result);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("refuses the synthetic dbt job-run request before any provider call", () => {

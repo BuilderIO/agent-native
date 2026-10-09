@@ -255,20 +255,105 @@ describe("search-bigquery-schema", () => {
     );
   });
 
-  it("pages through ranked matches with a query-bound cursor", async () => {
+  it("continues global search without rescanning the previous metadata page", async () => {
+    mocks.fetch.mockImplementation(async (input: URL | string) => {
+      const url = new URL(String(input));
+      const path = url.pathname;
+
+      if (path.endsWith("/datasets")) {
+        return jsonResponse({
+          datasets: [
+            {
+              datasetReference: {
+                projectId: "test-project",
+                datasetId: "product",
+              },
+            },
+          ],
+        });
+      }
+
+      if (path.endsWith("/datasets/product/tables")) {
+        if (url.searchParams.get("pageToken") === "table-page-two") {
+          return jsonResponse({
+            tables: [
+              {
+                tableReference: {
+                  projectId: "test-project",
+                  datasetId: "product",
+                  tableId: "user_events",
+                },
+              },
+            ],
+          });
+        }
+        return jsonResponse({
+          tables: [
+            {
+              tableReference: {
+                projectId: "test-project",
+                datasetId: "product",
+                tableId: "user_accounts",
+              },
+            },
+          ],
+          nextPageToken: "table-page-two",
+        });
+      }
+
+      if (
+        path.endsWith("/datasets/product/tables/user_accounts") ||
+        path.endsWith("/datasets/product/tables/user_events")
+      ) {
+        const tableId = path.endsWith("/user_accounts")
+          ? "user_accounts"
+          : "user_events";
+        return jsonResponse({
+          tableReference: {
+            projectId: "test-project",
+            datasetId: "product",
+            tableId,
+          },
+          schema: { fields: [{ name: "user_id", type: "STRING" }] },
+        });
+      }
+
+      return jsonResponse({}, 404);
+    });
+
     const firstPage = await action.run({ search: "user", limit: 1 });
-    expect(firstPage.nextPage).toBeTruthy();
-    expect(firstPage.truncated).toBe(true);
+    expect(firstPage).toMatchObject({
+      tables: [expect.objectContaining({ tableId: "user_accounts" })],
+      searched: 1,
+      of: 1,
+      truncated: true,
+    });
 
     const secondPage = await action.run({
       search: "user",
       limit: 1,
       nextPage: firstPage.nextPage,
     });
-    expect(secondPage.tables).toHaveLength(1);
-    expect(secondPage.tables[0]?.tableId).not.toBe(
-      firstPage.tables[0]?.tableId,
+    expect(secondPage).toMatchObject({
+      tables: [expect.objectContaining({ tableId: "user_events" })],
+      searched: 2,
+      of: 2,
+      truncated: false,
+    });
+    const tableListingCalls = mocks.fetch.mock.calls.filter(([input]) =>
+      new URL(String(input)).pathname.endsWith("/datasets/product/tables"),
     );
+    expect(
+      tableListingCalls.map(([input]) =>
+        new URL(String(input)).searchParams.get("pageToken"),
+      ),
+    ).toEqual([null, "table-page-two"]);
+    const metadataCalls = mocks.fetch.mock.calls.filter(([input]) =>
+      /\/datasets\/product\/tables\/user_(accounts|events)$/.test(
+        new URL(String(input)).pathname,
+      ),
+    );
+    expect(metadataCalls).toHaveLength(2);
     await expect(
       action.run({ search: "credit", limit: 1, nextPage: firstPage.nextPage }),
     ).rejects.toThrow(/does not match this query/);
@@ -631,7 +716,7 @@ describe("search-bigquery-schema", () => {
       tablesScanned: 0,
       truncated: true,
     });
-    expect(firstPage.nextPage).toMatch(/^bqg1\./);
+    expect(firstPage.nextPage).toMatch(/^bqg2\./);
 
     const secondPage = await action.run({
       search: "nothing",

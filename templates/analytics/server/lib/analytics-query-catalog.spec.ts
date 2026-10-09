@@ -151,6 +151,72 @@ describe("analytics query catalog", () => {
     });
   });
 
+  it("uses one transitive trust and scope order across catalog kinds", () => {
+    const dashboards = [
+      {
+        id: "favorite-user-count",
+        title: "User count",
+        origin: "saved-dashboard" as const,
+        favorite: true,
+        certification: {
+          status: "certified" as const,
+          certifiedAt: "2026-10-01T00:00:00.000Z",
+          certifiedBy: "reviewer@example.com",
+          certifiedForUpdatedAt: "v1",
+        },
+        updatedAt: "v1",
+        config: {
+          panels: [
+            {
+              id: "user-count",
+              title: "User count",
+              source: "bigquery",
+              sql: "SELECT user_id FROM user_dimension",
+            },
+          ],
+        },
+      },
+    ];
+    const dictionaryEntries = [
+      {
+        id: "approved-organization-users",
+        metric: "Builder product user count",
+        definition: "Approved organization user definition",
+        semanticScope: "organization",
+        approved: true,
+      },
+      {
+        id: "sigma-product-users",
+        metric: "Builder product user count",
+        definition: "Generated product user example",
+        semanticScope: "product_user",
+        sourceKind: "sigma",
+        sourceIndex: true,
+        approved: false,
+        aiGenerated: true,
+      },
+    ];
+    const rank = (entries: typeof dictionaryEntries) =>
+      rankAnalyticsQueryCatalog({
+        search: "Builder product user count",
+        limit: 6,
+        dashboards,
+        dictionaryEntries: entries,
+      }).map((candidate) =>
+        candidate.kind === "data-dictionary"
+          ? candidate.id
+          : candidate.dashboardId,
+      );
+
+    const expected = [
+      "approved-organization-users",
+      "sigma-product-users",
+      "favorite-user-count",
+    ];
+    expect(rank(dictionaryEntries)).toEqual(expected);
+    expect(rank([...dictionaryEntries].reverse())).toEqual(expected);
+  });
+
   it("keeps Builder product users ahead of feature funnels and Analytics users", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "Builder.io users",

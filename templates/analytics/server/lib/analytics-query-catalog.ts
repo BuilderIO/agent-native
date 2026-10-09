@@ -621,6 +621,11 @@ export function rankAnalyticsQueryCatalogPage(args: {
             requestedScope,
           ),
     trust: candidateTrustTier(candidate),
+    coverage:
+      candidate.matchedTerms.length +
+      (candidate.kind === "dashboard-panel" && candidate.dashboardCertified
+        ? 1
+        : 0),
     runnable: candidateIsRunnable(candidate),
     tieBreak: JSON.stringify(candidate),
   }));
@@ -641,9 +646,8 @@ export function rankAnalyticsQueryCatalogPage(args: {
       : rankedCandidates;
   const ranked = scopeFiltered
     .sort((a, b) => {
-      if (a.candidate.kind === b.candidate.kind) {
-        if (b.trust !== a.trust) return b.trust - a.trust;
-      }
+      if (b.coverage !== a.coverage) return b.coverage - a.coverage;
+      if (b.trust !== a.trust) return b.trust - a.trust;
       if (b.scope !== a.scope) return b.scope - a.scope;
       if (b.candidate.score !== a.candidate.score) {
         return b.candidate.score - a.candidate.score;

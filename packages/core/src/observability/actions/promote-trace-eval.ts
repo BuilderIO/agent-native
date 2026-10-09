@@ -24,6 +24,7 @@ import type { EvalDataset } from "../types.js";
 
 /** Cap on run events loaded for one promotion. One past this is a refusal. */
 export const PROMOTE_RUN_EVENT_LIMIT = 10_000;
+export const PROMOTE_TRACE_EVAL_BODY_LIMIT = 24_000;
 
 type PromoteLoadError = PromoteTraceError | "events_truncated";
 
@@ -274,7 +275,7 @@ export default defineAction({
       ),
   }),
   http: { method: "POST" },
-  maxBodyBytes: 24_000,
+  maxBodyBytes: PROMOTE_TRACE_EVAL_BODY_LIMIT,
   readOnly: false,
   run: async (
     { runId, reviewedPrompt, reviewedHistory, mustContain, datasetName },
