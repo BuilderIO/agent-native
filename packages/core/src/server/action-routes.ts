@@ -38,8 +38,8 @@ import {
   isFederationMembershipValidatedForEvent,
   resolveOrgIdForEmail,
 } from "../org/context.js";
+import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
 import {
-  isWorkspaceAppAccessAllowed,
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
 } from "../org/workspace-app-access.js";
@@ -909,12 +909,6 @@ function mountActionRoutesInternal(
             ownerContextResolved = true;
           }
 
-          const workspaceAppId =
-            options?.appId ?? options?.mcpDirectoryWidgetAppId;
-          if (!workspaceAppId) {
-            setResponseStatus(event, 503);
-            return { error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
-          }
           const workspaceOrgId = resolvedCaller
             ? resolvedCaller.orgId === null
               ? undefined
@@ -927,15 +921,17 @@ function mountActionRoutesInternal(
                 ownerContext,
                 resolveOrgId: options?.resolveOrgId,
               });
-          const workspaceAppAccess = await isWorkspaceAppAccessAllowed(
-            workspaceAppId,
-            { email: ownerContext.owner, orgId: workspaceOrgId },
-          );
+          const workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
+            path: `/_agent-native/actions/${name}`,
+            method: getMethod(event),
+            email: ownerContext.owner,
+            orgId: workspaceOrgId,
+          });
           if (workspaceAppAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
             setResponseStatus(event, 503);
             return { error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
           }
-          if (!workspaceAppAccess) {
+          if (workspaceAppAccess === false) {
             setResponseStatus(event, 403);
             return {
               error: "You do not have access to this workspace app.",

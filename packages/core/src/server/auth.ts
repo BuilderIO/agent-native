@@ -19,12 +19,11 @@ import {
   newOrgSelection,
   ORG_SELECTION_COOKIE,
 } from "../org/request-org-cache.js";
+import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
 import {
-  isWorkspaceAppAccessAllowed,
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
 } from "../org/workspace-app-access.js";
-import { resolveWorkspaceAccessAppId } from "../org/workspace-app-identity.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_START_PATH,
@@ -4216,34 +4215,19 @@ function createAuthGuardFn(
 
     const session = await getSession(event);
     if (session) {
-      const workspaceAppId = resolveWorkspaceAccessAppId();
       const method = getMethod(event);
-      const sharedWorkspaceAccessPath =
-        p === "/_agent-native/org/me" ||
-        p === "/_agent-native/actions/list-workspace-apps" ||
-        (method === "GET" &&
-          p === "/_agent-native/actions/list-workspace-app-access") ||
-        (method === "POST" &&
-          p === "/_agent-native/actions/set-workspace-app-access");
-      // Keep org-owned repair controls reachable when this app is disabled;
-      // each action or handler still enforces its org membership and role.
-      if (
-        workspaceAppId &&
-        !sharedWorkspaceAccessPath &&
-        (p.startsWith("/api/") || p.startsWith("/_agent-native/"))
-      ) {
-        const workspaceAppAccess = await isWorkspaceAppAccessAllowed(
-          workspaceAppId,
-          {
-            email: session.email,
-            orgId: session.orgId,
-          },
-        );
+      if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
+        const workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
+          path: p,
+          method,
+          email: session.email,
+          orgId: session.orgId,
+        });
         if (workspaceAppAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
           setResponseStatus(event, 503);
           return { error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
         }
-        if (!workspaceAppAccess) {
+        if (workspaceAppAccess === false) {
           setResponseStatus(event, 403);
           return { error: "You do not have access to this workspace app." };
         }

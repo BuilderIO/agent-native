@@ -2455,6 +2455,9 @@ describe("mountActionRoutes", () => {
       WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
         "Workspace app access is temporarily unavailable.",
     }));
+    vi.doMock("../org/workspace-app-identity.js", () => ({
+      resolveWorkspaceAccessAppId: () => "slides",
+    }));
 
     try {
       const { mountActionRoutes } = await import("./action-routes.js");
@@ -2519,6 +2522,87 @@ describe("mountActionRoutes", () => {
       expect(run).not.toHaveBeenCalled();
     } finally {
       vi.doUnmock("../org/workspace-app-access.js");
+      vi.doUnmock("../org/workspace-app-identity.js");
+      vi.resetModules();
+    }
+  });
+
+  it("allows the Design create-file route when workspace app access is not configured", async () => {
+    vi.resetModules();
+    const workspaceAccess = vi.fn(async () => false);
+    vi.doMock("../org/workspace-app-access.js", () => ({
+      isWorkspaceAppAccessAllowed: workspaceAccess,
+      WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
+      WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
+        "Workspace app access is temporarily unavailable.",
+    }));
+    vi.doMock("../org/workspace-app-identity.js", () => ({
+      resolveWorkspaceAccessAppId: () => "",
+    }));
+
+    try {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ id: "file-1", designId: "design-1" }));
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          "create-file": {
+            http: { method: "POST" },
+            readOnly: false,
+            requiresAuth: true,
+            run,
+          } as any,
+        },
+        {
+          appId: "design",
+          mcpDirectoryWidgetAppId: "design",
+          mcpDirectoryWidgetResourceUri: "ui://design/shell-v69",
+          mcpDirectoryWidgetWriteActionArguments: {
+            "create-file": ["designId"],
+          },
+          actionRouteAuth: {
+            resolveCaller: async () => ({
+              owner: "reviewer@example.com",
+              anonymous: false,
+              orgId: null,
+            }),
+          },
+        },
+      );
+
+      const event: any = {
+        _method: "POST",
+        _headers: {
+          "x-agent-native-frontend": "1",
+          host: "design.agent-native.test",
+          origin: "https://design.agent-native.test",
+        },
+        req: {
+          url: "https://design.agent-native.test/_agent-native/actions/create-file",
+          json: async () => ({
+            designId: "design-1",
+            filename: "screen.html",
+            content: "<main>Screen</main>",
+          }),
+        },
+      };
+      const route = mounted.find(
+        ({ path }) => path === "/_agent-native/actions/create-file",
+      );
+      const result = await route!.handler(event);
+
+      expect(event._status ?? 200).toBe(200);
+      expect(result).toEqual({ id: "file-1", designId: "design-1" });
+      expect(run).toHaveBeenCalledOnce();
+      expect(workspaceAccess).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("../org/workspace-app-access.js");
+      vi.doUnmock("../org/workspace-app-identity.js");
       vi.resetModules();
     }
   });
