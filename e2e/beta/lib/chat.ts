@@ -637,7 +637,7 @@ export async function sendPromptAndAwaitTurn(
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(
       message +
-        "\nAgent-native request diagnostics: " +
+        "\nAgent-Native request diagnostics: " +
         JSON.stringify(diagnostics.snapshot()),
       { cause: error },
     );

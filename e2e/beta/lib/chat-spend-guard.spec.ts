@@ -35,7 +35,7 @@ test("early send failures include diagnostics owned by an existing chat watcher"
     (error: unknown) =>
       error instanceof Error &&
       error.message.includes("fixture composer unavailable") &&
-      error.message.includes("Agent-native request diagnostics:") &&
+      error.message.includes("Agent-Native request diagnostics:") &&
       error.message.includes("/_agent-native/agent-engine/status"),
   );
   assert.ok(events.listenerCount() > 0);
