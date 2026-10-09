@@ -64,6 +64,10 @@ describe("scrubUrl", () => {
       "https://app.agent-native.com/auth#/verify&token=%3Credacted%3E",
     ],
     [
+      "https://app.agent-native.com/auth#verify&token=secret",
+      "https://app.agent-native.com/auth#verify&token=%3Credacted%3E",
+    ],
+    [
       "https://app.agent-native.com/auth#return=/inbox&code=secret?x=1",
       "https://app.agent-native.com/auth#return=/inbox&code=%3Credacted%3E?x=1",
     ],
@@ -71,6 +75,16 @@ describe("scrubUrl", () => {
     const scrubbed = scrubUrl(url);
 
     expect(scrubbed).toBe(expected);
+    expect(scrubbed).not.toContain("secret");
+  });
+
+  it.each([
+    "https://app.agent-native.com/auth#/verify%3Ftoken%3Dsecret",
+    "https://app.agent-native.com/auth#/verify%253Ftoken%253Dsecret",
+  ])("redacts ambiguous encoded hash route queries", (url) => {
+    const scrubbed = scrubUrl(url);
+
+    expect(scrubbed).toContain("#%3Credacted%3E");
     expect(scrubbed).not.toContain("secret");
   });
 
@@ -125,6 +139,7 @@ describe("scrubUrl", () => {
   it.each([
     "https://app.agent-native.com/auth#/verify&tab=1?step=2",
     "https://app.agent-native.com/auth#/verify&tab=1",
+    "https://app.agent-native.com/auth#verify&tab=1",
     "https://app.agent-native.com/auth#return=/inbox&tab=1?step=2",
   ])("preserves non-sensitive hash route prefix parameters", (url) => {
     expect(scrubUrl(url)).toBe(url);

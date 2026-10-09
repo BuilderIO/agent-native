@@ -21,6 +21,7 @@ const SENSITIVE_QUERY_PARAMS = new Set([
 
 const MAX_QUERY_DECODE_DEPTH = 8;
 const ENCODED_QUERY_DELIMITER = /%(?:25)*(?:3f|23)/i;
+const ENCODED_ROUTE_QUERY_DELIMITER = /%(?:25)*3f/i;
 
 function normalizeQueryParamName(key: string): string {
   return key.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -145,66 +146,93 @@ export function scrubUrl(
       additionalSensitiveParams,
     );
     const hash = u.hash.slice(1);
-    const hashRouteQueryIndex = hash.indexOf("?");
-    const hashRoutePrefix =
-      hashRouteQueryIndex === -1 ? hash : hash.slice(0, hashRouteQueryIndex);
-    const routePrefixParamsIndex = hashRoutePrefix.indexOf("&");
-    const routePrefixParam = /^([^&=]+)=\//.exec(hashRoutePrefix)?.[1];
-    const hasHashRoutePathPrefix =
-      hash.startsWith("/") ||
-      (routePrefixParam !== undefined &&
-        !isSensitiveQueryParam(routePrefixParam, additionalSensitiveParams));
-    const hashUsesRouteQuery =
-      hashRouteQueryIndex > 0 &&
-      (hasHashRoutePathPrefix || !hashRoutePrefix.includes("="));
-    const hashUsesRoutePrefixParams =
-      hashRouteQueryIndex === -1 &&
-      hash.startsWith("/") &&
-      routePrefixParamsIndex !== -1;
-    const hashQuery = hashUsesRouteQuery
-      ? hash.slice(hashRouteQueryIndex + 1)
-      : hashUsesRoutePrefixParams
+    const encodedRouteQueryIndex = hash.search(ENCODED_ROUTE_QUERY_DELIMITER);
+    const routePathBeforeEncodedQuery =
+      encodedRouteQueryIndex === -1
         ? ""
-        : hash;
-    let scrubbedHashRoutePrefix = hashUsesRoutePrefixParams
-      ? hashRoutePrefix.slice(0, routePrefixParamsIndex)
-      : hashRoutePrefix;
-    let hashRoutePrefixMutated = false;
+        : hash.slice(0, encodedRouteQueryIndex).split("&", 1)[0];
+    const hasEncodedRouteQuery =
+      encodedRouteQueryIndex !== -1 &&
+      (hash.startsWith("/") ||
+        (routePathBeforeEncodedQuery.length > 0 &&
+          !routePathBeforeEncodedQuery.includes("=")));
     if (
-      (hashUsesRouteQuery || hashUsesRoutePrefixParams) &&
-      routePrefixParamsIndex !== -1
+      hasEncodedRouteQuery &&
+      hasSensitiveNestedQuery(hash, additionalSensitiveParams)
     ) {
-      const routePrefixPath = hashRoutePrefix.slice(0, routePrefixParamsIndex);
-      const routePrefixParams = new URLSearchParams(
-        hashRoutePrefix.slice(routePrefixParamsIndex + 1),
-      );
+      mutated = true;
+      u.hash = "<redacted>";
+    } else {
+      const hashRouteQueryIndex = hash.indexOf("?");
+      const hashRoutePrefix =
+        hashRouteQueryIndex === -1 ? hash : hash.slice(0, hashRouteQueryIndex);
+      const routePrefixParamsIndex = hashRoutePrefix.indexOf("&");
+      const routePrefixPath =
+        routePrefixParamsIndex === -1
+          ? hashRoutePrefix
+          : hashRoutePrefix.slice(0, routePrefixParamsIndex);
+      const routePrefixParam = /^([^&=]+)=\//.exec(hashRoutePrefix)?.[1];
+      const hasHashRoutePathPrefix =
+        hash.startsWith("/") ||
+        (routePrefixPath.length > 0 && !routePrefixPath.includes("=")) ||
+        (routePrefixParam !== undefined &&
+          !isSensitiveQueryParam(routePrefixParam, additionalSensitiveParams));
+      const hashUsesRouteQuery =
+        hashRouteQueryIndex > 0 &&
+        (hasHashRoutePathPrefix || !hashRoutePrefix.includes("="));
+      const hashUsesRoutePrefixParams =
+        hashRouteQueryIndex === -1 &&
+        routePrefixParamsIndex > 0 &&
+        !routePrefixPath.includes("=");
+      const hashQuery = hashUsesRouteQuery
+        ? hash.slice(hashRouteQueryIndex + 1)
+        : hashUsesRoutePrefixParams
+          ? ""
+          : hash;
+      let scrubbedHashRoutePrefix = hashRoutePrefix;
+      let hashRoutePrefixMutated = false;
       if (
-        redactSensitiveQueryParams(routePrefixParams, additionalSensitiveParams)
+        (hashUsesRouteQuery || hashUsesRoutePrefixParams) &&
+        routePrefixParamsIndex !== -1
       ) {
-        mutated = true;
-        hashRoutePrefixMutated = true;
-        scrubbedHashRoutePrefix = `${routePrefixPath}&${routePrefixParams.toString()}`;
+        const routePrefixPath = hashRoutePrefix.slice(
+          0,
+          routePrefixParamsIndex,
+        );
+        const routePrefixParams = new URLSearchParams(
+          hashRoutePrefix.slice(routePrefixParamsIndex + 1),
+        );
+        if (
+          redactSensitiveQueryParams(
+            routePrefixParams,
+            additionalSensitiveParams,
+          )
+        ) {
+          mutated = true;
+          hashRoutePrefixMutated = true;
+          scrubbedHashRoutePrefix = `${routePrefixPath}&${routePrefixParams.toString()}`;
+        }
       }
-    }
-    let scrubbedHashQuery = hashQuery;
-    let hashQueryMutated = false;
-    if (hashQuery.includes("=")) {
-      const hashParams = new URLSearchParams(hashQuery);
-      if (redactSensitiveQueryParams(hashParams, additionalSensitiveParams)) {
-        mutated = true;
-        hashQueryMutated = true;
-        scrubbedHashQuery = hashParams.toString();
+      let scrubbedHashQuery = hashQuery;
+      let hashQueryMutated = false;
+      if (hashQuery.includes("=")) {
+        const hashParams = new URLSearchParams(hashQuery);
+        if (redactSensitiveQueryParams(hashParams, additionalSensitiveParams)) {
+          mutated = true;
+          hashQueryMutated = true;
+          scrubbedHashQuery = hashParams.toString();
+        }
       }
-    }
-    if (hashUsesRouteQuery && (hashRoutePrefixMutated || hashQueryMutated)) {
-      u.hash = `${scrubbedHashRoutePrefix}?${scrubbedHashQuery}`;
-    } else if (
-      hashUsesRoutePrefixParams &&
-      (hashRoutePrefixMutated || hashQueryMutated)
-    ) {
-      u.hash = scrubbedHashRoutePrefix;
-    } else if (!hashUsesRouteQuery && hashQueryMutated) {
-      u.hash = scrubbedHashQuery;
+      if (hashUsesRouteQuery && (hashRoutePrefixMutated || hashQueryMutated)) {
+        u.hash = `${scrubbedHashRoutePrefix}?${scrubbedHashQuery}`;
+      } else if (
+        hashUsesRoutePrefixParams &&
+        (hashRoutePrefixMutated || hashQueryMutated)
+      ) {
+        u.hash = scrubbedHashRoutePrefix;
+      } else if (!hashUsesRouteQuery && hashQueryMutated) {
+        u.hash = scrubbedHashQuery;
+      }
     }
     if (!mutated) return url;
     if (u.origin === "http://placeholder.local") {
