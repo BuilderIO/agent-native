@@ -81,6 +81,20 @@ import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 import { ANALYTICS_SESSIONS_TRIAGE_LAB } from "../../../shared/labs";
+import {
+  buildReplayViewportTimeline,
+  INCREMENTAL_SOURCE,
+  normalizeReplayEvents,
+  replayAvailabilityErrorKey,
+  replayInitialViewportDimensions,
+  resolveReplayOffsetFromRecordingStart,
+  replayStartedAt,
+  replayViewportDimensionsAtTime,
+  REPLAY_OVERLAY_STYLE_RULES,
+  RRWEB_EVENT_TYPE,
+  type AnyReplayEvent,
+  type ReplayViewportDimensions,
+} from "../../../shared/replay-playback.js";
 import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../../shared/session-events";
 import type { SessionRecordingFriction } from "../../../shared/session-friction";
 import {
@@ -96,8 +110,9 @@ import {
 import { extractReplayDiagnostics } from "./session-replay-devtools";
 import type { ReplayDevToolsDiagnostics } from "./session-replay-devtools";
 import {
+  captureReplayScreenshot,
   completeReplayScreenshotCapture,
-  downloadReplayScreenshot,
+  downloadReplayScreenshotBlob,
   ReplayScreenshotAssetError,
 } from "./session-replay-screenshot";
 import {
@@ -105,6 +120,20 @@ import {
   SessionDevToolsPanel,
 } from "./SessionDevToolsPanel";
 import { SessionFrictionPanel } from "./SessionFriction";
+
+export {
+  buildReplayViewportTimeline,
+  INCREMENTAL_SOURCE,
+  normalizeReplayDimensions,
+  normalizeReplayEvents,
+  replayAvailabilityErrorKey,
+  replayInitialViewportDimensions,
+  replayRouteAtOffset,
+  replayViewportDimensions,
+  replayViewportDimensionsAtTime,
+  REPLAY_OVERLAY_STYLE_RULES,
+  RRWEB_EVENT_TYPE,
+} from "../../../shared/replay-playback.js";
 
 type SessionRecordingSummary = {
   id: string;
@@ -171,7 +200,6 @@ type SessionReplayPlaybackResponse = {
   isComplete: boolean;
 };
 
-type AnyReplayEvent = Record<string, any>;
 type AnyRecord = Record<string, any>;
 
 type ReplayPlayerStatus = "idle" | "loading" | "ready" | "error";
@@ -201,15 +229,6 @@ type SkipRange = {
   endMs: number;
 };
 
-type ReplayViewportDimensions = {
-  width: number;
-  height: number;
-};
-
-type ReplayViewportChange = ReplayViewportDimensions & {
-  offsetMs: number;
-};
-
 const DEFAULT_PLAYER_WIDTH = 1024;
 const DEFAULT_PLAYER_HEIGHT = 640;
 const DEFAULT_SPEED = 2;
@@ -228,7 +247,6 @@ const SCRUBBER_MARKER_LIMIT = 500;
 const TIMELINE_MARKER_LIMIT = 300;
 const TIMELINE_FOLLOW_PAUSE_MS = 4000;
 const REPLAY_CLOCK_UPDATE_INTERVAL_MS = 100;
-export const REPLAY_OVERLAY_STYLE_RULES: string[] = [];
 type ReplayConsoleDiagnostics = ReturnType<
   typeof extractReplayDiagnostics
 >["console"];
@@ -257,24 +275,6 @@ function buildConsoleErrorSignatures(
   return signatures;
 }
 
-const RRWEB_EVENT_TYPE = {
-  FullSnapshot: 2,
-  IncrementalSnapshot: 3,
-  Meta: 4,
-  Custom: 5,
-} as const;
-
-const INCREMENTAL_SOURCE = {
-  Mutation: 0,
-  MouseMove: 1,
-  MouseInteraction: 2,
-  Scroll: 3,
-  ViewportResize: 4,
-  Input: 5,
-  TouchMove: 6,
-  Drag: 12,
-} as const;
-
 const MOUSE_INTERACTION = {
   MouseUp: 0,
   MouseDown: 1,
@@ -293,10 +293,11 @@ export default function SessionDetailPage() {
   const { codeRequiredDialog } = useSendToAgentChat();
   const { data, isLoading, error } = useSessionReplayPlayback(recordingId);
   const recording = data?.recording;
-  const initialSeekMs = useMemo(() => {
+  const initialRecordingOffsetMs = useMemo(() => {
     const raw = searchParams.get("atMs");
-    if (!raw || !/^\d+$/.test(raw)) return 0;
-    return Number(raw);
+    if (raw === null || !/^\d+$/.test(raw)) return null;
+    const offsetMs = Number(raw);
+    return Number.isSafeInteger(offsetMs) ? offsetMs : null;
   }, [searchParams]);
 
   return (
@@ -349,7 +350,10 @@ export default function SessionDetailPage() {
         <DetailSkeleton />
       ) : data && recording ? (
         <div className="min-h-0 flex-1">
-          <ReplayWorkbench response={data} initialSeekMs={initialSeekMs} />
+          <ReplayWorkbench
+            response={data}
+            initialRecordingOffsetMs={initialRecordingOffsetMs}
+          />
         </div>
       ) : null}
     </div>
@@ -456,6 +460,7 @@ function AskSessionPopover({
         </div>
         <PromptComposer
           autoFocus
+          requireAgentEngine
           disabled={isGenerating}
           placeholder={t("sessions.askSessionPlaceholder")}
           draftScope={`analytics:session-replay:${recording.id}`}
@@ -468,13 +473,35 @@ function AskSessionPopover({
 
 function ReplayWorkbench({
   response,
-  initialSeekMs,
+  initialRecordingOffsetMs,
 }: {
   response: SessionReplayPlaybackResponse;
-  initialSeekMs: number;
+  initialRecordingOffsetMs: number | null;
 }) {
   const t = useT();
   const events = useReplayEvents(response);
+  const offsetResolution = useMemo(
+    () =>
+      initialRecordingOffsetMs === null
+        ? null
+        : resolveReplayOffsetFromRecordingStart(
+            events,
+            Date.parse(response.recording.startedAt),
+            initialRecordingOffsetMs,
+          ),
+    [events, initialRecordingOffsetMs, response.recording.startedAt],
+  );
+  const initialSeekMs =
+    initialRecordingOffsetMs === null
+      ? null
+      : (offsetResolution?.playheadOffsetMs ?? 0);
+  const requestedOffsetStatus =
+    response.isComplete && offsetResolution && !offsetResolution.exact
+      ? {
+          requestedOffsetMs: offsetResolution.requestedOffsetMs,
+          availableOffsetMs: offsetResolution.availableOffsetMs,
+        }
+      : null;
   const appEvents = useLab(ANALYTICS_SESSIONS_TRIAGE_LAB);
   const [pageChangesCollapsed, setPageChangesCollapsed] = useState(false);
   const [savingScreenshot, setSavingScreenshot] = useState(false);
@@ -523,6 +550,7 @@ function ReplayWorkbench({
         markers={markers}
         response={response}
         initialSeekMs={initialSeekMs}
+        requestedOffsetStatus={requestedOffsetStatus}
         onTimeUpdate={setCurrentTime}
         registerSeek={registerSeek}
         frictionLab={appEvents}
@@ -553,6 +581,7 @@ function ReplayPlayer({
   markers,
   response,
   initialSeekMs,
+  requestedOffsetStatus,
   onTimeUpdate,
   registerSeek,
   frictionLab,
@@ -562,7 +591,11 @@ function ReplayPlayer({
   events: AnyReplayEvent[];
   markers: ReplayMarker[];
   response: SessionReplayPlaybackResponse;
-  initialSeekMs: number;
+  initialSeekMs: number | null;
+  requestedOffsetStatus: {
+    requestedOffsetMs: number;
+    availableOffsetMs: number;
+  } | null;
   onTimeUpdate: (ms: number) => void;
   registerSeek: (seek: (ms: number, autoplay?: boolean) => void) => void;
   frictionLab: boolean;
@@ -582,6 +615,9 @@ function ReplayPlayer({
   const [currentTime, setCurrentTime] = useState(0);
   const [totalTime, setTotalTime] = useState(0);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
+  const [screenshotAction, setScreenshotAction] = useState<
+    "copy" | "save" | null
+  >(null);
   const [skipInactive, setSkipInactive] = useState(true);
   const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [devToolsHeight, setDevToolsHeight] = useState(DEFAULT_DEVTOOLS_HEIGHT);
@@ -847,7 +883,7 @@ function ReplayPlayer({
       const total = Number(meta?.totalTime ?? replayDuration(replayEvents));
       setTotalTime(Number.isFinite(total) ? total : 0);
       const startAt = clamp(
-        initialSeekMs || currentTimeRef.current,
+        initialSeekMs ?? currentTimeRef.current,
         0,
         Number.isFinite(total) ? total : 0,
       );
@@ -1032,18 +1068,23 @@ function ReplayPlayer({
     }
   }
 
-  async function saveScreenshot() {
+  function runScreenshotAction(
+    action: "copy" | "save",
+    operation: (
+      screenshot: Promise<Blob>,
+      filename: string,
+      onClipboardWriteFailure: () => void,
+    ) => Promise<void>,
+    onSuccess: () => void,
+    onFailure: (error: unknown) => void,
+  ) {
     const replayer = replayerRef.current;
     const iframe = replayer?.iframe as HTMLIFrameElement | undefined;
     const stage = stageAreaRef.current;
     const stageRoot = stageRootRef.current;
-    if (
-      !replayer ||
-      !iframe ||
-      !stage ||
-      !stageRoot ||
-      savingScreenshotRef.current
-    ) {
+    if (savingScreenshotRef.current) return;
+    if (!replayer || !iframe || !stage || !stageRoot) {
+      onFailure(new Error("Replay screenshot is unavailable"));
       return;
     }
 
@@ -1052,56 +1093,87 @@ function ReplayPlayer({
       replayer.getCurrentTime?.() ?? currentTimeRef.current,
     );
     const capture = new AbortController();
+    let clipboardWriteFailed = false;
+    const onClipboardWriteFailure = () => {
+      if (screenshotCaptureRef.current !== capture) return;
+      clipboardWriteFailed = true;
+      capture.abort();
+    };
     screenshotCaptureRef.current = capture;
     savingScreenshotRef.current = true;
     setSavingScreenshot(true);
+    setScreenshotAction(action);
 
+    const filename = `session-replay-${Math.floor(captureAt / 1000)
+      .toString()
+      .padStart(4, "0")}.png`;
+    let actionPromise: Promise<void>;
     try {
       replayer.pause(captureAt);
       setPlaying(false);
       updateTime(captureAt);
-      await downloadReplayScreenshot(
+      const screenshot = captureReplayScreenshot(
         stage,
         stageRoot,
         iframe,
-        `session-replay-${Math.floor(captureAt / 1000)
-          .toString()
-          .padStart(4, "0")}.png`,
         capture.signal,
       );
-      toast.success(t("sessions.screenshotDownloaded"));
+      // Clipboard writes need this click's activation, so start the operation before awaiting capture.
+      actionPromise = operation(screenshot, filename, onClipboardWriteFailure);
     } catch (error) {
-      if (!capture.signal.aborted) {
+      actionPromise = Promise.reject(error);
+    }
+
+    void actionPromise
+      .then(onSuccess, (error: unknown) => {
+        if (
+          !capture.signal.aborted ||
+          (clipboardWriteFailed && screenshotCaptureRef.current === capture)
+        ) {
+          capture.abort();
+          onFailure(error);
+        }
+      })
+      .finally(() => {
+        const captureStillCurrent = completeReplayScreenshotCapture(
+          screenshotCaptureRef,
+          capture,
+          () => {
+            savingScreenshotRef.current = false;
+            setSavingScreenshot(false);
+          },
+        );
+        if (captureStillCurrent) setScreenshotAction(null);
+        if (
+          captureStillCurrent &&
+          wasPlaying &&
+          replayerRef.current === replayer
+        ) {
+          try {
+            replayer.play(captureAt);
+            setPlaying(true);
+          } catch {
+            setPlaying(false);
+          }
+        }
+      });
+  }
+
+  function saveScreenshot() {
+    runScreenshotAction(
+      "save",
+      (screenshot, filename) =>
+        screenshot.then((blob) => downloadReplayScreenshotBlob(blob, filename)),
+      () => toast.success(t("sessions.screenshotDownloaded")),
+      (error) =>
         toast.error(
           t(
             error instanceof ReplayScreenshotAssetError
               ? "sessions.screenshotUnsupportedAssets"
               : "sessions.screenshotSaveFailed",
           ),
-        );
-      }
-    } finally {
-      const captureStillCurrent = completeReplayScreenshotCapture(
-        screenshotCaptureRef,
-        capture,
-        () => {
-          savingScreenshotRef.current = false;
-          setSavingScreenshot(false);
-        },
-      );
-      if (
-        captureStillCurrent &&
-        wasPlaying &&
-        replayerRef.current === replayer
-      ) {
-        try {
-          replayer.play(captureAt);
-          setPlaying(true);
-        } catch {
-          setPlaying(false);
-        }
-      }
-    }
+        ),
+    );
   }
 
   const disabled = status !== "ready" || savingScreenshot;
@@ -1115,6 +1187,21 @@ function ReplayPlayer({
         <Card className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col p-0">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-muted/20 p-2">
+              {status === "ready" && requestedOffsetStatus ? (
+                <p
+                  className="mb-2 rounded-md border bg-background px-3 py-2 text-xs text-muted-foreground"
+                  role="status"
+                >
+                  {t("sessions.replayTargetFallback", {
+                    requested: formatClock(
+                      requestedOffsetStatus.requestedOffsetMs,
+                    ),
+                    available: formatClock(
+                      requestedOffsetStatus.availableOffsetMs,
+                    ),
+                  })}
+                </p>
+              ) : null}
               {currentUrl ? (
                 <div
                   className="flex h-8 shrink-0 items-center rounded-t-md border border-b-0 bg-background px-3 font-mono text-xs text-muted-foreground"
@@ -1224,12 +1311,11 @@ function ReplayPlayer({
               >
                 <IconDownload className="me-1.5 h-4 w-4" />
                 {t(
-                  savingScreenshot
+                  savingScreenshot && screenshotAction === "save"
                     ? "sessions.savingScreenshot"
                     : "sessions.saveScreenshot",
                 )}
               </Button>
-
               <span className="w-12 text-center font-mono text-xs text-muted-foreground">
                 {formatClock(currentTime)}
               </span>
@@ -2208,22 +2294,6 @@ function useReplayEvents(
   );
 }
 
-/**
- * Stock rrweb consumes the recorded event objects directly. Playback-time URL
- * or CSS rewriting breaks snapshots, responsive rules, fonts, and navigation
- * metadata, so filtering invalid container entries is the only normalization.
- *
- * IMPORTANT — DO NOT add URL/CSS sanitization here. A previous security review
- * changed href/src/_cssText to about:blank and immediately regressed every
- * historical recording that depended on captured styles. Network/privacy
- * controls belong at capture or the sandbox boundary, never in rrweb events.
- */
-export function normalizeReplayEvents(events: unknown[]): AnyReplayEvent[] {
-  return events
-    .filter((event): event is AnyReplayEvent => isRecord(event))
-    .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
-}
-
 export function buildReplayMarkers(
   events: AnyReplayEvent[],
   options: ReplayMarkerOptions = {},
@@ -2664,27 +2734,6 @@ function currentUrlAt(events: AnyReplayEvent[], currentTime: number): string {
   return current;
 }
 
-function hasPlayableReplayEvents(events: unknown[]): boolean {
-  let hasFullSnapshot = false;
-  let hasMeta = false;
-  for (const event of events) {
-    if (!isRecord(event)) continue;
-    if (event.type === RRWEB_EVENT_TYPE.FullSnapshot) hasFullSnapshot = true;
-    if (event.type === RRWEB_EVENT_TYPE.Meta) hasMeta = true;
-    if (hasFullSnapshot && hasMeta) return true;
-  }
-  return false;
-}
-
-export function replayAvailabilityErrorKey(
-  events: unknown[],
-): "noReplayEvents" | "replayUnavailableDescription" | null {
-  if (events.length === 0) return "noReplayEvents";
-  return hasPlayableReplayEvents(events)
-    ? null
-    : "replayUnavailableDescription";
-}
-
 function hideReplayCursorUntilPosition(replayer: any): () => void {
   const cursor = replayer?.mouse as HTMLElement | undefined;
   if (!cursor || typeof MutationObserver === "undefined") return () => {};
@@ -2708,116 +2757,6 @@ function hideReplayCursorUntilPosition(replayer: any): () => void {
   return () => {
     observer?.disconnect();
     observer = null;
-  };
-}
-
-export function replayViewportDimensions(
-  events: AnyReplayEvent[],
-): ReplayViewportDimensions | null {
-  let best: ReplayViewportDimensions | null = null;
-  for (const event of events) {
-    const dims = dimensionsFromReplayEvent(event);
-    if (dims) best = dims;
-  }
-  return best;
-}
-
-export function replayInitialViewportDimensions(
-  events: AnyReplayEvent[],
-): ReplayViewportDimensions | null {
-  for (const event of events) {
-    if (event.type !== RRWEB_EVENT_TYPE.Meta) continue;
-    const dims = dimensionsFromReplayEvent(event);
-    if (dims) return dims;
-  }
-  for (const event of events) {
-    const dims = dimensionsFromReplayEvent(event);
-    if (dims) return dims;
-  }
-  return null;
-}
-
-export function buildReplayViewportTimeline(
-  events: AnyReplayEvent[],
-): ReplayViewportChange[] {
-  const initial = replayInitialViewportDimensions(events);
-  if (!initial) return [];
-  const startedAt = replayStartedAt(events);
-  const firstMetaTimestamp = events.reduce((best, event) => {
-    if (event.type !== RRWEB_EVENT_TYPE.Meta) return best;
-    const timestamp = Number(event.timestamp ?? 0);
-    return Number.isFinite(timestamp) && timestamp > 0
-      ? Math.min(best, timestamp)
-      : best;
-  }, Number.POSITIVE_INFINITY);
-  const changes: ReplayViewportChange[] = [{ ...initial, offsetMs: 0 }];
-  for (const event of events) {
-    const timestamp = Number(event.timestamp ?? 0);
-    if (!Number.isFinite(timestamp) || timestamp <= firstMetaTimestamp)
-      continue;
-    const dims = dimensionsFromReplayEvent(event);
-    if (!dims) continue;
-    const previous = changes[changes.length - 1];
-    if (previous?.width === dims.width && previous.height === dims.height) {
-      continue;
-    }
-    changes.push({
-      ...dims,
-      offsetMs: Math.max(0, timestamp - startedAt),
-    });
-  }
-  return changes;
-}
-
-export function replayViewportDimensionsAtTime(
-  changes: ReplayViewportChange[],
-  elapsedMs: number,
-): ReplayViewportDimensions | null {
-  if (changes.length === 0) return null;
-  const target = Math.max(0, elapsedMs);
-  let low = 0;
-  let high = changes.length - 1;
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    if ((changes[middle]?.offsetMs ?? 0) <= target) low = middle;
-    else high = middle - 1;
-  }
-  const match = changes[low];
-  return match ? { width: match.width, height: match.height } : null;
-}
-
-function dimensionsFromReplayEvent(
-  event: AnyReplayEvent,
-): ReplayViewportDimensions | null {
-  if (event.type === RRWEB_EVENT_TYPE.Meta) {
-    return normalizeReplayDimensions(event.data?.width, event.data?.height);
-  }
-  if (
-    event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
-    event.data?.source === INCREMENTAL_SOURCE.ViewportResize
-  ) {
-    return normalizeReplayDimensions(event.data?.width, event.data?.height);
-  }
-  return null;
-}
-
-export function normalizeReplayDimensions(
-  width: unknown,
-  height: unknown,
-): ReplayViewportDimensions | null {
-  if (
-    typeof width !== "number" ||
-    typeof height !== "number" ||
-    !Number.isFinite(width) ||
-    !Number.isFinite(height) ||
-    width <= 0 ||
-    height <= 0
-  ) {
-    return null;
-  }
-  return {
-    width: Math.round(width),
-    height: Math.round(height),
   };
 }
 
@@ -2855,17 +2794,6 @@ export function filterReplayMarkers(
       .toLowerCase();
     return haystack.includes(needle);
   });
-}
-
-function replayStartedAt(events: AnyReplayEvent[]): number {
-  let startedAt = Number.POSITIVE_INFINITY;
-  for (const event of events) {
-    const timestamp = Number(event.timestamp);
-    if (Number.isFinite(timestamp) && timestamp > 0) {
-      startedAt = Math.min(startedAt, timestamp);
-    }
-  }
-  return Number.isFinite(startedAt) ? startedAt : 0;
 }
 
 function replayDuration(events: AnyReplayEvent[]): number {
@@ -3000,6 +2928,7 @@ function visitorLabel(
 ): string {
   const email = emailLike(recording.userId) || emailLike(recording.userKey);
   if (email) return email;
+  if (recording.userId === null) return t("sessions.anonymous");
   return (
     recording.userId ||
     recording.userKey ||

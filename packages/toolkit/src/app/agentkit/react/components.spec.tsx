@@ -17,6 +17,7 @@ import {
 import { ToolkitProvider } from "../../../provider.js";
 import { AgentChat } from "./chat.js";
 import {
+  AgentConnectionErrorView,
   AgentKitComposer,
   AgentKitChat,
   type AgentKitComposerProps,
@@ -28,9 +29,51 @@ import {
 } from "./components.js";
 import {
   AgentKitProvider,
+  useAgentKit,
   type AgentRunFailureRenderProps,
 } from "./context.js";
 import { AgentKitRoot } from "./root.js";
+
+describe("AgentConnectionErrorView replay privacy", () => {
+  it("masks connection and recovery messages while preserving the headline and reconnect control", () => {
+    const client = new AgentKitClient({
+      transport: {
+        async startRun() {
+          return { runId: "run-example" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+      },
+    });
+    const html = renderToStaticMarkup(
+      <AgentKitProvider controller={client} threadId="thread-example">
+        <AgentConnectionErrorView
+          error={{
+            code: "runtime_error",
+            message: "Example Person's connection failed.",
+            retryable: true,
+          }}
+          threadId="thread-example"
+          recover={async () => {}}
+          recovering={false}
+          recoveryError={new Error("Example Document recovery failed.")}
+        />
+      </AgentKitProvider>,
+    );
+    expect(html).toContain(
+      '<span data-an-mask="">Example Person&#x27;s connection failed.</span>',
+    );
+    expect(html).toContain(
+      '<span data-an-mask="" class="agentkit-command-error">Example Document recovery failed.</span>',
+    );
+    expect(html).toContain("<strong>Something went wrong</strong>");
+    expect(html).toContain("Reconnect");
+  });
+});
+
+function withAiReadiness(transport: AgentTransport): AgentTransport {
+  return { ...transport, assertAiSetupReady: async () => {} };
+}
 
 describe("AgentMessageActions request IDs", () => {
   it("prefers an explicit request ID and never uses the local message ID", () => {
@@ -211,6 +254,35 @@ describe("AgentKitChat", () => {
     expect(html).toContain('data-product-surface="true"');
   });
 
+  it("forwards an explicit no-shared-readiness setting to custom transports", async () => {
+    let controller: ReturnType<typeof useAgentKit>["controller"] | undefined;
+    function ControllerProbe() {
+      controller = useAgentKit().controller;
+      return null;
+    }
+    const transport: AgentTransport = {
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async *subscribeToRun() {},
+      async cancelRun() {},
+    };
+
+    renderToStaticMarkup(
+      <AgentKitRoot
+        transport={transport}
+        clientOptions={{ aiSetupReadiness: "not-applicable" }}
+        threadId="thread-1"
+        load="manual"
+      >
+        <ControllerProbe />
+      </AgentKitRoot>,
+    );
+
+    if (!controller) throw new Error("AgentKitRoot did not create a client.");
+    await expect(controller.assertAiSetupReady()).resolves.toBeUndefined();
+  });
+
   it("renders agent-authored suggestions only after the runtime publishes them", async () => {
     const transport: AgentTransport = {
       capabilities: { suggestions: true },
@@ -251,7 +323,9 @@ describe("AgentKitChat", () => {
       },
       async cancelRun() {},
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     const run = await client.sendMessage({
       threadId: "thread-1",
       text: "Prepare the release",
@@ -481,7 +555,7 @@ describe("AgentKitChat", () => {
       "...(options.steer ? { interruptActiveRun: true } : {}),",
     );
     expect(source).toContain("control.removeQueued(item.id)");
-    expect(source).toContain("await onBeforeSubmit()");
+    expect(source).toContain("control.sendMessage({");
     expect(source).toContain(
       "await onSubmitOverride(text, files, references, submitOptions)",
     );
@@ -602,7 +676,9 @@ describe("AgentKitChat", () => {
       },
       async cancelRun() {},
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     const run = await client.sendMessage({
       threadId: "thread-1",
       text: "Review the release",
@@ -699,7 +775,9 @@ describe("AgentKitChat", () => {
       },
       async cancelRun() {},
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     const run = await client.sendMessage({
       threadId: "thread-1",
       text: "Search the docs and Slack",
@@ -743,7 +821,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-1");
 
     const html = renderToStaticMarkup(
@@ -908,7 +988,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-1");
     const run = await client.sendMessage({
       threadId: "thread-1",
@@ -971,7 +1053,7 @@ describe("AgentKitChat", () => {
                 },
                 {
                   type: "text",
-                  text: "Also tell @Steve.",
+                  text: "Also tell @Steve about any @builder.io booking.",
                 },
                 {
                   type: "file",
@@ -997,7 +1079,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-1");
 
     const htmlWithoutNavigation = renderToStaticMarkup(
@@ -1050,7 +1134,12 @@ describe("AgentKitChat", () => {
 
     expect(htmlWithComposer).toContain('aria-label="Edit message"');
     expect(htmlWithComposer).toContain('data-mention-label="latest run"');
-    expect(htmlWithComposer).toContain('data-mention-label="Steve"');
+    // Plain "@word" text is not a reference, so it stays literal text.
+    expect(htmlWithComposer).not.toContain('data-mention-label="Steve"');
+    expect(htmlWithComposer).not.toContain('data-mention-label="builder"');
+    expect(htmlWithComposer).toContain(
+      "Also tell @Steve about any @builder.io booking.",
+    );
     expect(htmlWithComposer).toContain('aria-label="Preview latest-run.png"');
     expect(htmlWithComposer).toContain("Pasted text");
     expect(htmlWithComposer).toContain("agentkit-file--pasted-text");
@@ -1239,7 +1328,9 @@ describe("AgentKitChat", () => {
         </output>
       );
     }
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     const run = await client.sendMessage({
       threadId: "thread-tool-result",
       text: "Search the docs",
@@ -1349,7 +1440,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-slots");
 
     const html = renderToStaticMarkup(
@@ -1447,7 +1540,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-design-system");
     const CustomIconButton = vi.fn(({ label, icon }: IconButtonProps) => (
       <button type="button" aria-label={label} data-design-system="icon">
@@ -1520,7 +1615,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-1");
 
     const html = renderToStaticMarkup(
@@ -1761,7 +1858,9 @@ describe("AgentKitChat", () => {
       },
       async cancelRun() {},
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     const run = await client.sendMessage({
       threadId: "thread-1",
       text: "Run the dashboard checks",
@@ -1777,7 +1876,10 @@ describe("AgentKitChat", () => {
     expect(defaultHtml.match(/class="agentkit-run-failure"/g)).toHaveLength(1);
     expect(defaultHtml).toContain('data-run-id="run-failure"');
     expect(defaultHtml).toContain('data-error-code="tool_timeout"');
-    expect(defaultHtml).toContain("The dashboard check timed out.");
+    expect(defaultHtml).toContain(
+      '<span data-an-mask="">The dashboard check timed out.</span>',
+    );
+    expect(defaultHtml).toContain("<strong>Run failed</strong>");
 
     const slotCalls: AgentRunFailureRenderProps[] = [];
     const RunFailure = (props: AgentRunFailureRenderProps) => {
@@ -1801,4 +1903,106 @@ describe("AgentKitChat", () => {
       { error: failure, runId: "run-failure", threadId: "thread-1" },
     ]);
   });
+
+  it.each([
+    { label: "with no work", work: false },
+    { label: "after its last work", work: true },
+  ])(
+    "keeps a failed run's card in its own turn, above a newer turn ($label)",
+    async ({ work }) => {
+      const transport: AgentTransport = {
+        async startRun(input) {
+          return {
+            runId: input.messages.length === 1 ? "run-failed" : "run-next",
+          };
+        },
+        async *subscribeToRun({ runId }) {
+          const base = {
+            threadId: "thread-1",
+            runId,
+            occurredAt:
+              runId === "run-failed"
+                ? "2026-10-05T17:01:00.000Z"
+                : "2026-10-05T17:11:00.000Z",
+          };
+          yield { ...base, id: `${runId}-1`, sequence: 1, type: "run.started" };
+          if (runId === "run-failed") {
+            let sequence = 1;
+            if (work) {
+              yield {
+                ...base,
+                id: `${runId}-work`,
+                sequence: ++sequence,
+                type: "activity.started",
+                activity: {
+                  id: "activity-1",
+                  kind: "tool",
+                  label: "Charging the card",
+                  status: "running",
+                },
+              };
+            }
+            yield {
+              ...base,
+              id: `${runId}-failed`,
+              sequence: ++sequence,
+              type: "run.failed",
+              error: {
+                code: "stale_run",
+                message: "The agent stopped before it could finish.",
+                retryable: true,
+              },
+            };
+            return;
+          }
+          yield {
+            ...base,
+            id: `${runId}-reply`,
+            sequence: 2,
+            type: "message.completed",
+            message: {
+              id: "assistant-next",
+              role: "assistant",
+              parts: [{ type: "text", text: "Newer answer" }],
+            },
+          };
+          yield {
+            ...base,
+            id: `${runId}-done`,
+            sequence: 3,
+            type: "run.completed",
+          };
+        },
+        async cancelRun() {},
+      };
+      let clock = "2026-10-05T17:00:00.000Z";
+      const client = new AgentKitClient({
+        transport: withAiReadiness(transport),
+        now: () => clock,
+      });
+      await (
+        await client.sendMessage({ threadId: "thread-1", text: "First turn" })
+      ).completed;
+      clock = "2026-10-05T17:10:00.000Z";
+      await (
+        await client.sendMessage({ threadId: "thread-1", text: "Next turn" })
+      ).completed;
+
+      const html = renderToStaticMarkup(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitChat composer={false} />
+        </AgentKitProvider>,
+      );
+
+      const order = [
+        "First turn",
+        ...(work ? ["Charging the card"] : []),
+        'data-run-id="run-failed"',
+        "Next turn",
+        "Newer answer",
+      ].map((text) => html.indexOf(text));
+      expect(order.every((index) => index >= 0)).toBe(true);
+      expect(order).toEqual([...order].sort((left, right) => left - right));
+    },
+  );
 });

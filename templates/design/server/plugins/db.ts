@@ -459,12 +459,52 @@ ALTER COLUMN client_revision TYPE BIGINT USING client_revision::BIGINT`,
     name: "design-live-collaboration-opt-in",
     sql: `ALTER TABLE designs ADD COLUMN IF NOT EXISTS live_collaboration_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
   },
+  {
+    version: 38,
+    name: "design-board-replay-screenshots",
+    sql: `CREATE TABLE IF NOT EXISTS design_board_replay_screenshots (
+    id TEXT PRIMARY KEY,
+    design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+    board_file_id TEXT NOT NULL,
+    replay_id TEXT NOT NULL,
+    captured_at TEXT NOT NULL,
+    app TEXT NOT NULL,
+    route TEXT NOT NULL,
+    offset_ms INTEGER NOT NULL,
+    viewport_width INTEGER NOT NULL,
+    viewport_height INTEGER NOT NULL,
+    event_count INTEGER NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    blob_handle TEXT NOT NULL,
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    visibility TEXT NOT NULL DEFAULT 'private',
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT
+  );
+  CREATE INDEX IF NOT EXISTS design_board_replay_screenshots_design_idx
+    ON design_board_replay_screenshots (design_id)`,
+  },
+  {
+    version: 39,
+    name: "design-board-replay-source-stage-id",
+    sql: `ALTER TABLE design_board_replay_screenshots ADD COLUMN IF NOT EXISTS source_stage_id TEXT`,
+  },
+  {
+    version: 40,
+    name: "design-board-replay-capture-provenance",
+    sql: `ALTER TABLE design_board_replay_screenshots ALTER COLUMN route DROP NOT NULL;
+ALTER TABLE design_board_replay_screenshots ADD COLUMN IF NOT EXISTS capture_source_fingerprint TEXT`,
+  },
 ];
 
 export const designVisualEditPendingBigintRevisionMigration =
   designMigrations.find((migration) => migration.version === 36)!;
 export const designLiveCollaborationOptInMigration = designMigrations.find(
   (migration) => migration.version === 37,
+)!;
+export const designBoardReplayScreenshotsMigration = designMigrations.find(
+  (migration) => migration.version === 38,
 )!;
 export const runDesignMigrations = runMigrations(designMigrations, {
   table: "design_migrations",

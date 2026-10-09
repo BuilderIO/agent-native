@@ -689,6 +689,18 @@ export default {
     copied: "コピーされました",
     copy: "コピー",
     keyActions: "{{name}} キーアクション",
+    manageReplayOrigins: "リプレイオリジンを管理",
+    replayOriginsDescription:
+      "正確なHTTPSオリジンを1行に1つ追加します。既存のオリジンは保持されます。",
+    currentReplayOrigins: "現在許可されているオリジン",
+    anyReplayOriginAllowed:
+      "現在はすべてのオリジンが許可されています。オリジンを追加すると再生は一覧のみに制限されるため、このキーを使うすべてのアプリを追加してください。",
+    originsToAdd: "追加するオリジン",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "オリジンを追加",
+    addingReplayOrigins: "オリジンを追加中…",
+    replayOriginsUpdateFailed: "許可オリジンを更新できませんでした。",
+    cancel: "キャンセル",
     lastUsed: "最後に使用した{{date}}",
     neverUsed: "決して使われていない",
     revoking: "取り消し中...",
@@ -1500,6 +1512,8 @@ export default {
     replayLoading: "リプレイを読み込み中...",
     replayLoadingProgress:
       "{{loaded}} / {{total}} 個のリプレイチャンクを読み込み済み",
+    replayTargetFallback:
+      "指定した録画位置（{{requested}}）は再生できないため、最も近い再生フレーム（{{available}}）を表示しています。",
     replayUnavailable: "このセッションにはリプレイチャンクがありません",
     replayUnavailableDescription:
       "このセッションには分析イベントがありますが、rrweb チャンクイベントは見つかりませんでした。",
@@ -1513,6 +1527,14 @@ export default {
     savingScreenshot: "スクリーンショットを保存中…",
     screenshotDownloaded: "スクリーンショットをダウンロードしました",
     screenshotSaveFailed: "スクリーンショットを保存できませんでした",
+    copyScreenshot: "Design にコピー",
+    copyingScreenshot: "スクリーンショットをコピー中…",
+    screenshotCopiedForDesign:
+      "スクリーンショットをコピーしました。Design に貼り付けてください。",
+    screenshotCopyFailed:
+      "スクリーンショットをコピーできませんでした。ダウンロードして PNG を Design にアップロードしてください。",
+    screenshotCopyUnsupportedAssets:
+      "スクリーンショットをコピーできませんでした。この時点には安全にキャプチャできないメディアや画像があります。リプレイの別の時点をお試しください。",
     screenshotUnsupportedAssets:
       "安全にキャプチャできない埋め込みメディアや画像があるため、スクリーンショットは保存されませんでした。",
     timeline: "イベントタイムライン",
@@ -1549,8 +1571,12 @@ export default {
     time: "時刻",
     storageSetupTitle: "リプレイストレージを接続",
     storageSetupDescription:
-      "セッションリプレイの録画を保存するには、まずストレージが必要です。Builder.io の無料枠ストレージを使うか、独自の S3 互換バケットを設定してください。",
+      "セッションリプレイには、認可されたファイルアップロード先が必要です。アップロード権限を付与すると Builder.io に保存できます。または独自の S3 互換バケットを設定してください。",
     storageConnected: "ストレージ接続済み",
+    storageStatusUnavailable:
+      "リプレイストレージの状態を確認できませんでした。アップロード可能か確認するには再試行してください。",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io は AI とクレジット用に接続されていますが、リプレイのアップロードには別途ストレージ権限が必要です。",
     connectBuilder: "Builder.io を使う",
     configureS3: "S3 ストレージを設定",
     devtools: "開発ツール",
@@ -1585,6 +1611,65 @@ export default {
       "現在のフィルターに一致するコンソールメッセージはありません。",
     devtoolsNoNetworkMatches:
       "現在のフィルターに一致するリクエストはありません。",
+    storyboardSelectionCoverage:
+      "{{total}} 件のセッションリプレイから {{selected}} 件を選択（{{percent}}）。",
+    storyboardSelectHint:
+      "最大 3 件のセッションを選択してストーリーボードを作成します。",
+    clearStoryboardSelection: "選択をクリア",
+    createStoryboard: "ストーリーボードを作成",
+    selectReplayForStoryboard: "ストーリーボード用にリプレイ {{id}} を選択",
+    storyboardDesignId: "Design ID（任意）",
+    storyboardTitle: "ストーリーボード名",
+    storyboardDefaultTitle: "セッションリプレイのストーリーボード",
+    storyboardTimestamps: "タイムスタンプ（最大 3 件、カンマ区切り）",
+    storyboardReplayPreview: "リプレイのプレビュー",
+    storyboardStartingCapture:
+      "ブラウザーのキャプチャ選択画面でこの Analytics タブを選択してください。",
+    storyboardLoadingReplay: "リプレイ {{replayId}} を読み込み中…",
+    storyboardCapturingFrame:
+      "{{current}} / {{total}} をキャプチャ中 · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "スクリーンショットを Design に送信中…",
+    storyboardComplete:
+      "{{screenshots}} 枚のスクリーンショットを Design に追加しました。",
+    storyboardTimestampError:
+      "mm:ss、hh:mm:ss、または mm:ss.mmm 形式で入力してください。",
+    storyboardTimestampRequired:
+      "選択した各リプレイに 1 つ以上のタイムスタンプを入力してください。",
+    storyboardTimestampLimit:
+      "各リプレイで選択できるタイムスタンプは最大 3 件です。",
+    storyboardDuplicateTimestamp: "重複するタイムスタンプを削除してください。",
+    storyboardScreenshotLimit:
+      "スクリーンショットは最大 9 枚まで選択できます。",
+    storyboardReplayLimit: "セッションリプレイは最大 3 件まで選択できます。",
+    storyboardCaptureFailed: "スクリーンショットをキャプチャできませんでした。",
+    storyboardCanceled: "キャプチャをキャンセルしました。",
+    storyboardReplayIncomplete:
+      "リプレイ {{replayId}} に利用できないイベントがあるため、エクスポートを停止しました。",
+    storyboardViewportUnavailable:
+      "記録されたビューポートのサイズを取得できません。",
+    storyboardTimestampOutOfRange:
+      "タイムスタンプがリプレイ {{replayId}} の範囲外です。",
+    storyboardScreenshotTooLarge:
+      "スクリーンショットが 5 MB の上限を超えています。",
+    storyboardBatchTooLarge:
+      "スクリーンショットの合計が 20 MB の上限を超えています。",
+    storyboardRouteUnavailable:
+      "{{timestamp}} 時点のリプレイ {{replayId}} のルートを取得できません。",
+    storyboardNoDesignResponse:
+      "Design からストーリーボードの結果が返されませんでした。",
+    storyboardTemporaryCleanupPending:
+      "ストーリーボードは保存されましたが、一時スクリーンショットを削除できませんでした。",
+    storyboardTemporaryCleanupFailed:
+      "一時スクリーンショットのクリーンアップはまだ保留中です。",
+    storyboardUnexpectedResponse:
+      "スクリーンショットのエクスポートから読み取れない応答が返されました。もう一度お試しください。",
+    storyboardSaveOutcomeUnknown:
+      "Design にストーリーボードが保存された可能性があります。再試行する前に Design を確認してください。",
+    openStoryboard: "Design でストーリーボードを開く",
+    cancelStoryboardCapture: "キャプチャをキャンセル",
+    captureToDesign: "キャプチャして Design に追加",
+    storyboardSelectAnalyticsTab:
+      "ブラウザーのキャプチャ選択画面でこの Analytics タブを選択してください。",
   },
   catalog: {
     description:

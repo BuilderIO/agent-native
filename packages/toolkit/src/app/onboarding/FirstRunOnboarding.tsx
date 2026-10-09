@@ -7,6 +7,8 @@ import {
 } from "@agent-native/core/client/onboarding/first-run-registry";
 import { saveFirstRunOnboardingRole } from "@agent-native/core/client/onboarding/first-run-status";
 import {
+  createOnboardingCorrelationId,
+  setCustomKeyOnboardingAttempt,
   trackOnboardingEvent,
   useOnboarding,
 } from "@agent-native/core/client/onboarding/use-onboarding";
@@ -37,7 +39,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useLocation } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import {
@@ -166,6 +168,7 @@ export function FirstRunOnboarding({
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const previewMode = useOnboardingPreviewMode();
   const previewStep = useOnboardingPreviewStep();
   const {
@@ -191,6 +194,8 @@ export function FirstRunOnboarding({
   const [customRole, setCustomRole] = useState("");
   const [savingRole, setSavingRole] = useState(false);
   const [roleSaveError, setRoleSaveError] = useState<string | null>(null);
+  const [retryingBuilderStatus, setRetryingBuilderStatus] = useState(false);
+  const retryingBuilderStatusAtCountRef = useRef<number | null>(null);
   const [builderConnectionMode, setBuilderConnectionMode] = useState<
     "existing" | "provision"
   >("existing");
@@ -299,17 +304,21 @@ export function FirstRunOnboarding({
   const completionAttemptRef = useRef<{
     screen: FirstRunScreen | null;
     extensionIndex: number;
+    redirect: string | null;
   } | null>(null);
   const completionInFlightRef = useRef(false);
+  const completionRedirectRef = useRef<string | null>(null);
+  const setupSkipStartedRef = useRef(false);
   const onboardingTerminalRef = useRef(false);
   const abandonmentTrackedRef = useRef(false);
   const setupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
   const builderSetupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
+  const stepViewRef = useRef<{ key: string; id: string } | null>(null);
   const startSetupMethod = useCallback(
     (methodId: FirstRunSetupMethodId, methodKind: "builder" | "manual") => {
       if (previewMode || typeof window === "undefined") return null;
       const attempt = {
-        id: window.crypto.randomUUID(),
+        id: createOnboardingCorrelationId(),
         methodId,
         outcomeTracked: false,
       };
@@ -331,10 +340,14 @@ export function FirstRunOnboarding({
     async (
       completedScreen: FirstRunScreen | null,
       completedExtensionIndex = extensionIndex,
+      retryRedirect: string | null = completionRedirectRef.current,
     ) => {
-      completionAttemptRef.current = completedScreen
-        ? { screen: completedScreen, extensionIndex: completedExtensionIndex }
-        : { screen: null, extensionIndex: completedExtensionIndex };
+      completionRedirectRef.current = null;
+      completionAttemptRef.current = {
+        screen: completedScreen,
+        extensionIndex: completedExtensionIndex,
+        redirect: retryRedirect,
+      };
       completionInFlightRef.current = true;
       try {
         await completeFirstRun();
@@ -343,6 +356,9 @@ export function FirstRunOnboarding({
         }
         onboardingTerminalRef.current = true;
         completionAttemptRef.current = null;
+        if (retryRedirect) {
+          navigate(retryRedirect, { replace: true });
+        }
         return true;
       } catch {
         // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
@@ -351,7 +367,13 @@ export function FirstRunOnboarding({
         completionInFlightRef.current = false;
       }
     },
-    [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
+    [
+      completeFirstRun,
+      extensionIndex,
+      navigate,
+      pathname,
+      trackFirstRunStepCompleted,
+    ],
   );
   useEffect(() => {
     if (!previewMode && firstRun && !loading && profile) {
@@ -359,7 +381,10 @@ export function FirstRunOnboarding({
     }
   }, [firstRun, loading, previewMode, profile]);
   useEffect(() => {
-    if (previewMode || !firstRun || loading || !profile) return;
+    if (previewMode || !firstRun || loading || !profile) {
+      stepViewRef.current = null;
+      return;
+    }
     const step = firstRunStepProperties(
       screen,
       beforeSetupExtensions,
@@ -368,7 +393,14 @@ export function FirstRunOnboarding({
       extensionIndex,
       extensionStepIndex,
     );
-    trackOnboardingEvent("onboarding_step_viewed", step);
+    const key = [step.step_id, step.extension_id, step.step_index].join(":");
+    if (stepViewRef.current?.key !== key) {
+      stepViewRef.current = { key, id: createOnboardingCorrelationId() };
+    }
+    trackOnboardingEvent("onboarding_step_viewed", {
+      ...step,
+      step_view_id: stepViewRef.current.id,
+    });
   }, [
     afterSetupExtensions,
     beforeSetupExtensions,
@@ -457,6 +489,22 @@ export function FirstRunOnboarding({
     trackingFlow: "connect_llm",
     onConnected: handleBuilderConnected,
   });
+  const builderStatusReadCount = connectFlow.statusReadSettledCount ?? 0;
+  useEffect(() => {
+    const startedAt = retryingBuilderStatusAtCountRef.current;
+    if (startedAt !== null && builderStatusReadCount > startedAt) {
+      retryingBuilderStatusAtCountRef.current = null;
+      setRetryingBuilderStatus(false);
+    }
+  }, [builderStatusReadCount]);
+  const retryBuilderStatus = useCallback(() => {
+    retryingBuilderStatusAtCountRef.current = builderStatusReadCount;
+    setRetryingBuilderStatus(true);
+    if (!connectFlow.retry()) {
+      retryingBuilderStatusAtCountRef.current = null;
+      setRetryingBuilderStatus(false);
+    }
+  }, [builderStatusReadCount, connectFlow.retry]);
   useEffect(() => {
     const attempt = builderSetupAttemptRef.current;
     if (!attempt || connectFlow.connecting) return;
@@ -464,10 +512,14 @@ export function FirstRunOnboarding({
       trackFirstRunSetupOutcome(attempt, "failed", "account_exists");
       return;
     }
-    if (connectFlow.error) {
+    if (connectFlow.terminalError) {
       trackFirstRunSetupOutcome(attempt, "failed", "connection_error");
     }
-  }, [connectFlow.accountExists, connectFlow.connecting, connectFlow.error]);
+  }, [
+    connectFlow.accountExists,
+    connectFlow.connecting,
+    connectFlow.terminalError,
+  ]);
   const canActivateBuilderFreeCredits =
     connectFlow.agentNativeProvisioningEnabled;
   const retryOnboardingCompletion = useCallback(() => {
@@ -475,6 +527,7 @@ export function FirstRunOnboarding({
     void finishOnboarding(
       attempt?.screen ?? null,
       attempt?.extensionIndex ?? extensionIndex,
+      attempt?.redirect ?? null,
     );
   }, [extensionIndex, finishOnboarding]);
   const completionErrorProps = {
@@ -558,7 +611,23 @@ export function FirstRunOnboarding({
       );
       return;
     }
+    const attemptStorage = attempt
+      ? setCustomKeyOnboardingAttempt(attempt.id)
+      : null;
     trackFirstRunSetupOutcome(attempt, "settings_opened");
+    if (attempt && attemptStorage) {
+      void attemptStorage.then((status) => {
+        if (status !== "stored") {
+          trackOnboardingEvent("onboarding_correlation_unavailable", {
+            flow: "first_run",
+            step_id: "choice",
+            method_id: "custom_keys",
+            onboarding_attempt_id: attempt.id,
+            correlation_status: status,
+          });
+        }
+      });
+    }
     if (typeof window === "undefined") return;
     const search = new URLSearchParams(window.location.search);
     search.delete(ONBOARDING_PREVIEW_QUERY_PARAM);
@@ -746,15 +815,32 @@ export function FirstRunOnboarding({
                     {t("agentChat.onboarding.builderSignInWithAccount")}
                   </button>
                 </div>
-                {connectFlow.error && !connectFlow.statusResolved && (
-                  <p
-                    role="status"
-                    data-testid="first-run-builder-status-error"
-                    className="text-center text-xs text-destructive"
-                  >
-                    {connectFlow.error}
-                  </p>
-                )}
+                {connectFlow.error &&
+                  connectFlow.errorKind === "status-read" && (
+                    <div
+                      role="status"
+                      data-testid="first-run-builder-status-error"
+                      className="flex flex-col items-center gap-2 text-center text-xs text-destructive"
+                    >
+                      <p>{t("agentChat.settingsShell.builder.grantsFailed")}</p>
+                      <button
+                        type="button"
+                        data-testid="first-run-builder-retry-status"
+                        aria-busy={retryingBuilderStatus}
+                        disabled={retryingBuilderStatus}
+                        className="text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={retryBuilderStatus}
+                      >
+                        {retryingBuilderStatus ? (
+                          <IconLoader2
+                            className="mr-1 inline h-3 w-3 animate-spin"
+                            aria-hidden
+                          />
+                        ) : null}
+                        {t("agentChat.settingsShell.builder.retry")}
+                      </button>
+                    </div>
+                  )}
               </section>
 
               <section className="flex flex-col gap-5 rounded-2xl border border-border bg-card p-6">
@@ -785,6 +871,28 @@ export function FirstRunOnboarding({
                 </button>
               </section>
             </div>
+            {profile.appId === "clips" && (
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  data-testid="first-run-setup-skip"
+                  className="inline-flex min-h-9 items-center justify-center rounded-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => {
+                    if (
+                      setupSkipStartedRef.current ||
+                      completionInFlightRef.current
+                    )
+                      return;
+                    setupSkipStartedRef.current = true;
+                    trackFirstRunStepSkipped("choice");
+                    completionRedirectRef.current = "/record";
+                    handleFinish(null);
+                  }}
+                >
+                  {t("agentChat.onboarding.skipForNow")}
+                </button>
+              </div>
+            )}
           </div>
           <p className="text-center text-xs leading-5 text-muted-foreground">
             {t("agentChat.onboarding.builderConsentPrefix")}{" "}
@@ -996,18 +1104,40 @@ export function FirstRunOnboarding({
                 {t("common.cancel")}
               </button>
             )}
-            {connectFlow.error && (
-              <div className="mt-4 flex flex-col items-center gap-2">
-                <p className="text-xs text-destructive">{connectFlow.error}</p>
-                <button
-                  type="button"
-                  className={secondaryButtonClass}
-                  onClick={() => setScreen("choice")}
-                >
-                  Try again
-                </button>
-              </div>
+            {connectFlow.statusUnavailable &&
+              connectFlow.connecting &&
+              !connectFlow.terminalError && (
+                <p className="mt-4 text-xs text-destructive" role="alert">
+                  {t(
+                    "agentChat.settingsShell.integrations.builderStatusFailed",
+                  )}
+                </p>
+              )}
+            {connectFlow.terminalError && connectFlow.connecting && (
+              <p className="mt-4 text-xs text-destructive" role="alert">
+                {connectFlow.terminalError}
+              </p>
             )}
+            {!connectFlow.connecting &&
+              (connectFlow.statusUnavailable || connectFlow.terminalError) && (
+                <div className="mt-4 flex flex-col items-center gap-2">
+                  <p className="text-xs text-destructive" role="alert">
+                    {connectFlow.terminalError ??
+                      t(
+                        "agentChat.settingsShell.integrations.builderStatusFailed",
+                      )}
+                  </p>
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    onClick={() =>
+                      handleBuilder(builderConnectionMode === "provision")
+                    }
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
           </>
         )}
       </div>

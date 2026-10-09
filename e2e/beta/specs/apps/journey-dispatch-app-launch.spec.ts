@@ -33,9 +33,9 @@ skipUnlessAuthed();
 // e2e account, so there is no app list to open. Any other failure of the list
 // still fails the journey; the digest lists this skip as NOT TESTED.
 const GATEWAY_REFUSAL =
-  /Workspace apps gateway rejected the request with HTTP 403/;
+  /Workspace apps gateway (?:rejected the request with HTTP 403|cannot authenticate without a resolved organization domain)/;
 const GATEWAY_ENV_SKIP =
-  "[env] the deployment's workspace apps gateway rejects the e2e account (HTTP 403); decide whether hosted Dispatch should keep WORKSPACE_GATEWAY_URL";
+  "[env] the deployment's workspace apps gateway cannot authenticate the e2e account (HTTP 401/403); resolve the e2e organization's domain or decide whether hosted Dispatch should keep WORKSPACE_GATEWAY_URL";
 
 const MAX_APPS = 8;
 const PER_APP_BUDGET_MS = 150_000;
@@ -63,7 +63,8 @@ test("[journey] [dispatch-apps] dispatch opens each listed workspace app without
       { params: { includeAgentCards: "false" }, timeoutMs: 120_000 },
     );
     test.skip(
-      listCall.status === 403 && GATEWAY_REFUSAL.test(listCall.text),
+      (listCall.status === 401 || listCall.status === 403) &&
+        GATEWAY_REFUSAL.test(listCall.text),
       GATEWAY_ENV_SKIP,
     );
     const listed = expectJsonOk<unknown>(

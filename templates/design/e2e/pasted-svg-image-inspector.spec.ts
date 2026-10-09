@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import {
   appPath,
@@ -56,7 +56,6 @@ async function createDesign(page: Page, content = HTML) {
   });
   return { designId, screenId: fileId };
 }
-
 test("image border and outline remain separate inside and outside strokes", async ({
   page,
 }) => {
@@ -256,7 +255,7 @@ async function recolorNestedPath(page: Page, screenId: string) {
     // Layers are stacked in reverse SVG document order.
     .nth(1);
   await expect(pathRow).toBeVisible();
-  await pathRow.click();
+  await pathRow.locator("[data-layer-row-button]").click();
   await expect(pathRow).toHaveAttribute("aria-selected", "true");
   const fill = page
     .getByRole("heading", { name: "Fill", exact: true })
@@ -325,7 +324,6 @@ async function readBoardContent(
   }
   return board.content as string;
 }
-
 test("pasted SVG is an editable sized layer and image scale mode writes object-fit", async ({
   page,
 }, testInfo) => {
@@ -483,7 +481,7 @@ test("pasted SVG is an editable sized layer and image scale mode writes object-f
       .getByRole("treeitem", { level: 4 })
       .filter({ has: page.getByRole("button", { name: "PATH", exact: true }) });
     await expect(pathRow).toBeVisible();
-    await pathRow.click();
+    await clickLayerRowAndAssertSelected(pathRow);
     const fillSection = page
       .getByRole("heading", { name: "Fill", exact: true })
       .locator("xpath=ancestor::section");
@@ -524,7 +522,6 @@ test("pasted SVG is an editable sized layer and image scale mode writes object-f
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }
 });
-
 test("stroke gradient edits stay on the selected nested pasted-SVG shape", async ({
   page,
 }, testInfo) => {
@@ -566,7 +563,7 @@ test("stroke gradient edits stay on the selected nested pasted-SVG shape", async
     await groupRow.getByRole("button", { name: "Expand layer" }).click();
     const shapeRows = layers.getByRole("treeitem", { level: 4 });
     await expect(shapeRows).toHaveCount(2);
-    await shapeRows.nth(0).click();
+    await shapeRows.nth(0).locator("[data-layer-row-button]").click();
     await expect(shapeRows.nth(0)).toHaveAttribute("aria-selected", "true");
 
     const stroke = page
@@ -628,7 +625,7 @@ test("stroke gradient edits stay on the selected nested pasted-SVG shape", async
       .getByRole("treeitem", { level: 4 })
       .first();
     await expect(reloadedTarget).toBeVisible();
-    await reloadedTarget.click();
+    await clickLayerRowAndAssertSelected(reloadedTarget);
     const reloadedStroke = page
       .getByRole("heading", { name: "Stroke", exact: true })
       .locator("xpath=ancestor::section");
@@ -1182,7 +1179,6 @@ test("clipboard SVG File paste relayed from a Screen iframe stays in that Screen
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }
 });
-
 test("clipboard SVG File paste from the board iframe targets the selected Screen", async ({
   page,
 }) => {
@@ -1237,3 +1233,8 @@ test("clipboard SVG File paste from the board iframe targets the selected Screen
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }
 });
+
+async function clickLayerRowAndAssertSelected(row: Locator): Promise<void> {
+  await row.locator("[data-layer-row-button]").click();
+  await expect(row).toHaveAttribute("aria-selected", "true");
+}

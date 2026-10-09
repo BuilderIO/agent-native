@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { Editor } from "@tiptap/core";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -109,74 +110,400 @@ describe("controlled composer context", () => {
       container.querySelector('button[aria-label="Add context"]'),
     ).toBeNull();
   });
-  it("opens the same shared Add menu from @ and + without inserting a mention", async () => {
+  // Types like a browser: the editor's keydown handlers run first, and only a
+  // key they leave unhandled reaches the document.
+  async function typeInto(editor: HTMLElement, text: string) {
+    const { view } = (editor as HTMLElement & { editor: Editor }).editor;
+    for (const key of text) {
+      await act(async () => {
+        const event = new KeyboardEvent("keydown", {
+          key,
+          bubbles: true,
+          cancelable: true,
+        });
+        editor.dispatchEvent(event);
+        if (!event.defaultPrevented)
+          view.dispatch(view.state.tr.insertText(key));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+  }
+  async function pressEnter(editor: HTMLElement) {
+    await pressKey(editor, "Enter");
+  }
+  async function pressKey(editor: HTMLElement, key: string) {
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+  const slidesAgent = {
+    id: "agent:slides",
+    label: "Slides",
+    description: "Presentations in this workspace",
+    section: "Connected Agents",
+    source: "agent",
+    refType: "agent",
+    refId: "slides",
+    refPath: "https://slides.example.test",
+  };
+
+  it("keeps a typed @ address as text and submits it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response('{"items":[]}\n', { status: 200 })),
+    );
+    const { onSubmit } = await mount({
+      initialText: "",
+      contextMenuItems: [
+        { id: "source", label: "Choose source", onSelect() {} },
+      ],
+      mentionItems: [slidesAgent],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Ping a @builder.io");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 250)));
+    await typeInto(editor, " email");
+
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(
+      document.querySelector('[data-agent-native-mention-popover="true"]'),
+    ).toBeNull();
+    expect(editor.textContent).toBe("Ping a @builder.io email");
+    await pressEnter(editor);
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]![0]).toBe("Ping a @builder.io email");
+  });
+  it("submits a typed @ that nothing matches on Enter", async () => {
+    const { onSubmit } = await mount({
+      initialText: "",
+      includeDefaultMentionSearch: false,
+      mentionItems: [slidesAgent],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Reply @");
+    expect(
+      document.querySelector('[data-agent-native-mention-popover="true"]'),
+    ).not.toBeNull();
+    await typeInto(editor, "x");
+    await pressEnter(editor);
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]![0]).toBe("Reply @x");
+  });
+  it("keeps @ suggestions open for host mention items that arrive later", async () => {
+    await mount({
+      initialText: "",
+      includeDefaultMentionSearch: false,
+      mentionItems: [],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Ask @Sli");
+    await mount({
+      initialText: "",
+      includeDefaultMentionSearch: false,
+      mentionItems: [slidesAgent],
+    });
+
+    expect(
+      document.querySelector('[data-mention-index="0"]')?.textContent,
+    ).toContain("Slides");
+  });
+  it.each([
+    ["finds nothing", '{"items":[]}\n', 200, null],
+    ["fails", "", 500, "open"],
+  ] as const)(
+    "ends a typed @ query only when the mention search %s",
+    async (_case, body, status, popoverAfterSearch) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(body, { status })),
+      );
+      const { onSubmit } = await mount({ initialText: "" });
+      const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+      await act(async () => editor.focus());
+
+      await typeInto(editor, "Reply @x");
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 250)));
+
+      // A failed search is unknown, not empty, so the popover stays open.
+      expect(
+        document.querySelector('[data-agent-native-mention-popover="true"]')
+          ? "open"
+          : null,
+      ).toBe(popoverAfterSearch);
+      await pressEnter(editor);
+      expect(onSubmit).toHaveBeenCalledOnce();
+      expect(onSubmit.mock.calls[0]![0]).toBe("Reply @x");
+    },
+  );
+  it.each(["Enter", "Tab"])(
+    "turns a typed @ query into a mention when %s picks it",
+    async (key) => {
+      const onReferencesChange = vi.fn();
+      const { onSubmit } = await mount({
+        initialText: "",
+        contextMenuItems: [],
+        includeDefaultMentionSearch: false,
+        onReferencesChange,
+        mentionItems: [slidesAgent],
+      });
+      const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+      await act(async () => editor.focus());
+
+      await typeInto(editor, "Ask @Sli");
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+      expect(
+        document.querySelector('[data-mention-index="0"]')?.textContent,
+      ).toContain("Slides");
+      await pressKey(editor, key);
+
+      expect(editor.textContent).toContain("Ask ");
+      expect(editor.textContent).toContain("Slides");
+      expect(editor.textContent).not.toContain("@Sli");
+      expect(onReferencesChange).toHaveBeenLastCalledWith([
+        expect.objectContaining({ refType: "agent", refId: "slides" }),
+      ]);
+      expect(onSubmit).not.toHaveBeenCalled();
+    },
+  );
+  it("keeps an exactly matching @name followed by Space as text", async () => {
+    const onReferencesChange = vi.fn();
+    const { onSubmit } = await mount({
+      initialText: "",
+      contextMenuItems: [],
+      includeDefaultMentionSearch: false,
+      onReferencesChange,
+      mentionItems: [slidesAgent],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Ask @Slides rock");
+
+    expect(editor.textContent).toBe("Ask @Slides rock");
+    expect(onReferencesChange).not.toHaveBeenCalledWith([
+      expect.objectContaining({ refId: "slides" }),
+    ]);
+    await pressKey(editor, "Escape");
+    await pressEnter(editor);
+    expect(onSubmit.mock.calls[0]![0]).toBe("Ask @Slides rock");
+  });
+  it("suggests host context sources for a typed @ and attaches the one picked", async () => {
+    const onSelect = vi.fn();
+    const { onSubmit } = await mount({
+      initialText: "",
+      contextMenuItems: [
+        {
+          id: "design-context",
+          label: "Design context",
+          children: [{ id: "figma", label: "Figma", onSelect }],
+        },
+      ],
+      includeDefaultMentionSearch: false,
+      mentionItems: [slidesAgent],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Use @fig");
+    const popover = document.querySelector(
+      '[data-agent-native-mention-popover="true"]',
+    );
+    expect(popover?.textContent).toContain("Design context");
+    expect(popover?.textContent).toContain("Figma");
+    expect(popover?.textContent).not.toContain("Slides");
+    expect(document.activeElement).toBe(editor);
+    await pressEnter(editor);
+
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(editor.textContent).toBe("Use ");
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+  it("opens a picked host picker as a dialog and attaches its choice", async () => {
+    const onSelect = vi.fn();
+    await mount({
+      initialText: "",
+      contextMenuItems: [
+        {
+          id: "documents",
+          label: "Documents",
+          children: [
+            {
+              id: "document",
+              label: "Reference a document",
+              picker: {
+                searchPlaceholder: "Search documents",
+                items: [{ id: "brief", title: "Project brief" }],
+                onSelect,
+              },
+            },
+            {
+              id: "notes",
+              label: "Document notes",
+              onSelect() {},
+              render: () => <div>Notes page</div>,
+            },
+          ],
+        },
+      ],
+      includeDefaultMentionSearch: false,
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "@doc");
+    const rows = Array.from(
+      document.querySelectorAll("[data-mention-index]"),
+      (row) => row.textContent,
+    );
+    // Custom pages render only inside the + menu.
+    expect(rows).toEqual(["Reference a document"]);
+    await pressEnter(editor);
+
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("Reference a document");
+    expect(editor.textContent).toBe("");
+    const option = dialog.querySelector<HTMLButtonElement>(
+      '[role="radio"][value="brief"]',
+    )!;
+    await act(async () => {
+      option.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "brief" }),
+      expect.anything(),
+    );
+  });
+  it("dismisses @ suggestions with one Escape and keeps typing as text", async () => {
+    const { onSubmit } = await mount({
+      initialText: "",
+      contextMenuItems: [
+        { id: "source", label: "Choose source", onSelect() {} },
+      ],
+      includeDefaultMentionSearch: false,
+      mentionItems: [slidesAgent],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Ask @Sli");
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(
+      document.querySelector('[data-agent-native-mention-popover="true"]'),
+    ).toBeNull();
+    await typeInto(editor, "des rock");
+
+    expect(
+      document.querySelector('[data-agent-native-mention-popover="true"]'),
+    ).toBeNull();
+    expect(editor.textContent).toBe("Ask @Slides rock");
+    await pressEnter(editor);
+    expect(onSubmit.mock.calls[0]![0]).toBe("Ask @Slides rock");
+  });
+  it("keeps every key typed while a slow mention search is pending", async () => {
+    const pending: Array<() => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) =>
+            pending.push(() =>
+              resolve(new Response('{"items":[]}\n', { status: 200 })),
+            ),
+          ),
+      ),
+    );
+    const { onSubmit } = await mount({ initialText: "" });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Ping a @builder.io email");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 250)));
+    expect(editor.textContent).toBe("Ping a @builder.io email");
+    expect(document.activeElement).toBe(editor);
+
+    await act(async () => {
+      pending.splice(0).forEach((release) => release());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      document.querySelector('[data-agent-native-mention-popover="true"]'),
+    ).toBeNull();
+    await pressEnter(editor);
+    expect(onSubmit.mock.calls[0]![0]).toBe("Ping a @builder.io email");
+  });
+  it("sends a typed @ on Enter while its search is pending, ignoring a late match", async () => {
+    const pending: Array<() => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) =>
+            pending.push(() =>
+              resolve(
+                new Response(
+                  JSON.stringify({
+                    items: [{ ...slidesAgent, label: "Alice" }],
+                  }) + "\n",
+                  { status: 200 },
+                ),
+              ),
+            ),
+          ),
+      ),
+    );
+    const onReferencesChange = vi.fn();
+    const { onSubmit } = await mount({ initialText: "", onReferencesChange });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Ask @Ali");
+    await pressEnter(editor);
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]![0]).toBe("Ask @Ali");
+
+    await act(async () => {
+      pending.splice(0).forEach((release) => release());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onReferencesChange).not.toHaveBeenCalledWith([
+      expect.objectContaining({ refId: "slides" }),
+    ]);
+  });
+  it("opens the shared Add menu from + without inserting a mention", async () => {
     const onSelect = vi.fn();
     await mount({
       initialText: "",
       contextMenuItems: [{ id: "source", label: "Choose source", onSelect }],
     });
     const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
-
-    await act(async () => {
-      editor.focus();
-      editor.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "@",
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
-
-    const mentionMenu = document.querySelector<HTMLElement>('[role="menu"]');
-    expect(mentionMenu?.textContent).toContain("Upload File");
-    expect(mentionMenu?.textContent).toContain("Add context");
-    expect(mentionMenu?.textContent).not.toContain("Choose source");
-    expect(editor.textContent).toBe("");
-    const openContext = async () => {
-      const trigger = Array.from(
-        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-      ).find((item) => item.textContent === "Add context")!;
-      await act(async () => {
-        trigger.focus();
-        trigger.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "ArrowRight",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-      });
-    };
-    const nestedItems = () =>
-      Array.from(
-        Array.from(document.querySelectorAll<HTMLElement>('[role="menu"]'))
-          .at(-1)!
-          .querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-      ).map((item) => item.textContent);
-    await openContext();
-    const mentionOptions = nestedItems();
-
     const plusButton = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Add context"]',
     )!;
-    await act(async () =>
-      Array.from(document.querySelectorAll<HTMLElement>('[role^="menuitem"]'))
-        .find((item) => item.textContent === "Choose source")!
-        .dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "Escape",
-            bubbles: true,
-            cancelable: true,
-          }),
-        ),
-    );
-    await act(async () =>
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      ),
-    );
-    expect(document.querySelector('[role="menu"]')).toBeNull();
     await act(async () =>
       plusButton.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -188,51 +515,133 @@ describe("controlled composer context", () => {
     );
 
     const plusMenu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(plusMenu?.textContent).toContain("Upload File");
     expect(plusMenu?.textContent).toContain("Add context");
-    await openContext();
-    expect(nestedItems()).toEqual(mentionOptions);
+    expect(plusMenu?.textContent).not.toContain("Choose source");
+    const addContext = Array.from(
+      document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+    ).find((item) => item.textContent === "Add context")!;
+    await act(async () => {
+      addContext.focus();
+      addContext.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowRight",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
     const sourceAction = Array.from(
       document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
     ).find((item) => item.textContent === "Choose source")!;
     await act(async () => sourceAction.click());
     expect(onSelect).toHaveBeenCalledOnce();
+    expect(editor.textContent).toBe("");
   });
-  it.each(["@", "+"])(
-    "opens the integration submenu from %s without changing the draft",
-    async (trigger) => {
-      const onSelect = vi.fn();
-      await mount({
-        initialText: "Keep my draft ",
-        contextMenuItems: [
-          {
-            id: "integrations",
-            label: "Integrations",
-            picker: {
-              searchPlaceholder: "Search integrations",
-              items: [{ id: "github", title: "GitHub" }],
-              onSelect,
-            },
+  it("opens the integration submenu from + without changing the draft", async () => {
+    const onSelect = vi.fn();
+    await mount({
+      initialText: "Keep my draft ",
+      contextMenuItems: [
+        {
+          id: "integrations",
+          label: "Integrations",
+          picker: {
+            searchPlaceholder: "Search integrations",
+            items: [{ id: "github", title: "GitHub" }],
+            onSelect,
           },
-        ],
-      });
-      const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
-      const button = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Add context"]',
-      )!;
-      await act(async () => {
-        const target = trigger === "@" ? editor : button;
-        target.focus();
-        target.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: trigger === "@" ? "@" : "ArrowDown",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-      });
-      const addContext = Array.from(
-        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-      ).find((item) => item.textContent === "Add context")!;
+        },
+      ],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    const button = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    )!;
+    await act(async () => {
+      button.focus();
+      button.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const addContext = Array.from(
+      document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+    ).find((item) => item.textContent === "Add context")!;
+    await act(async () => {
+      addContext.focus();
+      addContext.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowRight",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const integrations = Array.from(
+      document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+    ).find((item) => item.textContent === "Integrations")!;
+    expect(integrations.textContent).toBe("Integrations");
+    await act(async () => {
+      integrations.focus();
+      integrations.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowRight",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const github = document.querySelector<HTMLElement>(
+      '[role="menuitemcheckbox"]',
+    )!;
+    expect(github.textContent).toBe("GitHub");
+    await act(async () => github.click());
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(editor.textContent).toBe("Keep my draft ");
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
+  it("adds discovered references from + and restores draft focus without submitting", async () => {
+    const onReferencesChange = vi.fn();
+    const { onSubmit } = await mount({
+      initialText: "My draft ",
+      contextMenuItems: [],
+      includeDefaultMentionSearch: false,
+      onReferencesChange,
+      mentionItems: [
+        {
+          id: "agent:slides",
+          label: "Slides",
+          description: "Presentations in this workspace",
+          section: "Connected Agents",
+          source: "agent",
+          refType: "agent",
+          refId: "slides",
+          refPath: "https://slides.example.test",
+        },
+      ],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    const target = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    )!;
+    await act(async () => {
+      target.focus();
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const addContext = Array.from(
+      document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+    ).find((item) => item.textContent === "Add context");
+    if (addContext) {
       await act(async () => {
         addContext.focus();
         addContext.dispatchEvent(
@@ -243,13 +652,14 @@ describe("controlled composer context", () => {
           }),
         );
       });
-      const integrations = Array.from(
-        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-      ).find((item) => item.textContent === "Integrations")!;
-      expect(integrations.textContent).toBe("Integrations");
+    }
+    const section = Array.from(
+      document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+    ).find((item) => item.textContent === "Connected Agents");
+    if (section) {
       await act(async () => {
-        integrations.focus();
-        integrations.dispatchEvent(
+        section.focus();
+        section.dispatchEvent(
           new KeyboardEvent("keydown", {
             key: "ArrowRight",
             bubbles: true,
@@ -257,109 +667,30 @@ describe("controlled composer context", () => {
           }),
         );
       });
-      const github = document.querySelector<HTMLElement>(
-        '[role="menuitemcheckbox"]',
-      )!;
-      expect(github.textContent).toBe("GitHub");
-      await act(async () => github.click());
-      expect(onSelect).toHaveBeenCalledOnce();
-      expect(editor.textContent).toBe("Keep my draft ");
-      expect(document.querySelector('[role="menu"]')).toBeNull();
-    },
-  );
-  it.each(["@", "+"])(
-    "adds discovered references from %s and restores draft focus without submitting",
-    async (trigger) => {
-      const onReferencesChange = vi.fn();
-      const { onSubmit } = await mount({
-        initialText: "My draft ",
-        contextMenuItems: [],
-        includeDefaultMentionSearch: false,
-        onReferencesChange,
-        mentionItems: [
-          {
-            id: "agent:slides",
-            label: "Slides",
-            description: "Presentations in this workspace",
-            section: "Connected Agents",
-            source: "agent",
-            refType: "agent",
-            refId: "slides",
-            refPath: "https://slides.example.test",
-          },
-        ],
-      });
-      const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
-      const target =
-        trigger === "@"
-          ? editor
-          : container.querySelector<HTMLButtonElement>(
-              'button[aria-label="Add context"]',
-            )!;
-      await act(async () => {
-        target.focus();
-        target.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: trigger === "@" ? "@" : "ArrowDown",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-      });
-      const addContext = Array.from(
-        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-      ).find((item) => item.textContent === "Add context");
-      if (addContext) {
-        await act(async () => {
-          addContext.focus();
-          addContext.dispatchEvent(
-            new KeyboardEvent("keydown", {
-              key: "ArrowRight",
-              bubbles: true,
-              cancelable: true,
-            }),
-          );
-        });
-      }
-      const section = Array.from(
-        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-      ).find((item) => item.textContent === "Connected Agents");
-      if (section) {
-        await act(async () => {
-          section.focus();
-          section.dispatchEvent(
-            new KeyboardEvent("keydown", {
-              key: "ArrowRight",
-              bubbles: true,
-              cancelable: true,
-            }),
-          );
-        });
-      }
-      const row = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ).find(
-        (item) => item.textContent === "SlidesPresentations in this workspace",
-      )!;
-      expect(row).toBeDefined();
-      await act(async () => row.click());
-      await act(async () => {
-        await new Promise((resolve) => requestAnimationFrame(resolve));
-      });
-      expect(editor.textContent).toContain("My draft");
-      expect(editor.textContent).toContain("Slides");
-      expect(editor.textContent).not.toContain("@");
-      expect(onReferencesChange).toHaveBeenLastCalledWith([
-        expect.objectContaining({
-          refType: "agent",
-          refId: "slides",
-          path: "https://slides.example.test",
-        }),
-      ]);
-      expect(document.activeElement).toBe(editor);
-      expect(onSubmit).not.toHaveBeenCalled();
-    },
-  );
+    }
+    const row = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find(
+      (item) => item.textContent === "SlidesPresentations in this workspace",
+    )!;
+    expect(row).toBeDefined();
+    await act(async () => row.click());
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    expect(editor.textContent).toContain("My draft");
+    expect(editor.textContent).toContain("Slides");
+    expect(editor.textContent).not.toContain("@");
+    expect(onReferencesChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        refType: "agent",
+        refId: "slides",
+        path: "https://slides.example.test",
+      }),
+    ]);
+    expect(document.activeElement).toBe(editor);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
   it("keeps regular @ references when the shared Add menu is explicitly hidden", async () => {
     await mount({
       plusMenuMode: "hidden",
@@ -551,6 +882,7 @@ describe("controlled composer context", () => {
     ).find((button) => button.textContent?.includes("Upload File"));
     expect(uploadFile).toBeDefined();
     await act(async () => uploadFile!.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
     expect(onAttachmentRequest).toHaveBeenCalledOnce();
   });
@@ -576,6 +908,7 @@ describe("controlled composer context", () => {
     expect(uploadFile).toBeDefined();
     expect(uploadFile?.textContent).toContain("Upload File");
     await act(async () => uploadFile!.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(onAttachmentRequest).toHaveBeenCalledOnce();
   });
   async function mount(props: Partial<PromptComposerProps> = {}) {
@@ -794,6 +1127,8 @@ describe("controlled composer context", () => {
                       gate === "provider" && blocked ? "missing" : "configured",
                     missing: gate === "provider" && blocked,
                   }),
+                  fetchAgentEngineConfiguredState: async () =>
+                    gate === "provider" && blocked ? "missing" : "configured",
                   BuilderSetupCard: () => <div data-testid="provider-setup" />,
                 },
               }}
@@ -806,6 +1141,7 @@ describe("controlled composer context", () => {
                 placeholder="Prepare your prompt"
                 showModelSelector={false}
                 modelStatusChecksEnabled={gate === "provider"}
+                requireAgentEngine={gate === "provider"}
                 attachmentsEnabled={!(gate === "provider" && blocked)}
                 onAttachmentRequest={onAttachmentRequest}
                 includeDefaultSlashSkills={false}
@@ -838,7 +1174,7 @@ describe("controlled composer context", () => {
           container.querySelector('[data-testid="provider-setup"]'),
         ).not.toBeNull();
         expect(
-          container.querySelector('[contenteditable="true"]'),
+          container.querySelector('[contenteditable="false"]'),
         ).not.toBeNull();
         const uploadTrigger = container.querySelector<HTMLButtonElement>(
           'button[aria-label="Add context"]',
@@ -1149,90 +1485,277 @@ describe("controlled composer context", () => {
     ).toBe("Keep the editable draft");
   });
 
-  it("keeps the draft editable and blocks submission while provider status is unresolved", async () => {
+  it.each(["configured", "missing", "unavailable"] as const)(
+    "waits for shared provider readiness before submitting (%s)",
+    async (resultingState) => {
+      let resolveReadiness!: (
+        state: "configured" | "missing" | "unavailable",
+      ) => void;
+      let publishReadiness!: (
+        state: "configured" | "missing" | "unavailable",
+      ) => void;
+      const readiness = new Promise<"configured" | "missing" | "unavailable">(
+        (resolve) => {
+          resolveReadiness = resolve;
+        },
+      );
+      const composerRef = React.createRef<TiptapComposerHandle>();
+      const onSubmit = vi.fn();
+      const fetchReadiness = vi.fn(() => readiness);
+      function ReadinessComposer() {
+        const [state, setState] = React.useState<
+          "unknown" | "configured" | "missing" | "unavailable"
+        >("unknown");
+        publishReadiness = setState;
+        return (
+          <ComposerRuntimeAdaptersProvider
+            adapters={{
+              models: {
+                useAgentEngineConfigured: () => ({
+                  state,
+                  missing: state === "missing",
+                }),
+                fetchAgentEngineConfiguredState: fetchReadiness,
+                BuilderSetupCard: () => <div data-testid="provider-setup" />,
+              },
+            }}
+          >
+            <PromptComposer
+              composerRef={composerRef}
+              onSubmit={onSubmit}
+              initialText="Keep my draft"
+              initialTextKey="gate"
+              showModelSelector={false}
+              requireAgentEngine
+              includeDefaultSlashSkills={false}
+            />
+          </ComposerRuntimeAdaptersProvider>
+        );
+      }
+      await act(async () => root.render(<ReadinessComposer />));
+
+      const editor = container.querySelector<HTMLElement>(
+        '[contenteditable="true"]',
+      )!;
+      const sendButton = container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      )!;
+      await act(async () => sendButton.click());
+
+      expect(fetchReadiness).toHaveBeenCalledWith(true, {
+        fresh: false,
+        timeoutMs: 10_000,
+      });
+      expect(editor.getAttribute("contenteditable")).toBe("true");
+      expect(sendButton.disabled).toBe(true);
+      expect(sendButton.getAttribute("aria-busy")).toBe("true");
+      expect(sendButton.querySelector(".animate-spin")).not.toBeNull();
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      await act(async () =>
+        composerRef.current!.setText("Typed while readiness was checking"),
+      );
+      await act(async () => {
+        resolveReadiness(resultingState);
+        publishReadiness(resultingState);
+        await readiness;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      if (resultingState === "configured") {
+        expect(onSubmit).toHaveBeenCalledOnce();
+        expect(onSubmit.mock.calls[0]?.[0]).toBe(
+          "Typed while readiness was checking",
+        );
+        expect(container.querySelector('[data-testid="provider-setup"]')).toBe(
+          null,
+        );
+      } else if (resultingState === "missing") {
+        expect(onSubmit).not.toHaveBeenCalled();
+        expect(
+          container.querySelector('[data-testid="provider-setup"]'),
+        ).not.toBeNull();
+        expect(editor.getAttribute("contenteditable")).toBe("false");
+        expect(editor.textContent).toBe("Typed while readiness was checking");
+      } else {
+        expect(onSubmit).not.toHaveBeenCalled();
+        expect(
+          container.querySelector('[data-testid="provider-setup"]'),
+        ).toBeNull();
+        expect(editor.getAttribute("contenteditable")).toBe("true");
+        expect(editor.textContent).toBe("Typed while readiness was checking");
+        expect(sendButton.disabled).toBe(false);
+        expect(sendButton.getAttribute("aria-busy")).toBeNull();
+        const statuses = container.querySelectorAll('[role="status"]');
+        expect(statuses).toHaveLength(1);
+        expect(statuses[0]?.textContent).toContain(
+          "agentChat.setup.providerStatusUnavailable",
+        );
+        const retryButtons = [...container.querySelectorAll("button")].filter(
+          (button) => button.textContent?.trim() === "agentChat.common.retry",
+        );
+        expect(retryButtons).toHaveLength(1);
+        const dispatch = vi.spyOn(window, "dispatchEvent");
+        await act(async () => retryButtons[0]?.click());
+        expect(dispatch).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "agent-engine:configured-changed" }),
+        );
+        dispatch.mockRestore();
+      }
+    },
+  );
+
+  it("resumes an unchanged draft after a blocked send becomes configured", async () => {
     const composerRef = React.createRef<TiptapComposerHandle>();
     const onSubmit = vi.fn();
-    await act(async () =>
-      root.render(
+    let publishReadiness!: (
+      state: "unknown" | "configured" | "missing",
+    ) => void;
+    let readiness: "missing" | "configured" = "missing";
+
+    function ReadinessComposer() {
+      const [state, setState] = React.useState<
+        "unknown" | "configured" | "missing"
+      >("unknown");
+      publishReadiness = setState;
+      const fetchReadiness = async () => {
+        const result = readiness;
+        setState(result);
+        return result;
+      };
+      return (
         <ComposerRuntimeAdaptersProvider
           adapters={{
             models: {
               useAgentEngineConfigured: () => ({
-                state: "unknown",
-                missing: false,
+                state,
+                missing: state === "missing",
               }),
+              fetchAgentEngineConfiguredState: fetchReadiness,
+              BuilderSetupCard: () => <div data-testid="provider-setup" />,
             },
           }}
         >
           <PromptComposer
             composerRef={composerRef}
             onSubmit={onSubmit}
-            initialText="Keep my draft"
-            initialTextKey="gate"
+            initialText="Keep this prompt"
+            initialTextKey="held-provider-draft"
             showModelSelector={false}
+            requireAgentEngine
             includeDefaultSlashSkills={false}
           />
-        </ComposerRuntimeAdaptersProvider>,
-      ),
-    );
-    await act(async () =>
-      expect(await composerRef.current!.submitWithText("Quick start")).toBe(
-        false,
-      ),
-    );
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(
-      container.querySelector('[contenteditable="true"]')?.textContent,
-    ).toBe("Keep my draft");
-    expect(container.querySelector('[role="status"]')).toBeNull();
-    expect(container.textContent).not.toContain("checkingProvider");
+        </ComposerRuntimeAdaptersProvider>
+      );
+    }
+
+    await act(async () => root.render(<ReadinessComposer />));
     const sendButton = container.querySelector<HTMLButtonElement>(
       '[data-agent-composer-slot="send-button"]',
+    )!;
+    await act(async () => sendButton.click());
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="provider-setup"]')).not.toBe(
+      null,
     );
-    expect(sendButton?.disabled).toBe(true);
-    expect(sendButton?.getAttribute("aria-busy")).toBeNull();
-    expect(sendButton?.getAttribute("aria-label")).not.toBe("common.loading");
-    expect(sendButton?.querySelector(".animate-spin")).toBeNull();
+    expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+      "Keep this prompt",
+    );
+
+    readiness = "configured";
+    await act(async () => {
+      publishReadiness("configured");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]?.[0]).toBe("Keep this prompt");
   });
 
-  it("lets a host queue submissions while provider status is unresolved", async () => {
+  it("does not resume a blocked draft after the user edits it", async () => {
     const composerRef = React.createRef<TiptapComposerHandle>();
-    const onBeforeSubmit = vi.fn(async () => true);
     const onSubmit = vi.fn();
-    await act(async () =>
-      root.render(
+    let publishReadiness!: (
+      state: "unknown" | "configured" | "missing",
+    ) => void;
+    let readiness: "missing" | "configured" = "missing";
+
+    function ReadinessComposer() {
+      const [state, setState] = React.useState<
+        "unknown" | "configured" | "missing"
+      >("unknown");
+      publishReadiness = setState;
+      const fetchReadiness = async () => {
+        const result = readiness;
+        setState(result);
+        return result;
+      };
+      return (
         <ComposerRuntimeAdaptersProvider
           adapters={{
             models: {
               useAgentEngineConfigured: () => ({
-                state: "unknown",
-                missing: false,
+                state,
+                missing: state === "missing",
               }),
+              fetchAgentEngineConfiguredState: fetchReadiness,
+              BuilderSetupCard: () => <div data-testid="provider-setup" />,
             },
           }}
         >
           <PromptComposer
             composerRef={composerRef}
-            onBeforeSubmit={onBeforeSubmit}
             onSubmit={onSubmit}
-            initialText="Queue this message"
-            initialTextKey="queued-provider-submit"
-            requireAgentEngine={false}
+            initialText="Keep this prompt"
+            initialTextKey="edited-provider-draft"
             showModelSelector={false}
+            requireAgentEngine
             includeDefaultSlashSkills={false}
           />
-        </ComposerRuntimeAdaptersProvider>,
-      ),
+        </ComposerRuntimeAdaptersProvider>
+      );
+    }
+
+    await act(async () => root.render(<ReadinessComposer />));
+    const sendButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="send-button"]',
+    )!;
+    await act(async () => sendButton.click());
+    expect(container.querySelector('[data-testid="provider-setup"]')).not.toBe(
+      null,
     );
 
-    await act(async () =>
+    await act(async () => composerRef.current!.setText("Edited while blocked"));
+    readiness = "configured";
+    await act(async () => {
+      publishReadiness("configured");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+      "Edited while blocked",
+    );
+  });
+
+  it("lets a raw host composer submit while its agent provider status is unresolved", async () => {
+    const { composerRef, onSubmit } = await mount({
+      requireAgentEngine: false,
+      modelStatusChecksEnabled: false,
+    });
+
+    await act(async () => {
       expect(
-        await composerRef.current!.submitWithText("Queue this message"),
-      ).toBe(true),
-    );
+        await composerRef.current!.submitWithText("Queue while unresolved"),
+      ).toBe(true);
+    });
 
-    expect(onBeforeSubmit).toHaveBeenCalledOnce();
     expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]?.[0]).toBe("Queue while unresolved");
+    expect(
+      container.querySelector('[data-testid="provider-setup"]'),
+    ).toBeNull();
   });
 
   it("submits edits made while an async readiness check is pending", async () => {

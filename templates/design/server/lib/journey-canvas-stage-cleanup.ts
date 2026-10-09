@@ -1,0 +1,142 @@
+import {
+  ensureIndexExistsConcurrently,
+  isLocalDatabase,
+} from "@agent-native/core/db";
+import type { RecurringSweepContext } from "@agent-native/core/server";
+import { and, gt, inArray, lt, sql } from "drizzle-orm";
+
+import {
+  JOURNEY_STAGED_REPLAY_MAX_AGE_MS,
+  JOURNEY_STAGED_REPLAY_ROW_PREFIX,
+} from "../../shared/journey-canvas.js";
+import { getDb, schema } from "../db/index.js";
+import {
+  deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanupInTransaction,
+  VISUAL_EDIT_SNAPSHOT_BLOB_CLEANUP_BATCH_SIZE,
+} from "./visual-edit-snapshot-blobs.js";
+
+const CLEANUP_BATCH_SIZE = 100;
+const MAX_SWEEP_DURATION_MS = 5 * 60 * 1_000;
+const STAGE_EXPIRY_INDEX = "design_board_replay_screenshots_stage_expiry_idx";
+const STAGE_EXPIRY_INDEX_SQL = `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${STAGE_EXPIRY_INDEX}
+  ON design_board_replay_screenshots (created_at, id)
+  WHERE starts_with(id, 'jcu_')`;
+const STAGED_ID_PREDICATE = sql.raw(
+  `starts_with(id, '${JOURNEY_STAGED_REPLAY_ROW_PREFIX}')`,
+);
+
+export async function ensureJourneyCanvasStageExpiryIndex(): Promise<void> {
+  if (!isLocalDatabase()) {
+    await ensureIndexExistsConcurrently(
+      STAGE_EXPIRY_INDEX,
+      STAGE_EXPIRY_INDEX_SQL,
+    );
+  }
+}
+
+export async function sweepExpiredJourneyCanvasStages(
+  options: { deadlineAt?: number; signal?: AbortSignal } = {},
+): Promise<{
+  rowsRemoved: number;
+  blobsQueued: number;
+  cleanupPending: boolean;
+}> {
+  const startedAt = Date.now();
+  const deadlineAt = Math.min(
+    options.deadlineAt ?? startedAt + MAX_SWEEP_DURATION_MS,
+    startedAt + MAX_SWEEP_DURATION_MS,
+  );
+  options.signal?.throwIfAborted();
+  await ensureJourneyCanvasStageExpiryIndex();
+  const table = schema.designBoardReplayScreenshots;
+  const cutoff = new Date(
+    Date.now() - JOURNEY_STAGED_REPLAY_MAX_AGE_MS,
+  ).toISOString();
+  let rowsRemoved = 0;
+  let blobsQueued = 0;
+  while (Date.now() < deadlineAt) {
+    options.signal?.throwIfAborted();
+    const removed = await getDb().transaction(async (tx) => {
+      const expired = await tx
+        .select({ id: table.id, blobHandle: table.blobHandle })
+        .from(table)
+        .where(and(lt(table.createdAt, cutoff), STAGED_ID_PREDICATE))
+        .orderBy(table.createdAt, table.id)
+        .limit(CLEANUP_BATCH_SIZE)
+        .for("update", { skipLocked: true });
+      if (!expired.length) return { rowsRemoved: 0, blobsQueued: 0 };
+
+      options.signal?.throwIfAborted();
+      await tx.delete(table).where(
+        inArray(
+          table.id,
+          expired.map(({ id }) => id),
+        ),
+      );
+
+      const handles = [...new Set(expired.map(({ blobHandle }) => blobHandle))];
+      const remainingReferences = await tx
+        .select({ blobHandle: table.blobHandle })
+        .from(table)
+        .where(inArray(table.blobHandle, handles));
+      const referenced = new Set(
+        remainingReferences.map(({ blobHandle }) => blobHandle),
+      );
+      const orphaned = handles.filter((handle) => !referenced.has(handle));
+      await queueVisualEditSnapshotBlobCleanupInTransaction(tx, orphaned);
+      options.signal?.throwIfAborted();
+      return { rowsRemoved: expired.length, blobsQueued: orphaned.length };
+    });
+    rowsRemoved += removed.rowsRemoved;
+    blobsQueued += removed.blobsQueued;
+    if (removed.rowsRemoved < CLEANUP_BATCH_SIZE) break;
+  }
+
+  options.signal?.throwIfAborted();
+  const remainingExpiredRows = await getDb()
+    .select({ id: table.id })
+    .from(table)
+    .where(and(lt(table.createdAt, cutoff), STAGED_ID_PREDICATE))
+    .limit(1);
+  const cleanupTable = schema.designVisualEditSnapshotBlobCleanup;
+  let cleanupCursor: string | undefined;
+  while (Date.now() < deadlineAt) {
+    options.signal?.throwIfAborted();
+    const batch = cleanupCursor
+      ? await getDb()
+          .select({ blobHandle: cleanupTable.blobHandle })
+          .from(cleanupTable)
+          .where(gt(cleanupTable.blobHandle, cleanupCursor))
+          .orderBy(cleanupTable.blobHandle)
+          .limit(VISUAL_EDIT_SNAPSHOT_BLOB_CLEANUP_BATCH_SIZE)
+      : await getDb()
+          .select({ blobHandle: cleanupTable.blobHandle })
+          .from(cleanupTable)
+          .orderBy(cleanupTable.blobHandle)
+          .limit(VISUAL_EDIT_SNAPSHOT_BLOB_CLEANUP_BATCH_SIZE);
+    if (!batch.length) break;
+    cleanupCursor = batch[batch.length - 1]!.blobHandle;
+    await deleteVisualEditSnapshotBlobs(
+      batch.map(({ blobHandle }) => blobHandle),
+    );
+  }
+  const blobCleanupPending =
+    (
+      await getDb()
+        .select({ blobHandle: cleanupTable.blobHandle })
+        .from(cleanupTable)
+        .limit(1)
+    ).length > 0;
+  return {
+    rowsRemoved,
+    blobsQueued,
+    cleanupPending: remainingExpiredRows.length > 0 || blobCleanupPending,
+  };
+}
+
+export async function runJourneyCanvasStageCleanupSweep(
+  context: RecurringSweepContext,
+): Promise<void> {
+  await sweepExpiredJourneyCanvasStages(context);
+}

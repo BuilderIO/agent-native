@@ -2,7 +2,7 @@
 
 import { execFileSync } from "child_process";
 import fs from "fs";
-import { createRequire } from "module";
+import { createRequire, isBuiltin } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 import { runInNewContext } from "vm";
@@ -13,11 +13,13 @@ import {
   AGENT_BACKGROUND_FUNCTION_NAME,
   AGENT_BACKGROUND_FUNCTION_URL_PATH,
   AGENT_BACKGROUND_PROCESSOR_A2A,
+  AGENT_BACKGROUND_PROCESSOR_AGENT_TEAM,
   AGENT_BACKGROUND_PROCESSOR_FIELD,
   AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
   AGENT_BACKGROUND_PROCESSOR_ROUTE,
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
+  AGENT_TEAM_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import { declaredEnvKeys } from "../app-config/describe.js";
@@ -55,7 +57,11 @@ import {
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
-import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
+import {
+  FRAMEWORK_INTERNAL_ROUTE_PREFIX,
+  normalizeFrameworkRoutePrefix,
+  toPublicFrameworkPath,
+} from "../shared/framework-route-prefix.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
@@ -80,6 +86,7 @@ import {
   resolveFirstRunOnboardingBuildReplacement,
   resolveHarnessBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
+import { createSentryServerSourceMapUploadPlugins } from "../vite/sentry-source-maps.js";
 import {
   cloneServerBundleForFunction,
   copyDir,
@@ -438,7 +445,88 @@ export function shimCloudflarePagesModuleTimers(code: string): string {
   return code;
 }
 
-export function generateCloudflareModuleWorkerEntry(): string {
+export const CLOUDFLARE_SWEEP_CRON = "* * * * *";
+
+/**
+ * The URL path a platform scheduler requests. Under a custom framework route
+ * prefix the request boundary 404s `/_agent-native/*` before any route runs,
+ * and the server is mounted under the app base path, so the internal sweep
+ * path alone never reaches the sweep.
+ */
+export function publicRecurringJobsSweepPath(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const basePath = normalizeAppBasePath(
+    env.VITE_APP_BASE_PATH || env.APP_BASE_PATH,
+  );
+  const publicPath = toPublicFrameworkPath(RECURRING_JOBS_SWEEP_PATH, {
+    publicPrefix: resolveBuildFrameworkRoutePrefix(env),
+  });
+  return `${basePath}${publicPath}`;
+}
+
+// The token format must match verifyInternalToken in
+// integrations/internal-token.ts.
+function cloudflareSweepTriggerScript(sweepPath: string): string {
+  return `const SWEEP_CRON = ${JSON.stringify(CLOUDFLARE_SWEEP_CRON)};
+const SWEEP_PATH = ${JSON.stringify(sweepPath)};
+const SWEEP_TOKEN_SUBJECT = ${JSON.stringify(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT)};
+
+async function sweepToken(secret) {
+  const timestamp = Date.now();
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(SWEEP_TOKEN_SUBJECT + ":" + timestamp),
+  );
+  const hex = Array.from(new Uint8Array(signature), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return timestamp + "." + hex;
+}
+
+async function runSweep(h, env, ctx) {
+  const secret = env?.A2A_SECRET;
+  if (!secret) {
+    throw new Error("[recurring-jobs] A2A_SECRET is required for the scheduled sweep");
+  }
+  const request = new Request(
+    new URL(SWEEP_PATH, env.APP_URL || "https://scheduled-sweep.invalid"),
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + (await sweepToken(secret)),
+        "Content-Type": "application/json",
+        "user-agent": "agent-native-cloudflare-cron",
+      },
+      body: "{}",
+    },
+  );
+  if (typeof ctx?.waitUntil === "function") {
+    request.waitUntil = ctx.waitUntil.bind(ctx);
+  }
+  const response = await h.fetch(request, env, ctx);
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      "[recurring-jobs] Scheduled sweep failed (" + response.status + "): " + body.slice(0, 500),
+    );
+  }
+  console.log("[recurring-jobs] Scheduled sweep finished", body.slice(0, 500));
+}`;
+}
+
+export function generateCloudflareModuleWorkerEntry(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
   return `let handler;
 
 async function loadHandler() {
@@ -449,6 +537,8 @@ async function loadHandler() {
 ${cloudflareBindingsInitScript()}
 
 ${cloudflareModuleTimerRestoreScript()}
+
+${cloudflareSweepTriggerScript(publicRecurringJobsSweepPath(env))}
 
 export default {
   async fetch(request, env, ctx) {
@@ -464,7 +554,10 @@ export default {
     initializeBindings(env);
     const h = await loadHandler();
     __cfRestoreModuleTimers();
-    return h.scheduled?.(controller, env, ctx);
+    await Promise.all([
+      h.scheduled?.(controller, env, ctx),
+      controller?.cron === SWEEP_CRON ? runSweep(h, env, ctx) : undefined,
+    ]);
   },
   async email(message, env, ctx) {
     initializeBindings(env);
@@ -572,9 +665,19 @@ export function configureCloudflareModuleWorkerOutput(serverDir: string): void {
   const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
     main?: string;
     compatibility_flags?: unknown;
+    triggers?: { crons?: unknown; [key: string]: unknown };
     [key: string]: unknown;
   };
   config.main = CLOUDFLARE_MODULE_WORKER_ENTRY;
+  const crons = Array.isArray(config.triggers?.crons)
+    ? config.triggers.crons.filter(
+        (cron): cron is string => typeof cron === "string",
+      )
+    : [];
+  config.triggers = {
+    ...config.triggers,
+    crons: [...new Set([...crons, CLOUDFLARE_SWEEP_CRON])],
+  };
   const compatibilityFlags = Array.isArray(config.compatibility_flags)
     ? config.compatibility_flags.filter(
         (flag): flag is string => typeof flag === "string",
@@ -1325,6 +1428,18 @@ export function generateWorkerEntry(
         { status: 405, headers: { "Content-Type": "application/json" } }
       );
     }
+    const actionSession = ${varName}.requiresAuth === true
+      ? await getGeneratedSession(event)
+      : undefined;
+    const actionContext = uiActionContext ?? (actionSession?.email
+      ? { userEmail: actionSession.email, orgId: actionSession.orgId ?? null }
+      : undefined);
+    if (${varName}.requiresAuth === true && !actionContext?.userEmail) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { "Content-Type": "application/json" } },
+      );
+    }
     const params = ${a.method === "get" ? "parseActionSearchParams(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
     try {
       const caller =
@@ -1335,16 +1450,11 @@ export function generateWorkerEntry(
         caller,
         requestHeaders: event.req.headers,
         actionName: ${JSON.stringify(a.name)},
-        ...(uiActionContext
-          ? {
-              userEmail: uiActionContext.userEmail,
-              orgId: uiActionContext.orgId ?? null,
-            }
-          : {}),
+        ...(actionContext ?? {}),
       };
       const runAction = () => ${varName}.run(params, actionRunContext);
-      const result = actionIsUiOnly
-        ? await runWithGeneratedRequestContext(uiActionContext, runAction)
+      const result = actionContext
+        ? await runWithGeneratedRequestContext(actionContext, runAction)
         : await runAction();
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
@@ -3390,6 +3500,130 @@ export function resolveKeepWarmSchedule(): string {
   return raw;
 }
 
+const DEFAULT_VERCEL_SWEEP_CRON_SCHEDULE = "* * * * *";
+
+// Vercel accepts a narrower grammar than cron-parser, and a schedule outside
+// it fails the deployment rather than the build.
+function vercelCronScheduleProblem(raw: string): string | null {
+  const fields = raw.split(/\s+/);
+  if (fields.length !== 5 || !isValidCron(raw)) {
+    return `must be a 5-field cron expression (minute hour day month weekday); got "${raw}" (${fields.length} field(s))`;
+  }
+  if (!fields.every((field) => /^[\d*,/-]+$/.test(field))) {
+    return `must use numbers, not names such as MON or JAN, on Vercel; got "${raw}"`;
+  }
+  const [, , dayOfMonth, , dayOfWeek] = fields;
+  if (dayOfMonth !== "*" && dayOfWeek !== "*") {
+    return `cannot set both a day of the month and a day of the week on Vercel, so one must be "*"; got "${raw}"`;
+  }
+  const weekdays = dayOfWeek
+    .split(",")
+    .flatMap((part) => part.split("/")[0].split("-"));
+  if (weekdays.some((day) => day !== "*" && Number(day) > 6)) {
+    return `must number weekdays 0-6 (Sunday to Saturday) on Vercel; got "${raw}"`;
+  }
+  return null;
+}
+
+// Vercel Hobby rejects a deployment whose cron runs more than once a day, and
+// the build cannot see the team's plan, so the schedule is the operator's call.
+export function resolveVercelSweepCronSchedule(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const raw = env.AGENT_NATIVE_VERCEL_CRON_SCHEDULE?.trim();
+  if (!raw) return DEFAULT_VERCEL_SWEEP_CRON_SCHEDULE;
+  const problem = vercelCronScheduleProblem(raw);
+  if (problem) {
+    throw new Error(
+      `AGENT_NATIVE_VERCEL_CRON_SCHEDULE ${problem}. ` +
+        `Example: "0 9 * * *" for once a day on Vercel Hobby.`,
+    );
+  }
+  return raw;
+}
+
+export function vercelSweepCrons(
+  sweepPaths: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+): Array<{ path: string; schedule: string }> {
+  const schedule = resolveVercelSweepCronSchedule(env);
+  return sweepPaths.map((sweepPath) => ({ path: sweepPath, schedule }));
+}
+
+export function addVercelSweepCron(
+  outputDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  const configPath = path.join(outputDir, "config.json");
+  if (!fs.existsSync(configPath)) {
+    throw new Error(`[deploy] Nitro did not generate ${configPath} for vercel`);
+  }
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
+    crons?: Array<{ path: string; schedule: string }>;
+    [key: string]: unknown;
+  };
+  const [sweepCron] = vercelSweepCrons(
+    [publicRecurringJobsSweepPath(env)],
+    env,
+  );
+  config.crons = [
+    ...(config.crons ?? []).filter((cron) => cron.path !== sweepCron.path),
+    sweepCron,
+  ];
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  console.log(
+    `[build] Added Vercel cron "${sweepCron.schedule}" for ${sweepCron.path}. ` +
+      "Vercel sends CRON_SECRET as its bearer, so set CRON_SECRET in the project." +
+      (env.AGENT_NATIVE_VERCEL_CRON_SCHEDULE?.trim()
+        ? ""
+        : " Hobby only allows daily crons: set AGENT_NATIVE_VERCEL_CRON_SCHEDULE " +
+          'to a daily expression such as "0 9 * * *" there.'),
+  );
+}
+
+const SWEEP_PATH_AFTER_PREFIX = RECURRING_JOBS_SWEEP_PATH.slice(
+  FRAMEWORK_INTERNAL_ROUTE_PREFIX.length,
+);
+
+/**
+ * Reads back the sweep cron `addVercelSweepCron` wrote for an app mounted at
+ * `basePath`. A workspace deploy must reuse it rather than recompute it: the
+ * app's build resolved its framework route prefix from config files the
+ * workspace build never reads.
+ */
+export function readVercelSweepCron(
+  outputDir: string,
+  basePath: string,
+): { path: string; schedule: string } {
+  const configPath = path.join(outputDir, "config.json");
+  if (!fs.existsSync(configPath)) {
+    throw new Error(`[deploy] Expected Vercel build config at ${configPath}`);
+  }
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
+    crons?: Array<{ path: string; schedule: string }>;
+  };
+  const sweepCrons = (config.crons ?? []).filter((cron) => {
+    if (
+      !cron.path.startsWith(`${basePath}/`) ||
+      !cron.path.endsWith(SWEEP_PATH_AFTER_PREFIX)
+    ) {
+      return false;
+    }
+    const prefix = cron.path.slice(
+      basePath.length,
+      -SWEEP_PATH_AFTER_PREFIX.length,
+    );
+    return /^\/[^/]+$/.test(prefix);
+  });
+  if (sweepCrons.length !== 1) {
+    throw new Error(
+      `[deploy] Expected one recurring-jobs sweep cron under ${basePath} in ${configPath}, found ${sweepCrons.length}. ` +
+        "Build the app with this version of @agent-native/core so its scheduled work runs on Vercel.",
+    );
+  }
+  return sweepCrons[0];
+}
+
 export function emitSingleTemplateNetlifyKeepWarmFunction(
   projectCwd: string,
 ): void {
@@ -3677,6 +3911,7 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
 
   const processRunPath = JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH);
   const a2aProcessTaskPath = JSON.stringify("/_agent-native/a2a/_process-task");
+  const agentTeamProcessRunPath = JSON.stringify(AGENT_TEAM_PROCESS_RUN_PATH);
   const integrationProcessTaskPath = JSON.stringify(
     "/_agent-native/integrations/process-task",
   );
@@ -3684,6 +3919,9 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
     AGENT_BACKGROUND_PROCESSOR_FIELD,
   );
   const backgroundProcessorA2A = JSON.stringify(AGENT_BACKGROUND_PROCESSOR_A2A);
+  const backgroundProcessorAgentTeam = JSON.stringify(
+    AGENT_BACKGROUND_PROCESSOR_AGENT_TEAM,
+  );
   const backgroundProcessorIntegration = JSON.stringify(
     AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
   );
@@ -3706,9 +3944,11 @@ globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
 // The framework route the Nitro router dispatches to (the _process-run plugin).
 const PROCESS_RUN_PATH = ${processRunPath};
 const A2A_PROCESS_TASK_PATH = ${a2aProcessTaskPath};
+const AGENT_TEAM_PROCESS_RUN_PATH = ${agentTeamProcessRunPath};
 const INTEGRATION_PROCESS_TASK_PATH = ${integrationProcessTaskPath};
 const BACKGROUND_PROCESSOR_FIELD = ${backgroundProcessorField};
 const BACKGROUND_PROCESSOR_A2A = ${backgroundProcessorA2A};
+const BACKGROUND_PROCESSOR_AGENT_TEAM = ${backgroundProcessorAgentTeam};
 const BACKGROUND_PROCESSOR_INTEGRATION = ${backgroundProcessorIntegration};
 const BACKGROUND_PROCESSOR_ROUTE = ${backgroundProcessorRoute};
 const BACKGROUND_PROCESSOR_ROUTE_FIELD = ${backgroundProcessorRouteField};
@@ -3720,6 +3960,11 @@ function processorPathFromBody(body) {
     const parsed = JSON.parse(body);
     if (parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_A2A) {
       return A2A_PROCESS_TASK_PATH;
+    }
+    if (
+      parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_AGENT_TEAM
+    ) {
+      return AGENT_TEAM_PROCESS_RUN_PATH;
     }
     if (
       parsed?.[BACKGROUND_PROCESSOR_FIELD] ===
@@ -4673,6 +4918,394 @@ function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
   );
 }
 
+function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
+  const nodeModulesDir = path.join(functionDir, "node_modules");
+  if (!fs.existsSync(path.join(nodeModulesDir, "@puppeteer/browsers")))
+    return new Set();
+  const functionRoot = fs.realpathSync(functionDir);
+  const isWithinFunction = (directory: string): boolean => {
+    const relative = path.relative(functionRoot, directory);
+    return (
+      relative === "" ||
+      (relative !== ".." &&
+        !relative.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(relative))
+    );
+  };
+  const packageSegments = (name: string): string[] | null => {
+    const segments = name.split("/");
+    if (
+      !name ||
+      name.includes("\\") ||
+      segments.some(
+        (segment) => !segment || segment === "." || segment === "..",
+      ) ||
+      segments.length > 2 ||
+      (segments.length === 2 && !segments[0].startsWith("@")) ||
+      (segments.length === 1 && segments[0].startsWith("@"))
+    )
+      return null;
+    return segments;
+  };
+  const resolvePackageDirectory = (
+    segments: string[],
+    fromPackageDir?: string,
+    resolvedPackageDir?: string,
+  ): string | null => {
+    if (resolvedPackageDir) {
+      const resolved = fs.realpathSync(resolvedPackageDir);
+      if (!isWithinFunction(resolved)) return null;
+      return fs.statSync(resolved).isDirectory() ? resolved : null;
+    }
+    let current = fromPackageDir ?? functionRoot;
+    if (!isWithinFunction(current)) return null;
+    while (isWithinFunction(current)) {
+      if (
+        current === functionRoot ||
+        path.basename(current) !== "node_modules"
+      ) {
+        const candidate = path.join(current, "node_modules", ...segments);
+        if (fs.existsSync(candidate)) {
+          const resolved = fs.realpathSync(candidate);
+          // A nearer out-of-bound install must not fall through to another version.
+          if (!isWithinFunction(resolved)) return null;
+          if (fs.statSync(resolved).isDirectory()) return resolved;
+          return null;
+        }
+      }
+      if (current === functionRoot) break;
+      const parent = path.dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+    return null;
+  };
+  type PackageReference = {
+    name: string;
+    fromPackageDir: string;
+    resolvedPackageDir?: string;
+  };
+  type PackageRequest = string | PackageReference;
+  const candidateReferencesByFile = new Map<string, PackageReference[]>();
+  const packageReferencesByDirectory = new Map<string, PackageReference[]>();
+  const isEnoent = (error: unknown) =>
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "ENOENT";
+  const isMissingDanglingSymlink = (fileStats: fs.Stats, error: unknown) =>
+    fileStats.isSymbolicLink() && isEnoent(error);
+  const resolveScannablePath = (
+    filePath: string,
+  ): { path: string; stats: fs.Stats } | null => {
+    const fileStats = fs.lstatSync(filePath);
+    let resolvedPath: string;
+    try {
+      resolvedPath = fs.realpathSync(filePath);
+    } catch (error) {
+      if (isMissingDanglingSymlink(fileStats, error)) return null;
+      throw error;
+    }
+    if (!isWithinFunction(resolvedPath)) return null;
+    let stats: fs.Stats;
+    try {
+      stats = fs.statSync(filePath);
+    } catch (error) {
+      if (isMissingDanglingSymlink(fileStats, error)) return null;
+      throw error;
+    }
+    return { path: resolvedPath, stats };
+  };
+  const collect = (
+    roots: Iterable<PackageRequest>,
+    scanPackageReferences?: (packageDir: string) => Iterable<PackageReference>,
+  ): Set<string> => {
+    const collected = new Set<string>();
+    const visited = new Set<string>();
+    const visit = (request: PackageRequest, parentPackageDir?: string) => {
+      const name = typeof request === "string" ? request : request.name;
+      const fromPackageDir =
+        typeof request === "string" ? parentPackageDir : request.fromPackageDir;
+      const segments = packageSegments(name);
+      if (!segments) return;
+      if (
+        scanPackageReferences &&
+        SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)
+      )
+        return;
+      collected.add(name);
+      const packageDir = resolvePackageDirectory(
+        segments,
+        fromPackageDir,
+        typeof request === "string" ? undefined : request.resolvedPackageDir,
+      );
+      if (!packageDir) return;
+      const manifest = readPackageManifest(packageDir);
+      const version =
+        typeof manifest?.version === "string" ? manifest.version : "";
+      const identity = `${packageDir}\0${version}`;
+      if (visited.has(identity)) return;
+      visited.add(identity);
+      if (scanPackageReferences) {
+        for (const reference of scanPackageReferences(packageDir))
+          visit(reference);
+      }
+      for (const field of [
+        ...RUNTIME_PACKAGE_DEPENDENCY_FIELDS,
+        "peerDependencies",
+      ]) {
+        const dependencies = manifest?.[field];
+        if (
+          !dependencies ||
+          typeof dependencies !== "object" ||
+          Array.isArray(dependencies)
+        )
+          continue;
+        for (const dependency of Object.keys(dependencies))
+          visit(dependency, packageDir);
+      }
+    };
+    for (const root of roots) visit(root);
+    return collected;
+  };
+  const candidates = collect([
+    "puppeteer",
+    "puppeteer-core",
+    "chromium-bidi",
+    "@puppeteer/browsers",
+  ]);
+  const findResolvedCandidate = (
+    specifier: string,
+    fromPackageDir: string,
+  ): { name: string; resolvedPackageDir: string } | undefined => {
+    if (
+      !specifier.startsWith("./") &&
+      !specifier.startsWith("../") &&
+      !path.isAbsolute(specifier)
+    )
+      return;
+    const target = path.resolve(fromPackageDir, specifier);
+    if (!isWithinFunction(target)) return;
+    let match:
+      | { name: string; resolvedPackageDir: string; markerStart: number }
+      | undefined;
+    for (const name of candidates) {
+      if (SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)) continue;
+      const marker = `${path.sep}node_modules${path.sep}${name
+        .split("/")
+        .join(path.sep)}`;
+      const markerStart = target.lastIndexOf(marker);
+      const suffix = target[markerStart + marker.length];
+      if (markerStart < 0 || (suffix !== undefined && suffix !== path.sep))
+        continue;
+      const candidateDir = target.slice(0, markerStart + marker.length);
+      if (!fs.existsSync(candidateDir)) continue;
+      const resolvedPackageDir = fs.realpathSync(candidateDir);
+      if (
+        !isWithinFunction(resolvedPackageDir) ||
+        !fs.statSync(resolvedPackageDir).isDirectory()
+      )
+        continue;
+      if (!match || markerStart > match.markerStart)
+        match = { name, resolvedPackageDir, markerStart };
+    }
+    return (
+      match && {
+        name: match.name,
+        resolvedPackageDir: match.resolvedPackageDir,
+      }
+    );
+  };
+  const isNonPackageSpecifier = (specifier: string) =>
+    path.isAbsolute(specifier) ||
+    specifier.startsWith(".") ||
+    specifier.startsWith("#") ||
+    /^[A-Za-z][A-Za-z\d+.-]*:/.test(specifier);
+  const findResolvedPackage = (
+    specifier: string,
+    fromPackageDir: string,
+  ): { name: string; resolvedPackageDir: string } | undefined => {
+    const relativeCandidate = findResolvedCandidate(specifier, fromPackageDir);
+    if (relativeCandidate) return relativeCandidate;
+    if (isNonPackageSpecifier(specifier)) return;
+    const specifierSegments = specifier.split("/");
+    const name = specifierSegments[0]?.startsWith("@")
+      ? specifierSegments.slice(0, 2).join("/")
+      : specifierSegments[0];
+    const segments = name && packageSegments(name);
+    if (
+      !name ||
+      !segments ||
+      isBuiltin(name) ||
+      SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)
+    )
+      return;
+    const resolvedPackageDir = resolvePackageDirectory(
+      segments,
+      fromPackageDir,
+    );
+    return resolvedPackageDir ? { name, resolvedPackageDir } : undefined;
+  };
+  const findPackageImportReferences = (
+    packageDir: string,
+    packageManifest = readPackageManifest(packageDir),
+  ): PackageReference[] => {
+    const imports = packageManifest?.imports;
+    if (!imports || typeof imports !== "object" || Array.isArray(imports))
+      return [];
+    const targets: string[] = [];
+    const collectTargets = (value: unknown) => {
+      if (typeof value === "string") {
+        targets.push(value);
+      } else if (Array.isArray(value)) {
+        for (const target of value) collectTargets(target);
+      } else if (value && typeof value === "object") {
+        for (const target of Object.values(value)) collectTargets(target);
+      }
+    };
+    for (const target of Object.values(imports)) collectTargets(target);
+    const references = new Map<string, PackageReference>();
+    for (const target of targets) {
+      const resolved = findResolvedPackage(target, packageDir);
+      if (resolved) {
+        const reference = { ...resolved, fromPackageDir: packageDir };
+        references.set(
+          `${reference.name}\0${reference.resolvedPackageDir}`,
+          reference,
+        );
+        continue;
+      }
+      if (isNonPackageSpecifier(target)) continue;
+      const targetSegments = target.split("/");
+      const packageName = targetSegments[0]?.startsWith("@")
+        ? targetSegments.slice(0, 2).join("/")
+        : targetSegments[0];
+      if (packageName?.includes("*")) {
+        for (const name of candidates) {
+          if (SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)) continue;
+          const reference = { name, fromPackageDir: packageDir };
+          references.set(`${name}\0`, reference);
+        }
+        continue;
+      }
+    }
+    return [...references.values()];
+  };
+  const manifest = readPackageManifest(functionDir);
+  // Nitro's manifest flattens transitive dependencies, so installer children
+  // are not independent runtime roots merely because they appear there.
+  const retained = new Set(
+    PACKAGE_DEPENDENCY_FIELDS.flatMap((field) =>
+      Object.keys((manifest?.[field] as Record<string, unknown>) ?? {}),
+    ).filter(
+      (name) =>
+        !candidates.has(name) &&
+        !SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name),
+    ),
+  );
+  const findCandidateReferences = (
+    resolvedFilePath: string,
+  ): PackageReference[] => {
+    const cached = candidateReferencesByFile.get(resolvedFilePath);
+    if (cached) return cached;
+    const fromPackageDir = path.dirname(resolvedFilePath);
+    const source = fs.readFileSync(resolvedFilePath, "utf8");
+    const references = new Map<string, PackageReference>();
+    const addReference = (reference: PackageReference) => {
+      const identity = `${reference.name}\0${reference.fromPackageDir}\0${reference.resolvedPackageDir ?? ""}`;
+      references.set(identity, reference);
+    };
+    const literalSpecifier =
+      /\b(?:import|export)\s*(?:[^;'"`]*?\s*from\s*)?(['"`])([^'"`]+)\1|\b(?:import\s*\.\s*meta\s*\.\s*resolve|import|require(?:\s*\.\s*resolve)?)\s*\(\s*(['"`])([^'"`]+)\3/g;
+    for (const match of source.matchAll(literalSpecifier)) {
+      const specifier = match[2] ?? match[4];
+      if (!specifier) continue;
+      const resolved = findResolvedPackage(specifier, fromPackageDir);
+      if (resolved) addReference({ ...resolved, fromPackageDir });
+    }
+    for (const name of candidates) {
+      if (
+        !SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name) &&
+        source.includes(name) &&
+        (hasExternalSsrRuntimeReference(source, name) ||
+          ["/", '"', "'", "`"].some((boundary) =>
+            source.includes(`node_modules/${name}${boundary}`),
+          ))
+      )
+        addReference({ name, fromPackageDir });
+    }
+    const found = [...references.values()];
+    candidateReferencesByFile.set(resolvedFilePath, found);
+    return found;
+  };
+  const collectTreeReferences = (roots: Iterable<string>) => {
+    const references = new Map<string, PackageReference>();
+    const visitedDirectories = new Set<string>();
+    const visitedFiles = new Set<string>();
+    const visit = (entryPath: string) => {
+      const resolved = resolveScannablePath(entryPath);
+      if (!resolved) return;
+      if (resolved.stats.isDirectory()) {
+        if (visitedDirectories.has(resolved.path)) return;
+        visitedDirectories.add(resolved.path);
+        for (const entry of fs.readdirSync(resolved.path, {
+          withFileTypes: true,
+        })) {
+          if (
+            entry.isDirectory() ||
+            entry.isSymbolicLink() ||
+            (entry.isFile() && /\.(?:[cm]?js)$/.test(entry.name))
+          )
+            visit(path.join(resolved.path, entry.name));
+        }
+        return;
+      }
+      if (
+        !resolved.stats.isFile() ||
+        !/\.(?:[cm]?js)$/.test(path.basename(entryPath)) ||
+        visitedFiles.has(resolved.path)
+      )
+        return;
+      visitedFiles.add(resolved.path);
+      for (const reference of findCandidateReferences(resolved.path)) {
+        const identity = `${reference.name}\0${reference.fromPackageDir}\0${reference.resolvedPackageDir ?? ""}`;
+        references.set(identity, reference);
+      }
+    };
+    for (const root of roots) visit(root);
+    return [...references.values()];
+  };
+  const emittedRoots = fs
+    .readdirSync(functionDir, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.name !== "node_modules" &&
+        (entry.isDirectory() ||
+          entry.isSymbolicLink() ||
+          (entry.isFile() && /\.(?:[cm]?js)$/.test(entry.name))),
+    )
+    .map((entry) => path.join(functionDir, entry.name));
+  const emittedReferences = collectTreeReferences(emittedRoots);
+  const needed = collect(
+    [
+      ...retained,
+      ...emittedReferences,
+      ...findPackageImportReferences(functionDir, manifest),
+    ],
+    (packageDir) => {
+      const cached = packageReferencesByDirectory.get(packageDir);
+      if (cached) return cached;
+      const references = [
+        ...collectTreeReferences([packageDir]),
+        ...findPackageImportReferences(packageDir),
+      ];
+      packageReferencesByDirectory.set(packageDir, references);
+      return references;
+    },
+  );
+  return new Set([...candidates].filter((name) => !needed.has(name)));
+}
+
 export function sanitizeServerlessFunctionPackageManifest(
   functionDir: string | undefined,
 ): void {
@@ -4688,12 +5321,16 @@ export function sanitizeServerlessFunctionPackageManifest(
     return;
   }
 
+  const deniedPackages = new Set([
+    ...SERVERLESS_FUNCTION_PACKAGE_DENYLIST,
+    ...exclusiveBrowserInstallerPackages(functionDir),
+  ]);
   let removed = 0;
   for (const field of PACKAGE_DEPENDENCY_FIELDS) {
     const deps = packageJson[field];
     if (!deps || typeof deps !== "object" || Array.isArray(deps)) continue;
     const depRecord = deps as Record<string, unknown>;
-    for (const packageName of SERVERLESS_FUNCTION_PACKAGE_DENYLIST) {
+    for (const packageName of deniedPackages) {
       if (Object.prototype.hasOwnProperty.call(depRecord, packageName)) {
         delete depRecord[packageName];
         removed++;
@@ -4705,7 +5342,7 @@ export function sanitizeServerlessFunctionPackageManifest(
   }
 
   const nodeModulesDir = path.join(functionDir, "node_modules");
-  for (const packageName of SERVERLESS_FUNCTION_PACKAGE_DENYLIST) {
+  for (const packageName of deniedPackages) {
     const packageDir = path.join(nodeModulesDir, ...packageName.split("/"));
     if (fs.existsSync(packageDir)) {
       fs.rmSync(packageDir, { recursive: true, force: true });
@@ -4935,6 +5572,13 @@ export async function runNitroBuildPipeline(
       trustedClientDirectory,
       resolvedClientDir,
     );
+  }
+}
+
+function removeServerSourceMaps(serverDir: string): void {
+  const sourceMaps = fs.globSync("**/*.map", { cwd: serverDir });
+  for (const sourceMap of sourceMaps) {
+    fs.rmSync(path.join(serverDir, sourceMap), { force: true });
   }
 }
 
@@ -5231,6 +5875,8 @@ export default bundle;
   );
   const nitroServerCodeSplittingConfig =
     nitroServerCodeSplittingConfigForPreset(preset);
+  const sentryServerSourceMapPlugins =
+    await createSentryServerSourceMapUploadPlugins(nitroEnvironment);
   const nitroVirtual: Record<string, string | (() => string)> = {
     "virtual:agents-bundle": agentsBundleModuleSource,
   };
@@ -5260,6 +5906,14 @@ export default bundle;
     ...(isAwsLambdaPreset(preset) ? { awsLambda: { streaming: false } } : {}),
     baseURL: appBasePath || "/",
     minify: true,
+    ...(sentryServerSourceMapPlugins.length > 0
+      ? {
+          sourcemap: "hidden",
+          // Nitro strips sourcesContent by default; the maps never ship, so
+          // keep it for Sentry to show source context.
+          experimental: { sourcemapMinify: false },
+        }
+      : {}),
     serverDir: "./server",
     ignore: NITRO_RUNTIME_IGNORE_PATTERNS,
     alias: {
@@ -5295,6 +5949,7 @@ export default bundle;
           ? [createCloudflareModuleStubPlugin()]
           : []),
         createBrowserOnlyServerStubPlugin(),
+        ...sentryServerSourceMapPlugins,
         ...(enterpriseAuthAdaptersEnabled
           ? []
           : [createEnterpriseAuthAdapterStubPlugin(false)]),
@@ -5345,6 +6000,10 @@ export default bundle;
     configureCloudflareModuleWorkerOutput(nitro.options.output.serverDir);
   }
 
+  if (preset === "vercel") {
+    addVercelSweepCron(nitro.options.output.dir);
+  }
+
   if (
     preset === "netlify" ||
     preset === "vercel" ||
@@ -5365,6 +6024,13 @@ export default bundle;
 
   if (isCloudflareModulePreset(preset)) {
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
+  }
+
+  if (sentryServerSourceMapPlugins.length > 0) {
+    removeServerSourceMaps(nitro.options.output.serverDir);
+    console.log(
+      "[deploy] Ensured Nitro server output is free of source maps before function packaging.",
+    );
   }
 
   if (preset === "netlify") {

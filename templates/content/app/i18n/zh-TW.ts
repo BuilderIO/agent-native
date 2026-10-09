@@ -130,6 +130,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "仍在等待{{stage}}。請求：{{action}}。",
+    widgetDocumentLoadStage: "已儲存的頁面內文",
+    widgetDraftCheckStage: "頁面草稿復原",
+    widgetEditorInitStage: "富文字編輯器初始化",
     iconPickerIcons: "圖示",
     iconPickerEmoji: "表情符號",
     iconPickerRecent: "最近使用",
@@ -436,7 +440,6 @@ const overrides = {
     reorderField: "重新排序 {{name}}",
     title: "標題",
     toggleField: "切換 {{name}}",
-    createCollection: "建立集合",
     creatingDatabase: "正在建立內嵌集合...",
     databaseCreated: "集合已建立",
     emptyBlockPlaceholder: "按「/」使用指令",
@@ -1765,6 +1768,11 @@ const overrides = {
     removeLocalFilesFromSidebar: "從側邊欄移除",
     removeLocalFilesQuestion: "要從側邊欄移除本機檔案嗎？",
     failedCreatePage: "建立頁面失敗",
+    failedCreatePageDraftDescription:
+      "草稿已儲存在此瀏覽器中。你可以重試建立頁面，或捨棄草稿。",
+    discardFailedCreatePageQuestion: "捨棄待處理的建立？",
+    discardFailedCreatePageDescription:
+      "這會清除待處理的建立與未儲存的草稿。如果頁面已儲存，仍會保留在你的工作區。",
     failedDeletePage: "刪除頁面失敗",
     failedPermanentDeleteDatabase: "永久刪除集合失敗",
     failedPermanentDeletePage: "永久刪除頁面失敗",

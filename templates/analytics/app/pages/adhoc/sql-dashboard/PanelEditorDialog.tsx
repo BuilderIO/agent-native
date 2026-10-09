@@ -749,6 +749,7 @@ function PanelEditorContent({
         <div className="grid gap-3">
           <Label>{t("panelEditor.whatToChart")}</Label>
           <PromptComposer
+            requireAgentEngine
             disabled={isGenerating}
             placeholder={t("panelEditor.promptPlaceholder")}
             draftScope="analytics:add-panel"

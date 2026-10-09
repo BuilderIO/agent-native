@@ -455,7 +455,7 @@ type OverrideEntry = SymbolOverride;
  * An active override scope contributed by an enclosing INSTANCE. `startIndex`
  * is the position in the running guid path at which this instance's master
  * tree begins; override keys in `map` are joined-guid paths RELATIVE to that
- * point (matching what Figma stores in `symbolOverrides[].guidPath`).
+ * point (each override key is a joined path relative to this instance).
  *
  * Multiple layers stack: an outer instance's overrides remain valid even
  * after we descend through nested inner instances, because the descendant's
@@ -1131,7 +1131,7 @@ function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
       recordApproximation(
         node,
         ctx,
-        "GRADIENT_DIAMOND approximated as an ellipse; its falloff is an L1 distance, so Figma draws a four-pointed star. The REST walker reproduces it exactly with four quadrant-tiled linear gradients",
+        "GRADIENT_DIAMOND is approximated as an ellipse; its L1-distance falloff forms a four-pointed star. The REST walker approximates that effect with four quadrant-tiled linear gradients",
       );
       return `radial-gradient(${stops})`;
     }
@@ -1296,7 +1296,7 @@ function diamondBackgroundLayers(
   recordApproximation(
     node,
     ctx,
-    "GRADIENT_DIAMOND drawn as four quadrant-tiled linear gradients — the same shape Figma draws, since its falloff is linear within each quadrant",
+    "GRADIENT_DIAMOND drawn as four quadrant-tiled linear gradients — linear falloff within each quadrant",
   );
   return layers;
 }
@@ -1564,7 +1564,7 @@ function borderShorthand(
         recordApproximation(
           node,
           ctx,
-          "dashed INSIDE stroke on a node with children drawn solid; an inset box-shadow cannot be dashed, and a real border would shrink the content box Figma leaves alone",
+          "dashed INSIDE stroke on a node with children drawn solid; an inset box-shadow cannot be dashed, and a real border would shrink the content box",
         );
       }
       return { boxShadow: `inset 0 0 0 ${num(uniformW)}px ${color}` };
@@ -2289,7 +2289,7 @@ function buildCss(
       node,
       ctx,
       node.type === "BOOLEAN_OPERATION"
-        ? "BOOLEAN_OPERATION has no decodable geometry; omitted rather than painted as its bounding box. Figma flattens a boolean outline only for REST and the .fig container — a clipboard paste carries just the operands — so import the frame with a Figma token, or upload the .fig, to get the real shape."
+        ? "BOOLEAN_OPERATION has no decodable geometry; omitted rather than painted as its bounding box. The input contains only boolean operands; retry REST import with a Figma token or upload the .fig source file to recover the combined shape."
         : `${node.type} has no decodable geometry; omitted rather than painted as its bounding box`,
     );
   }
@@ -3866,14 +3866,14 @@ const VARIABLE_FIELD_TO_PROP: Record<string, keyof FigNode> = {
  * Rewrites bound design-token variables into literal layout fields (padding, corner radius,
  * spacing, border weight) so the renderer doesn't need to know about variables.
  *
- * Figma bakes a literal alongside each binding, but the literal can be stale (e.g. the mode
+ * The node data includes a literal alongside each binding, but it can be stale (e.g. the mode
  * changed after the node was created). We overwrite a present literal only when the active mode
  * was found explicitly on the node or an ancestor — the collection default is NOT recoverable
  * from the document, so when no explicit mode exists we leave the baked value alone. A missing
  * literal is always filled.
  *
  * Local variables with a unique published counterpart by name are redirected to the published
- * one; Figma drops stale local copies on paste and this matches what renders in isolation.
+ * one; Paste payloads can omit stale local copies, which otherwise alter the isolated render.
  *
  * Mutates nodes in place; unresolvable bindings leave the literal untouched.
  */

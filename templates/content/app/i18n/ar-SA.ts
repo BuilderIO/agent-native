@@ -439,7 +439,6 @@ const editor = {
   pageBodySyncing: "لا يزال محتوى هذه الصفحة قيد المزامنة",
   pageBodySyncingDescription:
     "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة محتوى الصفحة، حتى لا تتم الكتابة فوق المحتوى الحالي.",
-  createCollection: "إنشاء مجموعة",
   creatingDatabase: "جارٍ إنشاء مجموعة مضمنة...",
   databaseCreated: "تم إنشاء المجموعة",
   emptyBlockPlaceholder: 'اضغط على "/" للأوامر',
@@ -1056,6 +1055,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "ما زلنا بانتظار {{stage}}. الطلب: {{action}}.",
+    widgetDocumentLoadStage: "محتوى الصفحة المحفوظة",
+    widgetDraftCheckStage: "استعادة مسودة الصفحة",
+    widgetEditorInitStage: "تهيئة محرر النص المنسق",
     iconPickerIcons: "الأيقونات",
     iconPickerEmoji: "الرموز التعبيرية",
     iconPickerRecent: "الأخيرة",
@@ -1469,6 +1472,11 @@ const overrides = {
     resize: "تغيير حجم الشريط الجانبي",
     expand: "توسيع الشريط الجانبي",
     failedCreatePage: "فشل إنشاء الصفحة",
+    failedCreatePageDraftDescription:
+      "تم حفظ مسودتك في هذا المتصفح. يمكنك إعادة محاولة إنشاء الصفحة أو حذف المسودة.",
+    discardFailedCreatePageQuestion: "هل تريد إلغاء الإنشاء المعلّق؟",
+    discardFailedCreatePageDescription:
+      "سيؤدي ذلك إلى مسح الإنشاء المعلّق وأي مسودة غير محفوظة. إذا كانت الصفحة محفوظة بالفعل، فستبقى في مساحة عملك.",
     failedDeletePage: "فشل حذف الصفحة",
     failedPermanentDeletePage: "فشل حذف الصفحة نهائيًا",
     failedRestorePage: "فشل استعادة الصفحة",

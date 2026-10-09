@@ -73,6 +73,10 @@ minimum useful addition is `target: () => ({ type, id })`.
   its only argument. If it is rejected it records nothing; if it executes, or
   carries any other argument, it records like any call. Do not invent another
   probe shape in a client; the recorder only knows this one.
+- **Outside agents** — a call over an agent protocol (`mcp`, `webmcp`, or
+  `a2a`) records as `agent` with the user's email, like the app's own agent
+  (`tool`); `caller` names the protocol. Classify a new agent-only caller in
+  `AGENT_AUDIT_CALLERS`, not in a per-action `audit` config.
 - **App** — every event records the app that wrote it (`app.id`, else
   `app.name`, the same key usage uses).
 
@@ -142,6 +146,16 @@ in SQL to the caller — they never leak another tenant's rows:
 - `export-audit-events` — bulk CSV/NDJSON export (same filters minus `limit`
   and `offset`, plus `format` and `maxRows`) for offline/compliance pulls;
   itself audited via `onRead`.
+
+- `export-audit-ocsf` — the org trail as OCSF 1.9.0 API Activity events (class
+  6003) for a SIEM. Owners and admins only, through
+  `resolveAuditReadScope(ctx, "organization")`, so it never reads past
+  `list-audit-events`. Oldest first; pass the previous `nextCursor` as `cursor`
+  and store every returned `nextCursor`, including on empty pages (they advance
+  the ready watermark). `since`/`until` take ISO or epoch ms.
+  The mapper is `auditEventToOcsf` in `audit/ocsf.ts`; framework ids (run, task,
+  thread, turn, app) go under `unmapped`, never an invented OCSF field, and
+  `input` is never exported.
 
 Call them from the UI with `useActionQuery` to build an activity feed or a
 "who changed this" line — never hand-write a fetch to the audit table.

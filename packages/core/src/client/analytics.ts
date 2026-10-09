@@ -12,6 +12,7 @@ import {
   PAGE_LOAD_PAGEVIEW_PROPERTY,
   isWaitedActionResponse,
   SLOW_ACTION_RESPONSE_MS,
+  TRACKING_EVENT_ALIAS_ID_PROPERTY,
   withCanonicalTrackingProperties,
   type AgentNativeLifecycleEventName,
 } from "../shared/analytics-events.js";
@@ -584,19 +585,20 @@ function setTrackingIdentityFromSession(data: unknown): void {
 }
 
 function refreshTrackingAuthSession(): Promise<void> {
-  if (typeof window === "undefined" || typeof fetch !== "function") {
+  if (typeof window === "undefined") {
     _trackingIdentityResolved = true;
     return Promise.resolve();
   }
+  if (typeof fetch !== "function") return Promise.resolve();
   if (_trackingSessionRefresh) return _trackingSessionRefresh;
   _trackingSessionRefresh = fetchAuthSessionStatus()
     .then((result) => {
       if (result.state === "available") {
         setTrackingIdentityFromSession(result.value);
+        _trackingIdentityResolved = true;
       }
     })
     .finally(() => {
-      _trackingIdentityResolved = true;
       _trackingSessionRefresh = null;
     });
   return _trackingSessionRefresh;
@@ -641,6 +643,15 @@ function getTrackingAuthUserId(): string | undefined {
 
 export function getAnalyticsIdentityKey(): string | undefined {
   return getTrackingUserId() || getOrCreateAnonymousId();
+}
+
+export async function resolveAnalyticsIdentityKey(): Promise<
+  string | undefined
+> {
+  if (!_trackingIdentityResolved) {
+    await (_trackingSessionRefresh ?? refreshTrackingAuthSession());
+  }
+  return _trackingIdentityResolved ? getAnalyticsIdentityKey() : undefined;
 }
 
 function getOrCreateAnonymousId(): string | undefined {
@@ -2348,15 +2359,27 @@ function sendAgentNativeAnalytics(
   }
 }
 
+function createTrackingAliasId(): string | undefined {
+  return typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : undefined;
+}
+
 function emitBrowserTrackingEvent(
   name: string,
   props: Record<string, unknown>,
   options: {
     gtagProperties?: Record<string, unknown>;
+    agentNativeProperties?: Record<string, unknown>;
     sendGtag?: boolean;
   } = {},
 ): void {
-  const { gtagProperties = props, sendGtag = true } = options;
+  const {
+    agentNativeProperties = props,
+    gtagProperties = props,
+    sendGtag = true,
+  } = options;
   const amplitudeProps = amplitudeEventProperties(name, props);
   if (sendGtag) {
     const gtag = window.__AGENT_NATIVE_GA_GTAG__ ?? window.gtag;
@@ -2372,7 +2395,9 @@ function emitBrowserTrackingEvent(
   const authUserId = getTrackingAuthUserId();
   sendAgentNativeAnalytics(
     name,
-    authUserId ? { ...props, auth_user_id: authUserId } : props,
+    authUserId
+      ? { ...agentNativeProperties, auth_user_id: authUserId }
+      : agentNativeProperties,
   );
 }
 
@@ -2424,13 +2449,23 @@ function trackBrowserEvent(
   ensureSentry();
   const props = resolveProps(name, params);
   const canonical = canonicalTrackingEvent(name, props);
+  const aliasId = canonical ? createTrackingAliasId() : undefined;
   const gtagNameMatchesCanonical =
     canonical !== null && name.replace(/\s+/g, "_") === canonical.name;
   emitBrowserTrackingEvent(name, props, {
+    agentNativeProperties: aliasId
+      ? { ...props, [TRACKING_EVENT_ALIAS_ID_PROPERTY]: aliasId }
+      : props,
     gtagProperties: gtagNameMatchesCanonical ? canonical.properties : props,
   });
   if (canonical) {
     emitBrowserTrackingEvent(canonical.name, canonical.properties, {
+      agentNativeProperties: aliasId
+        ? {
+            ...canonical.properties,
+            [TRACKING_EVENT_ALIAS_ID_PROPERTY]: aliasId,
+          }
+        : canonical.properties,
       sendGtag: !gtagNameMatchesCanonical,
     });
   }

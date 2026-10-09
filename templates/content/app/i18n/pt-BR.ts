@@ -460,7 +460,6 @@ const editor = {
   pageBodySyncing: "O conteúdo desta página ainda está sincronizando",
   pageBodySyncingDescription:
     "A edição fica pausada até o conteúdo da página terminar de sincronizar, para não sobrescrever o conteúdo existente.",
-  createCollection: "Criar coleção",
   creatingDatabase: "Criando coleção embutida...",
   databaseCreated: "Coleção criada",
   emptyBlockPlaceholder: "Pressione “/” para comandos",
@@ -1080,6 +1079,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "Ainda aguardando {{stage}}. Solicitação: {{action}}.",
+    widgetDocumentLoadStage: "o conteúdo da página salva",
+    widgetDraftCheckStage: "a recuperação do rascunho da página",
+    widgetEditorInitStage: "a inicialização do editor de rich text",
     iconPickerIcons: "Ícones",
     iconPickerEmoji: "Emoji",
     iconPickerRecent: "Recentes",
@@ -1515,6 +1518,11 @@ const overrides = {
     resize: "Redimensionar barra lateral",
     expand: "Expandir barra lateral",
     failedCreatePage: "Falha ao criar página",
+    failedCreatePageDraftDescription:
+      "Seu rascunho está salvo neste navegador. Você pode tentar criar a página novamente ou descartar o rascunho.",
+    discardFailedCreatePageQuestion: "Descartar a criação pendente?",
+    discardFailedCreatePageDescription:
+      "Isso limpa a criação pendente e qualquer rascunho não salvo. Se a página já tiver sido salva, ela permanecerá no seu espaço de trabalho.",
     failedDeletePage: "Falha ao excluir página",
     failedPermanentDeletePage: "Falha ao excluir a página permanentemente",
     failedRestorePage: "Falha ao restaurar a página",

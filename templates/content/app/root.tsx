@@ -56,16 +56,14 @@ import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { ContentCommandSearchResults } from "./components/ContentCommandSearch";
+import { CONTENT_STARTUP_SIDEBAR_SCRIPT } from "./components/layout/content-layout";
 import { ContentStartupShell } from "./components/layout/ContentStartupShell";
-import { CONTENT_STARTUP_SIDEBAR_SCRIPT } from "./components/layout/sidebar-preferences";
 import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
 import { useDbSync } from "./hooks/use-db-sync";
-import { startPageOpenDocumentReads } from "./hooks/use-documents";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
 import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
-import { isPersonalLanding } from "./lib/content-landing";
-import { readLastLocationHintForAnyAccount } from "./lib/last-location-hint";
+import { startLoadReads } from "./lib/content-landing";
 import { CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT } from "./lib/page-icon-row-hint";
 import { CONTENT_STARTUP_PAGE_HINTS_SCRIPT } from "./lib/page-startup-hints";
 
@@ -410,17 +408,8 @@ export default function Root() {
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
   useEffect(() => {
-    // A load of /home reads its likely page alongside the session check
-    // rather than after the app mounts behind it.
-    if (!isPersonalLanding(location)) return;
-    const documentId = readLastLocationHintForAnyAccount();
-    if (!documentId) return;
-    const search = new URLSearchParams(location.search);
-    startPageOpenDocumentReads(queryClient, documentId, {
-      databaseId: search.get("databaseId"),
-      databaseDocumentId: search.get("databaseDocumentId"),
-    });
-    // Only the load itself; navigating to /home later mounts it directly.
+    startLoadReads(queryClient, location);
+    // Only the load itself; later navigations start their own reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useCommandMenuShortcut(

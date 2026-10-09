@@ -97,6 +97,7 @@ vi.mock("@agent-native/toolkit/app/settings", () => ({
     configured: false,
     connecting: false,
     hasFetchedStatus: true,
+    canConnect: { org: true, personal: true },
   }),
   useBuilderStatus: () => ({
     status: { configured: false },
@@ -108,6 +109,7 @@ vi.mock("@/hooks/use-replay-storage-status", () => ({
   useReplayStorageStatus: () => ({
     data: { configured: mocks.configured },
     isLoading: false,
+    isSuccess: true,
     refetch: vi.fn(),
   }),
 }));
@@ -466,6 +468,37 @@ describe("Sessions empty states", () => {
       expect.objectContaining({ enabled: true }),
     );
     expect(container.textContent).toContain("sessions.frictionSignalCount");
+  });
+
+  it("lists anonymous sessions without presenting the browser id as a person", async () => {
+    mocks.total = 1;
+    mocks.recordings = [
+      {
+        id: "sr_pre_auth_test",
+        sessionId: "session_pre_auth_test",
+        userId: null,
+        userKey: "anon_test_browser_id",
+        anonymousId: "anon_test_browser_id",
+        startedAt: "2026-10-08T10:00:00.000Z",
+        durationMs: 60_000,
+        eventCount: 4,
+        pageCount: 1,
+        errorCount: 0,
+        networkErrorCount: 0,
+        rageClickCount: 0,
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?visitorType=anonymous"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(listCalls()[0][1]).toMatchObject({ visitorType: "anonymous" });
+    expect(container.textContent).toContain("sessions.anonymous");
+    expect(container.textContent).not.toContain("anon_test_browser_id");
   });
 
   it("keeps the list and offers a retry when row friction fails to load", async () => {

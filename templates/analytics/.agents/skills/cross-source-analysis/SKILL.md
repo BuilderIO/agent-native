@@ -34,7 +34,8 @@ lock and contract-metric rules before querying the warehouse.
 
 Orient before fanning out:
 
-1. Read the injected `<data-dictionary>` and check data-source status to see
+1. Read the preloaded `<resource scope="analytics-catalog">` references (else
+   one `search-analytics-query-catalog`) and check data-source status to see
    which sources are configured and what each one actually holds.
 2. Map each fact in the question to the one source that owns it. Write a tiny
    plan: "identities + emails from HubSpot, usage from BigQuery, first-party

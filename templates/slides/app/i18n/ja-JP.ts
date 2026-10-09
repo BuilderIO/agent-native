@@ -127,7 +127,7 @@ const messages = {
     googleOAuthNotConfigured:
       "このデプロイではGoogle OAuthが設定されていません。",
     googlePickerNeedsKeys:
-      "Google PickerにはGOOGLE_PICKER_API_KEYとGOOGLE_PICKER_APP_IDが必要です。",
+      "Google Drive のファイル選択は設定されていません。ドキュメントのリンクを貼り付ければインポートできます。",
     imageUploadFailed: "画像のアップロードに失敗しました",
     imageUploadNeedsBuilder:
       "画像をアップロードするにはオブジェクトストレージを接続してください。Builder.io（無料）を接続するか、設定 → ファイルアップロードで独自の S3 互換ストレージキーを追加してください。",
@@ -255,6 +255,16 @@ const messages = {
     generateImage: "画像を生成",
     assetLibrary: "アセットライブラリ",
     imageOptions: "画像オプション",
+    videoPlayback: "動画再生",
+    autoplayVideo: "自動再生",
+    loopVideo: "動画をループ再生",
+    videoUploading: "動画をアップロード中…",
+    videoAdded: "動画を追加しました",
+    videoUploadFailed: "動画のアップロードに失敗しました",
+    videoUploadError: "この動画をアップロードできませんでした。",
+    videoFormatUnsupported: "対応形式は MP4 と WebM です。",
+    videoTooLarge: "動画のサイズは 50 MB 以下にしてください。",
+    videoUploadNeedsBuilder: "動画ストレージが設定されていません。",
     cropImage: "画像をトリミング",
     cropHandle: "画像の{{position}}をトリミング",
     diagrams: "図表",
@@ -308,6 +318,9 @@ const messages = {
     conflictStatus: "テキストの競合",
     conflictStatusDescription:
       "変更を保存する前に、競合しているテキストを確認してください。",
+    accessLost: "アクセス権を失いました",
+    accessLostDescription:
+      "このデッキへのアクセス権が変更されました。編集内容は画面に残っています。アクセスが復旧したら再試行するか、バックアップをダウンロードしてください。",
     reviewConflict: "競合を確認",
     conflictTitle: "スライド {{number}} でテキストが競合しています",
     conflictDescription:
@@ -766,6 +779,10 @@ const messages = {
     exportFailed: "导出失败",
     agentRunFailed:
       "スライドを作成する前にエージェントの実行が失敗しました。チャットで詳細を確認して、もう一度お試しください。",
+    generationFailed:
+      "スライドを作成できませんでした。チャットで詳細を確認して、もう一度お試しください。",
+    generationOutcomeUnresolved:
+      "スライドが作成されたか確認できませんでした。デッキまたはチャットを確認してから、もう一度お試しください。",
     deckHasNoSlides: "このデッキにはスライドがありません。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",

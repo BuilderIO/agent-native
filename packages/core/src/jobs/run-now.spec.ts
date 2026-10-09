@@ -10,7 +10,8 @@ vi.mock("../automations/service.js", () => ({
   canQueueAutomationRunNow: canQueueAutomationRunNowMock,
 }));
 
-vi.mock("../resources/store.js", () => ({
+vi.mock("../resources/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../resources/store.js")>()),
   organizationResourceOwner: (orgId: string) => `__organization__:${orgId}`,
   resourceGetByPath: resourceGetByPathMock,
 }));
@@ -59,6 +60,26 @@ beforeEach(() => {
 });
 
 describe("queueAutomationRunNow", () => {
+  it("keeps a personal job's manual history personal with an active organization", async () => {
+    resourceGetByPathMock.mockResolvedValue({
+      ...resourceAt("jobs/digest.md"),
+      owner: "alice@example.com",
+      content: '---\norgId: "org-1"\n---\nSummarize my inbox.\n',
+    });
+    await queueAutomationRunNow({
+      ...organizationRun,
+      scope: "personal",
+      name: "digest",
+    });
+    expect(startAutomationRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "alice@example.com",
+        scope: "personal",
+        orgId: null,
+      }),
+    );
+  });
+
   it("queues a nested automation by path", async () => {
     const path = "jobs/factories/enzo-test-factory-3/factory-slack-feedback.md";
     resourceGetByPathMock.mockResolvedValue(resourceAt(path));

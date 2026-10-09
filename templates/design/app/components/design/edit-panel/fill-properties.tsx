@@ -457,10 +457,9 @@ export function FillProperties({
       backgroundPositionLayers,
     });
     if (addFillPatch.backgroundImage !== undefined) {
-      layerKeysRef.current.keys = [
-        nextLayerKey(),
-        ...layerKeysRef.current.keys,
-      ];
+      const addedLayerKey = nextLayerKey();
+      layerKeysRef.current.keys = [addedLayerKey, ...layerKeysRef.current.keys];
+      setOpenFillPickerKey(`${fillStashKey}:${addedLayerKey}`);
     }
     commitStylePatch(addFillPatch, onStyleChange, onStylesChange);
   };
@@ -506,7 +505,7 @@ export function FillProperties({
       {fillIsMixed ? (
         <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
           {
-            "Click + to replace mixed content" /* i18n-ignore figma mixed fill hint */
+            "Click + to replace mixed content" /* i18n-ignore mixed-content helper text */
           }
         </p>
       ) : hasVisibleFill ? (

@@ -1127,6 +1127,18 @@ export default {
     copied: "Copied",
     copy: "Copy",
     keyActions: "{{name}} key actions",
+    manageReplayOrigins: "Manage replay origins",
+    replayOriginsDescription:
+      "Add exact HTTPS origins, one per line. Existing origins are preserved.",
+    currentReplayOrigins: "Current allowed origins",
+    anyReplayOriginAllowed:
+      "Any origin is currently allowed. Adding origins limits replay to the list, so include every app that uses this key.",
+    originsToAdd: "Origins to add",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "Add origins",
+    addingReplayOrigins: "Adding origins…",
+    replayOriginsUpdateFailed: "Could not update allowed origins.",
+    cancel: "Cancel",
     lastUsed: "last used {{date}}",
     neverUsed: "never used",
     revoking: "Revoking...",
@@ -1568,6 +1580,8 @@ export default {
     replayPlayer: "Replay player",
     replayLoading: "Loading replay...",
     replayLoadingProgress: "{{loaded}} of {{total}} replay chunks loaded",
+    replayTargetFallback:
+      "Requested recording offset {{requested}} is unavailable; showing the nearest replay frame at {{available}}.",
     replayUnavailable: "No playable replay for this session",
     replayUnavailableDescription:
       "This recording has metadata, but no playable replay events were found.",
@@ -1581,6 +1595,13 @@ export default {
     savingScreenshot: "Saving screenshot…",
     screenshotDownloaded: "Screenshot downloaded",
     screenshotSaveFailed: "Couldn't save screenshot",
+    copyScreenshot: "Copy to Design",
+    copyingScreenshot: "Copying screenshot…",
+    screenshotCopiedForDesign: "Screenshot copied. Paste it into Design.",
+    screenshotCopyFailed:
+      "Couldn't copy the screenshot to the clipboard. Try Save screenshot, then upload the PNG in Design.",
+    screenshotCopyUnsupportedAssets:
+      "Screenshot not copied: this moment contains media or images that can't be captured securely. Try another moment in the replay.",
     screenshotUnsupportedAssets:
       "Screenshot not saved: some embedded media or images can't be captured securely.",
     timeline: "Event timeline",
@@ -1616,8 +1637,12 @@ export default {
     time: "Time",
     storageSetupTitle: "Connect replay storage",
     storageSetupDescription:
-      "Session replay recordings need storage before chunks can be saved. Use Builder.io for free-tier storage, or configure your own S3-compatible bucket.",
+      "Session replay recordings need an authorized file-upload provider. Builder.io can store them when its upload permission is granted, or you can configure your own S3-compatible bucket.",
     storageConnected: "Storage connected",
+    storageStatusUnavailable:
+      "Couldn't check replay storage status. Retry to see whether uploads are ready.",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io is connected for AI and credits, but replay uploads need its separate storage permission.",
     connectBuilder: "Use Builder.io",
     configureS3: "Configure S3 storage",
     devtools: "Dev Tools",
@@ -1648,6 +1673,56 @@ export default {
     devtoolsNoNetwork: "No network activity was captured for this session.",
     devtoolsNoConsoleMatches: "No console messages match the current filters.",
     devtoolsNoNetworkMatches: "No requests match the current filters.",
+    storyboardSelectionCoverage:
+      "Selected {{selected}} of {{total}} replay sessions ({{percent}}).",
+    storyboardSelectHint: "Select up to 3 sessions to create a storyboard.",
+    clearStoryboardSelection: "Clear selection",
+    createStoryboard: "Create storyboard",
+    selectReplayForStoryboard: "Select replay {{id}} for storyboard",
+    storyboardDesignId: "Design ID (optional)",
+    storyboardTitle: "Storyboard title",
+    storyboardDefaultTitle: "Session replay storyboard",
+    storyboardTimestamps: "Timestamps (up to 3, comma-separated)",
+    storyboardReplayPreview: "Replay preview",
+    storyboardStartingCapture:
+      "Choose this Analytics tab in the browser capture picker.",
+    storyboardLoadingReplay: "Loading replay {{replayId}}…",
+    storyboardCapturingFrame:
+      "Capturing {{current}} of {{total}} · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "Sending screenshots to Design…",
+    storyboardComplete: "Added {{screenshots}} screenshots to Design.",
+    storyboardTimestampError: "Use mm:ss, hh:mm:ss, or mm:ss.mmm.",
+    storyboardTimestampRequired:
+      "Enter at least one timestamp for each selected replay.",
+    storyboardTimestampLimit: "Choose no more than 3 timestamps per replay.",
+    storyboardDuplicateTimestamp: "Remove duplicate timestamps.",
+    storyboardScreenshotLimit: "Choose no more than 9 screenshots.",
+    storyboardReplayLimit: "Select up to 3 replay sessions.",
+    storyboardCaptureFailed: "Screenshot capture failed.",
+    storyboardCanceled: "Screenshot capture was canceled.",
+    storyboardReplayIncomplete:
+      "Replay {{replayId}} contains unavailable events; export was stopped.",
+    storyboardViewportUnavailable:
+      "Recorded viewport dimensions are unavailable.",
+    storyboardTimestampOutOfRange: "Timestamp is outside replay {{replayId}}.",
+    storyboardScreenshotTooLarge: "A screenshot exceeds the 5 MB limit.",
+    storyboardBatchTooLarge: "The screenshot batch exceeds the 20 MB limit.",
+    storyboardRouteUnavailable:
+      "Route at {{timestamp}} is unavailable for replay {{replayId}}.",
+    storyboardNoDesignResponse: "Design returned no storyboard result.",
+    storyboardTemporaryCleanupPending:
+      "The storyboard was saved, but temporary screenshot files could not be removed.",
+    storyboardTemporaryCleanupFailed:
+      "Temporary screenshot cleanup is still pending.",
+    storyboardUnexpectedResponse:
+      "The screenshot export returned an unreadable response. Retry the export.",
+    storyboardSaveOutcomeUnknown:
+      "Design may have saved the storyboard. Check Design before retrying.",
+    openStoryboard: "Open storyboard in Design",
+    cancelStoryboardCapture: "Cancel capture",
+    captureToDesign: "Capture and add to Design",
+    storyboardSelectAnalyticsTab:
+      "Select this Analytics tab in the browser capture picker.",
   },
   catalog: {
     description: "Install a dashboard template when you need a starting point.",

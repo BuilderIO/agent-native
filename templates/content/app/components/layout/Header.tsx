@@ -1,3 +1,4 @@
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import {
   useHeaderTitle,
   useHeaderActions,
@@ -27,6 +28,10 @@ export function Header({ sidebarTrigger }: HeaderProps) {
   const location = useLocation();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
+  const inWidget = useIsMcpAppWidgetEmbed();
+
+  // The MCP App host owns the chrome around its widget.
+  if (inWidget) return null;
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 lg:px-6">

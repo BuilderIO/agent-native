@@ -232,6 +232,7 @@ export interface AssistantChatProps {
       title: string;
       preview: string;
       messageCount: number;
+      titleSource?: "fallback";
     },
   ) => void;
   /** Callback to generate a title from the first user message, on the model it was sent with */
@@ -263,6 +264,8 @@ export interface AssistantChatProps {
   missingApiKeySetupLayout?: BuilderSetupCardLayout;
   /** Hide the provider setup panel when another host surface owns that prompt. */
   showMissingApiKeySetup?: boolean;
+  /** Keep chat-owned recovery cards hidden when the host renders the setup card. */
+  setupCardOwner?: "chat" | "host";
   /** Visual density for the shared composer shell. */
   composerLayoutVariant?: AgentComposerLayoutVariant;
   /** Center the composer on a fresh empty chat instead of pinning it low. */
@@ -346,11 +349,6 @@ export interface AssistantChatProps {
    * hosts without the sidebar provider stack can use upload-only.
    */
   plusMenuMode?: "full" | "upload-only" | "hidden";
-  /**
-   * Enable framework provider/env status checks. Embedded hosts that provide
-   * model/provider state through another transport can disable these probes.
-   */
-  providerStatusChecksEnabled?: boolean;
   /** Replace the built-in transport with an AgentKit-native BYO transport. */
   createTransport?: (context: AssistantChatAdapterContext) => AgentTransport;
   /** Hide the default guided-question card when another host owns its flow. */

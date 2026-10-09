@@ -7,6 +7,7 @@ const messages = {
         "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
     },
     common: { retry: "Erneut versuchen" },
+    onboarding: { skipForNow: "Vorerst überspringen" },
   },
   timelineTrack: {
     helpOtherSide:
@@ -219,6 +220,7 @@ const messages = {
   recordingPage: {
     back: "Zurück",
     done: "Fertig",
+    backToClip: "Zurück zum Clip",
     untitledClip: "Unbenannter Clip",
     recordingNotFound: "Aufnahme nicht gefunden",
     noAccess: "Möglicherweise haben Sie keinen Zugriff auf diesen Clip.",
@@ -317,6 +319,8 @@ const messages = {
     silenceWorking: "Stille wird entfernt…",
     silenceCompleted: "Entfernen der Stille abgeschlossen",
     silenceFailed: "Entfernen der Stille fehlgeschlagen",
+    silenceEditsUnreadable:
+      "Gespeicherte Bearbeitungen konnten nicht gelesen werden; Stille wurde nicht entfernt.",
     generatePrSummary: "Erstellen Sie eine PR-Zusammenfassung",
     generateSop: "Generieren Sie SOP",
     generateSopTooltip:
@@ -1374,6 +1378,11 @@ const messages = {
     burningRedactionsPercent:
       "Die Schwärzungen werden in das Video gerendert … {{percent}} %",
     editFailed: "Diese Änderung konnte nicht gespeichert werden",
+    refreshFailed:
+      "Die neuesten Änderungen konnten nicht geladen werden. Bitte versuche es erneut, bevor du weiterbearbeitest.",
+    autoSaveHint: "Änderungen werden automatisch in diesem Clip gespeichert",
+    savingChanges: "Änderungen werden gespeichert…",
+    changesSaved: "Änderungen in diesem Clip gespeichert",
     nothingToRedo: "Nichts zum Wiederherstellen",
   },
   transcriptEditor: {
@@ -1496,15 +1505,25 @@ const messages = {
     builderConnectPopupError:
       "Builder.io konnte nicht geöffnet werden. Wenn diese App in einem Chat eingebettet ist, öffne sie in einem Browser-Tab; versuche es andernfalls erneut.",
     builderConnectError:
-      "Builder.io konnte nicht eingerichtet werden. Bitte erneut versuchen oder den Support kontaktieren.",
+      "Die Einrichtung von Builder.io wurde nicht abgeschlossen. Versuche es erneut oder wähle S3-kompatiblen Speicher.",
+    builderConnectErrorAskAdmin:
+      "Die Einrichtung von Builder.io wurde nicht abgeschlossen. Versuche es erneut oder bitte einen Inhaber oder Admin, den Speicher einzurichten.",
+    builderStatusReadError:
+      "Der Verbindungsstatus ist nicht verfügbar. Versuche es erneut, um ihn zu prüfen.",
+    builderUploadGrantMissing:
+      "Builder.io ist für KI verbunden, aber diese Verbindung kann keine Clips hochladen. Verbinde Builder.io erneut mit Upload-Berechtigung oder bitte einen Inhaber oder Admin um Hilfe.",
+    builderGrantAskAdmin:
+      "Bitte einen Inhaber oder Admin, Builder.io mit Berechtigung zum Hochladen von Clips zu verbinden.",
+    statusUnavailable:
+      "Der Status des Videospeichers konnte nicht geprüft werden.",
     checkingBuilderConnection: "Builder-Verbindung wird geprüft…",
     builderTimeout:
-      "Nach 5 Minuten kam keine Antwort von Builder. Versuche es erneut.",
+      "Der Builder.io-Speicher konnte nicht als bereit bestätigt werden. Versuche es erneut.",
     builderConnected: "Builder.io verbunden",
     waitingForBuilder: "Warten auf Builder...",
     description:
       "Speichere aufgenommene Videos mit Builder.io oder S3-kompatiblem Speicher. Builder.io enthält kostenloses Hosting und KI-Guthaben.",
-    createBuilderAccount: "Builder.io-Konto erstellen",
+    createBuilderAccount: "Builder.io verwenden",
     signInWithBuilderAccount: "Mit Builder.io-Konto anmelden",
     free: "Kostenlos",
     whyPrompt: "Warum sehe ich das?",
@@ -1861,6 +1880,9 @@ const messages = {
     storageConnectedUploading:
       "Speicher verbunden. Deine Aufnahme wird hochgeladen…",
     downloadCopy: "Kopie herunterladen",
+    localRecordingPreview: "Vorschau der lokalen Aufnahme",
+    localPreviewUnavailable:
+      "Diese lokale Vorschau ist nicht verfügbar. Du kannst weiterhin eine Kopie herunterladen.",
     localRecordingOpenElsewhere:
       "Diese Aufnahme ist noch in einem anderen Clips-Tab geöffnet.",
     uploadWaitingForConnection:

@@ -11,6 +11,7 @@ import {
   AgentClient,
   createPage,
   delay,
+  deleteEditorText,
   EDITOR,
   EDITOR_BODY,
   expectEditorReady,
@@ -34,6 +35,11 @@ import {
 test.describe.configure({ retries: 0, timeout: 300_000 });
 
 const BUILD = process.env.CONTENT_CONVERGENCE_BUILD ?? "local";
+
+// Main loses or duplicates text in these, so CI runs them in a step that
+// reports every run without failing the PR. The PR that fixes one drops its
+// tag, which moves the scenario into the required gate.
+const KNOWN_LOSS = { tag: "@known-loss" };
 
 // SESSION_RESULT_LIFETIME_MS in core's client-status-requests.ts.
 const SESSION_LIFETIME_MS = 30_000;
@@ -74,18 +80,14 @@ async function runScenario(
   };
   await body(scenario);
   const working = [...tabs.tabs.values()];
-  const integrity = await observeIntegrity(
-    tabs,
-    reader,
-    id,
-    scenario.markers.all,
-  );
+  const integrity = await observeIntegrity(tabs, reader, id, scenario.markers);
   const record: ScenarioRecord = {
     scenario: name,
     tags: testInfo.tags,
     notes: scenario.notes,
     build: BUILD,
-    authoredEdits: scenario.markers.all.length,
+    authoredEdits:
+      scenario.markers.all.length + scenario.markers.removed.length,
     markers: scenario.markers.all.length,
     durationMs: Date.now() - started,
     integrity,
@@ -122,7 +124,10 @@ async function runScenario(
       working.some((tab) => tab.saveDurationsMs.length),
       "no save was timed under the latency",
     ).toBe(true);
-  expect(integrityFailures(record), "lost or duplicated text").toEqual([]);
+  expect(
+    integrityFailures(record),
+    "lost, duplicated or deleted-then-back text",
+  ).toEqual([]);
   const noise = noiseFailures(record.tabs);
   for (const expected of scenario.expectedNoise) {
     const at = noise.indexOf(expected);
@@ -257,6 +262,45 @@ test.describe("two tabs editing one page at beta cadence", () => {
       s.notes.heldSaves = gates.first.heldCount;
     });
   });
+
+  test(
+    "deleting another tab's word before that tab's save lands keeps it deleted",
+    KNOWN_LOSS,
+    async ({ context }, testInfo) => {
+      await runScenario(
+        "delete-before-peer-save",
+        testInfo,
+        context,
+        async (s) => {
+          const { first, second, gates } = await openPair(s);
+          // B's word reaches A only through the live copy: B's save is held, so
+          // no stored body holds the word when A deletes it.
+          await s.tabs.showOnly(second);
+          gates.second.holdArrivals();
+          const fromSecond = s.markers.next("B");
+          await typeAtParagraphEnd(second, "Alpha paragraph", ` ${fromSecond}`);
+          await gates.second.waitForHeld();
+
+          await s.tabs.showOnly(first);
+          await s.tabs.waitForText(first, fromSecond);
+          await deleteEditorText(first, ` ${fromSecond}`);
+          s.markers.remove(fromSecond);
+          await typeAtParagraphEnd(
+            first,
+            "Charlie paragraph",
+            ` ${s.markers.next("A")}`,
+          );
+          await s.tabs.waitForSaveAnswers(first, 1);
+
+          await s.tabs.showOnly(second);
+          gates.second.pass();
+          await gates.second.release();
+          await s.tabs.waitForSaveAnswers(second, 1);
+          s.notes.heldSaves = gates.second.heldCount;
+        },
+      );
+    },
+  );
 
   test("leaving with a save pending and returning before the session is known keeps the text", async ({
     context,
@@ -555,11 +599,25 @@ test.describe("two tabs editing one page at beta cadence", () => {
           },
           { documentId: s.id, writerId: retained.editorSessionId },
         );
-        expect(journal?.entry.snapshot).toMatchObject({
-          title: peerTitle,
-          baseTitle: peerTitle,
-          content: expect.stringContaining(aMarker),
-        });
+        if (!journal) throw new Error("The recovery draft journal is missing.");
+        await expect
+          .poll(
+            () =>
+              a.evaluate((key) => {
+                const raw = localStorage.getItem(key);
+                return raw ? JSON.parse(raw).snapshot : null;
+              }, journal.key),
+            {
+              message:
+                "the local journal should adopt the latest server draft after its save response",
+              timeout: 30_000,
+            },
+          )
+          .toMatchObject({
+            title: peerTitle,
+            baseTitle: peerTitle,
+            content: expect.stringContaining(aMarker),
+          });
 
         const trash = a.getByRole("link", { name: "Trash", exact: true });
         await trash.click();
@@ -570,7 +628,6 @@ test.describe("two tabs editing one page at beta cadence", () => {
           if (original) window.setTimeout = original;
           delete (window as any).__recoveryOriginalSetTimeout;
         });
-        await a.unroute(collabUpdateMatcher);
 
         expect(
           retained && { title: retained.title, content: retained.content },
@@ -610,6 +667,9 @@ test.describe("two tabs editing one page at beta cadence", () => {
           exact: true,
         });
         await expect(keepMine).toBeVisible({ timeout: 30_000 });
+        // Once A's text can reach B through the live document, B saves it, so
+        // the page only lags A's text until this point.
+        await a.unroute(collabUpdateMatcher);
         await keepMine.click();
         await expect
           .poll(async () => getDocument(s.reader, s.id), {
@@ -930,5 +990,102 @@ test.describe("two tabs editing one page at beta cadence", () => {
         ` ${s.markers.next("A")}`,
       );
     });
+  });
+
+  test("a second tab waits for the first blank-page create to finish", async ({
+    context,
+    page,
+  }) => {
+    const createGate = await RequestGate.action(page, "create-document");
+    createGate.hold();
+    let createRequests = 0;
+    context.on("request", (request) => {
+      if (
+        new URL(request.url()).pathname ===
+        "/_agent-native/actions/create-document"
+      ) {
+        createRequests += 1;
+      }
+    });
+
+    try {
+      await page.goto("/home", { waitUntil: "domcontentloaded" });
+      await page
+        .getByRole("button", { name: /New —/ })
+        .first()
+        .click();
+      await page.getByRole("menuitem", { name: "Page", exact: true }).click();
+      await expect(page).toHaveURL(/\/page\/[^/?#]+$/);
+      const documentId = new URL(page.url()).pathname.split("/").at(-1)!;
+      await expectEditorReady(page);
+      await page.locator(EDITOR).click();
+      await page.keyboard.type("Draft while the create request waits");
+
+      await expect
+        .poll(
+          () =>
+            page.evaluate((id) => {
+              for (let index = 0; index < localStorage.length; index += 1) {
+                const key = localStorage.key(index);
+                if (!key?.startsWith("content-page-draft-journal-v1:"))
+                  continue;
+                const raw = localStorage.getItem(key);
+                if (!raw) continue;
+                const entry = JSON.parse(raw);
+                if (entry?.scope?.documentId === id)
+                  return entry.snapshot.content;
+              }
+              return null;
+            }, documentId),
+          { message: "the editor should journal text before create completes" },
+        )
+        .toContain("Draft while the create request waits");
+      await expect.poll(() => createGate.queued).toBe(1);
+
+      const secondTab = await context.newPage();
+      await secondTab.goto("/home", { waitUntil: "domcontentloaded" });
+      await expect(
+        secondTab.getByRole("button", { name: /New —/ }).first(),
+      ).toBeVisible();
+      await expect
+        .poll(() =>
+          secondTab.evaluate(async () => {
+            const locks = await navigator.locks.query();
+            return locks.pending.some((lock) =>
+              lock.name?.includes("document-create"),
+            );
+          }),
+        )
+        .toBe(true);
+      expect(createRequests).toBe(1);
+
+      const createResponse = page.waitForResponse((response) => {
+        const request = response.request();
+        return (
+          request.method() === "POST" &&
+          new URL(response.url()).pathname ===
+            "/_agent-native/actions/create-document"
+        );
+      });
+      await createGate.release();
+      const response = await createResponse;
+      const responseText = await response.text();
+      expect(
+        response.ok(),
+        `create-document (${response.status()}): ${responseText}`,
+      ).toBe(true);
+      await expect
+        .poll(async () => (await getDocument(page, documentId)).content ?? "", {
+          message: "the first tab's draft should reach the saved page",
+          timeout: 30_000,
+        })
+        .toContain("Draft while the create request waits");
+      expect(createRequests).toBe(1);
+      await expect(page.locator(EDITOR)).toContainText(
+        "Draft while the create request waits",
+      );
+    } finally {
+      await createGate.release();
+    }
   });
 });

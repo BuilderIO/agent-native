@@ -1,8 +1,4 @@
-import {
-  fetchAgentEngineConfiguredState,
-  type AgentEngineConfiguredState,
-  useAgentEngineConfigured,
-} from "@agent-native/core/client/agent-chat";
+import { useAgentEngineConfigured } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   callAction,
@@ -17,7 +13,6 @@ import {
   isFirstRunOnboardingEnabled,
 } from "@agent-native/core/client/onboarding";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
-import { invalidateClientStatusRequest } from "@agent-native/core/client/status-requests";
 import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
@@ -29,11 +24,7 @@ import {
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
-import {
-  sameComposerDraft,
-  type ComposerDraftSnapshot,
-  type PromptComposerSubmitOptions,
-} from "@agent-native/toolkit/app/chat/composer/index";
+import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import {
   ClientOnly,
   LazyChunkErrorBoundary,
@@ -156,7 +147,9 @@ import {
 } from "@/lib/import-uploaded-deck";
 import {
   findPromptReferenceDeckId,
+  getAutomaticReferenceDeckIdToRemove,
   resolveRetryReferenceDeckSelection,
+  withoutAutomaticReferenceDeck,
 } from "@/lib/new-deck-reference-selection";
 import type { UploadedFile } from "@/lib/prompt-file-uploads";
 import {
@@ -168,6 +161,8 @@ import {
 import { hydrateReferenceDocuments } from "@/lib/reference-document-hydration";
 import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
+
+import { generationTimingFields } from "../../shared/generation-timing.js";
 
 const LazyDesignSystemSetup = lazy(() =>
   import("@/components/design-system/DesignSystemSetup").then(
@@ -239,7 +234,7 @@ type HomeSuggestionsResult =
   | { status: "ready"; suggestions: HomeSuggestion[] }
   | {
       status: "unavailable";
-      reason: "missing_credentials";
+      reason: "missing_credentials" | "timeout";
       suggestions: [];
     };
 
@@ -351,7 +346,7 @@ function readStoredReferenceSelection(): StoredReferenceSelectionResult {
     if (!parsed.success) return { state: "unreadable" };
     return {
       state: "available",
-      selection: parsed.data,
+      selection: withoutAutomaticReferenceDeck(parsed.data),
     };
   } catch {
     return { state: "unreadable" };
@@ -656,74 +651,13 @@ export default function Index({ active = true }: { active?: boolean }) {
   // to sign in; otherwise the server stays the authority on the request.
   const isSignedOut = sessionStatus === "unauthenticated";
   const agentEngine = useAgentEngineConfigured();
-  const [preflightAgentEngineState, setPreflightAgentEngineState] =
-    useState<AgentEngineConfiguredState | null>(null);
-  const [agentEnginePreflightPending, setAgentEnginePreflightPending] =
-    useState(false);
-  const preflightRequestIdRef = useRef(0);
-  const effectiveAgentEngineState =
-    preflightAgentEngineState ?? agentEngine.state;
-  const agentEngineConfigured =
-    effectiveAgentEngineState === "configured" && !agentEngine.missing;
-  const agentEngineMissing =
-    effectiveAgentEngineState === "missing" || agentEngine.missing;
-  const canChatRef = useRef(agentEngineConfigured);
-  canChatRef.current = agentEngineConfigured;
-  useEffect(() => {
-    if (agentEngine.state === "configured" || agentEngine.state === "missing") {
-      preflightRequestIdRef.current += 1;
-      setPreflightAgentEngineState(null);
-      setAgentEnginePreflightPending(false);
-    }
-  }, [agentEngine.state]);
-  // The draft a send held back for missing AI setup is sent once, as soon as
-  // setup is ready, however it was connected (card, sign-in popup, or
-  // activation) and only while it is still the draft that was submitted.
-  const heldDraftAfterSetupRef = useRef<ComposerDraftSnapshot | null>(null);
-  const ensureAgentEngineConfigured = useCallback(
-    async (draft?: ComposerDraftSnapshot) => {
-      const requestId = ++preflightRequestIdRef.current;
-      setAgentEnginePreflightPending(true);
-      let nextState: AgentEngineConfiguredState;
-      try {
-        invalidateClientStatusRequest("/_agent-native/agent-engine/status");
-        window.dispatchEvent(new Event("agent-engine:configured-changed"));
-        nextState = await fetchAgentEngineConfiguredState();
-      } catch {
-        nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
-      } finally {
-        if (requestId === preflightRequestIdRef.current) {
-          setAgentEnginePreflightPending(false);
-        }
-      }
-      if (requestId !== preflightRequestIdRef.current) {
-        return canChatRef.current;
-      }
-      setPreflightAgentEngineState(nextState);
-      canChatRef.current = nextState === "configured";
-      if (nextState === "missing" && draft)
-        heldDraftAfterSetupRef.current = draft;
-      return canChatRef.current;
-    },
-    [agentEngine.state, agentEngineConfigured],
-  );
-  useEffect(() => {
-    const held = heldDraftAfterSetupRef.current;
-    if (!agentEngineConfigured || !held) return;
-    heldDraftAfterSetupRef.current = null;
-    const composer = homeComposerRef.current;
-    const live = composer?.getDraftSnapshot();
-    // A draft edited while connecting was never submitted; leave it to send.
-    if (live && sameComposerDraft(held, live)) void composer?.submitDraft();
-  }, [agentEngineConfigured]);
+  const agentEngineConfigured = agentEngine.canChat;
+  const agentEngineMissing = agentEngine.missing;
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
   const bounceSetupCard = () => {
     if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
   const retryAgentEngineStatus = useCallback(() => {
-    preflightRequestIdRef.current += 1;
-    setPreflightAgentEngineState(null);
-    setAgentEnginePreflightPending(false);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
   const quickActionsEnabled = agentEngineConfigured;
@@ -856,7 +790,6 @@ export default function Index({ active = true }: { active?: boolean }) {
     if (deckSearch.trim()) selectHomeLibraryTab("recent");
   }, [deckSearch, selectHomeLibraryTab]);
   const [storedDeckFilter, setStoredDeckFilter] = useState<DeckFilter>("mine");
-  const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const { generating, submitAndConfirm: agentSubmit } = useAgentGenerating();
@@ -874,27 +807,20 @@ export default function Index({ active = true }: { active?: boolean }) {
         reference.kind === "design-system" &&
         designSystems.some((designSystem) => designSystem.id === reference.id),
     )?.id ?? null;
-  const lastUsedReferenceDeckId =
-    recentReferences.find(
-      (reference) =>
-        reference.kind === "deck" &&
-        decks.some((deck) => deck.id === reference.id),
-    )?.id ?? null;
   const initialDesignSystemId = systemsEnabled
     ? (lastUsedDesignSystemId ??
       effectiveDefaultDesignSystemId ??
       workspaceDesignSystemId)
     : null;
-  const initialReferenceDeckId = lastUsedReferenceDeckId;
+  const retryReferenceSelection =
+    generationRetryState?.retryReferenceSelection ??
+    newDeckRetryReferenceSelection;
   const composerContext = useSlidesComposerContext({
     active,
-    initialSelection:
-      generationRetryState?.retryReferenceSelection?.composerContext ??
-      newDeckRetryReferenceSelection?.composerContext,
+    initialSelection: retryReferenceSelection
+      ? withoutAutomaticReferenceDeck(retryReferenceSelection).composerContext
+      : undefined,
     defaultDesignSystemId: null,
-    defaultReferenceDeck: decks.find(
-      (deck) => deck.id === initialReferenceDeckId,
-    ),
     systems: designSystems,
     systemsError: designSystemsError,
     systemsLoading: designSystemsLoading,
@@ -1051,6 +977,7 @@ export default function Index({ active = true }: { active?: boolean }) {
   const setNewDeckPromptOpen = useCallback(
     (open: boolean, options: { clearInitialPrompt?: boolean } = {}) => {
       setShowNewDeckPrompt(open);
+      if (open) setSelectedReferenceDeckId(null);
       if (!open) {
         if (options.clearInitialPrompt !== false) {
           setNewDeckInitialPrompt(null);
@@ -1121,11 +1048,6 @@ export default function Index({ active = true }: { active?: boolean }) {
   }, [active, setSignInDialogOpen]);
 
   useEffect(() => {
-    if (!showNewDeckPrompt || !referenceDeckAutoRef.current) return;
-    setSelectedReferenceDeckId(initialReferenceDeckId ?? null);
-  }, [initialReferenceDeckId, showNewDeckPrompt]);
-
-  useEffect(() => {
     if (!session) return;
     let saved: string | null = null;
     let savedContext: string | undefined;
@@ -1157,11 +1079,10 @@ export default function Index({ active = true }: { active?: boolean }) {
     savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved);
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt({ text: saved, key: Date.now() });
-    referenceDeckAutoRef.current = true;
     setSelectedDesignSystemId(savedReferenceSelection?.designSystemId ?? null);
-    setSelectedReferenceDeckId(initialReferenceDeckId ?? null);
+    setSelectedReferenceDeckId(null);
     setShowNewDeckPrompt(true);
-  }, [initialReferenceDeckId, session]);
+  }, [session]);
 
   useEffect(() => {
     const state = location.state as DeckGenerationRetryState | null;
@@ -1169,7 +1090,11 @@ export default function Index({ active = true }: { active?: boolean }) {
     savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, state.retryPrompt);
     setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
     setNewDeckRetryFiles(state.retryFiles ?? []);
-    setNewDeckRetryReferenceSelection(state.retryReferenceSelection);
+    setNewDeckRetryReferenceSelection(
+      state.retryReferenceSelection
+        ? withoutAutomaticReferenceDeck(state.retryReferenceSelection)
+        : undefined,
+    );
     setNewDeckRetryContext(state.retryContext);
     setNewDeckRetryPrompt(state.retryPrompt);
     setNewDeckRetryRequiresExactPrompt(true);
@@ -1274,6 +1199,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     }
     const deckId = deck.id;
     const generationAttemptId = nanoid();
+    const generationStartedAt = Date.now();
     let generationFailureTracked = false;
     const generationSubmitMessageId = nanoid();
     trackEvent("generation_started", {
@@ -1282,6 +1208,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       generation_attempt_id: generationAttemptId,
       output_id: deckId,
       output_type: "deck",
+      started_at_ms: generationStartedAt,
       source: "new_deck_prompt",
     });
     setNewDeckPromptOpen(false);
@@ -1300,12 +1227,14 @@ export default function Index({ active = true }: { active?: boolean }) {
     ) => {
       if (!generationFailureTracked) {
         generationFailureTracked = true;
+        const generationEndedAt = Date.now();
         trackEvent("generation_failed", {
           app_name: "slides",
           template_name: "slides",
           generation_attempt_id: generationAttemptId,
           output_id: deckId,
           output_type: "deck",
+          ...generationTimingFields(generationStartedAt, generationEndedAt),
           failure_code: failureCode,
           failure_stage: "setup",
           source: "new_deck_prompt",
@@ -1572,6 +1501,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       targetSlideCount:
         importedSourceDeck?.slideCount ?? requestedSlideCount(trimmedPrompt),
       generationAttemptId,
+      generationStartedAt,
     };
 
     try {
@@ -1630,12 +1560,14 @@ export default function Index({ active = true }: { active?: boolean }) {
         );
         return;
       }
+      const generationAcceptedAt = Date.now();
       trackEvent("generation_request_accepted", {
         app_name: "slides",
         template_name: "slides",
         generation_attempt_id: generationAttemptId,
         output_id: deckId,
         output_type: "deck",
+        ...generationTimingFields(generationStartedAt, generationAcceptedAt),
         source: "new_deck_prompt",
       });
     } catch (error) {
@@ -1720,7 +1652,6 @@ export default function Index({ active = true }: { active?: boolean }) {
       attachments: PromptAttachmentActions,
       options?: SlidesPromptSubmitOptions,
     ) => {
-      if (!canChatRef.current) return "retain" as const;
       pendingDeckAttachmentActionsRef.current = attachments;
       const reusingRetryInputs =
         !newDeckRetryRequiresExactPrompt || prompt === newDeckRetryPrompt;
@@ -1758,16 +1689,21 @@ export default function Index({ active = true }: { active?: boolean }) {
       const automaticReferenceDeckId =
         retryReferenceSelection?.automaticReferenceDeckId ??
         composerContext.automaticReferenceDeckId;
+      const automaticReferenceDeckIdToRemove =
+        getAutomaticReferenceDeckIdToRemove(
+          retryReferenceSelection,
+          automaticReferenceDeckId,
+        );
       const automaticReferenceDeckRemovedFromComposer =
-        Boolean(automaticReferenceDeckId) &&
+        Boolean(automaticReferenceDeckIdToRemove) &&
         options?.slidesContext !== undefined &&
         !options.slidesContext.references.some(
           (reference) =>
             reference.source === "slides" &&
-            reference.id === automaticReferenceDeckId,
+            reference.id === automaticReferenceDeckIdToRemove,
         );
       const replaceAutomaticDeckContext =
-        Boolean(automaticReferenceDeckId) &&
+        Boolean(automaticReferenceDeckIdToRemove) &&
         (!reusingRetryInputs ||
           Boolean(promptReferenceDeckId) ||
           automaticReferenceDeckRemovedFromComposer);
@@ -1778,22 +1714,23 @@ export default function Index({ active = true }: { active?: boolean }) {
               references: retryComposerContext.references.filter(
                 (reference) =>
                   reference.source !== "slides" ||
-                  reference.id !== automaticReferenceDeckId,
+                  reference.id !== automaticReferenceDeckIdToRemove,
               ),
             }
           : retryComposerContext;
       const generationContextItems =
         generationComposerContext !== retryComposerContext &&
-        automaticReferenceDeckId
+        automaticReferenceDeckIdToRemove
           ? retryContextItems?.filter(
-              (item) => item.key !== `slides:${automaticReferenceDeckId}:`,
+              (item) =>
+                item.key !== `slides:${automaticReferenceDeckIdToRemove}:`,
             )
           : retryContextItems;
       const hasExplicitComposerDeckReference =
         generationComposerContext?.references.some(
           (reference) =>
             reference.source === "slides" &&
-            reference.id !== automaticReferenceDeckId,
+            reference.id !== automaticReferenceDeckIdToRemove,
         ) ?? false;
       const { referenceDeckId, referenceDeckIdSource } =
         resolveRetryReferenceDeckSelection({
@@ -1810,7 +1747,9 @@ export default function Index({ active = true }: { active?: boolean }) {
         });
       const referenceSelection: NewDeckReferenceSelection = {
         ...(retryReferenceSelection ?? {}),
-        ...(automaticReferenceDeckId ? { automaticReferenceDeckId } : {}),
+        ...(automaticReferenceDeckId
+          ? { automaticReferenceDeckId: automaticReferenceDeckIdToRemove }
+          : {}),
         ...(referenceDeckId !== undefined ? { referenceDeckId } : {}),
         ...(referenceDeckIdSource ? { referenceDeckIdSource } : {}),
         ...(!reusingRetryInputs || carriedDeckMissing
@@ -2595,23 +2534,6 @@ export default function Index({ active = true }: { active?: boolean }) {
           {isHome ? (
             <HomeChrome title={homeTitle} actions={homeHeaderActions} />
           ) : null}
-          {effectiveAgentEngineState === "unavailable" ? (
-            <div className="mb-2">
-              <div
-                className="flex items-center justify-center gap-3 text-sm text-muted-foreground"
-                role="status"
-              >
-                <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
-                <button
-                  type="button"
-                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={retryAgentEngineStatus}
-                >
-                  {t("home.retry")}
-                </button>
-              </div>
-            </div>
-          ) : null}
           <LazyChunkErrorBoundary
             fallback={
               <div
@@ -2636,12 +2558,10 @@ export default function Index({ active = true }: { active?: boolean }) {
               context={composerContext}
               controllerRef={homeComposerRef}
               disabled={!isHome}
-              preflightPending={agentEnginePreflightPending}
-              // The composer re-reads this right after onBeforeSubmit resolves,
-              // before React re-renders, so a preflight flag here drops the send.
-              submissionDisabled={agentEngineMissing ? true : undefined}
               showModelSelector={agentEngineConfigured}
               modelStatusChecksEnabled={agentEngineConfigured}
+              requireAgentEngine
+              showMissingApiKeySetup={false}
               open={showNewDeckPrompt}
               active={isHome}
               onOpenChange={setNewDeckPromptOpen}
@@ -2650,7 +2570,6 @@ export default function Index({ active = true }: { active?: boolean }) {
               onSkip={handlePromptSkip}
               skipLabel={t("home.skipPrompt")}
               onSubmit={handlePromptSubmit}
-              onBeforeSubmit={ensureAgentEngineConfigured}
               onBeforeUpload={(
                 prompt,
                 files,
@@ -2663,11 +2582,16 @@ export default function Index({ active = true }: { active?: boolean }) {
                   options?.slidesContext ?? composerContext.selection;
                 const automaticReferenceDeckId =
                   composerContext.automaticReferenceDeckId;
+                const automaticReferenceDeckIdToRemove =
+                  getAutomaticReferenceDeckIdToRemove(
+                    retryReferenceSelection,
+                    automaticReferenceDeckId,
+                  );
                 const hasExplicitComposerDeckReference =
                   slidesContext.references.some(
                     (reference) =>
                       reference.source === "slides" &&
-                      reference.id !== automaticReferenceDeckId,
+                      reference.id !== automaticReferenceDeckIdToRemove,
                   );
                 preservePromptForSignIn(prompt, {
                   context,
@@ -2682,8 +2606,12 @@ export default function Index({ active = true }: { active?: boolean }) {
                     : undefined,
                   referenceSelection: {
                     designSystemId: slidesContext.designSystemId,
-                    ...(automaticReferenceDeckId
-                      ? { automaticReferenceDeckId }
+                    ...(automaticReferenceDeckId ||
+                    retryReferenceSelection?.automaticReferenceDeckId
+                      ? {
+                          automaticReferenceDeckId:
+                            automaticReferenceDeckIdToRemove,
+                        }
                       : {}),
                     ...(hasExplicitComposerDeckReference
                       ? { referenceDeckIdSource: "selection" as const }
@@ -2906,9 +2834,6 @@ export default function Index({ active = true }: { active?: boolean }) {
         }
         defaultDesignSystemId={
           pendingDeck?.composerContext?.designSystemId ?? null
-        }
-        defaultReferenceDeckId={
-          pendingDeck?.referenceDeckId ?? initialReferenceDeckId
         }
         onDesignSystemsChanged={() => void refetchDesignSystems()}
         onSelect={handleReferenceSelect}

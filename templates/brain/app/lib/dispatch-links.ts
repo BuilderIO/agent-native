@@ -40,5 +40,5 @@ export function dispatchIntegrationsHref(
   const base = dispatchHref
     .replace(/\/(?:overview|apps)\/?$/, "")
     .replace(/\/$/, "");
-  return `${base}/integrations?${params.toString()}`;
+  return `${base}/settings/integrations?${params.toString()}`;
 }

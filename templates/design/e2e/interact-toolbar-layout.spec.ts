@@ -22,6 +22,9 @@ interface PointHit {
 
 interface InteractEntrySnapshot {
   bar: Rect | null;
+  topBar: Rect | null;
+  topBarInteractPressed: string | null | undefined;
+  leftShell: Rect | null;
   height: Rect | null;
   heightCenter: PointHit;
   heightTop: PointHit;
@@ -136,6 +139,13 @@ async function enterInteractAndSampleImmediately(
 
     return {
       bar: bounds(bar),
+      topBar: bounds(document.querySelector("[data-design-top-bar]")),
+      leftShell: bounds(
+        document.querySelector('[data-design-chrome-region="left-shell"]'),
+      ),
+      topBarInteractPressed: document
+        .querySelector('[data-design-top-bar] [data-design-mode="interact"]')
+        ?.getAttribute("aria-pressed"),
       height: heightRect,
       heightCenter: hitAt(
         heightInput,
@@ -167,7 +177,15 @@ test("Interact actions clear the right rail at Tiana's 1751×897 viewport", asyn
   expect(snapshot.screenShellCount).toBe(1);
   expect(snapshot.bottomToolbarCount).toBe(0);
   expect(snapshot.rightPanelCount).toBe(0);
+  expect(snapshot.topBar).toMatchObject({ y: 0, height: 48 });
+  expect(snapshot.leftShell).not.toBeNull();
+  expect(snapshot.topBar!.x).toBe(
+    snapshot.leftShell!.x + snapshot.leftShell!.width,
+  );
+  expect(snapshot.topBar!.x + snapshot.topBar!.width).toBe(1751);
+  expect(snapshot.topBarInteractPressed).toBe("true");
   expect(snapshot.bar).not.toBeNull();
+  expect(snapshot.bar!.y).toBeGreaterThanOrEqual(48);
   expect(snapshot.bar!.x + snapshot.bar!.width).toBeLessThanOrEqual(1751);
   for (const label of actionLabels) {
     expect

@@ -11,6 +11,8 @@ vi.mock("@agent-native/core/server/ssr-handler", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  getForwardedRequestOrigin: (event: { url: string }) =>
+    new URL(event.url).origin,
   verifyScopedAgentAccessToken: (...args: unknown[]) =>
     mockVerifyScopedAgentAccessToken(...args),
 }));

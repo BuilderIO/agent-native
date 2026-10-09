@@ -128,7 +128,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth ist für diese Bereitstellung nicht konfiguriert.",
     googlePickerNeedsKeys:
-      "Google Picker benötigt GOOGLE_PICKER_API_KEY und GOOGLE_PICKER_APP_ID.",
+      "Die Dateiauswahl in Google Drive ist nicht eingerichtet. Du kannst weiterhin ein Dokument über seinen Link importieren.",
     imageUploadFailed: "Bildupload fehlgeschlagen",
     imageUploadNeedsBuilder:
       "Verbinde einen Objektspeicher, um Bilder hochzuladen: Verbinde Builder.io (kostenlos) oder füge eigene S3-kompatible Speicherschlüssel unter Einstellungen → Datei-Uploads hinzu.",
@@ -259,6 +259,16 @@ const messages = {
     generateImage: "Bild generieren",
     assetLibrary: "Asset-Bibliothek",
     imageOptions: "Bildoptionen",
+    videoPlayback: "Videowiedergabe",
+    autoplayVideo: "Automatische Wiedergabe",
+    loopVideo: "Video wiederholen",
+    videoUploading: "Video wird hochgeladen…",
+    videoAdded: "Video hinzugefügt",
+    videoUploadFailed: "Video-Upload fehlgeschlagen",
+    videoUploadError: "Dieses Video konnte nicht hochgeladen werden.",
+    videoFormatUnsupported: "Es werden nur MP4- und WebM-Videos unterstützt.",
+    videoTooLarge: "Videos dürfen höchstens 50 MB groß sein.",
+    videoUploadNeedsBuilder: "Videospeicher ist nicht eingerichtet.",
     cropImage: "Bild zuschneiden",
     cropHandle: "Bild {{position}} zuschneiden",
     diagrams: "Diagramme",
@@ -306,12 +316,15 @@ const messages = {
       "Öffnet direkt im Vollbild-Präsentationsmodus.",
     present: "Präsentieren",
     more: "Mehr",
-    importing: "Importiert...",
+    importing: "Wird importiert...",
     importFile: "Datei importieren",
     downloadBackup: "Backup herunterladen",
     conflictStatus: "Textkonflikt",
     conflictStatusDescription:
       "Prüfe den Textkonflikt, bevor du weitere Änderungen speicherst.",
+    accessLost: "Zugriff verloren",
+    accessLostDescription:
+      "Dein Zugriff auf diese Präsentation hat sich geändert. Deine Änderungen bleiben auf dem Bildschirm; versuche es erneut, sobald der Zugriff wiederhergestellt ist, oder lade ein Backup herunter.",
     reviewConflict: "Konflikt prüfen",
     conflictTitle: "Textkonflikt auf Folie {{number}}",
     conflictDescription:
@@ -784,6 +797,10 @@ const messages = {
     exportFailed: "Error al exportar",
     agentRunFailed:
       "Der Agent-Lauf ist fehlgeschlagen, bevor Folien erstellt wurden. Prüfe die Details im Chat und versuche es erneut.",
+    generationFailed:
+      "Es wurden keine Folien erstellt. Prüfe die Details im Chat und versuche es erneut.",
+    generationOutcomeUnresolved:
+      "Wir konnten nicht bestätigen, ob Folien erstellt wurden. Prüfe das Deck oder den Chat und versuche es erneut.",
     deckHasNoSlides: "Dieses Deck enthält keine Folien.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

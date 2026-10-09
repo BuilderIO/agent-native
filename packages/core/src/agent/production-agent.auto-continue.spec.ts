@@ -8,11 +8,15 @@ import type {
   EngineEvent,
   EngineMessage,
 } from "./engine/types.js";
+import type { ProductionAgentOptions } from "./production-agent.js";
 
 const claimRunSlot = vi.hoisted(() => vi.fn());
 const turnLedger = vi.hoisted(() => vi.fn(async (): Promise<unknown[]> => []));
 const endRun = vi.hoisted(() => vi.fn());
 const setTerminalReason = vi.hoisted(() => vi.fn());
+const previousTurnRun = vi.hoisted(() =>
+  vi.fn(async (): Promise<unknown> => null),
+);
 
 const DELEGATION = {
   agent: "analytics",
@@ -32,6 +36,7 @@ vi.mock("./run-store.js", async (importOriginal) => {
   return {
     ...actual,
     getCurrentTurnEventsForThread: turnLedger,
+    getPreviousTurnNewestRun: previousTurnRun,
     updateRunStatusIfRunning: endRun,
     setRunTerminalReason: setTerminalReason,
   };
@@ -72,8 +77,19 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => ({
   })),
 }));
 
-const { AGENT_INTERNAL_CONTINUE_PROMPT, createProductionAgentHandler } =
-  await import("./production-agent.js");
+const {
+  AGENT_INTERNAL_CONTINUE_PROMPT,
+  createProductionAgentHandler: createProductionAgentHandlerWithSetupGate,
+} = await import("./production-agent.js");
+function createProductionAgentHandler(
+  options: Omit<ProductionAgentOptions, "assertAiSetupReady"> &
+    Partial<Pick<ProductionAgentOptions, "assertAiSetupReady">>,
+) {
+  return createProductionAgentHandlerWithSetupGate({
+    ...options,
+    assertAiSetupReady: options.assertAiSetupReady ?? (async () => {}),
+  });
+}
 const { createCallAgentScriptEntry } =
   await import("../server/agent-chat/script-entries.js");
 const { getThread } = await import("../chat-threads/store.js");
@@ -132,7 +148,9 @@ function repeatingDelegationEngine(seen: EngineMessage[][]): AgentEngine {
   };
 }
 
-function autoContinueRequest() {
+function autoContinueRequest(
+  continued: Record<string, string> = { autoContinueOfRunId: "run-stopped" },
+) {
   return mockEvent(
     new Request("http://app.example.com/_agent-native/agent-chat", {
       method: "POST",
@@ -142,7 +160,7 @@ function autoContinueRequest() {
         threadId: "thread-auto",
         turnId: "turn-auto",
         internalContinuation: true,
-        autoContinueOfRunId: "run-stopped",
+        ...continued,
       }),
     }),
   );
@@ -160,7 +178,7 @@ describe("an automatic continuation request", () => {
     claimRunSlot.mockResolvedValueOnce({
       claimed: false,
       activeRunId: null,
-      autoContinueRefused: "auto_continue_cap_reached",
+      continueRefused: "auto_continue_cap_reached",
     });
     const seen: EngineMessage[][] = [];
     const handler = createProductionAgentHandler({
@@ -181,7 +199,7 @@ describe("an automatic continuation request", () => {
       undefined,
       expect.objectContaining({
         turnId: "turn-auto",
-        autoContinueOf: "run-stopped",
+        continueOf: { runId: "run-stopped", trigger: "auto" },
       }),
     );
     expect(event.res.status).toBe(409);
@@ -235,6 +253,181 @@ describe("an automatic continuation request", () => {
     expect(sendAgain).not.toHaveBeenCalled();
     expect(stream).toContain('"replayed":true');
     expect(stream).toContain("There were 412 signups.");
+  });
+
+  it("requires setup before a person continues a stopped run in the same turn", async () => {
+    claimRunSlot.mockReset();
+    claimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const seen: EngineMessage[][] = [];
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: repeatingDelegationEngine(seen),
+      actions: {},
+      assertAiSetupReady,
+    });
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(autoContinueRequest({ continueOfRunId: "run-stopped" })),
+      ),
+    ).rejects.toBe(setupRequired);
+    turnLedger.mockReset();
+
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
+    expect(claimRunSlot).not.toHaveBeenCalled();
+    expect(turnLedger).not.toHaveBeenCalled();
+    expect(seen).toHaveLength(0);
+  });
+
+  it("continues a configured manual run in the same turn without sending it again", async () => {
+    claimRunSlot.mockReset();
+    claimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });
+    turnLedger.mockResolvedValue(FINISHED_DELEGATION);
+    const assertAiSetupReady = vi.fn(async () => {});
+    const callAgent = (await createCallAgentScriptEntry())["call-agent"]!;
+    const sendAgain = vi.fn(async () => "a second remote task");
+    const seen: EngineMessage[][] = [];
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: repeatingDelegationEngine(seen),
+      actions: { "call-agent": { ...callAgent, run: sendAgain } },
+      assertAiSetupReady,
+    });
+
+    const response = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(autoContinueRequest({ continueOfRunId: "run-stopped" })),
+    );
+    const stream = await new Response(response as ReadableStream).text();
+    turnLedger.mockReset();
+
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
+    expect(claimRunSlot).toHaveBeenCalledWith(
+      "thread-auto",
+      expect.any(String),
+      undefined,
+      expect.objectContaining({
+        turnId: "turn-auto",
+        continueOf: { runId: "run-stopped", trigger: "manual" },
+      }),
+    );
+    expect(textOf(seen[0]!.at(-1))).toContain("do NOT re-run these");
+    expect(sendAgain).not.toHaveBeenCalled();
+    expect(stream).toContain("There were 412 signups.");
+  });
+
+  it("refuses to continue when a newer prompt is waiting in the thread", async () => {
+    claimRunSlot.mockReset();
+    claimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });
+    turnLedger.mockResolvedValue(FINISHED_DELEGATION);
+    const stopped = JSON.parse(
+      (await vi.mocked(getThread)("thread-auto"))!.threadData!,
+    );
+    vi.mocked(getThread).mockResolvedValueOnce({
+      id: "thread-auto",
+      threadData: JSON.stringify({
+        messages: [
+          ...stopped.messages,
+          {
+            message: {
+              id: "user-2",
+              role: "user",
+              content: [{ type: "text", text: "Refund Ana instead." }],
+              // Saved, but its run was refused before it started.
+              metadata: {
+                custom: {
+                  submittedRunId: "run-refused",
+                  submittedTurnId: "turn-later",
+                },
+              },
+            },
+          },
+        ],
+      }),
+    } as Awaited<ReturnType<typeof getThread>>);
+    const seen: EngineMessage[][] = [];
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: repeatingDelegationEngine(seen),
+      actions: {},
+    });
+    const event = autoContinueRequest({ continueOfRunId: "run-stopped" });
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+    turnLedger.mockReset();
+
+    expect(event.res.status).toBe(409);
+    expect(result).toEqual({
+      error: "This turn can no longer be continued.",
+      code: "continue_unavailable",
+      retryable: false,
+    });
+    expect(seen).toEqual([]);
+  });
+
+  it("tells a new turn what the stopped turn before it already did", async () => {
+    claimRunSlot.mockReset();
+    claimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });
+    previousTurnRun.mockResolvedValueOnce({
+      turnId: "turn-auto",
+      status: "errored",
+      terminalReason: "stale_run",
+    });
+    turnLedger.mockResolvedValue(FINISHED_DELEGATION);
+    const seen: EngineMessage[][] = [];
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: {
+        ...repeatingDelegationEngine([]),
+        async *stream(options): AsyncIterable<EngineEvent> {
+          seen.push(structuredClone(options.messages));
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Already sent." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      },
+      actions: {},
+    });
+
+    const response = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () =>
+        handler(
+          mockEvent(
+            new Request("http://app.example.com/_agent-native/agent-chat", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                message: "continue",
+                threadId: "thread-auto",
+                turnId: "turn-next",
+              }),
+            }),
+          ),
+        ),
+    );
+    await new Response(response as ReadableStream).text();
+
+    expect(previousTurnRun).toHaveBeenCalledWith("thread-auto", "turn-next");
+    expect(turnLedger).toHaveBeenCalledWith("thread-auto", "turn-auto");
+    turnLedger.mockReset();
+    const [note, typed] = seen[0]!
+      .at(-1)!
+      .content.map((part) => (part.type === "text" ? part.text : ""));
+    expect(note).toMatch(/^<previous-turn-stopped>/);
+    expect(note).toContain("call-agent");
+    expect(note).toContain("412 signups");
+    expect(typed).toMatch(/^continue/);
   });
 
   it.each([

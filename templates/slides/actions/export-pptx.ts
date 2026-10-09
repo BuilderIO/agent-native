@@ -20,6 +20,7 @@ import {
   getAspectRatioDims,
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
+import { fillSlideNumberTokensInHtml } from "../shared/slide-number.js";
 
 type TableCell = PptxGenJS.TableCell;
 type TableRow = PptxGenJS.TableRow;
@@ -1673,12 +1674,19 @@ export default defineAction({
     )
       ? rawAspectRatio
       : undefined;
-    const slideContents: string[] = slides.map((slide: unknown) =>
-      slide &&
-      typeof slide === "object" &&
-      typeof (slide as { content?: unknown }).content === "string"
-        ? (slide as { content: string }).content
-        : "",
+    const slideContents: string[] = slides.map(
+      (slide: unknown, index: number) =>
+        slide &&
+        typeof slide === "object" &&
+        typeof (slide as { content?: unknown }).content === "string"
+          ? fillSlideNumberTokensInHtml(
+              (slide as { content: string }).content,
+              {
+                number: index + 1,
+                count: slides.length,
+              },
+            )
+          : "",
     );
     const sourcePage = slideContents
       .map(sourcePageInches)

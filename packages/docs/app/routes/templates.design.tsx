@@ -42,7 +42,7 @@ export const meta = () =>
       {
         name: "keywords",
         content:
-          "AI design tool, AI prototyping tool, open source Figma alternative, AI UI generator, HTML prototype tool, agent-native design, prompt to prototype, AI interface design",
+          "AI design tool, AI prototyping tool, open-source design editor, AI UI generator, HTML prototype tool, agent-native design, prompt to prototype, AI interface design",
       },
     ],
     "Design",

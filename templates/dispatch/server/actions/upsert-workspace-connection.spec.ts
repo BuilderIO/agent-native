@@ -94,7 +94,7 @@ describe("upsert-workspace-connection action cards", () => {
         kind: "workspace-connection",
         title: "Example workspace",
         detail: "Example account",
-        url: "/integrations",
+        url: "/settings/integrations",
       },
     });
     expect(action.chatUI?.renderer).toBe(ACTION_CHAT_UI_RECORD_CHANGE_RENDERER);

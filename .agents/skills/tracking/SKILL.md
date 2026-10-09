@@ -230,7 +230,10 @@ providers build it.
   that decides (`agentkit-protocol.ts`, `navigateForSession`; a refused
   start from the transport's start-run catch), not the callers.
   `agent_chat_stuck_detected` fires once per run and only while the stuck
-  banner shows, so Analytics' stuck chats are ones the person saw.
+  banner shows, so Analytics' stuck chats are ones the person saw. It carries
+  `reason`, `dispatchMode`, `hasInFlightWork` and `heartbeatSinceSec`, so a run
+  the server still holds (a live background worker) reads differently from a
+  dead one.
 
 Symbolication is per-backend and not automatic: the framework uploads no source
 maps to PostHog, so minified browser stacks stay minified there. Known gap, not
@@ -393,7 +396,8 @@ Other framework-level baseline events:
 - `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
 - `builder connect clicked` and `builder connect popup blocked` from browser Use Builder.io CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable
-- `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent-Native query fields such as `run_id`, `thread_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Prompt, tool argument, result, and output content is excluded unless `captureToolResults` is opted in (see the `observability` skill), in which case each failed tool call also carries a `error_message` string truncated to 500 characters and already scrubbed of bearer tokens, API keys, and key/value secret patterns.
+- `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent-Native query fields such as `run_id`, `thread_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Run failure messages are omitted from every tracking provider even with content capture enabled. `$ai_error` carries a fixed message derived from `terminal_code`, a named `cause`, terminal state, and retryability. The `error_message` field and tool error output text are absent. Local trace SQL retains debugging detail under the observability capture settings.
+- `agent_run_terminal` carries `error_code` and `error_cause`, never `error_detail`. Run and completion captures, and Builder gateway failures, use `captureError(..., { errorMessagePolicy: "omit" })`: providers receive the original exception type, stack frames without the original message header or nested causes, and a fixed `Internal Server Error` message. Noise filtering still sees the original failure; flood summaries use the fixed label. Monitoring groups by app, type, frame, error code, and failure class instead of user-specific message wording.
 
 For new lifecycle events, call `track()` server-side when the server is the source of truth, and `trackEvent()` client-side only for browser interactions.
 

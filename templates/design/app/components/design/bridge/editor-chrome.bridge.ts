@@ -3739,11 +3739,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return node;
   }
 
-  // Figma parity (spec Part 3 + ground truth Round 2): a plain click selects
-  // the outermost child of the CURRENT container scope — the screen root by
+  // A plain click selects the outermost child of the CURRENT container scope — the screen root by
   // default, or the container last drilled into via double-click — instead of
   // the raw deepest hit under the pointer. A click that lands outside the
-  // drilled container exits drill mode (Figma: clicking elsewhere returns to
+  // drilled container exits drill mode (clicking elsewhere returns to
   // top-level selection). Cmd/Ctrl+click deep-selects and must call
   // selectionTargetForHit directly instead of this.
   function containerFirstSelectionTarget(
@@ -3779,14 +3778,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   /*
-   * HUMAN-DIRECTED UX EXCEPTION - DO NOT REVERT TO FIGMA:
+   * Screen contents use direct selection on a plain click:
    * Screen contents intentionally select the deepest block under a plain
-   * single click. This is a rare, 100% intentional deviation from Figma UX,
-   * requested by user feedback because people expect to click directly into
-   * blocks while working inside a screen. The infinite-canvas board keeps the
-   * Figma container-first behavior above. Do not remove or “fix” this branch
-   * unless a human explicitly asks for this behavior to change.
-   * Feedback: https://builder-internal.slack.com/archives/C0ATH3CCZT4/p1790099891790049?thread_ts=1790099192.113439&cid=C0ATH3CCZT4
+   * single click, while the infinite-canvas board uses container-first
+   * selection. These are distinct interaction modes.
    */
   function plainClickSelectionTarget(hit: Element | null): Element | null {
     if (!designCanvasBoardSurface) {
@@ -4202,7 +4197,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return el.parentElement;
   }
 
-  function positionReferenceRectForElement(el: Element) {
+  function positionReferenceRectForElement(
+    el: Element,
+    fixedWithoutContainingBlock: boolean,
+  ) {
+    if (fixedWithoutContainingBlock) {
+      var fixedRoot = el.ownerDocument.documentElement;
+      return {
+        x: window.scrollX || window.pageXOffset || 0,
+        y: window.scrollY || window.pageYOffset || 0,
+        width: fixedRoot.clientWidth,
+        height: fixedRoot.clientHeight,
+      };
+    }
     var ancestor = el.parentElement;
     while (ancestor) {
       if (ancestor.getAttribute("data-an-primitive") === "frame") {
@@ -4345,8 +4352,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     if (!containingBlock) {
       return {
-        origin: { x: 0, y: 0 },
+        origin: fixed
+          ? {
+              x: window.scrollX || window.pageXOffset || 0,
+              y: window.scrollY || window.pageYOffset || 0,
+            }
+          : { x: 0, y: 0 },
         transform: transform,
+        hasContainingBlock: false,
       };
     }
 
@@ -4376,6 +4389,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             transform.d * scrollY,
         },
         transform: transform,
+        hasContainingBlock: true,
       };
     }
 
@@ -4392,6 +4406,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           transform.d * (htmlContainingBlock.clientTop - scrollY),
       },
       transform: transform,
+      hasContainingBlock: true,
     };
   }
 
@@ -6434,10 +6449,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (designParent && parentStyles) {
       positionComputedStylesCache.set(designParent, parentStyles);
     }
-    var positionReferenceRect = positionReferenceRectForElement(el);
     var positionCoordinateContext = positionContainingBlockForElement(
       el,
       positionComputedStylesCache,
+    );
+    var positionReferenceRect = positionReferenceRectForElement(
+      el,
+      cs.position === "fixed" && !positionCoordinateContext.hasContainingBlock,
     );
     var authoredSizeStyles = collectAuthoredSizeStyles(el);
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
@@ -6732,20 +6750,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // Every element the click path can reach, not just the id-bearing ones: an id
   // attribute is a persistence detail, and generated markup routinely has none,
   // so keying selectability off it made a marquee miss what a click hits.
-  // Figma parity: a marquee selects objects at the CURRENT container scope
+  // A marquee selects objects at the CURRENT container scope
   // (the screen root by default, or the container last drilled into) — the
   // same scope containerFirstSelectionTarget resolves clicks against — never
   // reaching into a candidate's nested descendants unless Cmd/Ctrl is held
   // (`deep`), matching Cmd/Ctrl+click's own deep-select.
-  function collectSelectableElements(deep?: boolean): Element[] {
+  function collectSelectableElements(
+    deep?: boolean,
+    gestureScope?: Element | null,
+  ): Element[] {
     var nodes = Array.prototype.slice.call(
       document.body ? document.body.querySelectorAll("*") : [],
     ) as Element[];
     var scope: Element | null = null;
+    // A background-started marquee stays within its scope when the box crosses its edge.
+    var limitToGestureScope = Boolean(gestureScope);
     if (!deep) {
-      scope = selectionContainerScope;
+      scope = gestureScope || selectionContainerScope;
       if (!scope || !document.documentElement.contains(scope)) {
         scope = document.body;
+        limitToGestureScope = false;
       }
     }
     var seen = new Set<Element>();
@@ -6755,11 +6779,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       var target = selectionTargetForHit(node);
-      if (target && scope && scope.contains(target)) {
-        target = containerScopeAncestor(target, scope);
+      if (target && scope) {
+        if (scope.contains(target)) {
+          target = containerScopeAncestor(target, scope);
+        } else if (limitToGestureScope) {
+          return;
+        }
       }
       if (
         !target ||
+        target === scope ||
         isDocumentRootElement(target) ||
         isBoardRootMarqueeSurface(target) ||
         isOverlayElement(target) ||
@@ -7003,7 +7032,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   appendEditorChromeNode(selectionOverlay);
   if (readOnly) setSelectionOverlayResizeChromeVisible(false);
 
-  // ── Gradient edit overlay (in-iframe parity for MultiScreenCanvas's
+  // ── Gradient edit overlay (in-iframe counterpart to MultiScreenCanvas's
   // GradientEditOverlay) ──────────────────────────────────────────────────
   // Renders the same gradient line + endpoint squares + round stop markers
   // over an element *inside* this screen's iframe content, driven entirely
@@ -7373,6 +7402,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     startY: number;
     additive: boolean;
     deep: boolean;
+    scope?: Element | null;
     moved: boolean;
     pointerId?: number;
     candidates?: Element[];
@@ -9315,8 +9345,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return Math.max(allowNegative ? -999 : 0, Math.min(999, rounded));
   }
 
-  // Figma-style handle hit area: only the small handle *line* itself (plus a
-  // few px of pointer tolerance) should start a padding drag. The rest of the
+  // Only the small handle *line* itself (plus a few px of pointer tolerance)
+  // should start a padding drag. The rest of the
   // padding band must fall through to normal element move/select — dragging
   // anywhere else inside the element (even inside the padding region) moves
   // the element, it does not resize padding. Gap handles keep the previous
@@ -10219,6 +10249,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       e.target && e.target.nodeType === 1 ? e.target : null,
     );
     if (!spacingKey) return;
+    if (e.altKey) {
+      handleShieldPointerMove(e);
+      return;
+    }
     stopNativeInteraction(e);
     activateSpacingHandle(spacingKey);
   }
@@ -13513,7 +13547,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     marqueeSelectionOverlay.style.height = rect.height + "px";
 
     if (!activeMarqueeSelection.candidates) {
-      var collected = collectSelectableElements(activeMarqueeSelection.deep);
+      var collected = collectSelectableElements(
+        activeMarqueeSelection.deep,
+        activeMarqueeSelection.scope,
+      );
       activeMarqueeSelection.candidates = collected;
       activeMarqueeSelection.candidateBounds = collected.map(selectableBounds);
     }
@@ -13563,7 +13600,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function beginMarqueeSelection(e): void {
+  function beginMarqueeSelection(e, scope?: Element | null): void {
     if (e.button !== 0) return;
     if (activeTextEditEl && !exitStaleTextEditSession()) return;
     clearActiveMarqueeSelection();
@@ -13631,6 +13668,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       startY: e.clientY,
       additive: additive,
       deep: Boolean(e && (e.metaKey || e.ctrlKey)),
+      scope: scope || null,
       moved: false,
       infoCache: new Map<Element, unknown>(),
       lightInfoCache: new Map<Element, unknown>(),
@@ -25608,14 +25646,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var events = dragEventNames(e);
     var hit = elementFromEditorPoint(e.clientX, e.clientY);
     var hitTarget = selectionTargetForHit(hit);
+    var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
     if (
       !hit ||
       hit === document.body ||
       hit === document.documentElement ||
       isBoardRootMarqueeSurface(hitTarget) ||
-      isContainerBackgroundHit(hitTarget, hit)
+      startsOnContainerBackground
     ) {
-      beginMarqueeSelection(e);
+      beginMarqueeSelection(e, startsOnContainerBackground ? hitTarget : null);
       return;
     }
     var selectedAlive =
@@ -27263,6 +27302,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   );
   function handleShieldPointerMove(e) {
     if (readOnly || interactionMode) return;
+    var isAltSpacingRegionPointerMove = Boolean(
+      e.altKey &&
+      spacingKeyFromTarget(
+        e.target && e.target.nodeType === 1 ? e.target : null,
+      ),
+    );
+    if (isAltSpacingRegionPointerMove) clearSpacingHoverTimer();
     stopNativeInteraction(e);
     hoveredEl = resolveHoverTarget(
       e.clientX,
@@ -27271,7 +27317,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
     if (!hoveredEl) {
       highlightOverlay.style.display = "none";
-      if (!spacingDrag) {
+      if (!spacingDrag && !isAltSpacingRegionPointerMove) {
         scheduleSpacingHoverClear(e);
       }
       hideMeasurements();
@@ -27299,7 +27345,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           updateSpacingOverlay(selectedEl);
         }
       } else {
-        scheduleSpacingHoverClear(e);
+        if (!isAltSpacingRegionPointerMove) scheduleSpacingHoverClear(e);
       }
     }
     if (hoveredEl === selectedEl) {

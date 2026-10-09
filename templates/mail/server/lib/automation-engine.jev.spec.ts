@@ -6,8 +6,7 @@ const mocks = vi.hoisted(() => ({
   executeActions: vi.fn(),
   emit: vi.fn(),
   emitAsync: vi.fn(),
-  listSubscriptions: vi.fn(),
-  refreshEventSubscriptions: vi.fn(),
+  hasEventAutomation: vi.fn(),
   activeRules: [] as Array<Record<string, unknown>>,
   userSettings: new Map<string, unknown>(),
   getJevContextCredentials: vi.fn(),
@@ -54,10 +53,9 @@ vi.mock("@agent-native/core/settings", () => ({
 vi.mock("@agent-native/core/event-bus", () => ({
   emit: mocks.emit,
   emitAsync: mocks.emitAsync,
-  listSubscriptions: mocks.listSubscriptions,
 }));
 vi.mock("@agent-native/core/triggers", () => ({
-  refreshEventSubscriptions: mocks.refreshEventSubscriptions,
+  hasEventAutomation: mocks.hasEventAutomation,
 }));
 vi.mock("drizzle-orm", async (importOriginal) => ({
   ...(await importOriginal<typeof import("drizzle-orm")>()),
@@ -129,8 +127,7 @@ describe("Mail Jev automation routing", () => {
     mocks.gmailGetMessage.mockReset();
     mocks.gmailBatchGetMessages.mockReset();
     mocks.userSettings.clear();
-    mocks.listSubscriptions.mockReturnValue([]);
-    mocks.refreshEventSubscriptions.mockResolvedValue(true);
+    mocks.hasEventAutomation.mockResolvedValue(false);
     mocks.activeRules = [{ id: "rule-1", kind: "automation", actions: "[]" }];
     mocks.getJevContextCredentials.mockResolvedValue({
       apiKey: undefined,
@@ -200,7 +197,7 @@ describe("Mail Jev automation routing", () => {
   it("checks model availability while processing a queued backfill", async () => {
     mocks.resolveAutomationModelSettings.mockResolvedValueOnce({
       engine: "ai-sdk:openrouter",
-      model: "openai/gpt-5.6-luna",
+      model: "openai/gpt-6-luna",
     });
     mocks.isResolvedEngineUsableForRequest.mockResolvedValue(false);
 
@@ -621,9 +618,7 @@ describe("Mail Jev automation routing", () => {
 
   it("emits received-mail events for new arrivals without local rules or Jev", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     const ownerEmail = "owner@example.com";
     const accountEmail = "mailbox@example.com";
 
@@ -686,9 +681,7 @@ describe("Mail Jev automation routing", () => {
 
   it("aborts an in-flight Gmail read and still releases the poll lease", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     const ownerEmail = "owner@example.com";
     const accountEmail = "mailbox@example.com";
     const watermarkKey = `${ownerEmail}:mail-received-events:${accountEmail}:watermark`;
@@ -747,9 +740,7 @@ describe("Mail Jev automation routing", () => {
 
   it("drains paginated received-mail history without skipping overflow", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     const ownerEmail = "owner@example.com";
     const accountEmail = "mailbox@example.com";
 
@@ -862,9 +853,7 @@ describe("Mail Jev automation routing", () => {
 
   it("serializes polls per account while allowing other accounts to progress", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     const ownerEmail = "owner@example.com";
     const accountEmail = "mailbox@example.com";
     await processAutomationsForAccount(
@@ -1180,9 +1169,7 @@ describe("Mail Jev automation routing", () => {
 
   it("baselines event history on the first poll after an event subscription", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
 
     await processAutomationsForAccount(
       "owner@example.com",
@@ -1225,7 +1212,9 @@ describe("Mail Jev automation routing", () => {
       "mail-received-events:mailbox@example.com:watermark",
       expect.objectContaining({ lastHistoryId: "fresh-history" }),
     );
-    expect(mocks.refreshEventSubscriptions).toHaveBeenCalledOnce();
+    expect(mocks.hasEventAutomation).toHaveBeenCalledWith(
+      "mail.message.received",
+    );
     expect(mocks.gmailListHistory).not.toHaveBeenCalled();
   });
 
@@ -1235,7 +1224,9 @@ describe("Mail Jev automation routing", () => {
       "owner@example.com:mail-received-events:mailbox@example.com:watermark",
       { lastHistoryId: "saved-history", lastTimestamp: 1 },
     );
-    mocks.refreshEventSubscriptions.mockResolvedValueOnce(false);
+    mocks.hasEventAutomation.mockRejectedValueOnce(
+      new Error("resource store unavailable"),
+    );
 
     const result = await processAutomationsForAccount(
       "owner@example.com",
@@ -1254,9 +1245,7 @@ describe("Mail Jev automation routing", () => {
 
   it("does not persist a malformed cursor when Gmail cannot reset it", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     const watermarkKey = "mail-received-events:mailbox@example.com:watermark";
     mocks.userSettings.set(`owner@example.com:${watermarkKey}`, {
       lastHistoryId: "expired-history",
@@ -1285,9 +1274,7 @@ describe("Mail Jev automation routing", () => {
 
   it("keeps a message pending when Gmail batch and refill fetches both fail", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     mocks.userSettings.set(
       "owner@example.com:mail-received-events:mailbox@example.com:watermark",
       { lastHistoryId: "history-1", lastTimestamp: Date.now() },
@@ -1338,9 +1325,7 @@ describe("Mail Jev automation routing", () => {
 
   it("continues Gmail fallback listing across pages", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     mocks.userSettings.set(
       "owner@example.com:mail-received-events:mailbox@example.com:watermark",
       { lastHistoryId: "expired-history", lastTimestamp: Date.now() },
@@ -1425,9 +1410,7 @@ describe("Mail Jev automation routing", () => {
 
   it("keeps the fallback history cursor when history fails during a list continuation", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     const watermarkKey =
       "owner@example.com:mail-received-events:mailbox@example.com:watermark";
     mocks.userSettings.set(watermarkKey, {
@@ -1504,9 +1487,7 @@ describe("Mail Jev automation routing", () => {
 
   it("persists fallback candidates when the Gmail batch request fails", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     const watermarkKey =
       "owner@example.com:mail-received-events:mailbox@example.com:watermark";
     mocks.userSettings.set(watermarkKey, {
@@ -1567,9 +1548,7 @@ describe("Mail Jev automation routing", () => {
 
   it("resets an expired Gmail cursor without replaying recent mail", async () => {
     mocks.activeRules = [];
-    mocks.listSubscriptions.mockReturnValue([
-      { id: "received-mail", event: "mail.message.received" },
-    ]);
+    mocks.hasEventAutomation.mockResolvedValue(true);
     const watermarkKey =
       "owner@example.com:mail-received-events:mailbox@example.com:watermark";
     mocks.userSettings.set(watermarkKey, {

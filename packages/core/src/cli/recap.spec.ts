@@ -2,6 +2,7 @@ import fs, { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
 import { parse as parseYaml } from "yaml";
@@ -261,9 +262,13 @@ describe("recap agent failure summaries", () => {
   it("builds a combined recap failure diagnostic", () => {
     const diagnostic = buildRecapFailureDiagnostic({
       urlReason: "recap-url.txt was not created by the agent",
+      readbackReason: "get-visual-plan returned HTTP 403",
       failureSummary: "Tool create-visual-recap failed with 403 Forbidden",
     });
     expect(diagnostic).toContain("No plan URL:");
+    expect(diagnostic).toContain(
+      "Published recap readback failed: get-visual-plan returned HTTP 403",
+    );
     expect(diagnostic).toContain("Agent output:");
     expect(diagnostic).toContain("403 Forbidden");
   });
@@ -276,6 +281,20 @@ describe("recap agent failure summaries", () => {
     expect(summary).toContain("[redacted");
     expect(summary).not.toContain("Bearer a");
     expect(summary).not.toContain("sk-b");
+
+    const base64Token = "abcdefghijklmnopqrstuvwxyz+123456/==tail";
+    const base64Summary = sanitizeAgentFailureSummary(
+      `Authorization: Bearer ${base64Token}`,
+    );
+    expect(base64Summary).toContain("Authorization: Bearer [redacted]");
+    expect(base64Summary).not.toContain(base64Token);
+
+    const basicCredential = "dXNlcjpzZWNyZXQ=";
+    const basicSummary = sanitizeAgentFailureSummary(
+      `Authorization: Basic ${basicCredential}`,
+    );
+    expect(basicSummary).toContain("Authorization: [redacted]");
+    expect(basicSummary).not.toContain(basicCredential);
   });
 });
 
@@ -1435,6 +1454,25 @@ describe("recap prompt builder", () => {
 });
 
 describe("recap comment body", () => {
+  it("gives the right recovery command for a rejected recap token", () => {
+    const body = buildCommentBody({
+      RECAP_AUTH_FAILED: "true",
+      HEAD_SHA: "abcdef1234567",
+    } as NodeJS.ProcessEnv);
+
+    expect(body).toContain(
+      "Recap authentication failed — `PLAN_RECAP_TOKEN` was rejected; it may be expired, revoked, or minted for another Plans app.",
+    );
+    expect(body).toContain(
+      "Personal token: run `npx @agent-native/core@latest connect <app-url> --client codex`, then `npx @agent-native/recap-cli@latest recap setup`.",
+    );
+    expect(body).toContain(
+      "Org service token: an owner/admin can mint a 10-year replacement with `npx -y @agent-native/core@latest connect <app-url> --service-token <name> --ttl-days 3650`.",
+    );
+    expect(body).not.toContain("As an org owner/admin, mint a replacement");
+    expect(body).not.toContain("reconnect <app-url>");
+  });
+
   it("embeds an inline screenshot picture link and a plan-id marker on success", () => {
     const token = "a".repeat(64);
     const body = buildCommentBody({
@@ -1550,6 +1588,59 @@ describe("recap comment body", () => {
     expect(body).toContain(
       "dark: page.waitForSelector: Timeout 30000ms exceeded",
     );
+    expect(body).not.toContain("<picture>");
+  });
+
+  it("reports recap readback failure separately and skips the screenshot", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_READBACK_OK: "false",
+      RECAP_READBACK_REASON: "get-visual-plan returned HTTP 403",
+      RECAP_SHOT_OK: "false",
+      RECAP_SHOT_REASON: "screenshot should not have run",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+
+    expect(body).toContain("### Visual recap — readback failed");
+    expect(body).toContain("Screenshot capture was skipped");
+    expect(body).toContain("get-visual-plan returned HTTP 403");
+    expect(body).not.toContain("screenshot failed");
+    expect(body).not.toContain("screenshot should not have run");
+    expect(body).not.toContain("<picture>");
+  });
+
+  it("treats empty readback output as failure when the screenshot reports skipped", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_READBACK_OK: "",
+      RECAP_SHOT_OK: "false",
+      RECAP_SHOT_REASON:
+        "Published recap readback failed: the readback step did not complete.",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+
+    expect(body).toContain("### Visual recap — readback failed");
+    expect(body).toContain("the workflow could not verify it");
+    expect(body).toContain("Screenshot capture was skipped");
+    expect(body).toContain("the readback step did not complete");
+    expect(body).not.toContain("screenshot failed");
+    expect(body).not.toContain("<picture>");
+  });
+
+  it("treats empty readback and screenshot outputs as a skipped capture", () => {
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_READBACK_OK: "",
+      RECAP_SHOT_OK: "",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+
+    expect(body).toContain("### Visual recap — readback failed");
+    expect(body).toContain("Screenshot capture was skipped");
+    expect(body).not.toContain("screenshot failed");
     expect(body).not.toContain("<picture>");
   });
 
@@ -1786,8 +1877,18 @@ describe("recap screenshot capture", () => {
       waitForSelector: vi.fn(async () => undefined),
       waitForTimeout: vi.fn(async () => undefined),
       evaluate: vi.fn(async (_fn: unknown, arg?: unknown) => {
-        return typeof arg === "number" ? 320 : undefined;
+        if (typeof arg === "number") return 320;
+        if (arg === undefined) {
+          return {
+            readyState: "complete",
+            hasPlanDocument: false,
+            hasSignInPrompt: false,
+            hasAccessError: false,
+          };
+        }
+        return undefined;
       }),
+      on: vi.fn(),
       setViewportSize: vi.fn(async () => undefined),
       screenshot: vi.fn(async ({ path: outPath }: { path: string }) => {
         fs.writeFileSync(
@@ -1886,6 +1987,61 @@ describe("recap screenshot capture", () => {
     }
   });
 
+  it("forwards the publish token only to requests on the configured Plan app origin", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { context, importPlaywright } = createShotPlaywright([
+      Buffer.from("png"),
+    ]);
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/plan-abc123",
+          out,
+          token: "recap-token",
+          "app-url": "https://plan.agent-native.com",
+        },
+        importPlaywright,
+      );
+
+      const routeHandler = context.route.mock.calls[0]?.[1] as
+        | ((route: unknown) => Promise<void>)
+        | undefined;
+      expect(routeHandler).toBeDefined();
+      const continueRoute = vi.fn(async () => undefined);
+      await routeHandler!({
+        request: () => ({
+          url: () =>
+            "https://plan.agent-native.com/_agent-native/actions/get-visual-plan?id=plan-abc123",
+          headers: () => ({ accept: "application/json" }),
+        }),
+        continue: continueRoute,
+      });
+      await routeHandler!({
+        request: () => ({
+          url: () => "https://outside.example/collect",
+          headers: () => ({ accept: "application/json" }),
+        }),
+        continue: continueRoute,
+      });
+
+      expect(continueRoute).toHaveBeenNthCalledWith(1, {
+        headers: {
+          accept: "application/json",
+          authorization: "Bearer recap-token",
+        },
+      });
+      expect(continueRoute).toHaveBeenNthCalledWith(2);
+    } finally {
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
   it("refuses to capture the app shell while the recap is still on its loading skeleton", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
     const out = path.join(dir, "recap.png");
@@ -1967,6 +2123,63 @@ describe("recap screenshot capture", () => {
       expect(stderr).toHaveBeenCalledWith(
         "[recap shot] recap document did not become ready; retrying once\n",
       );
+    } finally {
+      stderr.mockRestore();
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("reports plan access responses when the recap document never renders", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { page, importPlaywright } = createShotPlaywright([
+      Buffer.from("png"),
+    ]);
+    page.on.mockImplementation(
+      (event: string, listener: (value: unknown) => void) => {
+        if (event === "response") {
+          listener({
+            url: () =>
+              "https://plan.agent-native.com/_agent-native/actions/get-visual-plan?id=private",
+            status: () => 403,
+          });
+        }
+      },
+    );
+    page.waitForSelector.mockRejectedValue(
+      new Error(
+        "page.waitForSelector: Timeout 30000ms exceeded while waiting for locator('[data-plan-document]')",
+      ),
+    );
+    const writes: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/plan-private",
+          out,
+          token: "do-not-log-this-token",
+          "app-url": "https://plan.agent-native.com",
+        },
+        importPlaywright,
+      );
+
+      const result = JSON.parse(writes.join("").trim());
+      expect(result).toMatchObject({ ok: false });
+      expect(result.reason).toContain("get-visual-plan=HTTP 403");
+      expect(result.reason).toContain("sign-in=false, access-error=false");
+      expect(result.reason).not.toContain("do-not-log-this-token");
+      expect(page.screenshot).not.toHaveBeenCalled();
     } finally {
       stderr.mockRestore();
       stdout.mockRestore();
@@ -2093,6 +2306,472 @@ describe("recap screenshot capture", () => {
       stdout.mockRestore();
       fs.rmSync(dir, { force: true, recursive: true });
     }
+  });
+});
+
+describe("published recap readback workflow", () => {
+  const workflowFiles = [
+    ".github/workflows/pr-visual-recap.yml",
+    ".github/workflows/pr-visual-recap-reusable.yml",
+    ".github/workflows/pr-visual-recap-fork.yml",
+  ];
+
+  function readbackScript(file: string): string {
+    const workflow = parseYaml(
+      readFileSync(path.join(repoRoot, file), "utf8"),
+    ) as {
+      jobs: {
+        recap: {
+          steps: Array<{ name?: string; run?: string }>;
+        };
+      };
+    };
+    const step = workflow.jobs.recap.steps.find(
+      ({ name }) => name === "Verify published recap readback",
+    );
+    const match = step?.run?.match(/node <<'NODE'\n([\s\S]*?)\nNODE/);
+    if (!match) throw new Error(`${file} is missing its readback script`);
+    return match[1];
+  }
+
+  function urlValidationScript(file: string): string {
+    const workflow = parseYaml(
+      readFileSync(path.join(repoRoot, file), "utf8"),
+    ) as {
+      jobs: {
+        recap: {
+          steps: Array<{ name?: string; run?: string }>;
+        };
+      };
+    };
+    const step = workflow.jobs.recap.steps.find(
+      ({ name }) => name === "Read plan URL",
+    );
+    const match = step?.run?.match(
+      /URL_RESULT=\$\(PLAN_URL="\$PLAN_URL" node <<'NODE'\n([\s\S]*?)\nNODE/,
+    );
+    if (!match) throw new Error(`${file} is missing its plan URL validator`);
+    return match[1];
+  }
+
+  function shotDiagnosticScript(file: string): string {
+    const workflow = parseYaml(
+      readFileSync(path.join(repoRoot, file), "utf8"),
+    ) as {
+      jobs: {
+        recap: {
+          steps: Array<{ name?: string; run?: string }>;
+        };
+      };
+    };
+    const step = workflow.jobs.recap.steps.find(
+      ({ name }) => name === "Complete visual recap check",
+    );
+    const match = step?.run?.match(
+      /FAILURE_DIAGNOSTIC=\$\(FAILURE_REASON="\$FAILURE_REASON" node <<'NODE'\n([\s\S]*?)\nNODE/,
+    );
+    if (!match) throw new Error(`${file} is missing its diagnostic sanitizer`);
+    return match[1];
+  }
+
+  function checkRunFallbackScript(file: string): string {
+    const workflow = parseYaml(
+      readFileSync(path.join(repoRoot, file), "utf8"),
+    ) as {
+      jobs: {
+        recap: {
+          steps: Array<{ name?: string; run?: string }>;
+        };
+      };
+    };
+    const step = workflow.jobs.recap.steps.find(
+      ({ name }) => name === "Complete visual recap check",
+    );
+    const match = step?.run?.match(
+      /if node --input-type=module - "\$FAILURE_STAGE" "\$FAILURE_TITLE" "\$FAILURE_SUMMARY" "\$FAILURE_TEXT" <<'NODE'\n([\s\S]*?)\nNODE/,
+    );
+    if (!match) throw new Error(`${file} is missing its API fallback`);
+    return match[1];
+  }
+
+  function executeUrlValidation(
+    script: string,
+    input: { planUrl: string; appUrl: string },
+  ) {
+    const writes: string[] = [];
+    runInNewContext(script, {
+      URL,
+      process: {
+        env: {
+          PLAN_URL: input.planUrl,
+          PLAN_RECAP_APP_URL: input.appUrl,
+        },
+        stdout: {
+          write: (chunk: string) => {
+            writes.push(chunk);
+            return true;
+          },
+        },
+      },
+    });
+    expect(writes).toHaveLength(1);
+    return JSON.parse(writes[0]!);
+  }
+
+  function executeFailureDiagnostic(script: string, reason: string): string {
+    const writes: string[] = [];
+    runInNewContext(script, {
+      process: {
+        env: { FAILURE_REASON: reason },
+        stdout: {
+          write: (chunk: string) => {
+            writes.push(chunk);
+            return true;
+          },
+        },
+      },
+    });
+    return writes.join("");
+  }
+
+  async function executeReadback(
+    script: string,
+    input: { planUrl: string; appUrl: string },
+    responses: Response | Array<Response | Error>,
+  ) {
+    const writes: string[] = [];
+    const fetchFn = vi.fn<typeof fetch>();
+    for (const response of Array.isArray(responses) ? responses : [responses]) {
+      if (response instanceof Error) {
+        fetchFn.mockRejectedValueOnce(response);
+      } else {
+        fetchFn.mockResolvedValueOnce(response);
+      }
+    }
+    runInNewContext(script, {
+      URL,
+      AbortSignal,
+      TypeError,
+      setTimeout: (callback: () => void) => {
+        callback();
+        return 0;
+      },
+      fetch: fetchFn,
+      process: {
+        env: {
+          PLAN_URL: input.planUrl,
+          PLAN_RECAP_APP_URL: input.appUrl,
+          PLAN_RECAP_TOKEN: "recap-token",
+        },
+        stdout: {
+          write: (chunk: string) => {
+            writes.push(chunk);
+            return true;
+          },
+        },
+      },
+    });
+    await vi.waitFor(() => expect(writes).toHaveLength(1));
+    return { result: JSON.parse(writes[0]!), fetchFn };
+  }
+
+  async function executeCheckRunFallback(
+    script: string,
+    responses: Array<Pick<Response, "ok" | "status">>,
+    stage: "readback" | "screenshot",
+  ) {
+    const pendingResponses = [...responses];
+    const fetchCalls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
+    const fetchFn: typeof fetch = async (input, init) => {
+      fetchCalls.push([input, init]);
+      const response = pendingResponses.shift();
+      if (!response) throw new Error("No mocked GitHub API response");
+      return response as Response;
+    };
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    let exitCode: number | undefined;
+    try {
+      await runInNewContext(`(async () => {\n${script}\n})()`, {
+        fetch: fetchFn,
+        process: {
+          env: {
+            GH_TOKEN: "fake-github-token",
+            GITHUB_REPOSITORY: "BuilderIO/example",
+            CHECK_RUN_ID: "123",
+            GITHUB_API_URL: "https://api.github.com",
+            PLAN_URL: "https://plan.agent-native.com/recaps/abc123",
+          },
+          argv: [
+            "/usr/bin/node",
+            "-",
+            stage,
+            stage === "readback"
+              ? "Visual recap readback failed"
+              : "Visual recap screenshot failed",
+            "The recap was published, but the workflow could not verify it.",
+            stage === "readback"
+              ? "readback failed: get-visual-plan returned HTTP 403. Screenshot capture was skipped."
+              : "screenshot failed: screenshot upload failed",
+          ],
+          stdout: {
+            write: (chunk: string) => {
+              stdout.push(chunk);
+              return true;
+            },
+          },
+          stderr: {
+            write: (chunk: string) => {
+              stderr.push(chunk);
+              return true;
+            },
+          },
+          exit: (code: number) => {
+            exitCode = code;
+            throw Object.assign(new Error(`exit:${code}`), { exitCode: code });
+          },
+        },
+        setTimeout: (callback: () => void) => {
+          callback();
+          return 0;
+        },
+      });
+    } catch (error) {
+      const code = (error as { exitCode?: number }).exitCode;
+      if (code === undefined) throw error;
+      exitCode = code;
+    }
+    return {
+      exitCode,
+      fetchCalls,
+      stdout: stdout.join(""),
+      stderr: stderr.join(""),
+    };
+  }
+
+  it("keeps the authenticated readback script in sync across every PR workflow", () => {
+    const scripts = workflowFiles.map(readbackScript);
+    expect(scripts[1]).toBe(scripts[0]);
+    expect(scripts[2]).toBe(scripts[0]);
+  });
+
+  it("keeps URL validation in sync and lets stdout drain on every result", () => {
+    const scripts = workflowFiles.map(urlValidationScript);
+    expect(scripts[1]).toBe(scripts[0]);
+    expect(scripts[2]).toBe(scripts[0]);
+    expect(scripts[0]).not.toContain("process.exit(");
+    expect(
+      executeUrlValidation(scripts[0]!, {
+        planUrl: "//evil.example/recaps/recap_123",
+        appUrl: "https://plan.agent-native.com",
+      }),
+    ).toMatchObject({
+      url: "",
+      reason:
+        "recap-url.txt points at https://evil.example, expected https://plan.agent-native.com",
+    });
+  });
+
+  it("preserves sanitized readback and screenshot diagnostics in each fallback", () => {
+    const scripts = workflowFiles.map(shotDiagnosticScript);
+    expect(scripts[1]).toBe(scripts[0]);
+    expect(scripts[2]).toBe(scripts[0]);
+
+    for (const file of workflowFiles) {
+      const workflow = readFileSync(path.join(repoRoot, file), "utf8");
+      expect(workflow).toContain('FAILURE_STAGE="readback"');
+      expect(workflow).toContain('FAILURE_STAGE="screenshot"');
+      expect(workflow).toContain(
+        'FAILURE_TITLE="Visual recap readback failed"',
+      );
+      expect(workflow).toContain(
+        'FAILURE_TITLE="Visual recap screenshot failed"',
+      );
+      expect(workflow).toContain(
+        'FAILURE_SUMMARY="The recap was published, but the workflow could not verify it.',
+      );
+      expect(workflow).not.toContain("configured PR token could not verify it");
+      expect(workflow).toContain(
+        'if node --input-type=module - "$FAILURE_STAGE" "$FAILURE_TITLE" "$FAILURE_SUMMARY" "$FAILURE_TEXT"',
+      );
+      expect(workflow).toContain("Authorization: `Bearer ${token}`");
+      expect(workflow).toContain("response.status !== 408");
+      expect(workflow).toContain(
+        "leaving the informational check unresolved rather than replacing the stage-specific failure",
+      );
+      expect(workflow).not.toContain("RECAP_CLI_HELP=");
+      expect(workflow).toContain('CLI_SHOT_OK="$SHOT_OK"');
+      expect(workflow).toContain('--shot-ok "$CLI_SHOT_OK"');
+      expect(workflow).toContain('CLI_READBACK_REASON="$FAILURE_DIAGNOSTIC"');
+      expect(workflow).toContain('CLI_SHOT_REASON="$FAILURE_DIAGNOSTIC"');
+      expect(workflow).toContain('--readback-ok "$READBACK_OK"');
+      expect(workflow).toContain('--readback-reason "$CLI_READBACK_REASON"');
+      expect(workflow).toContain('--shot-reason "$CLI_SHOT_REASON"');
+      expect(workflow).toContain('--failure-summary "$CLI_FAILURE_SUMMARY"');
+    }
+
+    const token = "abcdefghijklmnopqrstuvwxyz+123456/==tail";
+    const diagnostic = executeFailureDiagnostic(
+      scripts[0]!,
+      `get-visual-plan returned HTTP 403; Authorization: Bearer ${token}`,
+    );
+    expect(diagnostic).toContain("get-visual-plan returned HTTP 403");
+    expect(diagnostic).toContain("Authorization: Bearer [redacted]");
+    expect(diagnostic).not.toContain(token);
+    expect(diagnostic.length).toBeLessThanOrEqual(400);
+
+    const basicCredential = "dXNlcjpzZWNyZXQ=";
+    const basicDiagnostic = executeFailureDiagnostic(
+      scripts[0]!,
+      `Authorization: Basic ${basicCredential}`,
+    );
+    expect(basicDiagnostic).toContain("Authorization: [redacted]");
+    expect(basicDiagnostic).not.toContain(basicCredential);
+  });
+
+  it("retries check updates through the workflow API with the stage-specific failure", async () => {
+    const scripts = workflowFiles.map(checkRunFallbackScript);
+    expect(scripts[1]).toBe(scripts[0]);
+    expect(scripts[2]).toBe(scripts[0]);
+
+    const { exitCode, fetchCalls, stdout, stderr } =
+      await executeCheckRunFallback(
+        scripts[0]!,
+        [
+          { ok: false, status: 502 },
+          { ok: true, status: 200 },
+        ],
+        "screenshot",
+      );
+    expect(exitCode, `${stderr} (calls: ${fetchCalls.length})`).toBe(0);
+    expect(fetchCalls).toHaveLength(2);
+    expect(fetchCalls[1]?.[0]).toBe(
+      "https://api.github.com/repos/BuilderIO/example/check-runs/123",
+    );
+    const request = fetchCalls[1]?.[1];
+    expect(request?.headers).toMatchObject({
+      Authorization: "Bearer fake-github-token",
+      "Content-Type": "application/json",
+    });
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      status: "completed",
+      conclusion: "failure",
+      details_url: "https://plan.agent-native.com/recaps/abc123",
+      output: {
+        title: "Visual recap screenshot failed",
+        summary:
+          "The recap was published, but the workflow could not verify it.",
+        text: "screenshot failed: screenshot upload failed",
+      },
+    });
+    expect(stdout).toContain("workflow-owned API fallback");
+    expect(stderr).toBe("");
+  });
+
+  it("keeps bearer requests on the Plan origin for a double-slash base path", async () => {
+    const script = readbackScript(workflowFiles[0]!);
+    const { result, fetchFn } = await executeReadback(
+      script,
+      {
+        planUrl: "https://plan.agent-native.com//tenant/recaps/recap_123",
+        appUrl: "https://plan.agent-native.com//tenant",
+      },
+      textResponse(JSON.stringify({ planId: "recap_123" })),
+    );
+
+    expect(result).toEqual({ ok: true, reason: "" });
+    const [url, init] = fetchFn.mock.calls[0]!;
+    expect(new URL(String(url)).origin).toBe("https://plan.agent-native.com");
+    expect(new URL(String(url)).pathname).toBe(
+      "//tenant/_agent-native/actions/get-visual-plan",
+    );
+    expect(new Headers(init?.headers).get("authorization")).toBe(
+      "Bearer recap-token",
+    );
+  });
+
+  it("retries transient readback failures at most twice", async () => {
+    const script = readbackScript(workflowFiles[0]!);
+    const input = {
+      planUrl: "https://plan.agent-native.com/recaps/recap_123",
+      appUrl: "https://plan.agent-native.com",
+    };
+    const { result, fetchFn } = await executeReadback(script, input, [
+      new TypeError("network unavailable"),
+      textResponse("temporary server error", 503),
+      textResponse(JSON.stringify({ planId: "recap_123" })),
+    ]);
+
+    expect(result).toEqual({ ok: true, reason: "" });
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+
+    const exhausted = await executeReadback(script, input, [
+      textResponse("temporary server error", 503),
+      textResponse("temporary server error", 503),
+      textResponse("temporary server error", 503),
+    ]);
+    expect(exhausted.result).toEqual({
+      ok: false,
+      reason:
+        "get-visual-plan returned HTTP 503 after 3 attempts; the Plan read action returned an error",
+    });
+    expect(exhausted.fetchFn).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries transient response-body failures before skipping screenshot capture", async () => {
+    const script = readbackScript(workflowFiles[0]!);
+    const input = {
+      planUrl: "https://plan.agent-native.com/recaps/recap_123",
+      appUrl: "https://plan.agent-native.com",
+    };
+    const bodyTimeout = textResponse("", 200);
+    vi.spyOn(bodyTimeout, "json").mockRejectedValueOnce(
+      new TypeError("body stream timed out"),
+    );
+    const { result, fetchFn } = await executeReadback(script, input, [
+      bodyTimeout,
+      textResponse(JSON.stringify({ planId: "recap_123" })),
+    ]);
+
+    expect(result).toEqual({ ok: true, reason: "" });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports a rejected read without logging response details or the token", async () => {
+    const script = readbackScript(workflowFiles[0]!);
+    const { result, fetchFn } = await executeReadback(
+      script,
+      {
+        planUrl: "https://plan.agent-native.com/recaps/recap_123",
+        appUrl: "https://plan.agent-native.com",
+      },
+      textResponse("private response detail", 403),
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason:
+        "get-visual-plan returned HTTP 403; the configured token cannot read this published recap",
+    });
+    expect(JSON.stringify(result)).not.toContain("private response detail");
+    expect(JSON.stringify(result)).not.toContain("recap-token");
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a published recap URL from outside the configured Plan origin", async () => {
+    const script = readbackScript(workflowFiles[0]!);
+    const { result, fetchFn } = await executeReadback(
+      script,
+      {
+        planUrl: "https://outside.example/recaps/recap_123",
+        appUrl: "https://plan.agent-native.com",
+      },
+      textResponse(JSON.stringify({ planId: "recap_123" })),
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.reason).toContain("origin does not match");
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });
 
@@ -2775,6 +3454,216 @@ describe("recap check — outcome mapper", () => {
     expect(out.text).toBe(`**[Open visual recap](${app}/recaps/abc123)**`);
   });
 
+  it("fails the informational recap check when screenshot capture fails", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      planOk: true,
+      planUrl: `${app}/recaps/abc123`,
+      screenshotOk: false,
+      shotReason: "get-visual-plan returned HTTP 403",
+    });
+    expect(out.conclusion).toBe("failure");
+    expect(out.title).toBe("Visual recap screenshot failed");
+    expect(out.summary).toContain("does not block the PR");
+    expect(out.detailsUrl).toBe(`${app}/recaps/abc123`);
+    expect(out.text).toContain(
+      "Screenshot failed: get-visual-plan returned HTTP 403",
+    );
+  });
+
+  it("reports recap readback failure without calling it a screenshot failure", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      planOk: false,
+      planUrl: `${app}/recaps/abc123`,
+      readbackOk: false,
+      readbackReason: "get-visual-plan returned HTTP 403",
+      screenshotOk: false,
+      shotReason: "screenshot capture was skipped",
+    });
+    expect(out.conclusion).toBe("failure");
+    expect(out.title).toBe("Visual recap readback failed");
+    expect(out.summary).toContain("Screenshot capture was skipped");
+    expect(out.text).toContain("get-visual-plan returned HTTP 403");
+    expect(out.text).not.toContain("Screenshot failed:");
+  });
+
+  it("fails screenshot recaps when the workflow compatibility gate marks plan-ok false", () => {
+    const out = recapCheckOutcome({
+      ...base,
+      planOk: false,
+      planUrl: `${app}/recaps/abc123`,
+      screenshotOk: false,
+      shotReason: "get-visual-plan returned HTTP 403",
+    });
+    expect(out.conclusion).toBe("failure");
+    expect(out.title).toBe("Visual recap screenshot failed");
+    expect(out.detailsUrl).toBe(`${app}/recaps/abc123`);
+  });
+
+  it("treats an explicitly empty --shot-ok as a failed capture", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(textResponse("", 204));
+
+    try {
+      await runRecap([
+        "check",
+        "complete",
+        "--repo",
+        "BuilderIO/example",
+        "--token",
+        "fake-github-token",
+        "--check-run-id",
+        "123",
+        "--plan-ok",
+        "true",
+        "--plan-url",
+        `${app}/recaps/abc123`,
+        "--app-url",
+        app,
+        "--shot-ok",
+        "",
+        "--workflow-url",
+        workflowUrl,
+      ]);
+
+      const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+      expect(body.conclusion).toBe("failure");
+      expect(body.output.title).toBe("Visual recap screenshot failed");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("does not infer stale workflow failures for an unreadable published recap", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(textResponse("", 204));
+
+    try {
+      await runRecap([
+        "check",
+        "complete",
+        "--repo",
+        "BuilderIO/example",
+        "--token",
+        "fake-github-token",
+        "--check-run-id",
+        "123",
+        "--plan-ok",
+        "false",
+        "--plan-url",
+        `${app}/recaps/abc123`,
+        "--app-url",
+        app,
+        "--shot-ok",
+        "false",
+        "--shot-reason",
+        "get-visual-plan returned HTTP 403",
+        "--workflow-url",
+        workflowUrl,
+      ]);
+
+      const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+      expect(body.conclusion).toBe("failure");
+      expect(body.output.title).toBe("Visual recap screenshot failed");
+      expect(body.output.text).toContain("get-visual-plan returned HTTP 403");
+      expect(body.output.text).not.toContain("older PR Visual Recap workflow");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("keeps a legacy CLI readback failure out of the screenshot-failed state", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(textResponse("", 204));
+
+    try {
+      await runRecap([
+        "check",
+        "complete",
+        "--repo",
+        "BuilderIO/example",
+        "--token",
+        "fake-github-token",
+        "--check-run-id",
+        "123",
+        "--plan-ok",
+        "false",
+        "--plan-url",
+        `${app}/recaps/abc123`,
+        "--app-url",
+        app,
+        "--shot-ok",
+        "true",
+        "--failure-summary",
+        "Published recap readback failed: get-visual-plan returned HTTP 403. Screenshot capture was skipped",
+        "--workflow-url",
+        workflowUrl,
+      ]);
+
+      const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+      expect(body.conclusion).toBe("neutral");
+      expect(body.output.title).toBe("Visual recap not generated");
+      expect(body.output.title).not.toContain("screenshot failed");
+      expect(body.output.text).toContain("Published recap readback failed");
+      expect(body.output.text).toContain("Screenshot capture was skipped");
+      expect(body.output.text).not.toContain("Screenshot failed:");
+      expect(body.output.title).not.toBe("Visual recap ready");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("keeps an unreadable recap distinct from a screenshot failure", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(textResponse("", 204));
+
+    try {
+      await runRecap([
+        "check",
+        "complete",
+        "--repo",
+        "BuilderIO/example",
+        "--token",
+        "fake-github-token",
+        "--check-run-id",
+        "123",
+        "--plan-ok",
+        "false",
+        "--plan-url",
+        `${app}/recaps/abc123`,
+        "--app-url",
+        app,
+        "--readback-ok",
+        "false",
+        "--readback-reason",
+        "get-visual-plan returned HTTP 403",
+        "--shot-ok",
+        "false",
+        "--shot-reason",
+        "screenshot should have been skipped",
+        "--workflow-url",
+        workflowUrl,
+      ]);
+
+      const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+      expect(body.conclusion).toBe("failure");
+      expect(body.output.title).toBe("Visual recap readback failed");
+      expect(body.output.text).toContain("Screenshot capture was skipped");
+      expect(body.output.text).toContain("get-visual-plan returned HTTP 403");
+      expect(body.output.text).not.toContain(
+        "screenshot should have been skipped",
+      );
+      expect(body.output.text).not.toContain("older PR Visual Recap workflow");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("success: a huge diff gets the summarized summary", () => {
     const out = recapCheckOutcome({
       ...base,
@@ -2880,6 +3769,24 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("checks: write");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check start");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap check complete");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "PLAN_OK: ${{ steps.url.outputs.ok == 'true' && steps.shot.outputs.shot_ok == 'true' }}",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      'if [ "$URL_OK" = "true" ] && [ "$READBACK_OK" != "true" ]; then',
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      'elif [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then',
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("gh api --method PATCH");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("-f conclusion=failure");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "SHOT_OK: ${{ steps.shot.outputs.shot_ok }}",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain('--shot-ok "$CLI_SHOT_OK"');
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      '--shot-reason "$CLI_SHOT_REASON"',
+    );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "Fetch plan block reference",
     );
@@ -3212,8 +4119,11 @@ describe("recap comment body — auth-failure differentiation", () => {
     } as NodeJS.ProcessEnv);
     expect(body).toContain("generation failed");
     expect(body).toContain("PLAN_RECAP_TOKEN");
-    expect(body).toContain("expired or revoked");
-    expect(body).toContain("npx -y @agent-native/core@latest reconnect");
+    expect(body).toContain("expired, revoked, or minted for another Plans app");
+    expect(body).toContain(
+      "connect <app-url> --service-token <name> --ttl-days 3650",
+    );
+    expect(body).not.toContain("reconnect <app-url>");
   });
 
   it("shows generic failure copy when RECAP_AUTH_FAILED is absent/false", () => {
@@ -3647,8 +4557,22 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("RECAP_URL_REASON:");
     expect(content).toContain("--url-reason");
     expect(content).toContain("--image-cache-key");
+    expect(content).toContain(
+      "PLAN_OK: ${{ steps.url.outputs.ok == 'true' && steps.shot.outputs.shot_ok == 'true' }}",
+    );
+    expect(content).toContain(
+      'if [ "$URL_OK" = "true" ] && [ "$READBACK_OK" != "true" ]; then',
+    );
+    expect(content).toContain(
+      'elif [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then',
+    );
+    expect(content).toContain("gh api --method PATCH");
+    expect(content).toContain("-f conclusion=failure");
     expect(content).toContain("RECAP_SHOT_OK:");
     expect(content).toContain("RECAP_SHOT_REASON:");
+    expect(content).toContain("SHOT_OK: ${{ steps.shot.outputs.shot_ok }}");
+    expect(content).toContain('--shot-ok "$CLI_SHOT_OK"');
+    expect(content).toContain('--shot-reason "$CLI_SHOT_REASON"');
     expect(content).toContain("[recap shot] ${label}");
     expect(content).toContain("const hasAllImages = shots.every");
     expect(content).toContain(
@@ -3872,6 +4796,21 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     ".github/workflows/pr-visual-recap-fork.yml",
   );
 
+  it("runs readback and screenshot when post-publish setup steps fail", () => {
+    for (const workflowPath of [
+      path.join(repoRoot, ".github/workflows/pr-visual-recap.yml"),
+      reusableFile,
+      forkFile,
+    ]) {
+      const content = fs.readFileSync(workflowPath, "utf8");
+      expect(
+        content.match(
+          /if: always\(\) && !cancelled\(\) && steps\.url\.outputs\.ok == 'true'/g,
+        ),
+      ).toHaveLength(2);
+    }
+  });
+
   function recapStepNames(content: string): string[] {
     const recapStart = content.indexOf("\n  recap:");
     if (recapStart < 0) return [];
@@ -3968,8 +4907,22 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     const content = fs.readFileSync(forkFile, "utf8");
     expect(content).toContain("RECAP_PLAYWRIGHT");
     expect(content).toContain("--image-cache-key");
+    expect(content).toContain(
+      "PLAN_OK: ${{ steps.url.outputs.ok == 'true' && steps.shot.outputs.shot_ok == 'true' }}",
+    );
+    expect(content).toContain(
+      'if [ "$URL_OK" = "true" ] && [ "$READBACK_OK" != "true" ]; then',
+    );
+    expect(content).toContain(
+      'elif [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then',
+    );
+    expect(content).toContain("gh api --method PATCH");
+    expect(content).toContain("-f conclusion=failure");
     expect(content).toContain("RECAP_SHOT_OK:");
     expect(content).toContain("RECAP_SHOT_REASON:");
+    expect(content).toContain("SHOT_OK: ${{ steps.shot.outputs.shot_ok }}");
+    expect(content).toContain('--shot-ok "$CLI_SHOT_OK"');
+    expect(content).toContain('--shot-reason "$CLI_SHOT_REASON"');
     expect(content).toContain("[recap shot] ${label}");
     expect(content).toContain("const hasAllImages = shots.every");
     expect(content).toContain(

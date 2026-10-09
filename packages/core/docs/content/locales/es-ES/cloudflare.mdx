@@ -203,6 +203,35 @@ npx wrangler deploy --config .output/server/wrangler.json
 Los secretos se mantienen guardados en el Worker entre implementaciones, así que no necesitas
 repetir el paso 5.
 
+## Trabajo programado {#cloudflare-scheduled-work}
+
+Las automatizaciones programadas, las automatizaciones por eventos en cola y la
+limpieza de ejecuciones interrumpidas se realizan en un barrido que se ejecuta
+una vez por minuto. La compilación añade un
+[Cron Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+`* * * * *` al `wrangler.json` generado y conserva los Cron Triggers que ya
+hayas declarado. Cuando se dispara, el controlador `scheduled` del Worker llama
+directamente al barrido con un token de corta duración firmado con
+`A2A_SECRET`, así que establece ese secreto antes de implementar:
+
+```bash
+npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
+```
+
+- **Tiempo de CPU.** En el plan Workers Free, cada invocación de Cron Trigger
+  dispone de 10 ms de tiempo de CPU, y un barrido que ejecuta trabajos del
+  agente necesita más. Usa el plan Workers Paid para el trabajo programado.
+- **Horario.** Los Cron Triggers se ejecutan en UTC, y un disparador nuevo o
+  modificado puede tardar hasta 15 minutos en empezar a dispararse después de
+  una implementación.
+- **Pruebas locales.** Ejecuta el Worker compilado con
+  `npx wrangler dev --test-scheduled --config .output/server/wrangler.json`
+  y luego solicita `/cdn-cgi/handler/scheduled?cron=*+*+*+*+*` para disparar el
+  barrido una vez.
+
+Consulta [Cómo se ejecuta el programador](/docs/recurring-jobs#how-scheduler-runs)
+para los demás hosts.
+
 ## Qué sigue {#whats-next}
 
 - [**Implementación: variables de entorno**](/docs/deployment-environment-variables) - la lista completa de la configuración de producción

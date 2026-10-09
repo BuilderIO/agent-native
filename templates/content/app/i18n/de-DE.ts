@@ -462,7 +462,6 @@ const editor = {
   pageBodySyncing: "Der Inhalt dieser Seite wird noch synchronisiert",
   pageBodySyncingDescription:
     "Die Bearbeitung ist pausiert, bis der Seiteninhalt fertig synchronisiert ist, damit bestehende Inhalte nicht überschrieben werden.",
-  createCollection: "Sammlung erstellen",
   creatingDatabase: "Inline-Sammlung wird erstellt...",
   databaseCreated: "Sammlung erstellt",
   emptyBlockPlaceholder: "Drücke „/“ für Befehle",
@@ -1090,6 +1089,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "Warte weiterhin auf {{stage}}. Anfrage: {{action}}.",
+    widgetDocumentLoadStage: "den Inhalt der gespeicherten Seite",
+    widgetDraftCheckStage: "die Wiederherstellung des Seitenentwurfs",
+    widgetEditorInitStage: "die Initialisierung des Rich-Text-Editors",
     iconPickerIcons: "Symbole",
     iconPickerEmoji: "Emoji",
     iconPickerRecent: "Zuletzt verwendet",
@@ -1525,6 +1528,11 @@ const overrides = {
     resize: "Seitenleiste skalieren",
     expand: "Seitenleiste ausklappen",
     failedCreatePage: "Seite konnte nicht erstellt werden",
+    failedCreatePageDraftDescription:
+      "Ihr Entwurf ist in diesem Browser gespeichert. Sie können die Seite erneut erstellen oder den Entwurf verwerfen.",
+    discardFailedCreatePageQuestion: "Ausstehende Erstellung verwerfen?",
+    discardFailedCreatePageDescription:
+      "Dadurch werden die ausstehende Erstellung und alle ungespeicherten Entwürfe gelöscht. Falls die Seite bereits gespeichert wurde, bleibt sie in deinem Arbeitsbereich erhalten.",
     failedDeletePage: "Seite konnte nicht gelöscht werden",
     failedPermanentDeletePage: "Seite konnte nicht dauerhaft gelöscht werden",
     failedRestorePage: "Seite konnte nicht wiederhergestellt werden",

@@ -37,15 +37,7 @@ import {
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../default-agent-engine.js";
-import {
-  BUILDER_CLAUDE_SONNET_MODEL_ID,
-  CLAUDE_SONNET_MODEL_ID,
-} from "../model-config.js";
-import {
-  findLatestSupportedVersionMatch,
-  isNewerVersionedModel,
-  upgradeModelToLatestSupportedVersion,
-} from "../model-version.js";
+import { normalizeModelForEngine } from "../model-version.js";
 import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
   AI_SDK_ANTHROPIC_DEFAULT_BASE_URL,
@@ -218,63 +210,10 @@ export function isAgentEnginePackageInstalled(
   return packageNames.every(canResolvePackage);
 }
 
-export interface NormalizeModelOptions {
-  preserveCustomModels?: boolean;
-  acceptsCustomModels?: boolean;
-}
-
-export function normalizeModelForEngine(
-  engine: Pick<
-    AgentEngine,
-    | "name"
-    | "defaultModel"
-    | "supportedModels"
-    | "acceptsCustomModels"
-    | "preserveCustomModels"
-  >,
-  model: string | null | undefined,
-  options: NormalizeModelOptions = {},
-): string {
-  const candidate = typeof model === "string" ? model.trim() : "";
-  if (!candidate) return engine.defaultModel;
-
-  if (engine.preserveCustomModels || options.preserveCustomModels) {
-    return candidate;
-  }
-
-  const upgradedModel = upgradeModelToLatestSupportedVersion(
-    candidate,
-    engine.supportedModels,
-  );
-  if (upgradedModel) return upgradedModel;
-
-  if (
-    candidate === "auto" ||
-    engine.supportedModels.includes(candidate) ||
-    engine.supportedModels.length === 0
-  ) {
-    return candidate;
-  }
-
-  if (engine.acceptsCustomModels || options.acceptsCustomModels) {
-    return candidate === BUILDER_CLAUDE_SONNET_MODEL_ID &&
-      engine.supportedModels.includes(CLAUDE_SONNET_MODEL_ID)
-      ? CLAUDE_SONNET_MODEL_ID
-      : candidate;
-  }
-
-  const versionMatch = findLatestSupportedVersionMatch(
-    candidate,
-    engine.supportedModels,
-  );
-  if (versionMatch && isNewerVersionedModel(candidate, versionMatch)) {
-    return versionMatch;
-  }
-
-  if (versionMatch) return versionMatch;
-
-  return engine.defaultModel;
-}
+export {
+  normalizeModelForEngine,
+  type NormalizeModelOptions,
+} from "../model-version.js";
 
 type ModelResolvableEngine = Pick<
   AgentEngine,
@@ -599,6 +538,7 @@ function shouldTraceEngineDetection(): boolean {
  */
 export async function detectEngineFromUserSecrets(
   identity?: BuilderCredentialLookupIdentity,
+  options: { isBuilderConnectionUsable?: () => Promise<boolean> } = {},
 ): Promise<AgentEngineEntry | null> {
   const traceLookup = shouldTraceEngineDetection();
   let email = identity?.userEmail?.trim() || undefined;
@@ -632,22 +572,23 @@ export async function detectEngineFromUserSecrets(
     return null;
   }
 
+  const isBuilderConnectionUsable =
+    options.isBuilderConnectionUsable ??
+    (() => hasUsableBuilderConnection(identity));
   const firstEntry = _registry.values().next().value;
   if (
     !getAppConfig().agent.preferBringYourOwnKey &&
     firstEntry?.name === "builder" &&
     isAgentEnginePackageInstalled(firstEntry) &&
     firstEntry.requiredEnvVars.length > 0 &&
-    (await hasUsableBuilderConnection(identity))
+    (await isBuilderConnectionUsable())
   ) {
     return firstEntry;
   }
 
-  let secretsPrefetched = false;
+  let secretsPrefetch: Promise<void> | null = null;
   const prefetchCandidateSecrets = async (): Promise<void> => {
-    if (secretsPrefetched) return;
-    secretsPrefetched = true;
-    await prefetchSecrets([
+    secretsPrefetch ??= prefetchSecrets([
       ...new Set(
         [..._registry.values()]
           .filter(
@@ -657,46 +598,58 @@ export async function detectEngineFromUserSecrets(
           .flatMap((entry) => entry.requiredEnvVars.flatMap(secretKeyNames)),
       ),
     ]);
+    await secretsPrefetch;
   };
 
   const hasAllKeys = async (entry: AgentEngineEntry): Promise<boolean> => {
     if (!isAgentEnginePackageInstalled(entry)) return false;
     if (entry.requiredEnvVars.length === 0) return false;
     if (entry.name === "builder") {
-      return hasUsableBuilderConnection(identity);
+      return isBuilderConnectionUsable();
     }
     await prefetchCandidateSecrets();
-    for (const key of entry.requiredEnvVars) {
-      if (!(await resolveUsableProviderSecret(key))) return false;
-    }
-    return true;
+    const resolvedKeys = await Promise.all(
+      entry.requiredEnvVars.map((key) => resolveUsableProviderSecret(key)),
+    );
+    return resolvedKeys.every(Boolean);
+  };
+
+  const selectUsableEntry = async (
+    candidates: AgentEngineEntry[],
+  ): Promise<AgentEngineEntry | null> => {
+    const results = await Promise.all(
+      candidates.map(async (entry) => ({
+        entry,
+        usable: await hasAllKeys(entry),
+      })),
+    );
+    return results.find((result) => result.usable)?.entry ?? null;
   };
 
   const preferByo = getAppConfig().agent.preferBringYourOwnKey;
   if (preferByo) {
-    for (const entry of _registry.values()) {
-      if (entry.name === "builder") continue;
-      if (await hasAllKeys(entry)) {
-        if (traceLookup) {
-          console.log(
-            `[engine-detect] result=${entry.name} email=${email} orgId=${orgId ?? "(none)"} byo=true`,
-          );
-        }
-        return entry;
+    const byoEntry = await selectUsableEntry(
+      [..._registry.values()].filter((entry) => entry.name !== "builder"),
+    );
+    if (byoEntry) {
+      if (traceLookup) {
+        console.log(
+          `[engine-detect] result=${byoEntry.name} email=${email} orgId=${orgId ?? "(none)"} byo=true`,
+        );
       }
+      return byoEntry;
     }
     // No BYO key matched — fall through to include Builder as fallback.
   }
 
-  for (const entry of _registry.values()) {
-    if (await hasAllKeys(entry)) {
-      if (traceLookup) {
-        console.log(
-          `[engine-detect] result=${entry.name} email=${email} orgId=${orgId ?? "(none)"}`,
-        );
-      }
-      return entry;
+  const detected = await selectUsableEntry([..._registry.values()]);
+  if (detected) {
+    if (traceLookup) {
+      console.log(
+        `[engine-detect] result=${detected.name} email=${email} orgId=${orgId ?? "(none)"}`,
+      );
     }
+    return detected;
   }
   if (traceLookup) {
     console.log(

@@ -33,6 +33,7 @@ export const DEVICE_CODE_TTL_MS = 10 * 60_000;
 export const DEFAULT_TOKEN_TTL_DAYS = 365;
 export const MIN_TOKEN_TTL_DAYS = 1;
 export const MAX_TOKEN_TTL_DAYS = 365;
+export const MAX_SERVICE_TOKEN_TTL_DAYS = 3_650;
 
 export const DEVICE_START_MAX = 20;
 export const DEVICE_START_WINDOW_MS = 60_000;
@@ -186,28 +187,6 @@ export async function recordMintedToken(
   return id;
 }
 
-/**
- * Returns true when the given `jti` corresponds to a token that has been
- * revoked. Fails OPEN on a store/DB error: a transient Neon WS drop must not
- * lock every connected agent out. Signature verification is unaffected — this
- * is only the post-verify revoke check (see `verifyAuth` in build-server.ts).
- */
-/**
- * Throws when the revocation state can't be read. Answering "not revoked"
- * instead would let a transient read failure admit a revoked token.
- */
-export async function isJtiRevoked(jti: string): Promise<boolean> {
-  await ensureTable();
-  const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT revoked_at FROM mcp_connect_tokens WHERE jti = ?`,
-    args: [jti],
-  });
-  if (rows.length === 0) return false;
-  const revokedAt = rows[0].revoked_at ?? rows[0].revokedAt;
-  return revokedAt != null;
-}
-
 export type StoredConnectTokenIdentity = Pick<
   MintedTokenRow,
   "kind" | "ownerEmail" | "orgId"
@@ -215,9 +194,15 @@ export type StoredConnectTokenIdentity = Pick<
 
 export type ConnectTokenOrgLookup =
   | ({ status: "found" } & StoredConnectTokenIdentity)
+  | { status: "revoked" }
   | { status: "missing" }
   | { status: "unavailable" };
 
+/**
+ * A connect token's standing, read in one query. `unavailable` covers a read
+ * failure and a malformed row: answering `missing` or `found` instead would
+ * admit a revoked token, or refuse a live one, on a transient error.
+ */
 export async function lookupConnectTokenOrg(
   jti: string,
 ): Promise<ConnectTokenOrgLookup> {
@@ -225,10 +210,13 @@ export async function lookupConnectTokenOrg(
     await ensureTable();
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT org_id, owner_email, kind FROM mcp_connect_tokens WHERE jti = ?`,
+      sql: `SELECT org_id, owner_email, kind, revoked_at FROM mcp_connect_tokens WHERE jti = ?`,
       args: [jti],
     });
     if (rows.length === 0) return { status: "missing" };
+    if ((rows[0].revoked_at ?? rows[0].revokedAt) != null) {
+      return { status: "revoked" };
+    }
     const rawOrgId = rows[0].org_id ?? rows[0].orgId;
     const ownerEmail = rows[0].owner_email ?? rows[0].ownerEmail;
     const kind = rows[0].kind;
@@ -249,7 +237,8 @@ export async function lookupConnectTokenOrg(
           ? rawOrgId.trim()
           : null,
     };
-  } catch {
+  } catch (error) {
+    console.error("[mcp] Connect-token lookup failed:", error);
     return { status: "unavailable" };
   }
 }
@@ -290,25 +279,20 @@ export async function listTokens(
 export async function listOrgServiceTokens(
   orgId: string,
 ): Promise<MintedTokenRow[]> {
-  try {
-    await ensureTable();
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT id, jti, owner_email, org_id, label, kind, service_name, created_by, created_at, last_used_at, revoked_at FROM mcp_connect_tokens WHERE org_id = ? AND kind = 'service' ORDER BY created_at DESC`,
-      args: [orgId],
-    });
-    return rows.map(mapTokenRow);
-  } catch (err) {
-    if (isConnectionError(err)) return [];
-    throw err;
-  }
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT id, jti, owner_email, org_id, label, kind, service_name, created_by, created_at, last_used_at, revoked_at FROM mcp_connect_tokens WHERE org_id = ? AND kind = 'service' ORDER BY created_at DESC`,
+    args: [orgId],
+  });
+  return rows.map(mapTokenRow);
 }
 
 /**
  * Revoke an org service token by id, scoped to `orgId` AND `kind = 'service'`
  * so a caller can never revoke another org's token (or someone's personal
- * token) through this path. Uses the same `revoked_at` gate `isJtiRevoked`
- * checks, so revocation takes effect on the next request like personal
+ * token) through this path. Uses the same `revoked_at` gate
+ * `lookupConnectTokenOrg` checks, so revocation takes effect on the next request like personal
  * tokens. Idempotent; returns true when a row actually transitioned.
  */
 export async function revokeOrgServiceToken(
@@ -322,6 +306,23 @@ export async function revokeOrgServiceToken(
     args: [Date.now(), id, orgId],
   });
   return result.rowsAffected > 0;
+}
+
+/**
+ * Revoke every active token of one service in a single statement. Unlike
+ * `listOrgServiceTokens`, a connection error is NOT swallowed: retiring a
+ * principal must fail loudly rather than report "0 revoked".
+ */
+export async function revokeServiceTokensByName(
+  orgId: string,
+  serviceName: string,
+): Promise<number> {
+  await ensureTable();
+  const result = await getDbExec().execute({
+    sql: `UPDATE mcp_connect_tokens SET revoked_at = ? WHERE org_id = ? AND kind = 'service' AND service_name = ? AND revoked_at IS NULL`,
+    args: [Date.now(), orgId, serviceName],
+  });
+  return result.rowsAffected;
 }
 
 /**

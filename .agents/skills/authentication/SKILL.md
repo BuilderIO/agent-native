@@ -80,7 +80,21 @@ same token, with no fixed expiry. MCP OAuth and connect tokens carry
 the org chosen when they were issued, so `verifyAuth` and the token endpoint
 re-check live org membership on every use. A removed member gets a 401 or
 `invalid_grant`; a failed check answers a retryable 503. Offboarding revokes
-their MCP refresh and connect tokens instead of transferring them. Cross-app A2A
+their MCP refresh and connect tokens instead of transferring them.
+Connect mints MCP OAuth access tokens too, whatever `A2A_SECRET` holds. Resolve
+the audience of every bearer this app mints through `getMcpOAuthIssuer` /
+`resolveMcpOAuthIssuer`, whose resources are the audiences `verifyAuth`
+accepts, never from a URL built from request headers. Org
+service tokens carry a credential version earlier verifiers reject, because
+those admit any MCP OAuth token as a verified user. `verifyAuth` classifies a
+bearer by the credential it claims to be: OAuth access tokens and both connect
+formats are verified and admitted through one path before any A2A rule runs,
+and one that fails verification never reaches the A2A checks. Earlier
+A2A-format connect tokens verify only with the deployment `A2A_SECRET` and take
+their identity from their stored row; never let organization-secret or
+organization-principal rules see them. A refused bearer token gets a typed
+`reason` in the 401 body and, on `/mcp`, an `error_description` in the
+challenge. Cross-app A2A
 tokens are not re-checked, because their `org_id` is the signing app's
 assertion, and the A2A endpoint rejects MCP credentials.
 Keep `ACCESS_TOKEN` and `pnpm exec agent-native connect` for
@@ -205,6 +219,30 @@ route so users can accept invites, join domain-matched teams, or switch orgs
 without blocking the primary product experience. Place org UI inside the agent
 sidebar so the setup
 checklist, chat, and CLI stay usable during setup.
+
+## Org Service Principals
+
+An org service token authenticates as `svc-<name>@service.<orgId>`, always an
+implicit `member`. Its governance record (`org/service-principal-policy.ts`)
+names an accountable `ownerEmail`, `team`, `riskTier`, `purpose`, a `lifecycle`
+(`active` | `suspended` | `retired`), and `allowedActions`.
+
+- Read the record through `evaluateServicePrincipal` at every entry point that
+  admits a service identity; never query the table directly.
+- `allowedActions: null` is unrestricted, and a list is deny-by-default (exact
+  names or a trailing `*` prefix). An empty list grants nothing.
+- The grant is enforced at the action boundary (`defineAction` wrapper and agent
+  tool execution via `enforceServicePrincipalActionGrant`), so MCP, HTTP action
+  routes, and delegated `ask-agent` runs all honor it. Agent built-ins are
+  covered, so a list grant must name them.
+- No record means an ungoverned legacy principal: still active and unrestricted.
+  Tightening it is an explicit admin act.
+- An unreadable record fails closed with a 503. Never map a read failure to
+  "ungoverned" or "active".
+- `set-service-principal-policy` and `set-service-principal-lifecycle` are
+  owner/admin only and not agent tool-callable. Suspending or retiring also
+  aborts the principal's in-flight runs. Never let the agent or a service token
+  widen its own grant.
 
 ## A2A Identity
 

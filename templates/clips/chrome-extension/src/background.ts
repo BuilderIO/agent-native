@@ -21,6 +21,7 @@ import {
   shouldReconcilePersistedRecording,
   type OffscreenRecordingState,
 } from "./native-recording-state";
+import { broadcastOverlayMessage } from "./overlay-broadcast";
 import {
   sendWithInjectionFallback,
   shouldFollowOverlay,
@@ -600,40 +601,45 @@ function allTabs(): Promise<chrome.tabs.Tab[]> {
 }
 
 async function broadcastMount(): Promise<void> {
-  if (!CROSS_TAB_FOLLOW) {
-    if (overlayTabId !== null) await mountOverlayOnTab(overlayTabId);
-    return;
-  }
   const parts = desiredParts();
   const resetDiagnosticQuotas = overlayPhase === "recording";
-  const tabs = await allTabs();
-  await Promise.all(
-    tabs.map((tab) =>
-      typeof tab.id === "number"
-        ? sendTabMessage(tab.id, {
-            type: "CLIPS_OVERLAY_MOUNT",
-            parts,
-            ...(resetDiagnosticQuotas ? { resetDiagnosticQuotas: true } : {}),
-          })
-        : Promise.resolve(),
-    ),
+  const outcome = await broadcastOverlayMessage(
+    async () =>
+      CROSS_TAB_FOLLOW
+        ? (await allTabs()).flatMap((tab) =>
+            typeof tab.id === "number" ? [tab.id] : [],
+          )
+        : overlayTabId === null
+          ? []
+          : [overlayTabId],
+    sendTabMessage,
+    {
+      type: "CLIPS_OVERLAY_MOUNT",
+      parts,
+      ...(resetDiagnosticQuotas ? { resetDiagnosticQuotas: true } : {}),
+    },
   );
+  if (outcome === "timed-out") {
+    console.warn("[clips-bg] overlay mount did not reach every tab in time");
+  }
 }
 
 async function broadcastUnmount(): Promise<void> {
-  if (!CROSS_TAB_FOLLOW) {
-    if (overlayTabId !== null)
-      await sendTabMessage(overlayTabId, { type: "CLIPS_OVERLAY_UNMOUNT" });
-    return;
-  }
-  const tabs = await allTabs();
-  await Promise.all(
-    tabs.map((tab) =>
-      typeof tab.id === "number"
-        ? sendTabMessage(tab.id, { type: "CLIPS_OVERLAY_UNMOUNT" })
-        : Promise.resolve(),
-    ),
+  const outcome = await broadcastOverlayMessage(
+    async () =>
+      CROSS_TAB_FOLLOW
+        ? (await allTabs()).flatMap((tab) =>
+            typeof tab.id === "number" ? [tab.id] : [],
+          )
+        : overlayTabId === null
+          ? []
+          : [overlayTabId],
+    sendTabMessage,
+    { type: "CLIPS_OVERLAY_UNMOUNT" },
   );
+  if (outcome === "timed-out") {
+    console.warn("[clips-bg] overlay unmount did not reach every tab in time");
+  }
 }
 
 function resetOverlay(): void {

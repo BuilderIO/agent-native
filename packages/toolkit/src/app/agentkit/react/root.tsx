@@ -24,6 +24,7 @@ import {
   type AgentKitLabels,
   type AgentKitBranchNavigation,
   type AgentKitCopyMessageHandler,
+  type AgentKitFeedbackReportBuilder,
   type AgentKitRegistry,
   type AgentKitRenderFailure,
   type AgentKitRunUsageLoader,
@@ -77,6 +78,7 @@ export interface AgentKitRootBaseProps {
   onThreadForked?: (thread: AgentThread) => void;
   branchNavigation?: AgentKitBranchNavigation;
   onCopyMessage?: AgentKitCopyMessageHandler;
+  buildFeedbackReport?: AgentKitFeedbackReportBuilder;
   loadRunUsage?: AgentKitRunUsageLoader;
   onConnectionRequest?: (
     request: AgentConnectionRequest,
@@ -107,6 +109,7 @@ export function AgentKitRoot({
   onThreadForked,
   branchNavigation,
   onCopyMessage,
+  buildFeedbackReport,
   loadRunUsage,
   onConnectionRequest,
   onRenderError,
@@ -153,6 +156,7 @@ export function AgentKitRoot({
   const now = clientOptions?.now;
   const reconnectAttempts = clientOptions?.reconnect?.attempts;
   const reconnectDelay = clientOptions?.reconnect?.delayMs;
+  const aiSetupReadiness = clientOptions?.aiSetupReadiness;
   const onError = clientOptions?.onError;
   const onIntegrityReport = clientOptions?.onIntegrityReport;
   const upload = clientOptions?.upload;
@@ -167,6 +171,7 @@ export function AgentKitRoot({
         ? undefined
         : createAgentKitClient({
             transport: resolvedTransport as AgentTransport,
+            aiSetupReadiness,
             transportOwnership,
             createId,
             now,
@@ -182,6 +187,7 @@ export function AgentKitRoot({
     [
       controller,
       createId,
+      aiSetupReadiness,
       now,
       onError,
       onIntegrityReport,
@@ -280,6 +286,7 @@ export function AgentKitRoot({
       onThreadForked={onThreadForked}
       branchNavigation={branchNavigation}
       onCopyMessage={onCopyMessage}
+      buildFeedbackReport={buildFeedbackReport}
       loadRunUsage={loadRunUsage}
       onConnectionRequest={onConnectionRequest}
       onRenderError={onRenderError}

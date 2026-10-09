@@ -41,8 +41,10 @@ import {
 } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
-import { BuilderBMark } from "./BuilderBMark.js";
-import type { ComposerContextMenuItem } from "./ComposerContextMenu.js";
+import {
+  searchComposerContextActions,
+  type ComposerContextMenuItem,
+} from "./ComposerContextMenu.js";
 import {
   ComposerPlusMenu,
   type ComposerTerminalModeControl,
@@ -376,6 +378,10 @@ function isSameComposerAttachmentSnapshot(
 ) {
   return current.id === snapshot.id && current.file === snapshot.file;
 }
+
+// Host Add-menu actions listed among "@" suggestions. Picking one runs the
+// action or opens its picker as a dialog instead of inserting a mention.
+const COMPOSER_CONTEXT_ENTRY_SOURCE = "composer-context";
 
 function composerReferenceFromMentionItem(
   item: MentionItem,
@@ -1040,6 +1046,8 @@ export interface TiptapComposerProps {
   submissionDisabled?: boolean;
   /** Disable only the send control while the submission is being accepted. */
   sendButtonDisabled?: boolean;
+  /** Show progress in the send control while a pre-submit check is running. */
+  sendButtonBusy?: boolean;
   /** Prevent submission while a host request is in flight. */
   submitting?: boolean;
   /** Override the generic document attachment cap for a multipart host. */
@@ -1193,7 +1201,7 @@ export interface TiptapComposerProps {
   onRemoveContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
-  /** Shared +/@ entries; matching IDs replace built-in full-mode actions. */
+  /** Shared + menu entries; matching IDs replace built-in full-mode actions. */
   contextMenuItems?: readonly ComposerContextMenuItem[];
   /**
    * Controls the "+" menu next to the composer. `"full"` (default) shows the
@@ -1394,8 +1402,33 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "pi-cli": "Pi",
   "opencode-cli": "OpenCode",
   "claude-fable-5": "Claude Fable 5",
+  "claude-fable-5-1": "Claude Fable 5.1",
+  "qwen3-coder": "Qwen3 Coder",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v4-pro": "DeepSeek V4 Pro",
+  "deepseek-v4-1-flash": "DeepSeek V4.1 Flash",
+  "deepseek-v3-1": "DeepSeek v3.1",
+  "z-ai-glm-4-5": "Z-AI GLM 4.5",
+  "z-ai-glm-5-1": "Z-AI GLM 5.1",
+  "z-ai-glm-5-3-flash": "Z-AI GLM 5.3 Flash",
+  "grok-code-fast": "Grok Code Fast",
+  "x-ai/grok-build-0.1": "Grok Build 0.1",
+  "gpt-6-1-sol": "GPT-6.1 Sol",
+  "gemini-3-1-pro": "Gemini 3.1 Pro",
+  "gemini-3-8-flash": "Gemini 3.8 Flash",
+  "google/gemini-3.1-pro-preview": "Gemini 3.1 Pro",
+  "google/gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+  "google/gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
+  "anthropic/claude-haiku-5.5": "Claude Haiku 5.5",
+  "deepseek/deepseek-v4-pro": "DeepSeek V4 Pro",
+  "deepseek/deepseek-v4.1-flash": "DeepSeek V4.1 Flash",
+  "deepseek/deepseek-chat-v3.1": "DeepSeek v3.1",
+  "z-ai/glm-4.5": "Z-AI GLM 4.5",
+  "z-ai/glm-5.1": "Z-AI GLM 5.1",
+  "z-ai/glm-5.3-flash": "Z-AI GLM 5.3 Flash",
+  "x-ai/grok-4.7": "Grok 4.7",
+  "qwen/qwen3-coder": "Qwen3 Coder",
+  "moonshotai/kimi-k2.5": "Kimi K2.5",
   "z-ai/glm-5.2": "GLM 5.2",
   "openai/gpt-6-astra": "GPT-6 Astra",
   "openai/gpt-6-astra-pro": "GPT-6 Astra Pro",
@@ -1421,11 +1454,6 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "claude-haiku-4-5": "Claude Haiku 4.5",
   "gemini-3-5-flash-lite": "Gemini 3.5 Flash-Lite",
   "gemini-3-1-flash-lite": "Gemini 3.1 Flash-Lite",
-  "grok-code-fast": "Grok Code Fast",
-  "qwen3-coder": "Qwen3 Coder",
-  "deepseek-v3-1": "DeepSeek v3.1",
-  "z-ai-glm-4-5": "Z-AI GLM 4.5",
-  "z-ai-glm-5-1": "Z-AI GLM 5.1",
 };
 
 const LOCAL_RUNTIME_ENGINES = new Set([
@@ -1522,11 +1550,15 @@ function friendlyModelName(model: string, t?: ComposerTranslate): string {
       }) ?? "Default model"
     );
   }
-  if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
+  const friendlyName = Object.hasOwn(FRIENDLY_MODEL_NAMES, model)
+    ? FRIENDLY_MODEL_NAMES[model]
+    : undefined;
+  if (friendlyName !== undefined) return friendlyName;
   const normalizedModel = model.replace(/^(?:anthropic|openai|google)\//, "");
   // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD].
-  const claude = normalizedModel.match(
-    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?(?:-\d{8,})?$/,
+  const undatedModel = normalizedModel.replace(/-\d{8,}$/, "");
+  const claude = undatedModel.match(
+    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
@@ -1573,18 +1605,18 @@ export function compactComposerModelName(
 ): string {
   const fullName = friendlyModelName(model, t);
   if (model === "auto" || LOCAL_RUNTIME_ENGINES.has(model)) return fullName;
+  if (/^DeepSeek\b/i.test(fullName)) return fullName;
   const shortName = fullName
     .replace(/^GPT-\d+(?:\.\d+)?\s*/i, "")
     .replace(/^Gemini\s+\d+(?:\.\d+)?\s*/i, "")
     .replace(/^Claude\s+/i, "")
     .replace(/^Qwen\s*\d*(?:\.\d+)?\s*/i, "")
-    .replace(/^DeepSeek\s+v?\d+(?:\.\d+)?\s*/i, "")
+    .replace(/^(DeepSeek)\s+v?\d+(?:\.\d+)?/i, "$1")
     .replace(/^Z-AI\s*/i, "")
     .replace(/^Grok\s*/i, "")
     .replace(/\s+[a-z]*\d+(?:\.\d+)*$/i, "")
     .trim();
-  if (shortName) return shortName;
-  return /^deepseek-/i.test(model) ? "DeepSeek" : fullName;
+  return shortName || fullName;
 }
 
 export function compactComposerReasoningEffortLabel(
@@ -1985,6 +2017,30 @@ function ModelSelector({
   const selectedModelDisplayName = selectedModelProviderGroups
     .map((group) => group.modelDisplayNames?.[model])
     .find((displayName) => typeof displayName === "string");
+  const selectedModelProviderGroup =
+    selectedModelProviderGroups.find(
+      (group) => group.engine === selectedEngine,
+    ) ?? selectedModelProviderGroups[0];
+  const selectedModelFriendlyName =
+    selectedModelDisplayName ?? friendlyModelName(model, t);
+  const selectedModelHasDuplicateName =
+    selectedModelProviderGroup !== undefined &&
+    modelProviderGroups.some(
+      (group) =>
+        group.engine !== selectedModelProviderGroup.engine &&
+        group.models.some(
+          (candidate) =>
+            (group.modelDisplayNames?.[candidate] ??
+              friendlyModelName(candidate, t)) === selectedModelFriendlyName,
+        ),
+    );
+  const selectedModelProviderLabel = selectedModelProviderGroup?.label.replace(
+    / · Builder\.io$/i,
+    "",
+  );
+  const selectedModelDisplayLabel = selectedModelHasDuplicateName
+    ? `${selectedModelFriendlyName} · ${selectedModelProviderLabel}`
+    : selectedModelFriendlyName;
   const selectedModelNeedsConnection =
     onlyConnectPathAvailable ||
     (selectedModelProviderGroups.length > 0 &&
@@ -1993,11 +2049,13 @@ function ModelSelector({
     ? showBuilderAction
       ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
       : t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
-    : (selectedModelDisplayName ?? friendlyModelName(model, t));
+    : selectedModelDisplayLabel;
   const selectedModelLabel = selectedModelName;
   const selectedModelButtonLabel = selectedModelNeedsConnection
     ? selectedModelLabel
-    : (selectedModelDisplayName ?? compactComposerModelName(model, t));
+    : selectedModelHasDuplicateName
+      ? selectedModelDisplayLabel
+      : (selectedModelDisplayName ?? compactComposerModelName(model, t));
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -2347,9 +2405,7 @@ function ModelSelector({
                                     aria-hidden="true"
                                     className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary"
                                   />
-                                ) : (
-                                  <BuilderBMark className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                                )}
+                                ) : null}
                                 <span className="min-w-0 flex-1">
                                   <span className="block text-[12px] font-medium text-foreground">
                                     {builderFlow.connecting
@@ -2490,10 +2546,15 @@ function ModelSelector({
                     {hasConfiguredProvider &&
                       !onlyConnectPathAvailable &&
                       visibleProviderGroups.map((group, groupIndex) => {
-                        const models =
+                        const latestModels =
                           group.engine === "chatgpt-subscription"
                             ? group.models
                             : latestModelsOnly(group.models);
+                        const models = group.models.filter(
+                          (candidate) =>
+                            latestModels.includes(candidate) ||
+                            candidate === model,
+                        );
                         const showProviderLabels =
                           visibleProviderGroups.length > 1;
                         const isLocalRuntime =
@@ -2692,6 +2753,7 @@ export function TiptapComposer({
   contextControlsDisabled = false,
   submissionDisabled = false,
   sendButtonDisabled = false,
+  sendButtonBusy = false,
   submitting = false,
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
@@ -2776,6 +2838,9 @@ export function TiptapComposer({
   });
   const [popover, setPopover] = useState<PopoverState>(null);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const [contextEntryRequest, setContextEntryRequest] = useState<{
+    id: string;
+  } | null>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
   const composerRuntime = useComposerRuntime();
   const lastComposerRuntimeSyncRef = useRef<{
@@ -2890,6 +2955,7 @@ export function TiptapComposer({
     isLoading: mentionsLoading,
     error: mentionsError,
     retry: retryMentions,
+    settledQuery: settledMentionQuery,
   } = useMentionSearch(
     popover?.type === "@" ? popover.query : "",
     includeDefaultMentionSearch && (contextMenuOpen || popover?.type === "@"),
@@ -2912,6 +2978,45 @@ export function TiptapComposer({
       ),
     [hostMentionItems, mentionItems, mentionQuery, slotReferences],
   );
+  const inlineMentionItems = useMemo(() => {
+    if (
+      popover?.type !== "@" ||
+      !hasContextMenu ||
+      disabled ||
+      contextControlsDisabled ||
+      !contextMenuItems?.length
+    )
+      return filteredMentionItems;
+    const addContextLabel = t("agentChat.composer.addContext", {
+      defaultValue: "Add context",
+    });
+    return [
+      ...searchComposerContextActions(contextMenuItems, mentionQuery)
+        // Custom pages only render inside the + menu.
+        .filter(({ action }) => !action.disabled && !action.render)
+        .map(
+          ({ action, categories }): MentionItem => ({
+            id: `${COMPOSER_CONTEXT_ENTRY_SOURCE}:${action.id}`,
+            label: action.label,
+            description: action.description,
+            source: COMPOSER_CONTEXT_ENTRY_SOURCE,
+            refType: COMPOSER_CONTEXT_ENTRY_SOURCE,
+            refId: action.id,
+            section: categories[0] ?? addContextLabel,
+          }),
+        ),
+      ...filteredMentionItems,
+    ];
+  }, [
+    popover?.type,
+    hasContextMenu,
+    disabled,
+    contextControlsDisabled,
+    contextMenuItems,
+    mentionQuery,
+    filteredMentionItems,
+    t,
+  ]);
 
   const {
     skills,
@@ -2960,14 +3065,18 @@ export function TiptapComposer({
   }, [allSlashSkills, popover]);
 
   // Keep refs in sync with state
-  const mentionItemsRef = useRef(filteredMentionItems);
-  mentionItemsRef.current = filteredMentionItems;
+  // Results for an earlier query are stale until the search for this one
+  // settles, so auto-close may not treat them as final. Host mention items
+  // carry no readiness signal (they may still be loading), so only a settled
+  // default search can end a query as "nothing matches".
+  const mentionSearchSettled =
+    includeDefaultMentionSearch &&
+    !mentionsLoading &&
+    settledMentionQuery === mentionQuery;
   const filteredCommandsRef = useRef(filteredCommands);
   filteredCommandsRef.current = filteredCommands;
   const filteredSkillsRef = useRef(filteredSkills);
   filteredSkillsRef.current = filteredSkills;
-  const hasContextMenuRef = useRef(hasContextMenu);
-  hasContextMenuRef.current = hasContextMenu;
   const launchersDisabledRef = useRef(disabled || contextControlsDisabled);
   launchersDisabledRef.current = disabled || contextControlsDisabled;
   const onSlashCommandRef = useRef(onSlashCommand);
@@ -3017,6 +3126,24 @@ export function TiptapComposer({
     setPopover(null);
     popoverStateRef.current = null;
   }, []);
+
+  // A query nothing matches is plain text ("@builder.io", "@3pm"), so end the
+  // mention there instead of holding later keys.
+  useEffect(() => {
+    if (
+      mentionQuery &&
+      mentionSearchSettled &&
+      inlineMentionItems.length === 0
+    ) {
+      closePopover();
+    }
+  }, [mentionQuery, mentionSearchSettled, inlineMentionItems, closePopover]);
+
+  // The + menu runs a request from its own effect, which fires before this one;
+  // clear it so a remounted menu cannot run the same action again.
+  useEffect(() => {
+    if (contextEntryRequest) setContextEntryRequest(null);
+  }, [contextEntryRequest]);
 
   // Persist draft to localStorage so refreshes don't lose the prompt.
   const hasDraftScope = Boolean(draftScope?.trim());
@@ -3479,17 +3606,6 @@ export function TiptapComposer({
 
         // Handle popover keyboard nav
         if (pop) {
-          if (event.key === " " && pop.type === "@" && pop.query) {
-            const exact = findExactMentionItem(
-              mentionItemsRef.current,
-              pop.query,
-            );
-            if (exact) {
-              event.preventDefault();
-              selectMention(view, pop, exact);
-              return true;
-            }
-          }
           if (event.key === "ArrowUp") {
             event.preventDefault();
             popoverRef.current?.moveUp();
@@ -3500,7 +3616,18 @@ export function TiptapComposer({
             popoverRef.current?.moveDown();
             return true;
           }
-          if (event.key === "Enter") {
+          // A mention comes only from an explicit pick of a highlighted row. With
+          // nothing highlighted, even while a search is pending, the "@" is
+          // plain text: Enter submits it and a late result changes nothing.
+          const highlighted =
+            pop.type === "@" ? popoverRef.current?.getSelectedMention() : null;
+          if (event.key === "Enter" && pop.type === "@" && !highlighted) {
+            closePopover();
+          } else if (event.key === "Tab" && !event.shiftKey && highlighted) {
+            event.preventDefault();
+            selectMention(view, pop, highlighted);
+            return true;
+          } else if (event.key === "Enter") {
             event.preventDefault();
             const idx = popoverRef.current?.getSelectedIndex() ?? 0;
             const currentCommands = filteredCommandsRef.current;
@@ -3616,22 +3743,17 @@ export function TiptapComposer({
         }
 
         // Detect @ trigger — only when preceded by start-of-text, space, or newline
-        // (not after alphanumeric chars, which would indicate an email address)
+        // (not after alphanumeric chars, which would indicate an email address).
+        // Keep the typed "@" in the draft and focus in the editor: a focus-taking
+        // menu here would swallow the rest of a literal like "@builder.io".
         if (event.key === "@") {
+          if (launchersDisabledRef.current) return false;
           const { from } = view.state.selection;
           const textBefore = view.state.doc.textBetween(
             Math.max(0, from - 1),
             from,
           );
           if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
-            if (hasContextMenuRef.current) {
-              if (launchersDisabledRef.current) return false;
-              event.preventDefault();
-              popoverStateRef.current = null;
-              setPopover(null);
-              setContextMenuOpen(true);
-              return true;
-            }
             const position = getComposerPopoverAnchorPosition(view, from);
             if (!position) return false;
             setTimeout(() => {
@@ -3843,15 +3965,7 @@ export function TiptapComposer({
     insertTextAtCursor(text: string) {
       if (!isComposerEditorUsable(editor)) return;
       editor.commands.focus();
-      // An inserted "@" opens the shared Add menu when the host provides one.
-      const mention = text === "@";
-      if (mention && hasContextMenuRef.current) {
-        if (launchersDisabledRef.current) return;
-        popoverStateRef.current = null;
-        setPopover(null);
-        setContextMenuOpen(true);
-        return;
-      }
+      const mention = text === "@" && !launchersDisabledRef.current;
       let inserted = text;
       if (mention) {
         const { from } = editor.state.selection;
@@ -4425,7 +4539,7 @@ export function TiptapComposer({
 
       const attachmentScopeGeneration = draftScopeGenerationRef.current;
       submitInFlightRef.current = true;
-      onSubmissionPendingChange?.(true);
+      if (!onBeforeSubmit) onSubmissionPendingChange?.(true);
       const attachmentSubmissionBarrier = createAttachmentSubmissionBarrier();
       let attachmentSnapshot: typeof composerAttachments;
       try {
@@ -4447,7 +4561,7 @@ export function TiptapComposer({
         return false;
       } finally {
         submitInFlightRef.current = false;
-        onSubmissionPendingChange?.(false);
+        if (!onBeforeSubmit) onSubmissionPendingChange?.(false);
       }
       if (
         !isComposerEditorUsable(ed) ||
@@ -4741,7 +4855,6 @@ export function TiptapComposer({
 
       if (onBeforeSubmit) {
         submitInFlightRef.current = true;
-        onSubmissionPendingChange?.(true);
         try {
           const shouldSubmit = await onBeforeSubmit(
             composerDraftSnapshot(text, references, attachments),
@@ -4765,7 +4878,6 @@ export function TiptapComposer({
           return false;
         } finally {
           submitInFlightRef.current = false;
-          onSubmissionPendingChange?.(false);
         }
       }
       if (
@@ -5324,6 +5436,14 @@ export function TiptapComposer({
     const currentPos = ed.state.selection.from;
     // startPos is after the trigger char, so -1 to include the @ or /
     const deleteFrom = Math.max(0, pop.startPos - 1);
+    if (item.source === COMPOSER_CONTEXT_ENTRY_SOURCE && item.refId) {
+      ed.chain()
+        .focus()
+        .deleteRange({ from: deleteFrom, to: currentPos })
+        .run();
+      setContextEntryRequest({ id: item.refId });
+      return;
+    }
     const normalized = adapters.agentChat!.normalizeReference!(
       composerReferenceFromMentionItem(item),
     ) as AgentComposerReference | null;
@@ -5907,6 +6027,7 @@ export function TiptapComposer({
         ) : hasContextMenu ? (
           <ComposerPlusMenu
             contextMenuItems={launchersDisabled ? [] : contextLauncherItems}
+            openEntry={contextEntryRequest}
             mode={
               launchersDisabled || plusMenuMode === "hidden"
                 ? "upload-only"
@@ -6023,10 +6144,15 @@ export function TiptapComposer({
                     }
                     disabled={!canSend || sendButtonDisabled}
                     aria-label={sendButtonTooltip}
+                    aria-busy={sendButtonBusy || undefined}
                     data-agent-composer-slot="send-button"
                     className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
-                    <IconArrowUp className="h-3.5 w-3.5" />
+                    {sendButtonBusy ? (
+                      <IconLoader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+                    ) : (
+                      <IconArrowUp className="h-3.5 w-3.5" />
+                    )}
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>{sendButtonTooltip}</TooltipContent>
@@ -6040,7 +6166,7 @@ export function TiptapComposer({
         density={mentionPopoverDensity}
         type={popover?.type ?? "@"}
         position={popover?.position ?? null}
-        mentionItems={filteredMentionItems}
+        mentionItems={inlineMentionItems}
         skills={filteredSkills}
         commands={filteredCommands}
         hint={hint}

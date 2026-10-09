@@ -51,6 +51,125 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.205.0
+
+### Minor Changes
+
+- fc06d55: Export the shared credentialed A2A URL and workspace-origin helpers for secure app-to-app uploads.
+
+### Patch Changes
+
+- b7e32e4: Cut serverless cold-start time for action-heavy apps: `defineAction` no longer converts an action's full schema to JSON Schema when a compact `agentInputSchema` is set, since only the compact one is ever advertised (Plan's cold import drops from about 2.3s to 0.8s in a local CI-shaped build).
+- e7416e0: Fence Agent Teams retries to their current queue attempt, persist each attempt's transcript separately, keep continuation and completion effects recoverable, and distinguish unreadable agent discovery from missing peers.
+- 4f42efa: Stop a chat run's event pump from re-arming itself forever once the AgentKit adapter is disposed. The pump restarted whenever its loop ended without a terminal event, so a run the adapter no longer tracked spun the event loop at full CPU.
+- b7e32e4: A chat that still shows a run as running after the server stopped tracking it now reloads the thread and refreshes the app's data, instead of waiting for the user to retry; a status check that cannot reach the server shows its own notice rather than "running" or "done". Threads created without a request org adopt their run's org so Human Review can open them, and a one-time migration backfills existing ones. A classifier that cannot run now emits `$ai_sentiment_failed` with a coarse reason, a failed trace write is counted and logged once per run, a thumbs-down for a run with no persisted trace is saved instead of answering 404, and the thumbs-down popover gains reason chips and Copy details. A run that ends `connection_required` now leaves a note for the thread's next run (named providers, who can connect them) so the agent stops retrying the same unconnected provider, and the card says who can grant it. Pre-model reference retrieval and the per-turn screen, URL and selection blocks report a typed status (`ok`, `empty`, `timed_out`, `failed`) and add a one-line context note only when degraded; traces record the context statuses and the requested reasoning effort. Tool search ranks an exact tool-name query first.
+- ab41d2b: Record actions called by outside agents over MCP, WebMCP, or A2A as the agent acting for the user, not as the user. Rows recorded before this change read the same way, and the Settings audit log names the protocol ("Agent via MCP").
+- afc1fed: Preserve browser analytics sessions on successful signup events.
+- a881977: Treat missing uploaded objects as successfully deleted.
+- cbc151c: Offer DeepSeek V4.1 Flash and Z-AI GLM 5.3 Flash through Builder.
+- de66ff4: Make Clips object storage optional during onboarding, keep local recordings previewable and downloadable, and clarify Builder account setup with a retry action when connection status cannot be read.
+- d9ab440: Bundle a `builder-code-starter` scaffold template as a layer over the Chat template: `agent-native template materialize --template builder-code-starter` copies Chat, removes the Chat shell, applies the starter's unified-diff patches to the Chat files it changes, adds its own files, and merges its Drizzle scripts and dependencies into Chat's `package.json`. A bundled template opts into layering with a `template-layer.json` naming its base; a patch that no longer applies fails the materialize instead of dropping the change. `skills update scaffold` assembles the starter's patched skills the same way for apps marked `scaffold.template: "builder-code-starter"`.
+- 1341328: Preserve optional action parameters across OpenAI-compatible providers by explicitly disabling strict function-tool schemas, including a transport adapter for OpenRouter's SDK.
+- fc06d55: Keep user-bound A2A tokens scoped to a verified organization without sending the organization-domain claim that can downgrade them to an organization principal when secrets collide.
+- e16da0c: Sync the packaged Chat action guidance with the workspace skill.
+- 947f911: Keep agent chat on a turn the server recovers after a crash: an open chat follows the successor run live, a reload no longer shows the interrupted attempt as a failed run above the answer, and a failed run's card stays in its own turn instead of moving below newer replies.
+- b7e32e4: Stop showing a finished chat reply twice when its run called a tool that returns a structured result.
+- e453592: Forward the engine selected for each chat turn to the agent request.
+- fc06d55: Allow A2A callers to require user identity tokens without organization-principal fallbacks.
+- b49b511: A collaborator's resource event that names its sending tab (for example Slides deck saves and deletions) now wakes the shared polling transport when no event stream is connected, so an open deck learns it was deleted within seconds instead of at the 1-5 minute idle cadence. A tab's own saves and unnamed server events still do not boost polling.
+- ae5aed6: A directory MCP App widget now fills a Codex or ChatGPT side pane that sizes its frame only from the height the widget reports: the shell reports the tallest height the viewer's screen can show instead of the app's content height, tells the nested app the frame has a fixed height so it lifts its inline-card clamp, and asks a host that offers fullscreen for it once on the first click into the app.
+- 79892cb: Omit unavailable runtime turn IDs from AgentKit observability metadata so run events remain valid JSON.
+- b119a3d: Rebuild request URLs with the validated forwarded origin behind trusted proxies.
+- 6f32f61: Give scheduled and event automation runs the same current date and time context as chat, using the automation's timezone.
+- b119a3d: Upgrade Nitro and H3 to include the srvx Node adapter body-state fixes.
+- 1b1d976: Distinguish confirmed automation work, explicitly declared no-op skips, and undelivered failures in run history and automation status. Preserve failure causes and recovery codes without pausing legitimate no-op runs.
+- 8ab4068: Record a bounded `http.route` on every `http.server.request.duration` point and `http.server` span: framework endpoints get their route template (`/_agent-native/auth/session`, `/_agent-native/agent-chat/runs/:runId/events`), app file routes their Nitro template, and everything else a fixed bucket (`/_agent-native/*`, `/api/*`, `static`, `page`, `other`), so 4xx traffic can be attributed to an endpoint without recording raw paths.
+- Release all public npm packages with a patch version bump.
+- 76d00e9: Fix MCP tool results for GET actions that declare `readOnly: false`: the ChatGPT directory profile no longer collapses a read like Slides `get-deck` into "<title> is ready.", so the model receives the slides, not just the deck title.
+- 5c5e00e: Close worker-owned database clients during dev server shutdown so `.env` restarts can reopen PGlite safely.
+- 0733f04: Stop a poll that hit the row limit from waiting on an unrelated access check.
+- ae5aed6: Read-only directory widgets can invoke only WebMCP tools allowed by their capability, even when a session is also authenticated.
+- e453592: Require user approval before writing organization-wide learnings, including in
+  existing workspaces.
+- 99e3425: Sync the chat template's action-field reference with the shared workspace skill.
+- 4bccb4c: Browser telemetry URL scrubbing now redacts the signed `agent_access` query token, so opening an agent-access link in a tracked app no longer copies its bearer into pageview, referrer, error-report or session-replay URLs.
+- 5c5e00e: Preserve explicit dev server shutdown while Vite is creating a replacement server.
+- ae5aed6: Keep MCP App resources out of directory catalogs without an explicit widget target.
+- 37ae12f: Preserve locally issued connect-token identity when the deployment and organization A2A secrets match, while retaining the stored-token ownership and revocation checks.
+- 8418b84: Run the once-a-minute scheduled sweep on Vercel and Cloudflare Workers. Vercel builds now add a cron job that calls the sweep with `CRON_SECRET`, and Cloudflare builds add a Cron Trigger whose `scheduled` handler calls it with a token signed by `A2A_SECRET`, so scheduled automations, queued event automations, and stale-run cleanup no longer stop on those hosts. Vercel Hobby rejects a deployment whose cron runs more than once a day, so Hobby projects must set `AGENT_NATIVE_VERCEL_CRON_SCHEDULE` to a daily expression such as `0 9 * * *` before deploying this version. Both schedulers request the public sweep path, so a custom `runtime.frameworkRoutePrefix` or app base path is honored. A workspace Vercel deploy takes each app's cron from that app's own build, so every app in the workspace must build with this version of `@agent-native/core`; the deploy fails and names any app whose build scheduled no sweep. The Automations page now names a missing trigger secret and no longer claims event automations still run on a host without a scheduler or in a build with recurring jobs turned off.
+
+  On a cold Cloudflare Worker, framework routes no longer return 404 or wait out the readiness timeout: the request telemetry hook no longer throws where `AsyncLocalStorage.enterWith()` is unavailable, and pending plugin initialization is passed to `waitUntil` so it can continue after the response is sent.
+
+- cc79bd1: The inferred-sentiment classifier now defaults to `gpt-6-luna`, a model the Builder gateway lists (the retired `gpt-5-6-luna` made every hosted classification fail as `engine_unavailable`), and an engine that does not list the configured model now reports the distinct `$ai_sentiment_failed` reason `model_unsupported`.
+- dfc1d2c: Upload Sentry source maps for the Nitro server bundle so server errors resolve to original source.
+- e453592: Require approval for shared memory changes and retain prompt-derived chat titles when generation fails.
+- 9e00e7b: Document the Slides context-menu adapter exception.
+- 4f42efa: Fix live-stream collaboration updates that arrived 15-55 seconds late. The `/_agent-native/events` stream dropped a collaborator's first event for a resource whenever that user's cached access had expired (every 30 seconds), leaving recovery to a much later poll. The stream now waits for the running access check and keeps events in order behind it, and closes the stream so the client re-polls if the check outlasts 10 seconds.
+- ae5aed6: Preserve existing MCP App container dimensions when hosts send partial size updates.
+- b7e32e4: Keep mixed-organization thread history out of org-scoped review and keep peer-supplied connection text out of agent instructions.
+- 004f2a9: Continuing a stopped agent run no longer repeats the steps it already finished. A run the server ends after its worker died now saves its finished tool calls to the thread, a new message after an unfinished turn tells the agent what that turn already did, and the run failure card offers Continue, which resumes the stopped run's own turn so a finished send or charge is not run again. AgentKit transports can implement the new optional `continueRun`.
+- 8318b23: Polish the MCP connection page accordion separators, chevrons, and spacing.
+- 5c5e00e: Prevent PGlite database locks from getting stuck during development server restarts.
+- ae5aed6: An MCP App widget document now stays a widget for its whole life: `isMcpAppWidgetEmbed()` keeps its first positive answer and marks `<html data-agent-native-mcp-widget>`, `useIsMcpAppWidgetEmbed()` subscribes to that change, a directory widget capability token identifies a widget without the chat-bridge query flag, and `/_agent-native/embed/start` always adds the flag for directory widget tickets. `AppProviders` emits a first-paint script that sets the marker before the server-rendered skeleton paints, and `AppShellSkeleton` renders blank in a widget so the app's own sidebar never flashes.
+- ae5aed6: MCP App widgets now fill a host-owned side panel or fullscreen frame instead of stopping at the inline card height, apps can detect a widget embed with `isMcpAppWidgetEmbed()` / `useIsMcpAppWidgetEmbed()` to drop their own navigation chrome, directory MCP servers attach the widget only to tools listed in `widgetTargets` so read tools no longer open a pane on every call, and a read-only directory widget session (`isMcpDirectoryWidgetReadOnlyEmbed()`) answers application-state requests the server would refuse with the same 401 locally, so callers behave as before without the failed request.
+- Updated dependencies [b7e32e4]
+- Updated dependencies [e7416e0]
+- Updated dependencies
+- Updated dependencies [5c5e00e]
+- Updated dependencies [004f2a9]
+  - @agent-native/agentkit@0.205.0
+  - @agent-native/recap-cli@0.5.67
+
+## 0.204.0
+
+### Minor Changes
+
+- b4285f5: Add `export-audit-ocsf` so org owners and admins can pull the organization audit trail into a SIEM as OCSF 1.9.0 API Activity events with overlap-aware cursor pagination. Harden service principal lifecycle and action grant enforcement, including audited refusals at MCP and A2A admission and queued-task processing.
+
+### Patch Changes
+
+- 4ba5ea5: Prebundle the shared chat entry in standalone AgentKit apps.
+- 59a6099: Preserve AgentKit transcript turn order and reconcile durable message mirrors when event history is incomplete.
+- 54f8526: Use the Dispatch app path for the default hosted workspace directory URL.
+- c3feada: Allow revocable organization service tokens to have a lifetime of up to ten years and give recap-auth failures the correct recovery command.
+- f823a43: A collab connection's own poll now counts another tab's resource-scoped action and Yjs events on the open resource as collaborator activity, so a viewer on a different screen of the same design or deck leaves the 1-5 minute idle cadence within one collab poll instead of waiting for the idle poll.
+- 9ac3cc7: Require the Factory feedback skill to reply with each status reaction.
+- d04dfdc: Fix Builder.io's managed storage provider returning 400 "No image specified" for `application/json` and `text/plain` chat attachments by routing those mimetypes through the signed-URL upload path instead of the legacy endpoint. Also normalize thrown provider upload errors to a 503 response instead of leaking the provider's raw status code.
+- 9f1a191: Preserve CLI action values that begin with option syntax.
+- b4285f5: Load service-principal grant enforcement only for service identities to reduce ordinary server startup work.
+- Release all public npm packages with a patch version bump.
+- 69b9fc6: Advertise each action's declared `mcpAnnotations` on every MCP catalog, not just the directory profile, so a Trash move or overwrite no longer reaches hosts as `destructiveHint: false`. Actions can also declare an optional `idempotentHint`.
+- f823a43: Poll reads that stop at a resource event whose access check is still running now wait up to one second for that check, so the first event after the access cache expires is delivered in the same poll instead of one poll interval later.
+- b4285f5: Preserve retryable service-principal authorization failures and audit denials across A2A, MCP resources, and sandbox child actions.
+- 5c1bae5: Pass authenticated caller identity into generated HTTP action handlers so actions such as org service-token management receive their verified user and organization context.
+- 13994d7: Persist explicit end timestamps for LLM trace spans and generation events.
+- b4285f5: Derive service-principal denial audit scope from the service identity and document ready-watermark cursor advancement for empty OCSF pages.
+- 1bffc30: Signing in from an emailed link no longer leaves the used `token`, `callbackURL`, and `newUserCallbackURL` in the address bar. Netlify copies a request's query string onto any redirect whose `Location` has none, so the bare redirect after a verified link landed on the page with the sign-in query still attached. When a browser navigation to a sign-in or OAuth callback would get a bare redirect, it now gets a small no-store HTML page that replaces itself with the clean destination, keeping every session cookie and the app's base path. This covers Better Auth callbacks, the new-user callback, Google OAuth completion, identity SSO, workspace connection OAuth, and MCP server OAuth. `queryEchoSafeRedirect` is exported from `@agent-native/core/server` for app-owned callbacks. API clients still get the redirect, and an expired or used link still lands with its `?error=` code.
+- 758bdba: Keep Design waitlist submissions within the published Forms use-case options.
+- Updated dependencies [c3feada]
+- Updated dependencies
+- Updated dependencies [bed3b01]
+  - @agent-native/recap-cli@0.5.66
+  - @agent-native/agentkit@0.204.0
+
+## 0.203.1
+
+### Patch Changes
+
+- 005805a: Label a model swapped in because the engine default was unchecked as `provider-selection-fallback` instead of `default`, so logs and traces can tell it from the engine's own default.
+- 005805a: Give lean hosted agent runs the `docs-search` tool their compact prompt tells the model to read skills with, and drop the skills summary from any prompt whose registry has no skill-read tool.
+- 005805a: Make the agent's end-of-turn follow-up call cheap, keep the tools array stable and let tool-search load several tools in one step, and report honest tool error signatures.
+- 005805a: Let a write action return a `_receipt` saying whether it changed anything and whether the change was verified, so the agent loop retries once or annotates the answer when the reply would claim more than the write proved.
+- df89804: Style the email authentication link confirmation page to match the shared auth flow.
+- ecfbb00: Preserve all app overrides when changing organization or personal model defaults, report the requested scope and effective app model separately, and keep reset-to-inherit explicit. App default changes preserve explicit chat and automation selections.
+- 044bbd7: Stop `manage-jobs` create from replacing an existing job file, and record a `job-fields-dropped` audit event when a write to a `jobs/` file removes its frontmatter fields.
+- Release all public npm packages with a patch version bump.
+- dc2b350: Expose verified directory widget read scope to frontend actions for safe read-only embeds.
+- d0fab3d: Add Design regression evidence and CI failure triage guidance to shipped feedback skills.
+- Updated dependencies
+  - @agent-native/agentkit@0.203.1
+  - @agent-native/recap-cli@0.5.65
+
 ## 0.203.0
 
 ### Minor Changes
@@ -1265,7 +1384,7 @@
   "Connect Builder.io".
 - 5ede9f7: Keep editor recovery bases stable and combine non-overlapping concurrent edits before asking the user to recover a draft.
   Keep optional Node SQLite cache code from breaking Cloudflare Pages bundles.
-- b6857ea: Improve Design review comments with Figma-style reactions, filtering, reopen and undo controls, image attachments, mentions, and movable canvas pins.
+- b6857ea: Improve Design review comments with reactions, filtering, reopen and undo controls, image attachments, mentions, and movable canvas pins.
 - d157801: `pnpm action db-query` now forwards to the running local dev server instead
   of failing when PGlite's single-process lock is already held by `pnpm dev`.
   The forwarded query runs through the same validation and row scoping as the
@@ -2509,208 +2628,10 @@
 - ca7360e: Clarify the email sign-in action and keep magic-link onboarding as the default entry view.
 - 04b27f9: Use custom app names and optional logos in social OG images while preserving Agent-Native branding for first-party templates.
 - 46e4ada: Refuse to save failed provider and web responses as durable workspace exports.
-- 841c741: Fix two Figma auto-layout rules the REST importer could not express in CSS.
+- 841c741: Improve Design file conversion. The import paths now retain additional layout, transform, text, image, vector, gradient, opacity, and effect data. Unsupported constructs use the conversion fallbacks, and the import report records omissions and approximations.
 
-  Figma allows a negative `itemSpacing`, which overlaps auto-layout children. CSS
-  rejects a negative `gap` outright, so the declaration was dropped and silently
-  fell back to 0. On the Positivus landing page the contact block overlaps its
-  children by -367px; losing that overflowed the row, and because CSS flex items
-  shrink by default while Figma never shrinks a FIXED or HUG child, the overflow
-  was redistributed and both children came out the wrong width (1240px rendered
-  as 825px, 692px as 415px) with the illustration thrown outside its card.
+- 841c741: `fingerprintMedia` no longer imports `node:crypto`. It is re-exported from the `ingestion` barrel, so browser builds can load the converters. It now uses `@noble/hashes`, verified to produce the same SHA-256 digest.
 
-  A negative `itemSpacing` is now reproduced as a negative margin on every child
-  after the first, and children whose main-axis sizing is not FILL are pinned
-  with `flex-shrink: 0`. Measured against Figma's own geometry for those nodes,
-  every box now matches to within 0.1px.
-
-- 841c741: Fix a set of Figma import defects that silently dropped or reshaped content,
-  found by measuring 26 real designs against Figma's own render of each node.
-
-  Across that corpus the import diff falls to 3.1% overall, 0.78% with text boxes
-  excluded and 0.44% excluding image fills as well — what remains is Chromium and
-  Figma hinting glyphs and scaling bitmaps differently, not the conversion. The
-  export hop costs under 2.4% on every design. Per node, 23 of the 26 designs have
-  nothing off by more than 1.5px, and every offender in the other three is one
-  glyph: a hugging box holding a `%`, which Google Fonts' Inter draws wider than
-  the Inter Figma bundles.
-
-  A child set to FILL along an axis its auto-layout parent HUGS now keeps the
-  size Figma resolved for it. Figma treats that pair by falling back to the
-  child's own size, but `flex-grow: 1; flex-basis: 0%` in an auto-sized flex
-  container resolves to zero — so the child disappeared and every later sibling
-  slid up by its height. A 343x240 photo vanished from a real landing page this
-  way.
-
-  An auto-layout frame that HUGS an axis but has no children now keeps the size
-  Figma resolved for it. Figma does not collapse an empty hug frame, so it still
-  reports real dimensions; mapping that to `width: auto` collapsed it to nothing,
-  which deleted a 685x456 image placeholder from a real hero section and let its
-  FILL sibling take the whole row, so the heading stopped wrapping too.
-
-  Mirrored nodes are no longer rendered as half turns. Figma's `rotation` field
-  is a decomposition that cannot tell a flip from a 180-degree rotation — both
-  report pi — so a horizontally mirrored group picked up a vertical flip it does
-  not have, and everything inside it landed on the wrong side. The transform now
-  comes from `relativeTransform`'s own 2x2 block as a CSS `matrix()`, which
-  carries mirroring and skew as well as rotation.
-
-  Three auto-layout rules now match Figma's own resolution rather than the raw
-  field values. A row aligned SPACE_BETWEEN no longer also emits `itemSpacing` as
-  a CSS gap — Figma ignores that field in this mode but still reports it, and CSS
-  distributes space on top of a gap rather than instead of it. A negative
-  `itemSpacing` is clamped so the children still fill their container, which is
-  where Figma stops an overlap — the same rule the `.fig` walker already used,
-  rather than a second one, and applied on a FILL axis as well as a FIXED one
-  since a FILL axis takes its parent's definite size. And a rotated auto-layout
-  child now occupies its rotated footprint: a CSS transform does not change
-  layout size, so a vertical rule stored as a wide line turned 90 degrees was
-  taking its full pre-rotation width out of the row.
-
-  Three more sizing rules now follow Figma. A HUG container holding a cross-axis
-  FILL child uses the size Figma resolved: a FILL child does not feed Figma's
-  hug, while CSS still feeds its max-content into the container's shrink-to-fit
-  width, so a card column came out 76px too wide and moved every sibling. A FILL
-  child is allowed to shrink below its own content (`min-width: 0`), which is
-  what Figma's FILL does. And a zero-thickness LINE is placed from its own size
-  rather than the already-rotated bounding box — requiring both dimensions to be
-  positive pushed every rotated rule onto the fallback and squared its rotation.
-
-  Break characters Figma does not lay out as breaks no longer become lines.
-  Figma's stored text can carry them: a real footer holds "Get started for
-  free.\rAdd your whole team as your needs grow." and Figma draws it as ONE
-  flowing paragraph, wrapping at the width, while a heading holding "Customise
-  it\rto your needs" renders "Customise it to / your needs". Both formats say so
-  and neither walker was reading it — REST `lineTypes` and kiwi `textData.lines`
-  hold one entry per line Figma actually laid out. Measured across every
-  break-bearing text node in the corpus that count is never wrong, while counting
-  break characters overstates it on 8 of 20 REST nodes and 17 of 18 kiwi ones.
-  Mapping one such CR to a newline made a footer a line taller and, because its
-  column is vertically centred, moved all 61 nodes in it.
-
-  Trailing whitespace goes for the same reason: Figma neither draws it nor lets
-  it widen a hugging box, while `pre-wrap` does both. Of the 943 hugging text
-  nodes in the corpus the only three wider than Figma's own box are the three
-  whose text ends in a space — the other 940 average 0.02px of error.
-
-  Angular (conic) gradients now sweep the way Figma sweeps them. Figma computes
-  the sweep in the node's normalized space — the box treated as a unit square,
-  then stretched — while CSS `conic-gradient()` sweeps at a true uniform angular
-  rate in real pixels; the two agree only on the axes, so a non-square tile
-  landed its mid-sweep colours visibly early. Drawing the gradient into a square
-  and scaling that square to the box reproduces Figma's definition exactly.
-
-  Zero-thickness vector geometry renders again. The SVG spec says a viewBox with
-  a zero width or height DISABLES rendering of the element, so a stroked path
-  whose own box is 20x0 — a horizontal rule, or the arrow inside a "Learn more"
-  button — disappeared silently. A collapsed axis now takes the stroke's own
-  width, with the geometry centred on it.
-
-  Figma's image CROP is now honoured. `scaleMode: STRETCH` with an
-  `imageTransform` is Figma's Crop mode: the matrix picks a sub-rectangle of the
-  image and stretches that to fill the box. The transform was being discarded and
-  the whole image drawn instead, which reads as the artwork zoomed out — every
-  illustration on a real services page came out visibly smaller than Figma draws
-  it, and it was the largest non-text difference left on that page (4.04% ->
-  3.52%). A rotated or skewed crop still takes the raster fallback, which is
-  exact where a stretch would be wrong.
-
-  A hugging TEXT box now takes Figma's rounded width as a minimum. Figma rounds
-  every hugging text box to a whole pixel and lays its siblings out against that;
-  hugging to our own fractional width makes each label a fraction narrower, and
-  in a row of them the fractions add up — a nav came out 5px short across six
-  items, moving every one of them. As a minimum rather than a fixed width:
-  pinning the width forces the text to wrap wherever our advances run a hair
-  wider than Figma's, which is a different layout entirely.
-
-  The height is a minimum only where the text can wrap. Figma lays a hugging box
-  out at `round(lines * lineHeight)` — 206 of the 207 hug-both nodes in the
-  corpus with a fractional line height — and it rounds DOWN as often as up, so a
-  minimum could never reach it. Text hugging BOTH axes cannot wrap, so its line
-  count is fixed by the break characters and always matches Figma's; there the
-  rounded height is taken outright. Two Space Grotesk headings at 38.28px line
-  height hugged to 38.28 each where Figma laid out 38, and the 0.56px each pushed
-  their whole column down.
-
-  Diamond gradients are now drawn as the four-pointed shape Figma draws, instead
-  of being approximated by an ellipse. The falloff is an L1 distance, which is
-  linear inside each quadrant, so four quadrant-tiled linear gradients reproduce
-  it exactly rather than approximately.
-
-  An image fallback's overflowing ink no longer takes layout space. The `<img>`
-  is sized from render bounds so an OUTSIDE stroke or shadow is drawn at its
-  natural size instead of squished into the smaller geometric box, but Figma
-  stacks siblings against the geometric box and paints the ink outside it. A
-  horizontal LINE is the extreme case — its box is zero-height and the stroke is
-  entirely overflow, so every rule on a page pushed everything below it down a
-  pixel.
-
-  `downscaleImageToFit` is new in `ingestion`: it re-encodes an image to fit a
-  byte budget, keeping the aspect ratio, for callers that must inline one. The
-  Figma SVG export used it to stop dropping a page's 11.5MB hero shot, which had
-  been leaving a hole in the exported file — over a budget is a reason to send
-  fewer pixels, not to send nothing.
-
-  Icon-font glyphs no longer import as `.notdef` boxes. A Private Use Area
-  codepoint means nothing outside the font that assigned it, and fonts reach an
-  imported screen by family name from Google Fonts, which serves none of these
-  icon fonts — so Chromium drew a hollow box beside all 16 nav items of a real
-  admin dashboard, where Figma draws an icon. Such a text node now takes the
-  rendered-PNG fallback the walker already uses for anything it cannot express
-  (0.97% -> 0.83% on that design). The `.fig` walker has no render to fall back
-  on, so it drops the glyph and records the reason against the node instead.
-
-- 841c741: Match Figma's nearest-neighbour sampling when a Figma image fill is magnified.
-
-  Figma upscales an image fill with nearest-neighbour sampling; a browser upscales
-  with bilinear smoothing. Measured across a checkerboard edge on a 16x16 fill
-  blown up to 180x90, Figma steps from `rgb(119,73,132)` to `rgb(227,78,52)` in
-  ONE pixel while the import ramped across twelve, so every low-resolution fill —
-  a pattern, an icon, pixel art, a placeholder — imported blurred.
-
-  `mapFigmaNodeToHtml` now takes `imageFillSizes` (imageRef -> the image's own
-  pixel size) and asks for `image-rendering: pixelated` only when the box is
-  meaningfully larger than the image. Only when magnified: `pixelated` is nearest
-  in both directions and a photo scaled down that way aliases badly. Without a
-  size the fill still renders, just smoothed.
-
-  The Figma importer supplies it for free from the bytes it already downloads to
-  mirror into storage. The `fills-effects` fidelity case went 14.33% -> 12.07%,
-  and the scanline across that edge now matches Figma's within 1/255 per channel.
-
-- 841c741: `fingerprintMedia` no longer imports `node:crypto`. It is re-exported from the
-  `ingestion` barrel, so that one import made the whole barrel — the Figma
-  converters included — fail to load in a browser. It now uses `@noble/hashes`,
-  verified to produce the same SHA-256 digest.
-- 841c741: Figma REST import fidelity: four measured corrections found by pixel-diffing
-  the mapper's output against Figma's own renders.
-  - Rotated nodes tilted the wrong way. `relativeTransform`'s 2x2 block is
-    already CSS's own rotation matrix in the same y-down space, so the CSS angle
-    is `rotation`, not `-rotation`; negating it doubled the error.
-  - Children of a rotated node were positioned and sized from
-    `absoluteBoundingBox`, which is measured in already-rotated absolute space
-    and inflated to the rotated AABB. Geometry now comes from
-    `relativeTransform` + `size` (the node's true pre-rotation box in its
-    parent's own frame) whenever Figma returns them.
-  - Linear gradients used the wrong angle on any non-square box. Figma evaluates
-    the gradient in normalized space, so the CSS angle follows the iso-line
-    normal `(du/w, dv/h)`, not the scaled handle vector `(du*w, dv*h)`.
-  - Per-paint `opacity` on an IMAGE fill was dropped, because CSS background
-    layers have no per-layer opacity. Such a paint (and anything Figma stacks
-    above it) now renders as an absolutely-positioned overlay div.
-
-  Also: layer/background blur radius is scaled by a fitted 0.45x instead of 1:1,
-  and `textAutoResize: TRUNCATE` now renders its ellipsis instead of clipping
-  silently.
-
-- 841c741: Figma REST import now reconstructs real vector geometry. Vectors and boolean
-  operations that carry `fillGeometry`/`strokeGeometry` are emitted as inline
-  `<svg><path>` markup with their own solid and gradient paints, and reported as
-  `exact` fidelity instead of `image-fallback`. Nodes without geometry keep the
-  rendered-PNG fallback.
-- 7379c91: Export the fitted Figma blur-radius constant so the REST and `.fig` import
-  walkers share one value, and stop the fidelity report from describing a text
-  layer's drop shadow as a `text-shadow` when it is emitted as a `box-shadow`.
 - 0705e7f: fix Builder OAuth callbacks for apps hosted on Builder Cloud origins
 - 9f31e60: fix password actions for framework sessions without a Better Auth session
 - 5f9ca21: Keep completed chat responses static when a new run starts and keep stopped-response actions available.
@@ -2829,7 +2750,7 @@
   A single wheel notch saturated the hook's ±50px delta clamp and landed on
   `exp(0.5)`, so every detent multiplied zoom by ~1.65× regardless of how far the
   wheel actually turned. Wheel and pinch now run through separate curves — a
-  notch is a Figma-sized 1.1× step, finger separation keeps the exponential — and
+  notch is a 1.1× step, finger separation keeps the exponential — and
   the device is latched per gesture rather than guessed per event, because macOS
   ramps an accelerated wheel up from pinch-sized deltas.
 
@@ -3829,28 +3750,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Minor Changes
 
 - c50b009: Allow request action resolvers to preserve the default tool-loading surface.
-
-## 0.165.5
-
-### Patch Changes
-
-- 8d56ed2: Let the Builder gateway engine run on an OAuth-only connection. The pre-run
-  credential gate required a `BUILDER_PRIVATE_KEY`/`BUILDER_PUBLIC_KEY` pair, so
-  a user connected through Builder OAuth alone had every turn rejected with "No
-  LLM provider is connected" while the connect card reported them connected.
-
-## 0.165.4
-
-### Patch Changes
-
-- 841f072: Expand changelog history windows to 100 releases while preserving folder-backed history.
-
-## 0.165.3
-
-### Patch Changes
-
-- b6ca1a7: Warn when `GOOGLE_SIGN_IN_CLIENT_ID` and `GOOGLE_CLIENT_ID` name different Google clients. Sign-in silently preferred the sign-in pair, so repairing `GOOGLE_CLIENT_SECRET` on a deploy that also set `GOOGLE_SIGN_IN_CLIENT_SECRET` changed nothing while appearing correct.
-- b6ca1a7: Harden MCP OAuth reconnects for mounted apps, legacy settings, and concurrent updates.
-- b6ca1a7: Ensure prebuilt Netlify workspace deployments include the hosted feedback URL.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

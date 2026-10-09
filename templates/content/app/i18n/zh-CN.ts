@@ -423,7 +423,6 @@ const editor = {
   pageBodySyncing: "此页面的内容仍在同步",
   pageBodySyncingDescription:
     "在页面正文完成同步之前，编辑会暂停，以免覆盖现有内容。",
-  createCollection: "创建集合",
   creatingDatabase: "正在创建内联集合...",
   databaseCreated: "集合已创建",
   emptyBlockPlaceholder: "按“/”使用命令",
@@ -1144,6 +1143,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "仍在等待{{stage}}。请求：{{action}}。",
+    widgetDocumentLoadStage: "已保存的页面正文",
+    widgetDraftCheckStage: "页面草稿恢复",
+    widgetEditorInitStage: "富文本编辑器初始化",
     iconPickerIcons: "图标",
     iconPickerEmoji: "表情符号",
     iconPickerRecent: "最近",
@@ -1544,6 +1547,11 @@ const overrides = {
     resize: "调整侧边栏宽度",
     expand: "展开侧边栏",
     failedCreatePage: "创建页面失败",
+    failedCreatePageDraftDescription:
+      "草稿已保存在此浏览器中。你可以重试创建页面，或丢弃草稿。",
+    discardFailedCreatePageQuestion: "丢弃待处理的创建？",
+    discardFailedCreatePageDescription:
+      "这会清除待处理的创建和任何未保存的草稿。如果页面已经保存，它仍会保留在你的工作区中。",
     failedDeletePage: "删除页面失败",
     failedPermanentDeletePage: "永久删除页面失败",
     failedRestorePage: "恢复页面失败",

@@ -1,5 +1,6 @@
 import { isOpenAiMcpAppHost } from "@agent-native/core/client/agent-chat";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import type { Document } from "@shared/api";
@@ -20,7 +21,10 @@ import {
   useUpdateDocument,
   useUpdatePreviewDocumentDraft,
 } from "@/hooks/use-documents";
-import { isDocumentCreationPending } from "@/lib/optimistic-document";
+import {
+  isDocumentCreationConfirmed,
+  isDocumentCreationPending,
+} from "@/lib/optimistic-document";
 import {
   readDocumentShapeHint,
   readPageIconRowHint,
@@ -62,6 +66,13 @@ export function PageDraftRecovery({
   const t = useT();
   const navigate = useNavigate();
   const openAiWidget = isOpenAiMcpAppHost();
+  const widgetBridgeActive = isEmbedMcpChatBridgeActive();
+  const scopedWidgetReadOnly = document.mcpDirectoryWidgetReadOnly === true;
+  const skipDraftRecovery =
+    openAiWidget ||
+    scopedWidgetReadOnly ||
+    document.canEdit !== true ||
+    document.source?.mode === "local-files";
   const { session } = useSession();
   const scopeKey = session?.email
     ? JSON.stringify([
@@ -71,9 +82,17 @@ export function PageDraftRecovery({
       ])
     : null;
   const queryClient = useQueryClient();
-  const creationPending = isDocumentCreationPending(document);
+  const creationPending = isDocumentCreationPending(queryClient, document);
+  const skipCreationDraftRecoveryRef = useRef(
+    creationPending || isDocumentCreationConfirmed(queryClient, document),
+  );
+  if (creationPending || isDocumentCreationConfirmed(queryClient, document)) {
+    skipCreationDraftRecoveryRef.current = true;
+  }
+  const skipCreationDraftRecovery = skipCreationDraftRecoveryRef.current;
   const drafts = usePreviewDocumentDraft(document.id, {
-    enabled: !creationPending && !openAiWidget,
+    enabled:
+      !creationPending && !skipDraftRecovery && !skipCreationDraftRecovery,
     createdAt: document.createdAt,
   });
   const update = useUpdateDocument();
@@ -114,7 +133,13 @@ export function PageDraftRecovery({
   useEffect(() => {
     setVerifiedScopeKey(null);
     setReleasedScopeKey(null);
-    if (!scopeKey || creationPending || openAiWidget) return;
+    if (
+      !scopeKey ||
+      creationPending ||
+      skipDraftRecovery ||
+      skipCreationDraftRecovery
+    )
+      return;
     let cancelled = false;
     void ensurePreviewDocumentDraftRead(
       queryClient,
@@ -133,7 +158,8 @@ export function PageDraftRecovery({
   }, [
     creationPending,
     document.id,
-    openAiWidget,
+    skipDraftRecovery,
+    skipCreationDraftRecovery,
     scopeKey,
     verificationRevision,
   ]);
@@ -724,7 +750,7 @@ export function PageDraftRecovery({
   );
   // Scoped widget tickets identify the document, not a cookie session whose
   // private draft journal can be verified.
-  if (openAiWidget) return withNotice(null);
+  if (skipDraftRecovery || skipCreationDraftRecovery) return withNotice(null);
   if (editorReleased) return withNotice(null);
   if (drafts.isError)
     return (
@@ -759,6 +785,14 @@ export function PageDraftRecovery({
         title={document.title}
         iconRow={readPageIconRowHint(document.id)}
         shape={readDocumentShapeHint(document)}
+        stalledLoad={
+          widgetBridgeActive
+            ? {
+                stage: t("editor.widgetDraftCheckStage"),
+                action: "get-preview-document-draft",
+              }
+            : undefined
+        }
       />
     );
   if (!draft) return withNotice(null);

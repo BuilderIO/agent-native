@@ -346,7 +346,7 @@ La boucle d'agent émet trois types de span :
 | `execute_tool {tool}` | une fois par appel d'action    | `gen_ai.tool.name`, plus statut de réussite/erreur                                                        |
 | `chat {model}`        | par appel de modèle            | `gen_ai.provider.name`, timing + état OK/erreur                                                           |
 
-Les travées sont terminées avec l'état OK/ERROR et enregistrent le message d'erreur en cas d'échec. Les valeurs des attributs zéro/sentinelle sont élaguées afin que les étendues ne soient pas encombrées de bruit. Cette couche OTel est purement additive aux tables internes `agent_trace_spans` / `agent_trace_summaries` qui alimentent le tableau de bord ci-dessus : les deux sont produites à partir des mêmes événements d'exécution.
+Les travées sont terminées avec l'état OK/ERROR et enregistrent un message fixe dérivé du code en cas d'échec. Les valeurs des attributs zéro/sentinelle sont élaguées afin que les étendues ne soient pas encombrées de bruit. Cette couche OTel est purement additive aux tables internes `agent_trace_spans` / `agent_trace_summaries` qui alimentent le tableau de bord ci-dessus : les deux sont produites à partir des mêmes événements d'exécution.
 
 ### Métriques {#otel-metrics}
 
@@ -362,6 +362,8 @@ Core enregistre aussi des métriques dès que l'hôte enregistre un fournisseur 
 | `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
 
 Dans les métriques, `gen_ai.tool.name` est le nom d'une action du framework ou `other`, et `gen_ai.request.model` n'est l'identifiant du modèle que lorsque le moteur le déclare comme pris en charge, sinon `_OTHER`. Les outils définis par l'application et les identifiants de modèle fournis par l'appelant ne peuvent donc pas créer un nombre illimité de séries ; les spans conservent les valeurs exactes.
+
+`http.route` est défini sur chaque requête et provient d'un ensemble fermé : le modèle de route d'un endpoint du framework (`/_agent-native/auth/session`, `/_agent-native/agent-chat/runs/:runId/events`), le modèle déclaré d'une action, la route de fichier Nitro propre à l'application (`/api/clips/:id`) ou un regroupement. Les regroupements sont `/_agent-native/*`, `/mcp/*` et `/.well-known/*` pour un chemin non répertorié dans ces espaces de noms, `/api/*` pour tout autre chemin d'API, `static` pour les requêtes de fichiers, `page` pour tout autre `GET` ou `HEAD`, et `other`. Un chemin de requête brut n'est jamais enregistré. Le span `http.server` porte la même valeur.
 
 ## Connecter un backend OpenTelemetry {#otel-provider}
 
@@ -551,3 +553,7 @@ Les champs d'identité explicitement définis via `setUser({ id, email, username
 - [**Tracking**](/docs/tracking) – analyses de produits (PostHog, Mixpanel, Amplitude) pour les propres événements de votre application
 - [**Actions**](/docs/actions-overview) — les opérations qui apparaissent sous forme d'appels d'outils dans les traces
 - [**Security**](/docs/security) – Portée des données et gestion des informations d'identification
+
+Les messages d’échec des exécutions sont omis d’Analytics et de Monitoring, même lorsque la capture du contenu est activée. `$ai_error` contient le code terminal, une cause nommée, la possibilité de réessayer et un texte fixe dérivé du code. Les événements omettent `error_message`, `agent_run_terminal.error_detail` et le texte des résultats d’outils en échec ; l’événement terminal conserve `error_code` et `error_cause`. `agent_runs.error_detail` et `agent_trace_spans.error_message` restent disponibles dans la base de données de l’application pour un diagnostic limité aux accès du propriétaire.
+
+Les exceptions d’exécution et de la passerelle Builder conservent type, code et frames de pile, avec le texte fixe `Internal Server Error`, sans message original ni causes imbriquées. Monitoring regroupe par application, type, frame, code et classe d’échec plutôt que par noms dans le message. `$ai_trace_id` conserve le lien vers la trace. Les exports OpenTelemetry facultatifs des exécutions, gérés par l’hôte, omettent aussi le texte des échecs et conservent `agent.error_code` et `agent.error_cause`. La capture des autres exceptions reste inchangée.

@@ -885,6 +885,7 @@ function AddCustomAgentMenu({
           </DialogHeader>
           <PromptComposer
             autoFocus
+            requireAgentEngine
             placeholder={t("agentChat.settingsSubAgents.describePlaceholder")}
             draftScope="settings:create-agent"
             onSubmit={(text) => {

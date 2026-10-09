@@ -19,6 +19,7 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { stripAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
 import {
   RUN_NOT_STARTED_METADATA_KEY,
   type RefusedTurnRetryContext,
@@ -77,11 +78,19 @@ function isInternalContinuationError(event: {
   error: string;
   errorCode?: string;
   recoverable?: boolean;
+  providerRetryable?: boolean;
 }): boolean {
   const code = String(event.errorCode ?? "").toLowerCase();
   const msg = event.error.toLowerCase();
-  if (code === "builder_gateway_error") return false;
-  if (event.recoverable === false) return false;
+  if (
+    event.providerRetryable === false ||
+    event.recoverable === false ||
+    code === "builder_gateway_error" ||
+    code === "invalid_request" ||
+    code === "invalid_request_error"
+  ) {
+    return false;
+  }
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
@@ -309,9 +318,17 @@ export function buildAssistantMessage(
           : {}),
         ...(event.recoverable ? { recoverable: event.recoverable } : {}),
       };
-      appendText(
-        `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
-      );
+      const missingProvider =
+        event.errorCode === "missing_api_key" ||
+        event.errorCode === "missing_credentials" ||
+        /no llm provider(?: key)? (?:is connected|was found)/i.test(
+          `${event.error}\n${normalized.message}`,
+        );
+      if (!missingProvider) {
+        appendText(
+          `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
+        );
+      }
       continue;
     }
 
@@ -1137,6 +1154,20 @@ export function resumeThreadHistoryForRequest(
   };
 }
 
+/**
+ * The turn the thread's newest prompt was sent in, when the server stamped
+ * it. A prompt whose run was refused before it started has no run row, so
+ * this is how a continuation learns a newer prompt is waiting.
+ */
+export function latestPromptTurnId(
+  threadData: string | Record<string, unknown>,
+): string | undefined {
+  const data =
+    typeof threadData === "string" ? JSON.parse(threadData) : threadData;
+  const turnId = latestStoredUser(data)?.metadata?.custom?.submittedTurnId;
+  return typeof turnId === "string" ? turnId : undefined;
+}
+
 const MAX_INTEGRATION_ARTIFACTS_IN_CONTEXT = 12;
 const MAX_INTEGRATION_ARTIFACT_FIELD_CHARS = 500;
 
@@ -1847,6 +1878,26 @@ function latestStoredUser(repo: any): any {
     .findLast((message: any) => message?.role === "user");
 }
 
+/**
+ * Whether a stored user message is the prompt this run answers, rather than
+ * one sent after it started. Messages saved without the server's turn stamp
+ * fall back to their creation time.
+ */
+export function isRunPrompt(
+  user: any,
+  run: { runId: string; turnId?: string | null; startedAt: number },
+): boolean {
+  const userContext = user?.metadata?.custom;
+  if (userContext?.submittedTurnId) {
+    return userContext.submittedTurnId === run.turnId;
+  }
+  return (
+    userContext?.submittedRunId === run.runId ||
+    !user?.createdAt ||
+    new Date(user.createdAt).getTime() <= run.startedAt
+  );
+}
+
 function clearThreadSuggestions(repo: any): any {
   return repo.agentKit
     ? { ...repo, agentKit: { ...repo.agentKit, suggestions: [] } }
@@ -1868,17 +1919,7 @@ export function foldThreadRunSuggestions(
   repo: any,
   run: ThreadSuggestionRun,
 ): any {
-  const user = latestStoredUser(repo);
-  const userContext = user?.metadata?.custom;
-  if (
-    userContext?.submittedTurnId
-      ? userContext.submittedTurnId !== run.turnId
-      : userContext?.submittedRunId !== run.runId &&
-        user?.createdAt &&
-        new Date(user.createdAt).getTime() > run.startedAt
-  ) {
-    return repo;
-  }
+  if (!isRunPrompt(latestStoredUser(repo), run)) return repo;
   const previous = repo.agentKit ?? {};
   const latest = latestSnapshotRun(previous.runs);
   const startedAt = new Date(run.startedAt).toISOString();
@@ -3010,11 +3051,12 @@ export function mergeThreadDataForClientSave(
   // Queue mutations are the only writer of the queue and opt out here. Any
   // other save carries a queue it read earlier, and letting that copy win drops
   // a promotion claim or an append that landed in between.
-  if (
-    preserveExistingQueuedMessages &&
-    existingNormalized?.queuedMessages !== undefined
-  ) {
-    merged.queuedMessages = existingNormalized.queuedMessages;
+  if (preserveExistingQueuedMessages) {
+    if (existingNormalized?.queuedMessages !== undefined) {
+      merged.queuedMessages = existingNormalized.queuedMessages;
+    } else {
+      delete merged.queuedMessages;
+    }
   }
 
   const promptRunIds = submittedPromptRunIds(
@@ -3742,6 +3784,11 @@ export function foldAssistantTurn(
     mergedCustom[ASSISTANT_RUN_DURATION_METADATA_KEY] = mergedDurationMs;
   }
   if (incomingCustom.continued !== true) delete mergedCustom.continued;
+  // A turn's failure is its newest run's: a run that continued past an
+  // earlier stop clears the stop's error instead of inheriting it.
+  if (!runAlreadyFolded && incomingCustom.runError === undefined) {
+    delete mergedCustom.runError;
+  }
 
   const mergedMessage = {
     ...lastMsg,
@@ -3760,6 +3807,26 @@ export function foldAssistantTurn(
   nextRepo.messages[lastIndex] = { ...lastEntry, message: mergedMessage };
   nextRepo.headId = mergedMessage.id ?? nextRepo.headId;
   return nextRepo;
+}
+
+export function foldAgentChatRunCompletion(
+  repo: unknown,
+  assistantMsg: Parameters<typeof foldAssistantTurn>[1] | null,
+  run: ThreadSuggestionRun &
+    Pick<
+      ActiveRun,
+      "runId" | "turnId" | "parentId" | "agentKitApprovalContinuation"
+    >,
+) {
+  const folded = assistantMsg
+    ? foldAssistantTurn(repo, assistantMsg, {
+        runId: run.runId,
+        turnId: run.turnId,
+        parentId: run.parentId,
+        agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
+      })
+    : repo;
+  return foldThreadRunSuggestions(normalizeThreadRepository(folded), run);
 }
 
 /**
@@ -3867,9 +3934,13 @@ export function extractThreadMeta(repo: any): {
       : typeof msg.content === "string"
         ? msg.content
         : "";
-    if (textParts.trim()) {
-      if (!title) title = textParts.trim().slice(0, 80);
-      preview = textParts.trim().slice(0, 120);
+    const visiblePrompt = stripAgentChatContextFromMessage(textParts)
+      .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (visiblePrompt) {
+      if (!title) title = visiblePrompt.slice(0, 80);
+      preview = visiblePrompt.slice(0, 120);
     }
   }
   return { title: titleOverride || title, preview };

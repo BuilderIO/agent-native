@@ -28,6 +28,7 @@ import {
   IconGridDots,
   IconItalic,
   IconMessageCircle,
+  IconVideo,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -47,7 +48,7 @@ import {
   IconZoomIn,
   IconZoomOut,
 } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -56,16 +57,19 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { VideoPlaybackSettings } from "@/lib/slide-video";
 import { cn, shortcutLabel } from "@/lib/utils";
 
 import type { SlideListKind } from "./list-editing";
@@ -80,7 +84,6 @@ import {
   horizontalAlignPatch,
   resolveHorizontalAlignment,
   resolveVerticalAlignment,
-  rotationTransform,
   tokenPalette,
   verticalAlignPatch,
   type SlideStylePatch,
@@ -165,6 +168,8 @@ export function SlideContextToolbar({
   canUngroup = false,
   onAlignObjects,
   onDistributeObjects,
+  videoPlayback,
+  onVideoPlaybackChange,
   zoomControls,
 }: {
   snapshot: SlideStyleSnapshot | null;
@@ -177,7 +182,8 @@ export function SlideContextToolbar({
   onOpenAnimations?: () => void;
   canComment?: boolean;
   onComment?: () => void;
-  onChange: (patch: SlideStylePatch) => void;
+  /** False when the patch was refused: the object paints what it did before. */
+  onChange: (patch: SlideStylePatch) => boolean | void;
   onEnablePositioning?: () => void;
   onBackgroundChange: (background: string) => void;
   onArrange?: (target: SlideObjectZOrderTarget) => void;
@@ -189,6 +195,8 @@ export function SlideContextToolbar({
   canUngroup?: boolean;
   onAlignObjects?: (alignment: SlideObjectAlignment) => void;
   onDistributeObjects?: (distribution: SlideObjectDistribution) => void;
+  videoPlayback?: VideoPlaybackSettings | null;
+  onVideoPlaybackChange?: (settings: VideoPlaybackSettings) => void;
   zoomControls?: {
     value: number;
     onZoomOut: () => void;
@@ -198,6 +206,9 @@ export function SlideContextToolbar({
   };
 }) {
   const t = useT();
+  // The field holds what was typed until the object paints it; a refused
+  // rotation never will, so the field starts over from what the object paints.
+  const [refusedRotations, setRefusedRotations] = useState(0);
   const documentColors = tokenPalette(designSystem, t).map(
     (option) => option.value,
   );
@@ -256,6 +267,7 @@ export function SlideContextToolbar({
   const slideBackground = backgroundCssValue(background);
   const hasMultiObjectSelection = objectSelectionCount >= 2;
   const canDistributeObjects = objectSelectionCount >= 3;
+  const isVideoSelection = snapshot?.tagName?.toLowerCase() === "video";
 
   return (
     <div
@@ -316,6 +328,53 @@ export function SlideContextToolbar({
           </Tooltip>
           <div className={TOOLBAR_DIVIDER} />
         </>
+      )}
+      {isVideoSelection && videoPlayback && onVideoPlaybackChange && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={MENU_BUTTON_CLASS}
+              aria-label={t("editorToolbar.videoPlayback")}
+            >
+              <IconVideo className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            className="w-56"
+            {...inlineEditSurfaceProps}
+          >
+            <div className="grid gap-3">
+              <p className="text-xs font-medium">
+                {t("editorToolbar.videoPlayback")}
+              </p>
+              <Label className="flex items-center justify-between gap-4">
+                <span>{t("editorToolbar.autoplayVideo")}</span>
+                <Switch
+                  checked={videoPlayback.mode === "autoplay"}
+                  onCheckedChange={(checked) =>
+                    onVideoPlaybackChange({
+                      ...videoPlayback,
+                      mode: checked ? "autoplay" : "click",
+                    })
+                  }
+                />
+              </Label>
+              <Label className="flex items-center justify-between gap-4">
+                <span>{t("editorToolbar.loopVideo")}</span>
+                <Switch
+                  checked={videoPlayback.loop}
+                  onCheckedChange={(loop) =>
+                    onVideoPlaybackChange({ ...videoPlayback, loop })
+                  }
+                />
+              </Label>
+            </div>
+          </PopoverContent>
+        </Popover>
       )}
       {(canGroup || canUngroup) && (
         <>
@@ -972,17 +1031,25 @@ export function SlideContextToolbar({
                       onChange={(y) => onChange({ top: `${formatValue(y)}px` })}
                     />
                   </div>
+                  {/* An unreadable rotation shows as mixed and cannot be edited; its value is never shown or written. */}
                   <VisualScrubInput
+                    key={refusedRotations}
                     label={t("styleInspector.rotation")}
                     icon={IconAngle}
                     prefix="icon"
-                    value={snapshot.rotation}
-                    min={-360}
-                    max={360}
+                    value={snapshot.rotation ?? 0}
                     unit="°"
-                    onChange={(rotation) =>
-                      onChange({ transform: rotationTransform(rotation) })
-                    }
+                    mixed={snapshot.rotation === null}
+                    mixedLabel={t("styleInspector.mixed")}
+                    disabled={snapshot.rotation === null}
+                    onChange={(rotation, meta) => {
+                      if (
+                        onChange({ rotation }) === false &&
+                        meta.phase === "commit"
+                      ) {
+                        setRefusedRotations((count) => count + 1);
+                      }
+                    }}
                   />
                 </>
               )}

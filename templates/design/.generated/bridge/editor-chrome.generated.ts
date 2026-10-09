@@ -3922,7 +3922,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return el.parentElement;
     }
-    function positionReferenceRectForElement(el) {
+    function positionReferenceRectForElement(el, fixedWithoutContainingBlock) {
+      if (fixedWithoutContainingBlock) {
+        var fixedRoot = el.ownerDocument.documentElement;
+        return {
+          x: window.scrollX || window.pageXOffset || 0,
+          y: window.scrollY || window.pageYOffset || 0,
+          width: fixedRoot.clientWidth,
+          height: fixedRoot.clientHeight
+        };
+      }
       var ancestor = el.parentElement;
       while (ancestor) {
         if (ancestor.getAttribute("data-an-primitive") === "frame") {
@@ -4022,8 +4031,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (!containingBlock) {
         return {
-          origin: { x: 0, y: 0 },
-          transform
+          origin: fixed ? {
+            x: window.scrollX || window.pageXOffset || 0,
+            y: window.scrollY || window.pageYOffset || 0
+          } : { x: 0, y: 0 },
+          transform,
+          hasContainingBlock: false
         };
       }
       var htmlContainingBlock = containingBlock;
@@ -4039,7 +4052,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             x: paddingQuad.p1.x + window.scrollX - transform.a * scrollX - transform.c * scrollY,
             y: paddingQuad.p1.y + window.scrollY - transform.b * scrollX - transform.d * scrollY
           },
-          transform
+          transform,
+          hasContainingBlock: true
         };
       }
       var rect = rectInfoForElement(containingBlock);
@@ -4048,7 +4062,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           x: rect.x + transform.a * (htmlContainingBlock.clientLeft - scrollX) + transform.c * (htmlContainingBlock.clientTop - scrollY),
           y: rect.y + transform.b * (htmlContainingBlock.clientLeft - scrollX) + transform.d * (htmlContainingBlock.clientTop - scrollY)
         },
-        transform
+        transform,
+        hasContainingBlock: true
       };
     }
     function autoLayoutParentInfo(el) {
@@ -5581,10 +5596,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (designParent && parentStyles) {
         positionComputedStylesCache.set(designParent, parentStyles);
       }
-      var positionReferenceRect = positionReferenceRectForElement(el);
       var positionCoordinateContext = positionContainingBlockForElement(
         el,
         positionComputedStylesCache
+      );
+      var positionReferenceRect = positionReferenceRectForElement(
+        el,
+        cs.position === "fixed" && !positionCoordinateContext.hasContainingBlock
       );
       var authoredSizeStyles = collectAuthoredSizeStyles(el);
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
@@ -5803,15 +5821,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
       }
     }
-    function collectSelectableElements(deep) {
+    function collectSelectableElements(deep, gestureScope) {
       var nodes = Array.prototype.slice.call(
         document.body ? document.body.querySelectorAll("*") : []
       );
       var scope = null;
+      var limitToGestureScope = Boolean(gestureScope);
       if (!deep) {
-        scope = selectionContainerScope;
+        scope = gestureScope || selectionContainerScope;
         if (!scope || !document.documentElement.contains(scope)) {
           scope = document.body;
+          limitToGestureScope = false;
         }
       }
       var seen = /* @__PURE__ */ new Set();
@@ -5821,10 +5841,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         var target = selectionTargetForHit(node);
-        if (target && scope && scope.contains(target)) {
-          target = containerScopeAncestor(target, scope);
+        if (target && scope) {
+          if (scope.contains(target)) {
+            target = containerScopeAncestor(target, scope);
+          } else if (limitToGestureScope) {
+            return;
+          }
         }
-        if (!target || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || isTemplateCloneElement(target) || seen.has(target) || isPaddedAwayFromView(target)) {
+        if (!target || target === scope || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || isTemplateCloneElement(target) || seen.has(target) || isPaddedAwayFromView(target)) {
           return;
         }
         seen.add(target);
@@ -8197,6 +8221,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         e.target && e.target.nodeType === 1 ? e.target : null
       );
       if (!spacingKey) return;
+      if (e.altKey) {
+        handleShieldPointerMove(e);
+        return;
+      }
       stopNativeInteraction(e);
       activateSpacingHandle(spacingKey);
     }
@@ -10741,7 +10769,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       marqueeSelectionOverlay.style.width = rect.width + "px";
       marqueeSelectionOverlay.style.height = rect.height + "px";
       if (!activeMarqueeSelection.candidates) {
-        var collected = collectSelectableElements(activeMarqueeSelection.deep);
+        var collected = collectSelectableElements(
+          activeMarqueeSelection.deep,
+          activeMarqueeSelection.scope
+        );
         activeMarqueeSelection.candidates = collected;
         activeMarqueeSelection.candidateBounds = collected.map(selectableBounds);
       }
@@ -10782,7 +10813,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         activeMarqueeSelection.lightInfoCache
       );
     }
-    function beginMarqueeSelection(e) {
+    function beginMarqueeSelection(e, scope) {
       if (e.button !== 0) return;
       if (activeTextEditEl && !exitStaleTextEditSession()) return;
       clearActiveMarqueeSelection();
@@ -10844,6 +10875,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         startY: e.clientY,
         additive,
         deep: Boolean(e && (e.metaKey || e.ctrlKey)),
+        scope: scope || null,
         moved: false,
         infoCache: /* @__PURE__ */ new Map(),
         lightInfoCache: /* @__PURE__ */ new Map(),
@@ -19971,8 +20003,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       var events = dragEventNames(e);
       var hit = elementFromEditorPoint(e.clientX, e.clientY);
       var hitTarget = selectionTargetForHit(hit);
-      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || isContainerBackgroundHit(hitTarget, hit)) {
-        beginMarqueeSelection(e);
+      var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
+      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || startsOnContainerBackground) {
+        beginMarqueeSelection(e, startsOnContainerBackground ? hitTarget : null);
         return;
       }
       var selectedAlive = !!selectedEl && document.documentElement.contains(selectedEl);
@@ -21285,6 +21318,12 @@ export const editorChromeBridgeScript: string = `"use strict";
     );
     function handleShieldPointerMove(e) {
       if (readOnly || interactionMode) return;
+      var isAltSpacingRegionPointerMove = Boolean(
+        e.altKey && spacingKeyFromTarget(
+          e.target && e.target.nodeType === 1 ? e.target : null
+        )
+      );
+      if (isAltSpacingRegionPointerMove) clearSpacingHoverTimer();
       stopNativeInteraction(e);
       hoveredEl = resolveHoverTarget(
         e.clientX,
@@ -21293,7 +21332,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       if (!hoveredEl) {
         highlightOverlay.style.display = "none";
-        if (!spacingDrag) {
+        if (!spacingDrag && !isAltSpacingRegionPointerMove) {
           scheduleSpacingHoverClear(e);
         }
         hideMeasurements();
@@ -21318,7 +21357,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             updateSpacingOverlay(selectedEl);
           }
         } else {
-          scheduleSpacingHoverClear(e);
+          if (!isAltSpacingRegionPointerMove) scheduleSpacingHoverClear(e);
         }
       }
       if (hoveredEl === selectedEl) {

@@ -10,6 +10,7 @@ import {
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
 } from "../org/workspace-app-access.js";
+import { resolveWorkspaceAccessAppId } from "../org/workspace-app-identity.js";
 import { ForbiddenError, resolveAccess } from "../sharing/access.js";
 import { ROLE_RANK, type ShareRole } from "../sharing/schema.js";
 import { registerActionAccessChecker } from "./action-access-runtime.js";
@@ -118,10 +119,13 @@ export async function checkAction(
         permission,
       };
     }
-    const appAllowed = await isWorkspaceAppAccessAllowed(appId, {
-      email: identity.userEmail,
-      orgId: identity.orgId,
-    });
+    const workspaceAppId = resolveWorkspaceAccessAppId(appId);
+    const appAllowed = workspaceAppId
+      ? await isWorkspaceAppAccessAllowed(workspaceAppId, {
+          email: identity.userEmail,
+          orgId: identity.orgId,
+        })
+      : true;
     if (appAllowed === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
       throw Object.assign(new Error(WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE), {
         statusCode: 503,

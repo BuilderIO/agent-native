@@ -85,7 +85,7 @@ Useful `properties`:
 - Time: `duration_ms` is the full run in milliseconds; `$ai_latency` is model time in seconds (run minus tool time).
 - Tools: `tool_calls`, `successful_tools`, `failed_tools`, `tools`, `tools_truncated`. The bounded `tools` array holds names, relative start times, durations, statuses, and coarse error classes, never args or results; failed runs and interrupted tools stay queryable.
 - Delegation: `delegated`, `delegation_protocol`, `caller_app`, `delegation_task_id`, `a2a_task_id`, `parent_run_id`, `parent_turn_id`. Agent Teams child runs use `delegation_protocol = 'agent-team'`, keep their own `run_id`, and link to the launching run through `parent_run_id`.
-- Errors: `status`, `error_message`/`$ai_error`.
+- Errors: `status`, `$ai_error` (terminal code, cause, retryable, and a fixed code-derived message), `$ai_error_type`. Run failure messages are omitted from telemetry.
 
 ## Inline Charts In Chat
 
@@ -215,9 +215,11 @@ definitions the user confirms after the thread has been idle. State corrections
 plainly. Before asking for confirmation, restate the complete proposed metric
 definition in plain language, including its key conditions and time window or
 grain when applicable; a bare “yes” to a metric-name-only question is not
-confirmation. Captures stay private to the user and, when learned in an
-organization, are retrieved only in that same organization. Do not call
-`save-memory` again for those same items.
+confirmation. These automatic captures stay private to the user. Do not call
+`save-memory` again for those same items. Before writing anything to shared
+`LEARNINGS.md` or organization memory, check its audience and ask the user for
+approval of that shared write. Keep setup-specific findings in personal memory
+or the current analysis.
 
 Use `save-memory` for other verified, durable personal Analytics knowledge,
 with a short actionable description; read the existing entry first when
@@ -228,7 +230,8 @@ finding is uncertain or only applies to the current analysis, leave it in the
 answer instead of creating a memory.
 
 For entries not suitable for personal memory, use the project `LEARNINGS.md`
-only when it contains genuinely reusable, non-sensitive guidance:
+only after the user approves that shared write and when it contains genuinely
+reusable, non-sensitive guidance:
 
 ```
 resources(action: "read", path: "LEARNINGS.md")  -- read first to merge

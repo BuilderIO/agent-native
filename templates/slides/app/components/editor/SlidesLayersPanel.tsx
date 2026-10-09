@@ -7,6 +7,7 @@ import {
   IconSquare,
   IconTypography,
   IconVectorBezier2,
+  IconVideo,
   IconX,
 } from "@tabler/icons-react";
 import { useState, type DragEvent, type ReactNode } from "react";
@@ -23,6 +24,7 @@ export type SlidesLayerKind =
   | "image"
   | "shape"
   | "text"
+  | "video"
   | "vector";
 
 export interface SlidesLayerNode {
@@ -104,6 +106,8 @@ function LayerGlyph({
       return <IconTypography className={className} />;
     case "image":
       return <IconPhoto className={className} />;
+    case "video":
+      return <IconVideo className={className} />;
     case "vector":
       return <IconVectorBezier2 className={className} />;
     case "code":

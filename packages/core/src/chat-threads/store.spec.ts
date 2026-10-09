@@ -407,6 +407,236 @@ describe("chat thread store", () => {
     ]);
   });
 
+  it("seeds blank snapshot metadata from the first visible merged prompt", async () => {
+    row!.title = "";
+    row!.preview = "  Saved   preview  ";
+    const contextOnlyMessage = {
+      message: {
+        id: "context-only-prompt",
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<context>Private instructions only</context>",
+          },
+        ],
+      },
+      parentId: null,
+    };
+    const visiblePrompt = {
+      message: {
+        id: "visible-prompt",
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Find flights to <context>private note</context>Tokyo",
+          },
+        ],
+      },
+      parentId: "context-only-prompt",
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [contextOnlyMessage],
+      agentKit: { messages: [] },
+    });
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [visiblePrompt],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "",
+      "",
+      2,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("Find flights to Tokyo");
+    expect(row!.preview).toBe("  Saved   preview  ");
+  });
+
+  it("preserves exact nonblank snapshot title and preview strings", async () => {
+    row!.title = "  Manual   title  ";
+    row!.preview = "  Saved   preview  ";
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [userMessage],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "Generated title",
+      "Generated preview",
+      1,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("  Manual   title  ");
+    expect(row!.preview).toBe("  Saved   preview  ");
+  });
+
+  it.each([
+    { title: "", preview: "", expectedTitle: "Find flights to Tokyo" },
+    { title: "", preview: "   ", expectedTitle: "Find flights to Tokyo" },
+    {
+      title: "  Manual   title  ",
+      preview: "",
+      expectedTitle: "  Manual   title  ",
+    },
+  ])(
+    "fills only blank snapshot metadata from merged visible prompts: %j",
+    async ({ title, preview, expectedTitle }) => {
+      row!.title = title;
+      row!.preview = preview;
+      const contextOnlyMessage = {
+        message: {
+          id: "context-only-prompt",
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "<context>Private instructions only</context>",
+            },
+          ],
+        },
+        parentId: null,
+      };
+      const firstVisiblePrompt = {
+        message: {
+          id: "first-visible-prompt",
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Find flights to <context>private note</context>Tokyo",
+            },
+          ],
+        },
+        parentId: "context-only-prompt",
+      };
+      const latestVisiblePrompt = {
+        message: {
+          id: "latest-visible-prompt",
+          role: "user",
+          content: [{ type: "text", text: "Book a return flight" }],
+        },
+        parentId: "first-visible-prompt",
+      };
+      row!.thread_data = JSON.stringify({
+        messages: [contextOnlyMessage],
+        agentKit: { messages: [] },
+      });
+
+      await updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          messages: [firstVisiblePrompt, latestVisiblePrompt],
+          agentKit: { _snapshotDelta: true, messages: [] },
+        }),
+        "Stale title",
+        "Stale preview",
+        3,
+        { preserveCurrentTitleAndPreview: true },
+      );
+
+      expect(row!.title).toBe(expectedTitle);
+      expect(row!.preview).toBe("Book a return flight");
+    },
+  );
+
+  it("keeps blank snapshot metadata blank when merged history has no visible prompt", async () => {
+    row!.title = "";
+    row!.preview = "";
+    row!.thread_data = JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "context-only-prompt",
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "<context>Private instructions only</context>",
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+      agentKit: { messages: [] },
+    });
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "Stale title",
+      "Stale preview",
+      1,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("");
+    expect(row!.preview).toBe("");
+  });
+
+  it("lets explicit metadata preservation win over snapshot title seeding", async () => {
+    row!.title = "";
+    row!.preview = "";
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [userMessage],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "Generated title",
+      "Generated preview",
+      2,
+      {
+        preserveCurrentMetadata: true,
+        preserveCurrentTitleAndPreview: true,
+      },
+    );
+
+    expect(row!.title).toBe("");
+    expect(row!.preview).toBe("");
+    expect(row!.message_count).toBe(1);
+  });
+
+  it("seeds a blank title from the first prompt without replacing it on later saves", async () => {
+    row!.title = "";
+    row!.thread_data = "{}";
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "first-prompt",
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "<context>Private instructions</context>\nPlan   next week",
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    };
+    await updateThreadData("thread-1", JSON.stringify(repository), "", "", 1);
+    expect(row!.title).toBe("Plan next week");
+    await updateThreadData("thread-1", "{}", "", "", 1);
+    expect(row!.title).toBe("Plan next week");
+    await renameThread("thread-1", "My renamed thread");
+    await updateThreadData("thread-1", JSON.stringify(repository), "", "", 1);
+    expect(row!.title).toBe("My renamed thread");
+  });
+
   it("reports when the thread disappeared before a save", async () => {
     row = null;
 
@@ -940,6 +1170,91 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(3);
   });
 
+  it("counts a raw tool-call mirror once when its stored result is model-facing text and the AgentKit output is structured", async () => {
+    const output = {
+      ok: true,
+      message: "Hello, AgentKit Browser!",
+      ui: { kind: "greeting", name: "AgentKit Browser" },
+    };
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-hello",
+                toolName: "hello",
+                args: { details: { name: "AgentKit Browser" } },
+                result: JSON.stringify(
+                  { ok: true, message: "Hello, AgentKit Browser!" },
+                  null,
+                  2,
+                ),
+              },
+              { type: "text", text: "The task is complete." },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-tool-step",
+            role: "assistant",
+            parts: [{ type: "text", text: "Calling the tool." }],
+          },
+          {
+            id: "assistant-final-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "The task is complete." }],
+          },
+        ],
+        events: [
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-tool-step", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-final-answer", role: "assistant" },
+          },
+        ],
+        toolCalls: [
+          {
+            id: "call-hello",
+            name: "hello",
+            input: { details: { name: "AgentKit Browser" } },
+            output,
+            messageId: "assistant-final-answer",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
   it("counts a mirrored reply once when only the durable copy has reasoning", async () => {
     const repository = {
       messages: [
@@ -1012,6 +1327,79 @@ describe("chat thread store", () => {
             role: "assistant",
             parts: [{ type: "text", text: "Done." }],
             metadata: { runId: "run-1" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "make this slide better",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts a mirrored reply when the completed run no longer has message events", async () => {
+    const runId = "run-without-message-events";
+    const input = { lookup: "account-1" };
+    const output = { answer: "Done." };
+    const repository = {
+      messages: [
+        {
+          message: {
+            ...userMessage,
+            metadata: {
+              custom: {
+                submittedRunId: runId,
+                agentKitMessageId: "client-user",
+              },
+            },
+          },
+        },
+        {
+          message: {
+            id: "server-answer",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-lookup",
+                toolName: "lookup",
+                args: input,
+                result: output,
+              },
+              { type: "text", text: output.answer },
+            ],
+            metadata: { runId },
+          },
+        },
+      ],
+      agentKit: {
+        messages: [
+          { id: "client-user", role: "user", parts: [] },
+          {
+            id: "client-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: output.answer }],
+          },
+        ],
+        events: [],
+        runs: [{ id: runId, status: "completed" }],
+        toolCalls: [
+          {
+            id: "call-lookup",
+            name: "lookup",
+            input,
+            output,
+            status: "completed",
+            runId,
+            messageId: "client-answer",
           },
         ],
       },
@@ -1296,6 +1684,36 @@ describe("chat thread store", () => {
     ]);
     expect(row!.preview).toBe("make this slide better");
     expect(row!.message_count).toBe(1);
+  });
+
+  it("rejects data URLs before directly persisting a queued attachment", async () => {
+    const originalThreadData = row!.thread_data;
+
+    await expect(
+      mutateThreadQueuedMessages("thread-1", {
+        type: "append",
+        message: {
+          id: "queued-inline-image",
+          text: "Use this image",
+          requestAttachments: [
+            {
+              type: "image",
+              name: "screen.png",
+              url: "data:image/png;base64,aGVsbG8=",
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow("queuedMessage.requestAttachments[0].url");
+
+    expect(row!.thread_data).toBe(originalThreadData);
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        /UPDATE chat_threads SET thread_data/i.test(
+          typeof query === "string" ? query : query.sql,
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("rechecks a queue claim after a cross-process CAS conflict", async () => {

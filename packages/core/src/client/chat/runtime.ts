@@ -2,10 +2,18 @@ import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 
 import type { ActionChatUIConfig } from "../../action-ui.js";
-import { AUTO_CONTINUE_OF_RUN_METADATA_KEY } from "../../agent/auto-continue.js";
+import {
+  AUTO_CONTINUE_OF_RUN_METADATA_KEY,
+  CONTINUE_OF_RUN_METADATA_KEY,
+} from "../../agent/auto-continue.js";
 import type { AgentChatStructuredMessage } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
+import {
+  agentEngineStatusUrlForChatApi,
+  requireAgentEngineConfiguredForDispatch,
+} from "../agent-engine-readiness.js";
+import { getOrCreateAnalyticsSessionId } from "../analytics-session.js";
 import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import {
@@ -125,8 +133,10 @@ export interface AgentChatRuntimeMessage<
 
 export interface AgentChatRuntimeAttachment {
   readonly id?: string;
+  readonly type?: string;
   readonly name: string;
   readonly mediaType?: string;
+  readonly contentType?: string;
   readonly data?: string;
   readonly url?: string;
   readonly text?: string;
@@ -849,6 +859,12 @@ export interface CreateHttpAgentChatRuntimeOptions<
     turn: AgentChatRuntimeTurnInput;
     turnId: AgentChatRuntimeTurnId;
   }) => unknown;
+  /** Called at the final client boundary before a new turn reaches the endpoint. */
+  readonly beforeStartTurn?: (input: {
+    session: AgentChatRuntimeSessionSummary;
+    turn: AgentChatRuntimeTurnInput;
+    turnId: AgentChatRuntimeTurnId;
+  }) => AgentChatRuntimeAwaitable<void>;
   readonly mapEvent?: (
     event: unknown,
     context: {
@@ -857,11 +873,7 @@ export interface CreateHttpAgentChatRuntimeOptions<
       runId?: string;
     },
   ) => TEvent | readonly TEvent[] | null;
-  /**
-   * Continues a paused turn through the same transport. The callback receives
-   * the most recent turn input so protocol-specific adapters can preserve the
-   * conversation context without teaching UI layers how to replay a request.
-   */
+  /** Continues a paused turn using that turn's original request context. */
   readonly continueTurn?: (input: {
     session: AgentChatRuntimeSessionSummary;
     continuation: AgentChatRuntimeContinueInput;
@@ -1350,6 +1362,11 @@ function withTurnId(error: unknown, turnId: string): unknown {
   return error;
 }
 
+function isRetryableRuntimeFailure(error: unknown): boolean {
+  const record = asRecord(error);
+  return (record?.retryable ?? record?.recoverable) === true;
+}
+
 export function createHttpAgentChatRuntime<
   TEvent extends AgentChatRuntimeEventBase = AgentChatRuntimeKnownEvent,
 >(
@@ -1387,26 +1404,36 @@ export function createHttpAgentChatRuntime<
       updatedAt: new Date().toISOString(),
       metadata: input?.metadata,
     };
-    let previousTurn: AgentChatRuntimeTurnInput | undefined;
+    let latestTurn: AgentChatRuntimeTurnInput | undefined;
+    const previousTurns = new Map<string, AgentChatRuntimeTurnInput>();
+    const forgetTurnContext = (
+      turnId: string,
+      turn: AgentChatRuntimeTurnInput,
+    ) => {
+      if (previousTurns.get(turnId) === turn) previousTurns.delete(turnId);
+      if (latestTurn === turn) latestTurn = undefined;
+    };
 
     const startTurn = async (
       turn: AgentChatRuntimeTurnInput,
     ): Promise<AgentChatRuntimeTurn<TEvent>> => {
-      previousTurn = turn;
       const turnId = turn.queuePromotion?.turnId ?? createRuntimeId("turn");
       const { controller, cleanup } = createAbortController(turn.abortSignal);
-      const endpoint =
-        typeof options.endpoint === "function"
-          ? options.endpoint({ session: summary, turn })
-          : options.endpoint;
-      const headers = await resolveHeaders(options.headers, {
-        sessionId,
-        turnId,
-      });
-      if (!headers.has("Content-Type"))
-        headers.set("Content-Type", "application/json");
+      latestTurn = turn;
+      previousTurns.set(turnId, turn);
       let response: Response;
       try {
+        await options.beforeStartTurn?.({ session: summary, turn, turnId });
+        const endpoint =
+          typeof options.endpoint === "function"
+            ? options.endpoint({ session: summary, turn })
+            : options.endpoint;
+        const headers = await resolveHeaders(options.headers, {
+          sessionId,
+          turnId,
+        });
+        if (!headers.has("Content-Type"))
+          headers.set("Content-Type", "application/json");
         response = await fetchImpl(normalizeEndpoint(endpoint), {
           method: options.method ?? "POST",
           headers,
@@ -1420,22 +1447,44 @@ export function createHttpAgentChatRuntime<
         });
       } catch (error) {
         cleanup();
+        if (!isRetryableRuntimeFailure(error)) {
+          forgetTurnContext(turnId, turn);
+        }
         throw withTurnId(error, turnId);
       }
       if (!response.ok) {
         cleanup();
-        throw withTurnId(await readHttpRuntimeError(response), turnId);
+        const error = await readHttpRuntimeError(response);
+        if (!isRetryableRuntimeFailure(error)) {
+          forgetTurnContext(turnId, turn);
+        }
+        throw withTurnId(error, turnId);
       }
 
       const runId = response.headers.get("X-Run-Id") ?? undefined;
       const events = (async function* () {
+        let retryableFailure = false;
         try {
-          yield* streamResponseEvents(response, {
+          for await (const event of streamResponseEvents(response, {
             sessionId,
             turnId,
             runId,
             mapEvent,
-          });
+          })) {
+            if (event.type === "error") {
+              retryableFailure = isRetryableRuntimeFailure(event);
+            } else if (event.type === "done") {
+              const reason = asRecord(event)?.reason;
+              if (
+                reason !== "tool-use" &&
+                reason !== "interrupted" &&
+                !(reason === "error" && retryableFailure)
+              ) {
+                forgetTurnContext(turnId, turn);
+              }
+            }
+            yield event;
+          }
         } finally {
           cleanup();
         }
@@ -1490,13 +1539,32 @@ export function createHttpAgentChatRuntime<
     };
 
     const continueTurn = options.continueTurn
-      ? (continuation: AgentChatRuntimeContinueInput = {}) =>
-          options.continueTurn!({
+      ? (continuation: AgentChatRuntimeContinueInput = {}) => {
+          let previousTurnId = continuation.turnId;
+          const previousTurn = previousTurnId
+            ? previousTurns.get(previousTurnId)
+            : latestTurn;
+          if (!previousTurnId && previousTurn) {
+            for (const [turnId, turn] of previousTurns) {
+              if (turn === previousTurn) {
+                previousTurnId = turnId;
+                break;
+              }
+            }
+          }
+          const continuedTurn = options.continueTurn!({
             session: summary,
             continuation,
             previousTurn,
             startTurn,
-          })
+          });
+          return Promise.resolve(continuedTurn).then((result) => {
+            if (previousTurn && previousTurnId) {
+              forgetTurnContext(previousTurnId, previousTurn);
+            }
+            return result;
+          });
+        }
       : undefined;
 
     return {
@@ -1514,7 +1582,10 @@ export function createHttpAgentChatRuntime<
         messages: input?.messages,
         resumeState: input?.resumeState,
       }),
-      dispose: () => undefined,
+      dispose: () => {
+        previousTurns.clear();
+        latestTurn = undefined;
+      },
     };
   };
 
@@ -1720,6 +1791,7 @@ interface StructuredTextHistoryCandidate {
   position: number;
   role: "user" | "assistant";
   parts: StructuredTextPart[];
+  priority: number;
 }
 
 type StructuredHistoryCandidate =
@@ -2254,10 +2326,14 @@ function boundStructuredToolHistory(
     })),
   );
   candidates.sort((left, right) => {
-    const leftPriority =
-      left.kind === "tool" && left.candidate.priority ? 1 : 0;
-    const rightPriority =
-      right.kind === "tool" && right.candidate.priority ? 1 : 0;
+    const candidatePriority = (candidate: StructuredHistoryCandidate) =>
+      candidate.kind === "tool"
+        ? candidate.candidate.priority
+          ? 3
+          : 0
+        : candidate.candidate.priority;
+    const leftPriority = candidatePriority(left);
+    const rightPriority = candidatePriority(right);
     return leftPriority - rightPriority || left.position - right.position;
   });
 
@@ -2318,6 +2394,7 @@ interface StructuredHistorySourceMessage {
   message: AgentChatRuntimeMessage;
   parts: StructuredHistorySourcePart[];
   priority: boolean;
+  textPriority: number;
 }
 
 interface StructuredHistorySourceBoundary {
@@ -2365,6 +2442,7 @@ function boundedStructuredHistorySources(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
   supplementalMessages: readonly AgentChatRuntimeMessage[],
+  preservePreviousUserPrompt = false,
 ): BoundedStructuredHistorySources {
   const historyMessages = messages ?? [];
   let currentPromptMessageIndex: number | undefined;
@@ -2397,6 +2475,58 @@ function boundedStructuredHistorySources(
     }
   }
 
+  let firstUserPromptMessageIndex: number | undefined;
+  const historyWindowStart = Math.max(
+    0,
+    historyMessages.length - MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES,
+  );
+  for (
+    let index = historyWindowStart;
+    index < historyMessages.length;
+    index++
+  ) {
+    if (index === currentPromptMessageIndex) continue;
+    const message = historyMessages[index]!;
+    if (
+      message.role === "user" &&
+      message.content.some(
+        (part) =>
+          (part.type === "text" || part.type === "reasoning") &&
+          part.text.trim(),
+      )
+    ) {
+      firstUserPromptMessageIndex = index;
+      break;
+    }
+  }
+
+  let previousUserPromptMessageIndex: number | undefined;
+  if (preservePreviousUserPrompt) {
+    for (let index = historyMessages.length - 1; index >= 0; index--) {
+      if (index === currentPromptMessageIndex) continue;
+      const message = historyMessages[index]!;
+      if (
+        message.role === "user" &&
+        message.content.some(
+          (part) =>
+            (part.type === "text" || part.type === "reasoning") &&
+            part.text.trim(),
+        )
+      ) {
+        previousUserPromptMessageIndex = index;
+        break;
+      }
+    }
+  }
+  const protectedUserPromptMessageIndices = new Set(
+    [firstUserPromptMessageIndex, previousUserPromptMessageIndex].filter(
+      (index): index is number => index !== undefined,
+    ),
+  );
+  const regularTextPartLimit =
+    MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS -
+    protectedUserPromptMessageIndices.size;
+
   const selectedReversed: StructuredHistorySourceMessage[] = [];
   let selectedToolPartCount = 0;
   let selectedTextPartCount = 0;
@@ -2422,7 +2552,13 @@ function boundedStructuredHistorySources(
     }
     visitedMessageCount++;
     if (message.role !== "user" && message.role !== "assistant") return;
+    const isFirstUserPrompt =
+      list === "messages" && messageIndex === firstUserPromptMessageIndex;
+    const isPreviousUserPrompt =
+      list === "messages" && messageIndex === previousUserPromptMessageIndex;
+    const isProtectedUserPrompt = isFirstUserPrompt || isPreviousUserPrompt;
     const partsReversed: StructuredHistorySourcePart[] = [];
+    let protectedPromptTextAdded = false;
     for (
       let partIndex = message.content.length - 1;
       partIndex >= 0;
@@ -2442,6 +2578,33 @@ function boundedStructuredHistorySources(
         part.type === "tool-result";
       const isTextPart = part.type === "text" || part.type === "reasoning";
       if (!isToolPart && !isTextPart) continue;
+      if (isProtectedUserPrompt && isTextPart) {
+        if (!protectedPromptTextAdded) {
+          const text = message.content
+            .filter(
+              (candidate) =>
+                candidate.type === "text" || candidate.type === "reasoning",
+            )
+            .map((candidate) =>
+              candidate.type === "text" || candidate.type === "reasoning"
+                ? candidate.text
+                : "",
+            )
+            .join("\n");
+          if (text.trim()) {
+            if (
+              selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS
+            ) {
+              omitted = true;
+            } else {
+              selectedTextPartCount++;
+              partsReversed.push({ type: "text", text });
+            }
+          }
+          protectedPromptTextAdded = true;
+        }
+        continue;
+      }
       if (
         selectedToolPartCount >= MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS &&
         selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS
@@ -2461,7 +2624,7 @@ function boundedStructuredHistorySources(
         }
         selectedToolPartCount++;
       } else {
-        if (selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS) {
+        if (selectedTextPartCount >= regularTextPartLimit) {
           omitted = true;
           continue;
         }
@@ -2474,6 +2637,11 @@ function boundedStructuredHistorySources(
         message,
         parts: partsReversed.reverse(),
         priority: list === "supplemental",
+        textPriority: isPreviousUserPrompt
+          ? 2
+          : list === "supplemental"
+            ? 1
+            : 0,
       });
     }
   };
@@ -2665,6 +2833,7 @@ function nativeStructuredHistoryFromMessages(
   supplementalMessages: readonly AgentChatRuntimeMessage[] = [],
   supplementalHistoryOmitted = false,
   supplementalToolHistoryOmitted = false,
+  preservePreviousUserPrompt = false,
 ): AgentChatStructuredMessage[] | undefined {
   const structuredHistory: AgentChatStructuredMessage[] = [];
   const callCandidates: StructuredToolHistoryCandidate[] = [];
@@ -2678,6 +2847,7 @@ function nativeStructuredHistoryFromMessages(
     messages,
     currentPrompt,
     supplementalMessages,
+    preservePreviousUserPrompt,
   );
   const boundaryResultsToOmit = boundaryToolResultPartsToOmit(
     messages,
@@ -2686,7 +2856,7 @@ function nativeStructuredHistoryFromMessages(
     supplementalToolHistoryOmitted,
   );
 
-  for (const { message, parts, priority } of sources.messages) {
+  for (const { message, parts, priority, textPriority } of sources.messages) {
     if (message.role !== "user" && message.role !== "assistant") continue;
     const role = message.role;
     let content: AgentChatStructuredMessage["content"] = [];
@@ -2698,6 +2868,7 @@ function nativeStructuredHistoryFromMessages(
         position: toolHistoryPosition++,
         role,
         parts: pendingTextParts,
+        priority: textPriority,
       });
       pendingTextParts = [];
     };
@@ -3818,6 +3989,10 @@ export function createAgentNativeChatRuntime(
   const runtimeId = options.id ?? "agent-native";
   const fetchImpl = options.fetch ?? fetch;
   const streamingUrl = options.streamingUrl?.trim() || agentChatStreamingUrl();
+  const isSameOriginEndpoint = (url: string) => {
+    if (typeof window === "undefined") return false;
+    return new URL(url, window.location.href).origin === window.location.origin;
+  };
   let streamFallbackWarningShown = false;
   const runtimeFetch: FetchLike = streamingUrl
     ? async (input, init) => {
@@ -3865,6 +4040,9 @@ export function createAgentNativeChatRuntime(
 
         const headers = new Headers(init?.headers);
         headers.set("Authorization", `Bearer ${token}`);
+        if (!isSameOriginEndpoint(streamingUrl)) {
+          headers.delete("x-agent-native-session-id");
+        }
         try {
           return await fetchImpl(streamingUrl, {
             ...init,
@@ -3893,9 +4071,44 @@ export function createAgentNativeChatRuntime(
       options.description ?? "Agent-Native's built-in chat transport.",
     endpoint: apiUrl,
     fetch: runtimeFetch,
+    beforeStartTurn: async ({ session, turn, turnId }) => {
+      const metadata = turn.metadata;
+      const isAdmittedContinuation =
+        turn.queuePromotion !== undefined ||
+        metadata?.[AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY] === true ||
+        metadataString(metadata, AUTO_CONTINUE_OF_RUN_METADATA_KEY) !==
+          undefined ||
+        metadataStringList(
+          metadata,
+          AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY,
+        ) !== undefined;
+      if (isAdmittedContinuation) return;
+      const candidateEngine = metadata?.engine ?? options.engine;
+      return requireAgentEngineConfiguredForDispatch({
+        engine:
+          typeof candidateEngine === "string" ? candidateEngine : undefined,
+        source: {
+          statusUrl: agentEngineStatusUrlForChatApi(apiUrl),
+          fetch: fetchImpl,
+          headers: () =>
+            resolveHeaders(options.headers, {
+              sessionId: session.id,
+              turnId,
+            }),
+        },
+      });
+    },
     headers: async (input) => {
       const headers = await resolveHeaders(options.headers, input);
       headers.set("x-agent-native-surface", options.surface ?? "app");
+      if (!isSameOriginEndpoint(apiUrl)) {
+        headers.delete("x-agent-native-session-id");
+      } else if (!headers.has("x-agent-native-session-id")) {
+        const browserSessionId = getOrCreateAnalyticsSessionId();
+        if (browserSessionId) {
+          headers.set("x-agent-native-session-id", browserSessionId);
+        }
+      }
       return headers;
     },
     capabilities: {
@@ -3940,12 +4153,21 @@ export function createAgentNativeChatRuntime(
         turn.metadata,
         AUTO_CONTINUE_OF_RUN_METADATA_KEY,
       );
+      const continueOfRunId = metadataString(
+        turn.metadata,
+        CONTINUE_OF_RUN_METADATA_KEY,
+      );
       const continuationMessageState = continuationTurnId
         ? messageStates.get(continuationTurnId)
         : undefined;
       if (continuationMessageState) {
         messageStates.set(turnId, continuationMessageState);
       }
+      const turnEngine = turn.metadata?.engine;
+      const engine =
+        typeof turnEngine === "string" && turnEngine.trim()
+          ? turnEngine
+          : options.engine;
       const history = nativeHistoryFromMessages(turn.messages, prompt);
       const pendingApprovalHistory =
         approvedToolCalls && continuationMessageState
@@ -3957,6 +4179,8 @@ export function createAgentNativeChatRuntime(
         pendingApprovalHistory.messages,
         pendingApprovalHistory.omitted,
         pendingApprovalHistory.toolHistoryOmitted,
+        turn.metadata?.[AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY] ===
+          true,
       );
       return {
         message: prompt,
@@ -3979,6 +4203,7 @@ export function createAgentNativeChatRuntime(
           ? { internalContinuation: true }
           : {}),
         ...(autoContinueOfRunId ? { autoContinueOfRunId } : {}),
+        ...(continueOfRunId ? { continueOfRunId } : {}),
         ...(turn.metadata?.agentNativeSkipPendingSelectionContext === true
           ? { skipPendingSelectionContext: true }
           : {}),
@@ -3987,7 +4212,7 @@ export function createAgentNativeChatRuntime(
         ...((turn.model ?? options.model)
           ? { model: turn.model ?? options.model }
           : {}),
-        ...(options.engine ? { engine: options.engine } : {}),
+        ...(engine ? { engine } : {}),
         ...((turn.reasoningEffort ?? options.effort)
           ? { effort: turn.reasoningEffort ?? options.effort }
           : {}),
@@ -4035,9 +4260,10 @@ export function createAgentNativeChatRuntime(
     },
     continueTurn: ({ session, continuation, previousTurn, startTurn }) => {
       // Only the continuation that names a stopped run continues it; an approval
-      // or connection answered later is not another automatic continuation.
+      // or connection answered later is not another continuation of that run.
       const {
         [AUTO_CONTINUE_OF_RUN_METADATA_KEY]: _autoContinueOf,
+        [CONTINUE_OF_RUN_METADATA_KEY]: _continueOf,
         ...previousMetadata
       } = previousTurn?.metadata ?? {};
       const approval = continuation.approval;

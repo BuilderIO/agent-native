@@ -140,7 +140,7 @@ describe("isBoxlessText — corner radius on text", () => {
   const text = (computedStyles: Record<string, string> = {}) =>
     makeElement({ tagName: "h1", hasOwnText: true, computedStyles });
 
-  it("treats plain text like Figma: no box to round", () => {
+  it("does not expose corner rounding for plain text", () => {
     expect(
       isBoxlessText(
         text({
@@ -289,7 +289,7 @@ describe("inspectorObjectTitle", () => {
     ).toBe("Card");
   });
 
-  it("names images, vectors, and frames as Figma does instead of by tag", () => {
+  it("classifies imported images, vectors, and frames from layer metadata", () => {
     expect(inspectorObjectTitle(makeElement({ tagName: "img" }))).toBe("Image");
     expect(inspectorObjectTitle(makeElement({ tagName: "svg" }))).toBe(
       "Vector",

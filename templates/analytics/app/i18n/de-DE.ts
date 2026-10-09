@@ -702,6 +702,19 @@ export default {
     copied: "Kopiert",
     copy: "Kopie",
     keyActions: "{{name}}-Schlüsselaktionen",
+    manageReplayOrigins: "Replay-Ursprünge verwalten",
+    replayOriginsDescription:
+      "Fügen Sie exakte HTTPS-Ursprünge ein, einen pro Zeile. Vorhandene Ursprünge bleiben erhalten.",
+    currentReplayOrigins: "Derzeit erlaubte Ursprünge",
+    anyReplayOriginAllowed:
+      "Derzeit ist jeder Ursprung zugelassen. Nach dem Hinzufügen sind nur die aufgeführten Ursprünge erlaubt. Fügen Sie daher jede App hinzu, die diesen Schlüssel verwendet.",
+    originsToAdd: "Hinzuzufügende Ursprünge",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "Ursprünge hinzufügen",
+    addingReplayOrigins: "Ursprünge werden hinzugefügt…",
+    replayOriginsUpdateFailed:
+      "Zugelassene Ursprünge konnten nicht aktualisiert werden.",
+    cancel: "Abbrechen",
     lastUsed: "zuletzt verwendeter {{date}}",
     neverUsed: "nie benutzt",
     revoking: "Widerrufen...",
@@ -1524,6 +1537,8 @@ export default {
     replayPlayer: "Wiedergabe-Player",
     replayLoading: "Wiedergabe wird geladen...",
     replayLoadingProgress: "{{loaded}} von {{total}} Wiedergabe-Chunks geladen",
+    replayTargetFallback:
+      "Der angeforderte Aufnahmezeitpunkt ({{requested}}) ist nicht verfügbar; das nächste Replay-Bild bei {{available}} wird angezeigt.",
     replayUnavailable: "Keine Wiedergabe-Chunks für diese Sitzung",
     replayUnavailableDescription:
       "Die Sitzung enthält Analytics-Ereignisse, aber keine rrweb-Chunk-Ereignisse.",
@@ -1537,6 +1552,13 @@ export default {
     savingScreenshot: "Screenshot wird gespeichert…",
     screenshotDownloaded: "Screenshot heruntergeladen",
     screenshotSaveFailed: "Screenshot konnte nicht gespeichert werden",
+    copyScreenshot: "In Design kopieren",
+    copyingScreenshot: "Screenshot wird kopiert…",
+    screenshotCopiedForDesign: "Screenshot kopiert. Füge ihn in Design ein.",
+    screenshotCopyFailed:
+      "Screenshot konnte nicht kopiert werden. Lade ihn herunter und lade die PNG-Datei stattdessen in Design hoch.",
+    screenshotCopyUnsupportedAssets:
+      "Screenshot nicht kopiert: Eingebettete Medien oder Bilder in diesem Moment können nicht sicher erfasst werden. Versuche eine andere Stelle der Wiedergabe.",
     screenshotUnsupportedAssets:
       "Screenshot nicht gespeichert: Eingebettete Medien oder Bilder können teilweise nicht sicher erfasst werden.",
     timeline: "Ereignis-Timeline",
@@ -1575,8 +1597,12 @@ export default {
     time: "Zeit",
     storageSetupTitle: "Wiedergabe-Speicher verbinden",
     storageSetupDescription:
-      "Aufzeichnungen der Sitzungswiedergabe benötigen einen Speicher, bevor Chunks gesichert werden können. Nutzen Sie Builder.io für Speicher im kostenlosen Kontingent oder konfigurieren Sie Ihren eigenen S3-kompatiblen Bucket.",
+      "Sitzungswiedergaben benötigen einen autorisierten Anbieter für Datei-Uploads. Builder.io kann sie speichern, wenn die Upload-Berechtigung erteilt wurde; alternativ können Sie einen eigenen S3-kompatiblen Bucket einrichten.",
     storageConnected: "Speicher verbunden",
+    storageStatusUnavailable:
+      "Der Status des Wiedergabe-Speichers konnte nicht geprüft werden. Versuchen Sie es erneut, um die Upload-Bereitschaft zu prüfen.",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io ist für KI und Credits verbunden, aber Wiedergabe-Uploads benötigen eine separate Speicherberechtigung.",
     connectBuilder: "Builder.io verwenden",
     configureS3: "S3-Speicher konfigurieren",
     devtools: "Dev-Tools",
@@ -1611,6 +1637,62 @@ export default {
       "Keine Konsolenmeldungen entsprechen den aktuellen Filtern.",
     devtoolsNoNetworkMatches:
       "Keine Anfragen entsprechen den aktuellen Filtern.",
+    storyboardSelectionCoverage:
+      "{{selected}} von {{total}} Sitzungswiedergaben ausgewählt ({{percent}}).",
+    storyboardSelectHint: "Wähle bis zu 3 Sitzungen für ein Storyboard aus.",
+    clearStoryboardSelection: "Auswahl aufheben",
+    createStoryboard: "Storyboard erstellen",
+    selectReplayForStoryboard: "Wiedergabe {{id}} für das Storyboard auswählen",
+    storyboardDesignId: "Design-ID (optional)",
+    storyboardTitle: "Storyboard-Titel",
+    storyboardDefaultTitle: "Sitzungswiedergabe-Storyboard",
+    storyboardTimestamps: "Zeitpunkte (bis zu 3, durch Kommas getrennt)",
+    storyboardReplayPreview: "Wiedergabevorschau",
+    storyboardStartingCapture:
+      "Wähle diese Analytics-Registerkarte im Browser-Aufnahmefenster aus.",
+    storyboardLoadingReplay: "Wiedergabe {{replayId}} wird geladen…",
+    storyboardCapturingFrame:
+      "Aufnahme {{current}} von {{total}} · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "Screenshots werden an Design gesendet…",
+    storyboardComplete:
+      "{{screenshots}} Screenshots wurden zu Design hinzugefügt.",
+    storyboardTimestampError: "Verwende mm:ss, hh:mm:ss oder mm:ss.mmm.",
+    storyboardTimestampRequired:
+      "Gib für jede ausgewählte Wiedergabe mindestens einen Zeitpunkt ein.",
+    storyboardTimestampLimit:
+      "Wähle höchstens 3 Zeitpunkte pro Wiedergabe aus.",
+    storyboardDuplicateTimestamp: "Entferne doppelte Zeitpunkte.",
+    storyboardScreenshotLimit: "Wähle höchstens 9 Screenshots aus.",
+    storyboardReplayLimit: "Wähle bis zu 3 Sitzungswiedergaben aus.",
+    storyboardCaptureFailed: "Screenshot-Aufnahme fehlgeschlagen.",
+    storyboardCanceled: "Aufnahme abgebrochen.",
+    storyboardReplayIncomplete:
+      "Wiedergabe {{replayId}} enthält nicht verfügbare Ereignisse; der Export wurde gestoppt.",
+    storyboardViewportUnavailable:
+      "Die aufgezeichneten Ansichtsfensterabmessungen sind nicht verfügbar.",
+    storyboardTimestampOutOfRange:
+      "Der Zeitpunkt liegt außerhalb der Wiedergabe {{replayId}}.",
+    storyboardScreenshotTooLarge:
+      "Ein Screenshot überschreitet das Limit von 5 MB.",
+    storyboardBatchTooLarge:
+      "Der Screenshot-Stapel überschreitet das Limit von 20 MB.",
+    storyboardRouteUnavailable:
+      "Die Route bei {{timestamp}} ist für Wiedergabe {{replayId}} nicht verfügbar.",
+    storyboardNoDesignResponse:
+      "Design hat kein Storyboard-Ergebnis zurückgegeben.",
+    storyboardTemporaryCleanupPending:
+      "Das Storyboard wurde gespeichert, aber temporäre Screenshots konnten nicht entfernt werden.",
+    storyboardTemporaryCleanupFailed:
+      "Die Bereinigung der temporären Screenshots steht noch aus.",
+    storyboardUnexpectedResponse:
+      "Der Screenshot-Export hat eine unlesbare Antwort zurückgegeben. Bitte erneut versuchen.",
+    storyboardSaveOutcomeUnknown:
+      "Design hat das Storyboard möglicherweise gespeichert. Prüfen Sie Design, bevor Sie es erneut versuchen.",
+    openStoryboard: "Storyboard in Design öffnen",
+    cancelStoryboardCapture: "Aufnahme abbrechen",
+    captureToDesign: "Aufnehmen und zu Design hinzufügen",
+    storyboardSelectAnalyticsTab:
+      "Wähle diese Analytics-Registerkarte im Browser-Aufnahmefenster aus.",
   },
   catalog: {
     description:

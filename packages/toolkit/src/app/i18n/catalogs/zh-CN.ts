@@ -118,8 +118,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "描述你的角色",
   "onboarding.skipForNow": "暂时跳过",
   "onboarding.saveRoleError": "无法保存你的角色。",
-  "onboarding.builderCreateAccount": "创建 Builder.io 账户",
-  "onboarding.builderSignInWithAccount": "使用 Builder.io 账户登录",
+  "onboarding.builderCreateAccount": "使用 Builder.io",
+  "onboarding.builderSignInWithAccount": "使用 Builder.io",
   "onboarding.builderActivateDescription":
     "一键创建或重新使用您的 Builder.io 账户，并激活免费额度。",
   "onboarding.builderActiveCredits": "包含在有效的 Builder.io 免费额度中",
@@ -146,7 +146,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "服务条款",
   "onboarding.builderPrivacy": "隐私政策",
   "onboarding.builderConsentAnd": "和",
-  "onboarding.builderExistingAccount": "我有 Builder.io 账户",
+  "onboarding.builderExistingAccount": "使用 Builder.io",
   "onboarding.builderActivating": "正在激活 Builder.io 免费额度",
   "onboarding.builderConnecting": "正在设置 Builder.io 免费额度",
   "onboarding.builderProvisioningDescription":
@@ -192,7 +192,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder 存储或兼容 S3 的存储桶",
   "onboarding.capability.clipsObjectStorage.why":
-    "录制的视频需要持久对象存储后才能播放或分享。",
+    "无需存储即可录制、预览和下载 Clips。连接持久对象存储后，可在不同设备上查看和分享录制内容。",
   "onboarding.capability.clipsTranscription.keySummary": "语音转文字提供商密钥",
   "onboarding.capability.about": "关于{{label}}",
   "onboarding.capability.why": "为什么需要{{label}}",
@@ -478,6 +478,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "上传技能文件",
   "composer.upload": "上传",
   "composer.uploadFailed": "无法上传所选文件。",
+  "composer.fileTooLarge": "此文件超出上传大小限制。",
+  "composer.sessionExpired": "会话已过期。请刷新页面后重试。",
   "composer.unsupportedFileType": "不支持此文件类型。",
   "composer.useAttachedContext": "使用附加的上下文。",
   "mentions.commands": "命令",
@@ -614,6 +616,8 @@ const messages: ToolkitAgentChatTranslation = {
     "您已退出登录，因此此对话无法跟踪智能体。请重新登录，然后刷新。",
   "errorMessages.malformedRequestAttachment":
     "模型拒绝了一个附加文件，因此该消息未发送。请移除附件后重试：PDF、纯文本文件以及 JPEG、PNG、GIF、WebP 图片可直接读取；其他格式需要先上传再以链接形式引用。",
+  "errorMessages.invalidAttachment":
+    "模型提供商因附件格式或大小不受支持而拒绝了该附件。图片请导出为更小的 PNG、JPEG、GIF 或 WebP；文档请使用受支持的文件格式，或粘贴相关文本，然后重新附加。",
   "errorMessages.noProviderConnected":
     "尚未连接 LLM 提供商。打开设置 > 智能体 > AI 提供商，然后使用 Builder.io（提供免费套餐）或添加提供商密钥。",
   "errorMessages.openBuilderSpaceSettings": "打开 Builder 空间设置",
@@ -638,6 +642,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "不喜欢",
   "feedback.thumbsUp": "喜欢",
   "feedback.tooSlow": "太慢",
+  "feedback.reasonMisread": "误解了我的请求",
+  "feedback.reasonNotDone": "说已完成，但实际没有",
+  "feedback.reasonWrongNumbers": "数字有误",
+  "feedback.copyDetails": "复制详情",
   "feedback.whatWentWrong": "哪里出了问题？",
   "feedback.wrongTool": "工具错误",
   "header.switchToCli": "切换到 CLI",
@@ -1066,6 +1074,7 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "正在设置 Builder.io",
   "recovery.copyDebug": "复制调试信息",
   "recovery.copyFailed": "复制失败",
+  "recovery.continueUnavailable": "此运行已无法继续。发送消息以继续。",
   "recovery.retryAttachmentUnavailable":
     "此请求包含一个无法重试的文件。请在消息输入框中重新附加该文件，然后重试。",
   "recovery.deferredSubmissionFailed":
@@ -1089,6 +1098,10 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "已有 {{seconds}} 秒没有进展。智能体可能遇到服务器超时或连接中断。",
   "recovery.stuckRetrying": "正在自动重试。",
+  "recovery.statusUnreadable":
+    "无法连接服务器检查此对话，它可能已经完成。我们会继续尝试。",
+  "recovery.statusMismatch": "服务器显示此对话已不再运行。重新加载以查看结果。",
+  "recovery.reload": "重新加载",
   "recovery.statusCheckFailed":
     "无法连接服务器以检查智能体是否仍在工作。请重新发送消息以重试。",
   "recovery.streamEnded":
@@ -1655,6 +1668,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.retry": "重试",
   "settings.storage.adminOnly": "只有组织所有者和管理员可以更改文件存储。",
   "settings.audit.action": "操作",
+  "settings.audit.agentVia": "通过 {{protocol}} 的智能体",
   "settings.audit.allApps": "所有应用",
   "settings.audit.app": "应用",
   "settings.audit.changedBy": "更改者",
@@ -1914,7 +1928,8 @@ const messages: ToolkitAgentChatTranslation = {
     "这会影响 {{org}} 中所有未连接自己账号的人。",
   "settingsShell.builder.disconnectFailed": "无法断开 Builder.io。",
   "settingsShell.builder.disconnectTitle": "断开 Builder.io？",
-  "settingsShell.builder.grantsFailed": "无法读取 Builder.io 连接。",
+  "settingsShell.builder.grantsFailed":
+    "连接状态暂时不可用。请重试以再次检查。",
   "settingsShell.builder.setupStartFailed":
     "无法启动 Builder.io 设置。请刷新此页面后重试。",
   "settingsShell.builder.setupHostFailed":
@@ -2280,7 +2295,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "模型访问、浏览器自动化、文件存储和工作区身份。提供免费套餐。",
   "settingsShell.integrations.builderStatusFailed":
-    "无法检查 Builder.io 连接。",
+    "连接状态暂时不可用。请重试以再次检查。",
   "settingsShell.integrations.category.analytics": "分析",
   "settingsShell.integrations.category.design": "设计",
   "settingsShell.integrations.category.engineering": "工程",
@@ -2422,6 +2437,11 @@ const messages: ToolkitAgentChatTranslation = {
     "可使用部署备用方案。使用自己的 Builder.io 账户即可覆盖它。",
   "settingsInfra.builderStorageHint":
     "对象存储可持久保存上传文件，并让 URL 在整个对话中重复使用。请使用下方的 Builder.io 或兼容 S3 的存储桶。",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io 已连接，但目前无法存储上传的文件。重新连接以授予上传权限，或在下方配置存储桶。",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "无法验证 Builder.io 的上传权限。请重试或在下方配置存储桶。",
+  "settingsInfra.reconnectBuilderUploads": "授予上传权限",
   "settingsInfra.builderUnknown": "无法检查 Builder.io 连接。",
   "settingsInfra.manage": "管理",
   "settingsInfra.connect": "连接",

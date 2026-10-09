@@ -66,6 +66,10 @@ pnpm action create-document --title "Research" --description "Evidence and sourc
 pnpm action create-document --title "Placeholder 1" --spaceName "Foobar"
 ```
 
+If the result has `creativeContextProjectionStatus: "pending"`, the Page is
+already committed. Retry the same arguments with the returned `id` to repair
+its Creative Context projection; do not create another Page.
+
 When a user asks for a Page in an interactive Content conversation, creation is
 not a complete handoff. After `create-document` succeeds, call `navigate` with
 the returned document `id`, then call `view-screen` and compare its document ID
@@ -169,17 +173,23 @@ pnpm action suggest-document-edit --id abc123 \
 
 ### delete-document
 
-Move a document and all its children to Trash. IDs, bodies, hierarchy, and
-collection membership remain intact so the subtree can be restored.
+Move a page and all its sub-pages to Trash. IDs, bodies, hierarchy, and
+collection membership remain intact so the subtree can be restored. Agents pass
+the page's exact `updatedAt` from `<current-screen>` or a fresh read, plus an
+idempotency key. A conflict means the page changed: read it again before
+deciding to trash it. Collection pages use `delete-content-database` instead.
 
 ```bash
-pnpm action delete-document --id abc123
+pnpm action delete-document --id abc123 \
+  --expectedUpdatedAt '<updatedAt>' --idempotencyKey '<uuid>'
 ```
 
-Restore the root subtree, or permanently delete it only after it is in Trash:
+Restore the receipt's `trashRootId` with its `trashedAt` (also listed by
+`list-content-trash`), or permanently delete it only after it is in Trash:
 
 ```bash
-pnpm action restore-document --id abc123
+pnpm action restore-document --id abc123 \
+  --expectedTrashedAt '<trashedAt>' --idempotencyKey '<uuid>'
 pnpm action plan-content-trash-purge --mode selection --documentIds '["abc123"]'
 pnpm action permanently-delete-document --id abc123 --planId '<reviewed plan ID>' --scopeToken '<opaque plan token>'
 ```
@@ -335,7 +345,7 @@ failures stop the run.
 | "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)             |
 | "Create a page about X"   | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
 | "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"` |
-| "Delete this page"        | ID from `<current-screen>`, `delete-document --id ...`                            |
+| "Delete this page"        | ID and `updatedAt` from `<current-screen>`, `delete-document --id ... --expectedUpdatedAt ... --idempotencyKey ...` |
 
 ## Common Tasks
 
@@ -346,7 +356,7 @@ failures stop the run.
 | "Find my meeting notes"      | `search-documents --query "meeting notes"`                                          |
 | "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"` |
 | "Rewrite this document"      | `view-screen` to get ID, then `update-document --id ... --content ...`              |
-| "Delete this page"           | `view-screen` to get ID, then `delete-document --id ...`                            |
+| "Delete this page"           | `view-screen` for ID and `updatedAt`, then `delete-document` with both and an idempotency key |
 | "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                               |
 | "Show me the document tree"  | `list-documents`                                                                    |
 

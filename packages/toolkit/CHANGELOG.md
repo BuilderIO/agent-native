@@ -1,5 +1,57 @@
 # @agent-native/toolkit
 
+## 0.205.0
+
+### Patch Changes
+
+- b7e32e4: A chat that still shows a run as running after the server stopped tracking it now reloads the thread and refreshes the app's data, instead of waiting for the user to retry; a status check that cannot reach the server shows its own notice rather than "running" or "done". Threads created without a request org adopt their run's org so Human Review can open them, and a one-time migration backfills existing ones. A classifier that cannot run now emits `$ai_sentiment_failed` with a coarse reason, a failed trace write is counted and logged once per run, a thumbs-down for a run with no persisted trace is saved instead of answering 404, and the thumbs-down popover gains reason chips and Copy details. A run that ends `connection_required` now leaves a note for the thread's next run (named providers, who can connect them) so the agent stops retrying the same unconnected provider, and the card says who can grant it. Pre-model reference retrieval and the per-turn screen, URL and selection blocks report a typed status (`ok`, `empty`, `timed_out`, `failed`) and add a one-line context note only when degraded; traces record the context statuses and the requested reasoning effort. Tool search ranks an exact tool-name query first.
+- ab41d2b: Record actions called by outside agents over MCP, WebMCP, or A2A as the agent acting for the user, not as the user. Rows recorded before this change read the same way, and the Settings audit log names the protocol ("Agent via MCP").
+- de66ff4: Make Clips object storage optional during onboarding, keep local recordings previewable and downloadable, and clarify Builder account setup with a retry action when connection status cannot be read.
+- 947f911: Keep agent chat on a turn the server recovers after a crash: an open chat follows the successor run live, a reload no longer shows the interrupted attempt as a failed run above the answer, and a failed run's card stays in its own turn instead of moving below newer replies.
+- 4fe4088: Clips users can skip first-run setup and start recording without connecting storage.
+- cbc151c: Show names for DeepSeek V4.1 Flash and Z-AI GLM 5.3 Flash in the model picker, and label DeepSeek V4.1 Flash "DeepSeek Flash" instead of "Flash" on the closed picker.
+- 3dc0aeb: Add responsive overlay and triggerless options to the shared agent sidebar and Share button.
+- 9236359: `useCollabReconcile` takes an optional `isEditorClean(liveMarkdown)` from the host. When the host reports the live document holds no unsaved text, a lead client adopts a newer snapshot right after the catch-up sync instead of waiting out the 2.5 s peer settle. Hosts that leave it unset keep the wait.
+- 1b1d976: Distinguish confirmed automation work, explicitly declared no-op skips, and undelivered failures in run history and automation status. Preserve failure causes and recovery codes without pausing legitimate no-op runs.
+- Release all public npm packages with a patch version bump.
+- f325447: Keep agent-panel settings navigation inside apps mounted below a base path.
+- cc79bd1: Re-enable the stuck-run banner's Retry and Cancel buttons when aborting the run fails, instead of leaving them disabled with a spinner.
+- 8418b84: Run the once-a-minute scheduled sweep on Vercel and Cloudflare Workers. Vercel builds now add a cron job that calls the sweep with `CRON_SECRET`, and Cloudflare builds add a Cron Trigger whose `scheduled` handler calls it with a token signed by `A2A_SECRET`, so scheduled automations, queued event automations, and stale-run cleanup no longer stop on those hosts. Vercel Hobby rejects a deployment whose cron runs more than once a day, so Hobby projects must set `AGENT_NATIVE_VERCEL_CRON_SCHEDULE` to a daily expression such as `0 9 * * *` before deploying this version. Both schedulers request the public sweep path, so a custom `runtime.frameworkRoutePrefix` or app base path is honored. A workspace Vercel deploy takes each app's cron from that app's own build, so every app in the workspace must build with this version of `@agent-native/core`; the deploy fails and names any app whose build scheduled no sweep. The Automations page now names a missing trigger secret and no longer claims event automations still run on a host without a scheduler or in a build with recurring jobs turned off.
+
+  On a cold Cloudflare Worker, framework routes no longer return 404 or wait out the readiness timeout: the request telemetry hook no longer throws where `AsyncLocalStorage.enterWith()` is unavailable, and pending plugin initialization is passed to `waitUntil` so it can continue after the response is sent.
+
+- 004f2a9: Continuing a stopped agent run no longer repeats the steps it already finished. A run the server ends after its worker died now saves its finished tool calls to the thread, a new message after an unfinished turn tells the agent what that turn already did, and the run failure card offers Continue, which resumes the stopped run's own turn so a finished send or charge is not run again. AgentKit transports can implement the new optional `continueRun`.
+- 701c672: Keep a typed `@` in the agent composer. It now suggests mentions and the host's Add-menu context sources (such as Design context pickers and Integrations) inline, with focus left in the prompt. Picking a source runs it or opens its picker as a dialog. Only an explicit pick makes a chip: Enter or Tab on a highlighted suggestion, or a click. Otherwise the text stays plain, so a literal like `@builder.io` is sent as written, Enter sends the text even while a search is still running, and typing Space after an exact name no longer converts it. One Escape dismisses the suggestions for that `@`. Sent messages show chips only for real mentions, not for any `@word`.
+- ae5aed6: An MCP App widget document now stays a widget for its whole life: `isMcpAppWidgetEmbed()` keeps its first positive answer and marks `<html data-agent-native-mcp-widget>`, `useIsMcpAppWidgetEmbed()` subscribes to that change, a directory widget capability token identifies a widget without the chat-bridge query flag, and `/_agent-native/embed/start` always adds the flag for directory widget tickets. `AppProviders` emits a first-paint script that sets the marker before the server-rendered skeleton paints, and `AppShellSkeleton` renders blank in a widget so the app's own sidebar never flashes.
+- Updated dependencies [b7e32e4]
+- Updated dependencies [e7416e0]
+- Updated dependencies
+- Updated dependencies [5c5e00e]
+- Updated dependencies [004f2a9]
+  - @agent-native/agentkit@0.205.0
+
+## 0.204.0
+
+### Patch Changes
+
+- c8bbbd4: Clarify Builder setup choices in the shared first-run onboarding flow.
+- 4ba5ea5: Render action chat UI in the AgentSidebar conversation.
+- Release all public npm packages with a patch version bump.
+- 4c1d77f: Open the "Connect storage to upload files" popover only after the composer's Add context menu finishes closing, anchored to the + button, so it no longer slides across the screen and disappears.
+- Updated dependencies
+- Updated dependencies [bed3b01]
+  - @agent-native/agentkit@0.204.0
+
+## 0.203.1
+
+### Patch Changes
+
+- b717c70: Move AgentKit usage below message actions and round credits to one decimal place.
+- Release all public npm packages with a patch version bump.
+- 2842af8: Keep failed spawned-agent cards visually neutral in chat.
+- Updated dependencies
+  - @agent-native/agentkit@0.203.1
+
 ## 0.203.0
 
 ### Patch Changes
@@ -731,8 +783,8 @@
   election, so a viewer could win it and then apply nothing at all, leaving a session where every editor's work was dropped.
 - c595519: Adds a shared `afterBodyPointerUnlock` helper (`@agent-native/toolkit/ui/pointer-lock`) that defers opening a follow-up Dialog/Sheet/AlertDialog until `document.body.style.pointerEvents` is confirmed unlocked, avoiding the Radix dismissable-layer race where a new modal mounts before a closing one (with a nested Select) finishes unregistering and leaves the page permanently unclickable.
 - 9735e4d: Fix the desktop agent picker readiness, tooltip stacking, and terminal mode control.
-- 15b86eb: `VisualScrubInput` keeps focus on Enter instead of blurring, and selects the
-  committed value the way Figma's inspector fields do. Blurring handed the next
+- 15b86eb: `VisualScrubInput` keeps focus on Enter instead of blurring and selects the
+  committed value so editing can continue in the field. Blurring handed the next
   keystroke to whatever global shortcut owned that key, so typing a value and
   continuing to type could fire a canvas command (a zoom jump, in the report that
   found this) while the user believed they were still editing the field.
@@ -1065,26 +1117,5 @@
   2.5s client budget that a single warm-server status probe routinely lost is
   now a 15s abort ceiling rather than a deadline the probes race. A composer is
   only ever disabled when the "Connect AI" affordance renders alongside it.
-
-## 0.10.6
-
-### Patch Changes
-
-- 8afb252: Allow newly created empty collaborative editors to persist their first real user edit after the shared document finishes loading.
-
-## 0.10.5
-
-### Patch Changes
-
-- 0e2c19d: Use borderless accent styling for shared secondary controls and organization pickers.
-- 0e2c19d: Align shared chat history rails with left-aligned New Chat controls and animate chat-list expansion using intrinsic sizing.
-- 0e2c19d: Expose a shared command-menu open event and sidebar footer action composition primitive.
-
-## 0.10.4
-
-### Patch Changes
-
-- 4b734be: Give `SharedRichEditor` Notion-style block grips by default and keep the caret
-  inside blocks created through the shared slash-command menu.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

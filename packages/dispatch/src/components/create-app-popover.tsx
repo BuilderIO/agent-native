@@ -363,6 +363,7 @@ export function CreateAppFlow({
           </div>
           <PromptComposer
             autoFocus
+            requireAgentEngine
             disabled={isSubmitting}
             placeholder="Describe the app your teammate should be able to use..."
             draftScope="dispatch:create-app"

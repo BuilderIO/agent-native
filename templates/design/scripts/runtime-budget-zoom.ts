@@ -1,5 +1,24 @@
 type DeadlineResult<T> = { timedOut: false; value: T } | { timedOut: true };
 
+export function expectedCanvasScaleAtZoomPercent(
+  currentScale: number | null,
+  currentZoomPercent: number,
+  targetZoomPercent: number,
+): number | null {
+  if (
+    currentScale === null ||
+    !Number.isFinite(currentScale) ||
+    currentScale <= 0 ||
+    !Number.isFinite(currentZoomPercent) ||
+    currentZoomPercent <= 0 ||
+    !Number.isFinite(targetZoomPercent) ||
+    targetZoomPercent <= 0
+  ) {
+    return null;
+  }
+  return (currentScale * targetZoomPercent) / currentZoomPercent;
+}
+
 async function beforeDeadline<T>(
   run: () => Promise<T>,
   timeoutMs: number,

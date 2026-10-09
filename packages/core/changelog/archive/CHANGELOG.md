@@ -1,3 +1,26 @@
+## 0.165.5
+
+### Patch Changes
+
+- 8d56ed2: Let the Builder gateway engine run on an OAuth-only connection. The pre-run
+  credential gate required a `BUILDER_PRIVATE_KEY`/`BUILDER_PUBLIC_KEY` pair, so
+  a user connected through Builder OAuth alone had every turn rejected with "No
+  LLM provider is connected" while the connect card reported them connected.
+
+## 0.165.4
+
+### Patch Changes
+
+- 841f072: Expand changelog history windows to 100 releases while preserving folder-backed history.
+
+## 0.165.3
+
+### Patch Changes
+
+- b6ca1a7: Warn when `GOOGLE_SIGN_IN_CLIENT_ID` and `GOOGLE_CLIENT_ID` name different Google clients. Sign-in silently preferred the sign-in pair, so repairing `GOOGLE_CLIENT_SECRET` on a deploy that also set `GOOGLE_SIGN_IN_CLIENT_SECRET` changed nothing while appearing correct.
+- b6ca1a7: Harden MCP OAuth reconnects for mounted apps, legacy settings, and concurrent updates.
+- b6ca1a7: Ensure prebuilt Netlify workspace deployments include the hosted feedback URL.
+
 ## 0.165.2
 
 ### Patch Changes
@@ -3545,7 +3568,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
 
 - 0aada94: Let Design MCP App canvases hand pending visual source edits back to the host coding conversation while preserving the local Design-agent and copy-prompt fallbacks for ordinary browser panes.
 
-  Teach visual-edit users to minimize Design chrome with Figma's `Shift+\` shortcut or the command menu without claiming the host-reserved `Cmd+\` chord.
+  Teach visual-edit users to minimize Design chrome with the `Shift+\` shortcut or the command menu without claiming the host-reserved `Cmd+\` chord.
 
 - 0aada94: Keep client status timeouts isolated to their own endpoint and preserve the last known model readiness when a status probe is temporarily unavailable.
 - 0aada94: Visual edit: never render a source snapshot in place of the running app. A localhost screen now always loads a live document — the proxied `/live-edit` frame for viewers holding the connection's `previewToken`, and the plain dev-server URL for everyone else. Previously a viewer without a token (signed-out session, public link, inline browser with no cookies) got the `/snapshot` HTML as `srcdoc`: a frozen copy that looked exactly like the app but had no live DOM behind it, so selection, the layers panel, and edits all silently addressed stale markup.

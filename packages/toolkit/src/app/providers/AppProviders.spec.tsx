@@ -6,6 +6,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetAgentEngineReadinessForTests } from "../../../../core/src/client/agent-engine-readiness.js";
+
 const useSessionMock = vi.fn();
 vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
   ...(await importOriginal<
@@ -31,6 +33,7 @@ vi.mock("@agent-native/toolkit/ui/sonner", () => ({
 }));
 
 import { encodeContinuation } from "@agent-native/core/shared/sign-in-journey";
+import { SsrSessionBootstrapContext } from "@agent-native/core/shared/ssr-session-bootstrap-slot";
 
 import { AppProviders } from "./AppProviders.js";
 
@@ -44,6 +47,7 @@ let originalDocumentTitle: string;
 let replaceMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  resetAgentEngineReadinessForTests();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -77,6 +81,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetAgentEngineReadinessForTests();
   act(() => root.unmount());
   container.remove();
   Object.defineProperty(window, "location", {
@@ -233,6 +238,29 @@ describe("AppProviders session gate", () => {
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
+  it("starts the shared AI readiness probe at private app boot", async () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ chatEligible: true }), { status: 200 }),
+    );
+    Object.defineProperty(window, "fetch", {
+      configurable: true,
+      value: fetchMock,
+    });
+
+    renderProviders({ disableWebMcp: true });
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/_agent-native/agent-engine/status",
+        expect.objectContaining({ credentials: "same-origin" }),
+      );
+    });
+    expect(container.textContent).toContain("content");
+    expect(container.textContent).not.toMatch(/checking ai/i);
+  });
+
   it("emits the session bootstrap on private SSR paths only", () => {
     useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
@@ -251,6 +279,57 @@ describe("AppProviders session gate", () => {
     expect(privateMarkup).toContain("AbortController");
     expect(privateMarkup).toContain("abort()");
     expect(publicMarkup).not.toContain("data-agent-native-session-bootstrap");
+  });
+
+  it("hands the document handler the session read of private SSR paths only", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    const recorded = (props: {
+      isPublicPath?: boolean;
+      sessionBypass?: boolean;
+    }) => {
+      const record = vi.fn();
+      renderToStaticMarkup(
+        <SsrSessionBootstrapContext.Provider value={record}>
+          <AppProviders queryClient={new QueryClient()} i18n={false} {...props}>
+            <div>content</div>
+          </AppProviders>
+        </SsrSessionBootstrapContext.Provider>,
+      );
+      return record.mock.calls;
+    };
+
+    expect(recorded({})).toEqual([["/_agent-native/auth/session"]]);
+    expect(recorded({ isPublicPath: true })).toEqual([]);
+    expect(recorded({ sessionBypass: true })).toEqual([]);
+  });
+
+  it("marks an MCP App widget before the server-rendered skeleton can paint a sidebar", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    const markup = renderToStaticMarkup(
+      <AppProviders
+        queryClient={new QueryClient()}
+        i18n={false}
+        skeletonLayout="prompt-library"
+      >
+        <div>content</div>
+      </AppProviders>,
+    );
+    const publicMarkup = renderToStaticMarkup(
+      <AppProviders queryClient={new QueryClient()} i18n={false} isPublicPath>
+        <div>content</div>
+      </AppProviders>,
+    );
+
+    const bootScript = markup.indexOf("data-agent-native-mcp-widget-boot");
+    expect(bootScript).toBeGreaterThan(-1);
+    expect(bootScript).toBeLessThan(
+      markup.indexOf('data-agent-native-app-skeleton="true"'),
+    );
+    expect(markup).toContain(
+      "html[data-agent-native-mcp-widget] [data-agent-native-app-skeleton] > :not(style)",
+    );
+    expect(publicMarkup).not.toContain("data-agent-native-mcp-widget-boot");
   });
 
   it("defaults public-path i18n to the non-persisting runtime so localization never resolves the session", () => {
