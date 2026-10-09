@@ -32,7 +32,6 @@ import { serializeDocumentSource } from "./_document-source.js";
 import { previewDocumentDraftAnswer } from "./_preview-document-draft.js";
 import {
   getDatabaseById,
-  getDatabaseMembershipForDocument,
   listPropertiesForDocument,
   serializeDatabase,
 } from "./_property-utils.js";
@@ -259,10 +258,7 @@ export default defineAction({
         (database?.id === selectedDatabaseId
           ? database
           : await getDatabaseById(selectedDatabaseId)))
-      : (database ??
-        (databaseItems.length > 0
-          ? ((await getDatabaseMembershipForDocument(doc.id))?.database ?? null)
-          : null));
+      : (database ?? databaseMembership?.database ?? null);
     const hasPropertyDatabaseAccess = Boolean(
       propertyDatabase && accessibleDatabases.has(propertyDatabase.documentId),
     );
