@@ -252,6 +252,41 @@ function commandArgs() {
 }
 
 describe("single-screen linked component history", () => {
+  it("prunes a stale clipboard undo token and continues with the next undo", () => {
+    const state = commandArgs();
+    const current = "<main><p>local change</p></main>";
+    state.content.set("file-a", current);
+    state.args.historyOrderRef.current = ["content", "clipboard-paste"];
+    state.args.contentUndoStackRef.current = [];
+    state.args.contentUndoSelectionStackRef.current = [];
+    state.localContentUndoStackRef.current = [
+      {
+        fileId: "file-a",
+        before: "<main><p>earlier change</p></main>",
+        after: current,
+      },
+    ];
+    state.args.clipboardPasteUndoStackRef.current = [
+      {
+        fileId: "file-a",
+        before: "<main><p>paste before</p></main>",
+        after: "<main><p>paste after</p></main>",
+      },
+    ];
+
+    runUndo(state.args as unknown as Parameters<typeof runUndo>[0]);
+
+    expect(state.args.clipboardPasteUndoStackRef.current).toHaveLength(0);
+    expect(state.localContentUndoStackRef.current).toHaveLength(0);
+    expect(state.applyLocalContentUpdate).toHaveBeenCalledWith(
+      "<main><p>earlier change</p></main>",
+      expect.objectContaining({ recordHistory: false }),
+    );
+    expect(state.content.get("file-a")).toBe(
+      "<main><p>earlier change</p></main>",
+    );
+  });
+
   it("undoes and redoes the group around the earlier local fallback edit", () => {
     const state = commandArgs();
     const entry = state.contentUndoStackRef.current[0]!;
