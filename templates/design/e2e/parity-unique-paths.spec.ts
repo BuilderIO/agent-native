@@ -610,9 +610,17 @@ test.describe.serial("rare-but-real unique paths", () => {
     page,
   }) => {
     await selectByTextDeep(page, "Beta Button");
+    await expect(layerRow(page, "Beta Button")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     await page.keyboard.press(`${MOD}+Alt+c`);
     await page.waitForTimeout(100);
     await selectByTextDeep(page, "Alpha Button");
+    await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     const beforeBox = (await (
       await frameNode(page, "Alpha Button")
     ).boundingBox())!;
