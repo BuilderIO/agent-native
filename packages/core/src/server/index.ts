@@ -93,6 +93,7 @@ export {
   autoMountAuth,
   registerAuthPublicPaths,
   getSession,
+  isSessionResolutionUnavailable,
   getMcpOAuthBearerSession,
   logout,
   COOKIE_NAME,

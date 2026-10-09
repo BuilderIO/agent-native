@@ -16,6 +16,7 @@ import {
   scriptTestsForPaths,
   workspaceFiltersForPaths,
 } from "./ci-change-scope.ts";
+import { resolveDesignE2ESpecs } from "./design-e2e-spec-selection.mjs";
 
 test("recognizes documentation surfaces and package metadata", () => {
   assert.equal(isDocsPath("packages/core/docs/content/actions.mdx"), true);
@@ -797,10 +798,33 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       jobTimeout >= changedSpecStepTimeout + 3,
     `changed-spec tests need the exact six-minute cap and three minutes for setup (job ${jobTimeout}, step ${changedSpecStepTimeout})`,
   );
-  assert.match(
-    designJob,
-    /shard:\s*\[\s*inspector-1a,\s*inspector-1b,\s*inspector-2,\s*inspector-3a,\s*inspector-3b,\s*inspector-4a,\s*inspector-4b,\s*drag-1a,\s*drag-1b,\s*drag-2a,\s*drag-2b,\s*position-1a,\s*position-1b,\s*position-2a,\s*position-2b,\s*position-3,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,\s*changed-7,\s*changed-8,\s*changed-9,\s*changed-10,\s*changed-11,\s*changed-12,\s*screen-history-1,\s*screen-history-2,\s*screen-history-3,?\s*\]/,
-  );
+  const shardEntries = [
+    ...designJob.matchAll(
+      /^\s{12}((?:inspector|drag|position|changed|screen-history)-[^,\s)]+),?\s*$/gm,
+    ),
+  ].map(([, shard]) => shard);
+  assert.deepEqual(shardEntries, [
+    "inspector-1a",
+    "inspector-1b",
+    "inspector-2",
+    "inspector-3a",
+    "inspector-3b",
+    "inspector-4a",
+    "inspector-4b",
+    "drag-1a",
+    "drag-1b",
+    "drag-2a",
+    "drag-2b",
+    "position-1a",
+    "position-1b",
+    "position-2a",
+    "position-2b",
+    "position-3",
+    ...Array.from({ length: 24 }, (_, index) => `changed-${index + 1}`),
+    "screen-history-1",
+    "screen-history-2",
+    "screen-history-3",
+  ]);
   const fixedLocations = (start: number, end: number) =>
     [
       ...regressionCases.slice(start, end).matchAll(/e2e\/[^ \n]+(?::\d+)?/g),
@@ -930,12 +954,13 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     regressionCases.includes(
-      "DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}",
+      'pnpm exec playwright test "${focused_specs[@]}" --workers=1',
     ),
+    "the fixed regression step must execute its explicit selectors",
   );
   assert.ok(
     changedSpecRegressions.includes(
-      'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/12"',
+      'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/24"',
     ),
   );
   assert.ok(
@@ -950,49 +975,27 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     changedSpecRegressions.includes(
-      'const paths = JSON.parse(process.env.DESIGN_CANVAS_E2E_SPECS || "[]");',
+      'node ../../scripts/design-e2e-spec-selection.mjs > "$changed_specs_file"',
     ),
-    "changed-spec step must parse the selector output as JSON",
+    "changed-spec step must use the tested selector resolver",
   );
   assert.ok(
     changedSpecRegressions.includes(
-      'throw new Error("Invalid changed Design E2E spec list");',
-    ),
-    "changed-spec step must reject invalid selector output",
-  );
-  assert.ok(
-    changedSpecRegressions.includes(
-      "mapfile -d '' -t changed_specs < \"$changed_specs_file\"",
+      "mapfile -d '' -t existing_changed_specs < \"$changed_specs_file\"",
     ),
     "changed-spec step must preserve paths through NUL-delimited parsing",
   );
   assert.ok(
-    changedSpecRegressions.includes('if [[ -f "$spec" ]]; then'),
-    "changed-spec step must ignore deleted specs",
-  );
-  assert.ok(
-    changedSpecRegressions.includes(
-      'echo "::warning::Removed Design E2E spec is no longer runnable: $spec"',
+    /if \(\(\$\{#existing_changed_specs\[@\]\} == 0\)\); then\s+echo "No runnable changed Design E2E specs remain\."\s+exit 0\s+fi/.test(
+      changedSpecRegressions,
     ),
-    "changed-spec step must report removed specs without failing runnable specs",
+    "a valid selector containing only removed files must be a successful no-op",
   );
   assert.doesNotMatch(
     changedSpecRegressions,
-    /echo "::error::Changed Design E2E spec is missing: \$spec"/,
-    "a removed path must not fail the changed-spec shard",
+    /Changed-spec shard received an empty selector/,
+    "deleted-only selectors must not be confused with invalid empty input",
   );
-  assert.ok(
-    changedSpecRegressions.includes(
-      'if ((${#existing_changed_specs[@]} == 0)); then\n            echo "::error::Changed-spec shard received an empty selector."\n            exit 2\n          fi',
-    ),
-    "a deletion-only change must fail when no runnable changed specs remain",
-  );
-  assert.ok(
-    regressionCases.includes(
-      "mapfile -d '' -t changed_specs < \"$changed_specs_file\"",
-    ),
-  );
-  assert.ok(regressionCases.includes('if [[ -f "$spec" ]]; then'));
   const fastTestsJobStart = workflow.indexOf("  fast-tests:\n");
   assert.notEqual(fastTestsJobStart, -1, "missing fast-tests workflow job");
   const nextJobHeader = workflow
@@ -1283,12 +1286,106 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   }
 });
 
+test("splits every changed Design E2E spec across 24 bounded shards", () => {
+  const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  const changedShardNumbers = [
+    ...workflow.matchAll(/^\s{12}changed-(\d+),?\s*$/gm),
+  ].map(([, shard]) => Number(shard));
+
+  assert.deepEqual(
+    changedShardNumbers,
+    Array.from({ length: 24 }, (_, index) => index + 1),
+    "all changed-spec shards must remain present and sequential",
+  );
+  assert.match(
+    workflow,
+    /--shard="\$\{changed_shard\}\/24"/,
+    "changed specs must be fully covered across the same 24 shards",
+  );
+});
+
+test("runs fixed Design regression pins even when their spec files changed", () => {
+  const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  const start = workflow.indexOf(
+    "      - name: Run focused Design regression cases\n",
+  );
+  assert.notEqual(start, -1);
+  const next = workflow.indexOf("\n      - name: ", start + 1);
+  const regressionCases = workflow.slice(start, next === -1 ? undefined : next);
+
+  assert.match(
+    regressionCases,
+    /^          focused_specs=\("\$\{fixed_specs\[@\]\}"\)$/m,
+    "fixed behavior pins must run in their dedicated shard regardless of changed files",
+  );
+  assert.doesNotMatch(
+    regressionCases,
+    /existing_changed_specs|DESIGN_CANVAS_E2E_SPECS|All fixed regression cases are included in the changed-spec shard/,
+    "changed-spec selectors must not suppress fixed regression pins",
+  );
+});
+
 test("a deleted Design E2E path runs the focused interaction suite", () => {
   const scope = classifyChangedPaths([
     "templates/design/e2e/removed-by-this-change.spec.ts",
   ]);
 
   assert.equal(scope.checks.design_canvas_interaction_e2e, true);
+});
+
+test("a non-empty selector with only deleted specs resolves to a no-op", () => {
+  const removed = "templates/design/e2e/removed-by-this-change.spec.ts";
+
+  assert.deepEqual(
+    resolveDesignE2ESpecs(JSON.stringify([removed]), { isFile: () => false }),
+    {
+      existingSpecs: [],
+      removedSpecs: ["e2e/removed-by-this-change.spec.ts"],
+    },
+  );
+});
+
+test("keeps runnable specs while excluding deleted paths from the same selector", () => {
+  const removed = "templates/design/e2e/removed-by-this-change.spec.ts";
+  const existing = "templates/design/e2e/interaction-selection.spec.ts";
+
+  assert.deepEqual(
+    resolveDesignE2ESpecs(JSON.stringify([removed, existing]), {
+      isFile: (specPath) => specPath === "e2e/interaction-selection.spec.ts",
+    }),
+    {
+      existingSpecs: ["e2e/interaction-selection.spec.ts"],
+      removedSpecs: ["e2e/removed-by-this-change.spec.ts"],
+    },
+  );
+});
+
+test("empty, malformed, and out-of-scope selectors fail closed", () => {
+  assert.throws(
+    () => resolveDesignE2ESpecs("[]"),
+    /non-empty changed Design E2E spec selector/,
+  );
+  assert.throws(() => resolveDesignE2ESpecs("not-json"), /valid JSON/);
+  assert.throws(
+    () =>
+      resolveDesignE2ESpecs(
+        JSON.stringify(["templates/design/e2e/../../scripts/anything.ts"]),
+      ),
+    /Invalid changed Design E2E spec path/,
+  );
+  assert.throws(
+    () =>
+      resolveDesignE2ESpecs(
+        JSON.stringify(["templates/design/e2e/kept.spec.ts"]),
+        {
+          isFile: () => {
+            throw new Error("EACCES");
+          },
+        },
+      ),
+    /EACCES/,
+    "the resolver must surface inspection errors instead of treating them as deleted files",
+  );
 });
 
 test("selects the Content two-tab convergence lane for its runtime dependencies", () => {
