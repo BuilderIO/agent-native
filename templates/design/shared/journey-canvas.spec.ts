@@ -618,6 +618,31 @@ describe("planJourneyCanvas", () => {
     expect(observed.frame.height).toBe(checkpoint.frame.height + 10);
   });
 
+  it("counts the recording label when a long ID wraps in the provenance row", () => {
+    const base = rawInput();
+    const root = base.tree.nodes[0]!;
+    const longRoot = {
+      ...root,
+      examples: root.examples.map((example, index) =>
+        index === 0 ? { ...example, recordingId: "r".repeat(48) } : example,
+      ),
+    };
+    const tree = {
+      ...base.tree,
+      nodes: [longRoot, ...base.tree.nodes.slice(1)],
+    };
+    const frames = [frame("signup", 0, { screenshotOffsetMs: 4_600 })];
+    const shortId = plan(rawInput({ cardWidth: 320, frames })).screens.find(
+      (screen) => screen.nodeKey === "signup",
+    )!;
+    const longId = plan(
+      rawInput({ cardWidth: 320, tree, frames }),
+    ).screens.find((screen) => screen.nodeKey === "signup")!;
+
+    expect(longId.html).toContain(`Recording ID ${"r".repeat(48)}`);
+    expect(longId.frame.height).toBe(shortId.frame.height + 10);
+  });
+
   it("labels cohort sessions that continue beyond pictured child paths", () => {
     const base = rawInput();
     const nodes = [...base.tree.nodes];

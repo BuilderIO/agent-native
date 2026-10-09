@@ -689,9 +689,10 @@ function provenanceHeaderExtraHeight(
       );
       const eventAt = utcTimestamp(example.ts);
       const recordingId = example.recordingId ?? messages.recordingUnavailable;
+      const recordingText = `${messages.recordingId} ${recordingId}`;
       const recordingRows = Math.min(
         2,
-        Math.max(1, Math.ceil(recordingId.length / charactersPerLine)),
+        Math.max(1, Math.ceil(recordingText.length / charactersPerLine)),
       );
       const provenanceRows =
         1 +
