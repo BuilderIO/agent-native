@@ -184,7 +184,6 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
-  // oracle: none — checks the app's bridge-readiness contract, not visual parity.
   test("reveals the local frame as soon as its editor bridge is ready", async ({
     page,
   }) => {
@@ -526,7 +525,6 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
-  // oracle: none — checks capability-authenticated save synchronization, not Figma parity.
   test("signed-out /visual-edit capability can publish, pull, and acknowledge edits", async ({
     browser,
   }) => {
@@ -1503,7 +1501,6 @@ test.describe.serial("public visual edit", () => {
     );
   });
 
-  // oracle: none — checks the signed-in Share workflow and its app state, not Figma parity.
   test("live collaboration can be enabled from Share by a signed-in editor", async ({
     browser,
     page,
@@ -1535,7 +1532,6 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
-  // oracle: none — verifies guest edit and share persistence, not Figma parity.
   test("keeps public snapshot edits with the guest until they share them", async ({
     browser,
     page,

@@ -689,7 +689,6 @@ test("4:39 — aligning a multi-selection moves every selected layer", async ({
   ).toBe(1);
 });
 
-// oracle: none — verifies the app's saved-screen deletion contract, not Figma parity.
 test("deleting a selected screen removes it from the saved design", async ({
   page,
 }) => {
