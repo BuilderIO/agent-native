@@ -14,14 +14,12 @@ import {
   type AnyColumn,
   and,
   asc,
-  desc,
   eq,
   gte,
   inArray,
   isNull,
   lt,
   lte,
-  or,
   sql,
   type SQL,
 } from "drizzle-orm";
@@ -1466,7 +1464,6 @@ export async function getSessionFrictionDetails(
   const r = schema.sessionRecordings;
   const rf = schema.sessionRecordingFriction;
   const f = schema.analyticsSessionFriction;
-  const t = schema.analyticsSessionTrouble;
 
   const replayRows: Array<typeof rf.$inferSelect> = await db
     .select()
