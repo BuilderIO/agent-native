@@ -66,6 +66,7 @@ vi.mock("./share-password.js", () => ({
 import {
   buildPublicAgentContext,
   CLIPS_AGENT_ACCESS_TTL_SECONDS,
+  describeAgentAccessFailure,
   loadPublicAgentAccess,
   loadRecordingMediaFile,
   loadRecordingMediaBytes,
@@ -102,6 +103,15 @@ function streamFrom(chunks: Uint8Array[]) {
     start(controller) {
       for (const chunk of chunks) controller.enqueue(chunk);
       controller.close();
+    },
+  });
+}
+
+function streamThatFailsAfterChunk() {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(Buffer.from("partial"));
+      controller.error(new Error("connection reset"));
     },
   });
 }
@@ -200,6 +210,58 @@ describe("public agent context access", () => {
   });
 });
 
+describe("describeAgentAccessFailure", () => {
+  it("explains that a missing private share link needs agent access without exposing clip state", () => {
+    const failure = describeAgentAccessFailure({
+      status: 404,
+      body: { error: "Not found" },
+    });
+
+    expect(failure).toEqual({
+      status: 404,
+      body: {
+        failureKind: "access",
+        error: "This clip is unavailable from this link.",
+        nextStep:
+          "If this clip is private or password protected, ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link.",
+      },
+    });
+  });
+
+  it("explains password, expired-link, and malformed-URL failures", () => {
+    expect(
+      describeAgentAccessFailure({
+        status: 401,
+        body: { error: "Password required" },
+      }).body,
+    ).toMatchObject({
+      failureKind: "access",
+      error: "This clip requires additional share access.",
+      nextStep: expect.stringContaining("Share with agents"),
+    });
+    expect(
+      describeAgentAccessFailure({
+        status: 410,
+        body: { error: "Expired" },
+      }).body,
+    ).toMatchObject({
+      failureKind: "expired",
+      error: "This clip share link has expired.",
+      nextStep: expect.stringContaining("extend or remove the clip's expiry"),
+    });
+    expect(
+      describeAgentAccessFailure({
+        status: 400,
+        body: { error: "id is required" },
+      }).body,
+    ).toMatchObject({
+      failureKind: "request",
+      error: "The clip id is missing.",
+      nextStep: expect.stringContaining("agent_access"),
+    });
+  });
+});
+
 describe("loadRecordingMediaBytes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -283,6 +345,24 @@ describe("loadRecordingMediaBytes", () => {
     } finally {
       await result.cleanup();
     }
+  });
+
+  it("classifies a failed response-body stream as a media fetch failure", async () => {
+    mockSsrfSafeFetch.mockResolvedValue(
+      new Response(streamThatFailsAfterChunk(), {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      }),
+    );
+
+    await expect(
+      loadRecordingMediaFile(makeRecording({ videoFormat: "mp4" }) as any),
+    ).rejects.toMatchObject({
+      name: "RecordingMediaFetchError",
+      statusCode: 502,
+      message:
+        "Recording media download failed while reading the response body.",
+    });
   });
 
   it("wraps remote media fetch exceptions as fetch failures", async () => {
@@ -396,6 +476,12 @@ describe("buildPublicAgentContext", () => {
     expect(context.clip.sourceProvider).toBe("loom");
     expect(context.apis).toHaveProperty("frame");
     expect(context.recommendedFrames.length).toBeGreaterThan(0);
+    expect(context.instructions.join(" ")).toMatch(
+      /failureKind=processing, follow nextStep/i,
+    );
+    expect(context.instructions.join(" ")).toMatch(
+      /wait clip\.agentReadiness\.retryAfterSeconds and fetch apis\.context\.url/i,
+    );
   });
 
   it("tells agents to wait and retry while a transcript is pending", () => {
