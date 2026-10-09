@@ -7319,6 +7319,14 @@ export async function runAgentLoop(opts: {
               actionUserEmail ?? undefined,
               actionOrgId,
             );
+            if (timeoutSignal.aborted) {
+              throw new Error(
+                `Tool call timed out after ${toolTimeoutMs / 1000} seconds`,
+              );
+            }
+            if (signal.aborted) {
+              throw new Error("Run aborted");
+            }
             const actionContext = {
               send,
               userEmail: actionUserEmail ?? undefined,

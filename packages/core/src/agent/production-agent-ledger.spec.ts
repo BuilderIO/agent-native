@@ -1273,6 +1273,44 @@ describe("tool-call result ledger", () => {
     expect(toolDone?.result).toContain("timed out after");
   });
 
+  it("does not invoke a timed-out tool when app authorization resolves late", async () => {
+    let resolveAuthorization!: (value: null) => void;
+    resolveAppAuthorizationContextMock.mockReturnValueOnce(
+      new Promise<null>((resolve) => {
+        resolveAuthorization = resolve;
+      }),
+    );
+    const action: ActionEntry = {
+      ...makeWriteAction(),
+      timeoutMs: 20,
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "x" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      appId: "analytics",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+
+    const toolDone = events.find((e: any) => e.type === "tool_done");
+    expect(toolDone?.isError).toBe(true);
+    expect(toolDone?.result).toContain("timed out after");
+    expect(action.run).not.toHaveBeenCalled();
+
+    resolveAuthorization(null);
+    await Promise.resolve();
+
+    expect(action.run).not.toHaveBeenCalled();
+  });
+
   it("never consults the ledger for read-only tools", async () => {
     readLedgerMock.mockResolvedValue({
       result: "should-not-be-used",
