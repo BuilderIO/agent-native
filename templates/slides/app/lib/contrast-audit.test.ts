@@ -2,7 +2,10 @@
 import type { AxeResults, NodeResult, Result } from "axe-core";
 import { describe, expect, it } from "vitest";
 
-import { mapAxeContrastResults } from "./contrast-audit";
+import {
+  mapAxeContrastResults,
+  slideNumberTokenUnverified,
+} from "./contrast-audit";
 
 function element(html: string, selector: string): Element {
   const root = document.createElement("div");
@@ -134,5 +137,37 @@ describe("mapAxeContrastResults", () => {
     expect(mapped.unverified).toEqual([
       { slideId: "slide-1", text: "Over photo", reason: "bgImage" },
     ]);
+  });
+});
+
+describe("slideNumberTokenUnverified", () => {
+  const footer =
+    '<footer data-slide-object-id="f"><span data-slide-number></span> / <span data-slide-total></span></footer>';
+
+  it("reports each slide-number token on a numbered canvas as unmeasured", () => {
+    const canvas = element(
+      `<div data-slide-count="3" data-slide-index="1">${footer}</div>`,
+      "div",
+    );
+    expect(slideNumberTokenUnverified(canvas, "slide-1")).toEqual([
+      {
+        slideId: "slide-1",
+        objectId: "f",
+        text: "",
+        reason: "slideNumberToken",
+      },
+      {
+        slideId: "slide-1",
+        objectId: "f",
+        text: "",
+        reason: "slideNumberToken",
+      },
+    ]);
+  });
+
+  it("stays quiet when the canvas renders no digits", () => {
+    expect(
+      slideNumberTokenUnverified(element(`<div>${footer}</div>`, "div"), "s"),
+    ).toEqual([]);
   });
 });

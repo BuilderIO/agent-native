@@ -3999,8 +3999,7 @@ describe("SSE event processor error classification", () => {
       eventStream([
         {
           type: "error",
-          error:
-            'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+          error: "Gateway error (no detail)",
           errorCode: "builder_gateway_error",
         },
       ]),
@@ -5317,6 +5316,32 @@ describe("auto-continue on a deployment that replaces the error message", () => 
       (await readError({ errorCode: "builder_gateway_stream_ended" }))
         .continued,
     ).toBe(true);
+  });
+
+  it("keeps an invalid request terminal when the message says timeout", async () => {
+    expect(
+      (
+        await readError({
+          error: "Invalid request timed out",
+          errorCode: "invalid_request",
+          recoverable: true,
+          providerRetryable: false,
+        })
+      ).continued,
+    ).toBe(false);
+  });
+
+  it("continues a recoverable run timeout despite stop wording", async () => {
+    const outcome = await readError({
+      error: "The agent run was stopped before it finished.",
+      errorCode: "run_timeout",
+      recoverable: true,
+    });
+
+    expect(outcome.continued).toBe(true);
+    if (outcome.continued) {
+      expect(outcome.signal.reason).toBe("run_timeout");
+    }
   });
 
   for (const errorCode of [

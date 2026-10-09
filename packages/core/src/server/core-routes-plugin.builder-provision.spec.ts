@@ -169,7 +169,7 @@ describe("POST /builder/provision", () => {
     const response = await post(
       { provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN) },
       {},
-      "?agentNativeFlow=connect_llm&agentNativeConnectSource=first_run",
+      "?agentNativeFlow=connect_llm&agentNativeConnectSource=first_run&agentNativeApp=agent-native-clips&agentNativeTemplate=clips",
     );
 
     expect(response.status).toBe(200);
@@ -185,6 +185,8 @@ describe("POST /builder/provision", () => {
     expect(JSON.parse(String(init.body))).toEqual({
       email: OWNER,
       name: "Owner",
+      agentNativeApp: "agent-native-clips",
+      agentNativeTemplate: "clips",
     });
     expect(mocks.writeBuilderCredentials).toHaveBeenCalledWith(
       OWNER,
@@ -203,6 +205,8 @@ describe("POST /builder/provision", () => {
         account_provisioned: true,
         agent_native_flow: "connect_llm",
         agent_native_connect_source: "first_run",
+        agent_native_app: "agent-native-clips",
+        agent_native_template: "clips",
       }),
     ]);
     expect(mocks.recordAudit).toHaveBeenCalledWith(

@@ -36,6 +36,7 @@ import {
 } from "../agent/tool-result-images.js";
 import { getAppConfig } from "../app-config/store.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
+import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
   assertServicePrincipalMayCall,
   assertServicePrincipalMayRun,
@@ -214,6 +215,24 @@ export interface MCPCallerIdentity {
   oauthScopes?: string[];
   oauthClientId?: string;
   firstPartyMcp?: boolean;
+}
+
+function verifiedServiceIdentityForRequest(
+  identity: MCPCallerIdentity | undefined,
+  requestOrgId: string | undefined,
+): { userEmail: string; orgId: string } | undefined {
+  const userEmail = identity?.userEmail?.trim();
+  const orgId = identity?.orgId;
+  if (
+    identity?.identityAssurance !== "service" ||
+    !userEmail ||
+    typeof orgId !== "string" ||
+    orgId !== requestOrgId ||
+    !implicitServiceOrgRole({ email: userEmail, orgId, requestOrgId })
+  ) {
+    return undefined;
+  }
+  return { userEmail, orgId };
 }
 
 function hasVerifiedMcpUserIdentity(
@@ -2371,10 +2390,15 @@ export async function createMCPServerForRequest(
   );
   const orgIdPromise = resolveMcpIdentityOrgId(effectiveIdentity);
   const orgId = await orgIdPromise;
+  const verifiedServiceIdentity = verifiedServiceIdentityForRequest(
+    effectiveIdentity,
+    orgId,
+  );
   const visibleActions = await runWithRequestContext(
     {
       userEmail: effectiveIdentity?.userEmail,
       orgId,
+      ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
       ...(effectiveIdentity?.orgId === null
         ? { orgScope: "personal" as const }
         : {}),
@@ -2528,6 +2552,7 @@ export async function createMCPServerForRequest(
       {
         userEmail: effectiveIdentity?.userEmail,
         orgId,
+        ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
         ...(effectiveIdentity?.orgId === null
           ? { orgScope: "personal" as const }
           : {}),

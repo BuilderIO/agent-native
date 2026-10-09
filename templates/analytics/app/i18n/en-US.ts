@@ -1568,6 +1568,8 @@ export default {
     replayPlayer: "Replay player",
     replayLoading: "Loading replay...",
     replayLoadingProgress: "{{loaded}} of {{total}} replay chunks loaded",
+    replayTargetFallback:
+      "Requested recording offset {{requested}} is unavailable; showing the nearest replay frame at {{available}}.",
     replayUnavailable: "No playable replay for this session",
     replayUnavailableDescription:
       "This recording has metadata, but no playable replay events were found.",

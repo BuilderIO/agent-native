@@ -2503,6 +2503,8 @@ export async function activateBuilderAccount(
     const credentials = await provisionBuilderAccount({
       email: ownerEmail,
       name: session.name,
+      agentNativeApp: input.tracking.agentNativeApp,
+      agentNativeTemplate: input.tracking.agentNativeTemplate,
     });
     const { writeBuilderCredentials } =
       await import("./credential-provider.js");

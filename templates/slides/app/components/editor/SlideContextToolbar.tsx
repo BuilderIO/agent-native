@@ -84,7 +84,6 @@ import {
   horizontalAlignPatch,
   resolveHorizontalAlignment,
   resolveVerticalAlignment,
-  rotationTransform,
   tokenPalette,
   verticalAlignPatch,
   type SlideStylePatch,
@@ -1028,17 +1027,17 @@ export function SlideContextToolbar({
                       onChange={(y) => onChange({ top: `${formatValue(y)}px` })}
                     />
                   </div>
+                  {/* An unreadable rotation shows as mixed and cannot be edited; its value is never shown or written. */}
                   <VisualScrubInput
                     label={t("styleInspector.rotation")}
                     icon={IconAngle}
                     prefix="icon"
-                    value={snapshot.rotation}
-                    min={-360}
-                    max={360}
+                    value={snapshot.rotation ?? 0}
                     unit="°"
-                    onChange={(rotation) =>
-                      onChange({ transform: rotationTransform(rotation) })
-                    }
+                    mixed={snapshot.rotation === null}
+                    mixedLabel={t("styleInspector.mixed")}
+                    disabled={snapshot.rotation === null}
+                    onChange={(rotation) => onChange({ rotation })}
                   />
                 </>
               )}

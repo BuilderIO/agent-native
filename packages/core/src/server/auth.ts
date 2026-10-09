@@ -278,6 +278,7 @@ import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import {
   getRequestContext,
   markRequestIdentityAuthenticatedAtMs,
+  markVerifiedServiceIdentityForEvent,
   hasContinuationLocalRequestContext,
   hasExplicitPersonalOrgScope,
   markExplicitPersonalOrgScope,
@@ -1199,6 +1200,16 @@ export async function getMcpOAuthBearerSession(
     if (!identity?.userEmail) return null;
     if (identity.orgId === null) markExplicitPersonalOrgScope(event);
     const orgId = await resolveMcpIdentityOrgId(identity);
+    if (
+      identity.identityAssurance === "service" &&
+      identity.orgId &&
+      orgId === identity.orgId
+    ) {
+      markVerifiedServiceIdentityForEvent(event, {
+        userEmail: identity.userEmail,
+        orgId: identity.orgId,
+      });
+    }
     return {
       email: identity.userEmail,
       token: bearerToken,
@@ -4925,6 +4936,19 @@ function normalizePath(path: string): string {
 function matchesPathList(path: string, paths: string[]): boolean {
   return paths.some((candidate) => {
     const normalized = normalizePath(candidate);
+    if (normalized.includes("/:")) {
+      const expectedSegments = normalized.split("/");
+      const actualSegments = path.split("/");
+      return (
+        expectedSegments.length === actualSegments.length &&
+        expectedSegments.every((segment, index) => {
+          if (/^:[A-Za-z][A-Za-z0-9_]*$/.test(segment)) {
+            return Boolean(actualSegments[index]);
+          }
+          return segment === actualSegments[index];
+        })
+      );
+    }
     return path === normalized || path.startsWith(normalized + "/");
   });
 }

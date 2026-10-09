@@ -9,10 +9,11 @@
 export const MIN_CARD_ASPECT = 0.5;
 export const MAX_CARD_ASPECT = 2;
 export const CARD_HEADER_HEIGHT = 56;
+export const CARD_PROVENANCE_HEADER_HEIGHT = 96;
 export const STACK_STEP = 10;
 export const FOOTER_GAP = 6;
 export const FOOTER_HEIGHT = 22;
-export const STUB_WIDTH = 176;
+export const STUB_WIDTH = 216;
 export const STUB_HEIGHT = 52;
 export const COLUMN_GAP = 160;
 export const ROW_GAP = 56;
@@ -46,6 +47,8 @@ export interface JourneyLayoutNode {
   kind: "card" | "stub";
   /** Real pixel size of the card's screenshot. Cards without one use `fallbackAspect`. */
   frame?: { width: number; height: number };
+  /** Height for cards that show screenshot and journey-example provenance. */
+  headerHeight?: number;
   /** Extra examples stacked behind the front card. */
   layers?: number;
   /** Cards with a captured date get a footer line under the stack. */
@@ -95,6 +98,7 @@ export function cardSize(
   cardWidth: number,
   frame: { width: number; height: number } | undefined,
   fallbackAspect = 4 / 3,
+  headerHeight = CARD_HEADER_HEIGHT,
 ): { width: number; height: number; imageHeight: number } {
   const aspect = clampAspect(
     frame ? frame.width / frame.height : fallbackAspect,
@@ -102,7 +106,7 @@ export function cardSize(
   const imageHeight = Math.round(cardWidth / aspect);
   return {
     width: cardWidth,
-    height: CARD_HEADER_HEIGHT + imageHeight,
+    height: headerHeight + imageHeight,
     imageHeight,
   };
 }
@@ -139,7 +143,7 @@ function size(node: JourneyLayoutNode, cardWidth: number): Sized {
       y: 0,
     };
   }
-  const card = cardSize(cardWidth, node.frame);
+  const card = cardSize(cardWidth, node.frame, undefined, node.headerHeight);
   const layers = node.layers ?? 0;
   const footerHeight = node.footer ? FOOTER_GAP + FOOTER_HEIGHT : 0;
   return {

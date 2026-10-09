@@ -1987,7 +1987,9 @@ export function isRetryableError(err: unknown): boolean {
     return false;
 
   if (engineErr) {
-    if (engineErr.providerRetryable === true) return true;
+    if (engineErr.providerRetryable !== undefined) {
+      return engineErr.providerRetryable;
+    }
     const sc = engineErr.statusCode;
     if (sc === 429 || sc === 500 || sc === 502 || sc === 503 || sc === 529)
       return true;
@@ -3067,6 +3069,13 @@ export function isResumableEngineError(err: unknown): boolean {
   const code =
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (
+    (err instanceof EngineError && err.providerRetryable === false) ||
+    code === "invalid_request" ||
+    code === "invalid_request_error"
+  ) {
+    return false;
+  }
+  if (
     code === "builder_gateway_timeout" ||
     code === "builder_gateway_network_error" ||
     code === "builder_gateway_stream_ended" ||
@@ -3078,6 +3087,9 @@ export function isResumableEngineError(err: unknown): boolean {
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
+    (code === "overloaded_error" &&
+      err instanceof EngineError &&
+      err.providerRetryable === true) ||
     code === "timeout"
   ) {
     return true;
@@ -3119,6 +3131,8 @@ export function isTransientProviderRateLimitError(err: unknown): boolean {
   }
   if (code === "http_429" || code === "http_529") return true;
   if (code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE) return true;
+  if (code === "overloaded_error" && err.providerRetryable === true)
+    return true;
   if (code === "rate_limited" && err.providerRetryable === true) return true;
   return false;
 }
@@ -3146,6 +3160,9 @@ export function continuationReasonForResumableError(
     code === "http_529" ||
     code === "rate_limited" ||
     code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE ||
+    (code === "overloaded_error" &&
+      err instanceof EngineError &&
+      err.providerRetryable === true) ||
     (err instanceof EngineError &&
       (err.statusCode === 429 ||
         err.statusCode === 529 ||
@@ -7802,11 +7819,19 @@ export function isRecoverableContinuationError(event: {
   error: string;
   errorCode?: string;
   recoverable?: boolean;
+  providerRetryable?: boolean;
 }): boolean {
   const code = String(event.errorCode ?? "").toLowerCase();
   const message = event.error.toLowerCase();
-  if (code === "builder_gateway_error") return false;
-  if (event.recoverable === false) return false;
+  if (
+    event.providerRetryable === false ||
+    event.recoverable === false ||
+    code === "builder_gateway_error" ||
+    code === "invalid_request" ||
+    code === "invalid_request_error"
+  ) {
+    return false;
+  }
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
@@ -7827,6 +7852,7 @@ export function isRecoverableContinuationError(event: {
     code === "http_504" ||
     code === "http_529" ||
     code === "run_timeout" ||
+    (code === "overloaded_error" && event.providerRetryable === true) ||
     message.includes("timeout") ||
     isProviderConnectionErrorMessage(message) ||
     message.includes("temporarily unavailable")

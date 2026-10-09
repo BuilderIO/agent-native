@@ -139,6 +139,7 @@ import {
   type CommentThread,
 } from "@/hooks/use-slide-comments";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
+import { useUndoSelection } from "@/hooks/use-undo-selection";
 import { getAspectRatioDims } from "@/lib/aspect-ratios";
 import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
 import {
@@ -556,6 +557,7 @@ export default function DeckEditor() {
     undo,
     redo,
     undoAvailability,
+    subscribeUndoReveal,
     loading,
     loadError,
   } = useDecks();
@@ -2472,6 +2474,13 @@ export default function DeckEditor() {
     [deck, selectedSlideIds, widgetEmbed],
   );
 
+  const { undoSelection, clearUndoSelection } = useUndoSelection({
+    deckId: id,
+    subscribe: subscribeUndoReveal,
+    getCurrentSlideId: () => currentSlideRef.current?.id,
+    selectSlide: handleSlideSelection,
+  });
+
   const uploadImageAsset = useCallback(
     async (file: File): Promise<string> => {
       const form = new FormData();
@@ -4382,8 +4391,14 @@ export default function DeckEditor() {
         {showCurrentSlideEditor && currentSlide && (
           <SlideEditor
             slide={editorSlide ?? currentSlide}
+            slidePosition={{
+              number: currentIndex + 1,
+              count: deck.slides.length,
+            }}
             deckSlides={widgetEmbed ? deck.slides : undefined}
             onSelectFollowingSlide={handleSlideSelection}
+            undoSelection={undoSelection}
+            onUndoSelectionConsumed={clearUndoSelection}
             deckId={id}
             onFlushInlineEdit={() => {
               flushPendingSaves();

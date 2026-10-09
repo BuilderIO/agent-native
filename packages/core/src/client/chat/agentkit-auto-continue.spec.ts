@@ -113,6 +113,11 @@ function fakeServer(
 async function runTurn(
   server: ReturnType<typeof fakeServer>,
   adapter: { autoContinueLabel?: string } = { autoContinueLabel: "Resuming" },
+  requestOptions: {
+    model?: string;
+    reasoningEffort?: "high";
+    metadata?: Record<string, unknown>;
+  } = {},
 ): Promise<AgentEvent[]> {
   const transport = createAgentKitProtocolAdapter(
     createAgentNativeChatRuntime({ apiUrl: API, fetch: server.fetch }),
@@ -120,6 +125,7 @@ async function runTurn(
   );
   const { runId } = await transport.startRun({
     threadId: THREAD,
+    options: requestOptions,
     messages: [
       {
         id: "user-1",
@@ -146,19 +152,27 @@ function assistantText(events: readonly AgentEvent[]): string {
 }
 
 describe("AgentKit continues a turn the server stopped at its time limit", () => {
-  it("resumes in the same turn, so finished delegations keep their idempotency key", async () => {
+  it("preserves original request context on native run_timeout continuation", async () => {
     const server = fakeServer([
       [
         { type: "text", text: "Checking. " },
         DELEGATION_START,
         DELEGATION_DONE,
+        // The native stream closes after auto_continue, without a done event.
         TIME_LIMIT,
       ],
       [{ type: "text", text: "Still summarizing. " }, TIME_LIMIT],
       [{ type: "text", text: "412 signups." }, { type: "done" }],
     ]);
 
-    const events = await runTurn(server);
+    const events = await runTurn(server, undefined, {
+      model: "gpt-test-model",
+      reasoningEffort: "high",
+      metadata: {
+        engine: "openai",
+        requestContextId: "original-request",
+      },
+    });
 
     const [first, ...continuations] = server.posts;
     expect(continuations).toHaveLength(2);
@@ -171,6 +185,16 @@ describe("AgentKit continues a turn the server stopped at its time limit", () =>
         autoContinueOfRunId: `run-${index + 1}`,
       });
     }
+    expect(continuations[0]).toMatchObject({
+      history: [{ role: "user", content: "How many signups last week?" }],
+      model: "gpt-test-model",
+      effort: "high",
+      engine: "openai",
+      metadata: {
+        engine: "openai",
+        requestContextId: "original-request",
+      },
+    });
     expect(runOutcomeOfEvents(events)).toBe("succeeded");
     expect(assistantText(events)).toBe(
       "Checking. Still summarizing. 412 signups.",

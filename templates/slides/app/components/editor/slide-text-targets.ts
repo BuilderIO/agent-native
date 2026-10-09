@@ -348,10 +348,21 @@ function isTransparentPaint(color: string): boolean {
   );
 }
 
+function fillsBox(style: CSSStyleDeclaration): boolean {
+  return (
+    !isTransparentPaint(style.backgroundColor) ||
+    Boolean(style.backgroundImage && style.backgroundImage !== "none")
+  );
+}
+
+/** A solid colour, gradient or image behind the element, ignoring borders and shadows. */
+export function paintsFill(element: HTMLElement): boolean {
+  return fillsBox(window.getComputedStyle(element));
+}
+
 function paintsOwnBox(element: HTMLElement): boolean {
   const style = window.getComputedStyle(element);
-  if (!isTransparentPaint(style.backgroundColor)) return true;
-  if (style.backgroundImage && style.backgroundImage !== "none") return true;
+  if (fillsBox(style)) return true;
   if (style.boxShadow && style.boxShadow !== "none") return true;
   if (
     style.outlineStyle &&
