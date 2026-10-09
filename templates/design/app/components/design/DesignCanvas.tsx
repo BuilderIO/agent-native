@@ -619,6 +619,10 @@ interface DesignCanvasProps {
   /** Read-only localhost bridge credential. Filesystem write tokens never enter
    * this browser component. */
   previewToken?: string;
+  localhostPreviewUnavailable?: boolean;
+  localhostPreviewUnavailablePublic?: boolean;
+  onRetryLocalhostPreview?: () => void;
+  localhostPreviewRetryPending?: boolean;
   liveEditCapability?: string;
   liveEditRegistrationCapability?: string;
   publicVisualEdit?: boolean;
@@ -840,6 +844,7 @@ interface DesignCanvasProps {
   hiddenSelectors?: string[];
   clearSelectionRequest?: number;
   registerRuntimeBridge?: boolean;
+  registerLiveEditPreview?: boolean;
   onExitPinMode?: () => void;
   designId?: string;
   reviewCanPost?: boolean;
@@ -1313,6 +1318,10 @@ export function DesignCanvas({
   onRuntimeVerificationSnapshot,
   fusionUrl,
   previewToken,
+  localhostPreviewUnavailable = false,
+  localhostPreviewUnavailablePublic = false,
+  onRetryLocalhostPreview,
+  localhostPreviewRetryPending = false,
   liveEditCapability,
   liveEditRegistrationCapability,
   zoom,
@@ -1390,6 +1399,7 @@ export function DesignCanvas({
   hiddenSelectors = NO_SELECTORS,
   onExitPinMode,
   registerRuntimeBridge = true,
+  registerLiveEditPreview = registerRuntimeBridge,
   designId,
   publicVisualEdit = false,
   reviewCanPost = false,
@@ -2085,6 +2095,12 @@ export function DesignCanvas({
   );
   const rawExternalPreviewUrl = useMemo(() => {
     if (snapshotOnly && sourceType === "localhost") return null;
+    if (
+      sourceType === "localhost" &&
+      (!connectionId || !bridgeUrl || !effectivePreviewToken)
+    ) {
+      return null;
+    }
     const overrideUrl = getExternalPreviewUrl(previewUrlOverride ?? "");
     if (overrideUrl) return overrideUrl;
     const contentUrl = getExternalPreviewUrl(
@@ -2105,6 +2121,9 @@ export function DesignCanvas({
     return null;
   }, [
     content,
+    bridgeUrl,
+    connectionId,
+    effectivePreviewToken,
     fusionUrl,
     previewUrlOverride,
     renderedContent,
@@ -2342,7 +2361,7 @@ export function DesignCanvas({
   }, [externalPreviewUrl, runtimeVerificationRequest]);
   const waitingForEditableExternalSnapshot = false;
   const waitingForLiveEditBridge =
-    registerRuntimeBridge &&
+    registerLiveEditPreview &&
     usesLiveEditInjectedBridge &&
     !liveEditBridgeRegistered;
   const showProactiveLocalNetworkAccessPrompt =
@@ -2494,7 +2513,7 @@ export function DesignCanvas({
   const attemptBridgeRegistration =
     useCallback(async (): Promise<BridgeRegistrationAttemptResult> => {
       if (
-        !registerRuntimeBridge ||
+        !registerLiveEditPreview ||
         !usesLiveEditInjectedBridge ||
         !bridgeUrl ||
         !effectivePreviewToken ||
@@ -2701,10 +2720,10 @@ export function DesignCanvas({
       connectionId,
       publicVisualEdit,
       screenId,
-      registerRuntimeBridge,
+      registerLiveEditPreview,
     ]);
   useEffect(() => {
-    if (!registerRuntimeBridge) {
+    if (!registerLiveEditPreview) {
       bridgeRegistrationAttemptGenerationRef.current += 1;
       bridgeRegistrationControllerRef.current?.abort();
       bridgeRegistrationControllerRef.current = null;
@@ -2767,7 +2786,7 @@ export function DesignCanvas({
     bridgeUrl,
     liveEditBridgeKey,
     effectivePreviewToken,
-    registerRuntimeBridge,
+    registerLiveEditPreview,
     scheduleBridgeRegistrationRetry,
     usesLiveEditInjectedBridge,
   ]);
@@ -7565,7 +7584,8 @@ export function DesignCanvas({
           onDismiss={handleDismissLocalNetworkAccessPrompt}
         />
       ) : null}
-      {waitingForEditableExternalSnapshot ||
+      {localhostPreviewUnavailable ||
+      waitingForEditableExternalSnapshot ||
       liveEditBridgeConfigurationPending ||
       (waitingForLiveEditBridge && !bridgeRegistrationFailedForCurrentKey) ||
       sameOriginBridgePending ||
@@ -7573,7 +7593,38 @@ export function DesignCanvas({
         liveEditSameInstanceStalledError?.bridgeKey !== liveEditBridgeKey) ||
       liveEditRegistrationFailurePending ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
-          {bridgeConnectionLostError?.bridgeKey === liveEditBridgeKey ? (
+          {localhostPreviewUnavailable ? (
+            <div
+              className="pointer-events-auto flex max-w-[28rem] flex-col items-center gap-2 rounded-md border bg-card px-4 py-3 shadow-sm"
+              role="alert"
+            >
+              <div className="flex items-center gap-1.5 font-medium text-foreground">
+                <IconPlugConnectedX className="size-4 shrink-0 text-destructive" />
+                {t(
+                  "designCanvas.localBridge.previewCredentialsUnavailableTitle",
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {t(
+                  localhostPreviewUnavailablePublic
+                    ? "designCanvas.localBridge.publicPreviewUnavailableDescription"
+                    : "designCanvas.localBridge.previewCredentialsUnavailableDescription",
+                )}
+              </div>
+              {onRetryLocalhostPreview && !localhostPreviewUnavailablePublic ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={onRetryLocalhostPreview}
+                  disabled={localhostPreviewRetryPending}
+                >
+                  <IconRefresh className="size-3.5" />
+                  {t("designCanvas.localBridge.previewCredentialsRetry")}
+                </Button>
+              ) : null}
+            </div>
+          ) : bridgeConnectionLostError?.bridgeKey === liveEditBridgeKey ? (
             <div className="pointer-events-auto flex max-w-[28rem] flex-col items-center gap-2 rounded-md border bg-card px-4 py-3 shadow-sm">
               <div className="flex items-center gap-1.5 font-medium text-foreground">
                 <IconPlugConnectedX className="size-4 shrink-0 text-destructive" />

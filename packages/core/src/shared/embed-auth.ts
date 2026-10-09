@@ -70,6 +70,170 @@ interface McpDirectoryWidgetWriteCapability extends McpDirectoryWidgetWriteCapab
   version: 1;
 }
 
+// Capability scopes travel inside a signed cookie that browsers drop above
+// 4096 bytes, so the payload is base64url JSON with two compact argument
+// markers: `0` is `{type:"actionSchema"}` and `["key"]` is the literal
+// `resourceIds[key]`. Markers are non-strings so they can never collide with a
+// string literal. Scopes minted before this form are URI-encoded JSON (always
+// `%7B...`) and still decode.
+const ACTION_ARGUMENT_FIELDS = [
+  "actionArguments",
+  "readActionArguments",
+  "writeActionArguments",
+] as const;
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function encodeBase64Url(text: string): string {
+  const binary = encodeURIComponent(text).replace(
+    /%([0-9A-F]{2})/g,
+    (_, hex: string) => String.fromCharCode(parseInt(hex, 16)),
+  );
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function decodeBase64Url(payload: string): string {
+  if (!/^[A-Za-z0-9_-]*$/.test(payload) || payload.length % 4 === 1) {
+    throw new URIError("Malformed base64url payload.");
+  }
+  const binary = atob(
+    payload.replace(/-/g, "+").replace(/_/g, "/") +
+      "=".repeat((4 - (payload.length % 4)) % 4),
+  );
+  return decodeURIComponent(
+    Array.from(
+      binary,
+      (char) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`,
+    ).join(""),
+  );
+}
+
+function compactArgument(
+  argument: McpDirectoryWidgetReadArgument,
+  resourceIds: Record<string, string>,
+): unknown {
+  if (typeof argument !== "string") {
+    return argument.type === "actionSchema" ? 0 : argument;
+  }
+  const key = Object.keys(resourceIds).find(
+    (resourceKey) => resourceIds[resourceKey] === argument,
+  );
+  return key !== undefined &&
+    JSON.stringify([key]).length < JSON.stringify(argument).length
+    ? [key]
+    : argument;
+}
+
+function encodeCapabilityPayload(
+  capability: { resourceIds: Record<string, string> } & {
+    [field in (typeof ACTION_ARGUMENT_FIELDS)[number]]?: Record<
+      string,
+      Record<string, McpDirectoryWidgetReadArgument>
+    >;
+  },
+): string {
+  const wire: Record<string, unknown> = { ...capability };
+  for (const field of ACTION_ARGUMENT_FIELDS) {
+    const actions = capability[field];
+    if (!actions) continue;
+    wire[field] = Object.fromEntries(
+      Object.entries(actions).map(([actionName, args]) => [
+        actionName,
+        Object.fromEntries(
+          Object.entries(args).map(([name, argument]) => [
+            name,
+            compactArgument(argument, capability.resourceIds),
+          ]),
+        ),
+      ]),
+    );
+  }
+  return encodeBase64Url(JSON.stringify(wire));
+}
+
+// Returns undefined for a marker that is not `0` or a one-element reference to
+// an existing resource id, so the whole capability is rejected.
+function expandCompactArgument(value: unknown, resourceIds: unknown): unknown {
+  if (value === 0) return { type: "actionSchema" };
+  if (Array.isArray(value)) {
+    const [key] = value;
+    return value.length === 1 &&
+      typeof key === "string" &&
+      isPlainRecord(resourceIds) &&
+      Object.hasOwn(resourceIds, key) &&
+      typeof resourceIds[key] === "string"
+      ? resourceIds[key]
+      : undefined;
+  }
+  return typeof value === "string" || isPlainRecord(value) ? value : undefined;
+}
+
+function expandCompactCapability(value: unknown): unknown {
+  if (!isPlainRecord(value)) return value;
+  const expanded: Record<string, unknown> = { ...value };
+  for (const field of ACTION_ARGUMENT_FIELDS) {
+    const actions = value[field];
+    if (!isPlainRecord(actions)) continue;
+    const expandedActions: Array<[string, unknown]> = [];
+    for (const [actionName, args] of Object.entries(actions)) {
+      if (!isPlainRecord(args)) {
+        expandedActions.push([actionName, args]);
+        continue;
+      }
+      const expandedArgs: Array<[string, unknown]> = [];
+      for (const [name, argument] of Object.entries(args)) {
+        const result = expandCompactArgument(argument, value.resourceIds);
+        if (result === undefined) return undefined;
+        expandedArgs.push([name, result]);
+      }
+      expandedActions.push([actionName, Object.fromEntries(expandedArgs)]);
+    }
+    expanded[field] = Object.fromEntries(expandedActions);
+  }
+  return expanded;
+}
+
+type ParsedCapabilityPayload =
+  | { ok: true; value: unknown }
+  | {
+      ok: false;
+      reason: "invalid-encoding" | "invalid-json" | "invalid-capability";
+    };
+
+function parseCapabilityPayload(payload: string): ParsedCapabilityPayload {
+  const legacy = payload.startsWith("%");
+  let json: string;
+  try {
+    json = legacy ? decodeURIComponent(payload) : decodeBase64Url(payload);
+  } catch (error) {
+    if (error instanceof URIError) {
+      return { ok: false, reason: "invalid-encoding" };
+    }
+    throw error;
+  }
+
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return { ok: false, reason: "invalid-json" };
+    }
+    throw error;
+  }
+
+  if (legacy) return { ok: true, value };
+  const expanded = expandCompactCapability(value);
+  return expanded === undefined
+    ? { ok: false, reason: "invalid-capability" }
+    : { ok: true, value: expanded };
+}
+
 function isStringRecord(
   value: unknown,
   { minEntries = 1, maxEntries = 16 } = {},
@@ -218,27 +382,11 @@ function decodeMcpDirectoryWidgetReadCapability(
     return { ok: false, reason: "invalid-scope" };
   }
 
-  let json: string;
-  try {
-    json = decodeURIComponent(
-      scope.slice(MCP_DIRECTORY_WIDGET_READ_CAPABILITY_PREFIX.length),
-    );
-  } catch (error) {
-    if (error instanceof URIError) {
-      return { ok: false, reason: "invalid-encoding" };
-    }
-    throw error;
-  }
-
-  let value: unknown;
-  try {
-    value = JSON.parse(json);
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      return { ok: false, reason: "invalid-json" };
-    }
-    throw error;
-  }
+  const parsed = parseCapabilityPayload(
+    scope.slice(MCP_DIRECTORY_WIDGET_READ_CAPABILITY_PREFIX.length),
+  );
+  if (!parsed.ok) return parsed;
+  const value = parsed.value;
 
   return isWidgetReadCapability(value)
     ? { ok: true, capability: value }
@@ -255,11 +403,11 @@ function decodeMcpDirectoryWidgetWriteCapability(
     return undefined;
   }
   try {
-    const value = JSON.parse(
-      decodeURIComponent(
-        scope.slice(MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_PREFIX.length),
-      ),
-    ) as Record<string, unknown>;
+    const parsed = parseCapabilityPayload(
+      scope.slice(MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_PREFIX.length),
+    );
+    if (!parsed.ok) return undefined;
+    const value = parsed.value as Record<string, unknown>;
     if (
       value.version !== 1 ||
       typeof value.appId !== "string" ||
@@ -407,7 +555,7 @@ export function createMcpDirectoryWidgetReadCapability(
   };
   const scope =
     MCP_DIRECTORY_WIDGET_READ_CAPABILITY_PREFIX +
-    encodeURIComponent(JSON.stringify(capability));
+    encodeCapabilityPayload(capability);
   return scope.length <= MCP_DIRECTORY_WIDGET_READ_CAPABILITY_MAX_LENGTH
     ? scope
     : undefined;
@@ -484,7 +632,7 @@ export function createMcpDirectoryWidgetWriteCapability(
   };
   const scope =
     MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_PREFIX +
-    encodeURIComponent(JSON.stringify(capability));
+    encodeCapabilityPayload(capability);
   return scope.length <= MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH
     ? scope
     : undefined;
@@ -911,6 +1059,13 @@ export function normalizeMcpDirectoryWidgetWriteActionArguments(
   }
 
   const suppliedArgs = Object.entries(input.args ?? {});
+  // Every literal-bound argument must be supplied and equal: an omitted
+  // binding would otherwise rely on the action's own schema to reject it.
+  const unboundLiteral = Object.entries(expectedArgs).some(
+    ([name, expected]) =>
+      typeof expected === "string" && input.args?.[name] !== expected,
+  );
+  if (unboundLiteral) return undefined;
   const includesResourceBinding =
     suppliedArgs.some(
       ([name, value]) =>

@@ -158,6 +158,9 @@ export function embedApp(
     let toolResponseMetadata = {};
     let openUrl = "";
     let openStartUrl = "";
+    // Start URLs are single use. The host replays a saved one on every re-sync,
+    // so remember which one the server has already refused.
+    let spentStartUrl = "";
     let activeEmbedSessionTicket = "";
     let startedFor = "";
     let appFrame = null;
@@ -1533,7 +1536,7 @@ export function embedApp(
         return;
       }
       embedSessionRefreshAttempts += 1;
-      openStartUrl = "";
+      spentStartUrl = openStartUrl;
       startedFor = "";
       lastFrameSrc = "";
       setMessage("Refreshing app session");
@@ -2031,17 +2034,15 @@ export function embedApp(
         return;
       }
       if (message.type === "agentNative.embedSessionExpired") {
-        if (expiredSessionMessage) {
-          refreshExpiredEmbedSession();
-        } else if (typeof data.requestId === "string") {
+        if (!expiredSessionMessage && typeof data.requestId === "string") {
           void renewExpiredEmbedSession(
             data.requestId,
             appFrame,
             appFrameDocumentState.loadGeneration,
           );
-        } else if (body.dataset.catalogMode !== "directory") {
-          // Older app frames do not include a renewal id, so preserve their
-          // existing full-refresh fallback until they load the renewal client.
+        } else {
+          // The server's expiry page names no request: it answered in place of
+          // the app, so there is no mounted session to renew in place.
           refreshExpiredEmbedSession();
         }
         return;
@@ -2093,7 +2094,7 @@ export function embedApp(
         notifyHostHeight();
         return;
       }
-      let launchUrl = openStartUrl || openUrl;
+      let launchUrl = (openStartUrl !== spentStartUrl && openStartUrl) || openUrl;
       if (!launchUrl) {
         renderAppLaunchError("Open link was not available.");
         return;

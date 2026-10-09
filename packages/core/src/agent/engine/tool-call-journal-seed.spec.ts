@@ -393,7 +393,7 @@ describe("loadedSkillPagesContext", () => {
         },
       ],
       new Map(),
-      new Set(["skill-slide-editing"]),
+      new Map([["skill-slide-editing", "x".repeat(50_000)]]),
     );
 
     expect(result.length).toBeLessThanOrEqual(40_000);
@@ -421,7 +421,7 @@ describe("loadedSkillPagesContext", () => {
         ["skill-slide-design", design],
         ["skill-slide-editing", editing],
       ]),
-      new Set(["skill-slide-design"]),
+      new Map([["skill-slide-design", "d".repeat(8_200)]]),
     );
 
     expect(result).toContain("earlier in this conversation");
@@ -433,6 +433,43 @@ describe("loadedSkillPagesContext", () => {
     );
   });
 
+  it("skips journaled reads that no longer match the current skill body", () => {
+    const result = loadedSkillPagesContext(
+      [
+        {
+          name: "docs-search",
+          input: { slug: "skill-slide-editing" },
+          content: "# Skill: slide-editing\nOld guidance.",
+          isError: false,
+        },
+      ],
+      new Map(),
+      new Map([["skill-slide-editing", "New guidance."]]),
+    );
+
+    expect(result).toBe("");
+  });
+
+  it("skips pages still intact in the model's history", () => {
+    const page = "# Skill: slide-editing\nGuidance.";
+    const result = loadedSkillPagesContext(
+      [
+        {
+          name: "docs-search",
+          input: { slug: "skill-slide-editing" },
+          content: page,
+          isError: false,
+        },
+      ],
+      new Map([["skill-slide-design", "# Skill: slide-design\nDesign."]]),
+      new Map([["skill-slide-editing", "Guidance."]]),
+      (slug) => slug === "skill-slide-editing",
+    );
+
+    expect(result).not.toContain("## skill-slide-editing");
+    expect(result).toContain("## skill-slide-design");
+  });
+
   it("lists skill pages dropped by the budget so they can be re-read", () => {
     const result = loadedSkillPagesContext(
       [],
@@ -441,7 +478,7 @@ describe("loadedSkillPagesContext", () => {
         ["skill-big", `# Skill: big\n${"b".repeat(50_000)}`],
         ["skill-older", `# Skill: older\n${"x".repeat(100)}`],
       ]),
-      new Set(),
+      new Map(),
     );
 
     expect(result).toContain("Skill page truncated");
@@ -457,7 +494,7 @@ describe("loadedSkillPagesContext", () => {
         `# Skill: s\n${"p".repeat(30_000)}`,
       );
     }
-    const result = loadedSkillPagesContext([], pages, new Set());
+    const result = loadedSkillPagesContext([], pages, new Map());
 
     expect(result.length).toBeLessThanOrEqual(40_000);
     expect(result).toContain("Omitted to fit loaded-skill context");
