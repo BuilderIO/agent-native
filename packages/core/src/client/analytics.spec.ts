@@ -2027,6 +2027,56 @@ describe("browser analytics pageviews", () => {
     );
   });
 
+  it("starts replay from server-injected Analytics config and attaches active replay fields", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "user@example.com",
+        userId: "user-1",
+        orgId: "org-1",
+      },
+    });
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      agentNativeAnalyticsPublicKey: "anpk_runtime_test",
+      agentNativeAnalyticsEndpoint:
+        "https://analytics.example.test/api/analytics/track",
+    };
+    const { configureTracking, setTrackingIdentity, trackEvent } =
+      await freshAnalytics();
+    setTrackingIdentity({ id: "user-1", email: "user@example.com" }, "org-1");
+
+    configureTracking({
+      authSessionRefresh: false,
+      pageviewTracking: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+    });
+    await tick();
+
+    expect(replayMock.startSessionReplay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publicKey: "anpk_runtime_test",
+        endpoint: "https://analytics.example.test/api/analytics/replay",
+      }),
+    );
+
+    replayMock.getSessionReplayContext.mockReturnValue({
+      active: true,
+      replayId: "replay-test",
+      startedAt: "2026-10-09T18:00:00.000Z",
+    });
+    trackEvent("setup_step_saved");
+    await tick();
+
+    const event = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((body) => body.event === "setup_step_saved");
+    expect(event.properties).toMatchObject({
+      sessionReplayId: "replay-test",
+      sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
+    });
+  });
+
   it("normalizes AI SDK engine names into provider connection labels", async () => {
     installBrowser();
     const { analyticsCalls } = installFetch({

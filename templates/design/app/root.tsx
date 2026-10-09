@@ -48,6 +48,7 @@ import {
 } from "@/lib/design-ui-events";
 
 import changelog from "../CHANGELOG.md?raw";
+import { getDesignGenerationPageviewProvenance } from "../shared/generation-provenance.js";
 import { i18nCatalog } from "./i18n";
 import { OpenVisualEditWebMcp } from "./OpenVisualEditWebMcp";
 import { isPublicDesignAppPath } from "./public-routes";
@@ -60,12 +61,22 @@ configureTracking({
   llmConnectionStatus:
     typeof window === "undefined" ||
     !isPublicDesignAppPath(window.location.pathname),
-  getDefaultProps: (_name, properties) => ({
-    ...properties,
-    app: "design",
-    app_name: "design",
-    template_name: "design",
-  }),
+  getDefaultProps: (name, properties) => {
+    const provenance =
+      name === "pageview"
+        ? getDesignGenerationPageviewProvenance(
+            window.location.pathname,
+            window.location.search,
+          )
+        : null;
+    return {
+      ...(provenance?.kind === "design-output" ? provenance.properties : {}),
+      ...properties,
+      app: "design",
+      app_name: "design",
+      template_name: "design",
+    };
+  },
 });
 
 export const links: LinksFunction = () => [

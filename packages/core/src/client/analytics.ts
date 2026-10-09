@@ -1713,13 +1713,17 @@ function configuredSessionReplayOptions(
   tracking: { endpoint?: string; publicKey?: string } = {},
 ): SessionReplayOptions | null {
   const env = (import.meta.env as Record<string, string | undefined>) ?? {};
+  const runtimeConfig =
+    typeof window === "undefined" ? undefined : window.__AGENT_NATIVE_CONFIG__;
   const publicKey =
     tracking.publicKey ||
     _agentNativeAnalyticsPublicKey ||
+    runtimeConfig?.agentNativeAnalyticsPublicKey ||
     env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   const trackingEndpoint =
     tracking.endpoint ||
     _agentNativeAnalyticsEndpoint ||
+    runtimeConfig?.agentNativeAnalyticsEndpoint ||
     env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
     (publicKey ? AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT : undefined);
   const endpoint = trackingEndpoint
