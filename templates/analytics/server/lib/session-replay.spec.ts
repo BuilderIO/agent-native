@@ -2637,6 +2637,91 @@ describe("session replay ingest parsing", () => {
     ).toEqual(["legacy-session", "new-session"]);
   });
 
+  it("does not associate a rotated session when an ingest only retries duplicate chunks", async () => {
+    const input = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "rotated-session",
+      userId: "dev@example.com",
+      sequence: 0,
+      events: [{ type: 4, timestamp: 1 }],
+    });
+    const [duplicateChunk] = input.chunks;
+    const recording = {
+      id: "sr_existing",
+      publicKeyId: "key_1",
+      clientRecordingId: "recording_1",
+      sessionId: "original-session",
+      userId: "dev@example.com",
+      anonymousId: "anon_1",
+      userKey: "dev@example.com",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: null,
+      durationMs: null,
+      chunkCount: 1,
+      eventCount: 1,
+      totalBytes: 100,
+      pageCount: 1,
+      errorCount: 0,
+      networkErrorCount: 0,
+      rageClickCount: 0,
+      privacyMode: "unknown",
+      metadata: "{}",
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      visibility: "private",
+      status: "active",
+    };
+    const oldChunk = {
+      id: "src_old",
+      recordingId: recording.id,
+      seq: duplicateChunk!.seq,
+      checksum: duplicateChunk!.checksum,
+      byteLength: duplicateChunk!.byteLength,
+      eventCount: duplicateChunk!.eventCount,
+      startedAt: duplicateChunk!.startedAt,
+      endedAt: duplicateChunk!.endedAt,
+      storageKind: "inline",
+      storageRef: null,
+      inlineData: duplicateChunk!.inlineData,
+      ownerEmail: recording.ownerEmail,
+      orgId: recording.orgId,
+    };
+    const keyResults = replayIngestKeyDbResults(null);
+    const { db, inserts, selectedTables } = createReplayDbMock(
+      [...keyResults.slice(0, 3), [recording], [oldChunk]],
+      [[]],
+    );
+    const updateValues: Array<Record<string, unknown>> = [];
+    const update = vi.fn(() => ({
+      set: vi.fn((values: Record<string, unknown>) => {
+        updateValues.push(values);
+        return { where: vi.fn(async () => undefined) };
+      }),
+    }));
+    getDbMock.mockReturnValue({ ...db, update });
+
+    await expect(
+      recordSessionReplayChunks(input, {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+      }),
+    ).resolves.toMatchObject({ acceptedChunks: 0, duplicateChunks: 1 });
+
+    expect(selectedTables).not.toContain(
+      schema.sessionRecordingSessionAssociations,
+    );
+    expect(
+      inserts.some(
+        (entry) => entry.table === schema.sessionRecordingSessionAssociations,
+      ),
+    ).toBe(false);
+    expect(updateValues[0]).toMatchObject({ sessionId: "original-session" });
+    expect(recordReplayFrictionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "original-session", newChunks: [] }),
+    );
+  });
+
   it("stores replay chunks without association queries during migration", async () => {
     sessionRecordingAssociationsReadyMock.mockResolvedValue(false);
     const { db, inserts, selectedTables } = createReplayDbMock(

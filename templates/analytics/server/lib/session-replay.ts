@@ -1937,9 +1937,11 @@ export async function recordSessionReplayChunks(
   );
   const recordingEnded =
     clampedInput.status === "completed" || recording.status === "completed";
+  const recordedSessionId =
+    rowsToInsert.length > 0 ? clampedInput.sessionId : recording.sessionId;
 
   if (
-    clampedInput.chunks.length &&
+    rowsToInsert.length > 0 &&
     (await sessionRecordingAssociationsReady(db))
   ) {
     const previousAssociations = await db
@@ -1977,7 +1979,7 @@ export async function recordSessionReplayChunks(
   await db
     .update(schema.sessionRecordings)
     .set({
-      sessionId: clampedInput.sessionId,
+      sessionId: recordedSessionId,
       userId: clampedInput.userId ?? recording.userId ?? null,
       anonymousId: clampedInput.anonymousId ?? recording.anonymousId ?? null,
       userKey: clampedInput.userKey ?? recording.userKey ?? null,
@@ -2018,7 +2020,7 @@ export async function recordSessionReplayChunks(
   const insertedSeqs = new Set(rowsToInsert.map((row) => row.seq));
   await recordReplayFriction({
     recordingId: recording.id,
-    sessionId: clampedInput.sessionId,
+    sessionId: recordedSessionId,
     ownerEmail: key.ownerEmail,
     orgId: key.orgId,
     priorChunkCount: existingChunks.length,

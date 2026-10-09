@@ -492,6 +492,14 @@ export async function sessionEventFilterConditions(
     schema.sessionRecordingSessionAssociations,
     "session_event_sibling_association_presence",
   );
+  const excludedEventAssociation = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_event_excluded_association",
+  );
+  const excludedEventAssociationPresence = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_event_excluded_association_presence",
+  );
   const se = schema.analyticsSessionEvents;
   const coverage = schema.analyticsSessionEventCoverage;
   const gaps = schema.analyticsSessionEventGaps;
@@ -538,9 +546,6 @@ export async function sessionEventFilterConditions(
           sql`not exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${recordingTenant} and ${gaps.sessionId} = ${sessionId})`,
         ]
       : []),
-    ...didNotEvents.map(
-      (eventName) => sql`not ${sessionIndexed(sessionId, eventName)}`,
-    ),
   ];
 
   const sessionMatch = associationsReady
@@ -560,10 +565,35 @@ export async function sessionEventFilterConditions(
       )`
     : and(...sessionConditions(r.sessionId));
 
+  const didNotEventConditions = didNotEvents.map((eventName) =>
+    associationsReady
+      ? sql`not exists (
+          select 1 from ${se}
+          where ${se.tenantKey} = ${recordingTenant}
+            and ${se.eventName} = ${eventName}
+            and (
+              exists (
+                select 1 from ${schema.sessionRecordingSessionAssociations} as ${excludedEventAssociation}
+                where ${excludedEventAssociation.recordingId} = ${r.id}
+                  and ${excludedEventAssociation.sessionId} = ${se.sessionId}
+              )
+              or (
+                not exists (
+                  select 1 from ${schema.sessionRecordingSessionAssociations} as ${excludedEventAssociationPresence}
+                  where ${excludedEventAssociationPresence.recordingId} = ${r.id}
+                )
+                and ${se.sessionId} = ${r.sessionId}
+              )
+            )
+        )`
+      : sql`not ${sessionIndexed(r.sessionId, eventName)}`,
+  );
+
   return [
     viewerReadsRecordingEventsSql(r, scope),
     sql`${r.startedAt} >= ${coverageStart}`,
     sessionMatch,
+    ...didNotEventConditions,
   ];
 }
 

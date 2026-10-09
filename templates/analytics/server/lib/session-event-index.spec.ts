@@ -378,6 +378,38 @@ describe("session event index on Postgres", () => {
     );
   });
 
+  it("excludes a recording when any associated session did a denied event", async () => {
+    await index(
+      [
+        event({
+          eventName: "pageview",
+          sessionId: "s-clear",
+          timestamp: "2026-09-20T10:01:00.000Z",
+        }),
+        event({
+          eventName: "pageview",
+          sessionId: "s-purchased",
+          timestamp: "2026-09-20T10:02:00.000Z",
+        }),
+        event({
+          eventName: "purchase",
+          sessionId: "s-purchased",
+          timestamp: "2026-09-20T10:03:00.000Z",
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    await addRecording("r-mixed", "s-clear", "2026-09-20T10:00:30.000Z", {}, [
+      "s-clear",
+      "s-purchased",
+    ]);
+    await addRecording("r-clear", "s-clear", "2026-09-20T10:00:30.000Z");
+
+    expect(await matchingRecordings({ didNotEvents: ["purchase"] })).toEqual([
+      "r-clear",
+    ]);
+  });
+
   it("never treats a session the index never saw as not doing an event", async () => {
     await index(
       [
