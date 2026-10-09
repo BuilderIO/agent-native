@@ -337,6 +337,10 @@ async function setFavoriteAndOrder(args: {
         favorite: args.favorite,
         now: args.now,
       });
+      const ordered =
+        migrated?.views
+          .find((view) => view.id === activeViewId)
+          ?.sidebarOrder?.itemIds.includes(membership.membershipId) ?? false;
       return {
         value: applyContentPersonalNavigationPatch(
           migrated,
@@ -349,7 +353,10 @@ async function setFavoriteAndOrder(args: {
           },
           [{ id: activeViewId, sorts: [], filters: [], filterMode: "and" }],
         ) as unknown as Record<string, unknown>,
-        result: membership,
+        result: {
+          ...membership,
+          changed: membership.changed || ordered !== args.favorite,
+        },
       };
     },
   );
@@ -1464,14 +1471,14 @@ export default defineAction({
         (favoriteChanged || args.isFavorite === false) &&
         !settlesPreviewDraft
       ) {
-        await setFavoriteAndOrder({
+        const favoriteMutation = await setFavoriteAndOrder({
           db,
           userEmail: requestUserEmail as string,
           documentId: id,
           favorite: args.isFavorite as boolean,
           now: nextDocumentUpdatedAt(existing.updatedAt),
         });
-        writeCommitted = true;
+        writeCommitted = favoriteMutation.result.changed;
       } else {
         try {
           await db.transaction(mutate);

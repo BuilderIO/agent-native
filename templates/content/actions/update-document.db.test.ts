@@ -95,6 +95,79 @@ async function documentRow(documentId: string) {
 }
 
 describe("update-document compare-and-swap", () => {
+  it.each(["no-op", "membership", "sidebar"] as const)(
+    "reports %s favorite changes truthfully when access disappears after unpin",
+    async (changeKind) => {
+      const { getUserSetting, putUserSetting } =
+        await import("@agent-native/core/settings");
+      const { ForbiddenError } = await import("@agent-native/core/sharing");
+      const { favoritesSystemIds, favoriteMembershipId, favoriteDocumentIds } =
+        await import("./_content-favorites.js");
+      const { personalDatabaseViewSettingKey } =
+        await import("./_content-database-personal-view.js");
+      const settings = await import("./_user-setting-transaction.js");
+      const mutateSetting = settings.mutateContentUserSettingTransaction;
+      const id = await createDocument({ title: "Unpin race" });
+      const db = getDb();
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({
+          id,
+          isFavorite: changeKind === "membership",
+        }),
+      );
+      const settingKey = personalDatabaseViewSettingKey(
+        favoritesSystemIds(OWNER).databaseId,
+      );
+      const membershipId = favoriteMembershipId(OWNER, id);
+      if (changeKind === "sidebar") {
+        const current = await getUserSetting(OWNER, settingKey);
+        await putUserSetting(OWNER, settingKey, {
+          ...current,
+          views: (current!.views as any[]).map((view) => ({
+            ...view,
+            sidebarOrder: {
+              ...view.sidebarOrder,
+              itemIds: [membershipId, ...view.sidebarOrder.itemIds],
+            },
+          })),
+        });
+      }
+      const race = vi
+        .spyOn(settings, "mutateContentUserSettingTransaction")
+        .mockImplementationOnce(async (...args) => {
+          const result = await mutateSetting(...args);
+          expect((await favoriteDocumentIds(db, OWNER, [id])).size).toBe(0);
+          const current = await getUserSetting(OWNER, settingKey);
+          expect(
+            (current!.views as any[])[0].sidebarOrder.itemIds,
+          ).not.toContain(membershipId);
+          await db
+            .update(schema.documents)
+            .set({ ownerEmail: "new-owner@example.com" })
+            .where(eq(schema.documents.id, id));
+          return result;
+        });
+      try {
+        const save = () =>
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            updateDocumentAction.run({ id, isFavorite: false }),
+          );
+        if (changeKind === "no-op") {
+          await expect(save()).rejects.toBeInstanceOf(ForbiddenError);
+        } else {
+          await expect(save()).rejects.toMatchObject({
+            errorCode: "DOCUMENT_SAVED_ACCESS_CHANGED",
+            statusCode: 403,
+            details: { id, saved: true },
+          });
+        }
+        expect(race).toHaveBeenCalledOnce();
+      } finally {
+        race.mockRestore();
+      }
+    },
+  );
+
   it.each(["owner", "viewer", "revoked", "deleted"] as const)(
     "refreshes %s access after the early receipt lookup races with a move",
     async (accessAfterMove) => {
