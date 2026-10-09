@@ -39,6 +39,14 @@ Run the Chromium IME Escape regression in an in-place slide text session:
 pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
 ```
 
+Run the Chromium mobile PowerPoint import status check. It holds the local file
+upload while checking the real mobile stylesheet, then verifies that a
+successful import opens its deck:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --mobile-import-status
+```
+
 Run the synthetic Slides text-surface typing, clipboard, undo/redo, and
 slide-switching round in Chromium (the default), WebKit, or Firefox. Chromium's
 `--ime-escape` gate uses trusted CDP IME input. WebKit and Firefox receive
@@ -90,15 +98,17 @@ omits entries below 16 ms, the report uses all keydowns and shows a `<=16 ms`
 bound when the p95 is below that threshold. It gates the p95 time from keydown
 through the first animation frame and forced layout at 16 ms only when Event
 Timing is unavailable; that measurement is a proxy, not paint. When Event
-Timing is available, the proxy is reported but the keydown-to-paint measurement
-is the latency flag. Slides with `data:` URLs are excluded from the authoring
-rounds; the largest-slide latency copy replaces those URLs with `about:blank`
-while preserving source geometry, so embedded image bytes are never copied into
-the scratch database:
+Timing is available, the first-frame proxy does not force layout, and the gate
+reports beforeinput/input handler time separately. The Event Timing
+keydown-to-paint measurement remains the latency flag. Slides with `data:` URLs
+are excluded from the authoring rounds; the largest-slide latency copy replaces
+those URLs with `about:blank` while preserving source geometry, so embedded
+image bytes are never copied into the scratch database:
 
 ```bash
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus --browser webkit
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus --authoring-source largest --browser firefox
 pnpm exec tsx scripts/edit-fidelity/run.ts --corpus ../../.tmp/private/corpus --authoring-corpus --browser firefox
 ```
 
@@ -118,6 +128,11 @@ pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20 --browser webkit
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20 --browser firefox
 ```
+
+The `slides-authoring-fuzz-soak.yml` workflow is manual (`workflow_dispatch`). It
+runs 20 seeds of 500 steps for Chromium, WebKit, and Firefox in four five-seed
+shards per browser. PR CI runs one bounded 80-step smoke seed (seed 16) per
+browser. It does not run the full soak.
 
 ## Authoring parity checklist
 
@@ -174,6 +189,7 @@ because it creates and rewrites decks.
 | `--typing-chat`                | Check selection direction on edit entry and Agent chat typing with slide editing left open                                         |
 | `--caret-qa`                   | Check Home/End or macOS line-edge caret navigation in a synthetic slide text edit                                                  |
 | `--ime-escape`                 | Verify composing Escape does not exit an in-place slide text edit session                                                          |
+| `--mobile-import-status`       | Check the real mobile import status while a local PowerPoint upload is pending                                                     |
 | `--text-surface-qa`            | Exercise Slides text fields, IME, paste, undo/redo, and slide switching in synthetic decks; defaults to Chromium                   |
 | `--authoring`                  | Exercise slash commands, Markdown shortcuts, and list authoring in synthetic decks; defaults to Chromium                           |
 | `--authoring-case <id>`        | With `--authoring`, run only cases whose ID contains `<id>`                                                                        |

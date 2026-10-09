@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import type { ActionRunContext } from "@agent-native/core/action";
 import { QueryClient } from "@tanstack/react-query";
 import { transformSync } from "esbuild";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -84,6 +85,7 @@ const mocks = vi.hoisted(() => {
       designData = data;
     },
     assertAccess: vi.fn().mockResolvedValue(undefined),
+    track: vi.fn(),
     seedFromText: vi.fn().mockResolvedValue(undefined),
     and: vi.fn((...args) => ({ and: args })),
     eq: vi.fn((left, right) => ({ left, right })),
@@ -93,6 +95,10 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: mocks.track,
 }));
 
 vi.mock("@agent-native/core/collab", () => ({
@@ -205,6 +211,35 @@ describe("create-file: node-id annotation", () => {
       expect.any(String),
       insertedValues.content,
     );
+  });
+
+  it("rejects widget screen creation outside the scoped design", async () => {
+    const context: ActionRunContext = {
+      caller: "mcp-widget-write",
+      mcpDirectoryWidgetWrite: {
+        appId: "design",
+        resourceIds: { designId: "design-1" },
+        actionNames: ["create-file"],
+      },
+    };
+
+    await expect(
+      action.run(
+        {
+          designId: "design-elsewhere",
+          filename: "new-screen.html",
+          content: "<main>New screen</main>",
+          fileType: "html",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_resource_mismatch",
+      statusCode: 403,
+    });
+
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
   });
 
   it("stamps the body of a new blank screen before persistence", async () => {
@@ -463,6 +498,49 @@ describe("create-file: canvas placement and landing URL", () => {
     );
   });
 
+  it.each([
+    ["html", "<main>Todo app</main>"],
+    ["jsx", "export default function Screen() { return <main />; }"],
+  ] as const)(
+    "tracks a renderable %s file as a session-correlated Design output",
+    async (fileType, content) => {
+      const context = {
+        caller: "tool",
+        userEmail: "owner@example.test",
+      } as const;
+      const result = await action.run(
+        {
+          designId: "design-1",
+          filename: "index.html",
+          content,
+          fileType,
+        },
+        context,
+      );
+
+      expect(result.renderable).toBe(true);
+      expect(mocks.track).toHaveBeenCalledTimes(1);
+      expect(mocks.track).toHaveBeenCalledWith(
+        "design_output_created",
+        {
+          app_name: "design",
+          template_name: "design",
+          output_id: "design-1",
+          output_type: "design",
+          file_type: fileType,
+          source: "create_file_action",
+        },
+        context,
+      );
+      const properties = mocks.track.mock.calls[0]![1] as Record<
+        string,
+        unknown
+      >;
+      expect(properties).not.toHaveProperty("filename");
+      expect(properties).not.toHaveProperty("content");
+    },
+  );
+
   it("places a second created screen in the next free row, clear of the first", async () => {
     mocks.setDesignData({
       canvasFrames: { existing: { x: 0, y: 0, width: 1440, height: 1024 } },
@@ -637,6 +715,19 @@ describe("create-file: canvas placement and landing URL", () => {
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
     expect(result.renderable).toBe(false);
     expect(result.urlPath).toBeNull();
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+
+  it("does not track a non-renderable asset", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "logo.png",
+      content: "opaque asset bytes",
+      fileType: "asset",
+    });
+
+    expect(result.renderable).toBe(false);
+    expect(mocks.track).not.toHaveBeenCalled();
   });
 
   it("does not place or focus renderable content that is empty", async () => {
@@ -650,5 +741,6 @@ describe("create-file: canvas placement and landing URL", () => {
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
     expect(result.renderable).toBe(false);
     expect(result.urlPath).toBeNull();
+    expect(mocks.track).not.toHaveBeenCalled();
   });
 });

@@ -10,6 +10,12 @@ const suggestionSchema = z.object({
 });
 
 const suggestionsSchema = z.array(suggestionSchema).length(3);
+const HOME_SUGGESTIONS_TIMEOUT_MS = 10_000;
+
+type HomeSuggestionsUnavailableReason =
+  | "missing_credentials"
+  | "timeout"
+  | "agent_engine_settings_unavailable";
 
 const ROLE_CONTEXT: Record<string, string> = {
   product:
@@ -47,6 +53,27 @@ function roleContext(value: string | null | undefined): string {
     return ROLE_CONTEXT[roleKey];
   }
   return `The user's selected onboarding role is ${JSON.stringify(role)}. Tailor suggestions to that role's typical work and goals.`;
+}
+
+function unavailableReason(
+  error: unknown,
+): HomeSuggestionsUnavailableReason | undefined {
+  if (!(error instanceof Error)) return undefined;
+  if ("errorCode" in error && error.errorCode === "missing_credentials") {
+    return "missing_credentials";
+  }
+  if ("errorCode" in error && error.errorCode === "builder_gateway_timeout") {
+    return "timeout";
+  }
+  if ("errorCode" in error && error.errorCode === "complete_text_timeout") {
+    return "timeout";
+  }
+  if (
+    "errorCode" in error &&
+    error.errorCode === "agent_engine_settings_unavailable"
+  ) {
+    return "agent_engine_settings_unavailable";
+  }
 }
 
 function findArrayEnd(text: string, start: number): number | undefined {
@@ -140,38 +167,29 @@ export default defineAction({
   run: async (_args, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
     const profile = await getUserProfile(ctx.userEmail);
-    const result = await completeText({
-      appId: "design",
-      systemPrompt: SYSTEM_PROMPT,
-      input: roleContext(profile.onboardingRole),
-      maxOutputTokens: 800,
-      temperature: 0.7,
-      timeoutMs: 10_000,
-    }).catch((error: unknown) => {
-      if (
-        error instanceof Error &&
-        "errorCode" in error &&
-        error.errorCode === "missing_credentials"
-      ) {
-        track(
-          "home_suggestions_unavailable",
-          {
-            app_name: "design",
-            template_name: "design",
-            failure_code: "missing_credentials",
-          },
-          ctx,
-        );
-        return null;
-      }
-      throw error;
-    });
-    if (!result) {
-      return {
-        status: "unavailable" as const,
-        reason: "missing_credentials" as const,
-        suggestions: [],
-      };
+    let result;
+    try {
+      result = await completeText({
+        appId: "design",
+        systemPrompt: SYSTEM_PROMPT,
+        input: roleContext(profile.onboardingRole),
+        maxOutputTokens: 800,
+        temperature: 0.7,
+        timeoutMs: HOME_SUGGESTIONS_TIMEOUT_MS,
+      });
+    } catch (error) {
+      const reason = unavailableReason(error);
+      if (!reason) throw error;
+      track(
+        "home_suggestions_unavailable",
+        {
+          app_name: "design",
+          template_name: "design",
+          failure_code: reason,
+        },
+        ctx,
+      );
+      return { status: "unavailable", reason, suggestions: [] };
     }
     return {
       status: "ready" as const,

@@ -311,6 +311,7 @@ export function AddSkillMenu({
           </DialogHeader>
           <PromptComposer
             autoFocus
+            requireAgentEngine
             placeholder={t(
               "agentChat.settingsResources.skills.describePlaceholder",
             )}

@@ -54,7 +54,7 @@ const BRAIN_LOCAL_PROVIDERS: readonly Omit<
     id: "zoom",
     label: "Zoom",
     description:
-      "Cloud-recording meeting transcripts through a Zoom Server-to-Server OAuth app.",
+      "Cloud-recording meeting transcripts, plus optional AI Companion summaries, through a Zoom Server-to-Server OAuth app.",
     credentialKeys: [
       { key: "ZOOM_ACCOUNT_ID", label: "Zoom Account ID", required: true },
       { key: "ZOOM_CLIENT_ID", label: "Zoom Client ID", required: true },
@@ -127,7 +127,7 @@ function dispatchIntegrationsHref(
   const base = dispatchHref
     .replace(/\/(?:overview|apps)\/?$/, "")
     .replace(/\/$/, "");
-  const path = `integrations?${params.toString()}`;
+  const path = `settings/integrations?${params.toString()}`;
   try {
     return new URL(path, `${base}/`).toString();
   } catch {

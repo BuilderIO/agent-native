@@ -12,6 +12,7 @@ import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { isFormFileValue } from "../server/lib/file-upload-policy.js";
 import type { FormField } from "../shared/types.js";
 
@@ -289,6 +290,7 @@ async function publishToBuilder(
 }
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.edit", "responseId"),
   description:
     "Publish a reviewed community app submission to Builder Publish CMS. Use this only for the community-app-submission form after reviewing its uploaded screenshots.",
   schema: z.object({

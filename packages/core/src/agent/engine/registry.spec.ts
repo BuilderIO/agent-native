@@ -582,29 +582,41 @@ describe("AgentEngine registry", () => {
   });
 
   describe("normalizeModelForEngine", () => {
-    it("upgrades unsupported Builder models to the latest supported version match", async () => {
+    it("upgrades retired Builder model IDs to the latest catalog entries", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {
         name: "builder",
-        defaultModel: "claude-sonnet-5",
+        defaultModel: "gpt-6-luna",
         supportedModels: [
           "auto",
-          "claude-opus-4-8",
-          "claude-sonnet-5",
+          "claude-haiku-5-5",
+          "claude-sonnet-5-5",
+          "claude-opus-5-5",
           "gpt-5-5",
+          "gpt-6-1-sol",
+          "gemini-3-8-flash",
         ],
       } as any;
 
       expect(normalizeModelForEngine(engine, "claude-opus-4-7")).toBe(
-        "claude-opus-4-8",
+        "claude-opus-5-5",
       );
-      expect(normalizeModelForEngine(engine, "claude-sonnet-5-5")).toBe(
-        "claude-sonnet-5",
+      expect(normalizeModelForEngine(engine, "claude-haiku-4-5")).toBe(
+        "claude-haiku-5-5",
+      );
+      expect(normalizeModelForEngine(engine, "claude-sonnet-5")).toBe(
+        "claude-sonnet-5-5",
       );
       expect(normalizeModelForEngine(engine, "gpt-5-4")).toBe("gpt-5-5");
+      expect(normalizeModelForEngine(engine, "gpt-6.1-sol")).toBe(
+        "gpt-6-1-sol",
+      );
+      expect(normalizeModelForEngine(engine, "gemini-3-7-flash")).toBe(
+        "gemini-3-8-flash",
+      );
     });
 
-    it("moves saved selections of retired Builder models to the default model", async () => {
+    it("upgrades saved selections of retired Builder IDs", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const { BUILDER_MODEL_CONFIG } = await import("../model-config.js");
       const engine = {
@@ -613,25 +625,38 @@ describe("AgentEngine registry", () => {
         supportedModels: BUILDER_MODEL_CONFIG.supportedModels,
       } as any;
 
-      expect(normalizeModelForEngine(engine, "grok-code-fast")).toBe(
-        BUILDER_MODEL_CONFIG.defaultModel,
+      expect(normalizeModelForEngine(engine, "claude-haiku-4-5")).toBe(
+        "claude-haiku-5-5",
       );
-      expect(normalizeModelForEngine(engine, "deepseek-v4-pro")).toBe(
-        BUILDER_MODEL_CONFIG.defaultModel,
+      expect(normalizeModelForEngine(engine, "gpt-6.1-sol")).toBe(
+        "gpt-6-1-sol",
       );
     });
 
-    it("preserves an exact supported non-GPT selection when a newer version is supported", async () => {
+    it("upgrades retired Claude selections even when the old provider still accepts them", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {
         name: "builder",
-        defaultModel: "claude-sonnet-5",
+        defaultModel: "claude-sonnet-5-5",
         supportedModels: [
           "auto",
           "claude-opus-4-8",
           "claude-opus-5-5",
-          "claude-sonnet-5",
+          "claude-sonnet-5-5",
         ],
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "claude-opus-4-8")).toBe(
+        "claude-opus-5-5",
+      );
+    });
+
+    it("does not apply Builder aliases to supported BYOK models", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "anthropic",
+        defaultModel: "claude-sonnet-5-5",
+        supportedModels: ["claude-opus-4-8", "claude-opus-5-5"],
       } as any;
 
       expect(normalizeModelForEngine(engine, "claude-opus-4-8")).toBe(
@@ -643,15 +668,15 @@ describe("AgentEngine registry", () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {
         name: "builder",
-        defaultModel: "claude-sonnet-5",
-        supportedModels: ["auto", "claude-opus-4-8", "claude-sonnet-5"],
+        defaultModel: "claude-sonnet-5-5",
+        supportedModels: ["auto", "claude-opus-4-8", "claude-sonnet-5-5"],
       } as any;
 
       expect(normalizeModelForEngine(engine, "totally-removed-model")).toBe(
-        "claude-sonnet-5",
+        "claude-sonnet-5-5",
       );
       expect(normalizeModelForEngine(engine, "gemini-3-1-flash-lite")).toBe(
-        "claude-sonnet-5",
+        "claude-sonnet-5-5",
       );
     });
 
@@ -659,15 +684,15 @@ describe("AgentEngine registry", () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {
         name: "builder",
-        defaultModel: "claude-sonnet-5",
-        supportedModels: ["auto", "claude-sonnet-5"],
+        defaultModel: "claude-sonnet-5-5",
+        supportedModels: ["auto", "claude-sonnet-5-5"],
       } as any;
 
-      expect(normalizeModelForEngine(engine, "claude-sonnet-5")).toBe(
-        "claude-sonnet-5",
+      expect(normalizeModelForEngine(engine, "claude-sonnet-5-5")).toBe(
+        "claude-sonnet-5-5",
       );
       expect(normalizeModelForEngine(engine, "auto")).toBe("auto");
-      expect(normalizeModelForEngine(engine, " ")).toBe("claude-sonnet-5");
+      expect(normalizeModelForEngine(engine, " ")).toBe("claude-sonnet-5-5");
     });
 
     it("upgrades older GPT Sol and Luna selections to the newest supported models", async () => {
@@ -790,7 +815,7 @@ describe("AgentEngine registry", () => {
       } as any;
 
       expect(normalizeModelForEngine(engine, "claude-sonnet-5")).toBe(
-        "claude-sonnet-5-5",
+        "claude-sonnet-5",
       );
       expect(normalizeModelForEngine(engine, "claude-next-preview")).toBe(
         "claude-next-preview",
@@ -1992,8 +2017,11 @@ describe("AgentEngine registry", () => {
         readAppSecrets: readAppSecret,
       }));
 
-      const { registerAgentEngine, detectEngineFromUserSecrets } =
-        await import("./registry.js");
+      const {
+        registerAgentEngine,
+        detectEngineFromUserSecrets,
+        listAgentEngines,
+      } = await import("./registry.js");
       registerAgentEngine({
         name: "anthropic",
         label: "Anthropic",
@@ -2023,8 +2051,11 @@ describe("AgentEngine registry", () => {
         readAppSecrets,
       }));
 
-      const { registerAgentEngine, detectEngineFromUserSecrets } =
-        await import("./registry.js");
+      const {
+        registerAgentEngine,
+        detectEngineFromUserSecrets,
+        listAgentEngines,
+      } = await import("./registry.js");
       registerAgentEngine({
         name: "anthropic",
         label: "Anthropic",
@@ -3175,7 +3206,7 @@ describe("AgentEngine registry", () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
-        getRequestOrgId: () => undefined,
+        getRequestOrgId: () => "org-fixture",
       }));
       const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
         if (key === "BUILDER_PRIVATE_KEY") return { key, value: "p-key" };
@@ -3226,7 +3257,9 @@ describe("AgentEngine registry", () => {
         create: vi.fn() as any,
       });
 
-      const detected = await detectEngineFromUserSecrets();
+      const detected = await detectEngineFromUserSecrets(undefined, {
+        isBuilderConnectionUsable: async () => true,
+      });
       expect(detected?.name).toBe("builder");
 
       const providerBatches = readAppSecrets.mock.calls

@@ -682,7 +682,7 @@ const esES = {
         "Instala planificación visual como skill respaldada por una app. Tu agente de código puede abrir planes estructurados con diagramas, wireframes, prototipos, anotaciones, comentarios y enlaces de revisión.",
     },
     design: {
-      replaces: "Reemplaza o amplía herramientas de prototipado",
+      replaces: "Estudio de diseño de Agent-Native",
       description:
         "Convierte instrucciones en diseños interactivos que siguen tu sistema de diseño mientras el agente perfecciona cada pantalla según tus comentarios.",
     },
@@ -1454,7 +1454,7 @@ const esES = {
       s003: "generar",
       s004: "Refinar",
       s005: "Todas las plantillas",
-      s006: "El estudio de creación de prototipos de código abierto AI HTML",
+      s006: "Espacio de diseño de código abierto",
       s007: "Cree diseños y prototipos interactivos. Refine con herramientas familiares o realice ediciones conversacionales. Exporte a donde quiera.",
       s008: "Diseña algo",
       s009: "como funciona",

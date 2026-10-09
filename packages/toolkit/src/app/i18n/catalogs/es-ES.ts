@@ -818,6 +818,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Esta ejecución ya no se puede continuar. Envía un mensaje para seguir.",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitud incluía un archivo que no se puede volver a enviar. Vuelve a adjuntarlo en el cuadro de mensaje y vuelve a intentarlo.",
+  "recovery.retryWithoutAttachment": "Reintentar sin el adjunto",
   "recovery.deferredSubmissionFailed":
     "No se pudo enviar este mensaje. Comprueba tu conexión o la configuración del chat y vuelve a intentarlo.",
   "recovery.credentialRejected":
@@ -1143,7 +1144,20 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "Subir archivo de habilidad",
   "composer.upload": "Subir",
   "composer.uploadFailed": "No se pudo cargar el archivo seleccionado.",
+  "composer.fileTooLarge":
+    "Este archivo supera el límite de subida de {{size}} MB.",
+  "composer.sessionExpired":
+    "Tu sesión ha caducado. Vuelve a iniciar sesión y envía tu mensaje de nuevo.",
   "composer.unsupportedFileType": "Este tipo de archivo no es compatible.",
+  "composer.uploadUnavailable":
+    "La subida de archivos no está disponible ahora mismo. Inténtalo de nuevo en un momento.",
+  "composer.uploadOffline":
+    "La subida no pudo llegar al servidor. Comprueba tu conexión e inténtalo de nuevo.",
+  "composer.submissionNotReady":
+    "El chat aún no está listo para enviar. Espera un momento y vuelve a enviarlo.",
+  "composer.submissionScopeChanged":
+    "Este chat cambió antes de que se enviara tu mensaje. Vuelve a enviarlo.",
+  "composer.attachmentNotSaved": "No se guardó con este chat",
   "composer.useAttachedContext": "Usa el contexto adjunto.",
   "mentions.commands": "Comandos",
   "mentions.learnMore": "Más información",
@@ -1304,6 +1318,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Cerraste sesión, así que este chat no puede seguir al agente. Vuelve a iniciar sesión y recarga.",
   "errorMessages.malformedRequestAttachment":
     "El modelo rechazó un archivo adjunto, así que este mensaje nunca se envió. Quita el adjunto y vuelve a intentarlo: un PDF, un archivo de texto plano o una imagen JPEG, PNG, GIF o WebP se leen directamente; los demás formatos deben subirse y enlazarse.",
+  "errorMessages.invalidAttachment":
+    "El proveedor del modelo rechazó este archivo adjunto por su formato o tamaño. Para las imágenes, exporta una versión más pequeña en PNG, JPEG, GIF o WebP; para los documentos, usa un formato compatible o pega el texto pertinente y vuelve a adjuntarlo.",
   "errorMessages.noProviderConnected":
     "No hay ningún proveedor de LLM conectado. Abre Configuración > Agente > Proveedores de IA y usa Builder.io (plan gratuito disponible) o añade una clave de proveedor.",
   "errorMessages.openBuilderSpaceSettings":

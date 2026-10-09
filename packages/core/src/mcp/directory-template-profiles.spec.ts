@@ -21,10 +21,15 @@ import {
   filterMcpOnlyActions,
 } from "../server/agent-chat/action-filters-a2a.js";
 import { resolveAgentChatMcpOptions } from "../server/agent-chat/mcp-options.js";
+import {
+  createMcpDirectoryWidgetWriteCapability,
+  normalizeMcpDirectoryWidgetWriteActionArguments,
+} from "../shared/embed-auth.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import {
   createMCPServerForRequest,
   selectMcpDirectoryWidgetReadActions,
+  selectMcpDirectoryWidgetWriteActions,
   validateMcpDirectoryProfile,
 } from "./build-server.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
@@ -71,6 +76,7 @@ async function loadTemplateActions(appId: string) {
     ...new Set([
       ...toolNames,
       ...Object.keys(profile.widgetReadActionArguments ?? {}),
+      ...Object.keys(profile.widgetWriteActionArguments ?? {}),
     ]),
   ];
   const actionNames = [
@@ -150,6 +156,229 @@ describe("ChatGPT directory template profiles", () => {
     });
   });
 
+  it("opens a generated Design screen focused in the overview canvas", () => {
+    const target = designProfile.widgetTargets?.["generate-design"];
+    if (!target)
+      throw new Error("Design generate-design widget target is missing.");
+
+    expect(
+      target(
+        { designId: "design-123" },
+        {
+          designId: "design-123",
+          urlPath: "/design/design-123?editorView=overview&screen=file-456",
+        },
+      ),
+    ).toMatchObject({
+      targetPath: "/design/design-123?editorView=overview&screen=file-456",
+      resourceIds: { designId: "design-123" },
+    });
+    expect(
+      target(
+        { designId: "design-123" },
+        {
+          designId: "design-123",
+          urlPath: "https://example.com/design/design-123?screen=file-456",
+        },
+      )?.targetPath,
+    ).toBe("/design/design-123");
+  });
+
+  it(
+    "allows Design widget sync flags while excluding file metadata from update-file writes",
+    async () => {
+      const { actions } = await loadTemplateActions("design");
+      const actionProperties =
+        actions["update-file"]?.tool?.parameters?.properties;
+      const updateFileArguments =
+        designProfile.widgetWriteActionArguments?.["update-file"];
+
+      expect(actionProperties).toHaveProperty("syncCollab");
+      expect(actionProperties).toHaveProperty("identityOnly");
+      expect(actionProperties).toHaveProperty("filename");
+      expect(actionProperties).toHaveProperty("fileType");
+      expect(updateFileArguments).toMatchObject({
+        id: { type: "actionSchemaResourceBound", resourceKey: "designId" },
+        syncCollab: { type: "actionSchema" },
+        identityOnly: { type: "actionSchema" },
+      });
+      if (!updateFileArguments) {
+        throw new Error("Design update-file widget arguments are missing.");
+      }
+
+      const resourceUri = "ui://design/shell-v69";
+      const capability = createMcpDirectoryWidgetWriteCapability({
+        appId: "design",
+        resourceUri,
+        resourceIds: { designId: "design-123" },
+        userEmail: "reviewer@example.test",
+        expiresAtMs: Date.now() + 60_000,
+        readActionArguments: {},
+        writeActionArguments: { "update-file": updateFileArguments },
+      });
+      expect(capability).toBeDefined();
+      if (!capability) throw new Error("Failed to create test capability.");
+
+      const allowedArgumentNames = Object.keys(updateFileArguments);
+      const args = {
+        id: "file-456",
+        content: "<html><body>Updated screen</body></html>",
+        syncCollab: true,
+        identityOnly: true,
+        expectedVersionHash: "source-hash",
+        operationSource: "widget-session",
+        operationRevision: 1,
+      };
+      const normalize = (nextArgs: Record<string, unknown>) =>
+        normalizeMcpDirectoryWidgetWriteActionArguments(capability, {
+          actionName: "update-file",
+          appId: "design",
+          resourceUri,
+          userEmail: "reviewer@example.test",
+          args: nextArgs,
+          allowedArgumentNames,
+        });
+
+      expect(normalize(args)).toEqual(args);
+      for (const field of ["filename", "fileType"] as const) {
+        expect(normalize({ ...args, [field]: "renamed.html" })).toBeUndefined();
+      }
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "scopes Design widget screen creation to its target design",
+    async () => {
+      const { actions } = await loadTemplateActions("design");
+      const createFileArguments =
+        designProfile.widgetWriteActionArguments?.["create-file"];
+
+      expect(
+        actions["create-file"]?.tool?.parameters?.properties,
+      ).toHaveProperty("designId");
+      expect(createFileArguments).toMatchObject({
+        designId: "designId",
+        filename: { type: "actionSchema" },
+        content: { type: "actionSchema" },
+        fileType: { type: "actionSchema" },
+      });
+      if (!createFileArguments) {
+        throw new Error("Design create-file widget arguments are missing.");
+      }
+
+      const generatedTarget = designProfile.widgetTargets?.[
+        "generate-design"
+      ]?.({ designId: "design-123" }, { designId: "design-123" });
+      expect(generatedTarget?.writeActions).toContain("create-file");
+
+      const resourceUri = "ui://design/shell-v69";
+      const materializedCreateFileArguments = {
+        ...createFileArguments,
+        designId: "design-123",
+      };
+      const capability = createMcpDirectoryWidgetWriteCapability({
+        appId: "design",
+        resourceUri,
+        resourceIds: { designId: "design-123" },
+        userEmail: "reviewer@example.test",
+        expiresAtMs: Date.now() + 60_000,
+        readActionArguments: {},
+        writeActionArguments: {
+          "create-file": materializedCreateFileArguments,
+        },
+      });
+      expect(capability).toBeDefined();
+      if (!capability) throw new Error("Failed to create test capability.");
+
+      const args = {
+        designId: "design-123",
+        filename: "new-screen.html",
+        content: "<main>New screen</main>",
+        fileType: "html",
+      };
+      const normalize = (nextArgs: Record<string, unknown>) =>
+        normalizeMcpDirectoryWidgetWriteActionArguments(capability, {
+          actionName: "create-file",
+          appId: "design",
+          resourceUri,
+          userEmail: "reviewer@example.test",
+          args: nextArgs,
+          allowedArgumentNames: Object.keys(createFileArguments),
+        });
+
+      expect(normalize(args)).toEqual(args);
+      expect(
+        normalize({ ...args, designId: "design-outside-scope" }),
+      ).toBeUndefined();
+      expect(normalize({ ...args, replaceExisting: true })).toBeUndefined();
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "allows Content widget document icon updates without widening its write scope",
+    async () => {
+      const { actions } = await loadTemplateActions("content");
+      const actionProperties =
+        actions["update-document"]?.tool?.parameters?.properties;
+      const updateDocumentArguments =
+        contentProfile.widgetWriteActionArguments?.["update-document"];
+
+      expect(actionProperties).toHaveProperty("icon");
+      expect(updateDocumentArguments).toMatchObject({
+        id: "documentId",
+        icon: { type: "actionSchema" },
+      });
+      if (!updateDocumentArguments) {
+        throw new Error(
+          "Content update-document widget arguments are missing.",
+        );
+      }
+
+      const resourceUri = "ui://content/shell-v69";
+      const capability = createMcpDirectoryWidgetWriteCapability({
+        appId: "content",
+        resourceUri,
+        resourceIds: { documentId: "page-1" },
+        userEmail: "reviewer@example.test",
+        expiresAtMs: Date.now() + 60_000,
+        readActionArguments: {},
+        writeActionArguments: {
+          "update-document": {
+            ...updateDocumentArguments,
+            id: "page-1",
+          },
+        },
+      });
+      expect(capability).toBeDefined();
+      if (!capability) throw new Error("Failed to create test capability.");
+
+      const args = { id: "page-1", icon: "📕" };
+      expect(
+        normalizeMcpDirectoryWidgetWriteActionArguments(capability, {
+          actionName: "update-document",
+          appId: "content",
+          resourceUri,
+          userEmail: "reviewer@example.test",
+          args,
+          allowedArgumentNames: Object.keys(updateDocumentArguments),
+        }),
+      ).toEqual(args);
+      expect(
+        normalizeMcpDirectoryWidgetWriteActionArguments(capability, {
+          actionName: "update-document",
+          appId: "content",
+          resourceUri,
+          userEmail: "reviewer@example.test",
+          args: { ...args, description: "outside the widget edit scope" },
+          allowedArgumentNames: Object.keys(updateDocumentArguments),
+        }),
+      ).toBeUndefined();
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
+
   it(
     "uses document-specific labels for Content's shared widget shell",
     async () => {
@@ -173,7 +402,7 @@ describe("ChatGPT directory template profiles", () => {
         createMcpDirectoryWidgetReadCapability,
         normalizeMcpDirectoryWidgetReadActionArguments,
       } = await import("../shared/embed-auth.js");
-      const resourceUri = "ui://content/shell-v68";
+      const resourceUri = "ui://content/shell-v69";
       const pageBootReads = [
         ["get-document", { id: documentId }],
         ["get-content-navigation-context", { id: documentId }],
@@ -261,6 +490,7 @@ describe("ChatGPT directory template profiles", () => {
       expect(database.target.resourceIds).toEqual({
         databaseId,
         documentId,
+        databaseDocumentId: documentId,
         resourceType: "document",
         spaceId,
       });
@@ -307,6 +537,10 @@ describe("ChatGPT directory template profiles", () => {
         mcpOptions.directoryProfile,
         actions,
       );
+      const widgetWriteActions = selectMcpDirectoryWidgetWriteActions(
+        mcpOptions.directoryProfile,
+        actions,
+      );
       const serverConfig = {
         name: `agent-native-${appId}`,
         appId,
@@ -317,6 +551,7 @@ describe("ChatGPT directory template profiles", () => {
         actions: productionActions,
         productionActions,
         widgetReadActions,
+        widgetWriteActions,
         directoryProfile: mcpOptions.directoryProfile,
       };
 
@@ -369,12 +604,17 @@ describe("ChatGPT directory template profiles", () => {
         const sessionTool = tools.find(
           (tool) => tool.name === "create_embed_session",
         );
-        expect(
-          [
-            ...((sessionTool?.inputSchema.properties?.sourceTool as any)
-              ?.enum ?? []),
-          ].sort(),
-        ).toEqual(widgetTargetNames);
+        expect(sessionTool?._meta?.ui?.visibility).toEqual(["app"]);
+        expect(sessionTool?.inputSchema.required).toEqual(["sourceTicket"]);
+        expect(sessionTool?.inputSchema.properties).not.toHaveProperty(
+          "sourceTool",
+        );
+        expect(sessionTool?.inputSchema.properties).not.toHaveProperty(
+          "toolInput",
+        );
+        expect(sessionTool?.inputSchema.properties).not.toHaveProperty(
+          "toolOutput",
+        );
       } finally {
         await Promise.all([client.close(), server.close()]);
       }
@@ -466,6 +706,10 @@ describe("ChatGPT directory template profiles", () => {
         actions: stubbedActions,
         productionActions: stubbedActions,
         widgetReadActions: selectMcpDirectoryWidgetReadActions(
+          mcpOptions.directoryProfile,
+          actions,
+        ),
+        widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
           mcpOptions.directoryProfile,
           actions,
         ),
@@ -603,7 +847,7 @@ describe("ChatGPT directory template profiles", () => {
           mcpAnnotations: writeAnnotations,
           mcpApp: {
             resource: {
-              uri: "ui://content/shell-v68",
+              uri: "ui://content/shell-v69",
               title: "Document",
               html: "<html></html>",
             },
@@ -725,7 +969,7 @@ describe("ChatGPT directory template profiles", () => {
       mcpAnnotations: annotations,
       mcpApp: {
         resource: {
-          uri: "ui://content/shell-v68",
+          uri: "ui://content/shell-v69",
           title: "Document",
           html: "<html></html>",
         },

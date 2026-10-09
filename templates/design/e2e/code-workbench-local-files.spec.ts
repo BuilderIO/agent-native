@@ -481,7 +481,6 @@ test.fixme("lists the spawned folder, preserves dirty buffers, and saves a local
   await expect(localTree.getByText(".env", { exact: true })).toHaveCount(0);
 });
 
-// oracle: none — verifies the app-specific local-screen inspector flow, not Figma parity.
 test("updates only the selected URL screen from the Screen inspector", async ({
   page,
   request,
@@ -639,7 +638,6 @@ test("updates only the selected URL screen from the Screen inspector", async ({
   await cdpScreenshot(page, testInfo.outputPath("screen-source-static.png"));
 });
 
-// oracle: none — verifies local-source promotion and editing, not Figma parity.
 test("promotes and edits a URL-backed React component through the live iframe", async ({
   page,
   request,
@@ -876,7 +874,6 @@ test("promotes and edits a URL-backed React component through the live iframe", 
   );
 });
 
-// oracle: none — verifies app undo/redo for a local source, not Figma parity.
 test("duplicates a URL-backed React component through undo and redo", async ({
   page,
   request,
@@ -977,7 +974,6 @@ test("duplicates a URL-backed React component through undo and redo", async ({
   );
 });
 
-// oracle: none — verifies app-specific local-screen error handling, not Figma parity.
 test("keeps a URL screen selected when its static snapshot fails", async ({
   page,
   request,

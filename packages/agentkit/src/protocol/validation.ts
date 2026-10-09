@@ -43,6 +43,7 @@ import {
   type AgentProtocolMetadata,
   type AgentRequestContext,
   type AgentProtocolVersionOffer,
+  type AgentRequestAttachment,
   type AgentQueuedMessage,
   type AgentReplayCheckpoint,
   type RunId,
@@ -86,6 +87,10 @@ export class AgentProtocolValidationError extends Error {
   }
 }
 
+export const MAX_AGENT_REQUEST_ATTACHMENTS = 20;
+export const MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS = 6_000_000;
+const MAX_AGENT_REQUEST_ATTACHMENT_DATA_URL_CHARS = 3_000_000;
+
 function record(value: unknown, path: string): UnknownRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new AgentProtocolValidationError(path, "expected an object");
@@ -119,6 +124,15 @@ function string(value: unknown, path: string): string {
 function optionalString(value: unknown, path: string): void {
   if (value !== undefined && typeof value !== "string") {
     throw new AgentProtocolValidationError(path, "expected a string");
+  }
+}
+
+function rejectDataUrlReference(value: unknown, path: string): void {
+  if (typeof value === "string" && /^\s*data:/i.test(value)) {
+    throw new AgentProtocolValidationError(
+      path,
+      "data URLs cannot be persisted as file references",
+    );
   }
 }
 
@@ -435,7 +449,23 @@ function validateMessagePart(value: unknown, path: string): void {
       optionalString(part.url, `${path}.url`);
       optionalString(part.fileId, `${path}.fileId`);
       optionalString(part.mediaType, `${path}.mediaType`);
-      if (part.url === undefined && part.fileId === undefined) {
+      if (part.data !== undefined) {
+        throw new AgentProtocolValidationError(
+          `${path}.data`,
+          "inline file data cannot be persisted in a queue",
+        );
+      }
+      if (part.omitted !== undefined && part.omitted !== "inline-bytes") {
+        throw new AgentProtocolValidationError(
+          `${path}.omitted`,
+          "unsupported omission marker",
+        );
+      }
+      if (
+        part.url === undefined &&
+        part.fileId === undefined &&
+        part.omitted === undefined
+      ) {
         throw new AgentProtocolValidationError(
           path,
           "a file part requires either url or fileId",
@@ -504,6 +534,95 @@ export function parseFilePart(value: unknown, path = "file"): FilePart {
   return value as FilePart;
 }
 
+function parseAgentRequestAttachments(
+  value: unknown,
+  path: string,
+  options: { allowInlineData: boolean; allowLegacyQueueCount?: boolean },
+): AgentRequestAttachment[] {
+  const attachments = array(value, path);
+  if (
+    !options.allowLegacyQueueCount &&
+    attachments.length > MAX_AGENT_REQUEST_ATTACHMENTS
+  ) {
+    throw new AgentProtocolValidationError(
+      path,
+      `expected at most ${MAX_AGENT_REQUEST_ATTACHMENTS} attachments`,
+    );
+  }
+  let aggregateDataChars = 0;
+  return attachments.map((attachment, index) => {
+    const itemPath = `${path}[${index}]`;
+    const item = record(attachment, itemPath);
+    if (item.type !== "image") {
+      throw new AgentProtocolValidationError(
+        `${itemPath}.type`,
+        "expected image",
+      );
+    }
+    string(item.name, `${itemPath}.name`);
+    optionalString(item.contentType, `${itemPath}.contentType`);
+    optionalString(item.data, `${itemPath}.data`);
+    optionalString(item.url, `${itemPath}.url`);
+    optionalString(item.referenceUrl, `${itemPath}.referenceUrl`);
+    rejectDataUrlReference(item.url, `${itemPath}.url`);
+    rejectDataUrlReference(item.referenceUrl, `${itemPath}.referenceUrl`);
+    if (typeof item.data === "string") {
+      if (!options.allowInlineData) {
+        throw new AgentProtocolValidationError(
+          `${itemPath}.data`,
+          "inline image data cannot be persisted in a queue",
+        );
+      }
+      if (
+        item.data.length > MAX_AGENT_REQUEST_ATTACHMENT_DATA_URL_CHARS ||
+        !/^data:image\/(?:gif|jpeg|png|webp);base64,/i.test(item.data)
+      ) {
+        throw new AgentProtocolValidationError(
+          `${itemPath}.data`,
+          "expected a bounded base64 raster image data URL",
+        );
+      }
+      aggregateDataChars += item.data.length;
+      if (aggregateDataChars > MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS) {
+        throw new AgentProtocolValidationError(
+          `${path}.data`,
+          `aggregate inline image data exceeds ${MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS} characters`,
+        );
+      }
+    }
+    if (typeof item.data !== "string" && typeof item.url !== "string") {
+      throw new AgentProtocolValidationError(
+        itemPath,
+        "expected inline image data or an image URL",
+      );
+    }
+    return attachment as AgentRequestAttachment;
+  });
+}
+
+function parseQueueFileAttachments(
+  value: unknown,
+  path: string,
+  options: { allowLegacyQueueCount?: boolean } = {},
+): FilePart[] {
+  const attachments = array(value, path);
+  if (
+    !options.allowLegacyQueueCount &&
+    attachments.length > MAX_AGENT_REQUEST_ATTACHMENTS
+  ) {
+    throw new AgentProtocolValidationError(
+      path,
+      `expected at most ${MAX_AGENT_REQUEST_ATTACHMENTS} attachments`,
+    );
+  }
+  return attachments.map((attachment, index) => {
+    const itemPath = `${path}[${index}]`;
+    const part = parseFilePart(attachment, itemPath);
+    rejectDataUrlReference(part.url, `${itemPath}.url`);
+    return part;
+  });
+}
+
 export function parseAgentThread(value: unknown, path = "thread"): AgentThread {
   const thread = record(value, path);
   string(thread.id, `${path}.id`);
@@ -542,9 +661,15 @@ export function parseAgentQueuedMessage(
   }
   timestamp(message.createdAt, `${path}.createdAt`);
   if (message.attachments !== undefined) {
-    array(message.attachments, `${path}.attachments`).forEach(
-      (attachment, index) =>
-        parseFilePart(attachment, `${path}.attachments[${index}]`),
+    parseQueueFileAttachments(message.attachments, `${path}.attachments`, {
+      allowLegacyQueueCount: true,
+    });
+  }
+  if (message.requestAttachments !== undefined) {
+    parseAgentRequestAttachments(
+      message.requestAttachments,
+      `${path}.requestAttachments`,
+      { allowInlineData: false, allowLegacyQueueCount: true },
     );
   }
   optionalMetadata(message.metadata, `${path}.metadata`);
@@ -2504,6 +2629,13 @@ export function parseStartRunInput(
   array(input.messages, `${path}.messages`).forEach((message, index) =>
     parseAgentMessage(message, `${path}.messages[${index}]`),
   );
+  if (input.requestAttachments !== undefined) {
+    parseAgentRequestAttachments(
+      input.requestAttachments,
+      `${path}.requestAttachments`,
+      { allowInlineData: true },
+    );
+  }
   if (input.options !== undefined) {
     parseAgentRunOptions(input.options, `${path}.options`);
   }
@@ -2687,23 +2819,26 @@ export function parseForkThreadInput(
 export function parseQueueMessageInput(
   value: unknown,
   path = "queueMessage",
+  options: { allowLegacyQueueCount?: boolean } = {},
 ): QueueMessageInput {
   const input = record(parseThreadIdInput(value, path), path);
   if (typeof input.text !== "string") {
     throw new AgentProtocolValidationError(`${path}.text`, "expected a string");
   }
   if (input.attachments !== undefined) {
-    array(input.attachments, `${path}.attachments`).forEach(
-      (attachment, index) => {
-        validateMessagePart(attachment, `${path}.attachments[${index}]`);
-        if (
-          record(attachment, `${path}.attachments[${index}]`).type !== "file"
-        ) {
-          throw new AgentProtocolValidationError(
-            `${path}.attachments[${index}].type`,
-            "expected file",
-          );
-        }
+    parseQueueFileAttachments(
+      input.attachments,
+      `${path}.attachments`,
+      options,
+    );
+  }
+  if (input.requestAttachments !== undefined) {
+    parseAgentRequestAttachments(
+      input.requestAttachments,
+      `${path}.requestAttachments`,
+      {
+        allowInlineData: false,
+        allowLegacyQueueCount: options.allowLegacyQueueCount,
       },
     );
   }

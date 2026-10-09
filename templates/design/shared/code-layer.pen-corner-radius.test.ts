@@ -81,7 +81,7 @@ describe("resizing a Figma-imported vector", () => {
   const svg = (extra = "") =>
     `<svg data-agent-native-node-id="v" data-figma-node-id="1:2" viewBox="0 0 30 40" style="width:30px;height:40px"${extra}><path d="M0 0 L30 40"></path></svg>`;
 
-  it("stretches like Figma instead of letterboxing", () => {
+  it("stretches the preview instead of letterboxing", () => {
     const result = applyVisualEdit(svg(), {
       kind: "style",
       target: { nodeId: "v" },

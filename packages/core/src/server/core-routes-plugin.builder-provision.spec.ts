@@ -128,6 +128,12 @@ function trackedEvents(name: string) {
     .map(([, properties]) => properties as Record<string, unknown>);
 }
 
+function trackedSources(name: string) {
+  return mocks.track.mock.calls
+    .filter(([event]) => event === name)
+    .map(([, , source]) => source);
+}
+
 beforeEach(() => {
   owner = { email: OWNER, session: session(), anonymous: false };
   mocks.getOrgContext.mockReset();
@@ -169,7 +175,7 @@ describe("POST /builder/provision", () => {
     const response = await post(
       { provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN) },
       {},
-      "?agentNativeFlow=connect_llm&agentNativeConnectSource=first_run",
+      "?agentNativeFlow=connect_llm&agentNativeConnectSource=first_run&agentNativeApp=agent-native-clips&agentNativeTemplate=clips",
     );
 
     expect(response.status).toBe(200);
@@ -185,6 +191,8 @@ describe("POST /builder/provision", () => {
     expect(JSON.parse(String(init.body))).toEqual({
       email: OWNER,
       name: "Owner",
+      agentNativeApp: "agent-native-clips",
+      agentNativeTemplate: "clips",
     });
     expect(mocks.writeBuilderCredentials).toHaveBeenCalledWith(
       OWNER,
@@ -203,6 +211,8 @@ describe("POST /builder/provision", () => {
         account_provisioned: true,
         agent_native_flow: "connect_llm",
         agent_native_connect_source: "first_run",
+        agent_native_app: "agent-native-clips",
+        agent_native_template: "clips",
       }),
     ]);
     expect(mocks.recordAudit).toHaveBeenCalledWith(
@@ -212,6 +222,72 @@ describe("POST /builder/provision", () => {
         personal: true,
       }),
     );
+  });
+
+  it("omits the session when the analytics cookie and session header disagree", async () => {
+    const response = await post(
+      { provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN) },
+      {
+        cookie: "an_sid=cookie-session",
+        "x-agent-native-session-id": "header-session",
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(trackedSources("builder connect succeeded")).toEqual([
+      expect.objectContaining({ userId: OWNER }),
+    ]);
+    expect(trackedSources("builder connect succeeded")[0]).not.toHaveProperty(
+      "sessionId",
+    );
+  });
+
+  it("keeps the session when the analytics cookie and header agree", async () => {
+    const response = await post(
+      { provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN) },
+      {
+        cookie: "an_sid=shared-session",
+        "x-agent-native-session-id": "shared-session",
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(trackedSources("builder connect succeeded")).toEqual([
+      expect.objectContaining({
+        userId: OWNER,
+        sessionId: "shared-session",
+      }),
+    ]);
+  });
+
+  it("uses the analytics cookie session for popup-compatible lifecycle tracking", async () => {
+    const response = await post(
+      { provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN) },
+      { cookie: "an_sid=popup-session" },
+    );
+
+    expect(response.status).toBe(200);
+    expect(trackedSources("builder connect succeeded")).toEqual([
+      expect.objectContaining({
+        userId: OWNER,
+        sessionId: "popup-session",
+      }),
+    ]);
+  });
+
+  it("uses the session header when the analytics cookie is absent", async () => {
+    const response = await post(
+      { provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN) },
+      { "x-agent-native-session-id": "header-session" },
+    );
+
+    expect(response.status).toBe(200);
+    expect(trackedSources("builder connect succeeded")).toEqual([
+      expect.objectContaining({
+        userId: OWNER,
+        sessionId: "header-session",
+      }),
+    ]);
   });
 
   it("answers an existing Builder account with account_exists", async () => {

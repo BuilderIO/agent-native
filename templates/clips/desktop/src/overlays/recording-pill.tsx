@@ -1448,7 +1448,6 @@ export function MeetingPill() {
                   }
                   onMessageCountChange={handleAskMessageCountChange}
                   plusMenuMode="hidden"
-                  providerStatusChecksEnabled={false}
                   showHeader={false}
                   showModelSelector={false}
                   suggestionPlacement="hidden"
@@ -1481,7 +1480,6 @@ export function MeetingPill() {
                   isActiveComposer={false}
                   onMessageCountChange={handleChipsMessageCountChange}
                   plusMenuMode="hidden"
-                  providerStatusChecksEnabled={false}
                   showHeader={false}
                   showModelSelector={false}
                   suggestionPlacement="hidden"

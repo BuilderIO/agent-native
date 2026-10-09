@@ -109,6 +109,11 @@ export default function DeckCard({
                 slide={firstSlide}
                 className="rounded-none"
                 aspectRatio={deck.aspectRatio}
+                slidePosition={
+                  deck.slides?.length
+                    ? { number: 1, count: deck.slides.length }
+                    : undefined
+                }
               />
             </div>
           )}

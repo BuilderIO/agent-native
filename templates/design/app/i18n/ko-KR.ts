@@ -1,4 +1,71 @@
 export default {
+  journeyCanvas: {
+    observedSessionReference: "관찰된 세션 참조",
+    sessionsOfAll: "세션 {count}개 · 전체의 {percent}",
+    sessionsOfAppRoot:
+      "세션 {count}개 · {app} 코호트의 {percent} (n={rootCount})",
+    sessionsOfPrevious: "세션 {count}개 · 이전 단계의 {percent}",
+    sessionsOfParent: "세션 {count}개 · {label}의 {percent}",
+    observedContinuation: "같은 녹화 · 예시 {fromExample} → 예시 {toExample}",
+    observedContinuationCompact: "예시 {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
+    sessionsOfStep: "세션 {count}개 · 이 단계의 {percent}",
+    partialSample: "부분 샘플",
+    continuedOnUnpictured:
+      "표시되지 않은 경로에서 계속됨: {count} · 이 단계의 {percent}",
+    noLaterStepObserved: "이후 단계가 관찰되지 않음",
+    examplePosition: "갤러리 {current}/{total}",
+    sourceExampleLabel: "출처",
+    showExample: "원본 예시 {current} 표시",
+    screenshotExamples: "스크린샷 예시",
+    screenshotAlt:
+      "{label}, 원본 예시 {source}, 갤러리 위치 {current}/{total}, 캡처일 {date}",
+    screenshotMissing: "스크린샷이 캡처되지 않음",
+    recordingUnavailable: "사용할 수 없음",
+    eventTime: "이벤트 시간(UTC)",
+    generationCompletedEvent: "generation_completed 이벤트(UTC)",
+    replayObservation: "리플레이 관찰",
+    utcTimestamp: "UTC 타임스탬프",
+    recordingId: "녹화 ID",
+    replayOffset: "리플레이 오프셋",
+    replayOffsetUnavailable: "사용할 수 없음",
+    replaySeek: "리플레이 탐색",
+    checkpointSeekTarget: "체크포인트 탐색 위치",
+    analyticsCheckpointOffset: "Analytics 체크포인트 오프셋",
+    replayObserved: "리플레이 관찰 시각",
+    screenshotCaptured: "스크린샷 캡처 시각",
+    screenshotExportTimestamp: "스크린샷 내보내기 UTC 시각",
+    output: "결과",
+    outputTitle: "결과 제목",
+    observedState: "관찰된 상태",
+    actorRecording: "행위자(녹화)",
+    actorSource: "행위자 출처",
+    recordingMetadata: "녹화 메타데이터",
+    evidence: "근거",
+    generationCompletedEvidence: "generation_completed 이벤트",
+    renderedOutputEvidence:
+      "렌더링된 결과를 관찰했으며 완료 이벤트는 주장하지 않음",
+    openFullPrompt: "전체 프롬프트 열기",
+    prompt: "프롬프트",
+    promptEnglish: "프롬프트(영어)",
+    promptSource: "프롬프트(원문)",
+    source: "출처",
+    promptNotCaptured: "프롬프트가 캡처되지 않음",
+    actorUnavailable: "행위자 정보를 사용할 수 없음",
+    replayDetails: "리플레이 및 출처 세부정보",
+    sourceApp: "출처 앱",
+    route: "캡처 당시 현재 경로",
+    routeUnavailable: "사용할 수 없음",
+    captureSourceFingerprint: "캡처 소스 지문",
+    captureSourceUnavailable: "제공되지 않음",
+    recordingStarted: "녹화 시작",
+    appBandHeading: "{app} · 세션 {count}개",
+    journeyTitleSummary: "{app} · {from}~{to} · 세션 {count}개{partial}",
+    journeyTitleAppBandsSummary: "{from}~{to} · 앱별 독립 코호트{partial}",
+    sessionCount: "세션 {count}개",
+    otherPaths: "기타 경로",
+    htmlLanguage: "ko-KR",
+  },
   composer: { menu: { integrations: "연동" } },
   creativeContext: {
     title: "라이브러리",
@@ -221,6 +288,18 @@ export default {
       exportSvg: "SVG 내보내기",
       actionsPrefill: "검토 후 보내기",
       retry: "다시 시도",
+      currentDesign: "현재 Design",
+      chooseDesign: "Design (필요하면 어떤 Design을 사용할지 물어보세요)",
+      importFramePrompt:
+        "이 Figma 프레임을 {{destination}}으로 가져오고, 가져오지 못한 콘텐츠를 알려 주세요: {{url}}",
+      importFilePrompt:
+        "이 Figma 파일을 열고 최상위 프레임을 나열한 다음, 가져올 프레임을 물어보세요: {{url}}",
+      inspectFramePrompt:
+        "이 Figma 프레임의 구조, 구성 요소, 스타일, 재사용 가능한 토큰을 요약하세요: {{url}}",
+      inspectFilePrompt:
+        "이 Figma 파일의 구조, 구성 요소, 스타일, 재사용 가능한 토큰을 요약하세요: {{url}}",
+      exportSvgPrompt:
+        "현재 Design 화면을 Figma에서 사용할 SVG로 내보내고 정적 SVG 콘텐츠가 되는 부분을 알려 주세요.",
     },
   },
   common: {
@@ -689,6 +768,9 @@ export default {
       tools: "도구",
       tokens: "토큰",
       label: "디자인 작업공간",
+      account: "계정",
+      collapse: "사이드바 접기",
+      expand: "사이드바 펼치기",
     },
     breakpointBar: {
       base: "기본",
@@ -780,12 +862,10 @@ export default {
       "{{path}}이(가) 열린 이후 디스크에서 변경되었습니다. 화면을 새로고침한 후 다시 시도하세요.",
     applyToSourceError: "소스에 저장하지 못했습니다: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "토큰 가져오기",
       importTitle: "토큰 가져오기",
       importHint:
@@ -797,6 +877,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "붙여넣은 토큰 가져오기",
       importedCount: "{{count}}개 토큰을 가져왔습니다",
+      count: "토큰 {{count}}개",
+      search: "토큰 검색",
+      noMatches: "일치하는 토큰이 없습니다",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -842,6 +925,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}}개의 이미지{{plural}}를 로드하려면 Figma 접근이 필요합니다.",
       figmaPasteImagesDontShowAgain: "다시 표시하지 않기",
+      figmaPasteUploadImage: "이미지 업로드",
+      figmaPasteUploadImageFor: "“{{name}}” 업로드",
+      figmaPasteImageFallbackName: "이미지 {{index}}",
+      figmaPasteUploadImageSuccess: "이미지를 채웠습니다",
+      figmaPasteUploadImageInvalid:
+        "SVG, PNG, JPG 같은 이미지 파일을 선택하세요.",
+      figmaPasteUploadImageError: "이미지를 채우지 못했습니다",
       figmaHydrationDialogTitle: "Figma를 연결하여 이미지 로드",
       figmaHydrationDialogDescription:
         "Figma 액세스 토큰을 입력하여 가져온 화면{{screensPlural}}의 누락된 이미지 {{count}}개{{plural}}를 로드하세요.",
@@ -944,6 +1034,8 @@ export default {
       "파일을 만들기 전에 생성이 중지되었습니다. 같은 프롬프트에서 계속하려면 다시 시도하세요.",
     generationStoppedCheckAgent:
       "파일을 만들기 전에 생성이 중지되었습니다. 에이전트 메시지를 확인하거나 다시 시도하세요.",
+    invalidCanvasDimensions:
+      "요청한 캔버스 크기는 지원되지 않습니다. 편집기 제한 내의 양수 픽셀 크기를 사용하세요.",
     notFound: "디자인을 찾을 수 없음",
     backToDesigns: "디자인으로 돌아가기",
     designNotFoundDescription: "이 디자인은 존재하지 않거나 삭제되었습니다.",
@@ -1518,6 +1610,7 @@ export default {
     fork: "분기",
     fullView: "전체 보기",
     preview: "미리보기",
+    focusScreen: "화면에 포커스",
     openAndDuplicate:
       "{{display}} 선택. 집중 스크롤에는 상호작용 모드를 사용하세요.",
     openAndPreview:

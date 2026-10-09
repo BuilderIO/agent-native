@@ -195,9 +195,6 @@ describe("meeting pill chat eligibility", () => {
       true,
     );
     expect(
-      chatProps.every((props) => props.providerStatusChecksEnabled === false),
-    ).toBe(true);
-    expect(
       activeComposerProps[activeComposerProps.length - 1]?.composerDisabled,
     ).toBe(true);
     expect(

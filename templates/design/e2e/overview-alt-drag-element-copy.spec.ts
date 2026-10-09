@@ -6,9 +6,10 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath } from "./helpers";
+import { appPath, designFrame, enterDirectMode, gotoEditor } from "./helpers";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
+const PRIMARY = process.platform === "darwin" ? "Meta" : "Control";
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Screen</title></head>
 <body style="margin:0;position:relative;min-height:1400px">
@@ -144,6 +145,7 @@ test("alt-dragging an element keeps every copy on the canvas, not just in state"
   }
 });
 
+// Covers cross-screen copy behavior and source preservation.
 test("alt-dragging an element onto another screen copies it without moving the source", async ({
   page,
   request,
@@ -154,12 +156,12 @@ test("alt-dragging an element onto another screen copies it without moving the s
     SCREEN_HTML.replace("left:120px", "left:700px"),
   );
   try {
-    await page.goto(appPath(`/design/${designId}?view=overview&zoom=30`), {
-      waitUntil: "domcontentloaded",
+    await gotoEditor(page, designId);
+    await enterDirectMode(page, {
+      screenId: fileIds[0],
+      waitForBridgeReady: true,
     });
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
-      timeout: 40_000,
-    });
+    await page.keyboard.press("Shift+1");
 
     const sourceFrame = page.locator(
       `iframe[data-screen-iframe-id="${fileIds[0]}"]`,
@@ -169,31 +171,62 @@ test("alt-dragging an element onto another screen copies it without moving the s
     );
     await expect(sourceFrame).toBeVisible();
     await expect(targetFrame).toBeVisible();
-    const sourceElement = sourceFrame
-      .contentFrame()
-      .locator('[data-agent-native-node-id="rect-a"]');
+    let previousFramePositions = "";
+    await expect
+      .poll(async () => {
+        const [source, target] = await Promise.all([
+          sourceFrame.boundingBox(),
+          targetFrame.boundingBox(),
+        ]);
+        if (!source || !target) return false;
+        const current = JSON.stringify({ source, target });
+        const settled = current === previousFramePositions;
+        previousFramePositions = current;
+        return settled;
+      })
+      .toBe(true);
+
+    const sourceElement = designFrame(page, fileIds[0]).locator(
+      '[data-agent-native-node-id="rect-a"]',
+    );
     await expect(sourceElement).toBeVisible();
     const sourceBox = (await sourceElement.boundingBox())!;
     const targetBox = (await targetFrame.boundingBox())!;
-    await page.mouse.dblclick(
-      sourceBox.x + sourceBox.width / 2,
-      sourceBox.y + sourceBox.height / 2,
-    );
-    await page.mouse.click(
-      sourceBox.x + sourceBox.width / 2,
-      sourceBox.y + sourceBox.height / 2,
-    );
-    await page.waitForTimeout(500);
+    const sourceX = sourceBox.x + sourceBox.width / 2;
+    const sourceY = sourceBox.y + sourceBox.height / 2;
 
-    await page.mouse.move(
-      sourceBox.x + sourceBox.width / 2,
-      sourceBox.y + sourceBox.height / 2,
+    await page.keyboard.down(PRIMARY);
+    await page.mouse.click(sourceX, sourceY);
+    await page.keyboard.up(PRIMARY);
+
+    const selectionOverlay = designFrame(page, fileIds[0]).locator(
+      '[data-agent-native-edit-overlay="selection"]',
     );
+    await expect(selectionOverlay).toBeVisible();
+    await expect
+      .poll(async () => {
+        const [overlay, node] = await Promise.all([
+          selectionOverlay.boundingBox(),
+          sourceElement.boundingBox(),
+        ]);
+        if (!overlay || !node) return false;
+        return ["x", "y", "width", "height"].every(
+          (key) =>
+            Math.abs(
+              overlay[key as keyof typeof overlay] -
+                node[key as keyof typeof node],
+            ) <= 4,
+        );
+      })
+      .toBe(true);
+
+    await page.mouse.move(sourceX, sourceY);
     await page.keyboard.down("Alt");
     await page.mouse.down();
+    await page.mouse.move(sourceX + 12, sourceY + 8, { steps: 4 });
     await page.mouse.move(
-      targetBox.x + targetBox.width * 0.8,
-      targetBox.y + targetBox.height * 0.8,
+      targetBox.x + targetBox.width / 2,
+      targetBox.y + targetBox.height / 2,
       { steps: 20 },
     );
     await expect(page.locator("[data-cross-screen-drag-ghost]")).toBeVisible();

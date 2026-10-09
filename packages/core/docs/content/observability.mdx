@@ -360,10 +360,21 @@ Tool calls always appear (PostHog derives its tool tags from them), but their
 `capturePrompts`. When those are off the fields are omitted entirely rather than
 sent empty, so an unrecorded prompt is never mistaken for an empty one.
 
-Errors carry a structured `$ai_error` with the terminal code and whether the
-failure was retryable, and exceptions captured during a run carry the run's
-`$ai_trace_id` — so an issue in error tracking and the trace it came from link
-to each other.
+Run failure messages are omitted from Analytics and Monitoring, even when
+content capture is enabled. `$ai_error` carries a terminal code, named cause,
+retryability, and fixed message derived from the code. Tracking omits
+`error_message`, `agent_run_terminal.error_detail`, and failed tool result text.
+The terminal event retains `error_code` and `error_cause`. Local
+`agent_runs.error_detail` and `agent_trace_spans.error_message` remain available
+for owner-scoped debugging in the app's own database.
+
+Run and Builder gateway exceptions retain their type, code, and stack frames,
+with a fixed `Internal Server Error` message and no original message header or nested
+cause text. Monitoring groups these issues by app, type, frame, error code, and
+failure class, rather than names in the original message. Exceptions retain
+`$ai_trace_id` so an issue links to the run's trace. Optional host-owned
+OpenTelemetry run exports also omit failure text and retain `agent.error_code`
+and `agent.error_cause`. Other exception capture keeps its existing behavior.
 
 ### Feedback in PostHog
 
@@ -404,20 +415,23 @@ The agent loop emits three span kinds:
 | `chat {model}`        | per model call             | `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.response.finish_reasons`, `gen_ai.usage.*`                                                   |
 | `execute_tool {tool}` | once per action invocation | `gen_ai.tool.name`, `gen_ai.tool.call.id`, plus success/error status                                                                                                          |
 
-Spans are finished with OK/ERROR status and record the error message on failure. Zero/sentinel attribute values are pruned so spans aren't cluttered with noise. This OTel layer is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables that power the dashboard above — both are produced from the same run events.
+Spans are finished with OK/ERROR status and record a fixed code-derived message on failure. Zero/sentinel attribute values are pruned so spans aren't cluttered with noise. This OTel layer is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables that power the dashboard above — both are produced from the same run events.
 
 ### Metrics {#otel-metrics}
 
 Core also records metrics once the host registers a meter provider with `registerObservabilityProvider()` from `@agent-native/core/server`. Metrics are recorded for every request and run, with no sampling:
 
-| Instrument                              | Attributes                                                                                   |
-| --------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
-| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
-| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
-| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
-| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
-| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+| Instrument                                  | Attributes                                                                                   |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`              | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `agent_native.http.server.handoff.duration` | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`          | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`                 | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`                   | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`                   | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures`     | `error.type`, `agent_native.telemetry.signal`                                                |
+
+`agent_native.http.server.handoff.duration` has the same attributes and buckets as `http.server.request.duration`, but it ends when the response hook hands the response back to the runtime instead of when the hook starts. When its percentiles pull away from `http.server.request.duration`'s, finished responses are being held, for example by an inline telemetry flush. The gap is a signal, not any one request's wait, since the two percentiles can come from different requests. Without `waitUntil`, core records the sample after that flush, so it reaches the back end with the next one.
 
 On metrics, `gen_ai.tool.name` is a framework action's name or `other`, and `gen_ai.request.model` is the model id only when the engine lists it as supported, otherwise `_OTHER`. App-defined tools and caller-supplied model ids therefore cannot create unbounded series; spans keep the exact values.
 
@@ -461,9 +475,11 @@ A later call replaces the earlier provider. The returned function unregisters th
 
 ### Flushing on serverless {#otel-flush}
 
-Serverless functions freeze between invocations, so an SDK's export timer may never fire. When a registered provider implements `forceFlush()`, core calls it from the response hook after every request and waits for it. Each flush races one shared 2-second timeout, so telemetry never holds a response longer than that.
+Serverless functions freeze between invocations, so an SDK's export timer may never fire. When a registered provider implements `forceFlush()`, core calls it from the response hook after every request and waits for it. Each flush races one shared 2-second timeout, so telemetry never holds a response longer than that. When the platform provides `waitUntil` (Cloudflare, or the Netlify invocation context), core hands the flush to it and sends the response first instead of waiting.
 
-When a flush fails or times out, core stops waiting for it and adds 1 to `agent_native.telemetry.flush_failures`, which the next flush exports. A timed-out export keeps running and can still arrive, unless the runtime freezes the process first. The failure's `error.type` is `timeout`, `suspended` when the runtime froze the process mid-flush, or the error's name.
+Core calls a meter provider's `forceFlush()` at most once every 10 seconds per process and skips it on the requests in between. Each metric export re-sends every series the process holds, so this keeps upload volume from growing with request rate. Skipped points are not lost: the next export carries them, unless the instance never serves another request. A tracer provider is flushed on every request.
+
+When a flush fails or times out, core stops waiting for it and adds 1 to `agent_native.telemetry.flush_failures`, which the next flush exports. A timed-out export keeps running and can still arrive, unless the runtime freezes the process first. The failure's `error.type` is `timeout`, `suspended` when the runtime froze the process mid-flush, or the error's name. Because a collector that keeps timing out never receives that counter, core also writes one `agent-native.telemetry_flush_failed` line to the function log per signal and error type in each process.
 
 On a long-running server, a flush after every response means one export per request. Register providers without `forceFlush()` there and let the SDK's own timers export. `isServerlessRuntime()` from `@agent-native/core/server` tells the two apart. It is true on Netlify, Vercel, AWS Lambda, and Cloudflare.
 

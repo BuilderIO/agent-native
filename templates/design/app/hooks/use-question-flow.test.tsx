@@ -214,6 +214,35 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     await cleanup();
   });
 
+  it("carries fixed-canvas intent into the answers continuation", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+      getGenerationBrief: () => ({ prompt: "Create a LinkedIn ad" }),
+    });
+
+    await act(async () => {
+      await latestHook!.handleSubmit({ q1: "Use the existing brand" });
+    });
+
+    const call = agentChatMocks.sendToDesignAgentChat.mock.calls[0]![0] as {
+      context?: string;
+    };
+    expect(call.context).toContain(
+      "Fixed canvas: LinkedIn Single Image Ad, 1200×627px",
+    );
+    expect(call.context).toContain("pass `devices: []` to `generate-design`");
+    expect(call.context).toContain(
+      "run `take-design-screenshot` once with widths: [1200] and heights: [627]",
+    );
+    expect(call.context).not.toContain(
+      "take-design-screenshot` at desktop and mobile viewports",
+    );
+    expect(call.context).not.toContain("After responsive app generation");
+
+    await cleanup();
+  });
+
   it("reads the selection at send time, not at render time", async () => {
     const selectionRef: {
       current: { model?: string; engine?: string } | null;
@@ -296,7 +325,7 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     });
 
     expect(agentkitChatMocks.useGuidedQuestionFlow).toHaveBeenCalledWith(
-      expect.objectContaining({ providerStatusChecksEnabled: false }),
+      expect.objectContaining({ engine: "claude-cli" }),
     );
     await cleanup();
   });

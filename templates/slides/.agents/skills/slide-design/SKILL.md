@@ -90,8 +90,11 @@ Type does most of the work.
   for related, far for unrelated; equal gaps everywhere read as amateur.
 - **Optical alignment:** nudge large type to look flush with small text.
 - **One focal point.** Squint; one thing should land first.
-- Keep generated layout in normal flex/grid flow and never clip or scale
-  overflow; `slide-editing` owns those constraints.
+- **One idea per slide; split, do not shrink.** Total the flow height and word
+  count before writing (Fit budget in `create-deck`); a slide that does not fit
+  becomes two slides, not smaller type, tighter padding, or clipped overflow.
+- Flow, card, and fixed-height constraints: `slide-editing` (Flow Layout and the
+  Editor).
 
 ## Color
 
@@ -117,7 +120,7 @@ With a system or reference, use only its colors; these rules govern how.
 - **Screenshots as hero shots:** crop to the region the headline is about,
   scale it up, set it on a surface that fits the direction.
 - **One graphic vocabulary:** 1-2px rules, large index numbers ("01"), one
-  repeated shape motif. Every shape needs a semantic role; no inline SVG.
+  repeated shape motif. Every shape needs a semantic role.
 - **Charts in the deck's type and palette:** thin strokes, direct labels, the
   key series in the accent, the rest in a tinted neutral, no gridline or
   legend clutter.
@@ -128,8 +131,10 @@ With a system or reference, use only its colors; these rules govern how.
   headline + image, split, grid of 3, quote, closing. Alternate dense and
   sparse; avoid three identical layouts in a row.
 - Fixed chrome in the exact same place on every slide: a small running head,
-  a page number like `04 / 12`, maybe a hairline. Quiet repetition is what
-  makes a deck feel designed.
+  a page number like `04 / 12` from the slide-number tokens in create-deck (never
+  typed digits: inserting or reordering slides makes typed numbers wrong
+  everywhere), maybe a hairline. Quiet repetition is what makes a deck feel
+  designed.
 - Title and section slides carry the strongest expression of the direction.
 
 ## What reads as generic

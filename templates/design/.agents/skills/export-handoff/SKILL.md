@@ -141,11 +141,10 @@ fall back to `export-svg` or `export-html`.
 type, but its SVG importer reads only font family, size and a coarse bold
 weight. Letter spacing is dropped, and weights above 700 resolve to Bold,
 so tracked or extra-bold text arrives at a different width than the design.
-Measured against Figma directly: `textLength`/`lengthAdjust`, multi-value
-and sibling `tspan` `x`, `word-spacing` and family-encoded weights are
-ignored too. Everything else in the document is geometry-exact. This is a
-Figma import limitation, not a defect in the export; the report's
-`vectorizedTextCaveat` field carries this note for the agent/user.
+Additional SVG text fields, including `textLength`, `lengthAdjust`, `word-spacing`,
+and sibling `tspan` positions, are not preserved by the destination importer.
+The export report's `vectorizedTextCaveat` field carries this limitation for
+the agent and user.
 
 **Getting it into Figma**: two supported paths —
 

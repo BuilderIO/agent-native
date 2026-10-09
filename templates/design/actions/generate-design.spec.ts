@@ -339,6 +339,9 @@ describe("generate-design action tool schema", () => {
     expect(parameters.properties?.canvasFrames?.type).toBe("string");
     expect(parameters.properties?.reuseLabels?.type).toBe("string");
     expect(parameters.properties?.contextModeOverride?.type).toBe("string");
+    expect(parameters.properties?.devices?.description).toContain(
+      "this field is ignored",
+    );
 
     const parsed = (action as any).schema.safeParse({
       designId: "design_123",
@@ -990,6 +993,161 @@ describe("generate-design: new-file creation path", () => {
       heightMode: "fixed",
     });
     expect(data.breakpointSet).toBeUndefined();
+    expect(result).toMatchObject({ ignoredDevices: ["desktop", "mobile"] });
+  });
+
+  it("clears an existing mobile frame when an app screen becomes fixed artwork", async () => {
+    setExistingFile("<html><body>Old mobile screen</body></html>");
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 390, height: 844, z: 0 },
+      },
+      screenMetadata: {
+        "file-1": {
+          width: 390,
+          height: 844,
+          breakpointWidths: [390],
+        },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Turn this into a 1200x627 ad",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Fixed campaign art</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    expect(data.canvasFrames).toMatchObject({
+      "file-1": { width: 1200, height: 627 },
+    });
+    expect(data.screenMetadata).toMatchObject({
+      "file-1": {
+        width: 1200,
+        height: 627,
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+    });
+    expect(data.breakpointSet).toMatchObject({ id: "responsive" });
+  });
+
+  it("pins the model-provided height for a fixed artwork request without dimensions", async () => {
+    setExistingFile("<html><body>Old campaign art</body></html>");
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 728, height: 90, z: 0 },
+      },
+      screenMetadata: {
+        "file-1": {
+          width: 728,
+          height: 90,
+          breakpointWidths: [390],
+        },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Turn this into an ad",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Updated campaign art</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    expect(data.canvasFrames).toMatchObject({
+      "file-1": { width: 728, height: 90 },
+    });
+    expect(data.screenMetadata).toMatchObject({
+      "file-1": {
+        width: 728,
+        height: 90,
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+    });
+  });
+
+  it("pins a new noun-only artwork canvas below the editor's auto-fit height", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a banner ad for our spring sale",
+      files: [
+        {
+          filename: "banner.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Spring sale</body></html>",
+        },
+      ],
+      canvasFrames: [
+        { filename: "banner.html", x: 0, y: 0, width: 1200, height: 627 },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const fileId = result.savedFiles[0]!.id;
+    expect(data.canvasFrames).toMatchObject({
+      [fileId]: { width: 1200, height: 627 },
+    });
+    expect(data.screenMetadata).toMatchObject({
+      [fileId]: {
+        width: 1200,
+        height: 627,
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+    });
+    expect(data.breakpointSet).toBeUndefined();
+  });
+
+  it("lets explicit devices override a noun-only artwork guess", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Design a promo banner",
+      devices: ["desktop", "mobile"],
+      files: [
+        {
+          filename: "promo.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Promo</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const fileId = result.savedFiles[0]!.id;
+    const metadata = (
+      data.screenMetadata as Record<string, Record<string, unknown>>
+    )[fileId]!;
+    expect(data.breakpointSet).toMatchObject({
+      breakpoints: [expect.objectContaining({ widthPx: 390 })],
+    });
+    expect(metadata).toMatchObject({ width: 1440, height: 900 });
+    expect(metadata).not.toHaveProperty("breakpointWidths");
+    expect(metadata).not.toHaveProperty("heightMode");
+    expect(result).not.toHaveProperty("ignoredDevices");
   });
 
   it("rejects unsupported exact dimensions before writing files", async () => {
@@ -1366,6 +1524,117 @@ describe("generate-design: new-file creation path", () => {
       breakpointWidths: [],
       heightPinned: true,
       heightMode: "fixed",
+    });
+  });
+
+  it("uses the LinkedIn single-image ad preset without app breakpoints", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a LinkedIn ad for our mobile app launch",
+      files: [
+        {
+          filename: "ad.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Launch ad</body></html>",
+        },
+      ],
+      canvasFrames: [
+        { filename: "ad.html", x: 0, y: 0, width: 1200, height: 628 },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const fileId = result.savedFiles[0]!.id;
+    expect(data.canvasFrames).toMatchObject({
+      [fileId]: { width: 1200, height: 627 },
+    });
+    expect(data.screenMetadata).toMatchObject({
+      [fileId]: {
+        width: 1200,
+        height: 627,
+        breakpointWidths: [],
+        heightMode: "fixed",
+      },
+    });
+    expect(data.breakpointSet).toBeUndefined();
+  });
+
+  it("keeps an exact-size ad free of mobile frames even when devices are passed", async () => {
+    setExistingFile("<!doctype html><html><body>Old screen</body></html>");
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1440, height: 900, z: 0 },
+      },
+      screenMetadata: {
+        "file-1": { width: 1440, height: 900, breakpointWidths: [390] },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Turn this into a 1200x627 ad",
+      devices: ["desktop", "mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Launch ad</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    expect(data.breakpointSet).toMatchObject({ id: "responsive" });
+    expect(data.canvasFrames).toMatchObject({
+      "file-1": { width: 1200, height: 627 },
+    });
+    expect(data.screenMetadata).toMatchObject({
+      "file-1": {
+        width: 1200,
+        height: 627,
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+    });
+    expect(result).toMatchObject({ ignoredDevices: ["desktop", "mobile"] });
+  });
+
+  it("drops a fixed screen's added breakpoints when it is resized", async () => {
+    setExistingFile("<!doctype html><html><body>Old ad</body></html>");
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1200, height: 627, z: 0 },
+      },
+      screenMetadata: {
+        "file-1": {
+          width: 1200,
+          height: 627,
+          breakpointWidths: [390],
+          heightPinned: true,
+          heightMode: "fixed",
+        },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Instagram story version of the ad, 1080x1920 canvas",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Story</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.getDesignData().screenMetadata).toMatchObject({
+      "file-1": { width: 1080, height: 1920, breakpointWidths: [] },
     });
   });
 

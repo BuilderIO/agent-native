@@ -19,6 +19,120 @@ const SENSITIVE_QUERY_PARAMS = new Set([
   AGENT_ACCESS_PARAM,
 ]);
 
+const MAX_QUERY_DECODE_DEPTH = 8;
+const ENCODED_QUERY_DELIMITER = /%(?:25)*(?:3f|23)/i;
+const ENCODED_ROUTE_QUERY_DELIMITER = /%(?:25)*3f/i;
+
+function normalizeQueryParamName(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+const SENSITIVE_QUERY_PARAM_NAMES = new Set(
+  Array.from(SENSITIVE_QUERY_PARAMS, normalizeQueryParamName),
+);
+
+function isSensitiveQueryParam(
+  key: string,
+  additionalSensitiveParams: readonly string[],
+): boolean {
+  const additionalParams = new Set(
+    additionalSensitiveParams.map(normalizeQueryParamName),
+  );
+  let candidate = key;
+  for (let depth = 0; depth <= MAX_QUERY_DECODE_DEPTH; depth += 1) {
+    const normalized = normalizeQueryParamName(candidate);
+    if (
+      SENSITIVE_QUERY_PARAM_NAMES.has(normalized) ||
+      additionalParams.has(normalized)
+    ) {
+      return true;
+    }
+    if (!candidate.includes("%")) return false;
+    try {
+      const decoded = decodeURIComponent(candidate);
+      if (decoded === candidate) return false;
+      candidate = decoded;
+    } catch {
+      return true;
+    }
+  }
+  return /%[0-9a-f]{2}/i.test(candidate);
+}
+
+function hasSensitiveNestedQuery(
+  value: string,
+  additionalSensitiveParams: readonly string[],
+  depth = 0,
+): boolean {
+  if (depth >= MAX_QUERY_DECODE_DEPTH) return true;
+
+  for (const delimiter of ["?", "#"]) {
+    const index = value.indexOf(delimiter);
+    if (index === -1) continue;
+    const nextFragment = value.indexOf("#", index + 1);
+    const query =
+      delimiter === "?" && nextFragment !== -1
+        ? value.slice(index + 1, nextFragment)
+        : value.slice(index + 1);
+    const params = new URLSearchParams(query);
+    for (const key of params.keys()) {
+      if (isSensitiveQueryParam(key, additionalSensitiveParams)) return true;
+      if (
+        params
+          .getAll(key)
+          .some((nested) =>
+            hasSensitiveNestedQuery(
+              nested,
+              additionalSensitiveParams,
+              depth + 1,
+            ),
+          )
+      ) {
+        return true;
+      }
+    }
+  }
+  if (ENCODED_QUERY_DELIMITER.test(value)) {
+    try {
+      const decoded = decodeURIComponent(value);
+      if (
+        decoded !== value &&
+        hasSensitiveNestedQuery(decoded, additionalSensitiveParams, depth + 1)
+      ) {
+        return true;
+      }
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
+function redactSensitiveQueryParams(
+  params: URLSearchParams,
+  additionalSensitiveParams: readonly string[],
+): boolean {
+  let mutated = false;
+  for (const key of Array.from(params.keys())) {
+    if (isSensitiveQueryParam(key, additionalSensitiveParams)) {
+      params.set(key, "<redacted>");
+      mutated = true;
+      continue;
+    }
+    if (
+      params
+        .getAll(key)
+        .some((value) =>
+          hasSensitiveNestedQuery(value, additionalSensitiveParams),
+        )
+    ) {
+      params.set(key, "<redacted>");
+      mutated = true;
+    }
+  }
+  return mutated;
+}
+
 export function scrubUrl(
   url: string | undefined,
   additionalSensitiveParams: readonly string[] = [],
@@ -27,33 +141,98 @@ export function scrubUrl(
   try {
     const u = new URL(url, "http://placeholder.local");
     let mutated = false;
-    for (const key of Array.from(u.searchParams.keys())) {
+    mutated = redactSensitiveQueryParams(
+      u.searchParams,
+      additionalSensitiveParams,
+    );
+    const hash = u.hash.slice(1);
+    const encodedRouteQueryIndex = hash.search(ENCODED_ROUTE_QUERY_DELIMITER);
+    const routePathBeforeEncodedQuery =
+      encodedRouteQueryIndex === -1
+        ? ""
+        : hash.slice(0, encodedRouteQueryIndex).split("&", 1)[0];
+    const hasEncodedRouteQuery =
+      encodedRouteQueryIndex !== -1 &&
+      (hash.startsWith("/") ||
+        (routePathBeforeEncodedQuery.length > 0 &&
+          !routePathBeforeEncodedQuery.includes("=")));
+    if (
+      hasEncodedRouteQuery &&
+      hasSensitiveNestedQuery(hash, additionalSensitiveParams)
+    ) {
+      mutated = true;
+      u.hash = "<redacted>";
+    } else {
+      const hashRouteQueryIndex = hash.indexOf("?");
+      const hashRoutePrefix =
+        hashRouteQueryIndex === -1 ? hash : hash.slice(0, hashRouteQueryIndex);
+      const routePrefixParamsIndex = hashRoutePrefix.indexOf("&");
+      const routePrefixPath =
+        routePrefixParamsIndex === -1
+          ? hashRoutePrefix
+          : hashRoutePrefix.slice(0, routePrefixParamsIndex);
+      const routePrefixParam = /^([^&=]+)=\//.exec(hashRoutePrefix)?.[1];
+      const hasHashRoutePathPrefix =
+        hash.startsWith("/") ||
+        (routePrefixPath.length > 0 && !routePrefixPath.includes("=")) ||
+        (routePrefixParam !== undefined &&
+          !isSensitiveQueryParam(routePrefixParam, additionalSensitiveParams));
+      const hashUsesRouteQuery =
+        hashRouteQueryIndex > 0 &&
+        (hasHashRoutePathPrefix || !hashRoutePrefix.includes("="));
+      const hashUsesRoutePrefixParams =
+        hashRouteQueryIndex === -1 &&
+        routePrefixParamsIndex > 0 &&
+        !routePrefixPath.includes("=");
+      const hashQuery = hashUsesRouteQuery
+        ? hash.slice(hashRouteQueryIndex + 1)
+        : hashUsesRoutePrefixParams
+          ? ""
+          : hash;
+      let scrubbedHashRoutePrefix = hashRoutePrefix;
+      let hashRoutePrefixMutated = false;
       if (
-        SENSITIVE_QUERY_PARAMS.has(key.toLowerCase()) ||
-        additionalSensitiveParams.some(
-          (param) => param.toLowerCase() === key.toLowerCase(),
-        )
+        (hashUsesRouteQuery || hashUsesRoutePrefixParams) &&
+        routePrefixParamsIndex !== -1
       ) {
-        u.searchParams.set(key, "<redacted>");
-        mutated = true;
-      }
-    }
-    if (u.hash.includes("=")) {
-      const hashParams = new URLSearchParams(u.hash.slice(1));
-      let hashMutated = false;
-      for (const key of Array.from(hashParams.keys())) {
+        const routePrefixPath = hashRoutePrefix.slice(
+          0,
+          routePrefixParamsIndex,
+        );
+        const routePrefixParams = new URLSearchParams(
+          hashRoutePrefix.slice(routePrefixParamsIndex + 1),
+        );
         if (
-          SENSITIVE_QUERY_PARAMS.has(key.toLowerCase()) ||
-          additionalSensitiveParams.some(
-            (param) => param.toLowerCase() === key.toLowerCase(),
+          redactSensitiveQueryParams(
+            routePrefixParams,
+            additionalSensitiveParams,
           )
         ) {
-          hashParams.set(key, "<redacted>");
           mutated = true;
-          hashMutated = true;
+          hashRoutePrefixMutated = true;
+          scrubbedHashRoutePrefix = `${routePrefixPath}&${routePrefixParams.toString()}`;
         }
       }
-      if (hashMutated) u.hash = hashParams.toString();
+      let scrubbedHashQuery = hashQuery;
+      let hashQueryMutated = false;
+      if (hashQuery.includes("=")) {
+        const hashParams = new URLSearchParams(hashQuery);
+        if (redactSensitiveQueryParams(hashParams, additionalSensitiveParams)) {
+          mutated = true;
+          hashQueryMutated = true;
+          scrubbedHashQuery = hashParams.toString();
+        }
+      }
+      if (hashUsesRouteQuery && (hashRoutePrefixMutated || hashQueryMutated)) {
+        u.hash = `${scrubbedHashRoutePrefix}?${scrubbedHashQuery}`;
+      } else if (
+        hashUsesRoutePrefixParams &&
+        (hashRoutePrefixMutated || hashQueryMutated)
+      ) {
+        u.hash = scrubbedHashRoutePrefix;
+      } else if (!hashUsesRouteQuery && hashQueryMutated) {
+        u.hash = scrubbedHashQuery;
+      }
     }
     if (!mutated) return url;
     if (u.origin === "http://placeholder.local") {

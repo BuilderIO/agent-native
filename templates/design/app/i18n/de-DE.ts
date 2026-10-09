@@ -1,4 +1,73 @@
 export default {
+  journeyCanvas: {
+    observedSessionReference: "Beobachtete Sitzungsreferenz",
+    sessionsOfAll: "{count} Sitzungen · {percent} aller",
+    sessionsOfAppRoot:
+      "{count} Sitzungen · {percent} der {app}-Kohorte (n={rootCount})",
+    sessionsOfPrevious: "{count} Sitzungen · {percent} des vorherigen Schritts",
+    sessionsOfParent: "{count} Sitzungen · {percent} von {label}",
+    observedContinuation:
+      "Gleiche Aufzeichnung · Beispiel {fromExample} → Beispiel {toExample}",
+    observedContinuationCompact: "Bsp. {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
+    sessionsOfStep: "{count} Sitzungen · {percent} dieses Schritts",
+    partialSample: "Teilstichprobe",
+    continuedOnUnpictured:
+      "Fortsetzung auf nicht gezeigten Pfaden: {count} · {percent} dieses Schritts",
+    noLaterStepObserved: "Kein späterer Schritt beobachtet",
+    examplePosition: "Galerie {current} von {total}",
+    sourceExampleLabel: "Quelle",
+    showExample: "Quellbeispiel {current} anzeigen",
+    screenshotExamples: "Screenshot-Beispiele",
+    screenshotAlt:
+      "{label}, Quellbeispiel {source}, Galerieposition {current} von {total}, aufgenommen am {date}",
+    screenshotMissing: "Kein Screenshot aufgenommen",
+    recordingUnavailable: "nicht verfügbar",
+    eventTime: "Ereigniszeit (UTC)",
+    generationCompletedEvent: "generation_completed-Ereignis (UTC)",
+    replayObservation: "Replay-Beobachtung",
+    utcTimestamp: "UTC-Zeitstempel",
+    recordingId: "Aufzeichnungs-ID",
+    replayOffset: "Replay-Versatz",
+    replayOffsetUnavailable: "nicht verfügbar",
+    replaySeek: "Replay-Suchposition",
+    checkpointSeekTarget: "Suchziel des Prüfpunkts",
+    analyticsCheckpointOffset: "Analytics-Prüfpunktversatz",
+    replayObserved: "Replay beobachtet",
+    screenshotCaptured: "Screenshot aufgenommen",
+    screenshotExportTimestamp: "UTC-Zeitstempel des Screenshot-Exports",
+    output: "Ergebnis",
+    outputTitle: "Ergebnistitel",
+    observedState: "Beobachteter Zustand",
+    actorRecording: "Akteur (Aufzeichnung)",
+    actorSource: "Akteurquelle",
+    recordingMetadata: "Aufzeichnungsmetadaten",
+    evidence: "Nachweis",
+    generationCompletedEvidence: "generation_completed-Ereignis",
+    renderedOutputEvidence:
+      "gerendertes Ergebnis beobachtet; kein Abschlussereignis behauptet",
+    openFullPrompt: "Vollständigen Prompt öffnen",
+    prompt: "Prompt",
+    promptEnglish: "Prompt (Englisch)",
+    promptSource: "Prompt (Quelle)",
+    source: "Quelle",
+    promptNotCaptured: "Prompt nicht erfasst",
+    actorUnavailable: "Akteur nicht verfügbar",
+    replayDetails: "Replay- und Quelldetails",
+    sourceApp: "Quell-App",
+    route: "Aktuelle Route bei der Aufnahme",
+    routeUnavailable: "nicht verfügbar",
+    captureSourceFingerprint: "Fingerprint der Aufnahmequelle",
+    captureSourceUnavailable: "nicht angegeben",
+    recordingStarted: "Aufzeichnung gestartet",
+    appBandHeading: "{app} · {count} Sitzungen",
+    journeyTitleSummary: "{app} · {from} bis {to} · {count} Sitzungen{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} bis {to} · getrennte Kohorten je App{partial}",
+    sessionCount: "{count} Sitzungen",
+    otherPaths: "Andere Pfade",
+    htmlLanguage: "de-DE",
+  },
   composer: { menu: { integrations: "Integrationen" } },
   creativeContext: {
     title: "Bibliothek",
@@ -224,6 +293,19 @@ export default {
       exportSvg: "SVG exportieren",
       actionsPrefill: "Prüfen und senden",
       retry: "Erneut versuchen",
+      currentDesign: "das aktuelle Design",
+      chooseDesign:
+        "ein Design (frag mich bei Bedarf, welches ich verwenden soll)",
+      importFramePrompt:
+        "Importiere diesen Figma-Frame in {{destination}} und nenne Inhalte, die nicht übernommen werden konnten: {{url}}",
+      importFilePrompt:
+        "Öffne diese Figma-Datei, liste die obersten Frames auf und frage mich, welchen Frame ich importieren soll: {{url}}",
+      inspectFramePrompt:
+        "Untersuche diesen Figma-Frame und fasse Struktur, Komponenten, Stile und wiederverwendbare Tokens zusammen: {{url}}",
+      inspectFilePrompt:
+        "Untersuche diese Figma-Datei und fasse Struktur, Komponenten, Stile und wiederverwendbare Tokens zusammen: {{url}}",
+      exportSvgPrompt:
+        "Exportiere den aktuellen Design-Bildschirm als SVG zur Verwendung in Figma und nenne die Teile, die zu statischem SVG-Inhalt werden.",
     },
   },
   common: {
@@ -696,12 +778,15 @@ export default {
     },
     leftRail: {
       file: "Datei",
-      agent: "Agent",
+      agent: "Agenten",
       assets: "Ressourcen",
       import: "Import",
       tools: "Werkzeuge",
       tokens: "Design-Tokens",
       label: "Design-Arbeitsbereich",
+      account: "Konto",
+      collapse: "Seitenleiste einklappen",
+      expand: "Seitenleiste ausklappen",
     },
     breakpointBar: {
       base: "Basis",
@@ -793,12 +878,10 @@ export default {
       "{{path}} wurde seit dem Öffnen auf der Festplatte geändert. Bildschirm neu laden und erneut versuchen.",
     applyToSourceError: "Speichern in Quelle fehlgeschlagen: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Tokens importieren",
       importTitle: "Tokens importieren",
       importHint:
@@ -810,6 +893,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Eingefügte Tokens importieren",
       importedCount: "{{count}} Tokens importiert",
+      count: "{{count}} Tokens",
+      search: "Tokens suchen",
+      noMatches: "Keine passenden Tokens",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -857,6 +943,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} Bild{{plural}} benötigt{{plural}} Figma-Zugriff zum Laden.",
       figmaPasteImagesDontShowAgain: "Nicht mehr anzeigen",
+      figmaPasteUploadImage: "Bild hochladen",
+      figmaPasteUploadImageFor: "„{{name}}“ hochladen",
+      figmaPasteImageFallbackName: "Bild {{index}}",
+      figmaPasteUploadImageSuccess: "Bild eingefügt",
+      figmaPasteUploadImageInvalid:
+        "Wähle eine Bilddatei, z. B. SVG, PNG oder JPG.",
+      figmaPasteUploadImageError: "Das Bild konnte nicht eingefügt werden",
       figmaHydrationDialogTitle: "Figma verbinden, um Bilder zu laden",
       figmaHydrationDialogDescription:
         "Gib deinen Figma-Zugriffstoken ein, um {{count}} fehlendes{{plural}} Bild{{plural}} in den importierten Screen{{screensPlural}} zu laden.",
@@ -959,6 +1052,8 @@ export default {
       "Die Generierung wurde vor dem Erstellen von Dateien gestoppt. Versuchen Sie es erneut, um mit demselben Prompt fortzufahren.",
     generationStoppedCheckAgent:
       "Die Generierung wurde vor dem Erstellen von Dateien gestoppt. Prüfen Sie die Agentenmeldung oder versuchen Sie es erneut.",
+    invalidCanvasDimensions:
+      "Die angeforderte Leinwandgröße wird nicht unterstützt. Verwenden Sie positive Pixelmaße innerhalb der Editorgrenzen.",
     notFound: "Design nicht gefunden",
     backToDesigns: "Zurück zu Designs",
     designNotFoundDescription:
@@ -1553,6 +1648,7 @@ export default {
     fork: "Abzweigen",
     fullView: "Vollansicht",
     preview: "Vorschau",
+    focusScreen: "Bildschirm fokussieren",
     openAndDuplicate:
       "{{display}} auswählen. Verwenden Sie Interagieren zum fokussierten Scrollen.",
     openAndPreview:

@@ -359,14 +359,14 @@ describe("ci-red-report", () => {
 
   it("uses test fingerprints only when annotations match the final non-flaky summary", () => {
     const log = [
-      "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[error] 1) [chromium] › e2e/parity-drag-move.spec.ts:294:1 › in-screen: Escape after a completed drag does NOT revert it",
-      "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[error] 2) [chromium] › e2e/parity-drag-move.spec.ts:582:1 › in-screen: arrow-nudge after a drag continues from the dropped position",
+      "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[error] 1) [chromium] › e2e/interaction-drag-move.spec.ts:294:1 › in-screen: Escape after a completed drag does NOT revert it",
+      "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[error] 2) [chromium] › e2e/interaction-drag-move.spec.ts:582:1 › in-screen: arrow-nudge after a drag continues from the dropped position",
       "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[notice] 2 failed, 0 flaky",
     ].join("\n");
     const testFailures = parseFailedTestNames(log);
     assert.deepEqual(testFailures.get("Shard 5/8"), [
-      "chromium :: e2e/parity-drag-move.spec.ts:294:1 › in-screen: Escape after a completed drag does NOT revert it",
-      "chromium :: e2e/parity-drag-move.spec.ts:582:1 › in-screen: arrow-nudge after a drag continues from the dropped position",
+      "chromium :: e2e/interaction-drag-move.spec.ts:294:1 › in-screen: Escape after a completed drag does NOT revert it",
+      "chromium :: e2e/interaction-drag-move.spec.ts:582:1 › in-screen: arrow-nudge after a drag continues from the dropped position",
     ]);
 
     const rows = buildCiRedRows(
@@ -392,7 +392,7 @@ describe("ci-red-report", () => {
             [
               "Shard 5/8",
               [
-                "chromium :: e2e/parity-drag-move.spec.ts:999:4 › in-screen: Escape after a completed drag does NOT revert it",
+                "chromium :: e2e/interaction-drag-move.spec.ts:999:4 › in-screen: Escape after a completed drag does NOT revert it",
               ],
             ],
           ]),

@@ -145,6 +145,8 @@ export function useEditorActiveScreenAndGeometry({
     viewMode,
     setViewMode,
     viewModeRef,
+    overviewInteractScreenIdRef,
+    setOverviewInteractScreenId,
     setSelectedElement,
     activeFileId,
     setActiveFileId,
@@ -894,6 +896,9 @@ export function useEditorActiveScreenAndGeometry({
         imageAttachmentUnavailableMessage: t(
           "promptDialog.imageAttachmentUnavailable",
         ),
+        invalidCanvasDimensionsMessage: t(
+          "designEditor.invalidCanvasDimensions",
+        ),
         id,
         markGenerationStale,
         setGenerationChatTabId,
@@ -1459,6 +1464,8 @@ export function useEditorActiveScreenAndGeometry({
           setInteractDeviceSize,
           setMode,
           setOverviewSelectedScreenIds,
+          setOverviewInteractScreenId,
+          overviewInteractScreenIdRef,
           setPinMode,
           setScreenZoom,
           setSelectedElement,

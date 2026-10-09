@@ -106,11 +106,11 @@ import { VisualEditWebMcp } from "./VisualEditWebMcp";
 /* i18n-ignore */
 /* i18n-ignore */
 
-// Mirrors `--design-chrome-rail-width` in app/global.css (8 baseline units ×
+// Mirrors `--design-chrome-rail-width` in app/global.css (7 baseline units ×
 // 8px). The rail is always-on chrome (not measured via a ref) so the very
 // first overview camera render — before any layout effect could measure the
 // DOM — already accounts for it; see chromeInsetLeft below.
-const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
+const DESIGN_CHROME_RAIL_WIDTH_PX = 56;
 
 export function renderDesignEditorView({
   editorCore,
@@ -889,6 +889,7 @@ export function renderDesignEditorView({
       editorCore,
       editorActiveScreenAndGeometry,
       editorCanvasAndScreens,
+      editorLayoutAndStructure,
       editorModes,
       editorScreenRendering,
       controlId,
@@ -1391,7 +1392,6 @@ export function renderDesignEditorView({
           editorHistory,
           editorGenerationAndAccess,
           editorFilesAndSaving,
-          editorActiveScreenAndGeometry,
           editorCanvasAndScreens,
           editorLiveEditsAndPresence,
           editorContentAndComponents,
@@ -1409,7 +1409,6 @@ export function renderDesignEditorView({
           projectMenu,
           projectTitleControl,
           minimalUiToggle,
-          topBarVisible,
           leftContentWidth,
           leftSidebarVisible,
         })}
