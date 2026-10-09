@@ -176,7 +176,7 @@ export function imageUrlProblem(value: string): string | null {
   if (scheme !== "https") {
     return `must be an https:// URL, received ${scheme ? `${scheme}:` : "a value without a scheme"}.`;
   }
-  if (/[\u0000- \u007f]/.test(value)) {
+  if (/[\p{Cc}\s]/u.test(value)) {
     return "must not contain whitespace or control characters.";
   }
   let parsed: URL;
