@@ -170,11 +170,10 @@ test("pre-auth recording continues through signup and masks abandonment", async 
     await page.locator("#signup-form button[type='submit']").click();
     // Design's development config disables first-run onboarding; this smoke
     // proves signup-to-authenticated continuity, not the production setup UI.
-    await expect(
-      page.getByRole("button").filter({ hasText: email }),
-    ).toBeVisible({
-      timeout: 60_000,
-    });
+    const signedInUserButton = page
+      .getByRole("button")
+      .filter({ hasText: email });
+    await expect(signedInUserButton).toBeVisible({ timeout: 60_000 });
     const screenshotPath = path.resolve(
       import.meta.dirname,
       "../../../.tmp/pre-auth-session-replay/design-signed-in-after-signup.png",
@@ -185,19 +184,41 @@ test("pre-auth recording continues through signup and masks abandonment", async 
       fullPage: true,
     });
 
+    const postSignupPayloadCount = payloads.length;
+    await signedInUserButton.click();
     await expect
-      .poll(() => payloads.some((payload) => payload.userEmail === email), {
-        timeout: 15_000,
-      })
+      .poll(() =>
+        payloads
+          .slice(postSignupPayloadCount)
+          .some(
+            (payload) =>
+              payload.replayId === anonymousChunk?.replayId &&
+              payload.sessionId === anonymousChunk?.sessionId &&
+              payload.properties?.capture_context === "pre_auth" &&
+              !payload.userEmail &&
+              !payload.userId,
+          ),
+      )
       .toBe(true);
     expect(new Set(replayOrigins)).toEqual(new Set([new URL(baseURL).origin]));
     expect(new Set(replayRequestOrigins)).toEqual(
       new Set([new URL(baseURL).origin]),
     );
-    const linkedChunk = payloads.find((payload) => payload.userEmail === email);
+    const linkedChunk = payloads
+      .slice(postSignupPayloadCount)
+      .find(
+        (payload) =>
+          payload.replayId === anonymousChunk?.replayId &&
+          payload.sessionId === anonymousChunk?.sessionId &&
+          payload.properties?.capture_context === "pre_auth" &&
+          !payload.userEmail &&
+          !payload.userId,
+      );
     expect(linkedChunk?.replayId).toBe(anonymousChunk?.replayId);
     expect(linkedChunk?.sessionId).toBe(anonymousChunk?.sessionId);
     expect(linkedChunk?.sessionId).toBeTruthy();
+    expect(linkedChunk).not.toHaveProperty("userEmail");
+    expect(linkedChunk).not.toHaveProperty("userId");
     expect(linkedChunk?.properties).toMatchObject({
       capture_context: "pre_auth",
     });
