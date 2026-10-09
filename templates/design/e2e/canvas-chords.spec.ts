@@ -247,6 +247,7 @@ test.describe("canvas chords", () => {
     designId = "";
   });
 
+  // oracle: none — checks the app's shortcut and persisted node placement; native Figma behavior is unmeasured.
   test("Shift+A wraps one rectangle where it stands, not at the frame origin", async ({
     page,
     request,
