@@ -2,6 +2,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { resolveAuthPageBasePath } from "./AuthPage.js";
 import {
   authSessionReplayOptions,
   isAuthSessionReplayPathname,
@@ -31,6 +32,29 @@ describe("auth session replay gate", () => {
 
     expect(isAuthSessionReplayPathname("/login", "")).toBe(true);
     expect(isAuthSessionReplayPathname("/login/", "")).toBe(false);
+  });
+
+  it("uses the inferred workspace base path before starting auth replay", () => {
+    const basePath = resolveAuthPageBasePath("", true, "/workspace/login");
+
+    expect(basePath).toBe("/workspace");
+    expect(
+      authSessionReplayOptions(
+        {
+          agentNativeAnalyticsPublicKey: "anpk_test",
+          authSessionReplay: true,
+        },
+        "/workspace/login",
+        basePath,
+        "clips.agent-native.com",
+      ),
+    ).toMatchObject({
+      extraProperties: {
+        capture_context: "pre_auth",
+        pre_auth_base_path: "/workspace",
+      },
+    });
+    expect(resolveAuthPageBasePath("", false, "/workspace/login")).toBe("");
   });
 
   it("requires the explicit opt-in and the first-party Analytics public key", () => {

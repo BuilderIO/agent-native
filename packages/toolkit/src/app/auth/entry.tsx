@@ -2,7 +2,11 @@ import type { SessionReplayOptions } from "@agent-native/core/client/analytics";
 import { resolveLaneEndpoint } from "@agent-native/core/shared/environment-lanes";
 import { createRoot, hydrateRoot } from "react-dom/client";
 
-import { AuthPage, type AuthPageProps } from "./AuthPage.js";
+import {
+  AuthPage,
+  resolveAuthPageBasePath,
+  type AuthPageProps,
+} from "./AuthPage.js";
 import {
   ResetPasswordPage,
   type ResetPasswordPageProps,
@@ -233,8 +237,13 @@ export function authSessionReplayOptions(
 
 function startAuthSessionReplay(
   config: AnalyticsBrowserConfig | undefined,
-  appBasePath: string,
+  props: Pick<AuthPageProps, "appBasePath" | "workspaceRuntime">,
 ): void {
+  const appBasePath = resolveAuthPageBasePath(
+    props.appBasePath,
+    props.workspaceRuntime,
+    window.location.pathname,
+  );
   const options = authSessionReplayOptions(
     config,
     window.location.pathname,
@@ -262,11 +271,12 @@ if (root && data) {
     if (root.dataset.agentNativeAuthFallback) createRoot(root).render(page);
     else hydrateRoot(root, page);
   } else {
+    const authProps = props as AuthPageProps;
     startAuthSessionReplay(
       window.__AGENT_NATIVE_CONFIG__ as AnalyticsBrowserConfig | undefined,
-      (props as AuthPageProps).appBasePath,
+      authProps,
     );
-    const page = <AuthPage {...(props as AuthPageProps)} />;
+    const page = <AuthPage {...authProps} />;
     if (root.dataset.agentNativeAuthFallback) createRoot(root).render(page);
     else hydrateRoot(root, page);
   }

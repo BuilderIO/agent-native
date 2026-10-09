@@ -4530,12 +4530,15 @@ describe("session replay", () => {
   });
 
   it("flushes queued auth-required replay events when auth is cleared", async () => {
-    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
-      email: "dev@example.com",
-      userId: "auth-user-1",
-      name: "Dev User",
-      orgId: "org_123",
-    });
+    const { fetchMock, storage } = installBrowser(
+      "https://app.agent-native.com/inbox",
+      {
+        email: "dev@example.com",
+        userId: "auth-user-1",
+        name: "Dev User",
+        orgId: "org_123",
+      },
+    );
     let recordOptions: any;
     const stop = vi.fn();
     recordMock.mockImplementation((options) => {
@@ -4556,6 +4559,9 @@ describe("session replay", () => {
       },
     });
     await waitForAssertion(() => expect(recordOptions).toBeDefined());
+    const previousReplayId = JSON.parse(
+      storage.get("agent-native.session_replay_id") ?? "{}",
+    ).replayId;
 
     recordOptions.emit({ type: 3, data: { href: "/inbox" } });
     setSentryUser(null);
@@ -4566,6 +4572,9 @@ describe("session replay", () => {
           String(url).includes("/api/analytics/replay"),
         ),
       ).toHaveLength(1),
+    );
+    await waitForAssertion(() =>
+      expect(storage.has("agent-native.session_replay_id")).toBe(false),
     );
 
     expect(stop).toHaveBeenCalledTimes(1);
@@ -4588,6 +4597,24 @@ describe("session replay", () => {
       },
     });
     expect(body.events[0].data.href).toBe("/inbox");
+
+    const replay = await import("./session-replay.js");
+    const restarted = await replay.startSessionReplay({
+      publicKey: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/replay",
+      requireSignedInUser: false,
+      extraProperties: { capture_context: "pre_auth" },
+      flushIntervalMs: 100_000,
+    });
+    expect(restarted.started).toBe(true);
+    expect(restarted.replayId).not.toBe(previousReplayId);
+    expect(
+      JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}"),
+    ).toMatchObject({
+      replayId: restarted.replayId,
+      captureContext: "pre_auth",
+    });
+    await replay.stopSessionReplay();
   });
 
   it("uses deterministic per-session sampling", async () => {

@@ -3775,12 +3775,20 @@ async function startSessionReplayRecorder(
 
 export async function stopSessionReplay(reason = "manual"): Promise<void> {
   const state = getState();
+  const authClearedReplayId =
+    reason === "auth-cleared"
+      ? (state.replayId ?? readStoredReplaySession()?.replayId)
+      : undefined;
   state.startGeneration += 1;
   if (reason !== "upload-timeout") state.pendingReplayStart = null;
   if (reason !== "pagehide-persisted") {
     state.bfcacheRestored = false;
   }
-  if (!state.active) return;
+  if (!state.active) {
+    if (authClearedReplayId) removeStoredReplaySession(authClearedReplayId);
+    if (reason === "auth-cleared") state.lastAuthenticatedProperties = null;
+    return;
+  }
   const isCappedStop = reason === "max-duration" || reason === "max-chunks";
   const cappedReplayId = isCappedStop ? state.replayId : null;
   try {
@@ -3835,7 +3843,12 @@ export async function stopSessionReplay(reason = "manual"): Promise<void> {
   }
   state.broadcastChannel = null;
   const sequenceBeforeFinalFlush = state.sequence;
-  await flushSessionReplay(reason);
+  try {
+    await flushSessionReplay(reason);
+  } finally {
+    if (authClearedReplayId) removeStoredReplaySession(authClearedReplayId);
+    if (reason === "auth-cleared") state.lastAuthenticatedProperties = null;
+  }
   if (
     cappedReplayId &&
     state.sequence > sequenceBeforeFinalFlush &&
