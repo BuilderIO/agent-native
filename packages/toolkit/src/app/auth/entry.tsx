@@ -216,7 +216,10 @@ export function authSessionReplayOptions(
     collectFonts: false,
     console: false,
     network: false,
-    extraProperties: { capture_context: "pre_auth" },
+    extraProperties: {
+      capture_context: "pre_auth",
+      pre_auth_base_path: normalizeBasePath(appBasePath),
+    },
     shouldStart: () =>
       isAuthSessionReplayPathname(window.location.pathname, appBasePath) &&
       !hasAuthCallbackMaterial(window.location.search, window.location.hash),

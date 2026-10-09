@@ -41,6 +41,7 @@ jobs:
       query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
       design_canvas_interaction_e2e: ${{ steps.scope.outputs.design_canvas_interaction_e2e }}
+      pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}
       design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
@@ -536,25 +537,8 @@ jobs:
             echo "No changed Design E2E specs to run."
             exit 0
           fi
-          auth_replay_spec="e2e/pre-auth-session-replay-smoke.spec.ts"
-          run_auth_replay=false
-          remaining_changed_specs=()
-          for spec in "${existing_changed_specs[@]}"; do
-            if [[ "$spec" == "$auth_replay_spec" ]]; then
-              run_auth_replay=true
-            else
-              remaining_changed_specs+=("$spec")
-            fi
-          done
-          existing_changed_specs=("${remaining_changed_specs[@]}")
           changed_shard="${{ matrix.shard }}"
           changed_shard="${changed_shard#changed-}"
-          if [[ "$changed_shard" == "1" && "$run_auth_replay" == "true" ]]; then
-            E2E_DISABLE_AUTO_DEV_ACCOUNT=1 pnpm exec playwright test "$auth_replay_spec" --workers=1
-          fi
-          if ((${#existing_changed_specs[@]} == 0)); then
-            exit 0
-          fi
           pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/12"
 
       - name: Run focused Design regression cases
@@ -717,6 +701,39 @@ jobs:
             exit 0
           fi
           pnpm exec playwright test "${focused_specs[@]}" --workers=1
+
+  pre-auth-session-replay-smoke:
+    name: Pre-auth session replay smoke
+    needs: change-scope
+    if: needs.change-scope.outputs.pre_auth_session_replay_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/free-disk
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Run pre-auth session replay smoke
+        working-directory: templates/design
+        timeout-minutes: 7
+        env:
+          E2E_DISABLE_AUTO_DEV_ACCOUNT: "1"
+          E2E_RUN_ID: pre-auth-replay-${{ github.run_id }}-${{ github.run_attempt }}
+        run: pnpm exec playwright test e2e/pre-auth-session-replay-smoke.spec.ts --workers=1
 
   fast-tests:
     name: Fast tests

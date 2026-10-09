@@ -93,7 +93,10 @@ describe("auth session replay gate", () => {
     expect(options?.sensitiveQueryParams).toContain("token");
     expect(options?.sensitiveQueryParams).toContain("c");
     expect(options?.sensitiveQueryParams).toContain("invitation_token");
-    expect(options?.extraProperties).toEqual({ capture_context: "pre_auth" });
+    expect(options?.extraProperties).toEqual({
+      capture_context: "pre_auth",
+      pre_auth_base_path: "/app",
+    });
     expect(options?.allowUrls).toBeUndefined();
     expect(
       options?.blockUrls?.[0]?.("https://clips.agent-native.com/signup"),

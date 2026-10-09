@@ -14,7 +14,6 @@ import {
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
 import {
-  getAppBasePath,
   isTestIdentity,
   recordChange,
   runWithRequestContext,
@@ -207,6 +206,8 @@ export interface ParsedSessionReplayIngest {
   metadata: Record<string, unknown>;
   /** A client request that is trusted only for a same-origin auth-page upload. */
   preAuthCaptureContextRequested?: boolean;
+  /** The sender app's mount path, supplied only with an auth-page capture marker. */
+  preAuthBasePath?: string;
   /** Derived from the upload's rrweb events; never taken from client metadata. */
   viewport?: RecordedReplayViewport | null;
   chunks: NormalizedSessionReplayChunk[];
@@ -438,9 +439,32 @@ function normalizeReplayOrigin(
   }
 }
 
+function normalizePreAuthBasePath(value: string | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed || trimmed === "/") return "";
+  if (
+    !trimmed.startsWith("/") ||
+    trimmed.startsWith("//") ||
+    /[?#\\]/u.test(trimmed)
+  ) {
+    return null;
+  }
+
+  const path = trimmed.replace(/\/+$/, "");
+  const segments = path.slice(1).split("/");
+  if (
+    path.length > 256 ||
+    segments.some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    return null;
+  }
+  return path;
+}
+
 function isTrustedPreAuthReplayLocation(
   url: string | null,
   requestOrigin: string | null | undefined,
+  senderBasePath?: string,
 ): boolean {
   const origin = normalizeReplayOrigin(requestOrigin);
   if (!origin || !url) return false;
@@ -450,7 +474,8 @@ function isTrustedPreAuthReplayLocation(
   const pageUrl = new URL(url, baseUrl);
   if (pageUrl.origin !== origin || pageUrl.hash) return false;
 
-  const appBasePath = getAppBasePath();
+  const appBasePath = normalizePreAuthBasePath(senderBasePath);
+  if (appBasePath === null) return false;
   const mountedPathname = appBasePath
     ? pageUrl.pathname === appBasePath
       ? "/"
@@ -1263,6 +1288,9 @@ export function parseSessionReplayIngestPayload(
   };
   const preAuthCaptureContextRequested =
     properties.capture_context === PRE_AUTH_CAPTURE_CONTEXT;
+  const preAuthBasePath = preAuthCaptureContextRequested
+    ? replayString(properties.pre_auth_base_path) || undefined
+    : undefined;
   assertReplayMetadataCap(metadata);
   const context: Record<string, unknown> = replayRecord(body.context);
   const url =
@@ -1350,7 +1378,10 @@ export function parseSessionReplayIngestPayload(
     status,
     metadata,
     ...(preAuthCaptureContextRequested
-      ? { preAuthCaptureContextRequested: true }
+      ? {
+          preAuthCaptureContextRequested: true,
+          ...(preAuthBasePath ? { preAuthBasePath } : {}),
+        }
       : {}),
     viewport: signals.viewport,
     chunks,
@@ -1727,7 +1758,11 @@ export async function recordSessionReplayChunks(
   };
   const mayStartPreAuthRecording =
     input.preAuthCaptureContextRequested === true &&
-    isTrustedPreAuthReplayLocation(input.url, context.origin);
+    isTrustedPreAuthReplayLocation(
+      input.url,
+      context.origin,
+      input.preAuthBasePath,
+    );
 
   let [recording] = await db
     .select()

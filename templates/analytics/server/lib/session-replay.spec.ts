@@ -820,7 +820,10 @@ describe("session replay ingest parsing", () => {
       sessionId: "session_1",
       anonymousId: "anon_1",
       sequence: 0,
-      properties: { capture_context: "pre_auth" },
+      properties: {
+        capture_context: "pre_auth",
+        pre_auth_base_path: "/app",
+      },
       metadata: { capture_context: "forged", retained: true },
       events: [{ type: 4, timestamp: 1 }],
     });
@@ -836,6 +839,7 @@ describe("session replay ingest parsing", () => {
 
     expect(parsed.metadata).toEqual({ retained: true });
     expect(parsed.preAuthCaptureContextRequested).toBe(true);
+    expect(parsed.preAuthBasePath).toBe("/app");
     expect(unmarked.metadata).toEqual({});
     expect(unmarked.preAuthCaptureContextRequested).toBeUndefined();
   });
@@ -2266,11 +2270,19 @@ describe("session replay ingest parsing", () => {
       accepted: true,
     },
     {
-      name: "same-origin mounted auth root",
+      name: "mounted auth root uses the sender app base path",
       url: "https://app.example.com/app/",
       origin: "https://app.example.com",
-      basePath: "/app",
+      analyticsBasePath: "/analytics",
+      senderBasePath: "/app",
       accepted: true,
+    },
+    {
+      name: "Analytics base path does not identify the sender auth root",
+      url: "https://app.example.com/analytics/",
+      origin: "https://app.example.com",
+      analyticsBasePath: "/analytics",
+      accepted: false,
     },
     {
       name: "same-origin non-auth URL",
@@ -2316,9 +2328,12 @@ describe("session replay ingest parsing", () => {
     },
   ])("accepts pre-auth markers only for a $name", async (testCase) => {
     const { url, origin, accepted } = testCase;
-    const basePath = "basePath" in testCase ? testCase.basePath : undefined;
-    vi.stubEnv("APP_BASE_PATH", basePath ?? "");
-    vi.stubEnv("VITE_APP_BASE_PATH", basePath ?? "");
+    const analyticsBasePath =
+      "analyticsBasePath" in testCase ? testCase.analyticsBasePath : undefined;
+    const senderBasePath =
+      "senderBasePath" in testCase ? testCase.senderBasePath : undefined;
+    vi.stubEnv("APP_BASE_PATH", analyticsBasePath ?? "");
+    vi.stubEnv("VITE_APP_BASE_PATH", analyticsBasePath ?? "");
     const results = replayIngestKeyDbResults(null) as unknown[][];
     const returnedRecording = results[5]?.[0] as
       | { metadata: string }
@@ -2346,7 +2361,10 @@ describe("session replay ingest parsing", () => {
       anonymousId: "anon_1",
       sequence: 0,
       url,
-      properties: { capture_context: "pre_auth" },
+      properties: {
+        capture_context: "pre_auth",
+        ...(senderBasePath ? { pre_auth_base_path: senderBasePath } : {}),
+      },
       events: [{ type: 4, timestamp: 1 }],
     });
     await recordSessionReplayChunks(input, { origin, requestBytes: 100 });
