@@ -1239,7 +1239,7 @@ describe("buildAssistantMessage", () => {
     expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
   });
 
-  it("still persists non-recoverable errors", () => {
+  it("keeps missing-provider setup metadata without adding a generic error body", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "checking..." } },
       {
@@ -1254,14 +1254,20 @@ describe("buildAssistantMessage", () => {
 
     const message = buildAssistantMessage(events, "run-missing-key");
 
-    // Persisted from the typed code, so the stored row reads as actionable copy.
     expect(message?.content).toEqual([
       {
         type: "text",
-        text: `checking...\n\nError: ${LLM_MISSING_CREDENTIALS_MESSAGE}`,
+        text: "checking...",
       },
     ]);
     expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(message?.metadata.custom).toMatchObject({
+      runError: {
+        errorCode: "missing_api_key",
+        message:
+          "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
+      },
+    });
   });
 
   it("replaces a non-terminal partial assistant message for the same run", () => {
@@ -3649,6 +3655,18 @@ describe("mergeThreadDataForClientSave", () => {
 
     expect(merged._claimedQueuedMessageIds).toEqual(["queued-1"]);
     expect(merged.queuedMessages).toEqual([]);
+  });
+
+  it("does not allow a client save to create the server-owned queue", () => {
+    const merged = mergeThreadDataForClientSave(
+      { messages: [] },
+      {
+        messages: [],
+        queuedMessages: [{ id: "forged", text: "Bypass readiness" }],
+      },
+    );
+
+    expect(merged.queuedMessages).toBeUndefined();
   });
 
   it("dedupes a client-save user message against the server's submittedRunId copy of the same prompt", () => {

@@ -85,7 +85,6 @@ import { hostedHarnessSystemPrompt } from "../agent/harness/hosted.js";
 import {
   createProductionAgentHandler,
   endsAtContinuationBoundary,
-  normalizeChatScope,
   actionsToEngineTools,
   executeAgentToolCall,
   filterActionsByAllowedNames,
@@ -217,10 +216,7 @@ import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
 import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
-import {
-  retryContextFromRequest,
-  type RefusedTurnRetryContext,
-} from "../shared/agent-chat-run-not-started.js";
+import { type RefusedTurnRetryContext } from "../shared/agent-chat-run-not-started.js";
 import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   normalizeAnalyticsClientPlatform,
@@ -229,11 +225,7 @@ import { backgroundAgentTurnIdForReceipt } from "../shared/background-agent-sess
 import { docsUrl } from "../shared/docs-url.js";
 import { stripSqlParams } from "../shared/error-noise.js";
 import { track, type TrackingMeta } from "../tracking/registry.js";
-import {
-  AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
-  isAgentChatAiSetupRequiredError,
-  requireAgentChatAiSetup,
-} from "./agent-chat-ai-setup.js";
+import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
 import {
   AGENT_CHAT_STREAM_PATH,
   AGENT_CHAT_STREAM_TOKEN_SUFFIX,
@@ -4473,6 +4465,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           : "";
 
       const prodHandler = createProductionAgentHandler({
+        assertAiSetupReady: requireAgentChatAiSetup,
         actions: leanPrompt ? leanActions : prodActions,
         systemPrompt: async (event: any) => {
           const { owner, extra } = await prepareRun(event);
@@ -4723,6 +4716,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const anonymousHandler =
         options?.anonymousOwner && options.anonymousReadOnly !== false
           ? createProductionAgentHandler({
+              assertAiSetupReady: requireAgentChatAiSetup,
               actions: anonymousReadOnlyActions,
               systemPrompt: async (event: any) => {
                 const { extra } = await prepareRun(event);
@@ -4904,6 +4898,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         // call back into the fully-assembled devActions registry.
         devRunCodeToolActions = devActions;
         devHandler = createProductionAgentHandler({
+          assertAiSetupReady: requireAgentChatAiSetup,
           actions: devActions,
           resolveAdditionalActions: ({ ownerEmail, orgId }) =>
             getMcpActionEntriesForPrincipal(ownerEmail, orgId),
@@ -6926,8 +6921,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const threadRouteHandler = withTransientDatabaseFallback(
         `${routePath}/threads`,
         async (event) => {
-          const owner = await getOwnerFromEvent(event);
-          const orgId = await getOrgIdFromEvent(event);
+          const ownerContext = await resolveOwnerContext(event);
+          const owner = ownerContext.owner;
+          const orgId = await resolveAgentRunOrgId({
+            event,
+            ownerContext,
+            resolveOrgId: options?.resolveOrgId,
+          });
           const method = getMethod(event);
 
           const { threadId, tail: threadTail } = parseThreadRoute(event);
@@ -7235,7 +7235,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "Invalid queue mutation" };
               }
-              if (mutation.type === "append" || mutation.type === "moveToTop") {
+              if (
+                !ownerContext.anonymous &&
+                (mutation.type === "append" ||
+                  mutation.type === "moveToTop" ||
+                  mutation.type === "claim")
+              ) {
                 await runWithRequestContext({ userEmail: owner, orgId }, () =>
                   requireAgentChatAiSetup(),
                 );
@@ -7600,75 +7605,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // `_process-run` processor route (which re-enters the same handler set as
       // the background worker), so both go through identical context + handler
       // selection.
-      // The setup gate refuses before any handler reads the body, so the
-      // refused prompt is read here to answer it in the thread.
-      const recordSetupRequiredTurn = async (
-        event: any,
-        error: { statusMessage?: string; message?: string },
-      ) => {
-        let body: Record<string, unknown>;
-        try {
-          // coercion-ok: an empty body has no thread or turn, so nothing is recorded
-          body = (await readBody(event)) ?? {};
-        } catch (readError) {
-          console.error(
-            "[agent-chat] could not read a turn refused by the AI setup gate:",
-            readError,
-          );
-          return;
-        }
-        const threadId =
-          typeof body.threadId === "string" ? body.threadId.trim() : "";
-        const turnId =
-          typeof body.turnId === "string" ? body.turnId.trim() : "";
-        const message =
-          typeof body.displayMessage === "string" && body.displayMessage.trim()
-            ? body.displayMessage
-            : typeof body.message === "string"
-              ? body.message
-              : "";
-        if (
-          !threadId ||
-          !turnId ||
-          !message.trim() ||
-          body.internalContinuation === true
-        ) {
-          return;
-        }
-        const runCtx = ensureRequestRunContext();
-        if (runCtx) runCtx.chatScope = normalizeChatScope(body.scope) ?? null;
-        await recordUnstartedTurn({
-          runId: turnId,
-          turnId,
-          threadId,
-          message,
-          ...(Array.isArray(body.attachments)
-            ? { attachments: body.attachments as AgentChatAttachment[] }
-            : {}),
-          ...(typeof body.queuedMessageId === "string" &&
-          body.queuedMessageId.trim()
-            ? { queuedMessageId: body.queuedMessageId.trim() }
-            : {}),
-          ...(typeof body.agentKitMessageId === "string" &&
-          body.agentKitMessageId.trim() &&
-          body.agentKitMessageId.trim().length <= 200
-            ? { agentKitMessageId: body.agentKitMessageId.trim() }
-            : {}),
-          retryContext: retryContextFromRequest(body, (dropped) =>
-            console.warn(
-              `[agent-chat] dropped ${dropped} invalid reference(s) from a refused turn's retry context`,
-            ),
-          ),
-          failure: {
-            code: AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
-            message:
-              error.statusMessage ??
-              error.message ??
-              "Use Builder.io or a provider API key before chatting.",
-          },
-        });
-      };
-
       const invokeAgentChatHandler = async (event: any) => {
         // Resolve per-request auth context.
         const ownerContext = await resolveOwnerContext(event);
@@ -7684,18 +7620,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             isBackgroundWorker,
           },
           async () => {
-            // Public anonymous readers use the host-owned read-only lane, and
-            // durable workers resume a request that already passed this gate.
-            if (!ownerContext.anonymous && !isBackgroundWorker) {
-              try {
-                await requireAgentChatAiSetup();
-              } catch (error) {
-                if (isAgentChatAiSetupRequiredError(error)) {
-                  await recordSetupRequiredTurn(event, error);
-                }
-                throw error;
-              }
-            }
             // App-rendered chat can't host direct code edits — HMR/full
             // reloads would kill the same chat surface mid-run. Force the
             // prod handler (no shell / no fs); the prompt block injected by

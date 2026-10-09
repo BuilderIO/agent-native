@@ -422,6 +422,7 @@ export function AddSlidePopover({
       )}
       <PromptComposer
         autoFocus
+        requireAgentEngine
         attachmentsEnabled={fileStorageConfigured}
         maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
         documentAttachmentLimitLabel="Slides reference files"

@@ -102,6 +102,9 @@ describe("mobile AgentKit adapter", () => {
       '{"type":"text","text":"Hello from AgentKit"}\n' + '{"type":"done"}\n';
     expoFetchMock.mockImplementation(async (input: unknown) => {
       const url = String(input);
+      if (url.includes("/_agent-native/agent-engine/status")) {
+        return Response.json({ configured: true, chatEligible: true });
+      }
       if (url.includes("/threads/")) return new Response(null, { status: 404 });
       return new Response(responseBody, {
         status: 200,
@@ -405,6 +408,9 @@ describe("mobile AgentKit adapter", () => {
     expoFetchMock.mockImplementation(
       async (input: unknown, init?: RequestInit) => {
         const url = String(input);
+        if (url.includes("/_agent-native/agent-engine/status")) {
+          return Response.json({ configured: true, chatEligible: true });
+        }
         if (url.endsWith("/_agent-native/file-upload")) {
           const file = (init?.body as FormData).get("file") as File;
           return Response.json(

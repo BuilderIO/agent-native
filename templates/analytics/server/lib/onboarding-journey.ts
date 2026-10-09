@@ -11,6 +11,7 @@ import {
 import { buildSessionSteps, type JourneyEventRow } from "./journey-steps.js";
 import {
   buildJourneyTree,
+  addDeeperCounts,
   type JourneyNode,
   type JourneyRecording,
   type JourneySession,
@@ -151,11 +152,13 @@ export function parseJourneyEventRow(
     eventName,
     path: text(raw.path),
     flow: text(raw.flow),
+    source: text(raw.source),
     stepId: text(raw.step_id),
     stepIndex: integer(raw.step_index),
     methodId: text(raw.method_id),
     outcome: text(raw.outcome),
     action: text(raw.action),
+    aliasId: text(raw.alias_id),
   };
 }
 
@@ -334,7 +337,7 @@ function capNodes(
       .map((node) => node.key),
   );
   return {
-    nodes: nodes.filter((node) => keep.has(node.key)),
+    nodes: addDeeperCounts(nodes.filter((node) => keep.has(node.key))),
     dropped: nodes.length - maxNodes,
   };
 }
@@ -350,14 +353,12 @@ export function formatJourneyOutline(
 ): string {
   return nodes
     .map((node) => {
-      const branched = nodes
-        .filter((candidate) => candidate.parentKey === node.key)
-        .reduce((sum, candidate) => sum + candidate.n, 0);
-      const carriedOn = node.n - node.dropoffN - branched;
       const tail =
-        node.depth === maxDepth && carriedOn > 0
-          ? `, ${carriedOn} continue past depth ${maxDepth}`
-          : "";
+        node.deeperN === 0
+          ? ""
+          : node.depth === maxDepth
+            ? `, ${node.deeperN} continue past depth ${maxDepth}`
+            : `, deeperN=${node.deeperN} continue below this node`;
       return `${"  ".repeat(node.depth - 1)}${node.label} - n=${node.n} (${node.pctOfRoot}% of all, ${node.pctOfParent}% of parent), dropoff ${node.dropoffN} (${node.dropoffPct}%)${tail}`;
     })
     .join("\n");
@@ -380,6 +381,12 @@ export async function getOnboardingJourney(
       ...standalone.sessions.map((session) => session.sessionId),
     ]),
   ];
+  const depthTruncated = sessions.some(
+    (session) => session.steps.length > args.maxDepth,
+  );
+  const standaloneDepthTruncated = standalone.sessions.some(
+    (session) => session.steps.length > args.maxDepth,
+  );
 
   let recordings: JourneyRecording[] | null;
   try {
@@ -409,7 +416,9 @@ export async function getOnboardingJourney(
     replayUrlFor: replayUrlBuilder(),
   });
   const capped = capNodes(built.nodes, args.maxNodes);
-  const standaloneBuilt = standalone.sessions.length
+  const hasStandaloneResult =
+    standalone.sessions.length > 0 || read.standaloneSetupTruncated;
+  const standaloneBuilt = hasStandaloneResult
     ? buildJourneyTree(standalone.sessions, bySession, {
         maxDepth: args.maxDepth,
         minNodeSessions: args.minNodeSessions,
@@ -432,7 +441,12 @@ export async function getOnboardingJourney(
   }
   if (read.standaloneSetupTruncated) {
     notes.push(
-      `Standalone setup events were not fully read before maxEventRows=${args.maxEventRows}${read.lastSessionDroppedFor === "standalone_setup" ? "; the last standalone setup session read was left out" : ""}.`,
+      `The event read reached maxEventRows=${args.maxEventRows}; standalone setup results may be incomplete or absent${read.lastSessionDroppedFor === "standalone_setup" ? ", and the last standalone setup session read was left out" : ""}.`,
+    );
+  }
+  if (depthTruncated || standaloneDepthTruncated) {
+    notes.push(
+      `Some onboarding or standalone setup sessions continue beyond maxDepth=${args.maxDepth}; deeperN counts observed continuation omitted below each returned node.`,
     );
   }
   if (read.pages > 1 && args.dateTo >= new Date().toISOString().slice(0, 10)) {
@@ -467,7 +481,8 @@ export async function getOnboardingJourney(
     rootN: built.rootN,
     ...(notes.length ? { notes } : {}),
   };
-  const truncated = read.onboardingTruncated || capped.dropped > 0;
+  const truncated =
+    read.onboardingTruncated || depthTruncated || capped.dropped > 0;
   if (args.format === "summary") {
     return {
       format: "summary",
@@ -495,7 +510,9 @@ export async function getOnboardingJourney(
                         bySession.has(session.sessionId),
                       ).length,
                 truncated:
-                  read.standaloneSetupTruncated || standaloneCapped.dropped > 0,
+                  read.standaloneSetupTruncated ||
+                  standaloneDepthTruncated ||
+                  standaloneCapped.dropped > 0,
               },
               outline: formatJourneyOutline(
                 standaloneCapped.nodes,
@@ -526,7 +543,9 @@ export async function getOnboardingJourney(
                 bySession.has(session.sessionId),
               ).length,
               truncated:
-                read.standaloneSetupTruncated || standaloneCapped.dropped > 0,
+                read.standaloneSetupTruncated ||
+                standaloneDepthTruncated ||
+                standaloneCapped.dropped > 0,
             },
             nodes: standaloneCapped.nodes,
           },

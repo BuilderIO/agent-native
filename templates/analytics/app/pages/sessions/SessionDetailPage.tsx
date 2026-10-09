@@ -460,6 +460,7 @@ function AskSessionPopover({
         </div>
         <PromptComposer
           autoFocus
+          requireAgentEngine
           disabled={isGenerating}
           placeholder={t("sessions.askSessionPlaceholder")}
           draftScope={`analytics:session-replay:${recording.id}`}

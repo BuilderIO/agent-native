@@ -2589,7 +2589,7 @@ export async function runAuthoringFuzz(
     );
     const options = listbox.locator('[role="option"]');
     tracePhase("slash.wait-visible:start");
-    await options.first().waitFor({ state: "visible", timeout: 3000 });
+    await options.first().waitFor({ state: "visible", timeout: 5_000 });
     tracePhase("slash.wait-visible:end");
     if ((await options.count()) !== SLASH_COMMANDS.length)
       throw new Error("slash menu did not expose all eight commands");

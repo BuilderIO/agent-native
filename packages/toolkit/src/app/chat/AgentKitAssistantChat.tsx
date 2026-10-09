@@ -22,6 +22,7 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import type { AgentChatAttachment } from "@agent-native/core";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
+import { isCreditsLimitErrorCode } from "@agent-native/core/agent/engine/error-detail";
 import {
   appendAgentChatContextToMessage,
   filterAgentChatContextItems,
@@ -49,7 +50,8 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { dispatchAgentChatRunning } from "@agent-native/core/client/agent-chat";
 import {
-  fetchAgentEngineConfiguredState,
+  agentEngineStatusUrlForChatApi,
+  isLocalRuntimeEngine,
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
 } from "@agent-native/core/client/agent-chat";
@@ -97,7 +99,6 @@ import {
   IconAlertTriangle,
   IconCircleCheck,
   IconCopy,
-  IconLoader2,
   IconMessage,
   IconPlayerStopFilled,
   IconQuote,
@@ -633,7 +634,6 @@ interface AgentKitSurfaceContextValue {
   onTextChange: (text: string) => void;
   onRemoveContextItem: (key: string) => void;
   onClearSelection: () => void;
-  onBeforeSubmit: () => Promise<boolean>;
   onSubmit: AgentKitComposerSubmit;
   sendMessage: (
     text: string,
@@ -1344,59 +1344,26 @@ const AgentKitAssistantChatBody = forwardRef<
     useRef<AgentKitSuggestionSubmitRef["current"]>(null);
   const resumedAfterSetupRef = useRef(new Set<string>());
   const t = useT();
-  const providerChecksEnabled = props.providerStatusChecksEnabled !== false;
+  const providerChecksEnabled = !isLocalRuntimeEngine(props.selectedEngine);
+  const readinessSource = useMemo(
+    () => ({
+      statusUrl: agentEngineStatusUrlForChatApi(
+        props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
+      ),
+      credentials: "include" as const,
+    }),
+    [props.apiUrl],
+  );
   const readiness = useAgentEngineConfigured(providerChecksEnabled, {
     tabId: props.tabId,
     threadId,
+    source: readinessSource,
   });
-  const [submissionReadiness, setSubmissionReadiness] =
-    useState<AgentEngineConfiguredState | null>(null);
-  const readinessRequestIdRef = useRef(0);
-  const providerReadinessRequestRef = useRef<{
-    requestId: number;
-    promise: Promise<AgentEngineConfiguredState>;
-  } | null>(null);
-  const latestResolvedReadinessRef = useRef<{
-    requestId: number;
-    state: AgentEngineConfiguredState;
-  } | null>(null);
-  const passiveReadinessRef = useRef(readiness.state);
-  const providerReadinessPassRef = useRef<number | null>(null);
-  const latestSubmissionReadinessRef = useRef(readiness.state);
-  const resetSubmissionReadiness = useCallback(
-    (state: AgentEngineConfiguredState) => {
-      readinessRequestIdRef.current += 1;
-      providerReadinessRequestRef.current = null;
-      providerReadinessPassRef.current = null;
-      latestSubmissionReadinessRef.current = state;
-      setSubmissionReadiness(null);
-    },
-    [],
-  );
-  useEffect(() => {
-    if (passiveReadinessRef.current !== readiness.state) {
-      const explicitReadinessPassed =
-        providerReadinessPassRef.current === readinessRequestIdRef.current &&
-        latestResolvedReadinessRef.current?.requestId ===
-          readinessRequestIdRef.current &&
-        latestResolvedReadinessRef.current.state === "configured";
-      if (readiness.state === "unavailable" && explicitReadinessPassed) {
-        return;
-      }
-      passiveReadinessRef.current = readiness.state;
-      resetSubmissionReadiness(readiness.state);
-      return;
-    }
-    if (submissionReadiness === readiness.state) {
-      latestSubmissionReadinessRef.current = readiness.state;
-      setSubmissionReadiness(null);
-    }
-  }, [readiness.state, resetSubmissionReadiness, submissionReadiness]);
   const modelCatalogPending =
     props.showModelSelector !== false && props.modelListLoading === true;
   const modelListUnavailable =
     props.showModelSelector !== false && props.modelListError === true;
-  const effectiveReadiness = submissionReadiness ?? readiness.state;
+  const effectiveReadiness = readiness.state;
   const canChat = !providerChecksEnabled || effectiveReadiness === "configured";
   const setupMissing =
     providerChecksEnabled && effectiveReadiness === "missing";
@@ -1409,13 +1376,9 @@ const AgentKitAssistantChatBody = forwardRef<
         : providerChecksEnabled
           ? effectiveReadiness
           : "configured";
-  const composerPreflightRunActiveRef = useRef<boolean | null>(null);
   const retryProviderStatus = useCallback(() => {
-    // A failed pre-send check overrides passive readiness until the passive
-    // state changes, so a retry that re-confirms the same state must drop it.
-    resetSubmissionReadiness(passiveReadinessRef.current);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
-  }, [resetSubmissionReadiness]);
+  }, []);
   const retryModelList = modelListUnavailable
     ? props.onRetryModelList
     : retryProviderStatus;
@@ -1608,14 +1571,6 @@ const AgentKitAssistantChatBody = forwardRef<
   const bounceSetupCard = useCallback(() => {
     if (setupMissing) setSetupBouncePulse((pulse) => pulse + 1);
   }, [setupMissing]);
-  const reportMissingProvider = useCallback(() => {
-    bounceSetupCard();
-    window.dispatchEvent(
-      new CustomEvent("agent-chat:missing-api-key", {
-        detail: { tabId: props.tabId, threadId },
-      }),
-    );
-  }, [bounceSetupCard, props.tabId, threadId]);
   const lastCustomRunningStateRef = useRef<{
     custom: boolean;
     isRunning: boolean;
@@ -2121,139 +2076,21 @@ const AgentKitAssistantChatBody = forwardRef<
     return () => window.clearInterval(interval);
   }, [isRunning]);
 
-  const refreshProviderReadiness = useCallback(async () => {
-    if (!providerChecksEnabled) return "configured";
-    let request = providerReadinessRequestRef.current;
-    if (!request || request.requestId !== readinessRequestIdRef.current) {
-      const requestId = ++readinessRequestIdRef.current;
-      providerReadinessPassRef.current = null;
-      request = {
-        requestId,
-        promise: fetchAgentEngineConfiguredState(true, { fresh: true }),
-      };
-      providerReadinessRequestRef.current = request;
-    }
-    let currentRequest = request;
-    while (true) {
-      const nextReadiness = await currentRequest.promise;
-      if (currentRequest.requestId === readinessRequestIdRef.current) {
-        if (providerReadinessRequestRef.current === currentRequest) {
-          providerReadinessRequestRef.current = null;
-        }
-        latestResolvedReadinessRef.current = {
-          requestId: currentRequest.requestId,
-          state: nextReadiness,
-        };
-        latestSubmissionReadinessRef.current = nextReadiness;
-        setSubmissionReadiness(nextReadiness);
-        return nextReadiness;
-      }
-      const latestRequest = providerReadinessRequestRef.current;
-      if (
-        latestRequest &&
-        latestRequest.requestId === readinessRequestIdRef.current &&
-        latestRequest.requestId > currentRequest.requestId
-      ) {
-        currentRequest = latestRequest;
-        continue;
-      }
-      const latestResolved = latestResolvedReadinessRef.current;
-      if (latestResolved?.requestId === readinessRequestIdRef.current) {
-        return latestResolved.state;
-      }
-      return latestSubmissionReadinessRef.current;
-    }
-  }, [providerChecksEnabled]);
-
-  const acquireSubmission = useCallback(
-    async (useReadinessPass = false) => {
-      const readinessPass = providerReadinessPassRef.current;
-      const hasReadinessPass =
-        useReadinessPass &&
-        readinessPass !== null &&
-        readinessPass === readinessRequestIdRef.current &&
-        latestResolvedReadinessRef.current?.requestId === readinessPass &&
-        latestResolvedReadinessRef.current.state === "configured";
-      if (useReadinessPass) providerReadinessPassRef.current = null;
-      if (
-        isRestoring ||
-        props.composerDisabled ||
-        props.composerSubmissionDisabled
-      )
-        return null;
-      if (providerChecksEnabled) {
-        const currentReadiness = hasReadinessPass
-          ? "configured"
-          : await refreshProviderReadiness();
-        if (currentReadiness !== "configured") {
-          if (currentReadiness === "missing") reportMissingProvider();
-          return null;
-        }
-      }
-      if (history) {
-        const release = await history.beginSubmission();
-        if (!release) return null;
-        return release;
-      }
-      return () => undefined;
-    },
-    [
-      history,
-      isRestoring,
-      props.composerDisabled,
-      props.composerSubmissionDisabled,
-      providerChecksEnabled,
-      refreshProviderReadiness,
-      reportMissingProvider,
-    ],
-  );
-
-  const beforeSubmit = useCallback(async () => {
-    providerReadinessPassRef.current = null;
-    composerPreflightRunActiveRef.current = null;
+  const acquireSubmission = useCallback(async () => {
     if (
       isRestoring ||
       props.composerDisabled ||
       props.composerSubmissionDisabled
-    )
-      return false;
-    const runWasActive = isThreadRunning();
-    if (!providerChecksEnabled) {
-      composerPreflightRunActiveRef.current = runWasActive;
-      return true;
-    }
-    let currentReadiness = await refreshProviderReadiness();
-    let resolvedReadiness = latestResolvedReadinessRef.current;
-    while (
-      currentReadiness === "configured" &&
-      (!resolvedReadiness ||
-        resolvedReadiness.requestId !== readinessRequestIdRef.current ||
-        resolvedReadiness.state !== "configured")
     ) {
-      currentReadiness = await refreshProviderReadiness();
-      resolvedReadiness = latestResolvedReadinessRef.current;
+      return null;
     }
-    if (currentReadiness !== "configured") {
-      if (currentReadiness === "missing") reportMissingProvider();
-      return false;
-    }
-    if (
-      !resolvedReadiness ||
-      resolvedReadiness.requestId !== readinessRequestIdRef.current
-    ) {
-      return false;
-    }
-    composerPreflightRunActiveRef.current = runWasActive;
-    providerReadinessPassRef.current = resolvedReadiness.requestId;
-    return true;
+    if (!history) return () => undefined;
+    return history.beginSubmission();
   }, [
+    history,
     isRestoring,
     props.composerDisabled,
     props.composerSubmissionDisabled,
-    providerChecksEnabled,
-    isThreadRunning,
-    refreshProviderReadiness,
-    reportMissingProvider,
   ]);
 
   const dispatch = useCallback(
@@ -2264,6 +2101,13 @@ const AgentKitAssistantChatBody = forwardRef<
       composerOptions: AgentKitSuggestionSubmitOptions,
       options: AgentKitInternalSendOptions = {},
     ) => {
+      const selectedEngine =
+        composerOptions.engine ??
+        options.recoveryEngine ??
+        props.selectedEngine;
+      await controller.assertAiSetupReady({
+        engine: typeof selectedEngine === "string" ? selectedEngine : undefined,
+      });
       const selectionHydration = pendingSelectionHydrationRef.current;
       await selectionHydration?.promise;
       const currentPendingSelection = pendingSelectionRef.current;
@@ -2491,6 +2335,7 @@ const AgentKitAssistantChatBody = forwardRef<
     },
     [
       contextItems,
+      controller,
       control,
       props.contextScope,
       props.execMode,
@@ -2520,6 +2365,12 @@ const AgentKitAssistantChatBody = forwardRef<
       if (!release) {
         if (isRestoring) {
           try {
+            const selectedEngine =
+              submittedComposerOptions.engine ?? props.selectedEngine;
+            await controller.assertAiSetupReady({
+              engine:
+                typeof selectedEngine === "string" ? selectedEngine : undefined,
+            });
             const selectionHydration = pendingSelectionHydrationRef.current;
             await selectionHydration?.promise;
             const currentPendingSelection = pendingSelectionRef.current;
@@ -2631,10 +2482,9 @@ const AgentKitAssistantChatBody = forwardRef<
             throw error;
           }
         }
-        const reason =
-          setupMissing || latestSubmissionReadinessRef.current === "missing"
-            ? "engine-not-configured"
-            : "submission-unavailable";
+        const reason = setupMissing
+          ? "engine-not-configured"
+          : "submission-unavailable";
         reportAgentChatSubmitResult(options.submitMessageId, false, reason);
         return { status: "rejected", reason };
       }
@@ -2688,11 +2538,8 @@ const AgentKitAssistantChatBody = forwardRef<
       composerOptions: AgentKitSuggestionSubmitOptions,
       prepare?: () => Promise<PromptComposerSubmitOptions>,
     ) => {
-      const runWasActiveAtSubmit = providerReadinessPassRef.current
-        ? (composerPreflightRunActiveRef.current ?? isThreadRunning())
-        : isThreadRunning();
-      composerPreflightRunActiveRef.current = null;
-      const release = await acquireSubmission(true);
+      const runWasActiveAtSubmit = isThreadRunning();
+      const release = await acquireSubmission();
       if (!release)
         throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
       try {
@@ -2965,24 +2812,31 @@ const AgentKitAssistantChatBody = forwardRef<
       text: string,
       images?: string[],
       options?: AssistantChatSendOptions,
-    ) =>
-      submit(
-        text,
-        [],
-        [],
-        { intent: isThreadRunning() ? "queued" : "immediate" },
-        {
-          ...options,
-          attachments: [
-            ...(options?.attachments ?? []),
-            ...(images ?? []).map((url) => ({
-              type: "image",
-              name: "image",
-              url,
-            })),
-          ],
-        },
-      ),
+    ) => {
+      try {
+        return await submit(
+          text,
+          [],
+          [],
+          { intent: isThreadRunning() ? "queued" : "immediate" },
+          {
+            ...options,
+            attachments: [
+              ...(options?.attachments ?? []),
+              ...(images ?? []).map((url) => ({
+                type: "image",
+                name: "image",
+                url,
+              })),
+            ],
+          },
+        );
+      } catch (error) {
+        const rejected = setupSubmissionResult(error);
+        if (rejected) return rejected;
+        throw error;
+      }
+    },
     [isThreadRunning, submit],
   );
   const sendRecoveryMessage = useCallback(
@@ -3002,29 +2856,35 @@ const AgentKitAssistantChatBody = forwardRef<
         | "resumeAfterSetup"
       >,
     ) => {
-      return submit(
-        text,
-        [],
-        [],
-        { intent: isThreadRunning() ? "queued" : "immediate" },
-        {
-          hideUserMessage: true,
-          recoveryAction,
-          recoveryReferences: references,
-          ...recoveryOptions,
-          deferredFileParts: [
-            ...(fileParts ?? []),
-            ...(images ?? []).map(
-              (url): FilePart => ({
-                type: "file",
-                name: "image",
-                mediaType: "image",
-                url,
-              }),
-            ),
-          ],
-        },
-      );
+      try {
+        return await submit(
+          text,
+          [],
+          [],
+          { intent: isThreadRunning() ? "queued" : "immediate" },
+          {
+            hideUserMessage: true,
+            recoveryAction,
+            recoveryReferences: references,
+            ...recoveryOptions,
+            deferredFileParts: [
+              ...(fileParts ?? []),
+              ...(images ?? []).map(
+                (url): FilePart => ({
+                  type: "file",
+                  name: "image",
+                  mediaType: "image",
+                  url,
+                }),
+              ),
+            ],
+          },
+        );
+      } catch (error) {
+        const rejected = setupSubmissionResult(error);
+        if (rejected) return rejected;
+        throw error;
+      }
     },
     [isThreadRunning, submit],
   );
@@ -3148,19 +3008,27 @@ const AgentKitAssistantChatBody = forwardRef<
       sendRecoveryMessage: (text, recoveryAction, images) =>
         sendRecoveryMessage(text, recoveryAction, images),
       queueMessage: (text, images) =>
-        submit(
-          text,
-          [],
-          [],
-          { intent: "queued" },
-          {
-            attachments: (images ?? []).map((url) => ({
-              type: "image",
-              name: "image",
-              url,
-            })),
-          },
-        ),
+        (async () => {
+          try {
+            return await submit(
+              text,
+              [],
+              [],
+              { intent: "queued" },
+              {
+                attachments: (images ?? []).map((url) => ({
+                  type: "image",
+                  name: "image",
+                  url,
+                })),
+              },
+            );
+          } catch (error) {
+            const rejected = setupSubmissionResult(error);
+            if (rejected) return rejected;
+            throw error;
+          }
+        })(),
       isRunning: isThreadRunning,
       hasInFlightWork: () =>
         Object.values(thread.tools).some((tool) => tool.status === "running") ||
@@ -3191,7 +3059,6 @@ const AgentKitAssistantChatBody = forwardRef<
       },
     }),
     [
-      beforeSubmit,
       contextItems,
       implementPlan,
       props.apiUrl,
@@ -3249,7 +3116,6 @@ const AgentKitAssistantChatBody = forwardRef<
     onTextChange: onComposerTextChange,
     onRemoveContextItem: removeContextItem,
     onClearSelection: requestPendingSelectionClear,
-    onBeforeSubmit: beforeSubmit,
     onSubmit: submitPrepared,
     sendMessage: send,
     sendRecoveryMessage,
@@ -3803,6 +3669,7 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
             isSubmissionBlocked={!surface.canChat}
             providerStatus={surface.providerStatus}
             modelListUnavailable={surface.modelListUnavailable}
+            showProviderStatusGate={!composerShowsSetupCard(surface)}
             onRetryProviderStatus={
               surface.modelListUnavailable
                 ? surface.retryModelList
@@ -3956,7 +3823,6 @@ function AgentKitComposerSurface({
   onTextChange,
   onRemoveContextItem,
   onClearSelection,
-  onBeforeSubmit,
   onSubmit,
   submitSuggestion,
   suggestionSubmitRef,
@@ -3993,7 +3859,6 @@ function AgentKitComposerSurface({
   onTextChange: (text: string) => void;
   onRemoveContextItem: (key: string) => void;
   onClearSelection: () => void;
-  onBeforeSubmit: () => Promise<boolean>;
   onSubmit: AgentKitComposerSubmit;
   threadRestore:
     | { status: "ready" | "loading" }
@@ -4028,12 +3893,11 @@ function AgentKitComposerSurface({
   const submissionScope = JSON.stringify([
     threadId,
     props.tabId,
-    props.contextScope,
+    props.contextScope?.type ?? null,
+    props.contextScope?.id ?? null,
   ]);
   const currentSubmissionScope = useRef(submissionScope);
   currentSubmissionScope.current = submissionScope;
-  const currentProviderStatus = useRef(providerStatus);
-  currentProviderStatus.current = providerStatus;
   const { controller } = useAgentKit();
   const composerRef = useRef<TiptapComposerHandle>(null);
   const selectedSuggestionRef = useRef<
@@ -4045,7 +3909,6 @@ function AgentKitComposerSurface({
     references: Reference[],
     options: AgentKitSuggestionSubmitOptions,
   ) => {
-    const submissionProviderStatus = currentProviderStatus.current;
     options = {
       ...options,
       ...(selectedSuggestionRef.current
@@ -4057,8 +3920,7 @@ function AgentKitComposerSurface({
       if (
         !submissionAllowed.current ||
         !mounted.current ||
-        currentSubmissionScope.current !== submissionScope ||
-        currentProviderStatus.current !== submissionProviderStatus
+        currentSubmissionScope.current !== submissionScope
       ) {
         throw new Error(t("agentChat.error.failed"));
       }
@@ -4242,7 +4104,9 @@ function AgentKitComposerSurface({
           onSwitchToAct={() => props.onExecModeChange?.("build")}
         />
       ) : null}
-      {setupMissing && props.showMissingApiKeySetup !== false ? (
+      {setupMissing &&
+      props.showMissingApiKeySetup !== false &&
+      props.setupCardOwner !== "host" ? (
         <BuilderSetupCard
           fullWidth
           attached
@@ -4279,6 +4143,7 @@ function AgentKitComposerSurface({
       <div className="relative">
         <AgentKitComposer
           threadId={threadId}
+          requireAgentEngine
           disabled={
             (!canChat && !providerSubmissionPending) ||
             props.composerDisabled ||
@@ -4303,9 +4168,8 @@ function AgentKitComposerSurface({
           }
           initialText={text}
           initialTextKey={`${props.tabId ?? threadId}:${prefillRevision}`}
-          requireAgentEngine={false}
+          showMissingApiKeySetup={false}
           onTextChange={onTextChange}
-          onBeforeSubmit={onBeforeSubmit}
           announcePendingSubmission={!isThinkingVisibleInTranscript}
           onSubmissionPendingChange={onComposerSubmissionPendingChange}
           contextItems={visibleContextItems}
@@ -4368,23 +4232,7 @@ function AgentKitComposerSurface({
               {props.composerToolbarSlot}
             </>
           }
-          extraActionButton={
-            <>
-              {props.composerExtraActionButton}
-              {composerSubmissionPending ? (
-                <span
-                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
-                  role="status"
-                  aria-live="polite"
-                  aria-label={t("agentChat.common.waiting")}
-                  data-testid="provider-preflight-pending"
-                >
-                  <IconLoader2 className="size-3.5 animate-spin motion-reduce:animate-none" />
-                  <span>{t("agentChat.common.waiting")}</span>
-                </span>
-              ) : null}
-            </>
-          }
+          extraActionButton={props.composerExtraActionButton}
           includeDefaultSlashCommands
           includeDefaultSlashSkills
           onSlashCommand={props.onSlashCommand}
@@ -4859,6 +4707,15 @@ function AgentKitRunFailure({
       run.id !== runId &&
       Boolean(run.startedAt && supersededAt && run.startedAt > supersededAt),
   );
+  const newerCreditsLimitRun =
+    isCreditsLimitErrorCode(error.code) &&
+    Object.values(thread.runs).some(
+      (run) =>
+        run.id !== runId &&
+        isCreditsLimitErrorCode(run.error?.code) &&
+        ((run.startedAt ?? "") > (supersededAt ?? "") ||
+          ((run.startedAt ?? "") === (supersededAt ?? "") && run.id > runId)),
+    );
   const lastUserMessage = [...thread.messages]
     .reverse()
     .find((message) => message.role === "user");
@@ -4881,16 +4738,16 @@ function AgentKitRunFailure({
   );
   // A refusal the user already moved past is stale; any other failure keeps
   // its Retry so a reloaded thread never shows an unanswered prompt.
-  if (dismissed === runId) return null;
+  if (dismissed === runId || newerCreditsLimitRun) return null;
   if (setupFailure) {
-    if (superseded || alreadyRetried || composerShowsSetupCard(surface)) {
+    if (superseded || alreadyRetried) {
       return null;
     }
+    if (composerShowsSetupCard(surface)) return null;
     return (
       <BuilderSetupCard
         fullWidth
-        attached
-        layout={surface.props.missingApiKeySetupLayout ?? "default"}
+        layout="default"
         onConnected={() => {
           window.dispatchEvent(new Event("agent-engine:configured-changed"));
           resumeAfterSetup();
@@ -4924,7 +4781,9 @@ function AgentKitRunFailure({
       ? undefined
       : () => {
           setContinueFailed(false);
-          control.continueRun(runId).catch(() => setContinueFailed(true));
+          void (async () => {
+            await control.continueRun(runId);
+          })().catch(() => setContinueFailed(true));
         }
     : () =>
         void surface.sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue");
@@ -5142,14 +5001,6 @@ function wasRetried(
   });
 }
 
-/**
- * The composer's own setup card covers a refusal only where it renders: hosts
- * that hide it (Slides home shows a page-level card) still need the thread's.
- */
-function composerShowsSetupCard(surface: AgentKitSurfaceContextValue) {
-  return surface.setupMissing && surface.props.showMissingApiKeySetup !== false;
-}
-
 /** A refusal the user fixes by connecting Builder or adding a provider key. */
 function isAiSetupRunFailure(error: {
   code: string;
@@ -5264,12 +5115,12 @@ function AgentKitRefusedPromptSetup({ threadId }: { threadId: string }) {
       !retryRequest.hasUnavailableAttachment,
     () => sendRetryRequest(surface, retryRequest, refusedRunId!, true),
   );
-  if (alreadyRetried || composerShowsSetupCard(surface)) return null;
+  if (composerShowsSetupCard(surface)) return null;
+  if (alreadyRetried) return null;
   return (
     <BuilderSetupCard
       fullWidth
-      attached
-      layout={surface.props.missingApiKeySetupLayout ?? "default"}
+      layout="default"
       onConnected={() => {
         window.dispatchEvent(new Event("agent-engine:configured-changed"));
         resume();
@@ -5278,6 +5129,16 @@ function AgentKitRefusedPromptSetup({ threadId }: { threadId: string }) {
         refused && !retryRequest.hasUnavailableAttachment ? resume : undefined
       }
     />
+  );
+}
+
+function composerShowsSetupCard(
+  surface: Pick<AgentKitSurfaceContextValue, "setupMissing" | "props">,
+): boolean {
+  return (
+    surface.setupMissing &&
+    (surface.props.showMissingApiKeySetup !== false ||
+      surface.props.setupCardOwner === "host")
   );
 }
 
@@ -5519,9 +5380,30 @@ async function attachmentToFile(
 const ATTACHMENT_UNREADABLE_SUBMIT_REASON = "attachment-unreadable";
 
 function submitFailureReason(error: unknown): string {
-  return asRecord(error)?.code === ATTACHMENT_UNREADABLE_SUBMIT_REASON
-    ? ATTACHMENT_UNREADABLE_SUBMIT_REASON
-    : "submission-failed";
+  const record = asRecord(error);
+  if (record?.code === ATTACHMENT_UNREADABLE_SUBMIT_REASON) {
+    return ATTACHMENT_UNREADABLE_SUBMIT_REASON;
+  }
+  if (record?.code === "AGENT_CHAT_AI_SETUP_REQUIRED") {
+    return record.state === "missing"
+      ? "engine-not-configured"
+      : "submission-unavailable";
+  }
+  return "submission-failed";
+}
+
+function setupSubmissionResult(
+  error: unknown,
+): AssistantChatSubmitResult | undefined {
+  const record = asRecord(error);
+  if (record?.code !== "AGENT_CHAT_AI_SETUP_REQUIRED") return undefined;
+  return {
+    status: "rejected",
+    reason:
+      record.state === "missing"
+        ? "engine-not-configured"
+        : "submission-unavailable",
+  };
 }
 
 interface UploadedAgentChatAttachments {
