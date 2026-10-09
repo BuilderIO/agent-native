@@ -17,9 +17,11 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  forwardRef,
   memo,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useRef,
   useState,
   type ReactNode,
@@ -79,7 +81,14 @@ type FigImportPreview = PreparedFigImport["summary"] & {
   fileName: string;
 };
 
-export function DesignImportPanel(p: DesignImportPanelProps) {
+export interface DesignImportPanelHandle {
+  importFile: (file: File) => void;
+}
+
+export const DesignImportPanel = forwardRef<
+  DesignImportPanelHandle,
+  DesignImportPanelProps
+>(function DesignImportPanel(p, ref) {
   const context = p.context;
   const onImport = p.onImport;
   const onImportRef = useRef(onImport);
@@ -573,6 +582,34 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     figUploadBusy ||
     Boolean(figImportPreview) ||
     figmaConnectionBusy;
+
+  const importReservedRef = useRef(false);
+  useImperativeHandle(
+    ref,
+    () => ({
+      importFile: (file) => {
+        if (busy || importReservedRef.current) {
+          toast.error(t("designEditor.import.errors.importBusy"));
+          return;
+        }
+        if (/\.fig$/i.test(file.name)) {
+          importReservedRef.current = true;
+          void handleFigFileChange(file).finally(() => {
+            importReservedRef.current = false;
+          });
+        } else if (/\.html?$/i.test(file.name)) {
+          importReservedRef.current = true;
+          void handleHtmlFileChange(file).finally(() => {
+            importReservedRef.current = false;
+          });
+        } else
+          toast.error(t("designEditor.import.errors.uploadFailed"), {
+            description: t("designEditor.import.errors.unsupportedFileType"),
+          });
+      },
+    }),
+    [busy, handleFigFileChange, handleHtmlFileChange, t],
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
@@ -1110,7 +1147,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       </div>
     </div>
   );
-}
+});
 
 const FigImportFrameRow = memo(function FigImportFrameRow({
   frame,

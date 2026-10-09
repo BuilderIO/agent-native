@@ -1524,6 +1524,8 @@ export default {
     replayPlayer: "Wiedergabe-Player",
     replayLoading: "Wiedergabe wird geladen...",
     replayLoadingProgress: "{{loaded}} von {{total}} Wiedergabe-Chunks geladen",
+    replayTargetFallback:
+      "Der angeforderte Aufnahmezeitpunkt ({{requested}}) ist nicht verfügbar; das nächste Replay-Bild bei {{available}} wird angezeigt.",
     replayUnavailable: "Keine Wiedergabe-Chunks für diese Sitzung",
     replayUnavailableDescription:
       "Die Sitzung enthält Analytics-Ereignisse, aber keine rrweb-Chunk-Ereignisse.",
@@ -1667,8 +1669,12 @@ export default {
       "Design hat kein Storyboard-Ergebnis zurückgegeben.",
     storyboardTemporaryCleanupPending:
       "Das Storyboard wurde gespeichert, aber temporäre Screenshots konnten nicht entfernt werden.",
+    storyboardTemporaryCleanupFailed:
+      "Die Bereinigung der temporären Screenshots steht noch aus.",
     storyboardUnexpectedResponse:
       "Der Screenshot-Export hat eine unlesbare Antwort zurückgegeben. Bitte erneut versuchen.",
+    storyboardSaveOutcomeUnknown:
+      "Design hat das Storyboard möglicherweise gespeichert. Prüfen Sie Design, bevor Sie es erneut versuchen.",
     openStoryboard: "Storyboard in Design öffnen",
     cancelStoryboardCapture: "Aufnahme abbrechen",
     captureToDesign: "Aufnehmen und zu Design hinzufügen",

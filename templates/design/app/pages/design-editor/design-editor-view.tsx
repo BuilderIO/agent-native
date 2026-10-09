@@ -77,6 +77,7 @@ import {
   buildSignInHrefForDesignIntent,
 } from "./editor-helpers";
 import { resolveLocalhostSourceWriteContent } from "./editor-state";
+import { resolveLeftSidebarWidth } from "./left-sidebar-width";
 import { hasMinimalInspectorSelection } from "./minimal-inspector";
 import { mergePresenceUsers } from "./presence-users";
 import { getDesignBottomToolbarMode } from "./tool-state";
@@ -841,8 +842,15 @@ export function renderDesignEditorView({
 
   const projectTitleControl = renderProjectTitleControl({
     editorCore,
+    editorHistory,
     editorGenerationAndAccess,
     editorFilesAndSaving,
+    editorActiveScreenAndGeometry,
+    editorLiveEditsAndPresence,
+    editorLayoutAndStructure,
+    editorContentAndComponents,
+    editorExportAndHandoff,
+    editorSourceAndSync,
     design,
   });
 
@@ -881,6 +889,7 @@ export function renderDesignEditorView({
       editorCore,
       editorActiveScreenAndGeometry,
       editorCanvasAndScreens,
+      editorLayoutAndStructure,
       editorModes,
       editorScreenRendering,
       controlId,
@@ -1115,13 +1124,10 @@ export function renderDesignEditorView({
       floating,
     });
 
-  const leftContentWidth =
-    activeLeftPanel === "code"
-      ? Math.max(leftSidebarWidth, 640)
-      : Math.max(
-          Math.min(leftSidebarWidth, 420),
-          activeLeftPanel === "agent" ? 320 : 220,
-        );
+  const leftContentWidth = resolveLeftSidebarWidth(
+    leftSidebarWidth,
+    activeLeftPanel,
+  );
   const leftSidebarVisible = !hostOwnsChrome && !uiHidden && !minimalUi;
   const leftChromeOverlayInset = leftSidebarVisible
     ? `calc(var(--design-chrome-rail-width) + ${activeLeftPanel ? leftContentWidth : 0}px)`

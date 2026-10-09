@@ -78,7 +78,6 @@
 
 @container agent-native-main (min-width: 720px) {
   .dispatch-connection-meta-grid,
-  .dispatch-integrations-summary-grid,
   .dispatch-onboarding-steps-grid,
   .dispatch-provider-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -105,19 +104,12 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .dispatch-integrations-summary-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
   .dispatch-onboarding-steps-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
 @container agent-native-main (min-width: 1240px) {
-  .dispatch-integrations-summary-grid[data-usage-tracked="true"] {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
 }
 
 ::-webkit-scrollbar {

@@ -153,6 +153,7 @@ const messages = {
   recordingPage: {
     back: "Back",
     done: "Done",
+    backToClip: "Back to clip",
     untitledClip: "Untitled Clip",
     recordingNotFound: "Recording not found",
     noAccess: "You may not have access to this clip.",
@@ -188,6 +189,8 @@ const messages = {
     silenceWorking: "Removing silences…",
     silenceCompleted: "Silence removal complete",
     silenceFailed: "Silence removal failed",
+    silenceEditsUnreadable:
+      "Saved edits couldn't be read, so silence removal wasn't applied.",
     workflowQueued: "Generating workflow…",
     pageTitle: "Clip recording · Clips",
     loomMissingUrl: "This Loom recording is missing its source URL.",
@@ -1269,6 +1272,10 @@ const messages = {
     burningRedactionsPercent:
       "Rendering the redactions into the video… {{percent}}%",
     editFailed: "Could not save that edit",
+    refreshFailed: "Couldn't load the latest edits. Try again before editing.",
+    autoSaveHint: "Edits save to this clip automatically",
+    savingChanges: "Saving changes…",
+    changesSaved: "Changes saved to this clip",
     nothingToRedo: "Nothing to redo",
   },
   transcriptEditor: {

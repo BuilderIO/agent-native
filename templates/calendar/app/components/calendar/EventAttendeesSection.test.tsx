@@ -13,8 +13,12 @@ const rsvpMutate = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
-    (key: string, values?: { count?: number }): string =>
-      values?.count === undefined ? key : `${key}:${values.count}`,
+    (key: string, values?: { count?: number; name?: string }): string =>
+      values?.count !== undefined
+        ? `${key}:${values.count}`
+        : values?.name
+          ? `${key}:${values.name}`
+          : key,
 }));
 
 vi.mock("@/components/calendar/ApolloPanel", () => ({
@@ -198,6 +202,44 @@ describe("EventAttendeesSection attendee controls", () => {
     expect(reviewLink).toBeTruthy();
     expect(reviewLink?.getAttribute("href")).toBe(googleCalendarLink);
     expect(reviewLink?.getAttribute("target")).toBe("_blank");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "eventForm.newTimeProposedBy:Guest",
+    );
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "Proposal: Sep 11, 1-1:30pm",
+    );
+
+    act(() => {
+      root.render(
+        <EventAttendeesSection
+          event={{ ...organizerEvent, htmlLink: undefined }}
+        />,
+      );
+    });
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      "eventForm.newTimeProposedBy:Guest",
+    );
+    expect(
+      Array.from(document.querySelectorAll("a")).some(
+        (link) => link.textContent === "eventForm.reviewProposedTime",
+      ),
+    ).toBe(false);
+
+    const organizerWithoutProposal: CalendarEvent = {
+      ...organizerEvent,
+      attendees: organizerEvent.attendees?.map((attendee) => ({
+        ...attendee,
+        comment: undefined,
+      })),
+    };
+    act(() => {
+      root.render(<EventAttendeesSection event={organizerWithoutProposal} />);
+    });
+    expect(
+      Array.from(document.querySelectorAll("a")).some(
+        (link) => link.textContent === "eventForm.reviewTimeProposals",
+      ),
+    ).toBe(true);
 
     const attendeeEvent: CalendarEvent = {
       ...organizerEvent,

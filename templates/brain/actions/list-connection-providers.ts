@@ -127,7 +127,7 @@ function dispatchIntegrationsHref(
   const base = dispatchHref
     .replace(/\/(?:overview|apps)\/?$/, "")
     .replace(/\/$/, "");
-  const path = `integrations?${params.toString()}`;
+  const path = `settings/integrations?${params.toString()}`;
   try {
     return new URL(path, `${base}/`).toString();
   } catch {

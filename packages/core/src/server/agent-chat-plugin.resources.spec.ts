@@ -398,6 +398,48 @@ async function fetchWithRequestContext(
 }
 
 describe("agent chat queued-message route", () => {
+  it("rejects data URL attachment references before durable queue mutation", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-queued-data-url";
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: {
+            type: "append",
+            message: {
+              id: "queued-data-url",
+              threadId,
+              text: "Inspect this image",
+              createdAt: new Date().toISOString(),
+              requestAttachments: [
+                {
+                  type: "image",
+                  name: "screen.png",
+                  url: "data:image/png;base64,iVBORw==",
+                },
+              ],
+            },
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid queue mutation" });
+    expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+  });
+
   it("returns a typed conflict when a claimed queue item was removed", async () => {
     const h3App = await mountResourceRoutes();
     const threadId = "thread-claim-race";
@@ -1211,21 +1253,23 @@ describe("loadResourcesForPrompt", () => {
   });
 
   it("assembles the same inherited workspace context for every app without sync writes", async () => {
-    const analyticsPrompt = await loadResourcesForPrompt(
-      "user@example.test",
-      false,
-      "analytics",
+    const analyticsPrompt = await runWithRequestContext(
+      { userEmail: "user@example.test" },
+      () => loadResourcesForPrompt("user@example.test", false, "analytics"),
     );
-    const mailPrompt = await loadResourcesForPrompt(
-      "user@example.test",
-      false,
-      "mail",
+    const mailPrompt = await runWithRequestContext(
+      { userEmail: "user@example.test" },
+      () => loadResourcesForPrompt("user@example.test", false, "mail"),
     );
 
     expect(analyticsPrompt).toBe(mailPrompt);
     expect(mocks.resourcePut).not.toHaveBeenCalled();
-    expect(mocks.discoverAgents).toHaveBeenCalledWith("analytics");
-    expect(mocks.discoverAgents).toHaveBeenCalledWith("mail");
+    expect(mocks.discoverAgents).toHaveBeenCalledWith("analytics", {
+      includePersonalAgents: true,
+    });
+    expect(mocks.discoverAgents).toHaveBeenCalledWith("mail", {
+      includePersonalAgents: true,
+    });
 
     expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
       "__workspace__",

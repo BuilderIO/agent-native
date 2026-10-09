@@ -218,6 +218,7 @@ const messages = {
   recordingPage: {
     back: "Atrás",
     done: "Listo",
+    backToClip: "Volver al clip",
     untitledClip: "Clip sin título",
     recordingNotFound: "Grabación no encontrada",
     noAccess: "Es posible que no tengas acceso a este clip.",
@@ -316,6 +317,8 @@ const messages = {
     silenceWorking: "Eliminando silencios…",
     silenceCompleted: "Eliminación de silencios completada",
     silenceFailed: "No se pudieron eliminar los silencios",
+    silenceEditsUnreadable:
+      "No se pudieron leer las ediciones guardadas, así que no se eliminaron los silencios.",
     generatePrSummary: "Generar resumen de relaciones públicas",
     generateSop: "Generar SOP",
     generateSopTooltip:
@@ -1369,6 +1372,11 @@ const messages = {
     burningRedactionsPercent:
       "Aplicando las difuminaciones al vídeo… {{percent}} %",
     editFailed: "No se ha podido guardar ese cambio",
+    refreshFailed:
+      "No se pudieron cargar los cambios más recientes. Vuelve a intentarlo antes de editar.",
+    autoSaveHint: "Los cambios se guardan automáticamente en este clip",
+    savingChanges: "Guardando cambios…",
+    changesSaved: "Cambios guardados en este clip",
     nothingToRedo: "Nada que rehacer",
   },
   transcriptEditor: {

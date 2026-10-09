@@ -5,8 +5,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { reconcileResponseDeliveries } from "../server/handlers/submissions.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.edit", "responseId"),
   description:
     "Retry failed or pending deliveries for a saved response using its immutable delivery snapshot. The form may be unpublished or archived; pass the response ID.",
   schema: z.object({

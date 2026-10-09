@@ -51,4 +51,30 @@ describe("splitAgentKitMessageContext", () => {
       splitAgentKitMessageContext("Only my words <context>unfinished context"),
     ).toEqual({ message: "Only my words", context: "unfinished context" });
   });
+
+  it("preserves context-like tag names before a canonical encoded block", () => {
+    const message =
+      "A <context-menu>x</context-menu> <Context.Provider>y</Context.Provider>";
+    const text = `${message}\n\n<context data-agentkit-context-encoding="entities-v1">\nprivate &lt;context>\n</context>`;
+
+    expect(splitAgentKitMessageContext(text)).toEqual({
+      message,
+      context: "private <context>",
+    });
+  });
+
+  it("ignores closed and unclosed lookalike tag names", () => {
+    const closed =
+      "Keep <context-menu>visible</context-menu> and <Context.Provider>visible</Context.Provider>.";
+    const unclosed = "Keep <context-menu>visible and <Context.Provider>visible";
+
+    expect(splitAgentKitMessageContext(closed)).toEqual({
+      message: closed,
+      context: "",
+    });
+    expect(splitAgentKitMessageContext(unclosed)).toEqual({
+      message: unclosed,
+      context: "",
+    });
+  });
 });

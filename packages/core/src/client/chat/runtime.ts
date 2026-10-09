@@ -9,6 +9,7 @@ import {
 import type { AgentChatStructuredMessage } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
+import { getOrCreateAnalyticsSessionId } from "../analytics-session.js";
 import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import {
@@ -128,8 +129,10 @@ export interface AgentChatRuntimeMessage<
 
 export interface AgentChatRuntimeAttachment {
   readonly id?: string;
+  readonly type?: string;
   readonly name: string;
   readonly mediaType?: string;
+  readonly contentType?: string;
   readonly data?: string;
   readonly url?: string;
   readonly text?: string;
@@ -1777,6 +1780,7 @@ interface StructuredTextHistoryCandidate {
   position: number;
   role: "user" | "assistant";
   parts: StructuredTextPart[];
+  priority: number;
 }
 
 type StructuredHistoryCandidate =
@@ -2311,10 +2315,14 @@ function boundStructuredToolHistory(
     })),
   );
   candidates.sort((left, right) => {
-    const leftPriority =
-      left.kind === "tool" && left.candidate.priority ? 1 : 0;
-    const rightPriority =
-      right.kind === "tool" && right.candidate.priority ? 1 : 0;
+    const candidatePriority = (candidate: StructuredHistoryCandidate) =>
+      candidate.kind === "tool"
+        ? candidate.candidate.priority
+          ? 3
+          : 0
+        : candidate.candidate.priority;
+    const leftPriority = candidatePriority(left);
+    const rightPriority = candidatePriority(right);
     return leftPriority - rightPriority || left.position - right.position;
   });
 
@@ -2375,6 +2383,7 @@ interface StructuredHistorySourceMessage {
   message: AgentChatRuntimeMessage;
   parts: StructuredHistorySourcePart[];
   priority: boolean;
+  textPriority: number;
 }
 
 interface StructuredHistorySourceBoundary {
@@ -2422,6 +2431,7 @@ function boundedStructuredHistorySources(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
   supplementalMessages: readonly AgentChatRuntimeMessage[],
+  preservePreviousUserPrompt = false,
 ): BoundedStructuredHistorySources {
   const historyMessages = messages ?? [];
   let currentPromptMessageIndex: number | undefined;
@@ -2454,6 +2464,58 @@ function boundedStructuredHistorySources(
     }
   }
 
+  let firstUserPromptMessageIndex: number | undefined;
+  const historyWindowStart = Math.max(
+    0,
+    historyMessages.length - MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES,
+  );
+  for (
+    let index = historyWindowStart;
+    index < historyMessages.length;
+    index++
+  ) {
+    if (index === currentPromptMessageIndex) continue;
+    const message = historyMessages[index]!;
+    if (
+      message.role === "user" &&
+      message.content.some(
+        (part) =>
+          (part.type === "text" || part.type === "reasoning") &&
+          part.text.trim(),
+      )
+    ) {
+      firstUserPromptMessageIndex = index;
+      break;
+    }
+  }
+
+  let previousUserPromptMessageIndex: number | undefined;
+  if (preservePreviousUserPrompt) {
+    for (let index = historyMessages.length - 1; index >= 0; index--) {
+      if (index === currentPromptMessageIndex) continue;
+      const message = historyMessages[index]!;
+      if (
+        message.role === "user" &&
+        message.content.some(
+          (part) =>
+            (part.type === "text" || part.type === "reasoning") &&
+            part.text.trim(),
+        )
+      ) {
+        previousUserPromptMessageIndex = index;
+        break;
+      }
+    }
+  }
+  const protectedUserPromptMessageIndices = new Set(
+    [firstUserPromptMessageIndex, previousUserPromptMessageIndex].filter(
+      (index): index is number => index !== undefined,
+    ),
+  );
+  const regularTextPartLimit =
+    MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS -
+    protectedUserPromptMessageIndices.size;
+
   const selectedReversed: StructuredHistorySourceMessage[] = [];
   let selectedToolPartCount = 0;
   let selectedTextPartCount = 0;
@@ -2479,7 +2541,13 @@ function boundedStructuredHistorySources(
     }
     visitedMessageCount++;
     if (message.role !== "user" && message.role !== "assistant") return;
+    const isFirstUserPrompt =
+      list === "messages" && messageIndex === firstUserPromptMessageIndex;
+    const isPreviousUserPrompt =
+      list === "messages" && messageIndex === previousUserPromptMessageIndex;
+    const isProtectedUserPrompt = isFirstUserPrompt || isPreviousUserPrompt;
     const partsReversed: StructuredHistorySourcePart[] = [];
+    let protectedPromptTextAdded = false;
     for (
       let partIndex = message.content.length - 1;
       partIndex >= 0;
@@ -2499,6 +2567,33 @@ function boundedStructuredHistorySources(
         part.type === "tool-result";
       const isTextPart = part.type === "text" || part.type === "reasoning";
       if (!isToolPart && !isTextPart) continue;
+      if (isProtectedUserPrompt && isTextPart) {
+        if (!protectedPromptTextAdded) {
+          const text = message.content
+            .filter(
+              (candidate) =>
+                candidate.type === "text" || candidate.type === "reasoning",
+            )
+            .map((candidate) =>
+              candidate.type === "text" || candidate.type === "reasoning"
+                ? candidate.text
+                : "",
+            )
+            .join("\n");
+          if (text.trim()) {
+            if (
+              selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS
+            ) {
+              omitted = true;
+            } else {
+              selectedTextPartCount++;
+              partsReversed.push({ type: "text", text });
+            }
+          }
+          protectedPromptTextAdded = true;
+        }
+        continue;
+      }
       if (
         selectedToolPartCount >= MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS &&
         selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS
@@ -2518,7 +2613,7 @@ function boundedStructuredHistorySources(
         }
         selectedToolPartCount++;
       } else {
-        if (selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS) {
+        if (selectedTextPartCount >= regularTextPartLimit) {
           omitted = true;
           continue;
         }
@@ -2531,6 +2626,11 @@ function boundedStructuredHistorySources(
         message,
         parts: partsReversed.reverse(),
         priority: list === "supplemental",
+        textPriority: isPreviousUserPrompt
+          ? 2
+          : list === "supplemental"
+            ? 1
+            : 0,
       });
     }
   };
@@ -2722,6 +2822,7 @@ function nativeStructuredHistoryFromMessages(
   supplementalMessages: readonly AgentChatRuntimeMessage[] = [],
   supplementalHistoryOmitted = false,
   supplementalToolHistoryOmitted = false,
+  preservePreviousUserPrompt = false,
 ): AgentChatStructuredMessage[] | undefined {
   const structuredHistory: AgentChatStructuredMessage[] = [];
   const callCandidates: StructuredToolHistoryCandidate[] = [];
@@ -2735,6 +2836,7 @@ function nativeStructuredHistoryFromMessages(
     messages,
     currentPrompt,
     supplementalMessages,
+    preservePreviousUserPrompt,
   );
   const boundaryResultsToOmit = boundaryToolResultPartsToOmit(
     messages,
@@ -2743,7 +2845,7 @@ function nativeStructuredHistoryFromMessages(
     supplementalToolHistoryOmitted,
   );
 
-  for (const { message, parts, priority } of sources.messages) {
+  for (const { message, parts, priority, textPriority } of sources.messages) {
     if (message.role !== "user" && message.role !== "assistant") continue;
     const role = message.role;
     let content: AgentChatStructuredMessage["content"] = [];
@@ -2755,6 +2857,7 @@ function nativeStructuredHistoryFromMessages(
         position: toolHistoryPosition++,
         role,
         parts: pendingTextParts,
+        priority: textPriority,
       });
       pendingTextParts = [];
     };
@@ -3875,6 +3978,10 @@ export function createAgentNativeChatRuntime(
   const runtimeId = options.id ?? "agent-native";
   const fetchImpl = options.fetch ?? fetch;
   const streamingUrl = options.streamingUrl?.trim() || agentChatStreamingUrl();
+  const isSameOriginEndpoint = (url: string) => {
+    if (typeof window === "undefined") return false;
+    return new URL(url, window.location.href).origin === window.location.origin;
+  };
   let streamFallbackWarningShown = false;
   const runtimeFetch: FetchLike = streamingUrl
     ? async (input, init) => {
@@ -3922,6 +4029,9 @@ export function createAgentNativeChatRuntime(
 
         const headers = new Headers(init?.headers);
         headers.set("Authorization", `Bearer ${token}`);
+        if (!isSameOriginEndpoint(streamingUrl)) {
+          headers.delete("x-agent-native-session-id");
+        }
         try {
           return await fetchImpl(streamingUrl, {
             ...init,
@@ -3953,6 +4063,14 @@ export function createAgentNativeChatRuntime(
     headers: async (input) => {
       const headers = await resolveHeaders(options.headers, input);
       headers.set("x-agent-native-surface", options.surface ?? "app");
+      if (!isSameOriginEndpoint(apiUrl)) {
+        headers.delete("x-agent-native-session-id");
+      } else if (!headers.has("x-agent-native-session-id")) {
+        const browserSessionId = getOrCreateAnalyticsSessionId();
+        if (browserSessionId) {
+          headers.set("x-agent-native-session-id", browserSessionId);
+        }
+      }
       return headers;
     },
     capabilities: {
@@ -4023,6 +4141,8 @@ export function createAgentNativeChatRuntime(
         pendingApprovalHistory.messages,
         pendingApprovalHistory.omitted,
         pendingApprovalHistory.toolHistoryOmitted,
+        turn.metadata?.[AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY] ===
+          true,
       );
       return {
         message: prompt,

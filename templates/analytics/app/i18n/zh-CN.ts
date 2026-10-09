@@ -1421,6 +1421,8 @@ export default {
     replayPlayer: "回放播放器",
     replayLoading: "正在加载回放...",
     replayLoadingProgress: "已加载 {{loaded}} / {{total}} 个回放分块",
+    replayTargetFallback:
+      "无法显示请求的录制偏移 {{requested}}；当前显示的是 {{available}} 处最接近的回放帧。",
     replayUnavailable: "此会话没有回放分块",
     replayUnavailableDescription: "此会话有分析事件，但未找到 rrweb 分块事件。",
     unavailableChunks: "{{count}} replay segments could not be loaded.",
@@ -1543,7 +1545,10 @@ export default {
       "回放 {{replayId}} 在 {{timestamp}} 时的路由不可用。",
     storyboardNoDesignResponse: "Design 未返回故事板结果。",
     storyboardTemporaryCleanupPending: "故事板已保存，但无法删除临时截图文件。",
+    storyboardTemporaryCleanupFailed: "临时截图清理仍在等待处理。",
     storyboardUnexpectedResponse: "截图导出返回了无法读取的响应。请重试。",
+    storyboardSaveOutcomeUnknown:
+      "Design 可能已保存故事板。重试前请先检查 Design。",
     openStoryboard: "在 Design 中打开故事板",
     cancelStoryboardCapture: "取消捕获",
     captureToDesign: "捕获并添加到 Design",

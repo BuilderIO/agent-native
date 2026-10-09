@@ -1529,6 +1529,8 @@ export default {
     replayLoading: "Chargement de la relecture...",
     replayLoadingProgress:
       "{{loaded}} sur {{total}} fragments de relecture chargés",
+    replayTargetFallback:
+      "Le décalage demandé ({{requested}}) n’est pas disponible ; l’image du replay la plus proche à {{available}} est affichée.",
     replayUnavailable:
       "Aucun fragment de relecture n'est disponible pour cette session",
     replayUnavailableDescription:
@@ -1672,8 +1674,12 @@ export default {
       "Design n’a renvoyé aucun résultat de storyboard.",
     storyboardTemporaryCleanupPending:
       "Le storyboard a été enregistré, mais les captures temporaires n’ont pas pu être supprimées.",
+    storyboardTemporaryCleanupFailed:
+      "Le nettoyage des captures temporaires est toujours en attente.",
     storyboardUnexpectedResponse:
       "L’export des captures a renvoyé une réponse illisible. Réessayez.",
+    storyboardSaveOutcomeUnknown:
+      "Design a peut-être enregistré le storyboard. Vérifiez Design avant de réessayer.",
     openStoryboard: "Ouvrir le storyboard dans Design",
     cancelStoryboardCapture: "Annuler la capture",
     captureToDesign: "Capturer et ajouter à Design",

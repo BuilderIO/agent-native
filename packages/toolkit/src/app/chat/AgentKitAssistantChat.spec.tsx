@@ -1,12 +1,30 @@
 // @vitest-environment happy-dom
 
 import { AgentKitClient } from "@agent-native/agentkit/client";
-import type { AgentTransport } from "@agent-native/agentkit/protocol";
+import type {
+  FilePart,
+  AgentMessage,
+  AgentTransport,
+} from "@agent-native/agentkit/protocol";
 import React, { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
+
+function largePngBytes(
+  width = 2560,
+  height = 1440,
+  byteLength = 6_000_000,
+): Uint8Array {
+  const bytes = new Uint8Array(byteLength);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  bytes.set([0x49, 0x48, 0x44, 0x52], 12);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return bytes;
+}
 
 const chatMocks = vi.hoisted(() => ({
   history: undefined as any,
@@ -287,37 +305,43 @@ vi.mock("../agentkit/react/root.js", async () => {
   };
 });
 
-vi.mock("@agent-native/toolkit/composer", async () => ({
-  snapshotComposerContextItems: (
-    await import("../../composer/context-items.js")
-  ).snapshotComposerContextItems,
-  AgentSuggestionBar: (props: any) => {
-    chatMocks.suggestionBarProps = props;
-    if (chatMocks.realComposerController) {
-      return React.createElement(AgentSuggestionBar, props);
-    }
-    return React.createElement(
-      "div",
-      {
-        "data-testid": "agentkit-suggestion-bar",
-        className: (props as { className?: string }).className,
-      },
-      props.suggestions.map((suggestion: any) =>
-        React.createElement(
-          "button",
-          {
-            key: suggestion.id,
-            disabled: suggestion.disabled,
-            onClick: () => props.onSelect(suggestion),
-          },
-          suggestion.label,
+vi.mock("@agent-native/toolkit/composer", async () => {
+  const contextItems = await import("../../composer/context-items.js");
+  const promptAttachments =
+    await import("../../composer/prompt-attachments.js");
+  return {
+    AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES:
+      promptAttachments.AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
+    readAgentPromptAttachment: promptAttachments.readAgentPromptAttachment,
+    snapshotComposerContextItems: contextItems.snapshotComposerContextItems,
+    AgentSuggestionBar: (props: any) => {
+      chatMocks.suggestionBarProps = props;
+      if (chatMocks.realComposerController) {
+        return React.createElement(AgentSuggestionBar, props);
+      }
+      return React.createElement(
+        "div",
+        {
+          "data-testid": "agentkit-suggestion-bar",
+          className: (props as { className?: string }).className,
+        },
+        props.suggestions.map((suggestion: any) =>
+          React.createElement(
+            "button",
+            {
+              key: suggestion.id,
+              disabled: suggestion.disabled,
+              onClick: () => props.onSelect(suggestion),
+            },
+            suggestion.label,
+          ),
         ),
-      ),
-    );
-  },
-  agentSuggestionPrompt: (suggestion: any) =>
-    typeof suggestion === "string" ? suggestion : suggestion.prompt,
-}));
+      );
+    },
+    agentSuggestionPrompt: (suggestion: any) =>
+      typeof suggestion === "string" ? suggestion : suggestion.prompt,
+  };
+});
 
 vi.mock(
   "@agent-native/toolkit/composer/realtime-voice-transcript",
@@ -639,6 +663,7 @@ import {
 import { AgentKitActionWidget } from "./agentkit-chat/action-widget.js";
 import {
   AgentKitAssistantChat,
+  agentMessageTextFromParts,
   type AgentKitAssistantChatProps,
 } from "./AgentKitAssistantChat.js";
 import type {
@@ -859,7 +884,10 @@ describe("AgentKitAssistantChat host behavior", () => {
       parts: [
         {
           type: "text",
-          text: 'Summarize @[the sprint|resource:123]\n<context data-agentkit-context-encoding="entities-v1">Private context</context>',
+          text: appendAgentChatContextToMessage(
+            "Summarize @[the sprint|resource:123] <context>",
+            "Private context",
+          ),
         },
       ],
     };
@@ -902,7 +930,81 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     expect(savedSnapshots).toHaveBeenCalledWith(
       chatMocks.threadId,
-      expect.objectContaining({ title: "Summarize @the sprint" }),
+      expect.objectContaining({
+        title: "Summarize @the sprint <context>",
+        preview: "Summarize @[the sprint|resource:123] <context>",
+      }),
+    );
+  });
+
+  it("strips ambiguous text between legacy blocks across raw message parts", async () => {
+    const savedSnapshots = vi.fn();
+    const messageParts: AgentMessage["parts"] = [
+      {
+        type: "text",
+        text: "Summarize sprint <context>private first</context>ambiguous private",
+      },
+      {
+        type: "text",
+        text: " gap<context>private second</context> visible continuation",
+      },
+    ];
+    const message = {
+      id: "message-user-legacy-context",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-10-07T12:00:00.000Z",
+      parts: messageParts,
+    };
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      thread: {
+        id: chatMocks.threadId,
+        title: "",
+        createdAt: message.createdAt,
+        updatedAt: message.createdAt,
+      },
+      messages: [message],
+      events: [],
+      activeRunIds: [],
+      runs: {},
+      approvals: {},
+      approvalRunIds: {},
+      connectionRequests: {},
+      connectionRequestRunIds: {},
+      tools: {},
+      activities: {},
+      queuedMessages: [],
+      tasks: {},
+      taskGroups: {},
+      widgets: {},
+      widgetMessageIds: {},
+      annotations: {},
+      annotationMessageIds: {},
+      agents: {},
+      agentInteractions: [],
+      artifacts: [],
+    };
+
+    const props = baseProps({
+      onSaveThread: savedSnapshots,
+      runtime: {} as never,
+    });
+    await mount(props);
+    await act(async () => root.render(null));
+
+    expect(agentMessageTextFromParts(messageParts)).toBe(
+      "Summarize sprint  visible continuation",
+    );
+    expect(savedSnapshots).toHaveBeenCalledWith(
+      chatMocks.threadId,
+      expect.objectContaining({
+        title: "Summarize sprint visible continuation",
+        preview: "Summarize sprint  visible continuation",
+      }),
+    );
+    expect(savedSnapshots.mock.calls[0]?.[1].preview).not.toContain(
+      "ambiguous private",
     );
   });
 
@@ -1480,6 +1582,14 @@ describe("AgentKitAssistantChat host behavior", () => {
       children,
     }: AssistantChatComposerContextProviderProps) => children(context);
     const file = new File(["image"], "reference.png", { type: "image/png" });
+    chatMocks.control.uploadFiles.mockResolvedValueOnce([
+      {
+        type: "file",
+        name: file.name,
+        mediaType: file.type,
+        url: "https://files.example.test/reference.png",
+      },
+    ]);
     chatMocks.pendingFiles = [file];
     chatMocks.pendingReferences = [{ type: "file", path: "/reference.md" }];
     await mount(baseProps({ composerContextProvider: Provider }));
@@ -1592,7 +1702,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     const props = baseProps({ composerContextProvider: Provider });
     const file = new File(["image"], "keep.png", { type: "image/png" });
     chatMocks.pendingFiles = [file];
-    const uploading = Promise.withResolvers<[]>();
+    const uploading = Promise.withResolvers<FilePart[]>();
     chatMocks.control.uploadFiles.mockReturnValueOnce(uploading.promise);
     await mount(props);
     await act(async () =>
@@ -1606,7 +1716,16 @@ describe("AgentKitAssistantChat host behavior", () => {
     await act(async () =>
       root.render(<AgentKitAssistantChat {...props} threadId="thread-2" />),
     );
-    await act(async () => uploading.resolve([]));
+    await act(async () =>
+      uploading.resolve([
+        {
+          type: "file",
+          name: "keep.png",
+          mediaType: "image/png",
+          url: "https://files.example.test/keep.png",
+        },
+      ]),
+    );
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
     expect(context.submissionAccepted).not.toHaveBeenCalled();
     expect(chatMocks.pendingFiles).toEqual([file]);
@@ -2744,6 +2863,30 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("uses the data URL MIME for image parts sent through AgentKit", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const imageUrl = "data:image/png;base64,aGVsbG8=";
+
+    await act(async () => {
+      await ref.current?.sendMessage("Use this image", [imageUrl]);
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Use this image",
+        attachments: [
+          {
+            type: "file",
+            name: "image",
+            mediaType: "image/png",
+            url: imageUrl,
+          },
+        ],
+      }),
+    );
+  });
+
   it("uploads composer files once and keeps pasted text in the prompt", async () => {
     await mount(baseProps());
     const image = new File(["image bytes"], "slide-image.png", {
@@ -2814,6 +2957,379 @@ describe("AgentKitAssistantChat host behavior", () => {
       text: "Summarize this pasted text:\n\nFull pasted document text",
       attachments: [],
     });
+  });
+
+  it("validates a composer submission before uploading its files", async () => {
+    const items = [
+      { key: "figma", title: "Figma", context: "Authorized reference" },
+    ];
+    const prepare = Promise.withResolvers<typeof items>();
+    const context: AssistantChatComposerContext = {
+      menuItems: [],
+      contextItems: items,
+      onRemoveContextItem: vi.fn(),
+      prepareSubmission: vi.fn(() => prepare.promise),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    const firstScope = { type: "design", id: "first" };
+    await mount(
+      baseProps({
+        contextScope: firstScope,
+        composerContextProvider: Provider,
+      }),
+    );
+    const file = new File(["image bytes"], "reference.png", {
+      type: "image/png",
+    });
+    let submission!: Promise<void>;
+    let rejection!: Promise<void>;
+
+    await act(async () => {
+      submission = chatMocks.composerProps.onSubmit(
+        "Use this reference",
+        [file],
+        [],
+        { intent: "immediate" },
+      );
+      await vi.waitFor(() =>
+        expect(context.prepareSubmission).toHaveBeenCalledOnce(),
+      );
+    });
+    rejection = expect(submission).rejects.toThrow("agentChat.error.failed");
+
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({
+            contextScope: { type: "design", id: "second" },
+            composerContextProvider: Provider,
+          })}
+        />,
+      );
+      prepare.resolve(items);
+    });
+
+    await rejection;
+    expect(chatMocks.control.uploadFiles).not.toHaveBeenCalled();
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("stores only a durable URL for the resized image used by retry", async () => {
+    const bitmap = {
+      width: 2560,
+      height: 1440,
+      close: vi.fn(),
+    } as unknown as ImageBitmap;
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+      save: vi.fn(),
+      fillRect: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      (callback, type) =>
+        callback(new Blob(["resized pixels"], { type: type ?? "image/png" })),
+    );
+    const original = {
+      type: "file" as const,
+      name: "reference.png",
+      mediaType: "image/png",
+      url: "https://files.example.test/reference.png",
+    };
+    const resized = {
+      type: "file" as const,
+      name: "reference.png",
+      mediaType: "image/png",
+      url: "https://files.example.test/reference-resized.png",
+    };
+    chatMocks.control.uploadFiles
+      .mockResolvedValueOnce([original])
+      .mockResolvedValueOnce([resized]);
+    await mount(baseProps());
+    const file = new File([largePngBytes()], "reference.png", {
+      type: "image/png",
+    });
+
+    await act(async () => {
+      await chatMocks.composerProps.onSubmit("Use this reference", [file], [], {
+        intent: "immediate",
+      });
+    });
+
+    expect(bitmap.close).toHaveBeenCalledOnce();
+    expect(chatMocks.control.uploadFiles).toHaveBeenCalledTimes(2);
+    const sent = chatMocks.control.sendMessage.mock.calls[0]?.[0] as any;
+    expect(sent.requestAttachments).toMatchObject([
+      {
+        type: "image",
+        name: "reference.png",
+        contentType: "image/png",
+        url: resized.url,
+        referenceUrl: original.url,
+      },
+    ]);
+    expect(sent.requestAttachments[0].data).toMatch(/^data:image\/png;base64,/);
+    expect(sent.metadata.custom.agentNativeRetryRequestAttachments).toEqual([
+      {
+        type: "image",
+        name: "reference.png",
+        contentType: "image/png",
+        url: resized.url,
+        referenceUrl: original.url,
+      },
+    ]);
+    expect(JSON.stringify(sent.metadata.custom)).not.toContain("data:image");
+  });
+
+  it("sends multiple resized images by durable URL without exceeding the inline payload cap", async () => {
+    const bitmap = {
+      width: 2560,
+      height: 1440,
+      close: vi.fn(),
+    } as unknown as ImageBitmap;
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+      save: vi.fn(),
+      fillRect: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      (callback, type) =>
+        callback(
+          new Blob([new Uint8Array(2 * 1024 * 1024)], {
+            type: type ?? "image/png",
+          }),
+        ),
+    );
+    const names = ["reference-1.png", "reference-2.png", "reference-3.png"];
+    const originals = names.map((name, index) => ({
+      type: "file" as const,
+      name,
+      mediaType: "image/png",
+      url: `https://files.example.test/original-${index}.png`,
+    }));
+    const resized = names.map((name, index) => ({
+      type: "file" as const,
+      name,
+      mediaType: "image/png",
+      url: `https://files.example.test/resized-${index}.png`,
+    }));
+    for (const original of originals) {
+      chatMocks.control.uploadFiles.mockResolvedValueOnce([original]);
+    }
+    chatMocks.control.uploadFiles.mockResolvedValueOnce(resized);
+    await mount(baseProps());
+    const files = names.map(
+      (name) =>
+        new File([largePngBytes()], name, {
+          type: "image/png",
+        }),
+    );
+
+    await act(async () => {
+      await chatMocks.composerProps.onSubmit(
+        "Use these references",
+        files,
+        [],
+        { intent: "immediate" },
+      );
+    });
+
+    const perImageDataUrlChars =
+      4 * Math.ceil((2 * 1024 * 1024) / 3) + "data:image/png;base64,".length;
+    expect(perImageDataUrlChars * files.length).toBeGreaterThan(6_000_000);
+    const sent = chatMocks.control.sendMessage.mock.calls[0]?.[0] as any;
+    expect(sent.requestAttachments).toEqual(
+      resized.map((attachment, index) => ({
+        type: "image",
+        name: attachment.name,
+        contentType: "image/png",
+        url: attachment.url,
+        referenceUrl: originals[index]!.url,
+      })),
+    );
+    expect(
+      sent.requestAttachments.every((attachment: any) => !attachment.data),
+    ).toBe(true);
+  });
+
+  it.each(["immediate", "queued"] as const)(
+    "sends resized vision bytes with a durable retry payload for %s when the original reference upload fails",
+    async (intent) => {
+      const bitmap = {
+        width: 2560,
+        height: 1440,
+        close: vi.fn(),
+      } as unknown as ImageBitmap;
+      vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+        clearRect: vi.fn(),
+        drawImage: vi.fn(),
+        save: vi.fn(),
+        fillRect: vi.fn(),
+        restore: vi.fn(),
+      } as unknown as CanvasRenderingContext2D);
+      vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+        (callback, type) =>
+          callback(new Blob(["resized pixels"], { type: type ?? "image/png" })),
+      );
+      const resized = {
+        type: "file" as const,
+        name: "reference.png",
+        mediaType: "image/png",
+        url: "https://files.example.test/reference-resized.png",
+      };
+      chatMocks.control.uploadFiles
+        .mockRejectedValueOnce(new Error("Raw storage provider failure"))
+        .mockResolvedValueOnce([resized]);
+      await mount(baseProps());
+      const file = new File([largePngBytes()], "reference.png", {
+        type: "image/png",
+      });
+
+      await act(async () => {
+        await chatMocks.composerProps.onSubmit(
+          "Use this reference",
+          [file],
+          [],
+          {
+            intent,
+          },
+        );
+      });
+
+      expect(bitmap.close).toHaveBeenCalledOnce();
+      expect(chatMocks.control.uploadFiles).toHaveBeenCalledTimes(2);
+      const sent = chatMocks.control.sendMessage.mock.calls[0]?.[0] as any;
+      expect(sent.requestAttachments).toEqual([
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,cmVzaXplZCBwaXhlbHM=",
+          url: resized.url,
+        },
+      ]);
+      expect(sent.queuedWhileRunActive).toBe(intent === "queued");
+      expect(sent.attachments).toEqual([]);
+      expect(sent.metadata.custom.agentNativeRetryRequestAttachments).toEqual([
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          url: resized.url,
+        },
+      ]);
+      expect(
+        sent.metadata.custom.agentNativeRetryAttachmentsUnavailable,
+      ).toBeUndefined();
+      expect(JSON.stringify(sent)).not.toContain(
+        "Raw storage provider failure",
+      );
+    },
+  );
+
+  it("sends a downscaled image without storage and marks retry unavailable", async () => {
+    const bitmap = {
+      width: 2560,
+      height: 1440,
+      close: vi.fn(),
+    } as unknown as ImageBitmap;
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+      save: vi.fn(),
+      fillRect: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      (callback, type) =>
+        callback(new Blob(["resized pixels"], { type: type ?? "image/png" })),
+    );
+    chatMocks.fileUploadStatus = {
+      data: { configured: false },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+    await mount(baseProps());
+    const file = new File([largePngBytes()], "reference.png", {
+      type: "image/png",
+    });
+
+    await act(async () => {
+      await chatMocks.composerProps.onSubmit("Use this reference", [file], [], {
+        intent: "immediate",
+      });
+    });
+
+    expect(bitmap.close).toHaveBeenCalledOnce();
+    expect(chatMocks.control.uploadFiles).not.toHaveBeenCalled();
+    const sent = chatMocks.control.sendMessage.mock.calls[0]?.[0] as any;
+    expect(sent.requestAttachments).toEqual([
+      {
+        type: "image",
+        name: "reference.png",
+        contentType: "image/png",
+        data: "data:image/png;base64,cmVzaXplZCBwaXhlbHM=",
+      },
+    ]);
+    expect(sent.metadata.custom.agentNativeRetryAttachmentsUnavailable).toBe(
+      true,
+    );
+    expect(
+      sent.metadata.custom.agentNativeRetryRequestAttachments,
+    ).toBeUndefined();
+  });
+
+  it("rejects oversized aggregate inline images before sending without storage", async () => {
+    const bitmap = {
+      width: 2560,
+      height: 1440,
+      close: vi.fn(),
+    } as unknown as ImageBitmap;
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+      save: vi.fn(),
+      fillRect: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      (callback, type) =>
+        callback(
+          new Blob([new Uint8Array(2 * 1024 * 1024)], {
+            type: type ?? "image/png",
+          }),
+        ),
+    );
+    chatMocks.fileUploadStatus = {
+      data: { configured: false },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+    await mount(baseProps());
+    const files = ["reference-1.png", "reference-2.png", "reference-3.png"].map(
+      (name) => new File([largePngBytes()], name, { type: "image/png" }),
+    );
+
+    await expect(
+      chatMocks.composerProps.onSubmit("Use these references", files, [], {
+        intent: "immediate",
+      }),
+    ).rejects.toThrow("agentChat.composer.requestTooLarge");
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
   });
 
   it("localizes unsupported upload errors instead of exposing the HTTP status", async () => {
@@ -2955,6 +3471,62 @@ describe("AgentKitAssistantChat host behavior", () => {
       warn.mockRestore();
     }
   });
+
+  it.each([
+    [
+      413,
+      { error: "File too large (max 25 MB)" },
+      "agentChat.composer.fileTooLarge",
+      "upload_too_large",
+    ],
+    [
+      401,
+      { error: "Unauthorized" },
+      "agentChat.composer.sessionExpired",
+      "upload_session_expired",
+    ],
+    [
+      503,
+      {
+        error: "Storage provider is unavailable. Check File uploads settings.",
+      },
+      "agentChat.composer.uploadFailed",
+      "upload_http_503",
+    ],
+  ] as const)(
+    "preserves actionable upload failures for HTTP %s",
+    async (status, payload, message, code) => {
+      const fetch = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(Response.json(payload, { status }));
+      await mount(baseProps());
+
+      try {
+        const error = await chatMocks.rootProps.clientOptions
+          .upload(
+            { uploadId: "upload-1", method: "POST", url: "/uploads" },
+            {
+              name: "reference.png",
+              mediaType: "image/png",
+              size: 4,
+              body: new Blob(["data"], { type: "image/png" }),
+            },
+          )
+          .catch((cause: unknown) => cause as Error);
+        expect(error).toMatchObject({
+          message,
+          code,
+          status,
+          retryable: status >= 500,
+        });
+        if (status === 503) {
+          expect(error.message).not.toContain(payload.error);
+        }
+      } finally {
+        fetch.mockRestore();
+      }
+    },
+  );
 
   it("does not clear persisted selection when hydration fails", async () => {
     chatMocks.appState.set("pending-selection-context", {
@@ -4413,6 +4985,80 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.uploadFiles).not.toHaveBeenCalled();
   });
 
+  it("resends the resized vision image from its durable URL when retrying", async () => {
+    const originalUrl = "https://files.example.test/reference.png";
+    const resizedAttachment = {
+      type: "image" as const,
+      name: "reference.png",
+      contentType: "image/jpeg",
+      url: "https://files.example.test/reference-resized.jpg",
+      referenceUrl: originalUrl,
+    };
+    chatMocks.thread.messages = [
+      {
+        id: "user-retry-image",
+        role: "user",
+        parts: [
+          { type: "text", text: "Use this reference" },
+          {
+            type: "file",
+            name: "reference.png",
+            mediaType: "image/png",
+            url: originalUrl,
+          },
+        ],
+        metadata: {
+          custom: {
+            agentNativeRetryRequestAttachments: [resizedAttachment],
+          },
+        },
+      },
+    ];
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.retryHasUnavailableAttachment).toBe(false);
+    await act(async () => {
+      chatMocks.failureProps.onRetry();
+      await Promise.resolve();
+    });
+
+    const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+    expect(request.attachments).toEqual([
+      {
+        type: "file",
+        name: "reference.png",
+        mediaType: "image/png",
+        url: originalUrl,
+      },
+    ]);
+    expect(request.requestAttachments).toEqual([resizedAttachment]);
+    expect(request.requestAttachments[0]?.data).toBeUndefined();
+  });
+
+  it("disables retry when a resized image has no durable vision reference", async () => {
+    chatMocks.thread.messages = [
+      {
+        id: "user-retry-image",
+        role: "user",
+        parts: [
+          { type: "text", text: "Use this reference" },
+          {
+            type: "file",
+            name: "reference.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/reference.png",
+          },
+        ],
+        metadata: {
+          custom: { agentNativeRetryAttachmentsUnavailable: true },
+        },
+      },
+    ];
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.retryHasUnavailableAttachment).toBe(true);
+  });
+
   it("keeps saved file IDs when retrying while the provider is unavailable", async () => {
     chatMocks.readiness = {
       canChat: false,
@@ -4509,6 +5155,29 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.setupCardProps.bouncePulse).toBeGreaterThan(0);
     expect(blockedEvents).toHaveLength(1);
     window.removeEventListener("agent-chat:missing-api-key", onBlocked);
+  });
+
+  it("masks a connection failure message without masking recovery controls", async () => {
+    chatMocks.connectionError = {
+      code: "runtime_error",
+      message: "Example Person's example document is locked.",
+      retryable: true,
+    };
+    await mount(baseProps());
+    const message = Array.from(container.querySelectorAll("span")).find(
+      (element) =>
+        element.textContent === `Error: ${chatMocks.connectionError.message}`,
+    );
+    expect(message?.hasAttribute("data-an-mask")).toBe(true);
+    expect(
+      message?.closest('[role="alert"]')?.hasAttribute("data-an-mask"),
+    ).toBe(false);
+    expect(
+      message
+        ?.closest('[role="alert"]')
+        ?.querySelector("button")
+        ?.closest("[data-an-mask]"),
+    ).toBeNull();
   });
 
   it("does not repeat the composer setup card in a missing-key run failure", async () => {
@@ -5078,8 +5747,15 @@ describe("AgentKitAssistantChat host behavior", () => {
         chatMocks.composerProps.stopButton.props.onClick();
         await Promise.resolve();
       });
-      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-        "Stop unavailable",
+      const alert = container.querySelector('[role="alert"]');
+      expect(alert?.textContent).toContain("Stop unavailable");
+      const message = Array.from(alert?.querySelectorAll("span") ?? []).find(
+        (element) => element.textContent === "Stop unavailable",
+      );
+      expect(message?.hasAttribute("data-an-mask")).toBe(true);
+      expect(alert?.hasAttribute("data-an-mask")).toBe(false);
+      expect(alert?.querySelector("button")?.closest("[data-an-mask]")).toBe(
+        null,
       );
       await act(async () => {
         chatMocks.composerProps.stopButton.props.onClick();

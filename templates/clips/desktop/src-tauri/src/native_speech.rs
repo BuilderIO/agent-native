@@ -227,6 +227,9 @@ pub(crate) mod macos {
     /// — we only move ownership through the `Mutex` — so `Send` is the only
     /// impl we need, and we mark it manually below.
     struct SpeechSession {
+        generation: u64,
+        completion_started: Arc<AtomicBool>,
+        callback_finished: Arc<AtomicBool>,
         audio: SpeechAudio,
         request: Retained<SFSpeechAudioBufferRecognitionRequest>,
         task: Retained<SFSpeechRecognitionTask>,
@@ -292,9 +295,23 @@ pub(crate) mod macos {
         target: Arc<Mutex<Option<RawMicTapTarget>>>,
     }
 
-    fn session_slot() -> &'static Mutex<Option<SpeechSession>> {
-        static SLOT: OnceLock<Mutex<Option<SpeechSession>>> = OnceLock::new();
-        SLOT.get_or_init(|| Mutex::new(None))
+    struct SessionRegistry<T> {
+        active: Option<T>,
+        finishing: Vec<T>,
+    }
+
+    impl<T> Default for SessionRegistry<T> {
+        fn default() -> Self {
+            Self {
+                active: None,
+                finishing: Vec::new(),
+            }
+        }
+    }
+
+    fn session_slot() -> &'static Mutex<SessionRegistry<SpeechSession>> {
+        static SLOT: OnceLock<Mutex<SessionRegistry<SpeechSession>>> = OnceLock::new();
+        SLOT.get_or_init(|| Mutex::new(SessionRegistry::default()))
     }
 
     fn warmed_raw_mic_engine_slot() -> &'static Mutex<Option<WarmedRawMicEngine>> {
@@ -305,6 +322,170 @@ pub(crate) mod macos {
     fn session_generation() -> &'static AtomicU64 {
         static GEN: OnceLock<AtomicU64> = OnceLock::new();
         GEN.get_or_init(|| AtomicU64::new(0))
+    }
+
+    fn owner_stop_generation(owner: SessionOwner) -> &'static AtomicU64 {
+        static DICTATION_GEN: OnceLock<AtomicU64> = OnceLock::new();
+        static MEETING_GEN: OnceLock<AtomicU64> = OnceLock::new();
+        match owner {
+            SessionOwner::Dictation => DICTATION_GEN.get_or_init(|| AtomicU64::new(0)),
+            SessionOwner::Meeting => MEETING_GEN.get_or_init(|| AtomicU64::new(0)),
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct RestartGuard {
+        session_generation: u64,
+        owner_stop_generation: u64,
+    }
+
+    fn restart_guard_is_current(
+        guard: RestartGuard,
+        current_session_generation: u64,
+        current_owner_stop_generation: u64,
+    ) -> bool {
+        guard.session_generation == current_session_generation
+            && guard.owner_stop_generation == current_owner_stop_generation
+    }
+
+    fn restart_setup_is_current(
+        guard: RestartGuard,
+        reserved_generation: Option<u64>,
+        current_session_generation: u64,
+        current_owner_stop_generation: u64,
+    ) -> bool {
+        reserved_generation.unwrap_or(guard.session_generation) == current_session_generation
+            && guard.owner_stop_generation == current_owner_stop_generation
+    }
+
+    fn stop_generation_changed(start_stop_generation: u64, current_stop_generation: u64) -> bool {
+        start_stop_generation != current_stop_generation
+    }
+
+    fn superseded_start_result(
+        start_owner_stop_generation: u64,
+        current_owner_stop_generation: u64,
+    ) -> Result<(), &'static str> {
+        if stop_generation_changed(start_owner_stop_generation, current_owner_stop_generation) {
+            Ok(())
+        } else {
+            Err("speech-engine-start-superseded")
+        }
+    }
+
+    fn put_session_if_current_generation<T>(
+        slot: &mut Option<T>,
+        session: T,
+        current_generation: u64,
+        generation: impl FnOnce(&T) -> u64,
+        completion_started: impl FnOnce(&T) -> bool,
+    ) -> Result<(), T> {
+        if slot.is_none()
+            && generation(&session) == current_generation
+            && !completion_started(&session)
+        {
+            *slot = Some(session);
+            Ok(())
+        } else {
+            Err(session)
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum StoppedSessionDisposition {
+        Active,
+        Finishing,
+        Completed,
+    }
+
+    fn restore_stopped_session<T>(
+        registry: &mut SessionRegistry<T>,
+        session: T,
+        current_generation: u64,
+        generation: impl FnOnce(&T) -> u64,
+        completion_started: impl FnOnce(&T) -> bool,
+        callback_finished: impl FnOnce(&T) -> bool,
+    ) -> StoppedSessionDisposition {
+        let session_generation = generation(&session);
+        let completion_started = completion_started(&session);
+        let callback_finished = callback_finished(&session);
+        if registry.active.is_none()
+            && session_generation == current_generation
+            && !completion_started
+            && !callback_finished
+        {
+            registry.active = Some(session);
+            StoppedSessionDisposition::Active
+        } else if callback_finished {
+            drop(session);
+            StoppedSessionDisposition::Completed
+        } else {
+            registry.finishing.push(session);
+            StoppedSessionDisposition::Finishing
+        }
+    }
+
+    fn retain_session_until_callback<T>(
+        registry: &mut SessionRegistry<T>,
+        session: T,
+        callback_pending: impl FnOnce(&T) -> bool,
+        callback_finished: impl FnOnce(&T) -> bool,
+    ) -> Option<T> {
+        if callback_pending(&session) {
+            if !callback_finished(&session) {
+                registry.finishing.push(session);
+            }
+            None
+        } else {
+            Some(session)
+        }
+    }
+
+    fn take_sessions_if_generation_matches<T>(
+        registry: &mut SessionRegistry<T>,
+        expected_generation: u64,
+        generation: impl Fn(&T) -> u64,
+    ) -> Vec<T> {
+        let mut removed = Vec::new();
+        if registry
+            .active
+            .as_ref()
+            .is_some_and(|session| generation(session) == expected_generation)
+        {
+            if let Some(session) = registry.active.take() {
+                removed.push(session);
+            }
+        }
+
+        let mut index = 0;
+        while index < registry.finishing.len() {
+            if generation(&registry.finishing[index]) == expected_generation {
+                removed.push(registry.finishing.swap_remove(index));
+            } else {
+                index += 1;
+            }
+        }
+        removed
+    }
+
+    fn claim_session_completion(completion_started: &AtomicBool) -> bool {
+        // Serialize callback entry with session installation and retirement.
+        let _slot = session_slot()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        !completion_started.swap(true, Ordering::SeqCst)
+    }
+
+    fn invalidate_restart(owner: Option<SessionOwner>) {
+        match owner {
+            Some(owner) => {
+                owner_stop_generation(owner).fetch_add(1, Ordering::SeqCst);
+            }
+            None => {
+                owner_stop_generation(SessionOwner::Dictation).fetch_add(1, Ordering::SeqCst);
+                owner_stop_generation(SessionOwner::Meeting).fetch_add(1, Ordering::SeqCst);
+            }
+        }
     }
 
     const MAX_TRANSIENT_RESTARTS: u32 = 5;
@@ -1061,12 +1242,19 @@ pub(crate) mod macos {
             .ok_or_else(|| "No microphone is available.".into())
     }
 
-    fn clear_session_slot() {
-        if let Ok(mut slot) = session_slot().lock() {
-            if let Some(session) = slot.take() {
-                stop_engine_and_remove_tap(&session);
-            }
+    fn finish_session_callback(expected_generation: u64, callback_finished: &AtomicBool) {
+        let mut slot = session_slot()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let sessions =
+            take_sessions_if_generation_matches(&mut slot, expected_generation, |session| {
+                session.generation
+            });
+        for session in &sessions {
+            stop_engine_and_remove_tap(session);
         }
+        // Stop restoration uses this lock too, so cleanup cannot run just before retirement.
+        callback_finished.store(true, Ordering::SeqCst);
     }
 
     fn ns_error_message(err: &NSError) -> String {
@@ -1213,7 +1401,16 @@ pub(crate) mod macos {
         mic_device_label: Option<String>,
         owner: SessionOwner,
     ) -> Result<(), String> {
-        native_speech_start_impl_inner(app, locale, mic_device_id, mic_device_label, owner, 0)
+        native_speech_start_impl_inner(
+            app,
+            locale,
+            mic_device_id,
+            mic_device_label,
+            owner,
+            0,
+            None,
+            None,
+        )
     }
 
     fn native_speech_start_impl_inner(
@@ -1223,33 +1420,78 @@ pub(crate) mod macos {
         mic_device_label: Option<String>,
         owner: SessionOwner,
         restart_attempt: u32,
+        restart_guard: Option<RestartGuard>,
+        restart_reserved_generation: Option<Arc<AtomicU64>>,
     ) -> Result<(), String> {
+        let start_stop_generation = owner_stop_generation(owner).load(Ordering::SeqCst);
         {
             let slot = session_slot().lock().map_err(|e| e.to_string())?;
-            if let Some(prev) = slot.as_ref() {
+            if let Some(guard) = restart_guard {
+                if !restart_guard_is_current(
+                    guard,
+                    session_generation().load(Ordering::SeqCst),
+                    owner_stop_generation(owner).load(Ordering::SeqCst),
+                ) {
+                    return Ok(());
+                }
+            }
+            if let Some(prev) = slot.active.as_ref() {
                 if prev.owner == SessionOwner::Meeting && owner == SessionOwner::Dictation {
                     return Err("speech-engine-busy-meeting".into());
                 }
             }
         }
 
+        if stop_generation_changed(
+            start_stop_generation,
+            owner_stop_generation(owner).load(Ordering::SeqCst),
+        ) {
+            return Ok(());
+        }
         ensure_authorized()?;
 
-        let my_gen = session_generation().fetch_add(1, Ordering::SeqCst) + 1;
+        let (my_gen, my_stop_gen) = {
+            let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
+            if let Some(guard) = restart_guard {
+                if !restart_guard_is_current(
+                    guard,
+                    session_generation().load(Ordering::SeqCst),
+                    owner_stop_generation(owner).load(Ordering::SeqCst),
+                ) {
+                    return Ok(());
+                }
+            }
+            let current_stop_generation = owner_stop_generation(owner).load(Ordering::SeqCst);
+            if stop_generation_changed(start_stop_generation, current_stop_generation) {
+                return Ok(());
+            }
+            let generation = session_generation().fetch_add(1, Ordering::SeqCst) + 1;
+            if let Some(prev) = slot.active.take() {
+                stop_engine_and_remove_tap(&prev);
+                if let Some(prev) = retain_session_until_callback(
+                    &mut slot,
+                    prev,
+                    |session| {
+                        session.stopped.load(Ordering::SeqCst)
+                            || session.completion_started.load(Ordering::SeqCst)
+                    },
+                    |session| session.callback_finished.load(Ordering::SeqCst),
+                ) {
+                    prev.cancelled.store(true, Ordering::SeqCst);
+                    // SAFETY: `cancel()` is a fire-and-forget ObjC call.
+                    unsafe { prev.task.cancel() };
+                }
+            }
+            (generation, current_stop_generation)
+        };
+        if let Some(reserved_generation) = &restart_reserved_generation {
+            reserved_generation.store(my_gen, Ordering::SeqCst);
+        }
 
         let contextual_strings = {
             let v = take_pending_vocabulary();
             (!v.is_empty()).then_some(v)
         };
-        {
-            let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
-            if let Some(prev) = slot.take() {
-                prev.cancelled.store(true, Ordering::SeqCst);
-                // SAFETY: `cancel()` is a fire-and-forget ObjC call.
-                unsafe { prev.task.cancel() };
-                stop_engine_and_remove_tap(&prev);
-            }
-        }
 
         let recognizer = build_recognizer(locale.as_deref())?;
 
@@ -1298,12 +1540,14 @@ pub(crate) mod macos {
 
         let cancelled = Arc::new(AtomicBool::new(false));
         let stopped = Arc::new(AtomicBool::new(false));
+        let completion_started = Arc::new(AtomicBool::new(false));
+        let callback_finished = Arc::new(AtomicBool::new(false));
 
         // Build the result handler. SFSpeechRecognizer invokes this once
         // per partial result and once with `isFinal=true` when the request
         // ends.
         // SAFETY: the block runs on the recognizer's queue (default = main).
-        // We capture clones of `AppHandle` (cheap, refcounted) and the two
+        // We capture clones of `AppHandle` (cheap, refcounted) and the four
         // atomics. We never touch ObjC objects from outside their native
         // lifetime — both `result` and `error` are passed in raw and we
         // wrap them via `&*ptr` only after a null check.
@@ -1311,6 +1555,8 @@ pub(crate) mod macos {
             let app = app.clone();
             let cancelled = cancelled.clone();
             let stopped = stopped.clone();
+            let completion_started = completion_started.clone();
+            let callback_finished = callback_finished.clone();
             let locale = locale.clone();
             let mic_device_id = mic_device_id.clone();
             let mic_device_label = mic_device_label.clone();
@@ -1318,6 +1564,9 @@ pub(crate) mod macos {
                 let is_cancelled = cancelled.load(Ordering::SeqCst);
                 let is_stopped = stopped.load(Ordering::SeqCst);
                 if !error_ptr.is_null() && result_ptr.is_null() {
+                    if !claim_session_completion(&completion_started) {
+                        return;
+                    }
                     let err = unsafe { &*error_ptr };
                     let msg = ns_error_message(err);
                     let transient = is_transient_recognizer_error(err);
@@ -1345,10 +1594,13 @@ pub(crate) mod macos {
                             },
                         );
                     }
-                    clear_session_slot();
+                    finish_session_callback(my_gen, &callback_finished);
 
                     if !is_cancelled && !is_stopped && transient && !restarts_exhausted {
-                        let gen = my_gen;
+                        let guard = RestartGuard {
+                            session_generation: my_gen,
+                            owner_stop_generation: my_stop_gen,
+                        };
                         let next_attempt = restart_attempt + 1;
                         let app = app.clone();
                         let locale = locale.clone();
@@ -1356,9 +1608,14 @@ pub(crate) mod macos {
                         let mic_device_label = mic_device_label.clone();
                         std::thread::spawn(move || {
                             std::thread::sleep(std::time::Duration::from_millis(300));
-                            if session_generation().load(Ordering::SeqCst) != gen {
+                            if !restart_guard_is_current(
+                                guard,
+                                session_generation().load(Ordering::SeqCst),
+                                owner_stop_generation(owner).load(Ordering::SeqCst),
+                            ) {
                                 return;
                             }
+                            let reserved_generation = Arc::new(AtomicU64::new(0));
                             if let Err(e) = native_speech_start_impl_inner(
                                 app.clone(),
                                 locale,
@@ -1366,14 +1623,26 @@ pub(crate) mod macos {
                                 mic_device_label,
                                 owner,
                                 next_attempt,
+                                Some(guard),
+                                Some(reserved_generation.clone()),
                             ) {
-                                let _ = app.emit(
-                                    "voice:speech-error",
-                                    ErrorPayload {
-                                        error: e,
-                                        source: "mic",
+                                if restart_setup_is_current(
+                                    guard,
+                                    match reserved_generation.load(Ordering::SeqCst) {
+                                        0 => None,
+                                        generation => Some(generation),
                                     },
-                                );
+                                    session_generation().load(Ordering::SeqCst),
+                                    owner_stop_generation(owner).load(Ordering::SeqCst),
+                                ) {
+                                    let _ = app.emit(
+                                        "voice:speech-error",
+                                        ErrorPayload {
+                                            error: e,
+                                            source: "mic",
+                                        },
+                                    );
+                                }
                             }
                         });
                     }
@@ -1386,9 +1655,12 @@ pub(crate) mod macos {
                 // recognizer keeps the result alive for the duration of
                 // this callback.
                 let result = unsafe { &*result_ptr };
-                let transcription = unsafe { result.bestTranscription() };
-                let text = unsafe { transcription.formattedString() }.to_string();
                 if unsafe { result.isFinal() } {
+                    if !claim_session_completion(&completion_started) {
+                        return;
+                    }
+                    let transcription = unsafe { result.bestTranscription() };
+                    let text = unsafe { transcription.formattedString() }.to_string();
                     let _ = app.emit(
                         "voice:final-transcript",
                         FinalPayload {
@@ -1396,8 +1668,10 @@ pub(crate) mod macos {
                             source: "mic",
                         },
                     );
-                    clear_session_slot();
+                    finish_session_callback(my_gen, &callback_finished);
                 } else if !is_stopped {
+                    let transcription = unsafe { result.bestTranscription() };
+                    let text = unsafe { transcription.formattedString() }.to_string();
                     let _ = app.emit(
                         "voice:partial-transcript",
                         PartialPayload {
@@ -1417,16 +1691,65 @@ pub(crate) mod macos {
             recognizer.recognitionTaskWithRequest_resultHandler(&request, &result_handler)
         };
 
-        {
+        let session = SpeechSession {
+            generation: my_gen,
+            completion_started,
+            callback_finished,
+            audio,
+            request,
+            task,
+            cancelled,
+            stopped,
+            owner,
+        };
+        let installed = {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
-            *slot = Some(SpeechSession {
-                audio,
-                request,
-                task,
-                cancelled,
-                stopped,
-                owner,
-            });
+            let current_generation = session_generation().load(Ordering::SeqCst);
+            if owner_stop_generation(owner).load(Ordering::SeqCst) == my_stop_gen {
+                put_session_if_current_generation(
+                    &mut slot.active,
+                    session,
+                    current_generation,
+                    |session| session.generation,
+                    |session| session.completion_started.load(Ordering::SeqCst),
+                )
+            } else {
+                Err(session)
+            }
+        };
+
+        if let Err(session) = installed {
+            stop_engine_and_remove_tap(&session);
+            let session = {
+                let mut slot = session_slot()
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                if session.completion_started.load(Ordering::SeqCst) {
+                    if !session.callback_finished.load(Ordering::SeqCst) {
+                        slot.finishing.push(session);
+                    }
+                    None
+                } else {
+                    session.completion_started.store(true, Ordering::SeqCst);
+                    session.cancelled.store(true, Ordering::SeqCst);
+                    Some(session)
+                }
+            };
+            let Some(session) = session else {
+                return superseded_start_result(
+                    my_stop_gen,
+                    owner_stop_generation(owner).load(Ordering::SeqCst),
+                )
+                .map_err(str::to_owned);
+            };
+
+            // SAFETY: `cancel()` is a fire-and-forget ObjC call.
+            unsafe { session.task.cancel() };
+            return superseded_start_result(
+                my_stop_gen,
+                owner_stop_generation(owner).load(Ordering::SeqCst),
+            )
+            .map_err(str::to_owned);
         }
 
         Ok(())
@@ -1654,19 +1977,19 @@ pub(crate) mod macos {
     }
 
     fn take_session_for(
-        slot: &mut Option<SpeechSession>,
+        slot: &mut SessionRegistry<SpeechSession>,
         owner: Option<SessionOwner>,
     ) -> Option<SpeechSession> {
         // Dictation and meeting transcription share one recognizer slot, so a
         // stop from one must not tear down the other's live session.
         let owned_by_other = matches!(
-            (slot.as_ref(), owner),
+            (slot.active.as_ref(), owner),
             (Some(current), Some(owner)) if current.owner != owner
         );
         if owned_by_other {
             return None;
         }
-        slot.take()
+        slot.active.take()
     }
 
     pub fn native_speech_stop_impl(
@@ -1675,6 +1998,7 @@ pub(crate) mod macos {
     ) -> Result<(), String> {
         let session = {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
+            invalidate_restart(owner);
             take_session_for(&mut slot, owner)
         };
         let Some(session) = session else {
@@ -1683,16 +2007,22 @@ pub(crate) mod macos {
 
         session.stopped.store(true, Ordering::SeqCst);
         stop_engine_and_remove_tap(&session);
-        // SAFETY: `endAudio()` is a fire-and-forget signal to the recognizer
-        // that no more buffers are coming. The result handler will still
-        // fire once more (with `isFinal=true`) — that's why we don't drop
-        // the task here; we put the session back so the atomics + ObjC
-        // refs stay alive until the final result lands.
+        // SAFETY: `endAudio()` signals that no more buffers are coming. The
+        // result handler will still fire once more, so retain the session
+        // until that callback finishes even if a newer start owns the slot.
         unsafe { session.request.endAudio() };
 
         {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
-            *slot = Some(session);
+            let current_generation = session_generation().load(Ordering::SeqCst);
+            restore_stopped_session(
+                &mut slot,
+                session,
+                current_generation,
+                |session| session.generation,
+                |session| session.completion_started.load(Ordering::SeqCst),
+                |session| session.callback_finished.load(Ordering::SeqCst),
+            );
         }
         Ok(())
     }
@@ -1703,6 +2033,7 @@ pub(crate) mod macos {
     ) -> Result<(), String> {
         let session = {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
+            invalidate_restart(owner);
             take_session_for(&mut slot, owner)
         };
         let Some(session) = session else {
@@ -1716,11 +2047,22 @@ pub(crate) mod macos {
     }
 
     pub fn shutdown() {
-        let session = match session_slot().lock() {
-            Ok(mut slot) => slot.take(),
-            Err(poisoned) => poisoned.into_inner().take(),
+        let sessions = match session_slot().lock() {
+            Ok(mut slot) => {
+                invalidate_restart(None);
+                let mut sessions = slot.active.take().into_iter().collect::<Vec<_>>();
+                sessions.append(&mut slot.finishing);
+                sessions
+            }
+            Err(poisoned) => {
+                let mut slot = poisoned.into_inner();
+                invalidate_restart(None);
+                let mut sessions = slot.active.take().into_iter().collect::<Vec<_>>();
+                sessions.append(&mut slot.finishing);
+                sessions
+            }
         };
-        if let Some(session) = session {
+        for session in sessions {
             session.cancelled.store(true, Ordering::SeqCst);
             session.stopped.store(true, Ordering::SeqCst);
             unsafe { session.task.cancel() };
@@ -1731,7 +2073,250 @@ pub(crate) mod macos {
 
     #[cfg(test)]
     mod tests {
-        use super::{native_speech_voice_processing_mode, MicVoiceProcessingMode, SessionOwner};
+        use super::{
+            native_speech_voice_processing_mode, put_session_if_current_generation,
+            restart_guard_is_current, restart_setup_is_current, restore_stopped_session,
+            retain_session_until_callback, stop_generation_changed, superseded_start_result,
+            take_sessions_if_generation_matches, MicVoiceProcessingMode, RestartGuard,
+            SessionOwner, SessionRegistry, StoppedSessionDisposition,
+        };
+        use std::sync::Arc;
+
+        #[derive(Debug)]
+        struct TestResource;
+
+        #[derive(Debug)]
+        struct TestSession {
+            generation: u64,
+            completion_started: bool,
+            callback_finished: bool,
+            stopped: bool,
+            resource: Arc<TestResource>,
+        }
+
+        fn test_session(generation: u64) -> TestSession {
+            TestSession {
+                generation,
+                completion_started: false,
+                callback_finished: false,
+                stopped: false,
+                resource: Arc::new(TestResource),
+            }
+        }
+
+        #[test]
+        fn stale_callback_cleanup_preserves_the_replacement_session() {
+            let mut registry = SessionRegistry {
+                active: Some(test_session(2)),
+                finishing: Vec::new(),
+            };
+
+            let removed =
+                take_sessions_if_generation_matches(&mut registry, 1, |session| session.generation);
+
+            assert!(removed.is_empty());
+            assert_eq!(
+                registry.active.as_ref().map(|session| session.generation),
+                Some(2)
+            );
+        }
+
+        #[test]
+        fn stopped_session_stays_owned_until_its_callback_finishes_without_replacing_newer_session()
+        {
+            let mut registry = SessionRegistry {
+                active: Some(test_session(2)),
+                finishing: Vec::new(),
+            };
+            let old_session = test_session(1);
+            let old_resource = Arc::downgrade(&old_session.resource);
+
+            let disposition = restore_stopped_session(
+                &mut registry,
+                old_session,
+                2,
+                |session| session.generation,
+                |session| session.completion_started,
+                |session| session.callback_finished,
+            );
+
+            assert_eq!(disposition, StoppedSessionDisposition::Finishing);
+            assert_eq!(
+                registry.active.as_ref().map(|session| session.generation),
+                Some(2)
+            );
+            assert_eq!(registry.finishing.len(), 1);
+            assert!(old_resource.upgrade().is_some());
+
+            drop(take_sessions_if_generation_matches(
+                &mut registry,
+                1,
+                |session| session.generation,
+            ));
+
+            assert!(registry.finishing.is_empty());
+            assert!(old_resource.upgrade().is_none());
+            assert_eq!(
+                registry.active.as_ref().map(|session| session.generation),
+                Some(2)
+            );
+        }
+
+        #[test]
+        fn completed_session_is_dropped_instead_of_retained() {
+            let mut registry = SessionRegistry::<TestSession>::default();
+            let mut completed = test_session(2);
+            completed.completion_started = true;
+            completed.callback_finished = true;
+            let resource = Arc::downgrade(&completed.resource);
+
+            let disposition = restore_stopped_session(
+                &mut registry,
+                completed,
+                2,
+                |session| session.generation,
+                |session| session.completion_started,
+                |session| session.callback_finished,
+            );
+
+            assert_eq!(disposition, StoppedSessionDisposition::Completed);
+            assert!(registry.active.is_none());
+            assert!(registry.finishing.is_empty());
+            assert!(resource.upgrade().is_none());
+        }
+
+        #[test]
+        fn in_progress_completion_is_not_restored_to_the_active_slot() {
+            let mut registry = SessionRegistry::<TestSession>::default();
+            let mut session = test_session(2);
+            session.completion_started = true;
+            let resource = Arc::downgrade(&session.resource);
+
+            let disposition = restore_stopped_session(
+                &mut registry,
+                session,
+                2,
+                |session| session.generation,
+                |session| session.completion_started,
+                |session| session.callback_finished,
+            );
+
+            assert_eq!(disposition, StoppedSessionDisposition::Finishing);
+            assert!(registry.active.is_none());
+            assert_eq!(registry.finishing.len(), 1);
+            assert!(resource.upgrade().is_some());
+
+            drop(take_sessions_if_generation_matches(
+                &mut registry,
+                2,
+                |session| session.generation,
+            ));
+
+            assert!(resource.upgrade().is_none());
+        }
+
+        #[test]
+        fn a_new_start_retains_a_restored_stopped_session_until_its_callback_finishes() {
+            let mut registry = SessionRegistry::<TestSession>::default();
+            let mut session = test_session(1);
+            session.stopped = true;
+            let resource = Arc::downgrade(&session.resource);
+
+            let disposition = restore_stopped_session(
+                &mut registry,
+                session,
+                1,
+                |session| session.generation,
+                |session| session.completion_started,
+                |session| session.callback_finished,
+            );
+            assert_eq!(disposition, StoppedSessionDisposition::Active);
+
+            let restored = registry.active.take().unwrap();
+            let previous = retain_session_until_callback(
+                &mut registry,
+                restored,
+                |session| session.stopped || session.completion_started,
+                |session| session.callback_finished,
+            );
+
+            assert!(previous.is_none());
+            assert!(registry.active.is_none());
+            assert_eq!(registry.finishing.len(), 1);
+            assert!(resource.upgrade().is_some());
+
+            drop(take_sessions_if_generation_matches(
+                &mut registry,
+                1,
+                |session| session.generation,
+            ));
+
+            assert!(resource.upgrade().is_none());
+        }
+
+        #[test]
+        fn stale_start_does_not_replace_the_newer_session() {
+            let mut slot = Some(test_session(2));
+
+            let installed = put_session_if_current_generation(
+                &mut slot,
+                test_session(1),
+                2,
+                |session| session.generation,
+                |session| session.completion_started,
+            );
+
+            assert_eq!(installed.unwrap_err().generation, 1);
+            assert_eq!(slot.as_ref().map(|session| session.generation), Some(2));
+        }
+
+        #[test]
+        fn new_start_invalidates_a_delayed_restart() {
+            let guard = RestartGuard {
+                session_generation: 4,
+                owner_stop_generation: 2,
+            };
+
+            assert!(!restart_guard_is_current(guard, 5, 2));
+        }
+
+        #[test]
+        fn stop_invalidates_a_delayed_restart_for_its_owner() {
+            let guard = RestartGuard {
+                session_generation: 4,
+                owner_stop_generation: 2,
+            };
+
+            assert!(!restart_guard_is_current(guard, 4, 3));
+        }
+
+        #[test]
+        fn restart_setup_errors_are_suppressed_after_stop_or_new_start() {
+            let guard = RestartGuard {
+                session_generation: 4,
+                owner_stop_generation: 2,
+            };
+
+            assert!(restart_setup_is_current(guard, None, 4, 2));
+            assert!(restart_setup_is_current(guard, Some(5), 5, 2));
+            assert!(!restart_setup_is_current(guard, Some(5), 5, 3));
+            assert!(!restart_setup_is_current(guard, Some(5), 6, 2));
+        }
+
+        #[test]
+        fn explicit_stop_during_start_is_a_clean_cancellation() {
+            assert_eq!(superseded_start_result(2, 3), Ok(()));
+            assert_eq!(
+                superseded_start_result(2, 2),
+                Err("speech-engine-start-superseded")
+            );
+        }
+
+        #[test]
+        fn stop_during_authorization_cancels_before_resource_start() {
+            assert!(stop_generation_changed(2, 3));
+            assert!(!stop_generation_changed(2, 2));
+        }
 
         #[test]
         fn meeting_native_speech_fallback_uses_bypassed_voice_processing() {

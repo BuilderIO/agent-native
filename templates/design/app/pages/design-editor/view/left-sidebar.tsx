@@ -1,6 +1,7 @@
 import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 import { IconClipboard } from "@tabler/icons-react";
 import type { ReactElement } from "react";
+import { Link } from "react-router";
 
 import { CodeWorkbenchLoader } from "@/components/design/code-workbench/CodeWorkbenchLoader";
 import {
@@ -163,6 +164,7 @@ export function renderLeftSidebar({
     handleFirstRunTemplate,
     workbenchLocalhostConnections,
     handleWorkbenchLocalWriteConsent,
+    importPanelRef,
   } = editorSourceAndSync;
 
   const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
@@ -213,13 +215,24 @@ export function renderLeftSidebar({
               <div
                 data-design-chrome-region="left-header"
                 className={cn(
-                  "flex shrink-0 items-center gap-[var(--design-baseline-half)] border-b border-border px-[var(--design-baseline-unit)]",
+                  "flex shrink-0 items-center gap-[var(--design-baseline-half)] px-[var(--design-baseline-unit)]",
                   topBarVisible ? "h-12" : "h-[var(--design-section-height)]",
+                  hostEmbeddedEditor && "border-b border-border",
                 )}
               >
                 {projectTitleControl}
                 {minimalUiToggle}
               </div>
+              {hostEmbeddedEditor ? null : (
+                <div className="-mt-1.5 flex shrink-0 items-center border-b border-border px-[var(--design-baseline-unit)] pb-1.5">
+                  <Link
+                    to="/home"
+                    className="-mx-1 rounded px-1 text-[11px] leading-4 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  >
+                    {t("designEditor.fileMenu.designs")}
+                  </Link>
+                </div>
+              )}
               <div className="min-h-0 flex-1">
                 <LayersPanel
                   ref={layersPanelRef}
@@ -369,6 +382,7 @@ export function renderLeftSidebar({
             >
               {canEditDesign ? (
                 <DesignImportPanel
+                  ref={importPanelRef}
                   context={designExtensionContext}
                   onImport={(result) => {
                     const count = result.unresolvedImageRefCount ?? 0;

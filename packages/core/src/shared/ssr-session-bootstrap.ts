@@ -68,6 +68,26 @@ export function subscribeSessionNavigation(listener: () => void): () => void {
     window.removeEventListener(SESSION_NAVIGATION_RELEASED_EVENT, listener);
 }
 
+/**
+ * Whether this browser carries the readable cookie the server keeps beside a
+ * signed-in session. It says a session is likely, never that one exists: the
+ * session read decides. Same rule as the bootstrap script below, so a read
+ * started on it starts exactly when the early session read does.
+ */
+export function hasSessionHint(sessionHintCookieName?: string): boolean {
+  if (typeof document === "undefined") return false;
+  return document.cookie.split(";").some((cookie) => {
+    const entry = cookie.trim();
+    const separator = entry.indexOf("=");
+    if (separator < 1 || entry.slice(separator + 1) !== "1") return false;
+    const name = entry.slice(0, separator);
+    return sessionHintCookieName
+      ? name === sessionHintCookieName
+      : name === "an_session_hint" ||
+          (name.startsWith("an_session_") && name.endsWith("_hint"));
+  });
+}
+
 export function getSsrSessionBootstrapScriptBody(
   sessionPath: string,
   sessionHintCookieName?: string,

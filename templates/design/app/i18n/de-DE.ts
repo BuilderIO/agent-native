@@ -1,4 +1,65 @@
 export default {
+  journeyCanvas: {
+    observedSessionReference: "Beobachtete Sitzungsreferenz",
+    sessionsOfAll: "{count} Sitzungen · {percent} aller",
+    sessionsOfAppRoot:
+      "{count} Sitzungen · {percent} der {app}-Kohorte (n={rootCount})",
+    sessionsOfPrevious: "{count} Sitzungen · {percent} des vorherigen Schritts",
+    sessionsOfParent: "{count} Sitzungen · {percent} von {label}",
+    sessionsOfStep: "{count} Sitzungen · {percent} dieses Schritts",
+    partialSample: "Teilstichprobe",
+    continuedOnUnpictured:
+      "Fortsetzung auf nicht gezeigten Pfaden: {count} · {percent} dieses Schritts",
+    noLaterStepObserved: "Kein späterer Schritt beobachtet",
+    examplePosition: "Beispiel {current} von {total}",
+    showExample: "Beispiel {current} von {total} anzeigen",
+    screenshotExamples: "Screenshot-Beispiele",
+    screenshotAlt:
+      "{label}, Beispiel {current} von {total}, aufgenommen am {date}",
+    screenshotMissing: "Kein Screenshot aufgenommen",
+    recordingUnavailable: "nicht verfügbar",
+    eventTime: "Ereigniszeit (UTC)",
+    generationCompletedEvent: "generation_completed-Ereignis (UTC)",
+    replayObservation: "Replay-Beobachtung",
+    utcTimestamp: "UTC-Zeitstempel",
+    recordingId: "Aufzeichnungs-ID",
+    replayOffset: "Replay-Versatz",
+    replayOffsetUnavailable: "nicht verfügbar",
+    replaySeek: "Replay-Suchposition",
+    checkpointSeekTarget: "Suchziel des Prüfpunkts",
+    analyticsCheckpointOffset: "Analytics-Prüfpunktversatz",
+    replayObserved: "Replay beobachtet",
+    screenshotCaptured: "Screenshot aufgenommen",
+    screenshotExportTimestamp: "UTC-Zeitstempel des Screenshot-Exports",
+    output: "Ergebnis",
+    outputTitle: "Ergebnistitel",
+    observedState: "Beobachteter Zustand",
+    actorRecording: "Akteur (Aufzeichnung)",
+    actorSource: "Akteurquelle",
+    recordingMetadata: "Aufzeichnungsmetadaten",
+    evidence: "Nachweis",
+    generationCompletedEvidence: "generation_completed-Ereignis",
+    renderedOutputEvidence:
+      "gerendertes Ergebnis beobachtet; kein Abschlussereignis behauptet",
+    openFullPrompt: "Vollständigen Prompt öffnen",
+    prompt: "Prompt",
+    promptEnglish: "Prompt (Englisch)",
+    promptSource: "Prompt (Quelle)",
+    source: "Quelle",
+    promptNotCaptured: "Prompt nicht erfasst",
+    actorUnavailable: "Akteur nicht verfügbar",
+    replayDetails: "Replay- und Quelldetails",
+    sourceApp: "Quell-App",
+    route: "Erfasste Route",
+    recordingStarted: "Aufzeichnung gestartet",
+    appBandHeading: "{app} · {count} Sitzungen",
+    journeyTitleSummary: "{app} · {from} bis {to} · {count} Sitzungen{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} bis {to} · getrennte Kohorten je App{partial}",
+    sessionCount: "{count} Sitzungen",
+    otherPaths: "Andere Pfade",
+    htmlLanguage: "de-DE",
+  },
   composer: { menu: { integrations: "Integrationen" } },
   creativeContext: {
     title: "Bibliothek",
@@ -224,6 +285,19 @@ export default {
       exportSvg: "SVG exportieren",
       actionsPrefill: "Prüfen und senden",
       retry: "Erneut versuchen",
+      currentDesign: "das aktuelle Design",
+      chooseDesign:
+        "ein Design (frag mich bei Bedarf, welches ich verwenden soll)",
+      importFramePrompt:
+        "Importiere diesen Figma-Frame in {{destination}} und nenne Inhalte, die nicht übernommen werden konnten: {{url}}",
+      importFilePrompt:
+        "Öffne diese Figma-Datei, liste die obersten Frames auf und frage mich, welchen Frame ich importieren soll: {{url}}",
+      inspectFramePrompt:
+        "Untersuche diesen Figma-Frame und fasse Struktur, Komponenten, Stile und wiederverwendbare Tokens zusammen: {{url}}",
+      inspectFilePrompt:
+        "Untersuche diese Figma-Datei und fasse Struktur, Komponenten, Stile und wiederverwendbare Tokens zusammen: {{url}}",
+      exportSvgPrompt:
+        "Exportiere den aktuellen Design-Bildschirm als SVG zur Verwendung in Figma und nenne die Teile, die zu statischem SVG-Inhalt werden.",
     },
   },
   common: {
@@ -951,6 +1025,9 @@ export default {
         figmaPasteFailed: "Figma-Einfügeimport fehlgeschlagen",
         uploadFailed: "Dateiupload fehlgeschlagen",
         invalidFigFile: "Wähle eine Datei mit der Endung .fig.",
+        unsupportedFileType: "Wähle eine .fig-, .html- oder .htm-Datei.",
+        importBusy:
+          "Ein anderer Import läuft gerade. Schließe ihn ab oder brich ihn ab.",
         figFileTooLarge:
           "Diese .fig-Datei ist zu groß – Uploads sind auf {{max}} MB begrenzt. Kopiere in Figma nur den gewünschten Frame in eine neue Datei und exportiere diese als .fig, oder nutze „Aus Figma einfügen“.",
       },
@@ -963,6 +1040,8 @@ export default {
       "Die Generierung wurde vor dem Erstellen von Dateien gestoppt. Versuchen Sie es erneut, um mit demselben Prompt fortzufahren.",
     generationStoppedCheckAgent:
       "Die Generierung wurde vor dem Erstellen von Dateien gestoppt. Prüfen Sie die Agentenmeldung oder versuchen Sie es erneut.",
+    invalidCanvasDimensions:
+      "Die angeforderte Leinwandgröße wird nicht unterstützt. Verwenden Sie positive Pixelmaße innerhalb der Editorgrenzen.",
     notFound: "Design nicht gefunden",
     backToDesigns: "Zurück zu Designs",
     designNotFoundDescription:
@@ -992,7 +1071,17 @@ export default {
     saveTemplate: "Vorlage speichern",
     templateSaved: "Vorlage in der Bibliothek gespeichert",
     templateSaveFailed: "Diese Vorlage konnte nicht gespeichert werden",
-    clickToRename: "Zum Umbenennen klicken",
+    fileMenu: {
+      pendingEditsBlocked:
+        "Wende deine ausstehenden visuellen Änderungen an oder verwirf sie, bevor du dupliziert.",
+      designs: "Designs",
+      rename: "Umbenennen",
+      duplicate: "Duplizieren",
+      versionHistory: "Versionsverlauf",
+      import: "Importieren…",
+      delete: "Löschen",
+      deleteError: "Dieses Design konnte nicht gelöscht werden",
+    },
     collaborators: "Mitwirkende",
     share: "Teilen",
     signUpToSave: "Registrieren",

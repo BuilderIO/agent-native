@@ -22,7 +22,6 @@ A few entry points:
 - `writing-agent-instructions` — read before editing instructions, skills, or
   tool/action descriptions.
 - `verifying-changes` — exercise the broken path before reporting a fix done.
-- `design-figma-parity` — read before making or reviewing Design parity claims.
 - `adding-tests-and-ci` — read before adding a test, CI job, or workflow
   trigger.
 - `reporting-progress` — read during long runs and before asking for status.

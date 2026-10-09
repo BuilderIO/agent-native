@@ -223,6 +223,10 @@ export function sanitizeCssValue(value: string): string | null {
   return value.trim();
 }
 
+/** Vendor-prefixed names (`-webkit-text-fill-color`) fail this and are dropped. */
+export const isKeptCssProperty = (property: string) =>
+  /^(?:--)?[a-zA-Z][\w-]*$/.test(property);
+
 function sanitizeStyle(style: string): string {
   return style
     .split(";")
@@ -231,7 +235,7 @@ function sanitizeStyle(style: string): string {
       if (idx <= 0) return null;
       const property = declaration.slice(0, idx).trim();
       const value = declaration.slice(idx + 1).trim();
-      if (!/^(?:--)?[a-zA-Z][\w-]*$/.test(property) || !value) return null;
+      if (!isKeptCssProperty(property) || !value) return null;
       const safeValue = sanitizeCssValue(value);
       return safeValue ? `${property}: ${safeValue}` : null;
     })
@@ -247,6 +251,9 @@ function sanitizeStyle(style: string): string {
 const EXISTING_SCOPE_PREFIX =
   /^(?:\[data-slide-content-scope(?:=(?:"[^"]*"|'[^']*'|[^\]\s]*))?\](?:\s+|$))+/;
 
+/** `from`, `to`, `50%`: the only selectors valid inside `@keyframes`, never scopable. */
+const KEYFRAME_SELECTOR = /^(?:from|to|\d*\.?\d+%)$/i;
+
 function scopeCssSelector(selector: string, scopeSelector?: string): string {
   const trimmed = selector.trim();
   if (!scopeSelector || !trimmed || trimmed.startsWith("@")) return trimmed;
@@ -258,6 +265,7 @@ function scopeCssSelector(selector: string, scopeSelector?: string): string {
       const item = scoped.replace(EXISTING_SCOPE_PREFIX, "").trim();
       if (!scoped) return "";
       if (!item) return scopeSelector;
+      if (KEYFRAME_SELECTOR.test(item)) return item;
       if (item === "*") return `${scopeSelector}, ${scopeSelector} *`;
       if (/^(?:html|body|:root)\b/i.test(item)) {
         return item.replace(/^(?:html|body|:root)\b/i, scopeSelector);

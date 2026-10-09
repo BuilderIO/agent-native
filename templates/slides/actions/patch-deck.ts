@@ -41,6 +41,10 @@ import {
 } from "../server/lib/deck-versions.js";
 import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
 import {
+  HYGIENE_ACTION_DESCRIPTION,
+  slideHygieneResult,
+} from "../server/lib/slide-hygiene.js";
+import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
   type SourceImportMetadata,
@@ -922,7 +926,8 @@ export default defineAction({
     "return immediately with contentHash plus layoutFitRevision-keyed layoutFit.status=pending; call " +
     "Do not check fit after each write: finish all slide edits, then call get-layout-overflows once, and once more only after a repair. If measurements are unknown, report the unmeasured slides and do not recheck this turn unless the editor has produced a new measurement. " +
     "Agents can add, delete, and reorder slides through operations in this action. " +
-    "Structural edits to an imported deck clear its source-import metadata automatically; the legacy rewriteSource flag is not required.",
+    "Structural edits to an imported deck clear its source-import metadata automatically; the legacy rewriteSource flag is not required." +
+    HYGIENE_ACTION_DESCRIPTION,
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     clientWrite: deckClientWriteSchema.optional(),
@@ -1579,6 +1584,15 @@ export default defineAction({
               partial: true,
               message: `Applied, but ${unchangedSlideIds.join(", ")} came out identical to the stored slide and were not written — do not report those slides as edited.`,
             }
+          : {}),
+        ...(isAgentCaller
+          ? slideHygieneResult(
+              [...contentChangedSlideIds].map((slideId) => ({
+                slideId,
+                html: contentsAfterOperations.get(slideId) ?? "",
+                previousHtml: contentsBeforeOperations.get(slideId),
+              })),
+            )
           : {}),
         ...(sourceRewriteRequested ? { sourceRewritten: true } : {}),
         ...(sourceImportCleared && !sourceRewriteRequested
