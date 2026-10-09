@@ -126,6 +126,15 @@ function isManifest(value: unknown): value is Manifest {
   );
 }
 
+function getDownloadHeaderPath(path: string): string | undefined {
+  try {
+    return appPath(path);
+  } catch (error) {
+    if (!(error instanceof WorkspaceAppMountResolutionError)) throw error;
+    return undefined;
+  }
+}
+
 function readCachedManifest(channel: DownloadReleaseChannel): Manifest | null {
   if (typeof window === "undefined") return null;
   try {
@@ -303,6 +312,7 @@ export default function DownloadPage() {
   const [hostResolved, setHostResolved] = useState(false);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
+  const [mountResolutionError, setMountResolutionError] = useState(false);
   const [detected, setDetected] = useState<PlatformId | null>(null);
   const [manifestRequest, setManifestRequest] = useState(0);
   const [confirmedDownload, setConfirmedDownload] =
@@ -324,6 +334,7 @@ export default function DownloadPage() {
     const cachedManifest = readCachedManifest(channel);
     setManifest(cachedManifest);
     setManifestError(false);
+    setMountResolutionError(false);
     let manifestUrl: string;
     try {
       const latestJsonUrl = `${appBasePath()}${LATEST_JSON_PATH}`;
@@ -333,7 +344,10 @@ export default function DownloadPage() {
           : latestJsonUrl;
     } catch (error) {
       if (!(error instanceof WorkspaceAppMountResolutionError)) throw error;
-      if (!cachedManifest) setManifestError(true);
+      if (!cachedManifest) {
+        setManifestError(true);
+        setMountResolutionError(true);
+      }
       return () => {
         cancelled = true;
       };
@@ -358,6 +372,10 @@ export default function DownloadPage() {
 
   const retryManifest = () => {
     setConfirmedDownload(null);
+    if (mountResolutionError) {
+      window.location.reload();
+      return;
+    }
     setManifestRequest((request) => request + 1);
   };
 
@@ -378,6 +396,10 @@ export default function DownloadPage() {
   const downloadStartedLabel = t("downloadRoute.downloadStarted");
   const primaryDownloadStarted =
     confirmedDownload?.asset.url === primaryAsset?.url;
+  const brandHref = getDownloadHeaderPath("/");
+  const lightIconSrc = getDownloadHeaderPath("/agent-native-icon-light.svg");
+  const darkIconSrc = getDownloadHeaderPath("/agent-native-icon-dark.svg");
+  const libraryHref = getDownloadHeaderPath("/library");
 
   const handleDownload = (asset: Manifest["assets"][number], label: string) => {
     markDesktopAppDownloaded();
@@ -389,29 +411,35 @@ export default function DownloadPage() {
       <header className="border-b border-border/40">
         <div className="mx-auto flex h-16 max-w-[1300px] items-center gap-3 border-x border-border/40 px-6 sm:px-10">
           <a
-            href={appPath("/")}
+            href={brandHref}
             className="flex items-center gap-2 font-semibold tracking-tight"
           >
-            <img
-              src={appPath("/agent-native-icon-light.svg")}
-              alt=""
-              aria-hidden="true"
-              className="block h-4 w-auto shrink-0 dark:hidden"
-            />
-            <img
-              src={appPath("/agent-native-icon-dark.svg")}
-              alt=""
-              aria-hidden="true"
-              className="hidden h-4 w-auto shrink-0 dark:block"
-            />
+            {lightIconSrc !== undefined && (
+              <img
+                src={lightIconSrc}
+                alt=""
+                aria-hidden="true"
+                className="block h-4 w-auto shrink-0 dark:hidden"
+              />
+            )}
+            {darkIconSrc !== undefined && (
+              <img
+                src={darkIconSrc}
+                alt=""
+                aria-hidden="true"
+                className="hidden h-4 w-auto shrink-0 dark:block"
+              />
+            )}
             <span>Clips</span>
           </a>
-          <a
-            href={appPath("/library")}
-            className="ms-auto text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {t("downloadRoute.backToLibrary")}
-          </a>
+          {libraryHref !== undefined && (
+            <a
+              href={libraryHref}
+              className="ms-auto text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {t("downloadRoute.backToLibrary")}
+            </a>
+          )}
         </div>
       </header>
 

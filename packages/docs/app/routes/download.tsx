@@ -312,6 +312,7 @@ export default function DownloadPage() {
   );
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
+  const [mountResolutionError, setMountResolutionError] = useState(false);
   const [manifestRequest, setManifestRequest] = useState(0);
   const [confirmedDownload, setConfirmedDownload] =
     useState<ConfirmedDownload | null>(null);
@@ -327,6 +328,7 @@ export default function DownloadPage() {
     const cachedManifest = readCachedManifest(channel);
     setManifest(cachedManifest);
     setManifestError(false);
+    setMountResolutionError(false);
     let manifestUrl: string;
     try {
       const latestJsonUrl = `${appBasePath()}${LATEST_JSON_PATH}`;
@@ -336,7 +338,10 @@ export default function DownloadPage() {
           : latestJsonUrl;
     } catch (error) {
       if (!(error instanceof WorkspaceAppMountResolutionError)) throw error;
-      if (!cachedManifest) setManifestError(true);
+      if (!cachedManifest) {
+        setManifestError(true);
+        setMountResolutionError(true);
+      }
       return () => {
         cancelled = true;
       };
@@ -430,6 +435,10 @@ export default function DownloadPage() {
   }
 
   function handleRetry() {
+    if (mountResolutionError) {
+      window.location.reload();
+      return;
+    }
     setManifest(null);
     setManifestError(false);
     setConfirmedDownload(null);

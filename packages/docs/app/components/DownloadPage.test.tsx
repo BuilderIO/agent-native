@@ -117,6 +117,7 @@ describe("DownloadPage", () => {
     cleanup();
     window.localStorage.clear();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
@@ -182,6 +183,16 @@ describe("DownloadPage", () => {
           .getAttribute("href"),
       ).toBe(productionManifest.assets[0].url);
     });
+  });
+
+  it("offers a retry when workspace mount details are unavailable", async () => {
+    appBasePathMock.mockImplementation(() => {
+      throw new WorkspaceAppMountResolutionError("Workspace mount is unknown");
+    });
+    render(<DownloadPage />);
+
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("shows a confirmed state and retry link after starting a download", async () => {
