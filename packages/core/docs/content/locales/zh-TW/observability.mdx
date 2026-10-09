@@ -406,6 +406,8 @@ interface ObservabilityMeterProvider {
 
 無伺服器函式在兩次呼叫之間會被凍結，因此 SDK 的匯出計時器可能永遠不會觸發。當已註冊的提供者實作了 `forceFlush()` 時，Core 會在每個請求之後從回應掛鉤中呼叫它並等待完成。每次排清都與同一個共用的 2 秒逾時競速，因此遙測占用回應的時間絕不會超過這個上限。當平台提供 `waitUntil`（Cloudflare，或 Netlify 的呼叫內容）時，Core 會把清空交給它，先送出回應而不是等待。
 
+Core 每個行程最多每 10 秒呼叫一次指標提供者的 `forceFlush()`，其間的請求會略過它。每次指標匯出都會重新傳送行程持有的所有序列，因此這樣可以避免上傳量隨請求速率成長。被略過的資料點不會遺失：下一次匯出會攜帶它們，除非該執行個體不再處理任何請求。追蹤提供者在每個請求時都會排清。
+
 排清失敗或逾時後，Core 會停止等待它，並將 `agent_native.telemetry.flush_failures` 加 1，下一次排清會匯出這個計數。逾時的匯出會繼續執行，只要執行環境沒有先凍結程序，它仍可能送達。該失敗的 `error.type` 為 `timeout`，執行環境在排清途中凍結程序時為 `suspended`，否則為錯誤名稱。由於持續逾時的收集器永遠收不到該計數，Core 也會在每個程序中依訊號與錯誤類型，向函式記錄寫入一行 `agent-native.telemetry_flush_failed`。
 
 在長時間執行的伺服器上，每次回應後都排清意味著每個請求匯出一次。在這類環境中，請註冊不帶 `forceFlush()` 的提供者，讓 SDK 自己的計時器負責匯出。`@agent-native/core/server` 中的 `isServerlessRuntime()` 可以區分這兩種情況。它在 Netlify、Vercel、AWS Lambda 與 Cloudflare 上為 true。

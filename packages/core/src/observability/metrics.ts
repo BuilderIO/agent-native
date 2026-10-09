@@ -359,11 +359,29 @@ export function __resetFlushFailureLogForTests(): void {
   loggedFlushFailures.clear();
 }
 
+// A metric export re-sends every series the process holds, so exporting on
+// each request multiplies upload volume by request rate. Cumulative (and
+// delta) points carry everything skipped into the next export; only an
+// instance that never serves another request loses its last window.
+export const METRICS_FLUSH_MIN_INTERVAL_MS = 10_000;
+const lastMetricsFlushAt = new WeakMap<object, number>();
+
+function shouldFlushMetrics(meterProvider: object, now: number): boolean {
+  const last = lastMetricsFlushAt.get(meterProvider);
+  if (last !== undefined && now - last < METRICS_FLUSH_MIN_INTERVAL_MS) {
+    return false;
+  }
+  lastMetricsFlushAt.set(meterProvider, now);
+  return true;
+}
+
 /**
  * Export buffered telemetry before a serverless function can freeze. Never
  * delays a request by more than OBSERVABILITY_FLUSH_TIMEOUT_MS; each provider
  * that times out or fails drops its points and is counted separately on
  * `agent_native.telemetry.flush_failures`, which the next flush exports.
+ * Metrics export at most once per METRICS_FLUSH_MIN_INTERVAL_MS; spans export
+ * on every call.
  */
 export async function flushObservability(): Promise<void> {
   const provider = getRegisteredObservabilityProvider();
@@ -382,8 +400,13 @@ export async function flushObservability(): Promise<void> {
   try {
     // One provider failing must not end the wait for the other: the response
     // hook returning early lets the runtime freeze mid-export.
+    const meterProvider =
+      provider.meterProvider?.forceFlush &&
+      shouldFlushMetrics(provider.meterProvider, startedAt)
+        ? provider.meterProvider
+        : undefined;
     const flushes = [
-      ["metrics", provider.meterProvider],
+      ["metrics", meterProvider],
       ["traces", provider.tracerProvider],
     ] as const;
     const failures = await Promise.all(

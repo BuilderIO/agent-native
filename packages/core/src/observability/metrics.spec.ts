@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  METRICS_FLUSH_MIN_INTERVAL_MS,
   OBSERVABILITY_FLUSH_TIMEOUT_MS,
   __resetFlushFailureLogForTests,
   flushObservability,
@@ -338,7 +339,7 @@ describe("flushObservability", () => {
 
     for (let i = 0; i < 2; i++) {
       const flushed = flushObservability();
-      await vi.advanceTimersByTimeAsync(OBSERVABILITY_FLUSH_TIMEOUT_MS);
+      await vi.advanceTimersByTimeAsync(METRICS_FLUSH_MIN_INTERVAL_MS);
       await flushed;
     }
 
@@ -356,6 +357,7 @@ describe("flushObservability", () => {
   });
 
   it("caps distinct flush-failure kinds it logs per process", async () => {
+    vi.useFakeTimers();
     __resetFlushFailureLogForTests();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     let attempt = 0;
@@ -366,7 +368,11 @@ describe("flushObservability", () => {
     });
     register({ meterProvider });
 
-    for (let i = 0; i < 20; i++) await flushObservability();
+    for (let i = 0; i < 20; i++) {
+      await flushObservability();
+      vi.setSystemTime(Date.now() + METRICS_FLUSH_MIN_INTERVAL_MS);
+    }
+    expect(attempt).toBe(20);
 
     const lines = warn.mock.calls.filter((call) =>
       String(call[0]).includes("agent-native.telemetry_flush_failed"),
@@ -493,6 +499,51 @@ describe("flushObservability", () => {
         },
       },
     ]);
+  });
+
+  it("exports metrics at most once per interval and spans on every call", async () => {
+    vi.useFakeTimers();
+    const meterFlush = vi.fn(async () => {});
+    const traceFlush = vi.fn(async () => {});
+    register({
+      meterProvider: createTestMeterProvider(meterFlush),
+      tracerProvider: { getTracer: () => ({}), forceFlush: traceFlush },
+    });
+
+    await flushObservability();
+    vi.setSystemTime(Date.now() + METRICS_FLUSH_MIN_INTERVAL_MS - 1);
+    await flushObservability();
+    expect(meterFlush).toHaveBeenCalledTimes(1);
+    expect(traceFlush).toHaveBeenCalledTimes(2);
+
+    vi.setSystemTime(Date.now() + 1);
+    await flushObservability();
+    expect(meterFlush).toHaveBeenCalledTimes(2);
+    expect(traceFlush).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry a failed metric export before the interval", async () => {
+    vi.useFakeTimers();
+    const meterFlush = vi.fn(async () => {
+      throw new TypeError("collector down");
+    });
+    register({ meterProvider: createTestMeterProvider(meterFlush) });
+
+    for (let i = 0; i < 5; i++) await flushObservability();
+
+    expect(meterFlush).toHaveBeenCalledOnce();
+  });
+
+  it("exports at once for a newly registered meter provider", async () => {
+    const first = vi.fn(async () => {});
+    const second = vi.fn(async () => {});
+    register({ meterProvider: createTestMeterProvider(first) });
+    await flushObservability();
+    register({ meterProvider: createTestMeterProvider(second) });
+    await flushObservability();
+
+    expect(first).toHaveBeenCalledOnce();
+    expect(second).toHaveBeenCalledOnce();
   });
 
   it("does not count a flush that finished in time", async () => {
