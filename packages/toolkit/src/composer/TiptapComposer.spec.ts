@@ -3152,6 +3152,60 @@ describe("TiptapComposer paste handling", () => {
 });
 
 describe("TiptapComposer references", () => {
+  it("revokes reference readiness when disabled and on listener cleanup", async () => {
+    const ready = vi.fn();
+    const unavailable = vi.fn();
+    window.addEventListener("agentNative:composer-reference-ready", ready);
+    window.addEventListener(
+      "agentNative:composer-reference-unavailable",
+      unavailable,
+    );
+    function Harness({ disabled }: { disabled: boolean }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            disabled,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+    try {
+      await act(async () =>
+        root.render(React.createElement(Harness, { disabled: false })),
+      );
+      expect(ready).toHaveBeenCalled();
+      const element = ready.mock.calls.at(-1)![0].detail;
+      unavailable.mockClear();
+      await act(async () =>
+        root.render(React.createElement(Harness, { disabled: true })),
+      );
+      expect(unavailable).toHaveBeenCalled();
+      expect(unavailable.mock.calls.at(-1)![0].detail).toBe(element);
+      ready.mockClear();
+      await act(async () =>
+        root.render(React.createElement(Harness, { disabled: false })),
+      );
+      expect(ready.mock.calls.at(-1)![0].detail).toBe(element);
+      unavailable.mockClear();
+      act(() => root.render(null));
+      expect(unavailable.mock.calls.at(-1)![0].detail).toBe(element);
+    } finally {
+      window.removeEventListener("agentNative:composer-reference-ready", ready);
+      window.removeEventListener(
+        "agentNative:composer-reference-unavailable",
+        unavailable,
+      );
+    }
+  });
+
   it("replays a reference rejected while disabled without consuming its ID", async () => {
     const onReferencesChange = vi.fn();
     function Harness({ disabled }: { disabled: boolean }) {

@@ -3938,15 +3938,26 @@ export function TiptapComposer({
     };
     window.addEventListener(AGENT_CHAT_INSERT_REFERENCE_EVENT, handleEvent);
     window.addEventListener("message", handleMessage);
-    // The sidebar body can mount before its first thread creates an editor.
-    if (editor && !disabled) {
+    const element = isComposerEditorUsable(editor) ? editor.view.dom : null;
+    const reportUnavailable = () => {
+      if (element)
+        window.dispatchEvent(
+          new CustomEvent("agentNative:composer-reference-unavailable", {
+            detail: element,
+          }),
+        );
+    };
+    editor?.on("destroy", reportUnavailable);
+    if (element && !disabled) {
       window.dispatchEvent(
         new CustomEvent("agentNative:composer-reference-ready", {
-          detail: editor.view.dom,
+          detail: element,
         }),
       );
-    }
+    } else reportUnavailable();
     return () => {
+      reportUnavailable();
+      editor?.off("destroy", reportUnavailable);
       window.removeEventListener(
         AGENT_CHAT_INSERT_REFERENCE_EVENT,
         handleEvent,

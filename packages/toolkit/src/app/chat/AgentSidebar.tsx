@@ -587,6 +587,7 @@ export function AgentSidebar({
   const [frameSidebarOpen, setFrameSidebarOpen] = useState(false);
   const [hasFrameSidebarState, setHasFrameSidebarState] = useState(false);
   const [backgroundPanelActive, setBackgroundPanelActive] = useState(false);
+  const [hasPendingPanelEvents, setHasPendingPanelEvents] = useState(false);
   const [runningTabIds, setRunningTabIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -596,26 +597,48 @@ export function AgentSidebar({
     !presentationMode &&
     (!frameCodeMode || !shouldParentFrameOwnAgentPanel());
   const shouldMountPanel =
-    ownsPanel && (open || backgroundPanelActive || runningTabIds.size > 0);
+    ownsPanel &&
+    (open ||
+      backgroundPanelActive ||
+      runningTabIds.size > 0 ||
+      hasPendingPanelEvents);
   const panelReadyRef = useRef(false);
   const composerReadyRef = useRef(false);
+  const composerElementRef = useRef<HTMLElement | null>(null);
   const panelElementRef = useRef<HTMLDivElement>(null);
   const pendingPanelEvents = useRef<Event[]>([]);
-  const onPanelReadyChange = useCallback((ready: boolean) => {
-    panelReadyRef.current = ready;
-    if (!ready) {
-      composerReadyRef.current = false;
-      return;
-    }
-    const pending = pendingPanelEvents.current.splice(0);
-    for (const event of pending) {
-      if (isComposerReferenceEvent(event) && !composerReadyRef.current) {
-        pendingPanelEvents.current.push(event);
-        continue;
+  const replayingPanelEvent = useRef<Event | null>(null);
+  const drainScheduled = useRef(false);
+  const drainPendingPanelEvents = useCallback(() => {
+    if (drainScheduled.current) return;
+    drainScheduled.current = true;
+    queueMicrotask(() => {
+      try {
+        while (panelReadyRef.current && pendingPanelEvents.current.length > 0) {
+          const event = pendingPanelEvents.current[0];
+          if (isComposerReferenceEvent(event) && !composerReadyRef.current)
+            break;
+          replayingPanelEvent.current = event;
+          // Reference insertion must commit before a following submission reads its context.
+          flushSync(() => window.dispatchEvent(event));
+          if (pendingPanelEvents.current[0] === event)
+            pendingPanelEvents.current.shift();
+        }
+      } finally {
+        replayingPanelEvent.current = null;
+        drainScheduled.current = false;
+        setHasPendingPanelEvents(pendingPanelEvents.current.length > 0);
       }
-      window.dispatchEvent(event);
-    }
+    });
   }, []);
+  const onPanelReadyChange = useCallback(
+    (ready: boolean) => {
+      panelReadyRef.current = ready;
+      if (!ready) return;
+      drainPendingPanelEvents();
+    },
+    [drainPendingPanelEvents],
+  );
 
   useEffect(() => {
     const frameOwned = frameCodeMode && shouldParentFrameOwnAgentPanel();
@@ -720,14 +743,35 @@ export function AgentSidebar({
   useEffect(() => {
     if (!ownsPanel) {
       pendingPanelEvents.current.length = 0;
+      setHasPendingPanelEvents(false);
+      panelReadyRef.current = false;
+      composerReadyRef.current = false;
+      composerElementRef.current = null;
       return;
     }
-    const replayAfterMount = (type: string, event: Event) => {
-      if (panelReadyRef.current) return;
-
-      const detail = (event as CustomEvent).detail;
-      pendingPanelEvents.current.push(new CustomEvent(type, { detail }));
+    const retainEvent = (event: Event) => {
+      event.stopImmediatePropagation();
+      const queued =
+        event instanceof MessageEvent
+          ? new MessageEvent("message", {
+              data: event.data,
+              origin: event.origin,
+              source: event.source,
+            })
+          : new CustomEvent(event.type, {
+              detail: (event as CustomEvent).detail,
+            });
+      pendingPanelEvents.current.push(queued);
+      setHasPendingPanelEvents(true);
       setBackgroundPanelActive(true);
+      drainPendingPanelEvents();
+    };
+    const shouldRetainEvent = (event: Event, ready: boolean) =>
+      event !== replayingPanelEvent.current &&
+      (!ready || pendingPanelEvents.current.length > 0);
+    const replayAfterMount = (type: string, event: Event) => {
+      if (!shouldRetainEvent(event, panelReadyRef.current)) return;
+      retainEvent(event);
       if (type === AGENT_PANEL_OPEN_SETTINGS_EVENT) {
         setOpenPersisted(true);
       }
@@ -743,13 +787,8 @@ export function AgentSidebar({
     const handleOpenThread = (event: Event) =>
       replayAfterMount(event.type, event);
     const handleReference = (event: Event) => {
-      if (composerReadyRef.current) return;
-      pendingPanelEvents.current.push(
-        new CustomEvent(event.type, {
-          detail: (event as CustomEvent).detail,
-        }),
-      );
-      setBackgroundPanelActive(true);
+      if (!shouldRetainEvent(event, composerReadyRef.current)) return;
+      retainEvent(event);
     };
     const handleComposerReady = (event: Event) => {
       const element = (event as CustomEvent).detail;
@@ -759,9 +798,13 @@ export function AgentSidebar({
       )
         return;
       composerReadyRef.current = true;
-      if (!panelReadyRef.current) return;
-      const pending = pendingPanelEvents.current.splice(0);
-      for (const queued of pending) window.dispatchEvent(queued);
+      composerElementRef.current = element;
+      drainPendingPanelEvents();
+    };
+    const handleComposerUnavailable = (event: Event) => {
+      if ((event as CustomEvent).detail !== composerElementRef.current) return;
+      composerReadyRef.current = false;
+      composerElementRef.current = null;
     };
     const handleMessage = (event: MessageEvent) => {
       if (
@@ -770,9 +813,12 @@ export function AgentSidebar({
       )
         return;
       if (
-        isComposerReferenceEvent(event)
-          ? composerReadyRef.current
-          : panelReadyRef.current
+        !shouldRetainEvent(
+          event,
+          isComposerReferenceEvent(event)
+            ? composerReadyRef.current
+            : panelReadyRef.current,
+        )
       )
         return;
       if (
@@ -785,49 +831,64 @@ export function AgentSidebar({
         ].includes(event.data?.type)
       )
         return;
-      // Keep the original message envelope so the panel applies its normal trust checks.
-      pendingPanelEvents.current.push(
-        new MessageEvent("message", {
-          data: event.data,
-          origin: event.origin,
-          source: event.source,
-        }),
-      );
-      setBackgroundPanelActive(true);
+      retainEvent(event);
     };
 
-    window.addEventListener(AGENT_PANEL_SET_MODE_EVENT, handleSetMode);
+    window.addEventListener(AGENT_PANEL_SET_MODE_EVENT, handleSetMode, true);
     window.addEventListener(
       AGENT_PANEL_OPEN_SETTINGS_EVENT,
       handleOpenSettings,
+      true,
     );
-    window.addEventListener("agent-chat:open-thread", handleOpenThread);
-    window.addEventListener("agent-task-open", handleOpenThread);
-    window.addEventListener("message", handleMessage);
-    window.addEventListener(AGENT_CHAT_INSERT_REFERENCE_EVENT, handleReference);
+    window.addEventListener("agent-chat:open-thread", handleOpenThread, true);
+    window.addEventListener("agent-task-open", handleOpenThread, true);
+    window.addEventListener("message", handleMessage, true);
+    window.addEventListener(
+      AGENT_CHAT_INSERT_REFERENCE_EVENT,
+      handleReference,
+      true,
+    );
     window.addEventListener(
       "agentNative:composer-reference-ready",
       handleComposerReady,
     );
+    window.addEventListener(
+      "agentNative:composer-reference-unavailable",
+      handleComposerUnavailable,
+    );
     return () => {
-      window.removeEventListener(AGENT_PANEL_SET_MODE_EVENT, handleSetMode);
+      window.removeEventListener(
+        AGENT_PANEL_SET_MODE_EVENT,
+        handleSetMode,
+        true,
+      );
       window.removeEventListener(
         AGENT_PANEL_OPEN_SETTINGS_EVENT,
         handleOpenSettings,
+        true,
       );
-      window.removeEventListener("agent-chat:open-thread", handleOpenThread);
-      window.removeEventListener("agent-task-open", handleOpenThread);
-      window.removeEventListener("message", handleMessage);
+      window.removeEventListener(
+        "agent-chat:open-thread",
+        handleOpenThread,
+        true,
+      );
+      window.removeEventListener("agent-task-open", handleOpenThread, true);
+      window.removeEventListener("message", handleMessage, true);
       window.removeEventListener(
         AGENT_CHAT_INSERT_REFERENCE_EVENT,
         handleReference,
+        true,
       );
       window.removeEventListener(
         "agentNative:composer-reference-ready",
         handleComposerReady,
       );
+      window.removeEventListener(
+        "agentNative:composer-reference-unavailable",
+        handleComposerUnavailable,
+      );
     };
-  }, [ownsPanel, setOpenPersisted]);
+  }, [ownsPanel, setOpenPersisted, drainPendingPanelEvents]);
 
   useEffect(() => {
     if (!enabled) return;
