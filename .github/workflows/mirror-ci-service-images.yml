@@ -1,0 +1,49 @@
+name: Mirror CI service images
+
+# Copies the Postgres service images CI uses into GHCR. Docker Hub limits
+# anonymous pulls per runner IP, and that limit fails jobs while their service
+# containers start, before any step runs. Jobs pull from the mirror instead.
+
+on:
+  push:
+    paths:
+      - ".github/workflows/mirror-ci-service-images.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    name: Mirror Postgres service images
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY: ghcr.io/builderio/agent-native-ci-postgres
+      IMAGES: postgres:17-alpine postgres:18-alpine
+    steps:
+      - name: Log in to GHCR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Copy images with retries
+        run: |
+          set -euo pipefail
+          for image in $IMAGES; do
+            tag="${image#postgres:}"
+            for attempt in 1 2 3 4 5; do
+              if docker buildx imagetools create --tag "$REGISTRY:$tag" "docker.io/library/$image"; then
+                break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                echo "::error::could not copy $image after 5 attempts"
+                exit 1
+              fi
+              sleep $((attempt * 120))
+            done
+            docker buildx imagetools inspect "$REGISTRY:$tag"
+          done
