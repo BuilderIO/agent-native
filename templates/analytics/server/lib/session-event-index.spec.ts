@@ -50,6 +50,7 @@ function sessionEventIndexMigrationSql(): string[] {
 }
 
 function sessionRecordingSessionAssociationsMigrationSql(): string[] {
+  // source-read-ok: execute the real association migration DDL in PGlite.
   const source = readFileSync(
     new URL("../plugins/db.ts", import.meta.url),
     "utf8",

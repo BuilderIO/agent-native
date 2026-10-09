@@ -1409,7 +1409,8 @@ export async function getSessionFrictionDetails(
       agentSignalsMissing: f.agentSignalsMissing,
       score: f.score,
     })
-    .from(r);
+    .from(r)
+    .where(inArray(r.id, ids));
   if (associationsReady) {
     const association = schema.sessionRecordingSessionAssociations;
     const eventSessionId = sql`case when ${association.recordingId} is null
@@ -1430,7 +1431,7 @@ export async function getSessionFrictionDetails(
     );
   }
   const [eventRows, issues] = await Promise.all([
-    eventRowsQuery.where(inArray(r.id, ids)),
+    eventRowsQuery,
     listRecordingErrorIssues(
       scope,
       recordings.map((recording) => ({

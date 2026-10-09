@@ -2192,13 +2192,6 @@ export async function listJourneyRecordings(
       durationMs: r.durationMs,
       metadata: r.metadata,
     };
-    let query = db.select(selection).from(r);
-    if (associationsReady) {
-      query = query.leftJoin(
-        schema.sessionRecordingSessionAssociations,
-        eq(schema.sessionRecordingSessionAssociations.recordingId, r.id),
-      );
-    }
     const sessionMatch = associationsReady
       ? or(
           inArray(schema.sessionRecordingSessionAssociations.sessionId, batch),
@@ -2208,23 +2201,36 @@ export async function listJourneyRecordings(
           ),
         )
       : inArray(r.sessionId, batch);
-    const read = await query
-      .where(
-        and(
-          accessFilter(r, schema.sessionRecordingShares, {
-            userEmail: scope.userEmail,
-            orgId: scope.orgId ?? undefined,
-          }),
-          replayVisibleIdentityCondition(),
-          replayPlayableEventsCondition(),
-          sessionMatch,
-          gte(r.startedAt, range.fromIso),
-          lte(r.startedAt, range.toIso),
-        ),
-      )
-      .orderBy(asc(r.startedAt), asc(r.id))
-      // One row past the ceiling tells a batch that ended there from one cut.
-      .limit(limit + 1);
+    const predicates = and(
+      accessFilter(r, schema.sessionRecordingShares, {
+        userEmail: scope.userEmail,
+        orgId: scope.orgId ?? undefined,
+      }),
+      replayVisibleIdentityCondition(),
+      replayPlayableEventsCondition(),
+      sessionMatch,
+      gte(r.startedAt, range.fromIso),
+      lte(r.startedAt, range.toIso),
+    );
+    const read = associationsReady
+      ? await db
+          .select(selection)
+          .from(r)
+          .leftJoin(
+            schema.sessionRecordingSessionAssociations,
+            eq(schema.sessionRecordingSessionAssociations.recordingId, r.id),
+          )
+          .where(predicates)
+          .orderBy(asc(r.startedAt), asc(r.id))
+          // One row past the ceiling tells a batch that ended there from one cut.
+          .limit(limit + 1)
+      : await db
+          .select(selection)
+          .from(r)
+          .where(predicates)
+          .orderBy(asc(r.startedAt), asc(r.id))
+          // One row past the ceiling tells a batch that ended there from one cut.
+          .limit(limit + 1);
     if (read.length > limit) complete = false;
     const rows = read.slice(0, limit);
     for (const row of rows) {
