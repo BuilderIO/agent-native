@@ -168,25 +168,13 @@ describe("journey capture replay network relay", () => {
     );
 
     try {
-      const read = socketReader(socket);
-      socket.write(Buffer.from([5, 1, 0]));
-      expect([...(await read(2))]).toEqual([5, 0]);
-      const hostname = Buffer.from("recorded.com");
-      const port = Buffer.alloc(2);
-      port.writeUInt16BE(443);
+      expect([...(await socksConnect(socket, "recorded.com", 443))]).toEqual([
+        5, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+      ]);
       const tunneledPayload = "x".repeat(2_048);
-      const tunneledRequest = Buffer.from(
+      socket.write(
         `GET /image.png HTTP/1.1\r\nHost: recorded.com\r\nX-Payload: ${tunneledPayload}\r\nConnection: close\r\n\r\n`,
       );
-      socket.write(
-        Buffer.concat([
-          Buffer.from([5, 1, 0, 3, hostname.byteLength]),
-          hostname,
-          port,
-          tunneledRequest,
-        ]),
-      );
-      expect([...(await read(10))]).toEqual([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
       let response = "";
       await new Promise<void>((resolve, reject) => {
         socket.on("data", (chunk) => (response += chunk.toString("utf8")));
@@ -197,6 +185,77 @@ describe("journey capture replay network relay", () => {
       expect(lookup).toHaveBeenCalledExactlyOnceWith("recorded.com");
       expect(connect).toHaveBeenCalledExactlyOnceWith("8.8.8.8", 443);
     } finally {
+      socket.destroy();
+      await relay.close();
+      await close(targetServer);
+    }
+  });
+
+  it("returns buffered bytes to the tunnel after CONNECT succeeds", async () => {
+    const targetServer = createServer((_request, response) => {
+      response.end("recorded-image");
+    });
+    const targetPort = await listen(targetServer);
+    let startConnect: (() => void) | undefined;
+    const connectStarted = new Promise<void>((resolve) => {
+      startConnect = resolve;
+    });
+    let releaseConnect: (() => void) | undefined;
+    const connectGate = new Promise<void>((resolve) => {
+      releaseConnect = resolve;
+    });
+    const connect = vi.fn(async () => {
+      startConnect?.();
+      await connectGate;
+      return connectSocket("127.0.0.1", targetPort);
+    });
+    const relay = await startReplaySocksRelay("https://analytics.example.com", {
+      lookup: async () => [{ address: "8.8.8.8", family: 4 }],
+      connect,
+    });
+    const proxyUrl = new URL(relay.server);
+    const socket = await connectSocket(
+      proxyUrl.hostname,
+      Number(proxyUrl.port),
+    );
+
+    try {
+      const read = socketReader(socket);
+      socket.write(Buffer.from([5, 1, 0]));
+      expect([...(await read(2))]).toEqual([5, 0]);
+      const hostname = Buffer.from("recorded.com");
+      const port = Buffer.alloc(2);
+      port.writeUInt16BE(443);
+      socket.write(
+        Buffer.concat([
+          Buffer.from([5, 1, 0, 3, hostname.byteLength]),
+          hostname,
+          port,
+        ]),
+      );
+      await connectStarted;
+
+      const tunneledPayload = "x".repeat(2_048);
+      await new Promise<void>((resolve, reject) => {
+        socket.write(
+          `GET /image.png HTTP/1.1\r\nHost: recorded.com\r\nX-Payload: ${tunneledPayload}\r\nConnection: close\r\n\r\n`,
+          (error) => (error ? reject(error) : resolve()),
+        );
+      });
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      releaseConnect?.();
+
+      expect([...(await read(10))]).toEqual([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+      let response = "";
+      await new Promise<void>((resolve, reject) => {
+        socket.on("data", (chunk) => (response += chunk.toString("utf8")));
+        socket.once("end", resolve);
+        socket.once("error", reject);
+      });
+      expect(response).toContain("recorded-image");
+      expect(connect).toHaveBeenCalledOnce();
+    } finally {
+      releaseConnect?.();
       socket.destroy();
       await relay.close();
       await close(targetServer);
