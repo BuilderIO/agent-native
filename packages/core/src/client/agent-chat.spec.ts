@@ -1363,12 +1363,17 @@ describe("sendToAgentChat", () => {
     });
     const prefill = parentPostMessageSpy.mock.calls[0][0];
     expect(
-      parseSubmitChatMessage({ data: prefill } as MessageEvent),
+      parseSubmitChatMessage({ data: prefill } as MessageEvent, {
+        allowContextOnlyPrefill: true,
+      }),
     ).toMatchObject({
       message: "",
       contextLabel: "Spider-Man: Brand New Day",
       submit: false,
     });
+    expect(
+      parseSubmitChatMessage({ data: prefill } as MessageEvent),
+    ).toBeNull();
 
     parentPostMessageSpy.mockClear();
     sendToAgentChat({ message: "", context: "Hidden context" });

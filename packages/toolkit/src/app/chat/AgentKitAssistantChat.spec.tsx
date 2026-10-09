@@ -3839,6 +3839,32 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(stored).not.toContain("data:image");
   });
 
+  it("consumes staged hidden context once a restoring submission is queued", async () => {
+    chatMocks.history = { isRestoring: true };
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        {
+          key: "prefill-context-queued",
+          title: "prefill-context-queued",
+          context: "Queued cast",
+          hidden: true,
+        },
+        { focus: false },
+      ),
+    );
+
+    await act(async () => {
+      await ref.current?.sendMessage("Summarize it");
+    });
+
+    const stored = JSON.stringify([...chatMocks.appState.values()]);
+    expect(stored).toContain("Queued cast");
+    expect(chatMocks.composerProps.contextItems).toEqual([]);
+    expect(readAssistantChatHiddenContext(chatMocks.threadId)).toEqual([]);
+  });
+
   it("does not clear persisted selection when hydration fails", async () => {
     chatMocks.appState.set("pending-selection-context", {
       text: "selection to preserve",

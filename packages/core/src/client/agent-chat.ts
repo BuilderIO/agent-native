@@ -1087,6 +1087,7 @@ function parseSubmitChatAttachments(
 
 export function parseSubmitChatMessage(
   event: MessageEvent,
+  options: { allowContextOnlyPrefill?: boolean } = {},
 ): ParsedSubmitChat | null {
   const envelope =
     event.data && typeof event.data === "object"
@@ -1099,8 +1100,10 @@ export function parseSubmitChatMessage(
       : null;
   if (!raw) return null;
   const message = typeof raw.message === "string" ? raw.message : "";
-  // A prefill may carry only context: the composer then shows a chip and no text.
+  // Only the composer opts in. Other consumers treat any parsed result as a
+  // submission, so an empty message would reach them as a blank send.
   const contextOnlyPrefill =
+    options.allowContextOnlyPrefill === true &&
     raw.submit === false &&
     typeof raw.context === "string" &&
     raw.context.trim().length > 0;

@@ -135,7 +135,7 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
   if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
   if (!send.submit) {
     // A context-only prefill has no text; it must not clear the user's draft.
-    if (send.message) ref.prefillMessage(send.message);
+    if (send.message.trim()) ref.prefillMessage(send.message);
     if (send.prefillContext) ref.setComposerContextItem(send.prefillContext);
     return;
   }
@@ -2099,7 +2099,9 @@ export function MultiTabAssistantChat({
         clearContextInTab(currentTabId);
         return;
       }
-      const parsed = parseSubmitChatMessage(event);
+      const parsed = parseSubmitChatMessage(event, {
+        allowContextOnlyPrefill: true,
+      });
       if (!parsed) return;
       // Dedup the live post against the cold-start replay; first one wins.
       if (!claimAgentChatSubmit(parsed.submitMessageId)) return;

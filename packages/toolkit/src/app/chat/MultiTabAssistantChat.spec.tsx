@@ -712,6 +712,24 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("keeps the draft when a prefill is whitespace-only", () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "   ",
+        context: "Selected rows: a, b",
+        submit: false,
+        openSidebar: true,
+      });
+    });
+
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
+      key: expect.stringMatching(/^prefill-context-/),
+      title: "Active app context",
+      context: "Selected rows: a, b",
+    });
+  });
+
   it("shows a visible fallback chip when a prefill has no prompt text", () => {
     act(() => {
       dispatchSubmitChat({

@@ -2509,6 +2509,22 @@ const AgentKitAssistantChatBody = forwardRef<
             pendingProviderSubmissionsRef.current = submissions;
             setDeferredSubmissionsLoadedThread(threadId);
             reportAgentChatSubmitResult(submitMessageId, true);
+            if (!options.recoveryAction) {
+              // The queued text already carries this context; clear it so the next send does not repeat it.
+              const consumedKeys = new Set(
+                (submittedComposerOptions.contextItems ?? contextItems).map(
+                  (item) => item.key,
+                ),
+              );
+              publishAgentChatContextItems(
+                getAgentChatContextState().items.filter(
+                  (item) => !consumedKeys.has(item.key),
+                ),
+              );
+              setContextItems((items) =>
+                items.filter((item) => !consumedKeys.has(item.key)),
+              );
+            }
             return { status: "submitted" };
           } catch (error) {
             reportAgentChatSubmitResult(
