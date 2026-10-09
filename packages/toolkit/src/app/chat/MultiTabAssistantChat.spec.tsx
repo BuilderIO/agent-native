@@ -663,8 +663,33 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
 
     expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
-      'Review this before sending\n\n<context data-agentkit-context-encoding="entities-v1">\nSelected rows: a, b\n</context>',
+      "Review this before sending",
     );
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: "Selected rows: a, b",
+        hidden: true,
+      }),
+    );
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("shows a labeled chip for prefill context when submit is false", () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "Tell me more",
+        context: '{"movieId":969681}',
+        contextLabel: "Spider-Man: Brand New Day",
+        submit: false,
+      });
+    });
+
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith("Tell me more");
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith({
+      key: expect.stringMatching(/^prefill-context-/),
+      title: "Spider-Man: Brand New Day",
+      context: '{"movieId":969681}',
+    });
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
 

@@ -198,6 +198,20 @@ describe("sendToAgentChat", () => {
     });
   });
 
+  it("carries a prefill context chip label through the postMessage payload", () => {
+    sendToAgentChat({
+      message: "Tell me more",
+      context: '{"movieId":969681}',
+      contextLabel: "Spider-Man: Brand New Day",
+      submit: false,
+    });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+
+    expect(parsed?.contextLabel).toBe("Spider-Man: Brand New Day");
+    expect(parsed?.context).toBe('{"movieId":969681}');
+  });
+
   it("rejects malformed and oversized action scopes", () => {
     expect(() =>
       sendToAgentChat({
@@ -1762,6 +1776,14 @@ describe("formatAgentChatContextItemsForPrompt", () => {
         { key: "b", title: "Cart", context: "2 items" },
       ]),
     ).toBe("## Selected Element\n<button>Buy</button>\n\n## Cart\n2 items");
+  });
+
+  it("sends hidden context without a heading", () => {
+    expect(
+      formatAgentChatContextItemsForPrompt([
+        { key: "a", title: "a", context: "Selected rows: a, b", hidden: true },
+      ]),
+    ).toBe("Selected rows: a, b");
   });
 });
 

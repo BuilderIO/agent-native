@@ -2927,7 +2927,9 @@ export function TiptapComposer({
     canSubmit: canSend,
     hasStopButton: Boolean(stopButton),
   });
-  const hasContextRows = contextItems.length > 0 || slotReferences.length > 0;
+  const visibleContextItems = contextItems.filter((item) => !item.hidden);
+  const hasContextRows =
+    visibleContextItems.length > 0 || slotReferences.length > 0;
   const [composerMode, setComposerMode] = useState<ComposerMode | null>(null);
   const composerModeRef = useRef<ComposerMode | null>(null);
   const isMac =
@@ -5911,7 +5913,7 @@ export function TiptapComposer({
               </button>
             </span>
           ))}
-          {contextItems.map((item) => (
+          {visibleContextItems.map((item) => (
             <React.Fragment key={item.key}>
               <span
                 data-context-key={item.key}

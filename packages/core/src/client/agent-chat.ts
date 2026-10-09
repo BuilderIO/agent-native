@@ -38,6 +38,11 @@ export type AgentChatRequestMode = "act" | "plan";
 export interface AgentChatMessage {
   message: string;
   context?: string;
+  /**
+   * Chip label for `context` when `submit: false`. Without it the context is
+   * attached to the next submit with no chip, so it is not visible in the composer.
+   */
+  contextLabel?: string;
   actionScope?: AgentActionScope;
   submit?: boolean;
   projectSlug?: string;
@@ -78,6 +83,8 @@ export interface AgentChatContextItem {
   title: string;
   context: string;
   contextNamespace?: string;
+  /** Attached to the next submit without a composer chip. */
+  hidden?: boolean;
 }
 
 export interface AgentChatContextSetOptions extends AgentChatContextItem {
@@ -381,6 +388,7 @@ export function normalizeAgentChatContextItem(
     title: candidate.title.trim() || key,
     context,
     ...(contextNamespace ? { contextNamespace } : {}),
+    ...(candidate.hidden === true ? { hidden: true } : {}),
   };
 }
 
@@ -535,7 +543,11 @@ export function formatAgentChatContextItemsForPrompt(
   return items
     .map(normalizeAgentChatContextItem)
     .filter((item): item is AgentChatContextItem => item !== null)
-    .map((item) => [`## ${item.title}`, item.context].join("\n"))
+    .map((item) =>
+      item.hidden
+        ? item.context
+        : [`## ${item.title}`, item.context].join("\n"),
+    )
     .join("\n\n");
 }
 
@@ -990,6 +1002,7 @@ function nonEmptyString(value: unknown): string | undefined {
 export interface ParsedSubmitChat {
   message: string;
   context?: string;
+  contextLabel?: string;
   actionScope?: AgentActionScope;
   submit: boolean;
   openSidebar?: boolean;
@@ -1110,6 +1123,7 @@ export function parseSubmitChatMessage(
   return {
     message,
     context: typeof raw.context === "string" ? raw.context : undefined,
+    contextLabel: nonEmptyString(raw.contextLabel),
     ...(actionScope ? { actionScope } : {}),
     submit: raw.submit !== false,
     openSidebar:

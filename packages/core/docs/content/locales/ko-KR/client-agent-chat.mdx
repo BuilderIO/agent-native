@@ -185,7 +185,7 @@ const answer = await askUserQuestion({
 
 ## sendToAgentChat(opts) {#sendtoagentchat}
 
-`postMessage`를 통해 에이전트 채팅에 메시지를 보냅니다. 이는 위의 `useAgentChatGenerating()`이 감싸고 있는 더 저수준의 기본 요소로, UI 상호작용이 자체적인 로딩 상태 추적을 필요로 하지 않을 때 유용합니다. 모델은 봐야 하지만 사용자는 보지 않아야 하는 추가 세부 정보에는 `context`를 전달하세요. 이는 에이전트로 전송되는 메시지에 `<context>` 태그로 감싸여 추가되며, 채팅 UI에 메시지가 렌더링되기 전에 다시 제거됩니다. 즉시 전송하려면 `submit: true`를, 사용자가 먼저 검토할 초안을 미리 채우려면 `submit: false`를 전달하세요.
+`postMessage`를 통해 에이전트 채팅에 메시지를 보냅니다. 이는 위의 `useAgentChatGenerating()`이 감싸고 있는 더 저수준의 기본 요소로, UI 상호작용이 자체적인 로딩 상태 추적을 필요로 하지 않을 때 유용합니다. 모델은 봐야 하지만 사용자는 보지 않아야 하는 추가 세부 정보에는 `context`를 전달하세요. 이는 에이전트로 전송되는 메시지에 `<context>` 태그로 감싸여 추가되며, 채팅 UI에 메시지가 렌더링되기 전에 다시 제거됩니다. 즉시 전송하려면 `submit: true`를, 사용자가 먼저 검토할 초안을 미리 채우려면 `submit: false`를 전달하세요. `submit: false`인 경우 `context`는 초안에 기록되지 않습니다. 대신 다음 전송 때 첨부되며, `contextLabel`을 라벨로 한 칩으로 표시됩니다. `contextLabel`을 생략하면 칩 없이 첨부됩니다.
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -206,13 +206,14 @@ sendToAgentChat({
 
 ### AgentChatMessage {#agentchatmessage}
 
-| 옵션          | 유형       | 설명                                                                                        |
-| ------------- | ---------- | ------------------------------------------------------------------------------------------- |
-| `message`     | `string`   | 채팅에 전송되는 프롬프트이며, 채팅 UI에 표시되는 유일한 부분입니다                          |
-| `context`     | `string?`  | 전송 전에 메시지에 추가되는 모델에게만 보이는 컨텍스트입니다. 채팅 UI 표시에서는 제거됩니다 |
-| `submit`      | `boolean?` | true = 자동 제출, false = 미리 채우기만                                                     |
-| `newTab`      | `boolean?` | 이 프롬프트를 위한 별도의 채팅 스레드를 생성합니다                                          |
-| `openSidebar` | `boolean?` | 사이드바를 열지 않고 제출/미리 채우려면 false로 설정하세요                                  |
+| 옵션           | 유형       | 설명                                                                                        |
+| -------------- | ---------- | ------------------------------------------------------------------------------------------- |
+| `message`      | `string`   | 채팅에 전송되는 프롬프트이며, 채팅 UI에 표시되는 유일한 부분입니다                          |
+| `context`      | `string?`  | 전송 전에 메시지에 추가되는 모델에게만 보이는 컨텍스트입니다. 채팅 UI 표시에서는 제거됩니다 |
+| `contextLabel` | `string?`  | `submit: false`일 때 `context`의 칩 라벨. 생략하면 칩 없음                                  |
+| `submit`       | `boolean?` | true = 자동 제출, false = 미리 채우기만                                                     |
+| `newTab`       | `boolean?` | 이 프롬프트를 위한 별도의 채팅 스레드를 생성합니다                                          |
+| `openSidebar`  | `boolean?` | 사이드바를 열지 않고 제출/미리 채우려면 false로 설정하세요                                  |
 
 MCP 앱 임베드 내부에서 이를 실행하는 경우, 또는 사이드바를 열지 않고 실행을 백그라운드로 보내는 경우는 모두 [고급](/docs/client-advanced#background-send)에서 다룹니다.
 

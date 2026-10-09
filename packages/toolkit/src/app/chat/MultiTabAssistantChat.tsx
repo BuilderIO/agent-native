@@ -105,6 +105,8 @@ interface PendingSend {
   images?: string[];
   attachments?: AgentChatAttachment[];
   submit: boolean;
+  /** Prefill-only context, staged as a composer item rather than written into `message`. */
+  prefillContext?: AgentChatContextItem;
   trackInRunsTray?: boolean;
   requestMode?: "act" | "plan";
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
@@ -133,6 +135,7 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
   if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
   if (!send.submit) {
     ref.prefillMessage(send.message);
+    if (send.prefillContext) ref.setComposerContextItem(send.prefillContext);
     return;
   }
   // Every field is decided once, here; a separate "has options" condition
@@ -2102,6 +2105,7 @@ export function MultiTabAssistantChat({
       const {
         message,
         context,
+        contextLabel,
         openSidebar,
         model,
         engine,
@@ -2138,15 +2142,29 @@ export function MultiTabAssistantChat({
 
       // Plan mode is sent as request metadata by the chat adapter. Keep the
       // user-visible message clean so mode instructions never enter history.
-      const fullMessage = context
-        ? appendAgentChatContextToMessage(message, context)
-        : message;
+      // A prefill keeps its context out of the draft text: it is staged as a
+      // composer item, so the draft shows only what the user will send.
+      const fullMessage =
+        context && submit
+          ? appendAgentChatContextToMessage(message, context)
+          : message;
+      const prefillKey = `prefill-context-${submitMessageId ?? Date.now()}`;
+      const prefillContext: AgentChatContextItem | undefined =
+        !submit && context
+          ? {
+              key: prefillKey,
+              title: contextLabel ?? prefillKey,
+              context,
+              ...(contextLabel ? {} : { hidden: true }),
+            }
+          : undefined;
 
       const send: PendingSend = {
         message: fullMessage,
         images,
         attachments,
         submit,
+        ...(prefillContext ? { prefillContext } : {}),
         ...(background ? { trackInRunsTray: true } : {}),
         ...(requestMode ? { requestMode } : {}),
         ...(submitMessageId ? { submitMessageId } : {}),

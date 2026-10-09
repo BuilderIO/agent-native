@@ -82,6 +82,8 @@ export interface AgentChatContextItem {
   statusMessage?: string;
   removable?: boolean;
   blocksSubmission?: boolean;
+  /** Attached to the next submit without a composer chip. */
+  hidden?: boolean;
 }
 
 export interface ComposerAgentChatMessage {
