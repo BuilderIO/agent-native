@@ -1737,6 +1737,7 @@ function FirstPartyAnalyticsCard() {
   });
 
   const updateKeyOrigins = useActionMutation("update-analytics-public-key", {
+    method: "PUT",
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-analytics-public-keys"],
