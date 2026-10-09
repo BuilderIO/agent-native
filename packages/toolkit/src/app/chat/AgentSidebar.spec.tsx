@@ -11,13 +11,57 @@ const mockHostedHarness = vi.hoisted(() => ({
   enabled: false,
 }));
 
-vi.mock("./AgentSidebarPanel.js", () => ({
-  AgentSidebarPanel: () => (
-    <div data-agent-sidebar-panel-loaded="true">
-      <textarea aria-label="Chat composer" />
-    </div>
-  ),
-}));
+const mockPanel = vi.hoisted(() => {
+  let resolveImport!: () => void;
+  return {
+    imports: 0,
+    events: [] as Array<{ type: string; detail: unknown }>,
+    importGate: new Promise<void>((resolve) => {
+      resolveImport = resolve;
+    }),
+    resolveImport: () => resolveImport(),
+  };
+});
+
+vi.mock("./AgentSidebarPanel.js", async () => {
+  mockPanel.imports++;
+  await mockPanel.importGate;
+  return {
+    AgentSidebarPanel: ({
+      onReadyChange,
+    }: {
+      onReadyChange?: (ready: boolean) => void;
+    }) => {
+      React.useEffect(() => {
+        const record = (event: Event) =>
+          mockPanel.events.push({
+            type: event.type,
+            detail:
+              event instanceof MessageEvent
+                ? event.data
+                : (event as CustomEvent).detail,
+          });
+        window.addEventListener("agent-panel:set-mode", record);
+        window.addEventListener("agent-panel:open-settings", record);
+        window.addEventListener("agent-chat:open-thread", record);
+        window.addEventListener("message", record);
+        onReadyChange?.(true);
+        return () => {
+          onReadyChange?.(false);
+          window.removeEventListener("agent-panel:set-mode", record);
+          window.removeEventListener("agent-panel:open-settings", record);
+          window.removeEventListener("agent-chat:open-thread", record);
+          window.removeEventListener("message", record);
+        };
+      }, [onReadyChange]);
+      return (
+        <div data-agent-sidebar-panel-loaded="true">
+          <textarea aria-label="Chat composer" />
+        </div>
+      );
+    },
+  };
+});
 vi.mock("./agent-sidebar-url-sync.js", () => ({
   ScreenRefreshBoundary: ({
     children,
@@ -92,7 +136,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
   };
 });
 
-import { AgentSidebar } from "./AgentSidebar.js";
+import { AgentSidebar, preloadAgentChatSurface } from "./AgentSidebar.js";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -106,6 +150,7 @@ function renderSidebar(
   enabled = true,
   screenRefreshEnabled = true,
   forceOverlay = false,
+  openOnChatRunning = false,
 ) {
   const render = (nextEnabled: boolean) => {
     flushSync(() => {
@@ -116,6 +161,7 @@ function renderSidebar(
             disableChatShortcut={disableChatShortcut}
             enabled={nextEnabled}
             forceOverlay={forceOverlay}
+            openOnChatRunning={openOnChatRunning}
             position={position}
             screenRefreshEnabled={screenRefreshEnabled}
           >
@@ -140,6 +186,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  mockPanel.events = [];
   window.history.replaceState({}, "", "/");
   mockHostedHarness.configured = false;
   mockHostedHarness.enabled = false;
@@ -153,6 +200,161 @@ beforeEach(() => {
 });
 
 describe("AgentSidebar panel", () => {
+  it("defers the body import while closed and replays commands after a delayed mount", async () => {
+    renderSidebar(false);
+    await act(async () => {});
+    await preloadAgentChatSurface();
+    expect(mockPanel.imports).toBe(0);
+    expect(
+      container?.querySelector("[data-agent-sidebar-panel-loaded]"),
+    ).toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:set-mode", {
+          detail: { mode: "resources" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:open-settings", {
+          detail: { section: "integrations" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-example" },
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          data: {
+            type: "agentNative.submitChat",
+            data: { message: "Draft this", submit: false },
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          data: {
+            type: "agentNative.insertComposerReference",
+            data: { type: "file", path: "/reference.md" },
+          },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(mockPanel.imports).toBe(1);
+    expect(mockPanel.events).toEqual([]);
+    expect(
+      container?.querySelector("[data-agent-sidebar-state='open']"),
+    ).toBeTruthy();
+    await act(async () => {
+      mockPanel.resolveImport();
+      await mockPanel.importGate;
+    });
+    expect(mockPanel.events).toEqual([
+      { type: "agent-panel:set-mode", detail: { mode: "resources" } },
+      {
+        type: "agent-panel:open-settings",
+        detail: { section: "integrations" },
+      },
+      {
+        type: "agent-chat:open-thread",
+        detail: { threadId: "thread-example" },
+      },
+      {
+        type: "message",
+        detail: {
+          type: "agentNative.submitChat",
+          data: { message: "Draft this", submit: false },
+        },
+      },
+    ]);
+    expect(container?.querySelector("textarea")).toBeTruthy();
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative:composer-reference-ready", {
+          detail: document.body,
+        }),
+      );
+    });
+    expect(mockPanel.events).toHaveLength(4);
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative:composer-reference-ready", {
+          detail: container?.querySelector("textarea"),
+        }),
+      );
+    });
+    expect(mockPanel.events).toHaveLength(5);
+    expect(mockPanel.events[4]).toEqual({
+      type: "message",
+      detail: {
+        type: "agentNative.insertComposerReference",
+        data: { type: "file", path: "/reference.md" },
+      },
+    });
+  });
+
+  it.each(["/?agentSidebar=open", "/?threadId=thread-example"])(
+    "opens a closed preference from %s",
+    async (url) => {
+      localStorage.setItem("agent-native-sidebar-open", "false");
+      window.history.replaceState({}, "", url);
+      renderSidebar(false);
+      await act(async () => {});
+      expect(
+        container?.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeTruthy();
+      expect(container?.querySelector("textarea")).toBeTruthy();
+    },
+  );
+
+  it("keeps an explicit URL close ahead of a thread link", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/?agentSidebar=closed&threadId=thread-example",
+    );
+    renderSidebar(true);
+    await act(async () => {});
+    expect(
+      container?.querySelector("[data-agent-sidebar-state='open']"),
+    ).toBeNull();
+    expect(container?.querySelector("textarea")).toBeNull();
+  });
+
+  it("prepares the body in the background without opening it", async () => {
+    renderSidebar(false);
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agent-panel:prepare"));
+    });
+    expect(
+      container?.querySelector("[data-agent-sidebar-state='open']"),
+    ).toBeNull();
+    expect(container?.querySelector("textarea")).toBeTruthy();
+  });
+
+  it("opens automatically when a chat starts running", async () => {
+    renderSidebar(false, undefined, false, true, true, false, true);
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agent-panel:close"));
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "running-chat" },
+        }),
+      );
+    });
+    expect(
+      container?.querySelector("[data-agent-sidebar-state='open']"),
+    ).toBeTruthy();
+    expect(container?.querySelector("textarea")).toBeTruthy();
+  });
+
   it("pauses screen refresh until the panel is active", () => {
     renderSidebar(false);
 
@@ -235,9 +437,10 @@ describe("AgentSidebar panel", () => {
     ).toBeTruthy();
   });
 
-  it("renders an interactive composer without a loading skeleton", () => {
+  it("renders an interactive composer after loading the body", async () => {
     localStorage.setItem("agent-native-sidebar-open", "true");
     renderSidebar(true);
+    await act(async () => {});
 
     expect(
       container?.querySelector("[data-testid='app-content']"),

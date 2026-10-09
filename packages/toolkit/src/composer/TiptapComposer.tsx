@@ -3938,6 +3938,14 @@ export function TiptapComposer({
     };
     window.addEventListener(AGENT_CHAT_INSERT_REFERENCE_EVENT, handleEvent);
     window.addEventListener("message", handleMessage);
+    // The sidebar body can mount before its first thread creates an editor.
+    if (editor && !disabled) {
+      window.dispatchEvent(
+        new CustomEvent("agentNative:composer-reference-ready", {
+          detail: editor.view.dom,
+        }),
+      );
+    }
     return () => {
       window.removeEventListener(
         AGENT_CHAT_INSERT_REFERENCE_EVENT,

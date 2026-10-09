@@ -7,6 +7,11 @@ import {
 } from "@agent-native/core/agent/harness/hosted";
 import {
   AGENT_SIDEBAR_MIN_WIDTH,
+  AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+  AGENT_CHAT_INSERT_REFERENCE_EVENT,
   consumeAgentSidebarUrlOpenOverride,
   clampAgentSidebarWidth,
   dispatchAgentSidebarStateChange,
@@ -57,8 +62,11 @@ import React, {
 } from "react";
 import { flushSync } from "react-dom";
 
+import { Skeleton } from "../../ui/skeleton.js";
 import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-startup-gate.js";
 import type { BuilderConnectTransport } from "../settings/index.js";
+import { LazyChunkErrorBoundary } from "../shared/LazyChunkErrorBoundary.js";
+import { LazyChunkRetryFallback } from "../shared/LazyChunkRetryFallback.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import {
   AGENT_CHAT_RUNNING_EVENT,
@@ -73,7 +81,6 @@ import {
   SettingsReturnPathRecorder,
   URLSync,
 } from "./agent-sidebar-url-sync.js";
-import { AgentSidebarPanel } from "./AgentSidebarPanel.js";
 import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
 import type { AssistantChatProps } from "./chat/surface-types.js";
 import type { MultiTabAssistantChatProps } from "./MultiTabAssistantChat.js";
@@ -82,6 +89,12 @@ import "@agent-native/core/client/mcp-app-host";
 export function preloadAgentChatSurface(): Promise<void> {
   return Promise.resolve();
 }
+
+const AgentSidebarPanel = lazy(() =>
+  import("./AgentSidebarPanel.js").then((m) => ({
+    default: m.AgentSidebarPanel,
+  })),
+);
 
 const SHOW_FIRST_RUN_ONBOARDING = isFirstRunOnboardingEnabled();
 const FirstRunOnboarding = lazy(() =>
@@ -568,17 +581,32 @@ export function AgentSidebar({
   const [runningTabIds, setRunningTabIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const shouldMountPanel =
+  const ownsPanel =
     enabled &&
     !isPerAppChatHosted &&
     !presentationMode &&
-    (!frameCodeMode || !shouldParentFrameOwnAgentPanel()) &&
-    (open || backgroundPanelActive || runningTabIds.size > 0);
-  const shouldMountPanelRef = useRef(shouldMountPanel);
-
-  useEffect(() => {
-    shouldMountPanelRef.current = shouldMountPanel;
-  }, [shouldMountPanel]);
+    (!frameCodeMode || !shouldParentFrameOwnAgentPanel());
+  const shouldMountPanel =
+    ownsPanel && (open || backgroundPanelActive || runningTabIds.size > 0);
+  const panelReadyRef = useRef(false);
+  const composerReadyRef = useRef(false);
+  const panelElementRef = useRef<HTMLDivElement>(null);
+  const pendingPanelEvents = useRef<Event[]>([]);
+  const onPanelReadyChange = useCallback((ready: boolean) => {
+    panelReadyRef.current = ready;
+    if (!ready) {
+      composerReadyRef.current = false;
+      return;
+    }
+    const pending = pendingPanelEvents.current.splice(0);
+    for (const event of pending) {
+      if (isComposerReferenceEvent(event) && !composerReadyRef.current) {
+        pendingPanelEvents.current.push(event);
+        continue;
+      }
+      window.dispatchEvent(event);
+    }
+  }, []);
 
   useEffect(() => {
     const frameOwned = frameCodeMode && shouldParentFrameOwnAgentPanel();
@@ -681,20 +709,19 @@ export function AgentSidebar({
   }, [enabled, isPerAppChatHosted, openOnChatRunning, setOpenPersisted]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!ownsPanel) {
+      pendingPanelEvents.current.length = 0;
+      return;
+    }
     const replayAfterMount = (type: string, event: Event) => {
-      if (shouldMountPanelRef.current) return;
+      if (panelReadyRef.current) return;
 
       const detail = (event as CustomEvent).detail;
-      shouldMountPanelRef.current = true;
+      pendingPanelEvents.current.push(new CustomEvent(type, { detail }));
       setBackgroundPanelActive(true);
       if (type === AGENT_PANEL_OPEN_SETTINGS_EVENT) {
         setOpenPersisted(true);
       }
-
-      window.setTimeout(() => {
-        window.dispatchEvent(new CustomEvent(type, { detail }));
-      }, 0);
     };
 
     const handleSetMode = (event: Event) => {
@@ -704,10 +731,68 @@ export function AgentSidebar({
       replayAfterMount(AGENT_PANEL_OPEN_SETTINGS_EVENT, event);
     };
 
+    const handleOpenThread = (event: Event) =>
+      replayAfterMount(event.type, event);
+    const handleReference = (event: Event) => {
+      if (!composerReadyRef.current)
+        pendingPanelEvents.current.push(
+          new CustomEvent(event.type, {
+            detail: (event as CustomEvent).detail,
+          }),
+        );
+    };
+    const handleComposerReady = (event: Event) => {
+      const element = (event as CustomEvent).detail;
+      if (
+        !(element instanceof HTMLElement) ||
+        !panelElementRef.current?.contains(element)
+      )
+        return;
+      composerReadyRef.current = true;
+      if (!panelReadyRef.current) return;
+      const pending = pendingPanelEvents.current.splice(0);
+      for (const queued of pending) window.dispatchEvent(queued);
+    };
+    const handleMessage = (event: MessageEvent) => {
+      if (!isTrustedFrameMessage(event)) return;
+      if (
+        isComposerReferenceEvent(event)
+          ? composerReadyRef.current
+          : panelReadyRef.current
+      )
+        return;
+      if (
+        ![
+          "agentNative.submitChat",
+          AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
+          AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
+          AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
+          AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+        ].includes(event.data?.type)
+      )
+        return;
+      // Keep the original message envelope so the panel applies its normal trust checks.
+      pendingPanelEvents.current.push(
+        new MessageEvent("message", {
+          data: event.data,
+          origin: event.origin,
+          source: event.source,
+        }),
+      );
+    };
+
     window.addEventListener(AGENT_PANEL_SET_MODE_EVENT, handleSetMode);
     window.addEventListener(
       AGENT_PANEL_OPEN_SETTINGS_EVENT,
       handleOpenSettings,
+    );
+    window.addEventListener("agent-chat:open-thread", handleOpenThread);
+    window.addEventListener("agent-task-open", handleOpenThread);
+    window.addEventListener("message", handleMessage);
+    window.addEventListener(AGENT_CHAT_INSERT_REFERENCE_EVENT, handleReference);
+    window.addEventListener(
+      "agentNative:composer-reference-ready",
+      handleComposerReady,
     );
     return () => {
       window.removeEventListener(AGENT_PANEL_SET_MODE_EVENT, handleSetMode);
@@ -715,8 +800,19 @@ export function AgentSidebar({
         AGENT_PANEL_OPEN_SETTINGS_EVENT,
         handleOpenSettings,
       );
+      window.removeEventListener("agent-chat:open-thread", handleOpenThread);
+      window.removeEventListener("agent-task-open", handleOpenThread);
+      window.removeEventListener("message", handleMessage);
+      window.removeEventListener(
+        AGENT_CHAT_INSERT_REFERENCE_EVENT,
+        handleReference,
+      );
+      window.removeEventListener(
+        "agentNative:composer-reference-ready",
+        handleComposerReady,
+      );
     };
-  }, [enabled, setOpenPersisted]);
+  }, [ownsPanel, setOpenPersisted]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -1142,67 +1238,86 @@ export function AgentSidebar({
         inert={sidebarAnimationEnabled && !panelOpen ? true : undefined}
         aria-hidden={sidebarAnimationEnabled && !panelOpen ? true : undefined}
       >
-        <div className="agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col">
-          <AgentSidebarPanel
-            emptyStateText={emptyStateText}
-            suggestions={suggestions}
-            dynamicSuggestions={dynamicSuggestions}
-            suggestionPlacement="context-chips"
-            composerToolbarSlot={composerToolbarSlot}
-            composerSlot={composerSlot}
-            composerContextProvider={composerContextProvider}
-            onComposerTextChange={onComposerTextChange}
-            imageModelMenu={imageModelMenu}
-            availableAgents={effectiveAvailableAgents}
-            availableModels={availableModels}
-            modelListLoading={modelListLoading}
-            selectedAgent={effectiveSelectedAgent}
-            onAgentChange={effectiveOnAgentChange}
-            hostedHarness={hostedHarnessEnabled}
-            onConnectProvider={onConnectProvider}
-            builderConnectTransport={builderConnectTransport}
-            onConnectLocalRuntime={onConnectLocalRuntime}
-            runtime={runtime}
-            adapterReloadKey={adapterReloadKey}
-            threadFooterSlot={threadFooterSlot}
-            apiUrl={apiUrl}
-            agentChatSurface={agentChatSurface}
-            desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
-            desktopIdentityAuthenticated={desktopIdentityAuthenticated}
-            showTabBar={effectiveShowTabBar}
-            suppressInlineOpenApp={suppressInlineOpenApp}
-            composerPlaceholder={composerPlaceholder}
-            showMissingApiKeySetup={showMissingApiKeySetup}
-            setupCardOwner={setupCardOwner}
-            showGuidedQuestions={showGuidedQuestions}
-            missingApiKeySetupLayout="sidebar"
-            defaultMode={defaultMode}
-            onCollapse={() => setOpenPersisted(false)}
-            showCollapseButton={showCollapseButton}
-            onSnapTo75Percent={isOverlay ? undefined : snapTo75Percent}
-            isWideDrawer={isOverlay ? false : isWideDrawer}
-            onExitWideDrawer={isOverlay ? undefined : exitWideDrawer}
-            onFullViewRequest={onFullscreenRequest}
-            onOpenSettings={onOpenSettings}
-            onNewCliTab={onNewCliTab}
-            onNewUiTab={onNewUiTab}
-            renderCliTab={renderCliTab}
-            newTabMode={newTabMode}
-            newCliTabLabel={newCliTabLabel}
-            newUiTabLabel={newUiTabLabel}
-            storageKey={storageKey}
-            restoreActiveThread={restoreActiveThread}
-            scope={scope}
-            chatHistory={chatHistory}
-            isolateHistoryByScope={isolateHistoryByScope}
-            showScopeBadge={showScopeBadge}
-            browserTabId={resolvedBrowserTabId}
-            threadUrlSync={threadUrlSync}
-            agentPageHref={agentPageHref}
-            thinkingDisplay={thinkingDisplay}
-            showModelSelector={showModelSelector}
-            chatOnly={chatOnly}
-          />
+        <div
+          ref={panelElementRef}
+          className="agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col"
+        >
+          <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
+            <Suspense
+              fallback={
+                <div
+                  aria-hidden="true"
+                  className="flex min-h-0 flex-1 flex-col gap-3 p-3"
+                >
+                  <Skeleton className="h-8 w-full" />
+                  <div className="flex-1" />
+                  <Skeleton className="h-28 w-full rounded-xl" />
+                </div>
+              }
+            >
+              <AgentSidebarPanel
+                onReadyChange={onPanelReadyChange}
+                emptyStateText={emptyStateText}
+                suggestions={suggestions}
+                dynamicSuggestions={dynamicSuggestions}
+                suggestionPlacement="context-chips"
+                composerToolbarSlot={composerToolbarSlot}
+                composerSlot={composerSlot}
+                composerContextProvider={composerContextProvider}
+                onComposerTextChange={onComposerTextChange}
+                imageModelMenu={imageModelMenu}
+                availableAgents={effectiveAvailableAgents}
+                availableModels={availableModels}
+                modelListLoading={modelListLoading}
+                selectedAgent={effectiveSelectedAgent}
+                onAgentChange={effectiveOnAgentChange}
+                hostedHarness={hostedHarnessEnabled}
+                onConnectProvider={onConnectProvider}
+                builderConnectTransport={builderConnectTransport}
+                onConnectLocalRuntime={onConnectLocalRuntime}
+                runtime={runtime}
+                adapterReloadKey={adapterReloadKey}
+                threadFooterSlot={threadFooterSlot}
+                apiUrl={apiUrl}
+                agentChatSurface={agentChatSurface}
+                desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
+                desktopIdentityAuthenticated={desktopIdentityAuthenticated}
+                showTabBar={effectiveShowTabBar}
+                suppressInlineOpenApp={suppressInlineOpenApp}
+                composerPlaceholder={composerPlaceholder}
+                showMissingApiKeySetup={showMissingApiKeySetup}
+                setupCardOwner={setupCardOwner}
+                showGuidedQuestions={showGuidedQuestions}
+                missingApiKeySetupLayout="sidebar"
+                defaultMode={defaultMode}
+                onCollapse={() => setOpenPersisted(false)}
+                showCollapseButton={showCollapseButton}
+                onSnapTo75Percent={isOverlay ? undefined : snapTo75Percent}
+                isWideDrawer={isOverlay ? false : isWideDrawer}
+                onExitWideDrawer={isOverlay ? undefined : exitWideDrawer}
+                onFullViewRequest={onFullscreenRequest}
+                onOpenSettings={onOpenSettings}
+                onNewCliTab={onNewCliTab}
+                onNewUiTab={onNewUiTab}
+                renderCliTab={renderCliTab}
+                newTabMode={newTabMode}
+                newCliTabLabel={newCliTabLabel}
+                newUiTabLabel={newUiTabLabel}
+                storageKey={storageKey}
+                restoreActiveThread={restoreActiveThread}
+                scope={scope}
+                chatHistory={chatHistory}
+                isolateHistoryByScope={isolateHistoryByScope}
+                showScopeBadge={showScopeBadge}
+                browserTabId={resolvedBrowserTabId}
+                threadUrlSync={threadUrlSync}
+                agentPageHref={agentPageHref}
+                thinkingDisplay={thinkingDisplay}
+                showModelSelector={showModelSelector}
+                chatOnly={chatOnly}
+              />
+            </Suspense>
+          </LazyChunkErrorBoundary>
         </div>
       </div>
       {showResizeHandle && isLeft && (
@@ -1311,6 +1426,14 @@ export function focusAgentChat() {
   focusAgentChatComposer();
 }
 
+function isComposerReferenceEvent(event: Event): boolean {
+  return (
+    event.type === AGENT_CHAT_INSERT_REFERENCE_EVENT ||
+    (event instanceof MessageEvent &&
+      event.data?.type === AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE)
+  );
+}
+
 function focusAgentChatComposer() {
   const focusComposer = (attempt = 0) => {
     if (typeof window === "undefined" || typeof document === "undefined")
@@ -1368,9 +1491,6 @@ export function AgentToggleButton({
           aria-label={t("agentPanel.toggleAgent")}
           aria-pressed={open}
           data-state={open ? "open" : "closed"}
-          onPointerEnter={() => void preloadAgentChatSurface()}
-          onFocus={() => void preloadAgentChatSurface()}
-          onPointerDown={() => void preloadAgentChatSurface()}
           onClick={() =>
             window.dispatchEvent(
               new CustomEvent("agent-panel:toggle", {
