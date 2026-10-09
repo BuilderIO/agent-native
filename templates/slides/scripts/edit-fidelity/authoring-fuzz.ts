@@ -195,12 +195,20 @@ const saveReloadRequestAbortRules: readonly SaveReloadRequestAbortRule[] = [
   {
     path: "/_agent-native/browser-sessions",
     method: "POST",
-    errorTexts: ["Load request cancelled", ...navigationAbortErrors],
+    errorTexts: [
+      "Load request cancelled",
+      "cancelled",
+      ...navigationAbortErrors,
+    ],
   },
   {
     path: /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/,
     method: "POST",
-    errorTexts: ["Load request cancelled", ...navigationAbortErrors],
+    errorTexts: [
+      "Load request cancelled",
+      "cancelled",
+      ...navigationAbortErrors,
+    ],
   },
 ];
 

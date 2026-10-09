@@ -943,6 +943,7 @@ it("captures failed browser-session registration and subroute requests", () => {
 it("ignores registration aborts only when reload navigation cancels an in-flight request", () => {
   for (const errorText of [
     "Load request cancelled",
+    "cancelled",
     "NS_BINDING_ABORTED",
     "net::ERR_ABORTED",
   ]) {
@@ -1052,6 +1053,16 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
     isExpectedSaveReloadWatchedRequestAbort(
       "/_agent-native/browser-sessions/session-id/requests/claim",
       "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      100,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "cancelled",
       "save/reload",
       "POST",
       true,
