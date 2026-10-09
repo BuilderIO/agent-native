@@ -28,7 +28,7 @@ const COLOR_STYLE_PROPERTIES = new Set([
 ]);
 
 function sameOrMixedColorStyle(property: string, values: string[]): string {
-  const propertyKey = property.replaceAll("-", "").toLowerCase();
+  const propertyKey = property.replace(/-/g, "").toLowerCase();
   if (!COLOR_STYLE_PROPERTIES.has(propertyKey) || values.length === 0) {
     return sameOrMixed(values);
   }
