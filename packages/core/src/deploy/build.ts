@@ -1948,10 +1948,12 @@ function getAppOriginClientConfigScript() {
           else if (id) rawPath = "/" + id;
           if (!rawPath) return null;
           const normalized = normalizeAppBasePath(rawPath);
-          return normalized ? { id, path: normalized } : null;
+          return { id, path: normalized || "/" };
         })
         .filter(Boolean);
-      const paths = Array.from(new Set(mounts.map((mount) => mount.path)));
+      const paths = Array.from(
+        new Set(mounts.map((mount) => mount.path).filter((mount) => mount !== "/")),
+      );
       const currentPath = mounts.find(
         (mount) => mount.id === appConfig.app.workspaceId,
       )?.path;
@@ -1967,7 +1969,9 @@ function getAppOriginClientConfigScript() {
   })();
   const workspaceAppPath =
     workspaceAppMountConfig?.currentPath ??
-    (workspaceRuntime ? normalizeAppBasePath(appConfig.app.basePath) : "");
+    (workspaceRuntime && appConfig.app.basePath?.trim()
+      ? normalizeAppBasePath(appConfig.app.basePath) || "/"
+      : "");
   const config = {
     ...(appConfig.app.id ? { appId: appConfig.app.id } : {}),
     ...(appConfig.app.workspaceId

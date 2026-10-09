@@ -30,10 +30,9 @@ function workspaceAppMountConfigFromJson(
             ? `/${id}`
             : undefined;
       const normalized = normalizeAppBasePath(rawPath);
-      if (!normalized) continue;
-      paths.push(normalized);
+      if (normalized) paths.push(normalized);
       if (id === workspaceAppId && currentPath === undefined) {
-        currentPath = normalized;
+        currentPath = normalized || (rawPath?.trim() ? "/" : undefined);
       }
     }
     const uniquePaths = Array.from(new Set(paths));
@@ -70,7 +69,9 @@ export function resolvePublicAppOriginConfig(): {
   );
   const workspaceAppPath =
     workspaceAppMountConfig?.currentPath ??
-    (workspaceRuntime ? normalizeAppBasePath(config.app.basePath) : "");
+    (workspaceRuntime && config.app.basePath?.trim()
+      ? normalizeAppBasePath(config.app.basePath) || "/"
+      : undefined);
   const resolved = {
     ...(config.app.id ? { appId: config.app.id } : {}),
     ...(config.app.workspaceId

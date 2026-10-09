@@ -110,6 +110,31 @@ describe("app origin client config", () => {
     });
   });
 
+  it("projects an explicit root mount from the workspace manifest", () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
+      { id: "root-app", path: "/" },
+      { id: "diagrams", path: "/diagrams" },
+    ]);
+    defineAppConfig({ app: { workspaceId: "root-app" } });
+
+    expect(resolvePublicAppOriginConfig()).toMatchObject({
+      workspaceAppId: "root-app",
+      workspaceAppPath: "/",
+      workspaceAppMountPaths: ["/diagrams"],
+      workspaceRuntime: true,
+    });
+  });
+
+  it("projects an explicit root app base path", () => {
+    process.env.AGENT_NATIVE_WORKSPACE = "true";
+    process.env.APP_BASE_PATH = "/";
+
+    expect(resolvePublicAppOriginConfig()).toMatchObject({
+      workspaceAppPath: "/",
+      workspaceRuntime: true,
+    });
+  });
+
   it("prefers the canonical spelling over its mirror", () => {
     process.env.APP_URL = "https://canonical.example.com";
     process.env.VITE_APP_URL = "https://mirror.example.com";

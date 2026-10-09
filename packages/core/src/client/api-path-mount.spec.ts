@@ -50,6 +50,7 @@ describe("appMountPath", () => {
     );
     vi.stubGlobal("window", {
       location: { pathname: "/settings/model" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/" },
       __reactRouterManifest: {
         routes: {
           root: { id: "root", path: "/" },
@@ -79,8 +80,12 @@ describe("appMountPath", () => {
       },
     });
 
-    expect(appBasePath()).toBe("");
-    expect(appMountPath("/home")).toBe("");
+    expect(() => appBasePath()).toThrow(
+      "Cannot resolve workspace app mount path because the current URL matches no projected mount.",
+    );
+    expect(() => appMountPath("/home")).toThrow(
+      "Cannot resolve workspace app mount path because the current URL matches no projected mount.",
+    );
   });
 
   it("fails when a workspace mount has no positive path metadata", () => {
@@ -104,6 +109,40 @@ describe("appMountPath", () => {
     );
   });
 
+  it("fails when projected sibling mounts do not include the current app", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "content", path: "/content" }]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/dispatch/home" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
+    });
+
+    expect(() => appBasePath()).toThrow(
+      "Cannot resolve workspace app mount path because the current URL matches no projected mount.",
+    );
+  });
+
+  it("preserves an explicitly configured root workspace mount", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/");
+    vi.stubGlobal("window", { location: { pathname: "/settings/model" } });
+
+    expect(appBasePath()).toBe("");
+  });
+
+  it("preserves a root router basename before the router is mounted", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubGlobal("window", {
+      location: { pathname: "/settings/model" },
+      __reactRouterContext: { basename: "/" },
+    });
+
+    expect(appBasePath()).toBe("");
+  });
+
   it("does not infer a mount from an unmatched URL and a root index route", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
@@ -121,7 +160,9 @@ describe("appMountPath", () => {
       },
     });
 
-    expect(appBasePath()).toBe("");
+    expect(() => appBasePath()).toThrow(
+      "Cannot resolve workspace app mount path because the current URL matches no projected mount.",
+    );
   });
 
   it("keeps a root wildcard route from becoming an omitted workspace mount", () => {
@@ -141,7 +182,9 @@ describe("appMountPath", () => {
       },
     });
 
-    expect(appBasePath()).toBe("");
+    expect(() => appBasePath()).toThrow(
+      "Cannot resolve workspace app mount path because the current URL matches no projected mount.",
+    );
   });
 
   it("uses the router basename for a mounted app with a root catch-all route", () => {
@@ -181,7 +224,9 @@ describe("appMountPath", () => {
       },
     });
 
-    expect(appBasePath()).toBe("");
+    expect(() => appBasePath()).toThrow(
+      "Cannot resolve workspace app mount path because the current URL matches no projected mount.",
+    );
   });
 
   it("uses the router basename when a root catch-all masks a real route", () => {
@@ -327,7 +372,9 @@ describe("appMountPath", () => {
       },
     });
 
-    expect(appBasePath()).toBe("");
+    expect(() => appBasePath()).toThrow(
+      "Cannot resolve workspace app mount path because the current URL matches no projected mount.",
+    );
   });
 
   it("keeps a root route inside its live workspace mount when omitted by the manifest", () => {

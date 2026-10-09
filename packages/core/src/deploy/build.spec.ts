@@ -2056,6 +2056,32 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
     expect(html).toContain('"workspaceAppMountPaths":["/diagrams"]');
   });
 
+  it("projects an explicit root workspace mount into the worker shell config", async () => {
+    const dir = makeTempDir();
+    const configPath = path.join(dir, "root-mount-config.mjs");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "root-app", path: "/" },
+        { id: "diagrams", path: "/diagrams" },
+      ]),
+    );
+    fs.writeFileSync(
+      configPath,
+      `import { defineAppConfig } from "@agent-native/core/server";\n\nexport default defineAppConfig({ app: { workspaceId: "root-app" } });\n`,
+    );
+
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry([], [configPath]),
+    );
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('"workspaceAppPath":"/"');
+    expect(html).toContain('"workspaceAppMountPaths":["/diagrams"]');
+  });
+
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
