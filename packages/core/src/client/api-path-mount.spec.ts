@@ -33,6 +33,7 @@ describe("appMountPath", () => {
     );
     vi.stubGlobal("window", {
       location: { pathname: "/dispatch/home" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
       __reactRouterManifest: {
         routes: {
           root: { id: "root", path: "/" },
@@ -57,6 +58,26 @@ describe("appMountPath", () => {
           root: { id: "root", path: "/" },
           settings: { id: "settings", parentId: "root", path: "settings" },
           model: { id: "model", parentId: "settings", path: "model" },
+        },
+      },
+    });
+
+    expect(appBasePath()).toBe("");
+  });
+
+  it("does not infer an unknown prefix before a valid route", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "content", path: "/content" }]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/unknown/home" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppId: "dispatch" },
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "/" },
+          home: { id: "home", parentId: "root", path: "home" },
         },
       },
     });

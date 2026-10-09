@@ -126,6 +126,21 @@ function routerContextBasePath(): string {
   return typeof basename === "string" ? normalizeBasePath(basename) : "";
 }
 
+function workspaceAppIdentityBasePath(): string {
+  if (typeof window === "undefined") return "";
+  const injectedIdentity = (
+    window as Window & {
+      __AGENT_NATIVE_CONFIG__?: { workspaceAppId?: unknown };
+    }
+  ).__AGENT_NATIVE_CONFIG__?.workspaceAppId;
+  const configuredIdentity = clientEnv()?.VITE_AGENT_NATIVE_WORKSPACE_APP_ID;
+  const identity =
+    typeof configuredIdentity === "string" && configuredIdentity.trim()
+      ? configuredIdentity
+      : injectedIdentity;
+  return typeof identity === "string" ? normalizeBasePath(identity) : "";
+}
+
 export function isWorkspaceRuntime(): boolean {
   const env = clientEnv();
   const projected =
@@ -169,7 +184,12 @@ function workspacePathBasePath(): string {
     const localPathname = pathname.slice(basePath.length) || "/";
     const routeForFullPath = routeTemplateForPath(pathname, routes);
     const routeForLocalPath = routeTemplateForPath(localPathname, routes);
-    if (routeForLocalPath && localPathname !== "/" && !routeForFullPath) {
+    if (
+      routeForLocalPath &&
+      localPathname !== "/" &&
+      !routeForFullPath &&
+      workspaceAppIdentityBasePath() === basePath
+    ) {
       return basePath;
     }
     return "";
