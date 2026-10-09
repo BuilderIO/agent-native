@@ -540,7 +540,9 @@ describe("LayersPanel row keys", () => {
       ...nodes,
       { id: "unrelated", name: "Unrelated" },
     ]);
-    expect(keysAfterUnrelatedInsert).toEqual(originalKeys);
+    for (const [name, key] of originalKeys) {
+      expect(keysAfterUnrelatedInsert.get(name)).toBe(key);
+    }
   });
 });
 
