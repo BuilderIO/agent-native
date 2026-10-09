@@ -2,26 +2,53 @@ import { parseBase64DataUrl } from "../shared/data-url.js";
 import {
   normalizeImageMediaType,
   reconcileImageBytes,
+  reconcilePdfBytes,
 } from "./attachment-bytes.js";
 import {
   formatBase64CharBudget,
+  isInlineReadableDocumentType,
+  MAX_INLINE_FILE_BASE64_CHARS,
   MAX_INLINE_IMAGE_BASE64_CHARS,
 } from "./inline-attachment-limits.js";
 import { findFileUploadProviderOwningUrl } from "./registry.js";
 
-export type OwnedImageReadFailureCode =
+type OwnedUrlReadFailureCode =
   | "invalid-url"
   | "ownership-check-failed"
   | "unowned-url"
   | "fetch-failed"
   | "redirect-rejected"
   | "response-rejected"
-  | "image-too-large"
   | "request-candidate-limit"
   | "request-byte-limit"
   | "request-time-limit"
-  | "empty-response"
+  | "empty-response";
+
+export type OwnedImageReadFailureCode =
+  | OwnedUrlReadFailureCode
+  | "image-too-large"
   | "invalid-image";
+
+export type OwnedFileReadFailureCode =
+  | OwnedUrlReadFailureCode
+  | "file-too-large"
+  | "invalid-file";
+
+export type OwnedAttachmentReadFailureCode =
+  | OwnedImageReadFailureCode
+  | OwnedFileReadFailureCode;
+
+export type OwnedAttachmentReadFailure =
+  | {
+      name: string;
+      code: OwnedImageReadFailureCode;
+      attachmentType: "image";
+    }
+  | {
+      name: string;
+      code: OwnedFileReadFailureCode;
+      attachmentType: "file";
+    };
 
 export type OwnedImageHydrationResult =
   | {
@@ -33,27 +60,51 @@ export type OwnedImageHydrationResult =
   | { kind: "failed"; code: Exclude<OwnedImageReadFailureCode, "unowned-url"> }
   | { kind: "unowned"; code: "unowned-url" };
 
+export type OwnedFileHydrationResult =
+  | {
+      kind: "hydrated";
+      dataUrl: string;
+      mediaType: string;
+      provider: string;
+    }
+  | { kind: "failed"; code: Exclude<OwnedFileReadFailureCode, "unowned-url"> }
+  | { kind: "unowned"; code: "unowned-url" };
+
 export const MAX_OWNED_INLINE_IMAGE_BYTES = Math.floor(
   (MAX_INLINE_IMAGE_BASE64_CHARS * 3) / 4,
 );
+export const MAX_OWNED_INLINE_FILE_BYTES = Math.floor(
+  (MAX_INLINE_FILE_BASE64_CHARS * 3) / 4,
+);
 
-export const MAX_OWNED_IMAGE_HYDRATION_CANDIDATES = 6;
-export const MAX_OWNED_IMAGE_HYDRATION_BYTES = 8 * 1024 * 1024;
-export const OWNED_IMAGE_HYDRATION_TIMEOUT_MS = 20_000;
+export const MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES = 6;
+export const MAX_OWNED_IMAGE_HYDRATION_CANDIDATES =
+  MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES;
+export const MAX_OWNED_ATTACHMENT_HYDRATION_BYTES = 8 * 1024 * 1024;
+export const MAX_OWNED_IMAGE_HYDRATION_BYTES =
+  MAX_OWNED_ATTACHMENT_HYDRATION_BYTES;
+export const OWNED_ATTACHMENT_HYDRATION_TIMEOUT_MS = 20_000;
+export const OWNED_IMAGE_HYDRATION_TIMEOUT_MS =
+  OWNED_ATTACHMENT_HYDRATION_TIMEOUT_MS;
 
-export interface OwnedImageHydrationBudget {
+export interface OwnedAttachmentHydrationBudget {
   deadlineAt: number;
   remainingBytes: number;
 }
 
-export function createOwnedImageHydrationBudget(
+export type OwnedImageHydrationBudget = OwnedAttachmentHydrationBudget;
+
+export function createOwnedAttachmentHydrationBudget(
   now = Date.now(),
-): OwnedImageHydrationBudget {
+): OwnedAttachmentHydrationBudget {
   return {
-    deadlineAt: now + OWNED_IMAGE_HYDRATION_TIMEOUT_MS,
-    remainingBytes: MAX_OWNED_IMAGE_HYDRATION_BYTES,
+    deadlineAt: now + OWNED_ATTACHMENT_HYDRATION_TIMEOUT_MS,
+    remainingBytes: MAX_OWNED_ATTACHMENT_HYDRATION_BYTES,
   };
 }
+
+export const createOwnedImageHydrationBudget =
+  createOwnedAttachmentHydrationBudget;
 
 class RequestDeadlineError extends Error {}
 
@@ -94,15 +145,17 @@ function parseOwnedHttpsUrl(value: string): URL | null {
 
 async function readResponseBytes(
   response: Response,
-  budget: OwnedImageHydrationBudget,
+  budget: OwnedAttachmentHydrationBudget,
   signal: AbortSignal,
+  maxInlineBytes: number,
+  oversizedCode: "image-too-large" | "file-too-large",
 ): Promise<Uint8Array> {
   const requestBytesAtStart = budget.remainingBytes;
-  const maxBytes = Math.min(MAX_OWNED_INLINE_IMAGE_BYTES, requestBytesAtStart);
+  const maxBytes = Math.min(maxInlineBytes, requestBytesAtStart);
   const limitCode =
-    requestBytesAtStart < MAX_OWNED_INLINE_IMAGE_BYTES
+    requestBytesAtStart < maxInlineBytes
       ? ("request-byte-limit" as const)
-      : ("image-too-large" as const);
+      : oversizedCode;
 
   const contentLength = response.headers.get("content-length");
   if (contentLength !== null) {
@@ -152,7 +205,7 @@ async function readResponseBytes(
     signal.removeEventListener("abort", cancelOnAbort);
     reader.releaseLock();
   }
-  if (totalBytes === 0) throw new Error("Image response is empty");
+  if (totalBytes === 0) throw new Error("Attachment response is empty");
 
   const bytes = new Uint8Array(totalBytes);
   let offset = 0;
@@ -163,39 +216,51 @@ async function readResponseBytes(
   return bytes;
 }
 
-/**
- * Hydrate only HTTPS URLs positively claimed by configured upload storage.
- * A public URL is still untrusted input: never follow redirects or send caller
- * credentials, and bound the streamed response before it reaches a model.
- */
-export async function hydrateOwnedImageUrl(
-  value: string,
-  declaredMediaType?: string,
-  budget?: OwnedImageHydrationBudget,
-): Promise<OwnedImageHydrationResult> {
-  const url = parseOwnedHttpsUrl(value);
-  if (!url) return { kind: "failed", code: "invalid-url" };
+type OwnedUrlReadResult<
+  TooLargeCode extends "image-too-large" | "file-too-large",
+> =
+  | {
+      kind: "read";
+      bytes: Uint8Array;
+      provider: string;
+      responseContentType: string | null;
+    }
+  | {
+      kind: "failed";
+      code: Exclude<OwnedUrlReadFailureCode, "unowned-url"> | TooLargeCode;
+    }
+  | { kind: "unowned"; code: "unowned-url" };
 
-  const hydrationBudget = budget ?? {
-    deadlineAt: Date.now() + OWNED_IMAGE_HYDRATION_TIMEOUT_MS,
-    remainingBytes: MAX_OWNED_INLINE_IMAGE_BYTES,
-  };
-  if (hydrationBudget.remainingBytes <= 0) {
+async function readOwnedUrlBytes<
+  TooLargeCode extends "image-too-large" | "file-too-large",
+>(args: {
+  value: string;
+  budget: OwnedAttachmentHydrationBudget;
+  maxInlineBytes: number;
+  oversizedCode: TooLargeCode;
+  accept: string;
+}): Promise<OwnedUrlReadResult<TooLargeCode>> {
+  const url = parseOwnedHttpsUrl(args.value);
+  if (!url) return { kind: "failed", code: "invalid-url" };
+  if (args.budget.remainingBytes <= 0) {
     return { kind: "failed", code: "request-byte-limit" };
   }
 
-  const remainingMs = hydrationBudget.deadlineAt - Date.now();
+  const remainingMs = args.budget.deadlineAt - Date.now();
   if (remainingMs <= 0) {
     return { kind: "failed", code: "request-time-limit" };
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), remainingMs);
+  const ownershipController = new AbortController();
+  const ownershipTimeout = setTimeout(
+    () => ownershipController.abort(),
+    remainingMs,
+  );
 
   let provider;
   try {
     provider = await raceWithDeadline(
       Promise.resolve().then(() => findFileUploadProviderOwningUrl(url.href)),
-      controller.signal,
+      ownershipController.signal,
     );
   } catch (error) {
     return {
@@ -206,18 +271,18 @@ export async function hydrateOwnedImageUrl(
           : "ownership-check-failed",
     };
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(ownershipTimeout);
   }
   if (!provider) return { kind: "unowned", code: "unowned-url" };
 
-  const remainingMsForFetch = hydrationBudget.deadlineAt - Date.now();
-  if (remainingMsForFetch <= 0) {
+  const fetchRemainingMs = args.budget.deadlineAt - Date.now();
+  if (fetchRemainingMs <= 0) {
     return { kind: "failed", code: "request-time-limit" };
   }
   const fetchController = new AbortController();
   const fetchTimeout = setTimeout(
     () => fetchController.abort(),
-    remainingMsForFetch,
+    fetchRemainingMs,
   );
 
   let response: Response;
@@ -225,7 +290,7 @@ export async function hydrateOwnedImageUrl(
     response = await raceWithDeadline(
       fetch(url, {
         method: "GET",
-        headers: { Accept: "image/jpeg, image/png, image/gif, image/webp" },
+        headers: { Accept: args.accept },
         credentials: "omit",
         redirect: "manual",
         signal: fetchController.signal,
@@ -257,11 +322,17 @@ export async function hydrateOwnedImageUrl(
   const bodyController = new AbortController();
   const bodyTimeout = setTimeout(
     () => bodyController.abort(),
-    Math.max(0, hydrationBudget.deadlineAt - Date.now()),
+    Math.max(0, args.budget.deadlineAt - Date.now()),
   );
   try {
     bytes = await raceWithDeadline(
-      readResponseBytes(response, hydrationBudget, bodyController.signal),
+      readResponseBytes(
+        response,
+        args.budget,
+        bodyController.signal,
+        args.maxInlineBytes,
+        args.oversizedCode,
+      ),
       bodyController.signal,
     );
   } catch (error) {
@@ -273,24 +344,58 @@ export async function hydrateOwnedImageUrl(
       error &&
       typeof error === "object" &&
       "code" in error &&
-      (error.code === "image-too-large" || error.code === "request-byte-limit")
+      (error.code === args.oversizedCode || error.code === "request-byte-limit")
     ) {
-      return { kind: "failed", code: error.code };
+      return {
+        kind: "failed",
+        code: error.code as TooLargeCode | "request-byte-limit",
+      };
     }
-    if (error instanceof Error && error.message === "Image response is empty") {
+    if (
+      error instanceof Error &&
+      error.message === "Attachment response is empty"
+    ) {
       return { kind: "failed", code: "empty-response" };
     }
     return { kind: "failed", code: "fetch-failed" };
   } finally {
     clearTimeout(bodyTimeout);
   }
-  if (Date.now() >= hydrationBudget.deadlineAt) {
+  if (Date.now() >= args.budget.deadlineAt) {
     return { kind: "failed", code: "request-time-limit" };
   }
 
-  const base64 = Buffer.from(bytes).toString("base64");
+  return {
+    kind: "read",
+    bytes,
+    provider: provider.id,
+    responseContentType: response.headers.get("content-type"),
+  };
+}
+
+/**
+ * Hydrate only HTTPS URLs positively claimed by configured upload storage.
+ * A public URL is still untrusted input: never follow redirects or send caller
+ * credentials, and bound the streamed response before it reaches a model.
+ */
+export async function hydrateOwnedImageUrl(
+  value: string,
+  declaredMediaType?: string,
+  budget?: OwnedAttachmentHydrationBudget,
+): Promise<OwnedImageHydrationResult> {
+  const hydrationBudget = budget ?? createOwnedAttachmentHydrationBudget();
+  const result = await readOwnedUrlBytes({
+    value,
+    budget: hydrationBudget,
+    maxInlineBytes: MAX_OWNED_INLINE_IMAGE_BYTES,
+    oversizedCode: "image-too-large",
+    accept: "image/jpeg, image/png, image/gif, image/webp",
+  });
+  if (result.kind !== "read") return result;
+
+  const base64 = Buffer.from(result.bytes).toString("base64");
   const responseMediaType = normalizeImageMediaType(
-    response.headers.get("content-type") ?? undefined,
+    result.responseContentType ?? undefined,
   );
   const fallbackMediaType = normalizeImageMediaType(declaredMediaType);
   const declared = responseMediaType ?? fallbackMediaType ?? "unknown";
@@ -308,7 +413,52 @@ export async function hydrateOwnedImageUrl(
     kind: "hydrated",
     dataUrl: `data:${verdict.mediaType};base64,${parsed.data}`,
     mediaType: verdict.mediaType,
-    provider: provider.id,
+    provider: result.provider,
+  };
+}
+
+export async function hydrateOwnedFileUrl(
+  value: string,
+  declaredMediaType: string | undefined,
+  fileName: string | undefined,
+  budget?: OwnedAttachmentHydrationBudget,
+): Promise<OwnedFileHydrationResult> {
+  const hydrationBudget = budget ?? createOwnedAttachmentHydrationBudget();
+  const result = await readOwnedUrlBytes({
+    value,
+    budget: hydrationBudget,
+    maxInlineBytes: MAX_OWNED_INLINE_FILE_BYTES,
+    oversizedCode: "file-too-large",
+    accept:
+      "application/pdf, text/*, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel",
+  });
+  if (result.kind !== "read") return result;
+
+  const responseMediaType =
+    result.responseContentType?.split(";", 1)[0]?.trim().toLowerCase() ||
+    undefined;
+  const declared = declaredMediaType?.split(";", 1)[0]?.trim().toLowerCase();
+  const mediaType =
+    responseMediaType === "application/octet-stream"
+      ? declared
+      : (responseMediaType ?? declared);
+  if (!mediaType || !isInlineReadableDocumentType(mediaType, fileName)) {
+    return { kind: "failed", code: "invalid-file" };
+  }
+
+  const base64 = Buffer.from(result.bytes).toString("base64");
+  if (
+    mediaType === "application/pdf" &&
+    reconcilePdfBytes({ base64, declared: mediaType }).kind !== "ok"
+  ) {
+    return { kind: "failed", code: "invalid-file" };
+  }
+
+  return {
+    kind: "hydrated",
+    dataUrl: `data:${mediaType};base64,${base64}`,
+    mediaType,
+    provider: result.provider,
   };
 }
 
@@ -340,5 +490,36 @@ export function describeOwnedImageReadFailure(
       return "the storage provider returned an empty image";
     case "invalid-image":
       return "the stored bytes were not a complete JPEG, PNG, GIF, or WebP image";
+  }
+}
+
+export function describeOwnedFileReadFailure(
+  code: OwnedFileReadFailureCode,
+): string {
+  switch (code) {
+    case "invalid-url":
+      return "the storage URL was not a valid HTTPS URL";
+    case "ownership-check-failed":
+      return "the configured storage provider could not verify the URL";
+    case "unowned-url":
+      return "the URL does not belong to a configured upload provider";
+    case "fetch-failed":
+      return "the storage provider did not return readable file bytes";
+    case "redirect-rejected":
+      return "the storage provider redirected the file request";
+    case "response-rejected":
+      return "the storage provider rejected the file request";
+    case "file-too-large":
+      return `the file exceeds the ${formatBase64CharBudget(MAX_INLINE_FILE_BASE64_CHARS)} inline reading limit`;
+    case "request-candidate-limit":
+      return "the request reached its limit for checking attachment storage URLs";
+    case "request-byte-limit":
+      return "the request reached its total downloaded attachment byte limit";
+    case "request-time-limit":
+      return "the shared attachment-reading time limit for this request expired";
+    case "empty-response":
+      return "the storage provider returned an empty file";
+    case "invalid-file":
+      return "the stored bytes were not a supported readable document";
   }
 }

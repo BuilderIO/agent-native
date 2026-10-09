@@ -19,6 +19,7 @@ import {
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
 } from "../app-config/run-lifecycle-invariants.js";
 import * as preUploadAttachmentsModule from "../file-upload/pre-upload-attachments.js";
+import * as fileUploadRegistry from "../file-upload/registry.js";
 import {
   JPEG_BASE64,
   PDF_BASE64,
@@ -909,6 +910,73 @@ describe("serializeDurableDispatchPayload", () => {
 });
 
 describe("buildUserContentWithAttachments", () => {
+  it("rehydrates a durable PDF reference into a provider file block", async () => {
+    const url = "https://storage.example.test/uploads/reference.pdf";
+    const inlinePdf = `data:application/pdf;base64,${PDF_BASE64}`;
+    const durablePayload = serializeDurableDispatchPayload({
+      message: "Summarize this report",
+      attachments: [
+        {
+          type: "file",
+          name: "reference.pdf",
+          contentType: "application/pdf",
+          data: inlinePdf,
+          url,
+        },
+      ],
+    });
+    const durableAttachments = JSON.parse(durablePayload).attachments;
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(Buffer.from(PDF_BASE64, "base64"), {
+          status: 200,
+          headers: { "content-type": "application/pdf" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      expect(durablePayload).not.toContain(PDF_BASE64);
+      expect(durableAttachments[0]).toEqual({
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        url,
+      });
+
+      const prepared = await preUploadAttachmentsModule.preUploadAttachments({
+        attachments: durableAttachments,
+        ownerEmail: "alice@example.com",
+        includeFiles: true,
+      });
+      const content = buildUserContentWithAttachments({
+        text: "Summarize this report",
+        attachments: prepared.attachments,
+      });
+
+      expect(content).toContainEqual({
+        type: "file",
+        data: PDF_BASE64,
+        mediaType: "application/pdf",
+        filename: "reference.pdf",
+      });
+      expect(
+        content
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n"),
+      ).not.toContain("<chat-attachment-processing-error");
+      expect(findProvider).toHaveBeenCalledWith(url);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("does not send display-only chat attachments to the model", () => {
     expect(
       buildUserContentWithAttachments({

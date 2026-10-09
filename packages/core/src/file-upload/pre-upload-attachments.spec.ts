@@ -7,7 +7,7 @@ import {
   preUploadImageAttachments,
   isFileUploadProviderConfigured,
 } from "./pre-upload-attachments.js";
-import { JPEG_BASE64 } from "./test-image-fixtures.js";
+import { JPEG_BASE64, PDF_BASE64 } from "./test-image-fixtures.js";
 
 const uploadFileMock = vi.hoisted(() => vi.fn());
 const getActiveProviderMock = vi.hoisted(() => vi.fn());
@@ -160,7 +160,11 @@ describe("preUploadAttachments", () => {
     expect(fetchMock).toHaveBeenCalledTimes(6);
     expect(result.uploaded).toHaveLength(8);
     expect(result.readFailures).toEqual([
-      { name: "additional images", code: "request-candidate-limit" },
+      {
+        name: "additional images",
+        code: "request-candidate-limit",
+        attachmentType: "image",
+      },
     ]);
     for (const attachment of attachments) {
       expect(result.injectedText).toContain(attachment.url);
@@ -199,8 +203,16 @@ describe("preUploadAttachments", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(findOwnedProviderMock).toHaveBeenCalledTimes(1);
     expect(result.readFailures).toEqual([
-      { name: "first.jpg", code: "request-time-limit" },
-      { name: "second.jpg", code: "request-time-limit" },
+      {
+        name: "first.jpg",
+        code: "request-time-limit",
+        attachmentType: "image",
+      },
+      {
+        name: "second.jpg",
+        code: "request-time-limit",
+        attachmentType: "image",
+      },
     ]);
     expect(result.injectedText).toContain("https://storage.example/first.jpg");
     expect(result.injectedText).toContain("https://storage.example/second.jpg");
@@ -292,7 +304,7 @@ describe("preUploadAttachments", () => {
     });
 
     expect(result.readFailures).toEqual([
-      { name: "photo.png", code: "image-too-large" },
+      { name: "photo.png", code: "image-too-large", attachmentType: "image" },
     ]);
     expect(result.injectedText).toContain(
       "Tell the user to export a smaller or more compressed image",
@@ -318,7 +330,7 @@ describe("preUploadAttachments", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(result.readFailures).toEqual([
-      { name: "photo.png", code: "unowned-url" },
+      { name: "photo.png", code: "unowned-url", attachmentType: "image" },
     ]);
     expect(result.injectedText).toContain('code="unowned-url"');
     expect(result.injectedText).toContain("Do not describe its contents");
@@ -445,6 +457,96 @@ describe("preUploadAttachments", () => {
     );
     expect((att as any).url).toBe("https://cdn.example.com/report.pdf");
     expect(result.injectedText).toContain("chat-file-attachment");
+  });
+
+  it("hydrates a provider-owned PDF URL into a readable file attachment", async () => {
+    findOwnedProviderMock.mockResolvedValue({ id: "test-storage" });
+    const pdfBytes = Buffer.from(PDF_BASE64, "base64");
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(pdfBytes, {
+          status: 200,
+          headers: {
+            "content-type": "application/pdf",
+            "content-length": String(pdfBytes.byteLength),
+          },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const url = "https://storage.example.test/uploads/report.pdf";
+    const attachment = makeFileAtt({
+      name: "report.pdf",
+      contentType: "application/pdf",
+      data: undefined,
+      url,
+    });
+
+    const result = await preUploadAttachments({
+      attachments: [attachment],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(findOwnedProviderMock).toHaveBeenCalledWith(url);
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL(url),
+      expect.objectContaining({
+        method: "GET",
+        redirect: "manual",
+        credentials: "omit",
+        headers: {
+          Accept: expect.stringContaining("application/pdf"),
+        },
+      }),
+    );
+    expect(attachment).toMatchObject({
+      type: "file",
+      data: `data:application/pdf;base64,${PDF_BASE64}`,
+      contentType: "application/pdf",
+      url,
+      uploadProvider: "test-storage",
+    });
+    expect(result.uploadedFiles).toContainEqual(
+      expect.objectContaining({ url, provider: "test-storage" }),
+    );
+    expect(result.readFailures).toEqual([]);
+    expect(result.injectedText).not.toContain("<chat-attachment-read-error");
+  });
+
+  it("reports an owned PDF over the inline file limit with a size-specific note", async () => {
+    findOwnedProviderMock.mockResolvedValue({ id: "test-storage" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(null, {
+            status: 200,
+            headers: {
+              "content-type": "application/pdf",
+              "content-length": "750001",
+            },
+          }),
+      ),
+    );
+    const attachment = makeFileAtt({
+      data: undefined,
+      url: "https://storage.example.test/uploads/large.pdf",
+    });
+
+    const result = await preUploadAttachments({
+      attachments: [attachment],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(result.readFailures).toEqual([
+      { name: "report.pdf", code: "file-too-large", attachmentType: "file" },
+    ]);
+    expect(result.injectedText).toContain("fixed file-size limit");
+    expect(result.injectedText).toContain(
+      "retrying the same upload will not help",
+    );
+    expect(result.injectedText).not.toContain("The image was not supplied");
   });
 
   it("injects a bounded workbook preview for spreadsheet attachments", async () => {

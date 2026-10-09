@@ -8,14 +8,19 @@ import { normalizeImageMediaType } from "./attachment-bytes.js";
 import {
   classifyInlineAttachment,
   describeInlineBlockReason,
+  isInlineReadableDocumentType,
   type InlineAttachmentBlockReason,
 } from "./inline-attachment-limits.js";
 import {
-  createOwnedImageHydrationBudget,
+  createOwnedAttachmentHydrationBudget,
+  describeOwnedFileReadFailure,
   describeOwnedImageReadFailure,
+  hydrateOwnedFileUrl,
   hydrateOwnedImageUrl,
-  MAX_OWNED_IMAGE_HYDRATION_CANDIDATES,
-  type OwnedImageHydrationBudget,
+  MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
+  type OwnedAttachmentHydrationBudget,
+  type OwnedAttachmentReadFailure,
+  type OwnedFileReadFailureCode,
   type OwnedImageReadFailureCode,
 } from "./owned-attachment.js";
 import { getActiveFileUploadProvider, uploadFile } from "./registry.js";
@@ -41,7 +46,7 @@ export interface PreUploadAttachmentsResult {
   attachments: AgentChatAttachment[];
   uploaded: PreUploadedImageAttachment[];
   uploadedFiles: PreUploadedFileAttachment[];
-  readFailures: Array<{ name: string; code: OwnedImageReadFailureCode }>;
+  readFailures: OwnedAttachmentReadFailure[];
   providerMissing: boolean;
   uploadFailed: boolean;
   readableWithoutStorage: string[];
@@ -57,6 +62,36 @@ function normalizeContentType(value: string | undefined): string | undefined {
   const normalized = value?.split(";")[0]?.trim().toLowerCase();
   return normalized
     ? (normalizeImageMediaType(normalized) ?? normalized)
+    : undefined;
+}
+
+function readableDocumentMediaType(
+  att: AgentChatAttachment,
+): string | undefined {
+  const declared = normalizeContentType(att.contentType);
+  if (declared && isInlineReadableDocumentType(declared, att.name)) {
+    return declared;
+  }
+
+  const extension = att.name?.match(/\.([^.]+)$/)?.[1]?.toLowerCase();
+  const inferred =
+    extension === "pdf"
+      ? "application/pdf"
+      : extension === "txt"
+        ? "text/plain"
+        : extension === "md"
+          ? "text/markdown"
+          : extension === "csv"
+            ? "text/csv"
+            : extension === "tsv"
+              ? "text/tab-separated-values"
+              : extension === "xlsx"
+                ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                : extension === "xls"
+                  ? "application/vnd.ms-excel"
+                  : undefined;
+  return inferred && isInlineReadableDocumentType(inferred, att.name)
+    ? inferred
     : undefined;
 }
 
@@ -231,9 +266,9 @@ export async function preUploadAttachments(opts: {
   const uploadedFiles: PreUploadedFileAttachment[] = [];
   const readFailures: PreUploadAttachmentsResult["readFailures"] = [];
   const spreadsheetContexts: string[] = [];
-  let imageHydrationBudget: OwnedImageHydrationBudget | undefined;
-  let imageHydrationCandidates = 0;
-  let summarizedCandidateLimit = false;
+  let attachmentHydrationBudget: OwnedAttachmentHydrationBudget | undefined;
+  let attachmentHydrationCandidates = 0;
+  const summarizedCandidateLimit = new Set<"image" | "file">();
   let providerMissing = false;
   let uploadFailed = false;
   let uploadError: string | undefined;
@@ -263,18 +298,41 @@ export async function preUploadAttachments(opts: {
     }
   };
 
-  const recordImageReadFailure = (
+  function recordAttachmentReadFailure(
     name: string,
     code: OwnedImageReadFailureCode,
-  ) => {
+    attachmentType: "image",
+  ): void;
+  function recordAttachmentReadFailure(
+    name: string,
+    code: OwnedFileReadFailureCode,
+    attachmentType: "file",
+  ): void;
+  function recordAttachmentReadFailure(
+    name: string,
+    code: OwnedImageReadFailureCode | OwnedFileReadFailureCode,
+    attachmentType: OwnedAttachmentReadFailure["attachmentType"],
+  ) {
     if (code === "request-candidate-limit") {
-      if (summarizedCandidateLimit) return;
-      summarizedCandidateLimit = true;
-      readFailures.push({ name: "additional images", code });
-      return;
+      if (summarizedCandidateLimit.has(attachmentType)) return;
+      summarizedCandidateLimit.add(attachmentType);
+      name =
+        attachmentType === "image" ? "additional images" : "additional files";
     }
-    readFailures.push({ name, code });
-  };
+    if (attachmentType === "image") {
+      readFailures.push({
+        name,
+        code: code as OwnedImageReadFailureCode,
+        attachmentType,
+      });
+    } else {
+      readFailures.push({
+        name,
+        code: code as OwnedFileReadFailureCode,
+        attachmentType,
+      });
+    }
+  }
 
   for (const att of list) {
     if (att.referenceOnly === true && typeof att.url === "string") {
@@ -333,6 +391,56 @@ export async function preUploadAttachments(opts: {
       if (isReferenceOnlySvg) {
         markReferenceOnlySvgAttachment(att, att.contentType);
       }
+      const fileMediaType =
+        isFile && includeFiles && !isReferenceOnlySvg
+          ? readableDocumentMediaType(att)
+          : undefined;
+      if (fileMediaType && !parseBase64DataUrl(att.data ?? "")) {
+        let hydration:
+          | Awaited<ReturnType<typeof hydrateOwnedFileUrl>>
+          | { kind: "failed"; code: "request-candidate-limit" };
+        if (
+          attachmentHydrationCandidates >=
+          MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES
+        ) {
+          hydration = {
+            kind: "failed",
+            code: "request-candidate-limit",
+          };
+        } else {
+          attachmentHydrationCandidates += 1;
+          attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
+          if (Date.now() >= attachmentHydrationBudget.deadlineAt) {
+            hydration = { kind: "failed", code: "request-time-limit" };
+          } else if (attachmentHydrationBudget.remainingBytes <= 0) {
+            hydration = { kind: "failed", code: "request-byte-limit" };
+          } else {
+            hydration = await hydrateOwnedFileUrl(
+              att.url,
+              fileMediaType,
+              att.name,
+              attachmentHydrationBudget,
+            );
+          }
+        }
+        if (hydration.kind === "hydrated") {
+          if (att.type === "document") att.type = "file";
+          att.data = hydration.dataUrl;
+          att.contentType = hydration.mediaType;
+          att.uploadProvider = hydration.provider;
+          const spreadsheetContext = await parseSpreadsheetAttachment(
+            att,
+            att.data,
+          );
+          if (spreadsheetContext) spreadsheetContexts.push(spreadsheetContext);
+        } else {
+          recordAttachmentReadFailure(
+            att.name || "file",
+            hydration.code,
+            "file",
+          );
+        }
+      }
       if (
         isImage &&
         !isReferenceOnlySvg &&
@@ -341,23 +449,26 @@ export async function preUploadAttachments(opts: {
         let hydration:
           | Awaited<ReturnType<typeof hydrateOwnedImageUrl>>
           | { kind: "failed"; code: "request-candidate-limit" };
-        if (imageHydrationCandidates >= MAX_OWNED_IMAGE_HYDRATION_CANDIDATES) {
+        if (
+          attachmentHydrationCandidates >=
+          MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES
+        ) {
           hydration = {
             kind: "failed",
             code: "request-candidate-limit",
           };
         } else {
-          imageHydrationCandidates += 1;
-          imageHydrationBudget ??= createOwnedImageHydrationBudget();
-          if (Date.now() >= imageHydrationBudget.deadlineAt) {
+          attachmentHydrationCandidates += 1;
+          attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
+          if (Date.now() >= attachmentHydrationBudget.deadlineAt) {
             hydration = { kind: "failed", code: "request-time-limit" };
-          } else if (imageHydrationBudget.remainingBytes <= 0) {
+          } else if (attachmentHydrationBudget.remainingBytes <= 0) {
             hydration = { kind: "failed", code: "request-byte-limit" };
           } else {
             hydration = await hydrateOwnedImageUrl(
               att.url,
               att.contentType,
-              imageHydrationBudget,
+              attachmentHydrationBudget,
             );
           }
         }
@@ -373,7 +484,11 @@ export async function preUploadAttachments(opts: {
           });
           continue;
         }
-        recordImageReadFailure(att.name || "image", hydration.code);
+        recordAttachmentReadFailure(
+          att.name || "image",
+          hydration.code,
+          "image",
+        );
       }
       const entry = {
         name: att.name,
@@ -562,32 +677,27 @@ function buildAttachmentReadFailureLines(
   if (failures.length === 0) return [];
   return [
     "<chat-attachment-read-errors>",
-    ...failures.map(({ name, code }) => {
-      let nextStep: string;
-      switch (code) {
-        case "image-too-large":
-          nextStep =
-            "This is a fixed vision payload size limit. Tell the user to export a smaller or more compressed image; retrying the same upload will not help.";
-          break;
-        case "request-candidate-limit":
-          nextStep =
-            "The request reached its image count limit. Keep the original references, and ask the user to attach fewer images or split them across turns.";
-          break;
-        case "request-byte-limit":
-          nextStep =
-            "The request reached its total image download limit. Keep the original references, and ask the user to attach fewer images or smaller exports.";
-          break;
-        case "request-time-limit":
-          nextStep =
-            "The shared time limit for reading images in this request expired. Keep the original references, and ask the user to attach fewer images or smaller exports.";
-          break;
-        default:
-          nextStep =
-            "Do not describe its contents; tell the user this specific image could not be read and suggest correcting the image or storage issue before attaching it again.";
-      }
+    ...failures.map((failure) => {
+      const { name, code, attachmentType } = failure;
+      const nextStep =
+        code === "file-too-large"
+          ? "This is a fixed file-size limit. Tell the user to export a smaller file; retrying the same upload will not help."
+          : code === "image-too-large"
+            ? "This is a fixed vision payload size limit. Tell the user to export a smaller or more compressed image; retrying the same upload will not help."
+            : code === "request-candidate-limit"
+              ? "The request reached its attachment count limit. Keep the original references, and ask the user to attach fewer items or split them across turns."
+              : code === "request-byte-limit"
+                ? "The request reached its total attachment download limit. Keep the original references, and ask the user to attach fewer or smaller items."
+                : code === "request-time-limit"
+                  ? "The shared time limit for reading attachments in this request expired. Keep the original references, and ask the user to attach fewer or smaller items."
+                  : `Do not describe its contents; tell the user this ${attachmentType} could not be read and explain the storage or file-format issue before asking them to attach it again.`;
+      const description =
+        attachmentType === "image"
+          ? describeOwnedImageReadFailure(code)
+          : describeOwnedFileReadFailure(code);
       return (
         `<chat-attachment-read-error name="${escapeXmlAttr(name)}" code="${escapeXmlAttr(code)}">` +
-        `The image was not supplied as vision input because ${escapeXmlAttr(describeOwnedImageReadFailure(code))}. ` +
+        `The ${attachmentType} was not supplied as readable model input because ${escapeXmlAttr(description)}. ` +
         `${nextStep}</chat-attachment-read-error>`
       );
     }),
