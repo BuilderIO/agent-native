@@ -18,7 +18,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 import { i18nCatalog } from "../../i18n";
-import { shouldShowLocalhostPreviewRecovery } from "../../pages/design-editor/domains/localhost-preview-recovery";
+import {
+  shouldShowLocalhostPreviewRecovery,
+  shouldShowPublicLocalhostPreviewUnavailable,
+} from "../../pages/design-editor/domains/localhost-preview-recovery";
 import {
   getDesignCanvasIframeAllow,
   getLocalNetworkAccessPermissionState,
@@ -2100,7 +2103,31 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
     expect(retryLocalhostPreview).toHaveBeenCalledOnce();
   });
 
-  it("explains why public viewers cannot open localhost previews", async () => {
+  it("explains why public viewers cannot open legacy localhost previews without a connection id", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) =>
+      Promise.reject(new Error(`Unexpected fetch: ${requestInfoUrl(input)}`)),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const localhostPreviewUnavailablePublic =
+      shouldShowPublicLocalhostPreviewUnavailable({
+        sourceType: "localhost",
+        connectionId: undefined,
+        snapshotOnly: false,
+        publicVisualEdit: true,
+        serverUnavailable: false,
+      });
+    const localhostPreviewUnavailable = shouldShowLocalhostPreviewRecovery({
+      sourceType: "localhost",
+      connectionId: undefined,
+      snapshotOnly: false,
+      refreshFailed: false,
+      hasUsablePreviewCredentials: false,
+      connectionUnavailable: false,
+      canEdit: false,
+      publicUnavailable: localhostPreviewUnavailablePublic,
+      publicVisualEdit: true,
+    });
+
     await act(async () =>
       root.render(
         <DesignCanvas
@@ -2108,13 +2135,17 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
           contentKey="screen-settings"
           screenId="screen-settings"
           sourceType="localhost"
-          localhostPreviewUnavailable
-          localhostPreviewUnavailablePublic
+          bridgeUrl="http://127.0.0.1:7331"
+          previewToken="legacy-preview-token"
+          localhostPreviewUnavailable={localhostPreviewUnavailable}
+          localhostPreviewUnavailablePublic={localhostPreviewUnavailablePublic}
           onRetryLocalhostPreview={vi.fn()}
           zoom={100}
           deviceFrame="none"
-          editMode
+          editMode={false}
+          readOnly
           interactMode={false}
+          publicVisualEdit
           onElementSelect={() => {}}
           onElementHover={() => {}}
           tweakValues={{}}
@@ -2130,6 +2161,8 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
         button.textContent?.includes("Retry credentials"),
       ),
     ).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(container.querySelector('iframe[src*="localhost:5173"]')).toBeNull();
   });
 
   it("keeps an entitled viewer on the proxied document instead of the snapshot", async () => {

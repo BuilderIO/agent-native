@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { shouldShowLocalhostPreviewRecovery } from "./localhost-preview-recovery";
+import {
+  shouldShowLocalhostPreviewRecovery,
+  shouldShowPublicLocalhostPreviewUnavailable,
+} from "./localhost-preview-recovery";
 
 const base = {
   sourceType: "localhost",
@@ -31,10 +34,69 @@ describe("shouldShowLocalhostPreviewRecovery", () => {
     expect(
       shouldShowLocalhostPreviewRecovery({
         ...base,
+        canEdit: false,
+        publicVisualEdit: true,
         refreshFailed: true,
         hasUsablePreviewCredentials: true,
       }),
     ).toBe(false);
+  });
+
+  it("shows an unavailable message for public legacy screens without a connection id", () => {
+    const publicUnavailable = shouldShowPublicLocalhostPreviewUnavailable({
+      ...base,
+      connectionId: undefined,
+      publicVisualEdit: true,
+      serverUnavailable: false,
+    });
+
+    expect(publicUnavailable).toBe(true);
+    expect(
+      shouldShowLocalhostPreviewRecovery({
+        ...base,
+        connectionId: undefined,
+        canEdit: false,
+        hasUsablePreviewCredentials: true,
+        publicUnavailable,
+        publicVisualEdit: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("scopes the missing-id fallback and preserves explicit public server errors", () => {
+    expect(
+      shouldShowPublicLocalhostPreviewUnavailable({
+        ...base,
+        connectionId: undefined,
+        publicVisualEdit: false,
+        serverUnavailable: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowPublicLocalhostPreviewUnavailable({
+        ...base,
+        sourceType: "inline",
+        connectionId: undefined,
+        publicVisualEdit: true,
+        serverUnavailable: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowPublicLocalhostPreviewUnavailable({
+        ...base,
+        snapshotOnly: true,
+        connectionId: undefined,
+        publicVisualEdit: true,
+        serverUnavailable: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowPublicLocalhostPreviewUnavailable({
+        ...base,
+        publicVisualEdit: false,
+        serverUnavailable: true,
+      }),
+    ).toBe(true);
   });
 
   it("keeps a failed public preview refresh recoverable", () => {

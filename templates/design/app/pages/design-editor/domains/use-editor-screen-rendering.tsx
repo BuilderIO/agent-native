@@ -51,7 +51,10 @@ import {
   shouldUseOverviewRuntimeReplacement,
 } from "../selection-state";
 import { resolveToolAfterSelection } from "../tool-state";
-import { shouldShowLocalhostPreviewRecovery } from "./localhost-preview-recovery";
+import {
+  shouldShowLocalhostPreviewRecovery,
+  shouldShowPublicLocalhostPreviewUnavailable,
+} from "./localhost-preview-recovery";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorClipboard } from "./use-editor-clipboard";
@@ -670,10 +673,16 @@ export function useEditorScreenRendering({
         screenPreviewToken &&
         (screenLiveEditRegistrationCapability ?? screenLiveEditCapability),
       );
-      const localhostPreviewUnavailablePublic = Boolean(
-        refreshedLocalhostConnection?.errorCode ===
-        "public_localhost_preview_unavailable",
-      );
+      const localhostPreviewUnavailablePublic =
+        shouldShowPublicLocalhostPreviewUnavailable({
+          sourceType: screenSourceType,
+          connectionId: screen.connectionId,
+          snapshotOnly: screenSnapshotOnly,
+          publicVisualEdit,
+          serverUnavailable:
+            refreshedLocalhostConnection?.errorCode ===
+            "public_localhost_preview_unavailable",
+        });
       const localhostPreviewUnavailable = shouldShowLocalhostPreviewRecovery({
         sourceType: screenSourceType,
         connectionId: screen.connectionId,
