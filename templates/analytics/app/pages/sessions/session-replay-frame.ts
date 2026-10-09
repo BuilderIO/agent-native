@@ -466,8 +466,8 @@ function visibleTextForMessage(
       MAX_USER_MESSAGE_SCAN_CHARS - scanBudget.characters;
     let scannedTextLength = Math.min(text.length, remainingCharacters);
     if (
-      scannedTextLength > 0 &&
-      scannedTextLength < text.length &&
+      scannedTextLength !== 0 &&
+      scannedTextLength !== text.length &&
       /[\uD800-\uDBFF]/.test(text[scannedTextLength - 1] ?? "")
     ) {
       scannedTextLength -= 1;
