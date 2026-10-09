@@ -455,8 +455,10 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       const BREAKPOINT_WIDTH = 390;
       const GROUP_WIDTH = PRIMARY_WIDTH + 24 + BREAKPOINT_WIDTH;
       let observers: Map<Element, ResizeObserverCallback>;
-      let onZoomChange: ReturnType<typeof vi.fn>;
-      let onScreenSelectionChange: ReturnType<typeof vi.fn>;
+      let onZoomChange: ReturnType<typeof vi.fn<(next: number) => void>>;
+      let onScreenSelectionChange: ReturnType<
+        typeof vi.fn<(ids: string[], intent?: unknown) => void>
+      >;
 
       beforeEach(() => {
         pane = NARROW_PANE;
