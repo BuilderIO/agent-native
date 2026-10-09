@@ -4,6 +4,12 @@ import {
   type CanvasResizeHandle,
 } from "@agent-native/toolkit/canvas-interactions";
 
+import {
+  CROP_CSS_ANIMATION_NAME_PREFIX,
+  CROP_TRANSITION_ANIMATION_ID_PREFIX,
+  CROP_TRANSITION_FRAME_NEUTRALS,
+  serializeWithRestoredCropTransitionInlineOverrides,
+} from "@/lib/slide-image-replacement";
 import { stripSourceStamps } from "@/lib/slide-source-map";
 
 import { hasInlineBottom, hasInlineHeight } from "./fit-text-object";
@@ -1290,42 +1296,1927 @@ export function findPersistedImageObject(
 }
 
 const TRANSFORM_PROPERTIES = ["transform", "translate", "rotate", "scale"];
+const TRANSFORM_TRANSITION_PROPERTIES = new Set([
+  ...TRANSFORM_PROPERTIES,
+  "transform-origin",
+]);
+const CSS_VAR_REFERENCE = /var\(\s*(--(?:[\w-]|[^\u0000-\u007f])+)/giu;
+const FONT_RELATIVE_LENGTH =
+  /(?:\d+(?:\.\d*)?|\.\d+)(?:em|ex|ch|cap|ic|lh)\b/iu;
+const LINE_HEIGHT_RELATIVE_LENGTH = /(?:\d+(?:\.\d*)?|\.\d+)lh\b/iu;
 
 // A value that reads the element's own cascade (a custom property its class
 // defines, a length against its font size) means something else on a frame.
 const READS_OWN_CASCADE = /var\(|\d(?:em|ex|ch|lh|cap|ic)\b/i;
 
+const ANIMATION_LONGHANDS = [
+  "animation-name",
+  "animation-duration",
+  "animation-timing-function",
+  "animation-delay",
+  "animation-iteration-count",
+  "animation-direction",
+  "animation-fill-mode",
+  "animation-play-state",
+  "animation-composition",
+  "animation-timeline",
+  "animation-range-start",
+  "animation-range-end",
+];
+
+// Valid and unlike anything an author writes, so a plain inline write of one
+// paints only when nothing in the cascade beats a plain inline declaration.
+const TRANSFORM_PROBES: Record<string, string> = {
+  transform: "translate(0.37px, 0.53px)",
+  translate: "0.37px 0.53px",
+  rotate: "0.37deg",
+  scale: "1.37",
+  "transform-origin": "37% 53%",
+};
+
 /**
- * Hands the transform that paints `source` to `frame`, which takes its place at
- * the same box, and switches it off on `source` so it applies once. The cascade
- * decides what paints: an inline value moves as authored unless it reads the
- * element's own cascade, and one a stylesheet rule gives `source` moves as the
- * browser resolved it.
+ * Whether `value` as the inline `property` of `element` is what paints, rather
+ * than sitting in the style attribute under a declaration that wins: a
+ * stylesheet !important rule or a running animation beats a plain inline value.
+ * It compares what a plain write paints with what the same write made
+ * !important paints, which beats both, and puts the style attribute back.
+ * Transitions are off meanwhile: one started by the !important write would
+ * still read as the old value.
+ */
+function inlineValuePaints(
+  element: HTMLElement,
+  property: string,
+  value = element.style.getPropertyValue(property),
+): boolean {
+  const { style } = element;
+  if (!value) return false;
+  if (
+    style.getPropertyPriority(property) === "important" &&
+    value === style.getPropertyValue(property)
+  ) {
+    return true;
+  }
+  const saved = element.getAttribute("style");
+  const kept = [
+    style.getPropertyValue(property),
+    style.getPropertyPriority(property),
+  ] as const;
+  const computed = window.getComputedStyle(element);
+  try {
+    style.setProperty("transition", "none", "important");
+    style.setProperty(property, value);
+    const plain = computed.getPropertyValue(property);
+    style.setProperty(property, value, "important");
+    return computed.getPropertyValue(property) === plain;
+  } finally {
+    style.setProperty(property, ...kept);
+    // Settled before `transition` returns: put back together, they would start
+    // a transition from the probe's value.
+    computed.getPropertyValue(property);
+    restoreStyleAttribute(element, saved);
+  }
+}
+
+function restoreStyleAttribute(element: HTMLElement, style: string | null) {
+  if (style === null) element.removeAttribute("style");
+  else element.setAttribute("style", style);
+}
+
+function readCssAnimations(element: HTMLElement): CSSAnimation[] {
+  // The unit-test DOM has no Web Animations API.
+  if (typeof element.getAnimations !== "function") return [];
+  return element
+    .getAnimations()
+    .filter(
+      (animation): animation is CSSAnimation =>
+        animation instanceof CSSAnimation,
+    );
+}
+
+export type SlideObjectAnimationSnapshot = Array<{
+  path: number[];
+  name: string;
+  occurrence: number;
+  currentTime: CSSNumberish | null;
+  playbackRate: number;
+  playState: AnimationPlayState;
+}>;
+
+function elementPath(root: HTMLElement, element: HTMLElement): number[] | null {
+  const path: number[] = [];
+  let current: HTMLElement | null = element;
+  while (current && current !== root) {
+    const parent: HTMLElement | null = current.parentElement;
+    if (!parent) return null;
+    path.unshift(Array.from(parent.children).indexOf(current));
+    current = parent;
+  }
+  return current === root ? path : null;
+}
+
+function elementAtPath(root: HTMLElement, path: number[]): HTMLElement | null {
+  let current: HTMLElement = root;
+  for (const index of path) {
+    const child = current.children.item(index);
+    if (!(child instanceof HTMLElement)) return null;
+    current = child;
+  }
+  return current;
+}
+
+export function captureSlideObjectAnimationState(
+  root: HTMLElement,
+): SlideObjectAnimationSnapshot {
+  const snapshot: SlideObjectAnimationSnapshot = [];
+  const elements = [
+    root,
+    ...Array.from(root.querySelectorAll<HTMLElement>("*")),
+  ];
+  for (const element of elements) {
+    const path = elementPath(root, element);
+    if (!path) continue;
+    const occurrences = new Map<string, number>();
+    for (const animation of readCssAnimations(element)) {
+      const name = animation.animationName;
+      const occurrence = occurrences.get(name) ?? 0;
+      occurrences.set(name, occurrence + 1);
+      snapshot.push({
+        path,
+        name,
+        occurrence,
+        currentTime: animation.currentTime,
+        playbackRate: animation.playbackRate,
+        playState: animation.playState,
+      });
+    }
+  }
+  return snapshot;
+}
+
+export function restoreSlideObjectAnimationState(
+  root: HTMLElement,
+  snapshot: SlideObjectAnimationSnapshot,
+): void {
+  const byPath = new Map<string, typeof snapshot>();
+  for (const state of snapshot) {
+    const key = state.path.join(".");
+    const states = byPath.get(key) ?? [];
+    states.push(state);
+    byPath.set(key, states);
+  }
+  for (const states of byPath.values()) {
+    const element = elementAtPath(root, states[0]!.path);
+    if (!element) continue;
+    // Make CSSAnimation instances for restored declarations available before
+    // looking them up. Replacing a crop wrapper recreates these instances.
+    void window.getComputedStyle(element).animationName;
+    const animations = readCssAnimations(element);
+    for (const state of states) {
+      const animation = animations.filter(
+        (item) => item.animationName === state.name,
+      )[state.occurrence];
+      if (!animation) continue;
+      animation.playbackRate = state.playbackRate;
+      if (state.currentTime !== null) animation.currentTime = state.currentTime;
+      if (state.playState === "running") animation.play();
+      else if (state.playState === "paused") animation.pause();
+      else if (state.playState === "finished") animation.finish();
+      else animation.cancel();
+    }
+  }
+}
+
+type InlineStyleDeclaration = {
+  property: string;
+  value: string;
+  priority: string;
+};
+
+function captureInlineTransitions(
+  element: HTMLElement,
+): InlineStyleDeclaration[] {
+  return Array.from({ length: element.style.length }, (_, index) =>
+    element.style.item(index),
+  )
+    .filter((property) => /^transition(?:-|$)/.test(property))
+    .map((property) => ({
+      property,
+      value: element.style.getPropertyValue(property),
+      priority: element.style.getPropertyPriority(property),
+    }));
+}
+
+function restoreInlineTransitions(
+  element: HTMLElement,
+  declarations: InlineStyleDeclaration[],
+): void {
+  for (const property of Array.from(
+    { length: element.style.length },
+    (_, index) => element.style.item(index),
+  )) {
+    if (/^transition(?:-|$)/.test(property))
+      element.style.removeProperty(property);
+  }
+  for (const { property, value, priority } of declarations) {
+    element.style.setProperty(property, value, priority);
+  }
+}
+
+function restoreInlineTransitionsAfterTransformSettles(
+  element: HTMLElement,
+  declarations: InlineStyleDeclaration[],
+): void {
+  element.style.setProperty("transition", "none", "important");
+  window.getComputedStyle(element).getPropertyValue("transform");
+  restoreInlineTransitions(element, declarations);
+}
+
+type CopiedTransition = {
+  animation: Animation;
+  target: HTMLElement;
+  cancel: () => void;
+};
+
+type TemporaryInlineStyleOverride = {
+  element: HTMLElement;
+  property: string;
+  originalValue: string;
+  originalPriority: string;
+  temporaryValue: string;
+  temporaryPriority: string;
+  animationTarget: HTMLElement;
+  active: boolean;
+};
+
+function writeInlineStyleDeclaration(
+  element: HTMLElement,
+  property: string,
+  value: string,
+  priority: string,
+): void {
+  if (value) element.style.setProperty(property, value, priority);
+  else element.style.removeProperty(property);
+}
+
+function restoreTemporaryInlineStyleOverride(
+  override: TemporaryInlineStyleOverride,
+): void {
+  if (!override.active) return;
+  override.active = false;
+  if (
+    override.element.style.getPropertyValue(override.property) ===
+      override.temporaryValue &&
+    override.element.style.getPropertyPriority(override.property) ===
+      override.temporaryPriority
+  ) {
+    writeInlineStyleDeclaration(
+      override.element,
+      override.property,
+      override.originalValue,
+      override.originalPriority,
+    );
+  }
+}
+
+function serializeWithRestoredInlineStyleOverrides(
+  overrides: TemporaryInlineStyleOverride[],
+  serialize: () => string | null,
+): string | null {
+  const active = overrides.filter(
+    (override) =>
+      override.active &&
+      override.element.style.getPropertyValue(override.property) ===
+        override.temporaryValue &&
+      override.element.style.getPropertyPriority(override.property) ===
+        override.temporaryPriority,
+  );
+  for (const override of active) {
+    writeInlineStyleDeclaration(
+      override.element,
+      override.property,
+      override.originalValue,
+      override.originalPriority,
+    );
+  }
+  try {
+    return serialize();
+  } finally {
+    for (const override of active) {
+      if (
+        override.active &&
+        override.element.style.getPropertyValue(override.property) ===
+          override.originalValue &&
+        override.element.style.getPropertyPriority(override.property) ===
+          override.originalPriority
+      ) {
+        writeInlineStyleDeclaration(
+          override.element,
+          override.property,
+          override.temporaryValue,
+          override.temporaryPriority,
+        );
+      }
+    }
+  }
+}
+
+function reapplyTemporaryInlineStyleOverrides(
+  overrides: TemporaryInlineStyleOverride[],
+  animationTarget: HTMLElement,
+): void {
+  for (const override of overrides) {
+    if (override.active && override.animationTarget === animationTarget) {
+      writeInlineStyleDeclaration(
+        override.element,
+        override.property,
+        override.temporaryValue,
+        override.temporaryPriority,
+      );
+    }
+  }
+}
+
+type TransitionSnapshot = {
+  property: string;
+  keyframes: Keyframe[];
+  timing: EffectTiming;
+  playbackRate: number;
+  currentTime: CSSNumberish | null;
+  playState: AnimationPlayState;
+};
+
+function snapshotTransition(
+  transition: Animation,
+  property: string,
+): TransitionSnapshot | null {
+  const effect = transition.effect;
+  if (!(effect instanceof KeyframeEffect)) return null;
+  return {
+    property,
+    keyframes: effect.getKeyframes(),
+    timing: effect.getTiming(),
+    playbackRate: transition.playbackRate,
+    currentTime: transition.currentTime,
+    playState: transition.playState,
+  };
+}
+
+function copyTransitionEffect(
+  transition: TransitionSnapshot,
+  element: HTMLElement,
+  options: {
+    underlyingValue?: string;
+    restoreImportant?: boolean;
+    onCleanup?: () => void;
+    temporaryStyleOverrides?: TemporaryInlineStyleOverride[];
+  } = {},
+): CopiedTransition | null {
+  const { property } = transition;
+  const originalValue = element.style.getPropertyValue(property);
+  const originalPriority = element.style.getPropertyPriority(property);
+  const underlyingValue = options.underlyingValue ?? originalValue;
+  const temporaryPriority =
+    originalPriority === "important" ? "" : originalPriority;
+  const importantOverride: TemporaryInlineStyleOverride | null =
+    originalPriority === "important" && options.restoreImportant !== false
+      ? {
+          element,
+          property,
+          originalValue,
+          originalPriority,
+          temporaryValue: underlyingValue,
+          temporaryPriority,
+          animationTarget: element,
+          active: true,
+        }
+      : null;
+  if (importantOverride) {
+    options.temporaryStyleOverrides?.push(importantOverride);
+  }
+  if (
+    options.underlyingValue !== undefined ||
+    temporaryPriority !== originalPriority
+  ) {
+    element.style.setProperty(property, underlyingValue, temporaryPriority);
+  }
+
+  const animation = element.animate(transition.keyframes, transition.timing);
+  animation.id = `${CROP_TRANSITION_ANIMATION_ID_PREFIX}${property}`;
+  animation.playbackRate = transition.playbackRate;
+  if (transition.currentTime !== null) {
+    animation.currentTime = transition.currentTime;
+  }
+  if (transition.playState === "paused") animation.pause();
+
+  let cleanedUp = false;
+  const restoreImportant = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    if (importantOverride)
+      restoreTemporaryInlineStyleOverride(importantOverride);
+    options.onCleanup?.();
+  };
+  const cancel = () => {
+    animation.cancel();
+    restoreImportant();
+  };
+  void animation.finished.then(cancel, restoreImportant);
+  return { animation, target: element, cancel };
+}
+
+function transitionTargetValue(transition: TransitionSnapshot): string | null {
+  let target: string | null = null;
+  for (const frame of transition.keyframes) {
+    const value = keyframeValue(frame, transition.property);
+    if (value === null) continue;
+    target = value;
+    const record = frame as Keyframe & { computedOffset?: number };
+    if (record.offset === 1 || record.computedOffset === 1) return value;
+  }
+  return target;
+}
+
+/**
+ * CSS transitions have higher cascade priority than Web Animations, so clone
+ * unrelated in-flight transitions before disabling the source's transition
+ * declarations. The copies keep effects such as opacity and filter moving while
+ * the crop frame takes over transform.
+ */
+function preserveUnrelatedTransitions(
+  element: HTMLElement,
+  frame: HTMLElement,
+  transitions: TransitionSnapshot[],
+  copies: CopiedTransition[],
+  temporaryStyleOverrides: TemporaryInlineStyleOverride[],
+): void {
+  for (const transition of transitions) {
+    const { property } = transition;
+    if (
+      TRANSFORM_TRANSITION_PROPERTIES.has(property) ||
+      transition.playState === "finished"
+    ) {
+      continue;
+    }
+    const neutralValue = CROP_TRANSITION_FRAME_NEUTRALS[property];
+    if (
+      neutralValue !== undefined &&
+      hasMatchingImportantStyleRule(element, property)
+    ) {
+      const originalValue = element.style.getPropertyValue(property);
+      const originalPriority = element.style.getPropertyPriority(property);
+      const override: TemporaryInlineStyleOverride = {
+        element,
+        property,
+        originalValue,
+        originalPriority,
+        temporaryValue: neutralValue,
+        temporaryPriority: "important",
+        animationTarget: frame,
+        active: true,
+      };
+      temporaryStyleOverrides.push(override);
+      element.style.setProperty(property, override.temporaryValue, "important");
+      const copy = copyTransitionEffect(transition, frame, {
+        onCleanup: () => restoreTemporaryInlineStyleOverride(override),
+        temporaryStyleOverrides,
+      });
+      if (copy) copies.push(copy);
+      else restoreTemporaryInlineStyleOverride(override);
+      continue;
+    }
+    const copy = copyTransitionEffect(transition, element, {
+      temporaryStyleOverrides,
+    });
+    if (copy) copies.push(copy);
+  }
+}
+
+let nextImportantStyleRuleProbeId = 0;
+
+function importantStyleRuleIsActive(
+  rule: CSSStyleRule,
+  element: HTMLElement,
+  activity: CssRuleActivity,
+): boolean {
+  if (activity !== null) return activity;
+
+  // Container queries and other browser-evaluated conditions are not exposed
+  // by cssRuleActivity. A unique custom property tells us whether this rule
+  // actually contributes to the element's computed style.
+  const probeId = ++nextImportantStyleRuleProbeId;
+  const probeProperty = `--fmd-crop-rule-activity-${probeId}`;
+  const probeValue = `active-${probeId}`;
+  const originalValue = rule.style.getPropertyValue(probeProperty);
+  const originalPriority = rule.style.getPropertyPriority(probeProperty);
+  try {
+    rule.style.setProperty(probeProperty, probeValue, "important");
+    return (
+      window
+        .getComputedStyle(element)
+        .getPropertyValue(probeProperty)
+        .trim() === probeValue
+    );
+  } catch {
+    // If a matching stylesheet rule cannot be safely probed, keep treating it
+    // as active so an !important declaration cannot be copied over.
+    return true;
+  } finally {
+    if (originalValue) {
+      rule.style.setProperty(probeProperty, originalValue, originalPriority);
+    } else {
+      rule.style.removeProperty(probeProperty);
+    }
+  }
+}
+
+function hasMatchingImportantStyleRule(
+  element: HTMLElement,
+  property: string,
+): boolean {
+  let found = false;
+  let unreadable = false;
+  visitActiveCssRules(
+    element.ownerDocument,
+    (rule, activity) => {
+      if (found || activity === false || rule.type !== CSSRule.STYLE_RULE)
+        return;
+      const styleRule = rule as CSSStyleRule;
+      if (
+        styleRule.style.getPropertyPriority(property) === "important" &&
+        element.matches(styleRule.selectorText)
+      ) {
+        found = importantStyleRuleIsActive(styleRule, element, activity);
+      }
+    },
+    () => {
+      unreadable = true;
+    },
+  );
+  // An unreadable sheet may contain a matching active !important declaration,
+  // which would outrank a copied animation on the frame.
+  return found || unreadable;
+}
+
+function stylesheetValuePaints(
+  element: HTMLElement,
+  property: string,
+  style: CSSStyleDeclaration,
+): boolean {
+  const probe = TRANSFORM_PROBES[property];
+  if (!probe || !style.getPropertyValue(property)) return false;
+  const originalCssText = style.cssText;
+  const computed = window.getComputedStyle(element);
+  const before = computed.getPropertyValue(property);
+  try {
+    style.setProperty(property, probe, style.getPropertyPriority(property));
+    return computed.getPropertyValue(property) !== before;
+  } finally {
+    style.cssText = originalCssText;
+  }
+}
+
+function paintedTransformDeclaration(
+  source: HTMLElement,
+  property: string,
+): { value: string; priority: string } | null {
+  const inlineValue = source.style.getPropertyValue(property);
+  if (inlineValue && inlineValuePaints(source, property, inlineValue)) {
+    return {
+      value: inlineValue,
+      priority: source.style.getPropertyPriority(property),
+    };
+  }
+
+  let painted: { value: string; priority: string } | null = null;
+  visitActiveCssRules(
+    source.ownerDocument,
+    (rule, activity) => {
+      if (rule.type !== CSSRule.STYLE_RULE) return;
+      const styleRule = rule as CSSStyleRule;
+      const value = styleRule.style.getPropertyValue(property);
+      if (
+        !value ||
+        !source.matches(styleRule.selectorText) ||
+        (activity !== true &&
+          !importantStyleRuleIsActive(styleRule, source, activity)) ||
+        !stylesheetValuePaints(source, property, styleRule.style)
+      ) {
+        return;
+      }
+      painted = {
+        value,
+        priority: styleRule.style.getPropertyPriority(property),
+      };
+    },
+    () => {},
+  );
+  return painted;
+}
+
+function transformCustomPropertyReferences(
+  source: HTMLElement,
+  plans: SplitCssAnimation[],
+  keyframes: Map<SplitCssAnimation, Set<string>>,
+  authoredByPlan: Map<SplitCssAnimation, AuthoredKeyframe[]>,
+  animatedProperties: ReadonlySet<string>,
+): Map<string, Set<string>> {
+  const references = new Map<string, Set<string>>();
+  const customPropertyDependencies = new Map<string, Set<string>>();
+  const paintedInlineProperties = new Set<string>();
+  const cascadeElements: HTMLElement[] = [];
+  for (
+    let element: HTMLElement | null = source;
+    element;
+    element = element.parentElement
+  ) {
+    cascadeElements.push(element);
+  }
+  const addReferences = (property: string, value: string) => {
+    const properties = references.get(property) ?? new Set<string>();
+    for (const match of value.matchAll(CSS_VAR_REFERENCE)) {
+      properties.add(match[1]);
+    }
+    if (properties.size > 0) references.set(property, properties);
+  };
+  const addCustomPropertyDependencies = (property: string, value: string) => {
+    const dependencies = customPropertyDependencies.get(property) ?? new Set();
+    for (const match of value.matchAll(CSS_VAR_REFERENCE)) {
+      dependencies.add(match[1]);
+    }
+    if (dependencies.size > 0) {
+      customPropertyDependencies.set(property, dependencies);
+    }
+  };
+  for (const property of [...TRANSFORM_PROPERTIES, "transform-origin"]) {
+    if (animatedProperties.has(property)) continue;
+    const value = source.style.getPropertyValue(property);
+    if (value && inlineValuePaints(source, property, value)) {
+      addReferences(property, value);
+      paintedInlineProperties.add(property);
+    }
+  }
+  for (const element of cascadeElements) {
+    for (let index = 0; index < element.style.length; index += 1) {
+      const property = element.style.item(index);
+      if (property.startsWith("--")) {
+        addCustomPropertyDependencies(
+          property,
+          element.style.getPropertyValue(property),
+        );
+      }
+    }
+  }
+  visitActiveCssRules(
+    source.ownerDocument,
+    (rule, activity) => {
+      if (rule.type !== CSSRule.STYLE_RULE || activity !== true) return;
+      const styleRule = rule as CSSStyleRule;
+      if (source.matches(styleRule.selectorText)) {
+        for (const property of [...TRANSFORM_PROPERTIES, "transform-origin"]) {
+          if (
+            animatedProperties.has(property) ||
+            paintedInlineProperties.has(property)
+          ) {
+            continue;
+          }
+          const value = styleRule.style.getPropertyValue(property);
+          if (
+            value &&
+            stylesheetValuePaints(source, property, styleRule.style)
+          ) {
+            addReferences(property, value);
+          }
+        }
+      }
+      if (
+        !cascadeElements.some((element) =>
+          element.matches(styleRule.selectorText),
+        )
+      ) {
+        return;
+      }
+      for (let index = 0; index < styleRule.style.length; index += 1) {
+        const property = styleRule.style.item(index);
+        if (property.startsWith("--")) {
+          addCustomPropertyDependencies(
+            property,
+            styleRule.style.getPropertyValue(property),
+          );
+        }
+      }
+    },
+    () => {},
+  );
+  for (const plan of plans) {
+    const properties = keyframes.get(plan)!;
+    for (const property of properties) {
+      if (!property.startsWith("--")) continue;
+      for (const value of animationKeyframeValues(
+        plan.animation,
+        property,
+        authoredByPlan.get(plan)!,
+      )) {
+        addCustomPropertyDependencies(property, value);
+      }
+    }
+    for (const property of animatedProperties) {
+      if (!properties.has(property)) continue;
+      for (const value of animationKeyframeValues(
+        plan.animation,
+        property,
+        authoredByPlan.get(plan)!,
+      )) {
+        addReferences(property, value);
+      }
+    }
+  }
+  for (const properties of references.values()) {
+    const pending = [...properties];
+    for (let index = 0; index < pending.length; index += 1) {
+      for (const dependency of customPropertyDependencies.get(pending[index]) ??
+        []) {
+        if (properties.has(dependency)) continue;
+        properties.add(dependency);
+        pending.push(dependency);
+      }
+    }
+  }
+  return references;
+}
+
+export function restoreSlideObjectTransformSnapshots(
+  snapshots: readonly {
+    element: HTMLElement;
+    value: string;
+    priority: string;
+  }[],
+): void {
+  const transitions = new Map(
+    snapshots.map(({ element }) => [
+      element,
+      captureInlineTransitions(element),
+    ]),
+  );
+  for (const { element } of snapshots) {
+    element.style.setProperty("transition", "none", "important");
+  }
+  for (const { element, value, priority } of snapshots) {
+    if (value) element.style.setProperty("transform", value, priority);
+    else element.style.removeProperty("transform");
+  }
+  for (const { element } of snapshots) {
+    window.getComputedStyle(element).getPropertyValue("transform");
+  }
+  for (const { element } of snapshots) {
+    restoreInlineTransitions(element, transitions.get(element) ?? []);
+  }
+}
+
+/** The transform properties the keyframes of these animations set. */
+function animatedTransformProperties(animations: CSSAnimation[]): string[] {
+  return TRANSFORM_PROPERTIES.filter((property) =>
+    animations.some(
+      ({ effect }) =>
+        effect instanceof KeyframeEffect &&
+        effect.getKeyframes().some((keyframe) => property in keyframe),
+    ),
+  );
+}
+
+function hasTransformAnimation(element: HTMLElement): boolean {
+  const animations = readCssAnimations(element);
+  return animatedTransformProperties(animations).some(
+    (property) => element.style.getPropertyPriority(property) !== "important",
+  );
+}
+
+interface RunningAnimation {
+  name: string;
+  currentTime: CSSNumberish | null;
+  playbackRate: number;
+  resume: boolean;
+}
+
+interface SplitCssAnimation {
+  animation: CSSAnimation;
+  index: number;
+  currentTime: CSSNumberish | null;
+  playbackRate: number;
+  resume: boolean;
+  imageName?: string;
+  frameName?: string;
+}
+
+let cropAnimationId = 0;
+
+function splitCssList(value: string): string[] {
+  const items: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let quote = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = "";
+      continue;
+    }
+    if (character === '"' || character === "'") quote = character;
+    else if (character === "(") depth += 1;
+    else if (character === ")") depth = Math.max(0, depth - 1);
+    else if (character === "," && depth === 0) {
+      items.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  const last = value.slice(start).trim();
+  if (last) items.push(last);
+  return items;
+}
+
+function cssAnimationName(value: string): string {
+  const trimmed = value.trim();
+  if (
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'")))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function keyframeProperties(animation: CSSAnimation): Set<string> {
+  const properties = new Set<string>();
+  const effect = animation.effect;
+  if (!(effect instanceof KeyframeEffect)) return properties;
+  for (const frame of effect.getKeyframes()) {
+    for (const property of Object.keys(frame)) {
+      if (
+        ["offset", "computedOffset", "easing", "composite"].includes(property)
+      )
+        continue;
+      properties.add(
+        property.startsWith("--")
+          ? property
+          : property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`),
+      );
+    }
+  }
+  return properties;
+}
+
+function keyframeValue(frame: Keyframe, property: string): string | null {
+  const record = frame as Record<string, unknown>;
+  const camel = property.replace(/-([a-z])/g, (_match, letter: string) =>
+    letter.toUpperCase(),
+  );
+  const value = record[property] ?? record[camel];
+  if (typeof value === "string" || typeof value === "number") {
+    // Prevent raw-text HTML from ending an enclosing serialized style element.
+    return escapeRawStyleText(String(value));
+  }
+  return null;
+}
+
+function escapeRawStyleText(value: string): string {
+  return value.replace(/</g, "\\3c ");
+}
+
+type AuthoredKeyframe = {
+  keyText: string;
+  style: CSSStyleDeclaration;
+};
+
+type CssRuleActivity = boolean | null;
+
+function combineCssRuleActivity(
+  parent: CssRuleActivity,
+  condition: CssRuleActivity,
+): CssRuleActivity {
+  if (parent === false || condition === false) return false;
+  if (parent === null || condition === null) return null;
+  return true;
+}
+
+function mediaActivity(mediaText: string): CssRuleActivity {
+  const query = mediaText.trim();
+  if (!query) return true;
+  return typeof window.matchMedia === "function"
+    ? window.matchMedia(query).matches
+    : null;
+}
+
+function supportsActivity(conditionText: string): CssRuleActivity {
+  return typeof CSS !== "undefined" && typeof CSS.supports === "function"
+    ? CSS.supports(conditionText)
+    : null;
+}
+
+function cssRuleActivity(rule: CSSRule): CssRuleActivity {
+  if (rule.type === CSSRule.MEDIA_RULE) {
+    return mediaActivity((rule as CSSMediaRule).media.mediaText);
+  }
+  if (rule.type === CSSRule.SUPPORTS_RULE) {
+    return supportsActivity((rule as CSSSupportsRule).conditionText);
+  }
+  // Container and other conditional rules need layout or browser-specific
+  // matching. Their keyframes use the computed fallback until we can tell.
+  if ("conditionText" in rule || ("start" in rule && "end" in rule))
+    return null;
+  return true;
+}
+
+function visitActiveCssRules(
+  document: Document,
+  visit: (rule: CSSRule, activity: CssRuleActivity) => void,
+  unreadable: () => void,
+): void {
+  const visitRules = (
+    rules: CSSRuleList,
+    parentActivity: CssRuleActivity,
+  ): void => {
+    if (parentActivity === false) return;
+    for (const rule of Array.from(rules)) {
+      const activity = combineCssRuleActivity(
+        parentActivity,
+        cssRuleActivity(rule),
+      );
+      if (activity === false) continue;
+      if (rule.type === CSSRule.IMPORT_RULE) {
+        const importRule = rule as CSSImportRule & { supportsText?: string };
+        let importActivity = combineCssRuleActivity(
+          activity,
+          mediaActivity(importRule.media.mediaText),
+        );
+        if (importRule.supportsText) {
+          importActivity = combineCssRuleActivity(
+            importActivity,
+            supportsActivity(importRule.supportsText),
+          );
+        }
+        let imported: CSSStyleSheet | null;
+        let importedRules: CSSRuleList;
+        try {
+          imported = importRule.styleSheet;
+          if (!imported || imported.disabled || importActivity === false) {
+            continue;
+          }
+          importedRules = imported.cssRules;
+        } catch {
+          unreadable();
+          continue;
+        }
+        visitRules(importedRules, importActivity);
+        continue;
+      }
+
+      visit(rule, activity);
+      if ("cssRules" in rule) {
+        let nestedRules: CSSRuleList;
+        try {
+          nestedRules = (rule as CSSGroupingRule).cssRules;
+        } catch {
+          unreadable();
+          continue;
+        }
+        visitRules(nestedRules, activity);
+      }
+    }
+  };
+
+  for (const sheet of Array.from(document.styleSheets)) {
+    if (sheet.disabled) continue;
+    const activity = mediaActivity(sheet.media.mediaText);
+    if (activity === false) continue;
+    let rules: CSSRuleList;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      unreadable();
+      continue;
+    }
+    visitRules(rules, activity);
+  }
+}
+
+function authoredKeyframes(animation: CSSAnimation): AuthoredKeyframe[] {
+  const effect = animation.effect;
+  const document =
+    effect instanceof KeyframeEffect ? effect.target?.ownerDocument : null;
+  if (!document) return [];
+
+  let match: CSSKeyframesRule | null = null;
+  let matchIsKnown = false;
+  visitActiveCssRules(
+    document,
+    (rule, activity) => {
+      if (
+        rule.type !== CSSRule.KEYFRAMES_RULE ||
+        (rule as CSSKeyframesRule).name !== animation.animationName
+      ) {
+        return;
+      }
+      if (activity === true) {
+        match = rule as CSSKeyframesRule;
+        matchIsKnown = true;
+      } else {
+        match = null;
+        matchIsKnown = false;
+      }
+    },
+    () => {
+      match = null;
+      matchIsKnown = false;
+    },
+  );
+
+  const matchedRule = match as CSSKeyframesRule | null;
+  if (!matchIsKnown || !matchedRule) return [];
+  return Array.from(matchedRule.cssRules).flatMap((rule: CSSRule) =>
+    rule.type === CSSRule.KEYFRAME_RULE
+      ? [
+          {
+            keyText: (rule as CSSKeyframeRule).keyText,
+            style: (rule as CSSKeyframeRule).style,
+          },
+        ]
+      : [],
+  );
+}
+
+function animationKeyframeValues(
+  animation: CSSAnimation,
+  property: string,
+  authored: AuthoredKeyframe[],
+): string[] {
+  if (authored.length > 0) {
+    return authored.flatMap((frame) => {
+      const value = frame.style.getPropertyValue(property);
+      return value ? [value] : [];
+    });
+  }
+  const effect = animation.effect;
+  if (!(effect instanceof KeyframeEffect)) return [];
+  return effect.getKeyframes().flatMap((frame) => {
+    const value = keyframeValue(frame, property);
+    return value ? [value] : [];
+  });
+}
+
+function serializeKeyframes(
+  name: string,
+  animation: CSSAnimation,
+  properties: Set<string>,
+  authored: AuthoredKeyframe[],
+): string | null {
+  const effect = animation.effect;
+  if (!(effect instanceof KeyframeEffect) || properties.size === 0) return null;
+  if (authored.length > 0) {
+    const rules = authored.flatMap((authoredFrame) => {
+      const declarations = [...properties].flatMap((property) => {
+        const value = authoredFrame.style.getPropertyValue(property);
+        return value === null || value === ""
+          ? []
+          : [`${property}: ${escapeRawStyleText(value)};`];
+      });
+      const easing = authoredFrame.style.getPropertyValue(
+        "animation-timing-function",
+      );
+      if (easing) {
+        declarations.push(
+          `animation-timing-function: ${escapeRawStyleText(easing)};`,
+        );
+      }
+      if (declarations.length === 0) return [];
+      return [`${authoredFrame.keyText} { ${declarations.join(" ")} }`];
+    });
+    return rules.length ? `@keyframes ${name} { ${rules.join(" ")} }` : null;
+  }
+  const frames = effect.getKeyframes();
+  const rules = frames.flatMap((frame) => {
+    const record = frame as Keyframe & { computedOffset?: number };
+    const offset =
+      typeof record.offset === "number"
+        ? record.offset
+        : typeof record.computedOffset === "number"
+          ? record.computedOffset
+          : null;
+    if (offset === null) return [];
+    const declarations = [...properties].flatMap((property) => {
+      const value = keyframeValue(frame, property);
+      return value === null ? [] : [`${property}: ${value};`];
+    });
+    if (frame.easing && frame.easing !== "linear") {
+      declarations.push(
+        `animation-timing-function: ${escapeRawStyleText(frame.easing)};`,
+      );
+    }
+    if (declarations.length === 0) return [];
+    return [
+      `${Number((offset * 100).toFixed(4))}% { ${declarations.join(" ")} }`,
+    ];
+  });
+  return rules.length ? `@keyframes ${name} { ${rules.join(" ")} }` : null;
+}
+
+function nextCropAnimationName(): string {
+  cropAnimationId += 1;
+  return `${CROP_CSS_ANIMATION_NAME_PREFIX}${Date.now().toString(36)}_${cropAnimationId.toString(36)}`;
+}
+
+function setAnimationList(
+  element: HTMLElement,
+  animations: SplitCssAnimation[],
+  nameFor: (animation: SplitCssAnimation) => string | undefined,
+  computedValues: Map<string, string[]>,
+): RunningAnimation[] {
+  const selected = animations.flatMap((animation) => {
+    const name = nameFor(animation);
+    return name ? [{ animation, name }] : [];
+  });
+  element.style.setProperty(
+    "animation-name",
+    selected.length ? selected.map(({ name }) => name).join(", ") : "none",
+    "important",
+  );
+  for (const property of ANIMATION_LONGHANDS.slice(1)) {
+    const values = computedValues.get(property) ?? [];
+    if (selected.length === 0 || values.length === 0) continue;
+    element.style.setProperty(
+      property,
+      selected
+        .map(({ animation }) => values[animation.index % values.length])
+        .join(", "),
+      "important",
+    );
+  }
+  return selected.map(({ animation, name }) => ({
+    name,
+    currentTime: animation.currentTime,
+    playbackRate: animation.playbackRate,
+    resume: animation.resume,
+  }));
+}
+
+export function pauseCssAnimations(
+  element: HTMLElement,
+  running: RunningAnimation[],
+): () => void {
+  const pending = [...running];
+  const resumeOccurrences = new Map<string, Set<number>>();
+  const occurrences = new Map<string, number>();
+  for (const animation of readCssAnimations(element)) {
+    const occurrence = occurrences.get(animation.animationName) ?? 0;
+    occurrences.set(animation.animationName, occurrence + 1);
+    const index = pending.findIndex(
+      ({ name }) => name === animation.animationName,
+    );
+    const [reached] = index < 0 ? [] : pending.splice(index, 1);
+    if (!reached) {
+      animation.cancel();
+      continue;
+    }
+    if (reached.resume) {
+      const resumed =
+        resumeOccurrences.get(animation.animationName) ?? new Set();
+      resumed.add(occurrence);
+      resumeOccurrences.set(animation.animationName, resumed);
+    }
+    animation.pause();
+    animation.playbackRate = reached.playbackRate;
+    if (reached.currentTime !== null)
+      animation.currentTime = reached.currentTime;
+  }
+  return () => {
+    const currentOccurrences = new Map<string, number>();
+    for (const animation of readCssAnimations(element)) {
+      const occurrence = currentOccurrences.get(animation.animationName) ?? 0;
+      currentOccurrences.set(animation.animationName, occurrence + 1);
+      if (resumeOccurrences.get(animation.animationName)?.has(occurrence)) {
+        animation.play();
+      }
+    }
+  };
+}
+
+function restoreCssAnimationTimes(
+  element: HTMLElement,
+  plans: SplitCssAnimation[],
+): void {
+  const usedNames = new Map<string, number>();
+  const current = readCssAnimations(element);
+  for (const plan of plans) {
+    const name = plan.animation.animationName;
+    const occurrence = usedNames.get(name) ?? 0;
+    usedNames.set(name, occurrence + 1);
+    const animation = current.filter((item) => item.animationName === name)[
+      occurrence
+    ];
+    if (animation) {
+      animation.playbackRate = plan.playbackRate;
+      if (plan.currentTime !== null) animation.currentTime = plan.currentTime;
+    }
+  }
+}
+
+function copyAnimationEnvironment(
+  source: HTMLElement,
+  frame: HTMLElement,
+  customProperties: Set<string>,
+): void {
+  const computed = window.getComputedStyle(source);
+  const parentComputed = source.parentElement
+    ? window.getComputedStyle(source.parentElement)
+    : null;
+  const localValues = new Map<string, { value: string; priority: string }>();
+  const uncertainLocalProperties = new Set<string>();
+  const registeredPropertySyntax = new Map<string, string>();
+  let unreadableStylesheet = false;
+  let probeIndex = 0;
+  const probeValueForSyntax = (
+    syntax: string,
+    index: number,
+  ): string | null => {
+    // i18n-ignore: Internal CSS marker passed to CSSOM, never shown to users.
+    const marker = `agent-native-crop-probe-${index}`;
+    for (const option of syntax.split("|")) {
+      const trimmed = option.trim();
+      const multiplier = trimmed.endsWith("#")
+        ? ", "
+        : trimmed.endsWith("+")
+          ? " "
+          : "";
+      const type = multiplier ? trimmed.slice(0, -1).trim() : trimmed;
+      const valueByType: Record<string, string> = {
+        "*": marker,
+        "<angle>": `${91357 + index}deg`,
+        "<basic-shape>": `inset(${91357 + index}px)`,
+        // guard:allow-raw-color - synthetic probe only, never painted in the UI
+        "<color>": `rgb(${index % 255} 1 2 / 0.5)`,
+        "<custom-ident>": marker, // i18n-ignore: CSS syntax label passed to CSSOM.
+        // guard:allow-raw-color - synthetic probe only, never painted in the UI
+        "<image>": `linear-gradient(rgb(${index % 255} 1 2), rgb(3 4 5))`,
+        "<integer>": `${91357 + index}`,
+        "<length>": `${91357 + index}px`,
+        "<length-percentage>": `${91357 + index}px`,
+        "<number>": `${91357 + index}`,
+        "<percentage>": `${91357 + index}%`,
+        "<position>": `${91357 + index}px ${91358 + index}px`,
+        "<resolution>": `${91357 + index}dpi`,
+        "<string>": `"${marker}"`,
+        "<time>": `${91357 + index}s`,
+        "<transform-function>": `translateX(${91357 + index}px)`,
+        "<transform-list>": `translateX(${91357 + index}px)`,
+        "<url>": `url("${marker}")`,
+      };
+      const value = valueByType[type];
+      if (value) return multiplier ? `${value}${multiplier}${value}` : value;
+    }
+    return null;
+  };
+  visitActiveCssRules(
+    source.ownerDocument,
+    (rule, activity) => {
+      if (!("name" in rule) || !("syntax" in rule)) return;
+      const propertyRule = rule as CSSRule & { name: string; syntax: string };
+      if (activity !== true) {
+        uncertainLocalProperties.add(propertyRule.name);
+        return;
+      }
+      const previous = registeredPropertySyntax.get(propertyRule.name);
+      if (previous && previous !== propertyRule.syntax) {
+        uncertainLocalProperties.add(propertyRule.name);
+        registeredPropertySyntax.delete(propertyRule.name);
+      } else if (!uncertainLocalProperties.has(propertyRule.name)) {
+        registeredPropertySyntax.set(propertyRule.name, propertyRule.syntax);
+      }
+    },
+    () => {
+      unreadableStylesheet = true;
+    },
+  );
+  const winningLocalValue = (
+    property: string,
+    style: CSSStyleDeclaration,
+  ): { value: string; priority: string } | null => {
+    const value = style.getPropertyValue(property);
+    if (!value) return null;
+    const priority = style.getPropertyPriority(property);
+    const originalCssText = style.cssText;
+    const index = probeIndex++;
+    const syntax = registeredPropertySyntax.get(property);
+    const marker = syntax
+      ? probeValueForSyntax(syntax, index)
+      : `agent-native-crop-probe-${index}`;
+    if (!marker) {
+      uncertainLocalProperties.add(property);
+      return null;
+    }
+    try {
+      // Ask the browser which matching declaration wins the cascade instead
+      // of treating the last source-order rule as the effective value. For
+      // registered properties, normalize a valid probe through the browser
+      // because arbitrary marker text may be rejected by its declared syntax.
+      style.setProperty(property, marker, priority);
+      let expected = marker;
+      if (syntax) {
+        const sourceCssText = source.style.cssText;
+        source.style.setProperty(property, marker, "important");
+        expected = window
+          .getComputedStyle(source)
+          .getPropertyValue(property)
+          .trim();
+        source.style.cssText = sourceCssText;
+      }
+      return window
+        .getComputedStyle(source)
+        .getPropertyValue(property)
+        .trim() === expected
+        ? { value, priority }
+        : null;
+    } catch {
+      uncertainLocalProperties.add(property);
+      return null;
+    } finally {
+      try {
+        style.cssText = originalCssText;
+      } catch {
+        uncertainLocalProperties.add(property);
+      }
+    }
+  };
+  const propertiesToInspect = [...customProperties];
+  for (let index = 0; index < propertiesToInspect.length; index++) {
+    const property = propertiesToInspect[index];
+    if (!property.startsWith("--")) continue;
+    const addDependencies = (value: string) => {
+      for (const match of value.matchAll(CSS_VAR_REFERENCE)) {
+        const dependency = match[1];
+        if (customProperties.has(dependency)) continue;
+        customProperties.add(dependency);
+        propertiesToInspect.push(dependency);
+      }
+    };
+    visitActiveCssRules(
+      source.ownerDocument,
+      (rule, activity) => {
+        if (rule.type !== CSSRule.STYLE_RULE) return;
+        const styleRule = rule as CSSStyleRule;
+        if (
+          !source.matches(styleRule.selectorText) ||
+          !styleRule.style.getPropertyValue(property)
+        )
+          return;
+        if (activity !== true) {
+          uncertainLocalProperties.add(property);
+          return;
+        }
+        const local = winningLocalValue(property, styleRule.style);
+        if (!local) return;
+        localValues.set(property, local);
+        addDependencies(local.value);
+      },
+      () => {
+        unreadableStylesheet = true;
+      },
+    );
+    const local = winningLocalValue(property, source.style);
+    if (local) {
+      localValues.set(property, local);
+      addDependencies(local.value);
+    }
+  }
+  for (const property of customProperties) {
+    if (!property.startsWith("--")) continue;
+    const value = computed.getPropertyValue(property);
+    const inheritedValue = parentComputed?.getPropertyValue(property) ?? "";
+    // The frame becomes a sibling of the image. Let inherited tokens keep
+    // flowing from their original ancestor instead of freezing them inline.
+    const local = localValues.get(property);
+    const localInherits =
+      local &&
+      /^(inherit|unset|revert|revert-layer)$/i.test(local.value.trim());
+    if (local && !localInherits) {
+      frame.style.setProperty(property, local.value, local.priority);
+    } else if (
+      value &&
+      (value !== inheritedValue ||
+        unreadableStylesheet ||
+        uncertainLocalProperties.has(property))
+    ) {
+      frame.style.setProperty(property, value);
+    }
+  }
+  for (const property of [
+    "color",
+    "font-family",
+    "font-size",
+    "font-stretch",
+    "font-style",
+    "font-variant",
+    "font-weight",
+    "line-height",
+    "transform-box",
+  ]) {
+    const value = computed.getPropertyValue(property);
+    if (value) frame.style.setProperty(property, value);
+  }
+}
+
+interface CropTransformHandoff {
+  style: HTMLStyleElement | null;
+  activateAnimations: () => () => void;
+  restoreTransitions: () => void;
+  cancelCopiedTransitions: (preserveOn?: HTMLElement) => void;
+  resumeCopiedTransitionOverrides: (element: HTMLElement) => void;
+  serializeWithoutCopiedTransitionOverrides: (
+    serialize: () => string | null,
+  ) => string | null;
+}
+
+/**
+ * Hands the painted transform to the crop frame. CSS animation keyframes are
+ * split into frame transform tracks and image visual tracks, so opacity and
+ * other image-only effects stay on the image. The generated keyframes are
+ * stored with the frame so the split survives save and reopen.
  */
 function moveSlideObjectTransform(
   source: HTMLElement,
   frame: HTMLElement,
-): void {
+): CropTransformHandoff {
   const computed = window.getComputedStyle(source);
-  const { transformOrigin } = readSlideObjectTransformSnapshot(source);
-  let moved = false;
+  const animations = readCssAnimations(source);
+  const savedStyle = source.getAttribute("style");
+  const originalTransitions = captureInlineTransitions(source);
+  const values = new Map<string, string[]>();
+  for (const property of ANIMATION_LONGHANDS) {
+    values.set(property, splitCssList(computed.getPropertyValue(property)));
+  }
+  const names = values.get("animation-name") ?? [];
+  const usedNames = new Map<string, number>();
+  const plans: SplitCssAnimation[] = animations.map(
+    (animation, fallbackIndex) => {
+      const name = animation.animationName;
+      const occurrence = usedNames.get(name) ?? 0;
+      usedNames.set(name, occurrence + 1);
+      const matches = names.flatMap((candidate, index) =>
+        cssAnimationName(candidate) === name ? [index] : [],
+      );
+      const index =
+        matches[occurrence] ?? Math.min(fallbackIndex, names.length - 1);
+      return {
+        animation,
+        index: Math.max(index, 0),
+        currentTime: animation.currentTime,
+        playbackRate: animation.playbackRate,
+        resume: animation.playState === "running",
+      };
+    },
+  );
+  const authoredByPlan = new Map(
+    plans.map((plan) => [plan, authoredKeyframes(plan.animation)]),
+  );
+  const keyframes = new Map(
+    plans.map((plan) => {
+      const properties = keyframeProperties(plan.animation);
+      for (const frame of authoredByPlan.get(plan) ?? []) {
+        for (let index = 0; index < frame.style.length; index++) {
+          const property = frame.style.item(index);
+          if (property && property !== "animation-timing-function") {
+            properties.add(property);
+          }
+        }
+      }
+      return [plan, properties] as const;
+    }),
+  );
+  const cropAnimatedProperties = [...TRANSFORM_PROPERTIES, "transform-origin"];
+  const keyframedProperties = new Set(
+    [...keyframes.values()].flatMap((properties) => [...properties]),
+  );
+  const candidateAnimatedProperties = cropAnimatedProperties.filter(
+    (property) => keyframedProperties.has(property),
+  );
+  const runningTransitions =
+    typeof source.getAnimations === "function"
+      ? source
+          .getAnimations()
+          .filter(
+            (animation) =>
+              typeof (animation as Animation & { transitionProperty?: string })
+                .transitionProperty === "string",
+          )
+      : [];
+  const transitionSnapshots = runningTransitions.flatMap((transition) => {
+    const property = (transition as Animation & { transitionProperty: string })
+      .transitionProperty;
+    const snapshot = snapshotTransition(transition, property);
+    return snapshot ? [snapshot] : [];
+  });
+  const hasCustomPropertyTransition = transitionSnapshots.some(({ property }) =>
+    property.startsWith("--"),
+  );
+  const painted = new Map(
+    cropAnimatedProperties.map((property) => [
+      property,
+      computed.getPropertyValue(property),
+    ]),
+  );
+
+  // A transition takes precedence over CSS animations and even important
+  // declarations. Sample it first, then stop it before suppressing the image's
+  // transform so it cannot continue to paint inside the new crop frame.
+  const transitions = runningTransitions.filter((animation) =>
+    cropAnimatedProperties.includes(
+      (animation as Animation & { transitionProperty: string })
+        .transitionProperty,
+    ),
+  );
+  const transitionedProperties = new Set(
+    transitions.map(
+      (animation) =>
+        (animation as Animation & { transitionProperty: string })
+          .transitionProperty,
+    ),
+  );
+  const copiedTransitions: CopiedTransition[] = [];
+  const temporaryStyleOverrides: TemporaryInlineStyleOverride[] = [];
+  preserveUnrelatedTransitions(
+    source,
+    frame,
+    transitionSnapshots,
+    copiedTransitions,
+    temporaryStyleOverrides,
+  );
+  source.style.setProperty("transition", "none", "important");
+  for (const transition of transitions) transition.cancel();
+
+  const possibleAnimatedProperties = candidateAnimatedProperties.filter(
+    (property) => source.style.getPropertyPriority(property) !== "important",
+  );
+  let splitAnimations = possibleAnimatedProperties.length > 0;
+  if (splitAnimations) {
+    // Disable originals before reading the underneath values. Their current
+    // times and keyframes were captured above and are reapplied to split copies.
+    source.style.setProperty("animation-name", "none", "important");
+  }
+  let underlay = window.getComputedStyle(source);
+  const winningAnimatedProperties = possibleAnimatedProperties.filter(
+    (property) =>
+      inlineValuePaints(source, property, TRANSFORM_PROBES[property]),
+  );
+  const hasKeyframedCustomProperties = [...keyframes.values()].some(
+    (properties) =>
+      [...properties].some((property) => property.startsWith("--")),
+  );
+  const transformCustomProperties =
+    hasCustomPropertyTransition || hasKeyframedCustomProperties
+      ? transformCustomPropertyReferences(
+          source,
+          plans,
+          keyframes,
+          authoredByPlan,
+          new Set(winningAnimatedProperties),
+        )
+      : new Map<string, Set<string>>();
+  const animatedTransformCustomProperties = new Set<string>();
+  for (const dependencies of transformCustomProperties.values()) {
+    for (const property of dependencies) {
+      if (
+        keyframedProperties.has(property) &&
+        source.style.getPropertyPriority(property) !== "important" &&
+        !hasMatchingImportantStyleRule(source, property)
+      ) {
+        animatedTransformCustomProperties.add(property);
+      }
+    }
+  }
+  if (animatedTransformCustomProperties.size > 0 && !splitAnimations) {
+    // A keyframed custom property can drive a transform that is authored in a
+    // stylesheet. Move that animation to the frame even though the keyframes
+    // do not name a transform property themselves.
+    source.style.setProperty("animation-name", "none", "important");
+    splitAnimations = true;
+    underlay = window.getComputedStyle(source);
+  }
+  for (const property of cropAnimatedProperties) {
+    const dependencies = transformCustomProperties.get(property);
+    if (
+      dependencies?.size &&
+      transitionSnapshots.some(({ property: transitionedProperty }) =>
+        dependencies.has(transitionedProperty),
+      )
+    ) {
+      transitionedProperties.add(property);
+    }
+  }
+  if (
+    splitAnimations &&
+    winningAnimatedProperties.length === 0 &&
+    animatedTransformCustomProperties.size === 0
+  ) {
+    // A stylesheet !important declaration can beat the animation too. In
+    // that case leave the authored animations on the image and move only the
+    // transform value that actually paints.
+    restoreStyleAttribute(source, savedStyle);
+    source.style.setProperty("transition", "none", "important");
+    restoreCssAnimationTimes(source, plans);
+    splitAnimations = false;
+  }
+  const underlayValues = new Map(
+    cropAnimatedProperties.map((property) => [
+      property,
+      underlay.getPropertyValue(property),
+    ]),
+  );
+
+  // A canceled transition supplies the painted starting pose, but it must not
+  // hide the animation track that continues underneath it.
+  const activeFrameProperties = new Set(winningAnimatedProperties);
+  for (const property of animatedTransformCustomProperties) {
+    activeFrameProperties.add(property);
+  }
+  const sampledTransitionProperties = new Set(
+    [...activeFrameProperties].filter((property) =>
+      transitionedProperties.has(property),
+    ),
+  );
+  // A transform keyframe that uses var(--x) must travel with the custom
+  // property track that supplies it, including chained custom properties.
+  const referencedCustomProperties = new Set<string>();
+  for (const plan of plans) {
+    const properties = keyframes.get(plan)!;
+    for (const property of activeFrameProperties) {
+      if (!properties.has(property)) continue;
+      for (const value of animationKeyframeValues(
+        plan.animation,
+        property,
+        authoredByPlan.get(plan)!,
+      )) {
+        for (const match of value.matchAll(CSS_VAR_REFERENCE)) {
+          referencedCustomProperties.add(match[1]);
+        }
+      }
+    }
+  }
+  const frameTransformDeclarations = new Map(
+    [...transformCustomProperties].flatMap(([property, dependencies]) => {
+      if (
+        ![...animatedTransformCustomProperties].some((dependency) =>
+          dependencies.has(dependency),
+        )
+      ) {
+        return [];
+      }
+      const declaration = paintedTransformDeclaration(source, property);
+      return declaration ? [[property, declaration] as const] : [];
+    }),
+  );
+  for (const declaration of frameTransformDeclarations.values()) {
+    for (const match of declaration.value.matchAll(CSS_VAR_REFERENCE)) {
+      referencedCustomProperties.add(match[1]);
+    }
+  }
+  const copiedFrameTransformValues = Array.from(
+    frameTransformDeclarations.values(),
+    ({ value }) => value,
+  );
+  let foundCustomProperty = true;
+  while (foundCustomProperty) {
+    foundCustomProperty = false;
+    for (const plan of plans) {
+      const properties = keyframes.get(plan)!;
+      for (const property of referencedCustomProperties) {
+        if (!properties.has(property)) continue;
+        for (const value of animationKeyframeValues(
+          plan.animation,
+          property,
+          authoredByPlan.get(plan)!,
+        )) {
+          for (const match of value.matchAll(CSS_VAR_REFERENCE)) {
+            if (!referencedCustomProperties.has(match[1])) {
+              referencedCustomProperties.add(match[1]);
+              foundCustomProperty = true;
+            }
+          }
+        }
+      }
+    }
+  }
+  const frameCustomPropertyTransitions = splitAnimations
+    ? transitionSnapshots.filter(({ property }) =>
+        [...activeFrameProperties].some((frameProperty) =>
+          transformCustomProperties.get(frameProperty)?.has(property),
+        ),
+      )
+    : [];
+  const frameUsesFontRelativeLength =
+    [...activeFrameProperties, ...referencedCustomProperties].some(
+      (property) => {
+        if (FONT_RELATIVE_LENGTH.test(computed.getPropertyValue(property))) {
+          return true;
+        }
+        return plans.some(
+          (plan) =>
+            keyframes.get(plan)!.has(property) &&
+            animationKeyframeValues(
+              plan.animation,
+              property,
+              authoredByPlan.get(plan)!,
+            ).some((value) => FONT_RELATIVE_LENGTH.test(value)),
+        );
+      },
+    ) ||
+    copiedFrameTransformValues.some((value) =>
+      FONT_RELATIVE_LENGTH.test(value),
+    );
+  const frameUsesLineHeightRelativeLength =
+    [...activeFrameProperties, ...referencedCustomProperties].some(
+      (property) => {
+        if (
+          LINE_HEIGHT_RELATIVE_LENGTH.test(computed.getPropertyValue(property))
+        ) {
+          return true;
+        }
+        return plans.some(
+          (plan) =>
+            keyframes.get(plan)!.has(property) &&
+            animationKeyframeValues(
+              plan.animation,
+              property,
+              authoredByPlan.get(plan)!,
+            ).some((value) => LINE_HEIGHT_RELATIVE_LENGTH.test(value)),
+        );
+      },
+    ) ||
+    copiedFrameTransformValues.some((value) =>
+      LINE_HEIGHT_RELATIVE_LENGTH.test(value),
+    );
+  const fontSizeAnimationPaints =
+    frameUsesFontRelativeLength &&
+    keyframedProperties.has("font-size") &&
+    source.style.getPropertyPriority("font-size") !== "important" &&
+    !hasMatchingImportantStyleRule(source, "font-size");
+  const lineHeightAnimationPaints =
+    frameUsesLineHeightRelativeLength &&
+    keyframedProperties.has("line-height") &&
+    source.style.getPropertyPriority("line-height") !== "important" &&
+    !hasMatchingImportantStyleRule(source, "line-height");
+  const cssRules: string[] = [];
+  if (splitAnimations) {
+    copyAnimationEnvironment(source, frame, referencedCustomProperties);
+    for (const transition of frameCustomPropertyTransitions) {
+      const targetValue = transitionTargetValue(transition);
+      if (targetValue === null) continue;
+      const copy = copyTransitionEffect(transition, frame, {
+        underlyingValue: targetValue,
+        restoreImportant: false,
+      });
+      if (copy) copiedTransitions.push(copy);
+    }
+    for (const plan of plans) {
+      const properties = keyframes.get(plan)!;
+      const imageProperties = new Set(
+        [...properties].filter(
+          (property) => !cropAnimatedProperties.includes(property),
+        ),
+      );
+      const frameProperties = new Set(
+        [...properties].filter((property) =>
+          activeFrameProperties.has(property),
+        ),
+      );
+      for (const property of referencedCustomProperties) {
+        if (properties.has(property)) frameProperties.add(property);
+      }
+      if (
+        frameUsesFontRelativeLength &&
+        fontSizeAnimationPaints &&
+        properties.has("font-size")
+      ) {
+        frameProperties.add("font-size");
+      }
+      if (
+        frameUsesLineHeightRelativeLength &&
+        lineHeightAnimationPaints &&
+        properties.has("line-height")
+      ) {
+        frameProperties.add("line-height");
+      }
+      if (imageProperties.size > 0) {
+        plan.imageName = nextCropAnimationName();
+        const rule = serializeKeyframes(
+          plan.imageName,
+          plan.animation,
+          imageProperties,
+          authoredByPlan.get(plan)!,
+        );
+        if (rule) cssRules.push(rule);
+      }
+      if (frameProperties.size > 0) {
+        plan.frameName = nextCropAnimationName();
+        const rule = serializeKeyframes(
+          plan.frameName,
+          plan.animation,
+          frameProperties,
+          authoredByPlan.get(plan)!,
+        );
+        if (rule) cssRules.push(rule);
+      }
+    }
+  }
+
+  let moved = activeFrameProperties.size > 0;
   for (const property of TRANSFORM_PROPERTIES) {
     const authored = source.style.getPropertyValue(property);
-    const value = READS_OWN_CASCADE.test(authored)
-      ? computed.getPropertyValue(property)
-      : authored || computed.getPropertyValue(property);
+    const value = transitionedProperties.has(property)
+      ? painted.get(property)
+      : authored &&
+          !READS_OWN_CASCADE.test(authored) &&
+          inlineValuePaints(source, property)
+        ? authored
+        : underlayValues.get(property);
     if (value && value !== "none") {
-      frame.style.setProperty(property, value);
+      // A paused copied animation still beats normal inline values. Keep the
+      // transition's sampled pose above it until crop commit resumes the track.
+      frame.style.setProperty(
+        property,
+        value,
+        sampledTransitionProperties.has(property) ? "important" : "",
+      );
       moved = true;
     }
-    // Off even when nothing moved, so a rule that matches later cannot paint
-    // the image a second time inside the frame. Important, because a stylesheet
-    // !important declaration and a running animation both beat a plain one.
     source.style.setProperty(property, "none", "important");
   }
-  if (moved && transformOrigin !== "50% 50%") {
-    frame.style.transformOrigin = transformOrigin;
+  const origin = transitionedProperties.has("transform-origin")
+    ? painted.get("transform-origin")
+    : underlayValues.get("transform-origin");
+  if (moved && origin && origin !== "50% 50%")
+    frame.style.setProperty(
+      "transform-origin",
+      origin,
+      sampledTransitionProperties.has("transform-origin") ? "important" : "",
+    );
+  for (const [property, declaration] of frameTransformDeclarations) {
+    frame.style.setProperty(property, declaration.value, declaration.priority);
   }
+  let style: HTMLStyleElement | null = null;
+  if (moved && splitAnimations && cssRules.length > 0) {
+    style = frame.ownerDocument.createElement("style");
+    style.setAttribute("data-fmd-crop-keyframes", "");
+    style.textContent = cssRules.join("\n");
+  }
+
+  return {
+    style,
+    cancelCopiedTransitions: (preserveOn) => {
+      for (const transition of [...copiedTransitions]) {
+        if (preserveOn && transition.target === preserveOn) continue;
+        transition.cancel();
+        copiedTransitions.splice(copiedTransitions.indexOf(transition), 1);
+      }
+    },
+    resumeCopiedTransitionOverrides: (element) =>
+      reapplyTemporaryInlineStyleOverrides(temporaryStyleOverrides, element),
+    serializeWithoutCopiedTransitionOverrides: (serialize) =>
+      serializeWithRestoredCropTransitionInlineOverrides(source, () =>
+        serializeWithRestoredInlineStyleOverrides(
+          temporaryStyleOverrides,
+          serialize,
+        ),
+      ),
+    activateAnimations: () => {
+      if (!splitAnimations) return () => {};
+      const imageRunning = setAnimationList(
+        source,
+        plans,
+        (plan) => plan.imageName,
+        values,
+      );
+      const frameRunning = setAnimationList(
+        frame,
+        plans,
+        (plan) => plan.frameName,
+        values,
+      );
+      const resumeImage = pauseCssAnimations(source, imageRunning);
+      const resumeFrame = pauseCssAnimations(frame, frameRunning);
+      return () => {
+        for (const property of sampledTransitionProperties) {
+          const value = frame.style.getPropertyValue(property);
+          if (value) frame.style.setProperty(property, value);
+        }
+        resumeImage();
+        resumeFrame();
+      };
+    },
+    restoreTransitions: () =>
+      restoreInlineTransitionsAfterTransformSettles(
+        source,
+        originalTransitions,
+      ),
+  };
 }
 
 /**
@@ -1333,9 +3224,17 @@ function moveSlideObjectTransform(
  * place, box and transform inside its parent, and the image moves into the
  * frame's clipping viewport. Null when the image has no parent to wrap it in.
  */
-export function wrapImageInCropFrame(
-  image: HTMLImageElement,
-): { frame: HTMLElement; viewport: HTMLElement } | null {
+export function wrapImageInCropFrame(image: HTMLImageElement): {
+  frame: HTMLElement;
+  viewport: HTMLElement;
+  resumeAnimations: () => void;
+  restoreTransitions: () => void;
+  cancelCopiedTransitions: (preserveOn?: HTMLElement) => void;
+  resumeCopiedTransitionOverrides: (element: HTMLElement) => void;
+  serializeWithoutCopiedTransitionOverrides: (
+    serialize: () => string | null,
+  ) => string | null;
+} | null {
   const parent = image.parentElement;
   if (!parent) return null;
   const imageWidth = image.offsetWidth;
@@ -1363,7 +3262,7 @@ export function wrapImageInCropFrame(
   }
   const zIndex = imageStyle.zIndex || window.getComputedStyle(image).zIndex;
   if (zIndex && zIndex !== "auto") frame.style.zIndex = zIndex;
-  moveSlideObjectTransform(image, frame);
+  const animationHandoff = moveSlideObjectTransform(image, frame);
   frame.style.position ||= "absolute";
   frame.style.display = "block";
   frame.style.left ||= `${imageLeft}px`;
@@ -1400,7 +3299,19 @@ export function wrapImageInCropFrame(
     maxHeight: "none",
     margin: "0",
   });
-  return { frame, viewport };
+  if (animationHandoff.style) frame.appendChild(animationHandoff.style);
+  const resumeAnimations = animationHandoff.activateAnimations();
+  return {
+    frame,
+    viewport,
+    resumeAnimations,
+    restoreTransitions: animationHandoff.restoreTransitions,
+    cancelCopiedTransitions: animationHandoff.cancelCopiedTransitions,
+    resumeCopiedTransitionOverrides:
+      animationHandoff.resumeCopiedTransitionOverrides,
+    serializeWithoutCopiedTransitionOverrides:
+      animationHandoff.serializeWithoutCopiedTransitionOverrides,
+  };
 }
 
 export function resolveSlideClipboardElement(
@@ -2328,20 +4239,42 @@ function toTransformProperty(
   ]);
 }
 
+function authoredOriginPaints(
+  element: HTMLElement,
+  authored: string,
+  computed: string | undefined,
+): boolean {
+  const authoredOrigin = parseSlideObjectTransformOrigin(authored);
+  if (!authoredOrigin) return false;
+  const { offsetWidth: width, offsetHeight: height } = element;
+  const painted =
+    computed && width > 0 && height > 0
+      ? parseSlideObjectTransformOrigin(computed)?.(width, height)
+      : null;
+  if (!painted) return true;
+  const wanted = authoredOrigin(width, height);
+  return (
+    Math.abs(wanted.x - painted.x) < 0.5 && Math.abs(wanted.y - painted.y) < 0.5
+  );
+}
+
 export function readSlideObjectTransformSnapshot(
   element: HTMLElement,
 ): SlideObjectTransformSnapshot {
   const computedStyle = window.getComputedStyle(element);
   const computedTransform = computedStyle.transform;
   const authoredTransformOrigin = element.style.transformOrigin.trim();
+  const computedTransformOrigin = computedStyle.transformOrigin?.trim();
   // An authored origin we cannot parse (calc(), var()) is already resolved to
-  // pixels in the computed style.
-  const inlineTransformOrigin = parseSlideObjectTransformOrigin(
+  // pixels in the computed style, and so is one that a stylesheet !important
+  // declaration overrides.
+  const inlineTransformOrigin = authoredOriginPaints(
+    element,
     authoredTransformOrigin,
+    computedTransformOrigin,
   )
     ? authoredTransformOrigin
     : "";
-  const computedTransformOrigin = computedStyle.transformOrigin?.trim();
   let transformOrigin =
     inlineTransformOrigin ||
     computedTransformOrigin ||
@@ -2369,9 +4302,9 @@ export function readSlideObjectTransformSnapshot(
     transform: composeSlideObjectTransform(
       element,
       computedStyle,
-      computedTransform && computedTransform !== "none"
-        ? computedTransform
-        : element.style.transform || "none",
+      // "none" is a transform that paints nothing, whatever the inline one
+      // says; only an empty string is a style the browser did not compute.
+      computedTransform || element.style.transform || "none",
     ),
     transformOrigin,
   };
@@ -2760,6 +4693,9 @@ export function ungroupSlideObject(
   >();
   if (groupRotation !== 0) {
     for (const { element, geometry } of childGeometries) {
+      // The turned transform is written inline below, so one that cannot paint
+      // there would leave the member where the group's rotation no longer is.
+      if (!inlineTransformPaints(element)) return null;
       const currentMatrix = readSlideObjectTransformMatrix(
         geometry,
         readSlideObjectTransformSnapshot(element).transform,
@@ -2851,7 +4787,13 @@ export function ungroupSlideObject(
         height: geometry.height,
       }),
     );
-    if (transform) element.style.transform = transform.nextTransform;
+    if (transform) {
+      element.style.setProperty(
+        "transform",
+        transform.nextTransform,
+        element.style.getPropertyPriority("transform"),
+      );
+    }
   }
   group.remove();
   return childGeometries.map(({ element }) => element);
@@ -3400,6 +5342,47 @@ export function readSlideObjectRotation(element: HTMLElement): number | null {
   return painted ? slideObjectMatrixRotation(painted.matrix) : null;
 }
 
+/** Whether the object paints `rotation` degrees, to a hundredth of a degree. */
+export function slideObjectPaintsRotation(
+  element: HTMLElement,
+  rotation: number,
+): boolean {
+  const painting = readSlideObjectRotation(element);
+  return (
+    painting !== null &&
+    Math.abs(
+      ((painting - wrapSlideObjectRotation(rotation) + 540) % 360) - 180,
+    ) < 0.01
+  );
+}
+
+/**
+ * Whether a plain inline `transform` written to the element goes on painting:
+ * not under a stylesheet !important declaration, nor under a CSS animation
+ * that is running or still to start on a transform property.
+ */
+function inlineTransformPaints(element: HTMLElement): boolean {
+  if (hasTransformAnimation(element)) return false;
+  // An inline important transform beats its own CSS animation. A plain probe
+  // would incorrectly treat that animation as the winner.
+  if (element.style.getPropertyPriority("transform") === "important") {
+    return true;
+  }
+  return inlineValuePaints(element, "transform", TRANSFORM_PROBES.transform);
+}
+
+/**
+ * The rotation the object paints, or null when it has none to read or an inline
+ * transform could not turn it: a stylesheet !important declaration or a CSS
+ * animation keeps painting the rotation it has, whatever a handle writes.
+ */
+export function readEditableSlideObjectRotation(
+  element: HTMLElement,
+): number | null {
+  const rotation = readSlideObjectRotation(element);
+  return rotation !== null && inlineTransformPaints(element) ? rotation : null;
+}
+
 export function resolveSlideObjectRotationDelta(
   startAngle: number,
   center: { x: number; y: number },
@@ -3437,36 +5420,58 @@ function isPureSlideObjectRotation([
  * [0, 360), keeping the scale, skew and translation it paints with. It edits
  * the effective transform, so one that a stylesheet or the rotate property
  * supplies is kept rather than overwritten. False, with nothing written, when
- * that transform has no rotation to set.
+ * that transform has no rotation to set or the object goes on painting another
+ * rotation: a stylesheet !important declaration beats the inline transform
+ * written here, and a CSS animation on a transform property keeps moving it.
  */
 export function setSlideObjectRotation(
   element: HTMLElement,
   rotation: number,
 ): boolean {
   const painted = readPaintedSlideObject(element);
-  if (!painted) return false;
+  if (!painted || hasTransformAnimation(element)) return false;
   const target = wrapSlideObjectRotation(rotation);
+  const { style } = element;
+  const priority = style.getPropertyPriority("transform");
+  const before = element.getAttribute("style");
+  const restoreOriginalStyle = () => {
+    restoreStyleAttribute(element, before);
+    const originalTransitions = captureInlineTransitions(element);
+    style.setProperty("transition", "none", "important");
+    window.getComputedStyle(element).getPropertyValue("transform");
+    restoreInlineTransitions(element, originalTransitions);
+    restoreStyleAttribute(element, before);
+  };
+  const write = (value: string) => {
+    const finalStyle = element.ownerDocument.createElement("div").style;
+    if (before !== null) finalStyle.cssText = before;
+    finalStyle.setProperty("transform", value, priority);
+
+    // Read back with transitions off: one would still paint the old rotation.
+    style.setProperty("transition", "none", "important");
+    style.setProperty("transform", value, priority);
+    const paints = slideObjectPaintsRotation(element, target);
+    // Replace the probe declarations as one style update. The transform is
+    // already at its final value, so restoring the authored transitions cannot
+    // start a transition from the original rotation.
+    if (paints) element.setAttribute("style", finalStyle.cssText);
+    else restoreOriginalStyle();
+    return paints;
+  };
 
   // A transform list the author wrote keeps its own units, so a centring
   // translate(-50%, -50%) goes on following the object's size. Only its
   // rotation is replaced, and only if that paints the rotation asked for: a
   // list with two rotate()s or a skew does not.
-  const authored = element.style.transform.trim();
+  const authored = style.transform.trim();
   if (
     authored &&
     authored !== "none" &&
     !/^matrix/i.test(authored) &&
-    !readTransformLonghands(element, window.getComputedStyle(element))
+    !readTransformLonghands(element, window.getComputedStyle(element)) &&
+    write(slideObjectRotationTransform(authored, target))
   ) {
-    element.style.transform = slideObjectRotationTransform(authored, target);
-    const painting = readSlideObjectRotation(element);
-    if (
-      painting !== null &&
-      Math.abs(((painting - target + 540) % 360) - 180) < 0.01
-    ) {
-      return true;
-    }
-    element.style.transform = authored;
+    return true;
   }
 
   const writable = toTransformProperty(
@@ -3477,9 +5482,7 @@ export function setSlideObjectRotation(
       ? `rotate(${formatSlideObjectRotation(target)})`
       : slideObjectRotationTransform(painted.transform.trim(), target),
   );
-  if (writable === null) return false;
-  element.style.transform = writable;
-  return true;
+  return writable !== null && write(writable);
 }
 
 function slideObjectRotationTransform(

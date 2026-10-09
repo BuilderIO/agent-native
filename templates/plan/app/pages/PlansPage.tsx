@@ -8768,6 +8768,7 @@ function CreatePlanDialog({
           <div className="rounded-xl border border-border bg-background p-2 shadow-sm">
             <PromptComposer
               autoFocus
+              requireAgentEngine
               disabled={composerLocked}
               attachmentsEnabled={false}
               showModelSelector={false}

@@ -2598,6 +2598,13 @@ const PATTERNS = [
     re: /\b(any other (apps?|providers?|templates?|places?)|other (apps?|templates?) (that )?do(es)? this|same (bug|issue|thing) (in|across)|sweep of other|fix that too)\b/i,
   },
   {
+    key: "ai-gate-bypass",
+    label: "Had to repeat that prompts must not send without connected AI",
+    fixedBy:
+      "guard:chat-send-gate + shared readiness dispatch gate (2026-10-08)",
+    re: /\b(?:never|can(?:not|'t)|must not|should not|shouldn't)\b[^.!?\n]{0,100}\b(?:send|submit)\b[^.!?\n]{0,80}\b(?:prompt|message)s?\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,60}\b(?:AI|LLM|provider)\b|\b(?:send|submit)\b[^.!?\n]{0,80}\b(?:prompt|message)s?\b[^.!?\n]{0,60}\bwithout\b[^.!?\n]{0,40}\b(?:AI|LLM|provider)\b|\b(?:AI|LLM) provider\b[^.!?\n]{0,40}\b(?:not connected|not configured|missing)\b/i,
+  },
+  {
     key: "credential-wrong-namespace",
     label: "Had to stop a credential rotation that was the wrong fix",
     fixedBy:

@@ -318,9 +318,17 @@ export function buildAssistantMessage(
           : {}),
         ...(event.recoverable ? { recoverable: event.recoverable } : {}),
       };
-      appendText(
-        `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
-      );
+      const missingProvider =
+        event.errorCode === "missing_api_key" ||
+        event.errorCode === "missing_credentials" ||
+        /no llm provider(?: key)? (?:is connected|was found)/i.test(
+          `${event.error}\n${normalized.message}`,
+        );
+      if (!missingProvider) {
+        appendText(
+          `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
+        );
+      }
       continue;
     }
 
@@ -3000,11 +3008,12 @@ export function mergeThreadDataForClientSave(
   // Queue mutations are the only writer of the queue and opt out here. Any
   // other save carries a queue it read earlier, and letting that copy win drops
   // a promotion claim or an append that landed in between.
-  if (
-    preserveExistingQueuedMessages &&
-    existingNormalized?.queuedMessages !== undefined
-  ) {
-    merged.queuedMessages = existingNormalized.queuedMessages;
+  if (preserveExistingQueuedMessages) {
+    if (existingNormalized?.queuedMessages !== undefined) {
+      merged.queuedMessages = existingNormalized.queuedMessages;
+    } else {
+      delete merged.queuedMessages;
+    }
   }
 
   const promptRunIds = submittedPromptRunIds(

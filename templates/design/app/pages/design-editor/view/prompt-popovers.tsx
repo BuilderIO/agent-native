@@ -115,6 +115,7 @@ export function renderPromptPopovers({
         scopeDraftsToOrg={isSignedIn}
         open={showPrompt}
         onOpenChange={handlePromptOpenChange}
+        requireAgentEngine
         title={t("designEditor.generateDesign")}
         placeholder={t("designEditor.generatePlaceholder")}
         onSubmit={async (
@@ -282,6 +283,7 @@ export function renderPromptPopovers({
         scopeDraftsToOrg={isSignedIn}
         open={showTweakPrompt && tweaksEnabled}
         onOpenChange={handleTweakPromptOpenChange}
+        requireAgentEngine
         title={t("designEditor.tweaksPromptTitle")}
         placeholder={t("designEditor.tweaksPlaceholder")}
         onSubmit={handleTweakPromptSubmit}

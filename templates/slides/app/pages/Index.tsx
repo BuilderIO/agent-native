@@ -1,8 +1,4 @@
-import {
-  fetchAgentEngineConfiguredState,
-  type AgentEngineConfiguredState,
-  useAgentEngineConfigured,
-} from "@agent-native/core/client/agent-chat";
+import { useAgentEngineConfigured } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   callAction,
@@ -17,7 +13,6 @@ import {
   isFirstRunOnboardingEnabled,
 } from "@agent-native/core/client/onboarding";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
-import { invalidateClientStatusRequest } from "@agent-native/core/client/status-requests";
 import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
@@ -29,11 +24,7 @@ import {
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
-import {
-  sameComposerDraft,
-  type ComposerDraftSnapshot,
-  type PromptComposerSubmitOptions,
-} from "@agent-native/toolkit/app/chat/composer/index";
+import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import {
   ClientOnly,
   LazyChunkErrorBoundary,
@@ -660,74 +651,13 @@ export default function Index({ active = true }: { active?: boolean }) {
   // to sign in; otherwise the server stays the authority on the request.
   const isSignedOut = sessionStatus === "unauthenticated";
   const agentEngine = useAgentEngineConfigured();
-  const [preflightAgentEngineState, setPreflightAgentEngineState] =
-    useState<AgentEngineConfiguredState | null>(null);
-  const [agentEnginePreflightPending, setAgentEnginePreflightPending] =
-    useState(false);
-  const preflightRequestIdRef = useRef(0);
-  const effectiveAgentEngineState =
-    preflightAgentEngineState ?? agentEngine.state;
-  const agentEngineConfigured =
-    effectiveAgentEngineState === "configured" && !agentEngine.missing;
-  const agentEngineMissing =
-    effectiveAgentEngineState === "missing" || agentEngine.missing;
-  const canChatRef = useRef(agentEngineConfigured);
-  canChatRef.current = agentEngineConfigured;
-  useEffect(() => {
-    if (agentEngine.state === "configured" || agentEngine.state === "missing") {
-      preflightRequestIdRef.current += 1;
-      setPreflightAgentEngineState(null);
-      setAgentEnginePreflightPending(false);
-    }
-  }, [agentEngine.state]);
-  // The draft a send held back for missing AI setup is sent once, as soon as
-  // setup is ready, however it was connected (card, sign-in popup, or
-  // activation) and only while it is still the draft that was submitted.
-  const heldDraftAfterSetupRef = useRef<ComposerDraftSnapshot | null>(null);
-  const ensureAgentEngineConfigured = useCallback(
-    async (draft?: ComposerDraftSnapshot) => {
-      const requestId = ++preflightRequestIdRef.current;
-      setAgentEnginePreflightPending(true);
-      let nextState: AgentEngineConfiguredState;
-      try {
-        invalidateClientStatusRequest("/_agent-native/agent-engine/status");
-        window.dispatchEvent(new Event("agent-engine:configured-changed"));
-        nextState = await fetchAgentEngineConfiguredState();
-      } catch {
-        nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
-      } finally {
-        if (requestId === preflightRequestIdRef.current) {
-          setAgentEnginePreflightPending(false);
-        }
-      }
-      if (requestId !== preflightRequestIdRef.current) {
-        return canChatRef.current;
-      }
-      setPreflightAgentEngineState(nextState);
-      canChatRef.current = nextState === "configured";
-      if (nextState === "missing" && draft)
-        heldDraftAfterSetupRef.current = draft;
-      return canChatRef.current;
-    },
-    [agentEngine.state, agentEngineConfigured],
-  );
-  useEffect(() => {
-    const held = heldDraftAfterSetupRef.current;
-    if (!agentEngineConfigured || !held) return;
-    heldDraftAfterSetupRef.current = null;
-    const composer = homeComposerRef.current;
-    const live = composer?.getDraftSnapshot();
-    // A draft edited while connecting was never submitted; leave it to send.
-    if (live && sameComposerDraft(held, live)) void composer?.submitDraft();
-  }, [agentEngineConfigured]);
+  const agentEngineConfigured = agentEngine.canChat;
+  const agentEngineMissing = agentEngine.missing;
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
   const bounceSetupCard = () => {
     if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
   const retryAgentEngineStatus = useCallback(() => {
-    preflightRequestIdRef.current += 1;
-    setPreflightAgentEngineState(null);
-    setAgentEnginePreflightPending(false);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
   const quickActionsEnabled = agentEngineConfigured;
@@ -1722,7 +1652,6 @@ export default function Index({ active = true }: { active?: boolean }) {
       attachments: PromptAttachmentActions,
       options?: SlidesPromptSubmitOptions,
     ) => {
-      if (!canChatRef.current) return "retain" as const;
       pendingDeckAttachmentActionsRef.current = attachments;
       const reusingRetryInputs =
         !newDeckRetryRequiresExactPrompt || prompt === newDeckRetryPrompt;
@@ -2605,23 +2534,6 @@ export default function Index({ active = true }: { active?: boolean }) {
           {isHome ? (
             <HomeChrome title={homeTitle} actions={homeHeaderActions} />
           ) : null}
-          {effectiveAgentEngineState === "unavailable" ? (
-            <div className="mb-2">
-              <div
-                className="flex items-center justify-center gap-3 text-sm text-muted-foreground"
-                role="status"
-              >
-                <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
-                <button
-                  type="button"
-                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={retryAgentEngineStatus}
-                >
-                  {t("home.retry")}
-                </button>
-              </div>
-            </div>
-          ) : null}
           <LazyChunkErrorBoundary
             fallback={
               <div
@@ -2646,12 +2558,10 @@ export default function Index({ active = true }: { active?: boolean }) {
               context={composerContext}
               controllerRef={homeComposerRef}
               disabled={!isHome}
-              preflightPending={agentEnginePreflightPending}
-              // The composer re-reads this right after onBeforeSubmit resolves,
-              // before React re-renders, so a preflight flag here drops the send.
-              submissionDisabled={agentEngineMissing ? true : undefined}
               showModelSelector={agentEngineConfigured}
               modelStatusChecksEnabled={agentEngineConfigured}
+              requireAgentEngine
+              showMissingApiKeySetup={false}
               open={showNewDeckPrompt}
               active={isHome}
               onOpenChange={setNewDeckPromptOpen}
@@ -2660,7 +2570,6 @@ export default function Index({ active = true }: { active?: boolean }) {
               onSkip={handlePromptSkip}
               skipLabel={t("home.skipPrompt")}
               onSubmit={handlePromptSubmit}
-              onBeforeSubmit={ensureAgentEngineConfigured}
               onBeforeUpload={(
                 prompt,
                 files,

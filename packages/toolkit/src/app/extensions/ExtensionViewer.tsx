@@ -453,6 +453,7 @@ function EditToolPopover({
         </p>
         <PromptComposer
           autoFocus
+          requireAgentEngine
           placeholder="What would you like to change?"
           draftScope={`extensions:edit:${extension.id}`}
           onSubmit={handleSubmit}

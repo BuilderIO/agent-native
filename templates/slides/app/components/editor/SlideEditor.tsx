@@ -109,6 +109,7 @@ import {
   imageFileLooksSupported,
   imageOccurrenceInRenderedSlide,
   normalizeImageObjectPosition,
+  serializeWithRestoredCropTransitionInlineOverrides,
   type ImageObjectPosition,
   type SlideImageDropPosition,
 } from "@/lib/slide-image-replacement";
@@ -233,6 +234,9 @@ import {
   resolveSelectionOwnerId,
   isValidSlideClipboardRoot,
   readSlideObjectSelectionFrame,
+  captureSlideObjectAnimationState,
+  restoreSlideObjectAnimationState,
+  readEditableSlideObjectRotation,
   readSlideObjectClipboardId,
   readSlideObjectRotation,
   readSlideObjectTransformSnapshot,
@@ -260,12 +264,14 @@ import {
   resolveSlideSelectionAnchor,
   restoreSlideObjectStyle,
   restoreSlideObjectDomSnapshot,
+  restoreSlideObjectTransformSnapshots,
   keepAbsoluteDescendantsInPlace,
   MIN_SLIDE_OBJECT_SIZE,
   releaseSlideObjectFromLeftBoxes,
   removeSlideObjectLayoutSpacer,
   setSlideObjectDimension,
   setSlideObjectRotation,
+  slideObjectPaintsRotation,
   SLIDE_OBJECT_PASTE_OFFSET,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
@@ -280,6 +286,7 @@ import {
   type ResizeHandle,
   type SlideObjectGeometry,
   type SlideObjectGeometryPlan,
+  type SlideObjectAnimationSnapshot,
   type SlideObjectGroupResizeMember,
   type SlideObjectRotationMember,
   type SlideObjectZOrderTarget,
@@ -1693,6 +1700,14 @@ type ActiveImageCrop = {
   publishSelection: (element: HTMLElement) => void;
   restorePreviewStyles: () => void;
   restoreChrome: () => void;
+  resumeAnimations: () => void;
+  restoreTransitions: () => void;
+  cancelCopiedTransitions: (preserveOn?: HTMLElement) => void;
+  resumeCopiedTransitionOverrides: (element: HTMLElement) => void;
+  serializeWithoutCopiedTransitionOverrides: (
+    serialize: () => string | null,
+  ) => string | null;
+  restoreAnimations: () => void;
   hasChanges: () => boolean;
   cancel: () => HTMLElement | null;
 };
@@ -2416,7 +2431,11 @@ export default function SlideEditor({
       crop.restoreChrome();
       writeImageCropPercentGeometry(crop.image, crop.viewport);
       preserveSlideObjectLayoutSpacer(crop.frame);
-      const html = readCurrentSlideContentHtmlRef.current();
+      crop.resumeAnimations();
+      crop.restoreTransitions();
+      const html = crop.serializeWithoutCopiedTransitionOverrides(() =>
+        readCurrentSlideContentHtmlRef.current(),
+      );
       if (html !== null) {
         if (crop.frozen.restoreMarkdownTree) {
           removeSlideObjectLayoutSpacer(crop.frame);
@@ -5095,7 +5114,7 @@ export default function SlideEditor({
       element: HTMLElement,
       { rotation, ...patch }: SlideStylePatch,
       range: Range | null = null,
-    ): Range | null => {
+    ): { styledRange: Range | null; rotationApplied: boolean } => {
       const inlinePatch = inlineInspectorStylePatch(patch);
       const hasInlinePatch = Object.keys(inlinePatch).length > 0;
       let styledRange: Range | null = null;
@@ -5120,12 +5139,15 @@ export default function SlideEditor({
         }
       }
 
+      let rotationApplied = rotation === undefined;
       const applyToElement = () => {
         if (!styledRange && hasInlinePatch) {
           applyDescendantTextStyle(element, inlinePatch);
         }
 
-        if (rotation !== undefined) setSlideObjectRotation(element, rotation);
+        if (rotation !== undefined) {
+          rotationApplied = setSlideObjectRotation(element, rotation);
+        }
         for (const [property, value] of Object.entries(patch)) {
           if (value === undefined) continue;
           if (
@@ -5156,7 +5178,7 @@ export default function SlideEditor({
       if (session) session.apply(applyToElement);
       else applyToElement();
 
-      return styledRange;
+      return { styledRange, rotationApplied };
     },
     [],
   );
@@ -5184,7 +5206,7 @@ export default function SlideEditor({
         snapshotEditableTextRange(editingSurface ?? editing))
       : null;
     const nextRange = editing
-      ? applyStylePatchToElement(editing, copied, savedRange)
+      ? applyStylePatchToElement(editing, copied, savedRange).styledRange
       : null;
     if (editing && nextRange) richTextSelectionRef.current = nextRange;
 
@@ -6655,7 +6677,11 @@ export default function SlideEditor({
                   startHeight: member.start.height,
                 });
                 if (plan.transform !== undefined) {
-                  member.element.style.transform = plan.transform;
+                  member.element.style.setProperty(
+                    "transform",
+                    plan.transform,
+                    member.element.style.getPropertyPriority("transform"),
+                  );
                 }
                 if (plan.transformOrigin !== undefined) {
                   member.element.style.transformOrigin = plan.transformOrigin;
@@ -7361,7 +7387,7 @@ export default function SlideEditor({
       const members: SlideObjectRotationMember[] = movable.map((member) => ({
         ...member,
         ...readSlideObjectTransformSnapshot(member.element),
-        rotation: readSlideObjectRotation(member.element),
+        rotation: readEditableSlideObjectRotation(member.element),
       }));
       const plan = rotateSlideObjectMembers(members, deltaDegrees);
       if (plan.size !== members.length) return false;
@@ -7373,7 +7399,11 @@ export default function SlideEditor({
           member.element,
           planSlideObjectGeometry(member.element, next.geometry),
         );
-        member.element.style.transform = next.transform;
+        member.element.style.setProperty(
+          "transform",
+          next.transform,
+          member.element.style.getPropertyPriority("transform"),
+        );
       }
 
       if (multiSelection.size > 0) {
@@ -7471,13 +7501,32 @@ export default function SlideEditor({
       // or written until the pointer travels past the drag threshold.
       let members: SlideObjectRotationMember[] = [];
       let originalStyles = new Map<string, string | null>();
+      let originalTransforms: Array<{
+        element: HTMLElement;
+        value: string;
+        priority: string;
+      }> = [];
       let began: "pending" | "ready" | "failed" = "pending";
       const beginRotation = () => {
         if (began !== "pending") return began === "ready";
         began = "failed";
         let targets = selectedObjects ?? [];
+        const inlineTransforms = new Map<
+          HTMLElement,
+          { value: string; priority: string }
+        >();
+        for (const target of targets) {
+          inlineTransforms.set(target, {
+            value: target.style.getPropertyValue("transform"),
+            priority: target.style.getPropertyPriority("transform"),
+          });
+        }
         if (promotionSource) {
           const element = promotionSource;
+          inlineTransforms.set(element, {
+            value: element.style.getPropertyValue("transform"),
+            priority: element.style.getPropertyPriority("transform"),
+          });
           promotion = {
             element,
             snapshot: {
@@ -7507,7 +7556,7 @@ export default function SlideEditor({
         members = movable.map((member) => ({
           ...member,
           ...readSlideObjectTransformSnapshot(member.element),
-          rotation: readSlideObjectRotation(member.element),
+          rotation: readEditableSlideObjectRotation(member.element),
         }));
         originalStyles = new Map(
           members.map((member) => [
@@ -7515,6 +7564,15 @@ export default function SlideEditor({
             member.element.getAttribute("style"),
           ]),
         );
+        originalTransforms = members.map((member) => {
+          const originalElement = promotionSource ?? member.element;
+          const originalTransform = inlineTransforms.get(originalElement) ??
+            inlineTransforms.get(member.element) ?? {
+              value: member.element.style.getPropertyValue("transform"),
+              priority: member.element.style.getPropertyPriority("transform"),
+            };
+          return { element: originalElement, ...originalTransform };
+        });
         began = "ready";
         return true;
       };
@@ -7531,6 +7589,11 @@ export default function SlideEditor({
       const applyDelta = (deltaDegrees: number) => {
         const plan = rotateSlideObjectMembers(members, deltaDegrees);
         if (plan.size !== members.length) return;
+        const transforms: Array<{
+          element: HTMLElement;
+          value: string;
+          priority: string;
+        }> = [];
         for (const member of members) {
           const next = plan.get(member.objectId);
           if (!next) continue;
@@ -7538,7 +7601,28 @@ export default function SlideEditor({
             member.element,
             planSlideObjectGeometry(member.element, next.geometry),
           );
-          member.element.style.transform = next.transform;
+          transforms.push({
+            element: member.element,
+            value: next.transform,
+            priority: member.element.style.getPropertyPriority("transform"),
+          });
+        }
+        restoreSlideObjectTransformSnapshots(transforms);
+        const everyRotationPainted = members.every((member) => {
+          const expected = plan.get(member.objectId)?.rotation;
+          const painted = readEditableSlideObjectRotation(member.element);
+          if (expected === undefined || painted === null) return false;
+          const difference = Math.abs(((painted - expected + 540) % 360) - 180);
+          return difference <= 0.1;
+        });
+        if (!everyRotationPainted) {
+          // A rule can begin matching the preview style and override the
+          // transform after the initial editability check. Never persist a
+          // rotation that the selected objects did not actually paint.
+          changed = false;
+          restore();
+          stop();
+          return;
         }
         changed = Math.abs(deltaDegrees) > 0.01;
         if (multiSelection.size > 0) {
@@ -7570,6 +7654,7 @@ export default function SlideEditor({
             }
           }
         }
+        restoreSlideObjectTransformSnapshots(originalTransforms);
         if (multiSelection.size > 0) {
           refreshMultiSelectionRects(multiSelection);
         } else {
@@ -8647,17 +8732,25 @@ export default function SlideEditor({
       const originalFrame = frameIsPersistedImage
         ? (existingFrame!.cloneNode(true) as HTMLElement)
         : null;
-      const originalImage = frameIsPersistedImage
+      const originalImageAttributes = frameIsPersistedImage
         ? null
-        : (target.cloneNode(true) as HTMLImageElement);
-      const originalImageAttributes = originalImage
-        ? Array.from(
-            originalImage.attributes,
+        : Array.from(
+            target.attributes,
             ({ name, value }) => [name, value] as const,
-          )
-        : null;
+          );
+      const originalAnimationState: SlideObjectAnimationSnapshot =
+        captureSlideObjectAnimationState(
+          frameIsPersistedImage ? existingFrame! : target,
+        );
 
       let frame: HTMLElement = frameIsPersistedImage ? existingFrame! : target;
+      let resumeCropAnimations = () => {};
+      let restoreCropTransitions = () => {};
+      let cancelCropCopiedTransitions = (_preserveOn?: HTMLElement) => {};
+      let resumeCropCopiedTransitionOverrides = (_element: HTMLElement) => {};
+      let serializeWithoutCopiedTransitionOverrides = (
+        serialize: () => string | null,
+      ) => serialize();
       const frozen = freezeElementForFreeformSelection(frame);
       if (!frozen) return;
 
@@ -8666,6 +8759,8 @@ export default function SlideEditor({
         ".fmd-image-crop-viewport",
       );
       if (frameIsPersistedImage) {
+        serializeWithoutCopiedTransitionOverrides = (serialize) =>
+          serializeWithRestoredCropTransitionInlineOverrides(frame, serialize);
         image =
           viewport?.querySelector<HTMLImageElement>("img") ??
           frame.querySelector<HTMLImageElement>("img") ??
@@ -8712,6 +8807,13 @@ export default function SlideEditor({
         if (!wrapped) return;
         frame = wrapped.frame;
         viewport = wrapped.viewport;
+        resumeCropAnimations = wrapped.resumeAnimations;
+        restoreCropTransitions = wrapped.restoreTransitions;
+        cancelCropCopiedTransitions = wrapped.cancelCopiedTransitions;
+        resumeCropCopiedTransitionOverrides =
+          wrapped.resumeCopiedTransitionOverrides;
+        serializeWithoutCopiedTransitionOverrides =
+          wrapped.serializeWithoutCopiedTransitionOverrides;
         frame.setAttribute("data-builder-id", ensureBuilderId(frame));
       }
 
@@ -8755,6 +8857,21 @@ export default function SlideEditor({
       );
       frame.style.clipPath = "none";
       frame.style.borderRadius = "0";
+      const restoreOriginalImageStyleAttribute = () => {
+        if (!originalImageAttributes) return;
+        const originalStyle = originalImageAttributes.find(
+          ([name]) => name === "style",
+        );
+        if (originalStyle) image.setAttribute("style", originalStyle[1]);
+        else image.removeAttribute("style");
+      };
+      const restoreOriginalImageStyleAndTransitions = () => {
+        restoreOriginalImageStyleAttribute();
+        image.style.setProperty("transition", "none", "important");
+        window.getComputedStyle(image).getPropertyValue("transform");
+        restoreCropTransitions();
+        restoreOriginalImageStyleAttribute();
+      };
       const activeCrop: ActiveImageCrop = {
         slideId: slide.id,
         content: slide.content,
@@ -8774,6 +8891,16 @@ export default function SlideEditor({
           if (originalZIndex) frame.style.zIndex = originalZIndex;
           else frame.style.removeProperty("z-index");
         },
+        resumeAnimations: resumeCropAnimations,
+        restoreTransitions: restoreCropTransitions,
+        cancelCopiedTransitions: cancelCropCopiedTransitions,
+        resumeCopiedTransitionOverrides: resumeCropCopiedTransitionOverrides,
+        serializeWithoutCopiedTransitionOverrides,
+        restoreAnimations: () =>
+          restoreSlideObjectAnimationState(
+            frameIsPersistedImage ? originalFrame! : image,
+            originalAnimationState,
+          ),
         hasChanges: () =>
           [
             [frame.offsetLeft, cropStartGeometry.frame.x],
@@ -8786,6 +8913,7 @@ export default function SlideEditor({
             [image.offsetHeight, cropStartGeometry.image.height],
           ].some(([current, initial]) => Math.abs(current! - initial!) >= 0.5),
         cancel: () => {
+          activeCrop.cancelCopiedTransitions(image);
           removeSlideObjectLayoutSpacer(frame, slideContent);
           if (frozen.restoreMarkdownTree) {
             if (frameIsPersistedImage) frame.replaceWith(originalFrame!);
@@ -8799,14 +8927,29 @@ export default function SlideEditor({
               }
             }
             frozen.restoreMarkdownTree();
+            restoreOriginalImageStyleAndTransitions();
+            activeCrop.resumeCopiedTransitionOverrides(image);
+            activeCrop.restoreAnimations();
             return frameIsPersistedImage ? originalFrame : image;
           }
           if (frameIsPersistedImage) {
             frame.replaceWith(originalFrame!);
+            activeCrop.restoreAnimations();
             return originalFrame;
           }
-          frame.replaceWith(originalImage!);
-          return originalImage;
+          frame.replaceWith(image);
+          if (originalImageAttributes) {
+            for (const attribute of Array.from(image.attributes)) {
+              image.removeAttribute(attribute.name);
+            }
+            for (const [name, value] of originalImageAttributes) {
+              image.setAttribute(name, value);
+            }
+          }
+          restoreOriginalImageStyleAndTransitions();
+          activeCrop.resumeCopiedTransitionOverrides(image);
+          activeCrop.restoreAnimations();
+          return image;
         },
       };
       imageCropRef.current = activeCrop;
@@ -9283,8 +9426,36 @@ export default function SlideEditor({
         );
         if (!currentSnapshot) return;
 
+        const originalTransforms =
+          patch.rotation === undefined
+            ? null
+            : new Map(
+                targets.map((target) => [
+                  target,
+                  [
+                    target.style.getPropertyValue("transform"),
+                    target.style.getPropertyPriority("transform"),
+                  ] as const,
+                ]),
+              );
+        let rotationApplied = true;
         for (const target of targets) {
-          applyStylePatchToElement(target, patch);
+          const result = applyStylePatchToElement(target, patch);
+          rotationApplied &&= result.rotationApplied;
+        }
+        if (patch.rotation !== undefined) {
+          rotationApplied &&= targets.every((target) =>
+            slideObjectPaintsRotation(target, patch.rotation!),
+          );
+          if (!rotationApplied && originalTransforms) {
+            restoreSlideObjectTransformSnapshots(
+              [...originalTransforms].map(([element, [value, priority]]) => ({
+                element,
+                value,
+                priority,
+              })),
+            );
+          }
         }
         const html = readCurrentSlideContentHtml();
         if (html !== null) {
@@ -9295,7 +9466,7 @@ export default function SlideEditor({
         setSelectedStyleSnapshot(
           mergeSlideStyleSnapshots(targets.map(styleSnapshotForElement)),
         );
-        return;
+        return rotationApplied;
       }
 
       const editing = editingElRef.current;
@@ -9313,7 +9484,8 @@ export default function SlideEditor({
         (editing
           ? snapshotEditableTextRange(getRichTextEditorSurface() ?? editing)
           : null);
-      const nextRange = applyStylePatchToElement(element, patch, savedRange);
+      const result = applyStylePatchToElement(element, patch, savedRange);
+      const nextRange = result.styledRange;
       if (editing && nextRange) {
         richTextSelectionRef.current = nextRange.cloneRange();
       }
@@ -9345,6 +9517,13 @@ export default function SlideEditor({
           ]),
         );
       }
+      // A rotation the object cannot be made to paint is refused, and the
+      // field that asked for it has to show what the object paints.
+      return (
+        patch.rotation === undefined ||
+        (result.rotationApplied &&
+          slideObjectPaintsRotation(element, patch.rotation))
+      );
     },
     [
       buildSelectionState,

@@ -294,6 +294,11 @@ export default function App() {
 
   const handleDesktopOpenRequest = useCallback(
     (request: DesktopOpenRequest): boolean => {
+      if (request.settingsTab === "providers") {
+        handleOpenSettings("providers");
+        setShowAddApp(false);
+        return true;
+      }
       const goal = getCodeAgentGoal(request.goalId);
       if (
         goal ||
@@ -333,7 +338,7 @@ export default function App() {
       setShowAddApp(false);
       return true;
     },
-    [apps, loading, visibleEnabledApps],
+    [apps, handleOpenSettings, loading, visibleEnabledApps],
   );
 
   useEffect(() => {
