@@ -240,7 +240,10 @@ export function FillProperties({
   const renderedFillValue = isTextFillElement
     ? styles.color || ""
     : isVectorFillElement
-      ? element.inlineStyles?.["--an-vector-fill-gradient"] || styles.fill || ""
+      ? element.inlineStyles?.["--an-vector-fill-gradient"] ||
+        styles["--an-vector-fill-gradient"] ||
+        styles.fill ||
+        ""
       : styles.backgroundColor || "";
   const authoredFillValue = isVectorFillElement
     ? (element.inlineStyles?.["--an-vector-fill-gradient"] ??
