@@ -144,6 +144,52 @@ async function withNavigatorPlatform(
 }
 
 describe("useDesignHotkeys — drawing tool bindings", () => {
+  it("uses a Latin key before its physical-key fallback", async () => {
+    const onMoveTool = vi.fn();
+    const onFrameTool = vi.fn();
+    await withHotkeys({ onMoveTool, onFrameTool }, () => {
+      dispatchKey("м", { code: "KeyV" });
+      dispatchKey("a", { code: "KeyQ" });
+    });
+
+    expect(onMoveTool).toHaveBeenCalledTimes(1);
+    expect(onFrameTool).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the platform primary modifier and leaves Mac Ctrl+G for layout grids", async () => {
+    const onGroup = vi.fn();
+    const onToggleLayoutGrids = vi.fn();
+    await withNavigatorPlatform("MacIntel", () =>
+      withHotkeys({ onGroup, onToggleLayoutGrids }, () => {
+        dispatchKey("g", { ctrlKey: true, code: "KeyG" });
+        dispatchKey("g", { metaKey: true, code: "KeyG" });
+      }),
+    );
+
+    expect(onToggleLayoutGrids).toHaveBeenCalledTimes(1);
+    expect(onGroup).toHaveBeenCalledTimes(1);
+  });
+
+  it("prevents browser zoom from an inspector input", async () => {
+    const onZoomIn = vi.fn();
+    const inspectorInput = document.createElement("input");
+    inspectorInput.setAttribute("data-design-inspector-section", "");
+    document.body.append(inspectorInput);
+    try {
+      await withHotkeys({ onZoomIn }, () => {
+        const event = dispatchKey(
+          "=",
+          { metaKey: true, code: "Equal" },
+          inspectorInput,
+        );
+        expect(event.defaultPrevented).toBe(true);
+      });
+    } finally {
+      inspectorInput.remove();
+    }
+    expect(onZoomIn).not.toHaveBeenCalled();
+  });
+
   it("routes history chords from marked design controls only", async () => {
     const onUndo = vi.fn();
     await withHotkeys({ onUndo }, () => {

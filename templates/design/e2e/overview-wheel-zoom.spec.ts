@@ -207,3 +207,27 @@ test("the zoom percentage input updates the overview canvas scale", async ({
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
 });
+
+test("clearing the zoom percentage keeps the current overview scale", async ({
+  page,
+  request,
+}) => {
+  const { designId } = await createDesign(request);
+  try {
+    await openOverview(page, designId);
+    const before = await worldScale(page);
+    const zoomControl = page.getByRole("button", { name: /^\d+%$/ }).first();
+    await zoomControl.click();
+    const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
+    await zoomInput.fill("");
+    await zoomInput.press("Enter");
+
+    await expect(zoomControl).toHaveText(`${Math.round(before! * 100)}%`);
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("zoom"))
+      .toBe(String(Math.round(before! * 100)));
+    await expect.poll(() => worldScale(page)).toBe(before);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
