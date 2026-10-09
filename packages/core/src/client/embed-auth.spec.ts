@@ -424,34 +424,48 @@ describe("embed auth client", () => {
       expect(originalFetch).toHaveBeenCalledOnce();
     });
 
-    it("asks the widget host to renew an expired write session after a 401", async () => {
+    it("keeps an opaque frame's renewal anchor across successive write expiries", async () => {
       const writeCapability =
         "capability:mcp-directory-widget-write:" +
         encodeURIComponent(JSON.stringify({ version: 1 }));
       const oldToken = `${tokenWithScope(writeCapability).split(".")[0]}.old`;
       const freshToken = `${tokenWithScope(writeCapability).split(".")[0]}.fresh`;
+      const secondFreshToken = `${tokenWithScope(writeCapability).split(".")[0]}.fresh-2`;
       const startUrl = new URL(
         "/_agent-native/embed/start?ticket=renewed-ticket",
         window.location.href,
       ).toString();
       let writeAttempts = 0;
+      let renewals = 0;
       const originalFetch = vi.fn(async (input: RequestInfo | URL) => {
         const request =
           input instanceof Request ? input : new Request(input.toString());
         const url = new URL(request.url);
         if (url.pathname.endsWith("/_agent-native/embed/start")) {
           expect(url.searchParams.get("__an_embed_renewal")).toBe("1");
+          const renewedToken = renewals++ === 0 ? freshToken : secondFreshToken;
           return new Response(
             JSON.stringify({
-              location: `/design/d1?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=${encodeURIComponent(freshToken)}&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1`,
+              location: `/design/d1?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=${encodeURIComponent(renewedToken)}&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1`,
             }),
             { headers: { "Content-Type": "application/json" } },
           );
         }
         writeAttempts += 1;
-        if (writeAttempts === 1) return serverRefusal();
+        if (writeAttempts === 1) {
+          expect(request.headers.get("Authorization")).toBe(
+            `Bearer ${oldToken}`,
+          );
+          return serverRefusal();
+        }
+        if (writeAttempts === 3) {
+          expect(request.headers.get("Authorization")).toBe(
+            `Bearer ${freshToken}`,
+          );
+          return serverRefusal();
+        }
         expect(request.headers.get("Authorization")).toBe(
-          `Bearer ${freshToken}`,
+          `Bearer ${writeAttempts === 2 ? freshToken : secondFreshToken}`,
         );
         return new Response("saved");
       });
@@ -506,6 +520,20 @@ describe("embed auth client", () => {
 
         expect(response.status).toBe(200);
         expect(writeAttempts).toBe(2);
+        expect(renewals).toBe(1);
+        expect(module.getEmbedAuthToken()).toBe(freshToken);
+
+        const nextResponse = await window.fetch(
+          "/_agent-native/actions/update-document",
+          { method: "POST", body: "{}" },
+        );
+
+        expect(nextResponse.status).toBe(200);
+        expect(writeAttempts).toBe(4);
+        expect(renewals).toBe(2);
+        expect(window.location.search).toContain(
+          `${EMBED_TOKEN_QUERY_PARAM}=${encodeURIComponent(oldToken)}`,
+        );
         expect(postMessage).toHaveBeenCalledWith(
           expect.objectContaining({
             type: "agentNative.embedSessionExpired",
@@ -513,11 +541,18 @@ describe("embed auth client", () => {
           }),
           "*",
         );
-        expect(originalFetch).toHaveBeenCalledTimes(3);
-        expect(module.getEmbedAuthToken()).toBe(freshToken);
+        expect(
+          postMessage.mock.calls.filter(
+            ([message]) =>
+              (message as { type?: string }).type ===
+              "agentNative.embedSessionExpired",
+          ),
+        ).toHaveLength(2);
+        expect(originalFetch).toHaveBeenCalledTimes(6);
+        expect(module.getEmbedAuthToken()).toBe(secondFreshToken);
 
         const reloadedModule = await loadEmbedAuth();
-        expect(reloadedModule.getEmbedAuthToken()).toBe(freshToken);
+        expect(reloadedModule.getEmbedAuthToken()).toBe(secondFreshToken);
       } finally {
         if (originalOrigin) {
           Object.defineProperty(window.location, "origin", originalOrigin);

@@ -215,14 +215,26 @@ export function getEmbedAuthToken(): string | null {
 }
 
 function storeRenewedEmbedAuthToken(token: string, win: Window): void {
-  const previousToken = getEmbedAuthToken();
+  // Opaque frames keep the original URL token for reloads; retain that anchor
+  // across renewals so a later read cannot replace a newer token with the URL one.
+  let renewalAnchor = readTokenFromUrl(win) ?? renewedFromUrlToken;
+  if (!renewalAnchor) {
+    try {
+      renewalAnchor =
+        win.sessionStorage?.getItem(EMBED_TOKEN_RENEWED_FROM_STORAGE_KEY) ??
+        null;
+    } catch {
+      renewalAnchor = null;
+    }
+  }
+  renewalAnchor ??= getEmbedAuthToken();
   storeToken(token, win);
-  renewedFromUrlToken = previousToken;
+  renewedFromUrlToken = renewalAnchor;
   try {
-    if (previousToken) {
+    if (renewalAnchor) {
       win.sessionStorage?.setItem(
         EMBED_TOKEN_RENEWED_FROM_STORAGE_KEY,
-        previousToken,
+        renewalAnchor,
       );
     }
   } catch {
