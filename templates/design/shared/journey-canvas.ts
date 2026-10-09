@@ -786,7 +786,7 @@ main p{margin:0;font-size:13px;color:${MUTED}}
 </head>
 <body>
 ${exampleSelectorsMarkup(args.examples, args.activeExampleIndex, args.messages)}
-<header><h1>${escapeHtml(args.label)}</h1><p class="metrics">${escapeHtml(args.meta)}</p>${args.coverageNote ? `<p class="coverage-note" title="${escapeHtml(args.coverageNote)}">${escapeHtml(args.coverageNote)}</p>` : ""}${provenanceMarkup}${exampleSwitchMarkup(args.examples, args.messages)}</header>
+<header><h1 title="${escapeHtml(args.label)}">${escapeHtml(args.label)}</h1><p class="metrics">${escapeHtml(args.meta)}</p>${args.coverageNote ? `<p class="coverage-note" title="${escapeHtml(args.coverageNote)}">${escapeHtml(args.coverageNote)}</p>` : ""}${provenanceMarkup}${exampleSwitchMarkup(args.examples, args.messages)}</header>
 <main>${body}</main>
 </body>
 </html>`;

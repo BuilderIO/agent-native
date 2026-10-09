@@ -75,6 +75,7 @@ describe("normalizeJourneyPath", () => {
     expect(normalizeJourneyPath("/templates/landing-page")).toBe(
       "/templates/landing-page",
     );
+    expect(normalizeJourneyPath("/design/new-copy")).toBe("/design/new-copy");
   });
 
   it("keeps readable segments and the root", () => {

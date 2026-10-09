@@ -509,6 +509,7 @@ describe("create-journey-canvas run", () => {
           mimeType: "image/png",
           sizeBytes: 24,
           blobHandle: JSON.stringify(stagedHandle),
+          createdAt: new Date().toISOString(),
         },
       ],
     ];
@@ -545,6 +546,52 @@ describe("create-journey-canvas run", () => {
       expect.objectContaining({ table: "designBoardReplayScreenshots" }),
     );
     expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("does not promote an expired staged frame", async () => {
+    const stagedHandle = {
+      id: "expired-private-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: false,
+    };
+    mocks.state.stagedRows = [
+      [
+        {
+          id: stageFrameId,
+          app: stageAppMarker,
+          route: "/home",
+          replayId: "a-r1",
+          capturedAt: "2026-10-08T09:30:00.000Z",
+          offsetMs: 2_600,
+          viewportWidth: 1440,
+          viewportHeight: 900,
+          mimeType: "image/png",
+          sizeBytes: 24,
+          blobHandle: JSON.stringify(stagedHandle),
+          createdAt: new Date(
+            Date.now() - 8 * 24 * 60 * 60 * 1_000,
+          ).toISOString(),
+        },
+      ],
+    ];
+    mocks.state.preflightStagedRows = [{ id: stageFrameId, sizeBytes: 24 }];
+    const input = parsed({
+      ...rawInput([
+        frame("a", {
+          stagedFrameId: stageFrameId,
+          screenshotOffsetMs: 2_600,
+          capturedAt: "2026-10-08T02:30:00.000-07:00",
+        }),
+      ]),
+      designId: "design-1",
+    });
+
+    await expect(action.run(input, {} as any)).rejects.toMatchObject({
+      errorCode: "journey_staged_frame_expired",
+      statusCode: 410,
+    });
+    expect(mocks.state.inserts).toEqual([]);
   });
 
   it("reuses a promoted private frame when retrying after a committed response was lost", async () => {

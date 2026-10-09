@@ -43,6 +43,7 @@ import {
   JOURNEY_FILE_ID_PREFIX,
   JOURNEY_FILENAME_PREFIX,
   JOURNEY_REPLAY_ROW_PREFIX,
+  JOURNEY_STAGED_REPLAY_MAX_AGE_MS,
   JOURNEY_STAGED_REPLAY_ROW_PREFIX,
   type CreateJourneyCanvasInput,
   createJourneyCanvasInputSchema,
@@ -587,6 +588,7 @@ export default defineAction({
                 mimeType: schema.designBoardReplayScreenshots.mimeType,
                 sizeBytes: schema.designBoardReplayScreenshots.sizeBytes,
                 blobHandle: schema.designBoardReplayScreenshots.blobHandle,
+                createdAt: schema.designBoardReplayScreenshots.createdAt,
                 sourceStageId:
                   schema.designBoardReplayScreenshots.sourceStageId,
               })
@@ -650,6 +652,23 @@ export default defineAction({
               const stagedFrameId = attachment.stagedFrameId!;
               const stagedRow = stagedById.get(stagedFrameId);
               const row = stagedRow ?? promotedById.get(attachment.rowId);
+              if (stagedRow) {
+                const createdAtMs = stagedRow.createdAt
+                  ? Date.parse(stagedRow.createdAt)
+                  : Number.NaN;
+                if (
+                  !Number.isFinite(createdAtMs) ||
+                  Date.now() - createdAtMs >= JOURNEY_STAGED_REPLAY_MAX_AGE_MS
+                ) {
+                  fail(
+                    "This staged screenshot expired after 7 days. Restage it in this Design before drawing the journey.",
+                    {
+                      errorCode: "journey_staged_frame_expired",
+                      statusCode: 410,
+                    },
+                  );
+                }
+              }
               const expectedApp = journeyFrameSourceApp(
                 screen.nodeKey,
                 input.tree.app,

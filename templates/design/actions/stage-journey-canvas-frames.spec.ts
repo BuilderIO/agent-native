@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   verificationMismatch: false,
   selectCount: 0,
   transactionSelectCount: 0,
+  inDesignMutation: false,
+  blobWriteInDesignMutation: false,
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -93,6 +95,16 @@ const png = (width: number, height: number, pixelValue = 0) => {
   ]);
 };
 
+const pngHeader = (width: number, height: number) => {
+  const header = Buffer.alloc(33);
+  header.set(Buffer.from("89504e470d0a1a0a", "hex"), 0);
+  header.writeUInt32BE(13, 8);
+  header.write("IHDR", 12, "ascii");
+  header.writeUInt32BE(width, 16);
+  header.writeUInt32BE(height, 20);
+  return header;
+};
+
 function input(image = png(4, 3)) {
   return {
     designId: "design-1",
@@ -156,22 +168,27 @@ describe("stage-journey-canvas-frames", () => {
     mocks.resolveStorage.mockReset().mockResolvedValue({
       kind: "encrypted-public-upload",
     });
-    mocks.storeBytes.mockReset().mockImplementation(async ({ data }) => ({
-      blobHandle: {
-        id: "private-blob-1",
-        provider: "private-provider-1",
-        opaque: true,
-        encrypted: false,
-      },
-      mimeType: "image/png",
-      sizeBytes: data.byteLength,
-    }));
+    mocks.storeBytes.mockReset().mockImplementation(async ({ data }) => {
+      if (mocks.inDesignMutation) mocks.blobWriteInDesignMutation = true;
+      return {
+        blobHandle: {
+          id: "private-blob-1",
+          provider: "private-provider-1",
+          opaque: true,
+          encrypted: false,
+        },
+        mimeType: "image/png",
+        sizeBytes: data.byteLength,
+      };
+    });
     mocks.discardPrivateBlobs.mockReset().mockResolvedValue(undefined);
     mocks.deleteStagedBlobs.mockReset().mockResolvedValue(false);
     mocks.queueStagedCleanup.mockReset().mockResolvedValue(undefined);
     mocks.verificationMismatch = false;
     mocks.selectCount = 0;
     mocks.transactionSelectCount = 0;
+    mocks.inDesignMutation = false;
+    mocks.blobWriteInDesignMutation = false;
     const selectRows = (selectNumber: number) => {
       if (selectNumber === 1) return mocks.row ? [mocks.row] : [];
       if (mocks.row && mocks.verificationMismatch && selectNumber >= 3) {
@@ -229,7 +246,12 @@ describe("stage-journey-canvas-frames", () => {
       .mockImplementation(
         async (_designId: string, callback: (value: typeof tx) => unknown) => {
           mocks.transactionSelectCount = 0;
-          return callback(tx);
+          mocks.inDesignMutation = true;
+          try {
+            return await callback(tx);
+          } finally {
+            mocks.inDesignMutation = false;
+          }
         },
       );
   });
@@ -259,6 +281,7 @@ describe("stage-journey-canvas-frames", () => {
     expect(mocks.row?.route).toBe("/home");
     expect(mocks.row?.blobHandle).toContain("private-blob-1");
     expect(JSON.stringify(mocks.row)).not.toContain("node-1");
+    expect(mocks.blobWriteInDesignMutation).toBe(false);
   });
 
   it("returns the same staged id without another blob write on an identical retry", async () => {
@@ -319,6 +342,36 @@ describe("stage-journey-canvas-frames", () => {
     expect(mocks.storeBytes).not.toHaveBeenCalled();
   });
 
+  it("rechecks quota under the mutation lock after the private upload", async () => {
+    mocks.storeBytes.mockImplementationOnce(async ({ data }) => {
+      mocks.extraRows = [
+        stagedRow(512 * 1024 * 1024, "journey-canvas-stage:concurrent-import"),
+      ];
+      return {
+        blobHandle: {
+          id: "uploaded-before-quota-race",
+          provider: "private-provider-1",
+          opaque: true,
+          encrypted: false,
+        },
+        mimeType: "image/png" as const,
+        sizeBytes: data.byteLength,
+      };
+    });
+
+    await expect(run(input())).rejects.toMatchObject({
+      errorCode: "journey_staging_quota_exceeded",
+      statusCode: 413,
+    });
+
+    expect(mocks.storeBytes).toHaveBeenCalledTimes(1);
+    expect(mocks.blobWriteInDesignMutation).toBe(false);
+    expect(mocks.row).toBeNull();
+    expect(mocks.discardPrivateBlobs).toHaveBeenCalledWith([
+      expect.objectContaining({ id: "uploaded-before-quota-race" }),
+    ]);
+  });
+
   it("stores equivalent capture timestamps in canonical UTC form", async () => {
     const value = input();
     value.frames[0]!.capturedAt = "2026-10-08T05:00:00.000-07:00";
@@ -358,6 +411,24 @@ describe("stage-journey-canvas-frames", () => {
     ).rejects.toMatchObject({
       errorCode: "journey_frame_dimensions_mismatch",
       statusCode: 400,
+    });
+    expect(mocks.storeBytes).not.toHaveBeenCalled();
+  });
+
+  it("bounds aggregate decoded pixel work before inflating staged PNGs", async () => {
+    const oversizedFrames = Array.from({ length: 3 }, (_, index) => ({
+      ...input().frames[0]!,
+      frameKey: `node-${index}\u00000`,
+      width: 4_000,
+      height: 4_000,
+      pngBase64: pngHeader(4_000, 4_000).toString("base64"),
+    }));
+
+    await expect(
+      run({ ...input(), frames: oversizedFrames }),
+    ).rejects.toMatchObject({
+      errorCode: "journey_stage_pixel_work_too_large",
+      statusCode: 413,
     });
     expect(mocks.storeBytes).not.toHaveBeenCalled();
   });

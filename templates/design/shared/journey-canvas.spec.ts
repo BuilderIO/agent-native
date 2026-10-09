@@ -786,6 +786,31 @@ describe("planJourneyCanvas", () => {
     );
   });
 
+  it("keeps the full card heading available when the canvas ellipsizes it", () => {
+    const base = rawInput();
+    const title =
+      "A long observed settings handoff heading with details that exceed the card width & remain readable";
+    const result = plan(
+      rawInput({
+        tree: {
+          ...base.tree,
+          nodes: base.tree.nodes.map((candidate) =>
+            candidate.key === "signup"
+              ? { ...candidate, label: title }
+              : candidate,
+          ),
+        },
+      }),
+    );
+    const html = result.screens.find(
+      (screen) => screen.nodeKey === "signup",
+    )?.html;
+    const escapedTitle = title.replace(/&/g, "&amp;");
+
+    expect(html).toContain('title="' + escapedTitle + '"');
+    expect(html).toContain(">" + escapedTitle + "</h1>");
+  });
+
   it("shows a completion event timestamp separately from the replay image time", () => {
     const base = rawInput();
     const outputKey = "signup > completed output";

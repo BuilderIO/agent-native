@@ -26,8 +26,10 @@ import {
 const MAX_STAGE_FRAMES = 8;
 const MAX_STAGE_BODY_BYTES = 5 * 1024 * 1024;
 const MAX_STAGE_ENCODED_IMAGE_BYTES = 4_800_000;
+const MAX_STAGE_BATCH_PIXELS = 32_000_000;
 const MAX_VIEWPORT_DIMENSION = 8_192;
 const MAX_IMAGE_PIXELS = 16_000_000;
+const PNG_SIGNATURE = Buffer.from("89504e470d0a1a0a", "hex");
 const MAX_STAGED_BYTES_PER_DESIGN = 512 * 1024 * 1024;
 const MAX_STAGED_BYTES_PER_IMPORT = 256 * 1024 * 1024;
 const MAX_STAGED_FRAMES_PER_DESIGN = 2_000;
@@ -94,6 +96,27 @@ const inputSchema = z
   });
 
 type StageFrame = z.infer<typeof frameSchema>;
+type StageRow = {
+  id: string;
+  boardFileId: string;
+  app: string;
+  route: string;
+  replayId: string;
+  capturedAt: string;
+  offsetMs: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  sizeBytes: number;
+  blobHandle: string;
+  createdAt: string | null;
+};
+type PreparedStageFrame = {
+  frame: StageFrame;
+  data: Uint8Array;
+  capturedAt: string;
+  id: string;
+  marker: string;
+};
 
 function digest(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
@@ -103,7 +126,7 @@ function utcTimestamp(value: string): string {
   return new Date(Date.parse(value)).toISOString();
 }
 
-function decodePng(frame: StageFrame): Uint8Array {
+function decodePngBytes(frame: StageFrame): Uint8Array {
   if (
     !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
       frame.pngBase64,
@@ -121,6 +144,36 @@ function decodePng(frame: StageFrame): Uint8Array {
       statusCode: 400,
     });
   }
+  return data;
+}
+
+function pngHeaderDimensions(
+  data: Uint8Array,
+): { width: number; height: number } | null {
+  const png = Buffer.from(data);
+  if (
+    png.byteLength < 33 ||
+    !png.subarray(0, PNG_SIGNATURE.byteLength).equals(PNG_SIGNATURE) ||
+    png.readUInt32BE(8) !== 13 ||
+    png.toString("ascii", 12, 16) !== "IHDR"
+  ) {
+    return null;
+  }
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  if (
+    width < 1 ||
+    height < 1 ||
+    width > MAX_VIEWPORT_DIMENSION ||
+    height > MAX_VIEWPORT_DIMENSION ||
+    width * height > MAX_IMAGE_PIXELS
+  ) {
+    return null;
+  }
+  return { width, height };
+}
+
+function validatePng(frame: StageFrame, data: Uint8Array): void {
   const dimensions = pngDimensions(data, {
     maxDimension: MAX_VIEWPORT_DIMENSION,
     maxPixels: MAX_IMAGE_PIXELS,
@@ -140,7 +193,6 @@ function decodePng(frame: StageFrame): Uint8Array {
       },
     );
   }
-  return data;
 }
 
 function stageRowId(designId: string, importId: string, frameKey: string) {
@@ -196,6 +248,94 @@ function stageMarker(frame: StageFrame, importId: string, data: Uint8Array) {
       app: frame.app,
     }),
   ).toString("base64url")}`;
+}
+
+function stageScope(designId: string) {
+  const table = schema.designBoardReplayScreenshots;
+  return and(
+    eq(table.designId, designId),
+    like(table.id, likePrefix(JOURNEY_STAGED_REPLAY_ROW_PREFIX)),
+    like(table.boardFileId, likePrefix(STAGE_BOARD_FILE_PREFIX)),
+    like(table.app, likePrefix(STAGE_APP_PREFIX)),
+  );
+}
+
+function stageColumns() {
+  const table = schema.designBoardReplayScreenshots;
+  return {
+    id: table.id,
+    boardFileId: table.boardFileId,
+    app: table.app,
+    route: table.route,
+    replayId: table.replayId,
+    capturedAt: table.capturedAt,
+    offsetMs: table.offsetMs,
+    viewportWidth: table.viewportWidth,
+    viewportHeight: table.viewportHeight,
+    sizeBytes: table.sizeBytes,
+    blobHandle: table.blobHandle,
+    createdAt: table.createdAt,
+  };
+}
+
+async function readStageRows(
+  db: ReturnType<typeof getDb>,
+  designId: string,
+  requestedIds: string[],
+) {
+  const table = schema.designBoardReplayScreenshots;
+  const scope = stageScope(designId);
+  const columns = stageColumns();
+  return Promise.all([
+    db
+      .select(columns)
+      .from(table)
+      .where(and(scope, inArray(table.id, requestedIds))),
+    db
+      .select(columns)
+      .from(table)
+      .where(scope)
+      .orderBy(table.createdAt)
+      .limit(MAX_STAGED_ROWS_TO_INSPECT),
+  ]);
+}
+
+function activeStageRows(
+  requestedRows: StageRow[],
+  stagedRows: StageRow[],
+  now: number,
+): StageRow[] {
+  const byId = new Map<string, StageRow>();
+  for (const row of [...stagedRows, ...requestedRows]) {
+    if (!expiredStageRow(row.createdAt, now)) byId.set(row.id, row);
+  }
+  return [...byId.values()];
+}
+
+function exceedsStageQuota(args: {
+  activeRows: StageRow[];
+  newFrames: PreparedStageFrame[];
+  importBoardFileId: string;
+  inspectedRows: number;
+}): boolean {
+  const designBytes = args.activeRows.reduce(
+    (total, row) => total + row.sizeBytes,
+    0,
+  );
+  const importBytes = args.activeRows
+    .filter((row) => row.boardFileId === args.importBoardFileId)
+    .reduce((total, row) => total + row.sizeBytes, 0);
+  const addedBytes = args.newFrames.reduce(
+    (total, frame) => total + frame.data.byteLength,
+    0,
+  );
+  return (
+    args.inspectedRows === MAX_STAGED_ROWS_TO_INSPECT ||
+    args.activeRows.length + args.newFrames.length >
+      MAX_STAGED_FRAMES_PER_DESIGN ||
+    designBytes + addedBytes > MAX_STAGED_BYTES_PER_DESIGN ||
+    importBytes + addedBytes > MAX_STAGED_BYTES_PER_IMPORT
+  );
 }
 
 export default defineAction({
@@ -256,8 +396,47 @@ export default defineAction({
       (storagePromise ??= resolveReplayScreenshotStorage(
         input.allowEncryptedPublicUploadFallback,
       ));
-    const preparedFrames = input.frames.map((frame) => {
-      const data = decodePng(frame);
+    const encodedFrames = input.frames.map((frame) => ({
+      frame,
+      data: decodePngBytes(frame),
+    }));
+    const headerDimensions = encodedFrames.map(({ frame, data }) => {
+      const dimensions = pngHeaderDimensions(data);
+      if (!dimensions) {
+        fail("Each staged screenshot must be a valid PNG image.", {
+          errorCode: "journey_frame_invalid_png",
+          statusCode: 400,
+        });
+      }
+      if (
+        dimensions.width !== frame.width ||
+        dimensions.height !== frame.height
+      ) {
+        fail(
+          "PNG dimensions must match the frame metadata and fit the supported viewport limits.",
+          {
+            errorCode: "journey_frame_dimensions_mismatch",
+            statusCode: 400,
+          },
+        );
+      }
+      return dimensions;
+    });
+    const batchPixels = headerDimensions.reduce(
+      (total, dimensions) => total + dimensions.width * dimensions.height,
+      0,
+    );
+    if (batchPixels > MAX_STAGE_BATCH_PIXELS) {
+      fail(
+        "A staging batch may contain at most 32 million decoded pixels; split the batch and retry.",
+        {
+          errorCode: "journey_stage_pixel_work_too_large",
+          statusCode: 413,
+        },
+      );
+    }
+    const preparedFrames = encodedFrames.map(({ frame, data }) => {
+      validatePng(frame, data);
       return {
         frame,
         data,
@@ -267,7 +446,152 @@ export default defineAction({
       };
     });
     const db = getDb();
-    const newlyStored: Array<{ id: string; blobHandle: string }> = [];
+    const table = schema.designBoardReplayScreenshots;
+    const requestedIds = preparedFrames.map(({ id }) => id);
+    const importBoardFileId = STAGE_BOARD_FILE_PREFIX + input.importId;
+    const [preflightRequestedRows, preflightStagedRows] = await readStageRows(
+      db,
+      input.designId,
+      requestedIds,
+    );
+    const preflightNow = Date.now();
+    const requestedIdSet = new Set(requestedIds);
+    const preflightExpiredInput = [
+      ...preflightRequestedRows,
+      ...preflightStagedRows,
+    ].some(
+      (row) =>
+        requestedIdSet.has(row.id) &&
+        expiredStageRow(row.createdAt, preflightNow),
+    );
+    const preflightRows = activeStageRows(
+      preflightRequestedRows,
+      preflightStagedRows,
+      preflightNow,
+    );
+    const preflightById = new Map(preflightRows.map((row) => [row.id, row]));
+    const assertIdempotentFrames = (rowsById: Map<string, StageRow>) => {
+      for (const prepared of preparedFrames) {
+        const existing = rowsById.get(prepared.id);
+        if (
+          existing &&
+          (existing.boardFileId !== importBoardFileId ||
+            !matchesStageFrame(
+              existing,
+              prepared.frame,
+              prepared.marker,
+              prepared.capturedAt,
+              prepared.data.byteLength,
+            ))
+        ) {
+          fail(
+            "A staged frame key already exists with different screenshot data or provenance. Use a new importId for changed frames.",
+            {
+              errorCode: "journey_frame_idempotency_conflict",
+              statusCode: 409,
+            },
+          );
+        }
+      }
+    };
+    assertIdempotentFrames(preflightById);
+    const preflightNewFrames = preparedFrames.filter(
+      ({ id }) => !preflightById.has(id),
+    );
+    if (
+      !preflightExpiredInput &&
+      exceedsStageQuota({
+        activeRows: preflightRows,
+        newFrames: preflightNewFrames,
+        importBoardFileId,
+        inspectedRows: preflightStagedRows.length,
+      })
+    ) {
+      fail(
+        "Staged screenshots reached this Design's storage limit. Discard an unused import or retry after expired frames are cleaned up.",
+        { errorCode: "journey_staging_quota_exceeded", statusCode: 413 },
+      );
+    }
+
+    const storage =
+      preflightNewFrames.length && !preflightExpiredInput
+        ? await resolveStorage()
+        : null;
+    type StoredStageBlob = Awaited<
+      ReturnType<typeof storeReplayScreenshotBytesAsPrivateBlob>
+    >;
+    const uploadedById = new Map<
+      string,
+      { serializedHandle: string; stored: StoredStageBlob }
+    >();
+    const uploadResults = await Promise.allSettled(
+      preflightExpiredInput
+        ? []
+        : preflightNewFrames.map(async (prepared) => {
+            const stored = await storeReplayScreenshotBytesAsPrivateBlob({
+              data: prepared.data,
+              blobOwnerEmail: design.ownerEmail,
+              providerId:
+                storage?.kind === "private-provider"
+                  ? storage.providerId
+                  : undefined,
+              rowId: prepared.id + "-" + digest(prepared.data).slice(0, 16),
+              designId: input.designId,
+              replayId: prepared.frame.replayId,
+            });
+            if (stored.sizeBytes !== prepared.data.byteLength) {
+              await discardPrivateBlobs([stored.blobHandle]);
+              fail(
+                "Private screenshot storage returned a different byte count than the validated PNG.",
+                {
+                  errorCode: "private_blob_write_failed",
+                  statusCode: 503,
+                },
+              );
+            }
+            uploadedById.set(prepared.id, {
+              serializedHandle: JSON.stringify(stored.blobHandle),
+              stored,
+            });
+          }),
+    );
+    const uploadFailure = uploadResults.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    const cleanupUnreferencedUploads = async () => {
+      if (uploadedById.size === 0) return true;
+      try {
+        const serializedHandles = [...uploadedById.values()].map(
+          ({ serializedHandle }) => serializedHandle,
+        );
+        const referencedRows = await db
+          .select({ blobHandle: table.blobHandle })
+          .from(table)
+          .where(inArray(table.blobHandle, serializedHandles));
+        const referencedHandles = new Set(
+          referencedRows.map((row) => row.blobHandle),
+        );
+        const orphaned = [...uploadedById.values()]
+          .filter(
+            ({ serializedHandle }) => !referencedHandles.has(serializedHandle),
+          )
+          .map(({ stored }) => stored.blobHandle);
+        if (orphaned.length) await discardPrivateBlobs(orphaned);
+        return true;
+      } catch (error) {
+        // Preserve blobs when SQL cannot confirm whether a committed row references them.
+        console.warn(
+          "[design-journey-canvas] Could not verify staged screenshot references; keeping uploaded blobs.",
+          error,
+        );
+        return false;
+      }
+    };
+    if (uploadFailure) {
+      await cleanupUnreferencedUploads();
+      throw uploadFailure.reason;
+    }
+
     let outcome: {
       expiredHandles: string[];
       stagedFrames: Array<{
@@ -279,165 +603,114 @@ export default defineAction({
       }>;
       expiredInput: boolean;
       quotaExceeded: boolean;
+      retryRequired: boolean;
     };
-
     try {
       outcome = await withDesignSourceMutationTransaction(
         input.designId,
         async (tx) => {
-          const table = schema.designBoardReplayScreenshots;
           const now = Date.now();
-          const stagedScope = and(
-            eq(table.designId, input.designId),
-            like(table.id, likePrefix(JOURNEY_STAGED_REPLAY_ROW_PREFIX)),
-            like(table.boardFileId, likePrefix(STAGE_BOARD_FILE_PREFIX)),
-            like(table.app, likePrefix(STAGE_APP_PREFIX)),
-          );
-          const requestedIds = preparedFrames.map(({ id }) => id);
           const [requestedRows, stagedRows] = await Promise.all([
             tx
-              .select({
-                id: table.id,
-                boardFileId: table.boardFileId,
-                app: table.app,
-                route: table.route,
-                replayId: table.replayId,
-                capturedAt: table.capturedAt,
-                offsetMs: table.offsetMs,
-                viewportWidth: table.viewportWidth,
-                viewportHeight: table.viewportHeight,
-                sizeBytes: table.sizeBytes,
-                blobHandle: table.blobHandle,
-                createdAt: table.createdAt,
-              })
+              .select(stageColumns())
               .from(table)
-              .where(and(stagedScope, inArray(table.id, requestedIds)))
+              .where(
+                and(
+                  stageScope(input.designId),
+                  inArray(table.id, requestedIds),
+                ),
+              )
               .for("update"),
             tx
-              .select({
-                id: table.id,
-                boardFileId: table.boardFileId,
-                app: table.app,
-                route: table.route,
-                replayId: table.replayId,
-                capturedAt: table.capturedAt,
-                offsetMs: table.offsetMs,
-                viewportWidth: table.viewportWidth,
-                viewportHeight: table.viewportHeight,
-                sizeBytes: table.sizeBytes,
-                blobHandle: table.blobHandle,
-                createdAt: table.createdAt,
-              })
+              .select(stageColumns())
               .from(table)
-              .where(stagedScope)
+              .where(stageScope(input.designId))
               .orderBy(table.createdAt)
               .for("update")
               .limit(MAX_STAGED_ROWS_TO_INSPECT),
           ]);
-
-          const expiredById = new Map<
-            string,
-            { id: string; blobHandle: string }
-          >();
+          const expiredById = new Map<string, StageRow>();
           for (const row of [...stagedRows, ...requestedRows]) {
-            if (expiredStageRow(row.createdAt, now)) {
-              expiredById.set(row.id, {
-                id: row.id,
-                blobHandle: row.blobHandle,
-              });
-            }
+            if (expiredStageRow(row.createdAt, now))
+              expiredById.set(row.id, row);
           }
-          const expiredRows = [...expiredById.values()];
-          const expiredHandles = expiredRows.map((row) => row.blobHandle);
-          if (expiredRows.length) {
-            await queueVisualEditSnapshotBlobCleanupInTransaction(
-              tx,
-              expiredHandles,
-            );
-            await tx.delete(table).where(
-              and(
-                eq(table.designId, input.designId),
-                inArray(
-                  table.id,
-                  expiredRows.map((row) => row.id),
+          const expiredIds = [...expiredById.keys()];
+          const expiredHandles = [
+            ...new Set([...expiredById.values()].map((row) => row.blobHandle)),
+          ];
+          if (expiredIds.length) {
+            await tx
+              .delete(table)
+              .where(
+                and(
+                  eq(table.designId, input.designId),
+                  inArray(table.id, expiredIds),
                 ),
-              ),
-            );
+              );
           }
-
           const expiredInput = requestedIds.some((id) => expiredById.has(id));
-          const activeById = new Map<string, (typeof stagedRows)[number]>();
-          for (const row of [...stagedRows, ...requestedRows]) {
-            if (!expiredById.has(row.id)) activeById.set(row.id, row);
-          }
-          const activeRows = [...activeById.values()];
-          const newFrames = preparedFrames.filter(
-            ({ id }) => !activeById.has(id),
-          );
-
+          const finishExpiredCleanup = async () => {
+            if (expiredHandles.length === 0) return [];
+            const references = await tx
+              .select({ blobHandle: table.blobHandle })
+              .from(table)
+              .where(inArray(table.blobHandle, expiredHandles));
+            const referencedHandles = new Set(
+              references.map((row) => row.blobHandle),
+            );
+            const orphanedHandles = expiredHandles.filter(
+              (handle) => !referencedHandles.has(handle),
+            );
+            if (orphanedHandles.length) {
+              await queueVisualEditSnapshotBlobCleanupInTransaction(
+                tx,
+                orphanedHandles,
+              );
+            }
+            return orphanedHandles;
+          };
           if (expiredInput) {
             return {
-              expiredHandles,
+              expiredHandles: await finishExpiredCleanup(),
               stagedFrames: [],
               expiredInput: true,
               quotaExceeded: false,
+              retryRequired: false,
             };
           }
 
-          for (const prepared of preparedFrames) {
-            const existing = activeById.get(prepared.id);
-            if (
-              existing &&
-              !matchesStageFrame(
-                existing,
-                prepared.frame,
-                prepared.marker,
-                prepared.capturedAt,
-                prepared.data.byteLength,
-              )
-            ) {
-              fail(
-                "A staged frame key already exists with different screenshot data or provenance. Use a new importId for changed frames.",
-                {
-                  errorCode: "journey_frame_idempotency_conflict",
-                  statusCode: 409,
-                },
-              );
-            }
-          }
-
-          const designBytes = activeRows.reduce(
-            (total, row) => total + row.sizeBytes,
-            0,
+          const activeRows = activeStageRows(requestedRows, stagedRows, now);
+          const activeById = new Map(activeRows.map((row) => [row.id, row]));
+          assertIdempotentFrames(activeById);
+          const newFrames = preparedFrames.filter(
+            ({ id }) => !activeById.has(id),
           );
-          const importBoardFileId = STAGE_BOARD_FILE_PREFIX + input.importId;
-          const importRows = activeRows.filter(
-            (row) => row.boardFileId === importBoardFileId,
-          );
-          const importBytes = importRows.reduce(
-            (total, row) => total + row.sizeBytes,
-            0,
-          );
-          const addedBytes = newFrames.reduce(
-            (total, frame) => total + frame.data.byteLength,
-            0,
-          );
-          const quotaExceeded =
-            stagedRows.length === MAX_STAGED_ROWS_TO_INSPECT ||
-            activeRows.length + newFrames.length >
-              MAX_STAGED_FRAMES_PER_DESIGN ||
-            designBytes + addedBytes > MAX_STAGED_BYTES_PER_DESIGN ||
-            importBytes + addedBytes > MAX_STAGED_BYTES_PER_IMPORT;
-          if (quotaExceeded) {
+          if (
+            exceedsStageQuota({
+              activeRows,
+              newFrames,
+              importBoardFileId,
+              inspectedRows: stagedRows.length,
+            })
+          ) {
             return {
-              expiredHandles,
+              expiredHandles: await finishExpiredCleanup(),
               stagedFrames: [],
               expiredInput: false,
               quotaExceeded: true,
+              retryRequired: false,
+            };
+          }
+          if (newFrames.some(({ id }) => !uploadedById.has(id))) {
+            return {
+              expiredHandles: await finishExpiredCleanup(),
+              stagedFrames: [],
+              expiredInput: false,
+              quotaExceeded: false,
+              retryRequired: true,
             };
           }
 
-          const storage = newFrames.length ? await resolveStorage() : null;
           const stagedFrames: Array<{
             frameKey: string;
             stagedFrameId: string;
@@ -458,19 +731,7 @@ export default defineAction({
               continue;
             }
 
-            const stored = await storeReplayScreenshotBytesAsPrivateBlob({
-              data: prepared.data,
-              blobOwnerEmail: design.ownerEmail,
-              providerId:
-                storage?.kind === "private-provider"
-                  ? storage.providerId
-                  : undefined,
-              rowId: prepared.id,
-              designId: input.designId,
-              replayId: prepared.frame.replayId,
-            });
-            const blobHandle = JSON.stringify(stored.blobHandle);
-            newlyStored.push({ id: prepared.id, blobHandle });
+            const uploaded = uploadedById.get(prepared.id)!;
             const inserted = await tx
               .insert(table)
               .values({
@@ -485,9 +746,9 @@ export default defineAction({
                 viewportWidth: prepared.frame.width,
                 viewportHeight: prepared.frame.height,
                 eventCount: 0,
-                mimeType: stored.mimeType,
-                sizeBytes: stored.sizeBytes,
-                blobHandle,
+                mimeType: uploaded.stored.mimeType,
+                sizeBytes: uploaded.stored.sizeBytes,
+                blobHandle: uploaded.serializedHandle,
                 visibility: design.visibility,
                 ownerEmail: design.ownerEmail,
                 orgId: design.orgId,
@@ -495,20 +756,10 @@ export default defineAction({
               })
               .onConflictDoNothing()
               .returning({ id: table.id });
-            if (!inserted.length) {
-              newlyStored.pop();
-              await discardPrivateBlobs([stored.blobHandle]);
-              fail(
-                "A staged frame changed while the batch was being stored. Retry the same batch.",
-                {
-                  errorCode: "journey_frame_stage_conflict",
-                  statusCode: 409,
-                },
-              );
-            }
-
             const [persisted] = await tx
               .select({
+                id: table.id,
+                boardFileId: table.boardFileId,
                 app: table.app,
                 route: table.route,
                 replayId: table.replayId,
@@ -528,6 +779,7 @@ export default defineAction({
               .limit(1);
             if (
               !persisted ||
+              persisted.boardFileId !== importBoardFileId ||
               !matchesStageFrame(
                 persisted,
                 prepared.frame,
@@ -537,65 +789,49 @@ export default defineAction({
               )
             ) {
               fail(
-                "The staged frame was stored, but its row could not be verified. Retry the same batch to recover it.",
+                inserted.length
+                  ? "The staged frame was stored, but its row could not be verified. Retry the same batch to recover it."
+                  : "A staged frame key changed while the batch was being stored. Retry the same batch.",
                 {
-                  errorCode: "journey_frame_stage_verification_failed",
-                  statusCode: 503,
+                  errorCode: inserted.length
+                    ? "journey_frame_stage_verification_failed"
+                    : "journey_frame_stage_conflict",
+                  statusCode: inserted.length ? 503 : 409,
                 },
               );
             }
             stagedFrames.push({
               frameKey: prepared.frame.frameKey,
               stagedFrameId: prepared.id,
-              sizeBytes: stored.sizeBytes,
+              sizeBytes: persisted.sizeBytes,
               width: prepared.frame.width,
               height: prepared.frame.height,
             });
           }
 
           return {
-            expiredHandles,
+            expiredHandles: await finishExpiredCleanup(),
             stagedFrames,
             expiredInput: false,
             quotaExceeded: false,
+            retryRequired: false,
           };
         },
       );
     } catch (error) {
-      if (newlyStored.length) {
-        try {
-          const persistedRows = await db
-            .select({
-              id: schema.designBoardReplayScreenshots.id,
-              blobHandle: schema.designBoardReplayScreenshots.blobHandle,
-            })
-            .from(schema.designBoardReplayScreenshots)
-            .where(
-              and(
-                eq(
-                  schema.designBoardReplayScreenshots.designId,
-                  input.designId,
-                ),
-                inArray(
-                  schema.designBoardReplayScreenshots.id,
-                  newlyStored.map((row) => row.id),
-                ),
-              ),
-            );
-          const persistedHandles = new Map(
-            persistedRows.map((row) => [row.id, row.blobHandle]),
-          );
-          const orphaned = newlyStored
-            .filter((row) => persistedHandles.get(row.id) !== row.blobHandle)
-            .map((row) => JSON.parse(row.blobHandle));
-          if (orphaned.length) await discardPrivateBlobs(orphaned);
-        } catch {
-          // Keep blobs when a failed transaction's commit outcome cannot be read.
-        }
-      }
+      await cleanupUnreferencedUploads();
       throw error;
     }
 
+    if (!(await cleanupUnreferencedUploads())) {
+      fail(
+        "The staged screenshots could not be checked for safe cleanup. Retry the same batch to verify it.",
+        {
+          errorCode: "journey_frame_stage_cleanup_unverified",
+          statusCode: 503,
+        },
+      );
+    }
     await deleteVisualEditSnapshotBlobs(outcome.expiredHandles);
     if (outcome.expiredInput) {
       fail(
@@ -607,6 +843,15 @@ export default defineAction({
       fail(
         "Staged screenshots reached this Design's storage limit. Discard an unused import or retry after expired frames are cleaned up.",
         { errorCode: "journey_staging_quota_exceeded", statusCode: 413 },
+      );
+    }
+    if (outcome.retryRequired) {
+      fail(
+        "Staged frame state changed while this batch was uploading. Retry the same batch without changing its importId or frame keys.",
+        {
+          errorCode: "journey_frame_stage_retry_required",
+          statusCode: 409,
+        },
       );
     }
     return {
