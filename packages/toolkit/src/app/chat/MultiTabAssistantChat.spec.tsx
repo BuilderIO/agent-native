@@ -652,7 +652,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
   });
 
-  it("prefills the active composer without submitting when submit is false", () => {
+  it("prefills the active composer with hidden context when submit is false", () => {
     act(() => {
       dispatchSubmitChat({
         message: "Review this before sending",
@@ -663,7 +663,15 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
 
     expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
-      'Review this before sending\n\n<context data-agentkit-context-encoding="entities-v1">\nSelected rows: a, b\n</context>',
+      "Review this before sending",
+    );
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: expect.stringMatching(/^agent-chat-prefill-context:/),
+        title: "Active app context",
+        context: "Selected rows: a, b",
+      }),
+      { focus: false },
     );
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });

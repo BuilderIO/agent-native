@@ -90,6 +90,7 @@ import type {
 import { fallbackChatTitle } from "./fallback-chat-title.js";
 
 type AgentActionScope = NonNullable<AgentChatMessage["actionScope"]>;
+let prefillContextSequence = 0;
 
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -102,6 +103,7 @@ interface ModelSelection {
 
 interface PendingSend {
   message: string;
+  prefillContext?: AgentChatContextItem;
   images?: string[];
   attachments?: AgentChatAttachment[];
   submit: boolean;
@@ -132,6 +134,9 @@ interface PendingDelivery {
 function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
   if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
   if (!send.submit) {
+    if (send.prefillContext) {
+      ref.setComposerContextItem(send.prefillContext, { focus: false });
+    }
     ref.prefillMessage(send.message);
     return;
   }
@@ -2138,12 +2143,23 @@ export function MultiTabAssistantChat({
 
       // Plan mode is sent as request metadata by the chat adapter. Keep the
       // user-visible message clean so mode instructions never enter history.
-      const fullMessage = context
-        ? appendAgentChatContextToMessage(message, context)
-        : message;
+      const prefillContext =
+        context && !submit
+          ? {
+              key: `agent-chat-prefill-context:${submitMessageId ?? `${Date.now()}-${++prefillContextSequence}`}`,
+              title: translate("composer.activeAppContext"),
+              context,
+              ...(contextNamespace ? { contextNamespace } : {}),
+            }
+          : undefined;
+      const fullMessage =
+        context && submit
+          ? appendAgentChatContextToMessage(message, context)
+          : message;
 
       const send: PendingSend = {
         message: fullMessage,
+        ...(prefillContext ? { prefillContext } : {}),
         images,
         attachments,
         submit,
