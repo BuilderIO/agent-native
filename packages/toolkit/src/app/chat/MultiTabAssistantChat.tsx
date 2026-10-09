@@ -2167,6 +2167,7 @@ export function MultiTabAssistantChat({
                       defaultValue: "Active app context",
                     })),
               context,
+              ...(contextLabel ? {} : { composerOnly: true }),
               ...(!contextLabel && hasPromptText ? { hidden: true } : {}),
             }
           : undefined;

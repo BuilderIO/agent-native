@@ -85,6 +85,8 @@ export interface AgentChatContextItem {
   contextNamespace?: string;
   /** Attached to the next submit without a composer chip. */
   hidden?: boolean;
+  /** Stays with the composer that staged it: never published to the shared store, kept with its draft. */
+  composerOnly?: boolean;
 }
 
 export interface AgentChatContextSetOptions extends AgentChatContextItem {
@@ -389,6 +391,9 @@ export function normalizeAgentChatContextItem(
     context,
     ...(contextNamespace ? { contextNamespace } : {}),
     ...(candidate.hidden === true ? { hidden: true } : {}),
+    ...(candidate.hidden === true || candidate.composerOnly === true
+      ? { composerOnly: true }
+      : {}),
   };
 }
 

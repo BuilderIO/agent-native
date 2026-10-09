@@ -1485,7 +1485,7 @@ const AgentKitAssistantChatBody = forwardRef<
   if (hiddenContextScopeState !== hiddenContextScope) {
     setHiddenContextScopeState(hiddenContextScope);
     setContextItems((items) => [
-      ...items.filter((item) => !item.hidden),
+      ...items.filter((item) => !item.composerOnly),
       ...readAssistantChatHiddenContext(hiddenContextScope),
     ]);
   }
@@ -1863,7 +1863,7 @@ const AgentKitAssistantChatBody = forwardRef<
           getAgentChatContextState().items,
           props.contextNamespace,
         ),
-        ...items.filter((item) => item.hidden),
+        ...items.filter((item) => item.composerOnly),
       ]);
     };
     apply();
@@ -1874,7 +1874,7 @@ const AgentKitAssistantChatBody = forwardRef<
   useEffect(() => {
     writeAssistantChatHiddenContext(
       hiddenContextScope,
-      contextItems.filter((item) => item.hidden),
+      contextItems.filter((item) => item.composerOnly),
     );
   }, [contextItems, hiddenContextScope]);
 
@@ -3009,7 +3009,7 @@ const AgentKitAssistantChatBody = forwardRef<
     (rawItem: AgentChatContextItem, focus = true) => {
       const item = normalizeAgentChatContextItem(rawItem);
       if (!item) return;
-      if (item.hidden) {
+      if (item.composerOnly) {
         // Publishing would make hidden context reachable from every open composer.
         setContextItems((items) => [
           ...items.filter((candidate) => candidate.key !== item.key),
@@ -3023,7 +3023,7 @@ const AgentKitAssistantChatBody = forwardRef<
         publishAgentChatContextItems(next);
         setContextItems((items) => [
           ...filterAgentChatContextItems(next, props.contextNamespace),
-          ...items.filter((candidate) => candidate.hidden),
+          ...items.filter((candidate) => candidate.composerOnly),
         ]);
       }
       if (focus) requestComposerFocus(threadId);
@@ -3038,7 +3038,7 @@ const AgentKitAssistantChatBody = forwardRef<
       publishAgentChatContextItems(next);
       setContextItems((items) => [
         ...filterAgentChatContextItems(next, props.contextNamespace),
-        ...items.filter((item) => item.hidden && item.key !== key),
+        ...items.filter((item) => item.composerOnly && item.key !== key),
       ]);
     },
     [props.contextNamespace],

@@ -708,6 +708,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       key: expect.stringMatching(/^prefill-context-/),
       title: "Active app context",
       context: "Selected rows: a, b",
+      composerOnly: true,
     });
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
@@ -727,6 +728,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       key: expect.stringMatching(/^prefill-context-/),
       title: "Active app context",
       context: "Selected rows: a, b",
+      composerOnly: true,
     });
   });
 
@@ -744,6 +746,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       key: expect.stringMatching(/^prefill-context-/),
       title: "Active app context",
       context: "Selected rows: a, b",
+      composerOnly: true,
     });
   });
 

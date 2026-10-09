@@ -138,6 +138,7 @@ const hiddenContextEnvelopeSchema = z.object({
       key: z.string().min(1),
       title: z.string(),
       context: z.string().min(1),
+      hidden: z.boolean().optional(),
     }),
   ),
 });
@@ -146,7 +147,8 @@ export interface AssistantChatHiddenContextItem {
   key: string;
   title: string;
   context: string;
-  hidden: true;
+  hidden?: boolean;
+  composerOnly: true;
 }
 
 function assistantChatHiddenContextKey(scope?: string | null): string | null {
@@ -173,7 +175,8 @@ export function readAssistantChatHiddenContext(
   }
   if (stored === null) return [];
   const items = parseHiddenContextEnvelope(stored);
-  if (items) return items.map((item) => ({ ...item, hidden: true as const }));
+  if (items)
+    return items.map((item) => ({ ...item, composerOnly: true as const }));
   // Discard the unreadable entry so it cannot fail every later mount. The draft text is stored separately and still restores.
   try {
     storage.removeItem(key);
@@ -199,7 +202,12 @@ function parseHiddenContextEnvelope(
 
 export function writeAssistantChatHiddenContext(
   scope: string | null | undefined,
-  items: readonly { key: string; title: string; context: string }[],
+  items: readonly {
+    key: string;
+    title: string;
+    context: string;
+    hidden?: boolean;
+  }[],
 ): void {
   const key = assistantChatHiddenContextKey(scope);
   const storage = getComposerDraftStorage();
@@ -212,10 +220,11 @@ export function writeAssistantChatHiddenContext(
         key,
         JSON.stringify({
           version: 1,
-          items: items.map(({ key, title, context }) => ({
+          items: items.map(({ key, title, context, hidden }) => ({
             key,
             title,
             context,
+            ...(hidden ? { hidden } : {}),
           })),
         }),
       );

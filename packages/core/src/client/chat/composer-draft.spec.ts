@@ -140,7 +140,7 @@ describe("hidden composer context", () => {
     writeAssistantChatHiddenContext("thread-a", [item]);
 
     expect(readAssistantChatHiddenContext("thread-a")).toEqual([
-      { ...item, hidden: true },
+      { ...item, composerOnly: true },
     ]);
     expect(readAssistantChatHiddenContext("thread-b")).toEqual([]);
 
@@ -167,7 +167,7 @@ describe("hidden composer context recovery", () => {
     writeAssistantChatHiddenContext("thread-d", [item]);
 
     expect(readAssistantChatHiddenContext("thread-d")).toEqual([
-      { ...item, hidden: true },
+      { ...item, composerOnly: true },
     ]);
     writeAssistantChatHiddenContext("thread-d", []);
   });

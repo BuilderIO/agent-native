@@ -271,6 +271,15 @@ export type ContextChipBackspaceAction =
   | { type: "remove"; key: string }
   | null;
 
+// Hidden context has no chip, so Backspace must not select or remove it.
+export function selectableContextItemKeys(
+  items: readonly { key: string; removable?: boolean; hidden?: boolean }[],
+): string[] {
+  return items
+    .filter((item) => item.removable !== false && !item.hidden)
+    .map((item) => item.key);
+}
+
 export function resolveContextChipBackspaceAction(options: {
   contextItemKeys: string[];
   selectedKey: string | null;
@@ -3667,9 +3676,7 @@ export function TiptapComposer({
         const cursorAtStart = from === to && from <= 1;
         if (event.key === "Backspace" && onRemoveContextItemRef.current) {
           const chipAction = resolveContextChipBackspaceAction({
-            contextItemKeys: contextItemsRef.current
-              .filter((item) => item.removable !== false)
-              .map((item) => item.key),
+            contextItemKeys: selectableContextItemKeys(contextItemsRef.current),
             selectedKey: selectedContextItemKeyRef.current,
             cursorAtStart,
           });

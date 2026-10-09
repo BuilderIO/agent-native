@@ -84,6 +84,8 @@ export interface AgentChatContextItem {
   blocksSubmission?: boolean;
   /** Attached to the next submit without a composer chip. */
   hidden?: boolean;
+  /** Stays with the composer that staged it; never published to the shared store. */
+  composerOnly?: boolean;
 }
 
 export interface ComposerAgentChatMessage {

@@ -1908,6 +1908,36 @@ describe("AgentKitAssistantChat host behavior", () => {
     writeAssistantChatHiddenContext("tab-a", []);
   });
 
+  it("keeps a composer-only fallback chip out of the shared context store", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        {
+          key: "prefill-context-fallback",
+          title: "Active app context",
+          context: "Selected rows: a, b",
+          composerOnly: true,
+        },
+        { focus: false },
+      ),
+    );
+
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      expect.objectContaining({
+        key: "prefill-context-fallback",
+        title: "Active app context",
+      }),
+    ]);
+    const published = vi
+      .mocked(publishAgentChatContextItems)
+      .mock.calls.flatMap(([items]) => items);
+    expect(published).not.toContainEqual(
+      expect.objectContaining({ key: "prefill-context-fallback" }),
+    );
+    writeAssistantChatHiddenContext(chatMocks.threadId, []);
+  });
+
   it("keeps hidden prefill context out of the shared context store", async () => {
     const ref = createRef<AssistantChatHandle>();
     await mount(baseProps(), ref);
