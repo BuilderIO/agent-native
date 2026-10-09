@@ -923,7 +923,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       '@property --agent-native-editor-chrome-scale-x{syntax:"<number>";inherits:false;initial-value:1}' +
       '@property --agent-native-editor-chrome-scale-y{syntax:"<number>";inherits:false;initial-value:1}' +
       '@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}' +
-      "html{overflow:clip}" +
+      // A clipped root is a hidden viewport: the wheel reaches a live page in
+      // Interact and moves nothing. Interact owns scrolling, so it is released.
+      "html:not([data-agent-native-interact]){overflow:clip}" +
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
@@ -6598,6 +6600,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }, 0),
       provenance: provenance,
     };
+  }
+
+  // What is painted at an element and each ancestor above it, nearest first.
+  // The editor decides what that means for text contrast; the bridge only
+  // reports computed values.
+  function collectPaintLayers(el: Element): Array<{
+    backgroundColor: string;
+    backgroundImage: string;
+    opacity: string;
+    mixBlendMode: string;
+  }> {
+    var layers: Array<{
+      backgroundColor: string;
+      backgroundImage: string;
+      opacity: string;
+      mixBlendMode: string;
+    }> = [];
+    var node: Element | null = el;
+    while (node && layers.length < 64) {
+      var paint = window.getComputedStyle(node);
+      layers.push({
+        backgroundColor: paint.backgroundColor,
+        backgroundImage: paint.backgroundImage,
+        opacity: paint.opacity,
+        mixBlendMode: paint.mixBlendMode,
+      });
+      node = node.parentElement;
+    }
+    return layers;
   }
 
   var lastScreenRootStyleSnapshot = "";
@@ -17566,6 +17597,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var luminance = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
         return luminance > 150;
       }
+      // A background this script cannot read (oklch(), color()) is not assumed
+      // to be light: the caller leaves the text color alone.
+      if (
+        !rgb &&
+        bg &&
+        bg !== "transparent" &&
+        !/\/\s*0(?:\.0+)?%?\s*\)$/.test(bg)
+      ) {
+        return false;
+      }
       cursor = cursor.parentElement;
     }
     return true;
@@ -27642,6 +27683,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         trustedFocusIntent = null;
       }
       interactionMode = nextInteractionMode;
+      document.documentElement.toggleAttribute(
+        "data-agent-native-interact",
+        interactionMode,
+      );
       if (interactionMode) {
         var releaseSpacePan = bridgeSpaceKeyPressed;
         clearPendingShieldDrag();
@@ -27975,6 +28020,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               : "",
           screenId: designCanvasScreenId,
           payload: measureTarget ? getElementInfo(measureTarget) : null,
+        },
+        "*",
+      );
+      return;
+    }
+    if (e.data.type === "agent-native:measure-contrast-background") {
+      var contrastScreenId: string =
+        typeof e.data.screenId === "string" ? e.data.screenId : "";
+      if (contrastScreenId && contrastScreenId !== designCanvasScreenId) return;
+      var contrastSelector: string =
+        typeof e.data.selector === "string" ? e.data.selector : "";
+      var contrastTarget: Element | null = null;
+      if (contrastSelector) {
+        try {
+          contrastTarget = document.querySelector(contrastSelector);
+        } catch (_err) {
+          contrastTarget = null;
+        }
+      } else {
+        contrastTarget = selectedEl;
+      }
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:contrast-background-measured",
+          correlationId:
+            typeof e.data.correlationId === "string"
+              ? e.data.correlationId
+              : "",
+          screenId: designCanvasScreenId,
+          payload: contrastTarget ? collectPaintLayers(contrastTarget) : null,
         },
         "*",
       );

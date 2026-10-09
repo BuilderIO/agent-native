@@ -49,7 +49,6 @@ function harness(
     canvasContextMenuRef: {
       current: { openAt, close: vi.fn() },
     } as RefObject<CanvasContextMenuHandle | null>,
-    focusDesignInspectorForSelection: vi.fn(),
     getCodeLayerProjectionForScreen: vi.fn(() => projection),
     handleScreenElementSelect,
     overviewCanvasZoom: 100,

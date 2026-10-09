@@ -14,6 +14,7 @@ import {
   expandAllLayers,
   gotoEditor,
   installBridge,
+  selectTool,
   waitForBridge,
 } from "./helpers";
 
@@ -546,6 +547,7 @@ test.describe("tutorial 7 — card and container system", () => {
     ).toHaveAttribute("data-layer-node-id", originalSelectionId!);
   });
 
+  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
   test("step 3 [overview, outside the screen -> crosses into the screen]: draw a Thumbnail rectangle on the board, rename it, drag it inside the screen", async ({
     page,
     request,
@@ -575,9 +577,7 @@ test.describe("tutorial 7 — card and container system", () => {
     ).files?.length;
     const namesBefore = await visibleLayerNames(page);
 
-    await page
-      .locator('[data-design-bottom-toolbar] button[aria-label="Rectangle"]')
-      .click();
+    await selectTool(page, "Rectangle");
     await page.waitForTimeout(400);
     await page.mouse.move(boardX, boardY);
     await page.mouse.down();

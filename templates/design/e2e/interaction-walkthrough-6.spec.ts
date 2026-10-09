@@ -6,7 +6,12 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath, expandAllLayers } from "./helpers";
+import {
+  appPath,
+  expandAllLayers,
+  selectTool,
+  type ToolbarMenuTool,
+} from "./helpers";
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
@@ -123,8 +128,8 @@ async function renameLayerRowById(
   await page.waitForTimeout(400);
 }
 
-async function useTool(page: Page, name: string): Promise<void> {
-  await toolbar(page).locator(`button[aria-label="${name}"]`).click();
+async function useTool(page: Page, name: ToolbarMenuTool): Promise<void> {
+  await selectTool(page, name);
   await page.waitForTimeout(250);
 }
 

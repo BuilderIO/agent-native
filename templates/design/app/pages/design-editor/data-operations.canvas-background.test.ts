@@ -19,6 +19,20 @@ describe("getDesignCanvasBackground", () => {
     expect(getDesignCanvasBackground({ canvasBackground: "red" })).toBe("red");
   });
 
+  it("accepts wide-gamut colours as written", () => {
+    expect(
+      getDesignCanvasBackground({ canvasBackground: "oklch(70% 0.3 150)" }),
+    ).toBe("oklch(70% 0.3 150)");
+    expect(
+      getDesignCanvasBackground({
+        canvasBackground: "color(display-p3 0.1 0.2 0.3)",
+      }),
+    ).toBe("color(display-p3 0.1 0.2 0.3)");
+    expect(
+      getDesignCanvasBackground({ canvasBackground: "oklch(70% 0.3)" }),
+    ).toBeNull();
+  });
+
   it("returns null when unset", () => {
     expect(getDesignCanvasBackground({})).toBeNull();
     expect(getDesignCanvasBackground(null)).toBeNull();

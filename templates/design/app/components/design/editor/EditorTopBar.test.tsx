@@ -99,7 +99,7 @@ describe("EditorTopBar", () => {
     expect(bar?.classList.contains("h-12")).toBe(true);
     expect(
       bar?.classList.contains(
-        "grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)]",
+        "grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(max-content,1fr)]",
       ),
     ).toBe(true);
     expect(bar?.style.getPropertyValue("--top-bar-left")).toBe("344px");
@@ -147,6 +147,14 @@ describe("EditorTopBar", () => {
     await unmount();
   });
 
+  it("scrolls sideways on a phone without handing the swipe to browser history", async () => {
+    const { host, unmount } = await renderBar();
+    const bar = host.querySelector<HTMLElement>("[data-design-top-bar]");
+    expect(bar?.classList.contains("max-sm:overflow-x-auto")).toBe(true);
+    expect(bar?.classList.contains("overscroll-x-contain")).toBe(true);
+    await unmount();
+  });
+
   it("spans the inspector width with presence and actions only when it is docked", async () => {
     const docked = await renderBar({
       inspectorWidth: 240,
@@ -172,6 +180,35 @@ describe("EditorTopBar", () => {
         ?.classList.contains("lg:min-w-[calc(var(--top-bar-inspector)-8px)]"),
     ).toBe(false);
     await hidden.unmount();
+  });
+
+  it("lets the centre column shrink while the side columns keep their content", async () => {
+    const { host, unmount } = await renderBar({
+      center: <div data-slot="routes" />,
+    });
+    const bar = host.querySelector<HTMLElement>("[data-design-top-bar]");
+    expect(bar?.className).toContain("minmax(0,auto)");
+    expect(
+      host
+        .querySelector("[data-design-top-bar-center]")
+        ?.classList.contains("min-w-0"),
+    ).toBe(true);
+    await unmount();
+  });
+
+  it("places mode-specific controls straight after the mode switch", async () => {
+    const { host, unmount } = await renderBar({
+      mode: "interact",
+      leading: <button data-slot="device">Device</button>,
+    });
+    const switchEl = host.querySelector("[data-design-mode-switch]");
+    const device = host.querySelector("[data-slot=device]");
+    expect(device?.parentElement).toBe(switchEl?.parentElement);
+    expect(switchEl?.nextElementSibling).toBe(device);
+    expect(
+      host.querySelector("[data-design-top-bar-center]")?.contains(device),
+    ).toBe(false);
+    await unmount();
   });
 
   it("renders the right-hand slots and an empty centre zone", async () => {

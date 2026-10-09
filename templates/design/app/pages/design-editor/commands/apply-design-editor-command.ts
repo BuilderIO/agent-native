@@ -1,8 +1,12 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import { findSelectableInteractDevicePreset } from "@shared/interact-device-presets";
+import {
+  normalizeInteractThemeMode,
+  type InteractThemeMode,
+} from "@shared/preview-color-scheme";
 import { getResponsiveBreakpointHeightPx } from "@shared/responsive-frame-layout";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
-import type { InspectorTab } from "@/components/design/EditPanel";
 import {
   getResponsiveScreenCullGeometry,
   resolveFrameGeometrySync,
@@ -21,10 +25,13 @@ import {
 } from "@/pages/design-editor/overview-camera";
 import { findDesignFileByScreenTarget } from "@/pages/design-editor/screen-command-utils";
 import {
+  commandRequestsAnnotate,
   getDesignToolActivationState,
   isSingleScreenAnnotationTool,
   normalizeDesignLeftPanel,
   normalizeDesignTool,
+  resolveAvailableTool,
+  type AnnotateLabStatus,
 } from "@/pages/design-editor/tool-state";
 import type {
   DesignFile,
@@ -34,13 +41,13 @@ import type {
 } from "@/pages/design-editor/types";
 
 export interface ApplyDesignEditorCommandArgs {
+  annotateLab: AnnotateLabStatus;
   canEditDesign: boolean;
   canvasFrameGeometryById: CanvasFrameGeometryById;
   files: DesignFile[];
   id: string | undefined;
   overviewScreens: OverviewScreen[];
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
-  setActiveInspectorTab: Dispatch<SetStateAction<InspectorTab>>;
   setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
   setDrawMode: Dispatch<SetStateAction<boolean>>;
@@ -48,6 +55,7 @@ export interface ApplyDesignEditorCommandArgs {
   setInteractDeviceSize: Dispatch<
     SetStateAction<{ width: number; height: number }>
   >;
+  setInteractTheme: Dispatch<SetStateAction<InteractThemeMode>>;
   setMode: Dispatch<SetStateAction<EditorMode>>;
   setPinMode: Dispatch<SetStateAction<boolean>>;
   setOverviewSelectedScreenIds: Dispatch<SetStateAction<string[]>>;
@@ -72,16 +80,19 @@ export interface ApplyDesignEditorCommandArgs {
 
 export function runApplyDesignEditorCommand(
   {
+    annotateLab,
     canEditDesign,
     canvasFrameGeometryById,
     files,
     id,
     overviewScreens,
     setActiveFileId,
-    setActiveInspectorTab,
     setActiveLeftPanel,
     setActiveTool,
     setDrawMode,
+    setInteractDeviceName,
+    setInteractDeviceSize,
+    setInteractTheme,
     setMode,
     setOverviewSelectedScreenIds,
     setPinMode,
@@ -128,6 +139,11 @@ export function runApplyDesignEditorCommand(
           : null;
   const targetFile = findDesignFileByScreenTarget(files, target);
   if (target && !targetFile) return false;
+  // A restored URL or agent request for Annotate/Draw waits for the Labs answer
+  // rather than being downgraded while the lab is still unknown.
+  if (annotateLab === "loading" && commandRequestsAnnotate(command)) {
+    return false;
+  }
 
   const editorView =
     requestedEditorView === "single" || targetFile
@@ -136,25 +152,18 @@ export function runApplyDesignEditorCommand(
 
   const targetView = editorView ?? viewModeRef.current;
 
-  const inspectorTab =
-    command.inspectorTab === "design" ||
-    command.inspectorTab === "comments" ||
-    command.inspectorTab === "tweaks" ||
-    command.inspectorTab === "code"
-      ? command.inspectorTab
-      : command.inspector === "design" ||
-          command.inspector === "comments" ||
-          command.inspector === "tweaks" ||
-          command.inspector === "code"
-        ? command.inspector
-        : undefined;
-  if (inspectorTab) setActiveInspectorTab(inspectorTab);
   const leftPanel =
     normalizeDesignLeftPanel(command.leftPanel) ??
-    normalizeDesignLeftPanel(command.panel) ??
-    normalizeDesignLeftPanel(command.inspectorTab) ??
-    normalizeDesignLeftPanel(command.inspector);
+    normalizeDesignLeftPanel(command.panel);
   if (leftPanel) setActiveLeftPanel(leftPanel);
+
+  const requestedInteractTheme = normalizeInteractThemeMode(
+    commandRecord.interactTheme,
+  );
+  if (requestedInteractTheme) setInteractTheme(requestedInteractTheme);
+  const requestedInteractDevice = findSelectableInteractDevicePreset(
+    commandRecord.interactDevice,
+  );
 
   const commandTool = normalizeDesignTool(command.tool);
   const effectiveCommandTool =
@@ -165,9 +174,13 @@ export function runApplyDesignEditorCommand(
       : commandTool;
   const applyCommandTool = (fallback: DesignTool) => {
     if (!canEditDesign) return;
-    const nextTool = effectiveCommandTool ?? fallback;
+    const nextTool = resolveAvailableTool(
+      effectiveCommandTool ?? fallback,
+      annotateLab,
+    );
     const activation = getDesignToolActivationState(nextTool);
     setActiveTool(nextTool);
+    if (nextTool === "agent") setActiveLeftPanel("agent");
     setMode(activation.mode);
     setDrawMode(activation.drawMode);
     setPinMode(activation.pinMode);
@@ -293,6 +306,15 @@ export function runApplyDesignEditorCommand(
     } else if (targetFile && selectTargetScreen) {
       setExplicitOverviewScreenSelection?.([targetFile.id]);
     }
+  }
+
+  // An explicit device wins over the one derived from the screen above.
+  if (requestedInteractDevice) {
+    setInteractDeviceName(requestedInteractDevice.name);
+    setInteractDeviceSize({
+      width: requestedInteractDevice.width,
+      height: requestedInteractDevice.height,
+    });
   }
 
   return true;

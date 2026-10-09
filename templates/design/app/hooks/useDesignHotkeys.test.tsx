@@ -323,6 +323,16 @@ describe("useDesignHotkeys — drawing tool bindings", () => {
     );
   });
 
+  it("leaves Shift+Y alone when no draw handler is wired (Annotate lab off)", async () => {
+    const onMoveTool = vi.fn();
+    let shiftY: KeyboardEvent | undefined;
+    await withHotkeys({ onMoveTool }, () => {
+      shiftY = dispatchKey("y", { shiftKey: true });
+    });
+    expect(shiftY?.defaultPrevented).toBe(false);
+    expect(onMoveTool).not.toHaveBeenCalled();
+  });
+
   it("selects Frame with both F and A", async () => {
     const onFrameTool = vi.fn();
     await withHotkeys({ onFrameTool }, () => {

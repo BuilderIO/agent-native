@@ -169,6 +169,7 @@ async function readPngDownloadPixels(
   }, base64);
 }
 
+// oracle: none — verifies exported pixels against the design's own colors, not a Figma node.
 test("selected Frame exports isolate ancestor backgrounds while Screen export preserves them", async ({
   page,
   request,
@@ -237,7 +238,7 @@ test("selected Frame exports isolate ancestor backgrounds while Screen export pr
   await home.click();
   await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
   await expect(
-    page.getByRole("button", { name: "Exit responsive preview" }),
+    page.locator("[data-design-top-bar] [data-design-interact-route]"),
   ).toBeVisible();
   const responsiveMenuExport = await exportPngPixelsFromFileMenu(page);
   expect(responsiveMenuExport.width).toBeGreaterThan(100);

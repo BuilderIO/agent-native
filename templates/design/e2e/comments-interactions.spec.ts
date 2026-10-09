@@ -1,10 +1,18 @@
 import { expect, test } from "@playwright/test";
 
+import { SHOW_DESIGN_COMMENT_TOOL } from "../app/pages/design-editor/types";
 import { E2E_MENTION_EMAIL } from "./global-setup";
 import { createFixtureDesign, designFrame, gotoEditor } from "./helpers";
 
 test.use({ viewport: { width: 1440, height: 1000 } });
 
+// oracle: none — a skip, not a test; this file runs again by itself once the flag in types.ts is turned back on.
+test.skip(
+  !SHOW_DESIGN_COMMENT_TOOL,
+  "The Comment tool is hidden until the Threads panel ships",
+);
+
+// oracle: none — verifies the comment flow, not measured Figma behavior.
 test("comments toolbar opens an anchored composer", async ({
   page,
 }, testInfo) => {

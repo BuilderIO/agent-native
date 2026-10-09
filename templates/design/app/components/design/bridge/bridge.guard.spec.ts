@@ -585,6 +585,9 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "@agent-native/toolkit/canvas-interactions",
     "@jridgewell/trace-mapping",
   ],
+  // A pure, dependency-free module shared with the editor, so the media-query
+  // rewrite and the dark-style scan have one definition and one unit test.
+  "preview-theme.bridge.ts": ["../../../../shared/preview-color-scheme"],
 };
 
 function getBridgeFiles(): string[] {

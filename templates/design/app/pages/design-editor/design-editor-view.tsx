@@ -23,9 +23,10 @@ import { BreakpointDeviceControl } from "@/components/design/BreakpointBar";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomToolbar";
 import { EditorTopBar } from "@/components/design/editor/EditorTopBar";
+import { UrlScreenControls } from "@/components/design/editor/UrlScreenControls";
+import { getUnavailableShortcutIds } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
-import { ResponsiveInteractExitButton } from "@/components/design/ResponsiveInteractBar";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,6 +46,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { ResponsiveEditScope, ShareExportFormat } from "./command-types";
+import { resolveUrlScreen } from "./derive/url-screen";
 import { pageHasWebMcpHost } from "./design-editor-shared";
 import type { EditorActiveScreenAndGeometry } from "./domains/use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./domains/use-editor-canvas-and-screens";
@@ -77,13 +79,21 @@ import {
   buildSignInHrefForDesignIntent,
 } from "./editor-helpers";
 import { resolveLocalhostSourceWriteContent } from "./editor-state";
+import { resolveScreenRoute } from "./interact-routes";
 import { resolveLeftSidebarWidth } from "./left-sidebar-width";
 import { shouldRenderDesignShareControl } from "./mcp-widget-write-capabilities";
-import { hasMinimalInspectorSelection } from "./minimal-inspector";
+import {
+  hasMinimalInspectorSelection,
+  isRightInspectorVisible,
+} from "./minimal-inspector";
 import { mergePresenceUsers } from "./presence-users";
 import { getDesignBottomToolbarMode } from "./tool-state";
-import { TOP_BAR_HEIGHT_PX, isTopBarVisible } from "./top-bar";
-import { type EditorMode, SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "./types";
+import { TOP_BAR_HEIGHT_PX, getTopBarModes, isTopBarVisible } from "./top-bar";
+import {
+  type EditorMode,
+  SHOW_DESIGN_COMMENT_TOOL,
+  SHOW_DESIGN_SECONDARY_LEFT_PANELS,
+} from "./types";
 import { renderEditorCanvasArea } from "./view/editor-canvas-area";
 import { renderEditorDialogs } from "./view/editor-dialogs";
 import { renderLeftSidebar } from "./view/left-sidebar";
@@ -95,7 +105,10 @@ import { renderProjectMenu } from "./view/project-menu";
 import { renderProjectTitleControl } from "./view/project-title-control";
 import { renderPromptPopovers } from "./view/prompt-popovers";
 import { renderPublishWaitlistControl } from "./view/publish-waitlist-control";
-import { renderResponsiveInteractToolbar } from "./view/responsive-interact-toolbar";
+import {
+  renderInteractFloatingBar,
+  renderInteractTopBarSlots,
+} from "./view/responsive-interact-toolbar";
 import { renderRightRail } from "./view/right-rail";
 import { renderRightSidebarActions } from "./view/right-sidebar-actions";
 import { renderSignedOutPersistenceActions } from "./view/signed-out-persistence-actions";
@@ -169,6 +182,7 @@ export function renderDesignEditorView({
     widgetEmbed,
     hostOwnsChrome,
     hostEmbeddedEditor,
+    liveRoutePathsByScreenId,
     mode,
     activeTool,
     viewMode,
@@ -179,8 +193,6 @@ export function renderDesignEditorView({
     isBuilderDesignEmbed,
     builderPreviewUrl,
     parentOriginRef,
-    activeInspectorTab,
-    setActiveInspectorTab,
     activeLeftPanel,
     leftSidebarWidth,
     rightSidebarWidth,
@@ -191,8 +203,8 @@ export function renderDesignEditorView({
   } = editorHistory;
   const {
     setRuntimeLayerSnapshotRequest,
+    annotateLab,
     drawMode,
-    pinMode,
     reviewFeedbackApplying,
     pendingQuestions,
     pendingQuestionsTitle,
@@ -224,8 +236,6 @@ export function renderDesignEditorView({
     liveCollaborationEnabled,
     handleLiveCollaborationChange,
     canEditPublicLiveScreenUrl,
-    tweaksEnabled,
-    reviewUnreadCount,
     reviewAgentQueueCount,
     updateScreenSourceMutation,
     exportHtmlMutation,
@@ -240,16 +250,13 @@ export function renderDesignEditorView({
     creativeContextEnabled,
     breakpointFramesHidden,
     setBreakpointFramesHidden,
-    handleTweakChange,
-    tweakSelections,
-    tweaks,
     editorPreferences,
     setEditorPreferences,
-    handleRequestTweaks,
     getComponentExpectedFiles,
     pendingNodeRewriteByFile,
     documentColorFiles,
     designSourceType,
+    overviewScreens,
     layoutGrids,
     handleLayoutGridChange,
     boardFileId,
@@ -303,13 +310,12 @@ export function renderDesignEditorView({
     handleCreateComponent,
     handleComponentPropApplied,
     handleShaderSourceApplied,
+    handleShaderSourceEdit,
     resolvedReviewPanelProps,
     handleToggleMinimalUi,
   } = editorContentAndComponents;
   const {
-    shapeTool,
     vectorEditingState,
-    reviewCommentsPanelProps,
     handleVectorCornerRadiusChange,
     handleMoveTool,
     handleShapeTool,
@@ -335,8 +341,7 @@ export function renderDesignEditorView({
     keyboardShortcutsOpen,
     responsiveInteractActive,
     handleModeChange,
-    handleExitResponsiveInteract,
-    handlePinToolToggle,
+    handleScreenReload,
     handleCloseKeyboardShortcuts,
   } = editorModes;
   const {
@@ -402,6 +407,9 @@ export function renderDesignEditorView({
     handleHandTool,
     handleScaleTool,
     handleDrawTool,
+    handleAgentTool,
+    handleInteractMoveTool,
+    handleAgentSkill,
     pendingVisualStyleNavigationBlocker,
     activeLocalhostConnectionId,
     activeLocalhostConnectionResult,
@@ -1136,13 +1144,42 @@ export function renderDesignEditorView({
     </>
   );
 
-  const renderResponsiveInteractBar = (floating: boolean) =>
-    renderResponsiveInteractToolbar({
-      editorGenerationAndAccess,
-      editorActiveScreenAndGeometry,
-      editorModes,
-      floating,
-    });
+  // Interact's device, theme and route controls: in the top bar when it is
+  // docked, in a floating bar (with an Exit, since there is no mode switch)
+  // wherever the top bar is absent: minimal UI, hidden UI, the visual-edit route.
+  // A widget's top bar is too narrow to carry them, so they float beneath it.
+  const interactControlArgs = {
+    editorActiveScreenAndGeometry,
+    editorModes,
+    activeScreenId: activeFile?.id ?? null,
+  };
+  const interactInTopBar = topBarVisible && !widgetEmbed;
+  const interactTopBarSlots =
+    responsiveInteractActive && interactInTopBar
+      ? renderInteractTopBarSlots(interactControlArgs)
+      : null;
+  // A URL screen in Design carries its route, Reload and Open in browser in
+  // the bar's centre, where Interact keeps its route controls.
+  const activeUrlScreen =
+    mode === "edit" && topBarVisible && !responsiveInteractActive
+      ? resolveUrlScreen({
+          screen: overviewScreens.find(
+            (screen) => screen.id === activeFile?.id,
+          ),
+          fallbackSourceType: designSourceType,
+          liveRoutePath: activeFile
+            ? liveRoutePathsByScreenId[activeFile.id]
+            : undefined,
+        })
+      : null;
+  // A widget with minimal UI has no left panel to hold the title, so the bar's
+  // centre does.
+  const widgetTitleCenter =
+    widgetEmbed && minimalUi ? projectTitleControl : undefined;
+  const interactFloatingBar =
+    responsiveInteractActive && !interactInTopBar && !hostOwnsChrome
+      ? renderInteractFloatingBar(interactControlArgs)
+      : null;
 
   const leftContentWidth = resolveLeftSidebarWidth(
     leftSidebarWidth,
@@ -1159,16 +1196,24 @@ export function renderDesignEditorView({
   });
   // Below md the inspector panel is display:none and the Sheet below carries
   // it, so the panel must neither inset the canvas nor displace the toolbar.
-  const rightSidebarVisible =
-    !hostOwnsChrome &&
-    !isMobileViewport &&
-    !uiHidden &&
-    !initialGenerationChromeLimited &&
-    !responsiveInteractActive &&
-    (!minimalUi || minimalInspectorHasSelection);
+  const rightSidebarVisible = isRightInspectorVisible({
+    hostOwnsChrome,
+    isMobileViewport,
+    uiHidden,
+    initialGenerationChromeLimited,
+    responsiveInteractActive,
+    minimalUi,
+    minimalInspectorHasSelection,
+    topBarVisible,
+    mode,
+    canEdit: canEditActiveVisualScreen,
+  });
   const chromeInsetLeft = leftSidebarVisible
     ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
     : 0;
+  const selectedRouteScreen = overviewScreens.find(
+    (screen) => screen.id === selectedScreenGeometry?.id,
+  );
   const editPanelProps = {
     selectedElement,
     textEditingState,
@@ -1179,6 +1224,12 @@ export function renderDesignEditorView({
     readOnly: !canEditActiveVisualScreen,
     selectedElements: selectedInspectorElements,
     selectedScreenGeometry,
+    selectedScreenRoute: selectedRouteScreen
+      ? resolveScreenRoute(
+          selectedRouteScreen,
+          liveRoutePathsByScreenId[selectedRouteScreen.id],
+        )
+      : undefined,
     selectedScreenLayoutGrid,
     onLayoutGridChange: canEditDesign ? handleLayoutGridChange : undefined,
     canvasBackground,
@@ -1268,11 +1319,6 @@ export function renderDesignEditorView({
             inspectorGridDebug,
           })
       : undefined,
-    activeTab: activeInspectorTab,
-    onActiveTabChange: setActiveInspectorTab,
-    tweaksEnabled,
-    tweaks,
-    tweakValues: tweakSelections,
     activeContent,
     pendingInteractionStateStyles: pendingInspectorInteractionStateStyles,
     activeFileUpdatedAt: activeFile?.updatedAt ?? null,
@@ -1281,12 +1327,11 @@ export function renderDesignEditorView({
     componentSwapPickerRequest,
     onComponentPropApplied: handleComponentPropApplied,
     onShaderSourceApplied: handleShaderSourceApplied,
+    onShaderSourceEdit: handleShaderSourceEdit,
     onFontUploaded:
       canEditActiveVisualScreen && activeCanvasSourceType === "inline"
         ? handleFontUploaded
         : undefined,
-    onTweakChange: handleTweakChange,
-    onRequestTweaks: handleRequestTweaks,
     onStyleChange: handleStyleChange,
     onStylesChange: handleStylesChange,
     motionKeyframeState: SHOW_DESIGN_SECONDARY_LEFT_PANELS
@@ -1334,8 +1379,6 @@ export function renderDesignEditorView({
     inspectCode: inspectCodeData,
     statesPanelProps,
     reviewPanelProps: resolvedReviewPanelProps,
-    reviewCommentsPanelProps,
-    reviewCommentsCount: reviewUnreadCount,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
     alignSelectionDisabled: !alignAvailability.canAlign,
     onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
@@ -1389,11 +1432,29 @@ export function renderDesignEditorView({
           <EditorTopBar
             mode={mode}
             onModeChange={handleTopBarModeChange}
-            modes={topBarShowsModes ? undefined : []}
-            center={widgetEmbed && minimalUi ? projectTitleControl : undefined}
+            modes={getTopBarModes({
+              showsModes: Boolean(topBarShowsModes),
+              annotateLab,
+            })}
+            leading={interactTopBarSlots?.leading}
+            center={
+              widgetTitleCenter ??
+              interactTopBarSlots?.center ??
+              (activeUrlScreen ? (
+                <UrlScreenControls
+                  screen={activeUrlScreen}
+                  onReload={handleScreenReload}
+                />
+              ) : null)
+            }
             widgetLayout={widgetEmbed}
             zoomControl={
-              topBarZoomControlVisible ? renderZoomControl("topbar") : null
+              topBarControlsVisible
+                ? (interactTopBarSlots?.zoomControl ??
+                  (topBarZoomControlVisible
+                    ? renderZoomControl("topbar")
+                    : null))
+                : null
             }
             presence={
               topBarControlsVisible && !widgetEmbed ? presenceControl : null
@@ -1434,61 +1495,36 @@ export function renderDesignEditorView({
           leftSidebarVisible,
         })}
 
-        {/* The docked bar's Close used to live inside a canvas column inset
-            by the left rail's width (`leftChromeOverlayInset`). A wide rail
-            (the Code panel is 640px) plus a modest window can squeeze that
-            column until the bar's own `overflow-hidden` clips Close before
-            it clips anything else in the row — the rail sits at z-[70], so a
-            squeeze this severe doesn't just crowd Close, it makes it
-            unreachable. Anchoring it here instead, to the canvas area's own
-            right edge rather than the bar's shrunken one, guarantees a way
-            out no matter how little room the rail has left the bar. Height-
-            and edge-matched to the bar (h-12, pr-3) so it reads as the same
-            row rather than a second floating control. Not needed for the
-            floating (minimal-UI) bar: minimal UI hides this rail entirely. */}
-        {responsiveInteractActive && !minimalUi ? (
-          <div
-            className="pointer-events-none absolute right-0 top-0 z-[80] flex h-12 items-center border-b border-border bg-[var(--design-editor-panel-bg)] pl-1 pr-3"
-            style={topBarVisible ? { top: TOP_BAR_HEIGHT_PX } : undefined}
-          >
-            <ResponsiveInteractExitButton
-              onClose={handleExitResponsiveInteract}
-              className="pointer-events-auto"
-            />
-          </div>
-        ) : null}
-
-        {/* Interact owns the running app's surface (same reasoning as the
-            Escape hotkey gate): its canvas tools and mode tabs belong to the
-            infinite canvas, and ResponsiveInteractBar's Close is the way
-            back. */}
+        {/* Interact keeps only Move and the Agent: the running app owns the
+            surface, so the canvas tools do not apply. The top bar's mode
+            switch (the floating bar's Exit in minimal UI, or Escape) is the
+            way back. */}
         {!hostOwnsChrome &&
-          !responsiveInteractActive &&
           designBottomToolbarMode === "editor" &&
           design &&
           !questionFlowActive && (
             <DesignBottomToolbar
               mode={mode}
-              pinMode={pinMode}
               drawMode={drawMode}
               activeTool={activeTool}
-              shapeTool={shapeTool}
-              isOverview={viewMode === "overview"}
               hasActiveFile={Boolean(activeFile)}
-              onMove={handleMoveTool}
-              onFrame={handleFrameTool}
               frameToolDraws={frameToolDraws}
               onFrameToolDrawsChange={setFrameToolDraws}
-              onShape={handleShapeTool}
-              onText={handleTextTool}
-              onPen={handlePenTool}
+              onMove={handleMoveTool}
+              onInteractMove={handleInteractMoveTool}
               onHand={handleHandTool}
-              onDraw={handleDrawTool}
               onScale={handleScaleTool}
+              onFrame={handleFrameTool}
+              onText={handleTextTool}
+              onShape={handleShapeTool}
               onMediaFiles={handleDesignMediaFiles}
-              onCommentPin={handlePinToolToggle}
+              onPen={handlePenTool}
+              onDraw={handleDrawTool}
+              onAgentTool={handleAgentTool}
+              onAgentSkill={handleAgentSkill}
               onModeChange={handleModeChange}
               showModeTabs={!topBarVisible}
+              annotateEnabled={annotateLab === "on"}
             />
           )}
 
@@ -1500,6 +1536,10 @@ export function renderDesignEditorView({
             onNudgeAmountsChange={(nudge) =>
               setEditorPreferences({ ...editorPreferences, nudge })
             }
+            unavailableShortcutIds={getUnavailableShortcutIds({
+              annotateEnabled: annotateLab === "on",
+              commentEnabled: SHOW_DESIGN_COMMENT_TOOL,
+            })}
           />
         ) : null}
 
@@ -1548,7 +1588,6 @@ export function renderDesignEditorView({
             id,
             design,
             canApplyPendingVisualEditsWithAgent,
-            renderResponsiveInteractBar,
             leftChromeOverlayInset,
             rightSidebarVisible,
             chromeInsetLeft,
@@ -1560,7 +1599,6 @@ export function renderDesignEditorView({
           editorCore,
           editorHistory,
           editorContentAndComponents,
-          editorModes,
           projectTitleControl,
           minimalUiToggle,
           renderZoomControl,
@@ -1568,7 +1606,7 @@ export function renderDesignEditorView({
           rightSidebarActions,
           topBarVisible,
           topBarZoomVisible: topBarZoomControlVisible,
-          renderResponsiveInteractBar,
+          interactFloatingBar,
           rightSidebarVisible,
           editPanelProps,
         })}

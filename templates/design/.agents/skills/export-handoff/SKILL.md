@@ -34,6 +34,10 @@ How to export designs and generate handoff documentation for developers converti
   failure instead of pretending that a downloadable image exists. The editor's
   Download PNG remains the faithful client-side path for localhost/fusion
   screens that are not stored HTML.
+  PNG and PDF are sRGB: a color written as `oklch()` or `color(display-p3 ...)`
+  that sRGB cannot show is rendered as its CSS Color 4 gamut-mapped sRGB
+  fallback (lightness and hue kept, chroma reduced), not the browser's clip.
+  HTML and SVG exports keep such colors as written.
 - **Deploy preview**: `deploy-design-preview` triggers a preview deploy for a
   fusion-backed design branch. It requires the design's source to advertise
   the `deployPreview` capability (fusion tier) and Builder.io to be connected;

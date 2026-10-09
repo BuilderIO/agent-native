@@ -44,7 +44,6 @@ test.describe("element interaction states", () => {
       `E2E interaction states ${Date.now()}`,
     );
     await gotoEditor(page, designId);
-    await page.getByRole("tab", { name: "Design", exact: true }).click();
     await selectByText(page, "Alpha Button");
     await expect(interactionStateTrigger(page)).toBeVisible();
   });
@@ -214,7 +213,7 @@ test.describe("element interaction states", () => {
     );
     await interact.click();
     await expect(
-      page.getByRole("button", { name: "Exit responsive preview" }),
+      page.locator("[data-design-top-bar] [data-design-interact-route]"),
     ).toBeVisible();
     await expect(button).toBeVisible();
 

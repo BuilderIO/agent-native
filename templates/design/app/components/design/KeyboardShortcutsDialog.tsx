@@ -68,6 +68,8 @@ interface KeyboardShortcutsDialogProps {
   onClose: () => void;
   nudgeAmounts?: NudgeAmounts;
   onNudgeAmountsChange?: (next: NudgeAmounts) => void;
+  /** Shortcut ids to leave out because their tool is not available. */
+  unavailableShortcutIds?: readonly string[];
 }
 
 const ACCESSIBLE_KEY_NAME_BY_TOKEN: Record<string, string> = {
@@ -263,10 +265,12 @@ function KeyboardShortcutsBody({
   nudgeAmounts,
   onNudgeAmountsChange,
   searchRef,
+  unavailableShortcutIds,
 }: {
   nudgeAmounts: NudgeAmounts;
   onNudgeAmountsChange?: (next: NudgeAmounts) => void;
   searchRef: RefObject<HTMLInputElement | null>;
+  unavailableShortcutIds?: readonly string[];
 }) {
   const t = useT();
   const [query, setQuery] = useState("");
@@ -286,8 +290,9 @@ function KeyboardShortcutsBody({
           t(`designEditor.keyboardShortcuts.categories.${category}`),
         rowLabel: (labelKey) => t(labelKey),
         codeCommands,
+        unavailableIds: unavailableShortcutIds,
       }),
-    [applePlatform, codeCommands, query, t],
+    [applePlatform, codeCommands, query, t, unavailableShortcutIds],
   );
 
   const sectionTop = (category: string) => {
@@ -429,6 +434,7 @@ export function KeyboardShortcutsDialog({
   onClose,
   nudgeAmounts = DEFAULT_NUDGE_AMOUNTS,
   onNudgeAmountsChange,
+  unavailableShortcutIds,
 }: KeyboardShortcutsDialogProps) {
   const t = useT();
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -473,6 +479,7 @@ export function KeyboardShortcutsDialog({
           nudgeAmounts={nudgeAmounts}
           onNudgeAmountsChange={onNudgeAmountsChange}
           searchRef={searchRef}
+          unavailableShortcutIds={unavailableShortcutIds}
         />
       </DialogContent>
     </Dialog>

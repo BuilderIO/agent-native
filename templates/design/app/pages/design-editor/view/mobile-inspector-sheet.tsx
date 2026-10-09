@@ -51,7 +51,8 @@ export function renderMobileInspectorSheet({
       {!hostOwnsChrome &&
       !uiHidden &&
       !initialGenerationChromeLimited &&
-      mode === "edit" ? (
+      mode === "edit" &&
+      !editPanelProps.readOnly ? (
         <Sheet
           open={
             minimalUi

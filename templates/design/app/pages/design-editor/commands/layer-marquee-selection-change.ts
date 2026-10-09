@@ -21,7 +21,6 @@ import type { DesignTool, EditorMode } from "@/pages/design-editor/types";
 
 export interface LayerMarqueeSelectionChangeArgs {
   clearPendingOverviewLayerSelectionTimer: () => void;
-  focusDesignInspectorForSelection: () => void;
   getCodeLayerProjectionForScreen: (
     screenId: string,
   ) => CodeLayerProjection | null;
@@ -74,7 +73,6 @@ export function runMarqueeSelectionCancellation<T>({
 export function runLayerMarqueeSelectionChange(
   {
     clearPendingOverviewLayerSelectionTimer,
-    focusDesignInspectorForSelection,
     getCodeLayerProjectionForScreen,
     hasActiveSelectionRef,
     lastMarqueeSelectionSignatureRef,
@@ -177,7 +175,6 @@ export function runLayerMarqueeSelectionChange(
   if (primary) {
     setActiveFileId(primary.screenId);
     setSelectedElement(primary.elementInfo);
-    focusDesignInspectorForSelection();
   } else if (
     hasActiveSelectionRef.current &&
     shouldClearBridgeSelectionOnEmptyMarquee({

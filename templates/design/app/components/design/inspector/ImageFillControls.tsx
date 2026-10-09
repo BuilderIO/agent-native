@@ -2,9 +2,10 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
-import { IconPhotoPlus, IconX } from "@tabler/icons-react";
+import { IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -331,10 +332,10 @@ export function ImageFillControls({
   };
 
   return (
-    <div className={cn("space-y-1.5 px-3 pt-2 pb-2", className)}>
-      {/* ── Preview / drop target ─────────────────────────────────────────── */}
+    <div className={cn("space-y-2 px-3 py-3", className)}>
+      {/* ── Preview ───────────────────────────────────────────────────────── */}
       <div
-        className="relative h-24 w-full overflow-hidden rounded-md border border-border/60"
+        className="relative h-40 w-full overflow-hidden rounded-md border border-border/60"
         style={{
           backgroundImage: value.url
             ? `url("${escapeForQuotedUrl(value.url.trim())}")`
@@ -351,14 +352,6 @@ export function ImageFillControls({
           backgroundPosition: value.fit === "tile" ? "top left" : "center",
         }}
       >
-        {!value.url && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-muted-foreground">
-            <IconPhotoPlus className="size-5" />
-            <span className="text-[10px]">
-              {"Upload or paste a URL" /* i18n-ignore */}
-            </span>
-          </div>
-        )}
         {value.url && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -380,60 +373,75 @@ export function ImageFillControls({
         )}
       </div>
 
-      {/* ── URL input + upload ────────────────────────────────────────────── */}
-      <div className="flex items-center gap-1">
-        <Input
-          value={urlDraft}
-          disabled={disabled}
-          placeholder={"Image URL" /* i18n-ignore */}
-          aria-label={"Image URL" /* i18n-ignore */}
-          spellCheck={false}
-          className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] md:!text-[11px]"
-          onChange={(event) => {
-            urlDraftRef.current = event.target.value;
-            setUrlDraft(event.target.value);
-          }}
-          onFocus={() => setFocused(true)}
-          onBlur={() => {
-            setFocused(false);
+      {/* ── Image URL ─────────────────────────────────────────────────────── */}
+      <Input
+        value={urlDraft}
+        disabled={disabled}
+        placeholder={"Image URL" /* i18n-ignore */}
+        aria-label={"Image URL" /* i18n-ignore */}
+        spellCheck={false}
+        className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] md:!text-[11px]"
+        onChange={(event) => {
+          urlDraftRef.current = event.target.value;
+          setUrlDraft(event.target.value);
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false);
+          commitUrl();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
             commitUrl();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              commitUrl();
-              event.currentTarget.blur();
-            }
-          }}
-        />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              disabled={disabled || uploadingImage}
-              aria-label={"Upload image" /* i18n-ignore */}
-              onClick={requestImageUpload}
-              className={cn(
-                "flex size-6 shrink-0 items-center justify-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground hover:text-foreground",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                (disabled || uploadingImage) &&
-                  "pointer-events-none opacity-40",
-              )}
-            >
-              <IconPhotoPlus className="size-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{"Upload image" /* i18n-ignore */}</TooltipContent>
-        </Tooltip>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          disabled={!canUploadImages}
-          onChange={handleFilePick}
-        />
+            event.currentTarget.blur();
+          }
+        }}
+      />
+
+      {/* ── Choose image, Fit ─────────────────────────────────────────────── */}
+      <div className="grid grid-cols-[minmax(0,1fr)_6.5rem] items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={disabled || uploadingImage}
+          onClick={requestImageUpload}
+          className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] px-2 !text-[11px] font-normal shadow-none"
+        >
+          {t("editPanel.colorPicker.chooseImage")}
+        </Button>
+        <Select
+          value={value.fit}
+          onValueChange={(v) =>
+            onChange(
+              mergeImageFitDraft(value, urlDraftRef.current, v as ImageFitMode),
+            )
+          }
+          disabled={disabled}
+        >
+          <SelectTrigger
+            aria-label={"Fill" /* i18n-ignore image fit selector */}
+            className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="!text-[11px]">
+            {FIT_MODES.map(({ mode, label }) => (
+              <SelectItem key={mode} value={mode} className="!text-[11px]">
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        disabled={!canUploadImages}
+        onChange={handleFilePick}
+      />
       {uploadError && (
         <p className="text-[10px] leading-snug text-destructive">
           {uploadError}
@@ -454,31 +462,6 @@ export function ImageFillControls({
             }
           : { status: "missing" as const })}
       />
-
-      {/* ── Fit mode dropdown ─────────────────────────────────────────────── */}
-      <Select
-        value={value.fit}
-        onValueChange={(v) =>
-          onChange(
-            mergeImageFitDraft(value, urlDraftRef.current, v as ImageFitMode),
-          )
-        }
-        disabled={disabled}
-      >
-        <SelectTrigger
-          aria-label={"Fill" /* i18n-ignore image fit selector */}
-          className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0"
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent className="!text-[11px]">
-          {FIT_MODES.map(({ mode, label }) => (
-            <SelectItem key={mode} value={mode} className="!text-[11px]">
-              {label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
     </div>
   );
 }

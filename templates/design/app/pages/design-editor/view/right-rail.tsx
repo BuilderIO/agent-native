@@ -6,7 +6,6 @@ import { EditPanel } from "@/components/design/EditPanel";
 import type { EditorContentAndComponents } from "../domains/use-editor-content-and-components";
 import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorHistory } from "../domains/use-editor-history";
-import type { EditorModes } from "../domains/use-editor-modes";
 import {
   rightInspectorPanelClassName,
   shouldShowWidgetZoomFallback,
@@ -17,7 +16,6 @@ export function renderRightRail({
   editorCore,
   editorHistory,
   editorContentAndComponents,
-  editorModes,
   projectTitleControl,
   minimalUiToggle,
   renderZoomControl,
@@ -25,14 +23,13 @@ export function renderRightRail({
   rightSidebarActions,
   topBarVisible,
   topBarZoomVisible,
-  renderResponsiveInteractBar,
+  interactFloatingBar,
   rightSidebarVisible,
   editPanelProps,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
   editorContentAndComponents: EditorContentAndComponents;
-  editorModes: EditorModes;
   projectTitleControl: ReactElement;
   minimalUiToggle: ReactElement;
   renderZoomControl: (
@@ -42,7 +39,7 @@ export function renderRightRail({
   rightSidebarActions: ReactElement;
   topBarVisible: boolean;
   topBarZoomVisible: boolean;
-  renderResponsiveInteractBar: (floating: boolean) => ReactElement;
+  interactFloatingBar: ReactElement | null;
   rightSidebarVisible: boolean;
   editPanelProps: Omit<
     import("react").ComponentProps<typeof EditPanel>,
@@ -57,7 +54,6 @@ export function renderRightRail({
     startSidebarResize,
   } = editorHistory;
   const { uiHidden } = editorContentAndComponents;
-  const { responsiveInteractActive } = editorModes;
 
   return (
     <>
@@ -111,6 +107,16 @@ export function renderRightRail({
         </div>
       ) : null}
 
+      {interactFloatingBar && !minimalUi ? (
+        <div
+          data-design-interact-floating
+          className="pointer-events-none absolute inset-x-0 top-0 z-[90] flex justify-center px-3"
+          style={{ paddingTop: minimalUiBarTopPaddingPx(widgetEmbed) }}
+        >
+          {interactFloatingBar}
+        </div>
+      ) : null}
+
       {minimalUi && !hostOwnsChrome ? (
         <div
           data-design-minimal-ui
@@ -136,9 +142,7 @@ export function renderRightRail({
               data-design-minimal-bar="interact"
               className="pointer-events-none flex min-w-0 justify-center"
             >
-              {responsiveInteractActive
-                ? renderResponsiveInteractBar(true)
-                : null}
+              {interactFloatingBar}
             </div>
             {widgetEmbed ? (
               <div aria-hidden="true" />

@@ -17,12 +17,11 @@ describe("Design editor header", () => {
     expect(editorSource).not.toContain("status={reviewStatus}");
   });
 
-  it("routes board review threads and uses unread roots for the comments badge", () => {
+  it("routes board review threads", () => {
     expect(editorSource).toContain("const boardTarget = targetId === null");
     expect(editorSource).toContain(
       "setActiveFileId(boardTarget ? (boardFileId ?? null) : targetId)",
     );
-    expect(editorSource).toContain("reviewCommentsCount: reviewUnreadCount");
   });
 
   it("keeps the shared chat header and tabs on the scoped agent surface", () => {

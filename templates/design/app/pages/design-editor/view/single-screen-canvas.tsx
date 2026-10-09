@@ -94,6 +94,7 @@ export function renderSingleScreenCanvas({
     runtimeStructureVerificationRequest,
     liveRoutePathsByScreenIdRef,
     handleLiveRoutePathChange,
+    handlePreviewThemeStatus,
     mode,
     activeTool,
     setActiveTool,
@@ -118,6 +119,7 @@ export function renderSingleScreenCanvas({
     reserveVisualEditSnapshot,
     handleComponentSourceJump,
     drawMode,
+    annotateLab,
     handleFocusedAnnotationSendingChange,
     pinMode,
     canCommentDesign,
@@ -224,6 +226,8 @@ export function renderSingleScreenCanvas({
   const {
     responsiveInteractActive,
     interactZoom,
+    previewColorScheme,
+    screenReloadNonces,
     handleExitReviewCommentMode,
     handleModeChange,
     handleSidebarScreenSelect,
@@ -374,6 +378,9 @@ export function renderSingleScreenCanvas({
           activeScreenSnapshotOnly ? undefined : handleLiveRoutePathChange
         }
         onRuntimeReload={handleActiveScreenRuntimeReload}
+        previewColorScheme={previewColorScheme}
+        previewReloadNonce={screenReloadNonces[activeFile.id] ?? 0}
+        onPreviewThemeStatus={handlePreviewThemeStatus}
         publicVisualEdit={!activeScreenSnapshotOnly && publicVisualEdit}
         externalSnapshotHtml={
           activeScreenSnapshotOnly
@@ -495,7 +502,7 @@ export function renderSingleScreenCanvas({
         }
         onElementDblClickText={handleElementDblClickText}
         tweakValues={cssVarValues}
-        drawMode={drawMode}
+        drawMode={drawMode && annotateLab === "on"}
         onExitDrawMode={() => {
           handleExitFocusedDrawMode();
         }}
@@ -539,7 +546,10 @@ export function renderSingleScreenCanvas({
           const match = files.find((f) => norm(f.filename) === target);
           if (match) {
             if (mode === "interact") {
-              handleModeChange("interact", { targetFileId: match.id });
+              handleModeChange("interact", {
+                targetFileId: match.id,
+                keepInteractDevice: true,
+              });
             } else {
               handleSidebarScreenSelect(match.id);
             }

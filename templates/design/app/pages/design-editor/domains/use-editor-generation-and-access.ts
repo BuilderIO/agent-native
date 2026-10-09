@@ -12,7 +12,6 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
-import { useLab } from "@agent-native/core/client/labs";
 import { useIsMcpDirectoryWidgetWriteEmbed } from "@agent-native/core/client/mcp-app-host";
 import {
   useReviewComments,
@@ -21,7 +20,6 @@ import {
 import { useCreativeContextLabState } from "@agent-native/creative-context/client";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { getOverviewScreenFileIds } from "@shared/design-files";
-import { DESIGN_TWEAKS } from "@shared/labs";
 import { designRepromptPendingStateKey } from "@shared/node-rewrite";
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { sourceContentHash } from "@shared/source-workspace";
@@ -42,6 +40,7 @@ import { getUnreadReviewThreadIds } from "@/components/design/ReviewCommentsPane
 import type { ElementInfo } from "@/components/design/types";
 import { type DesignAccessStatus } from "@/components/DesignAccessState";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { useAnnotateLab } from "@/hooks/use-annotate-lab";
 import { designEditorCommandKey } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
 import {
@@ -198,6 +197,7 @@ export function useEditorGenerationAndAccess({
     lastGeometryCommitAtRef.current = 0;
     lastGeometryCommitSourceRef.current = null;
   }, []);
+  const annotateLab = useAnnotateLab();
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [focusedAnnotationSending, setFocusedAnnotationSending] =
@@ -810,7 +810,6 @@ export function useEditorGenerationAndAccess({
   const canEditPublicLiveScreenUrl =
     publicVisualEdit && Boolean(getEmbedAuthToken());
   const creativeContextLab = useCreativeContextLabState();
-  const tweaksEnabled = useLab(DESIGN_TWEAKS.key);
   const reviewResult = useReviewComments(
     {
       resourceType: "design",
@@ -1456,6 +1455,7 @@ export function useEditorGenerationAndAccess({
     lastGeometryCommitAtRef,
     lastGeometryCommitSourceRef,
     resetGeometryCommitCoalescing,
+    annotateLab,
     drawMode,
     setDrawMode,
     pinMode,
@@ -1525,7 +1525,6 @@ export function useEditorGenerationAndAccess({
     handleLiveCollaborationChange,
     canEditPublicLiveScreenUrl,
     creativeContextLab,
-    tweaksEnabled,
     reviewResult,
     reviewComments,
     reviewUnreadCount,

@@ -94,10 +94,17 @@ describe("Design editor mobile layout", () => {
     expect(editorSource).toContain(
       "widgetEmbed || (embedded && !hostOwnsChrome && !embedChromeRequested)",
     );
-    expect(editorSource).toContain(
-      "(!minimalUi || minimalInspectorHasSelection)",
+    // The phone, hidden-UI and minimal-UI rules live in isRightInspectorVisible
+    // (minimal-inspector.test.ts); the editor must hand it both minimal inputs.
+    const inspectorVisibilityCall = editorSource.slice(
+      editorSource.indexOf("isRightInspectorVisible({"),
+      editorSource.indexOf(
+        "});",
+        editorSource.indexOf("isRightInspectorVisible({"),
+      ),
     );
-    expect(editorSource).toContain("!isMobileViewport &&\n    !uiHidden &&");
+    expect(inspectorVisibilityCall).toContain("minimalUi,");
+    expect(inspectorVisibilityCall).toContain("minimalInspectorHasSelection,");
     expect(editorSource).toContain("minimalUi && !hostOwnsChrome ? (");
     expect(editorSource).toContain("initialFitScreenId: widgetEmbed\n");
   });

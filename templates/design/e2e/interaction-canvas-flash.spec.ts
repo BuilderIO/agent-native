@@ -1,7 +1,12 @@
 import { expect, test, type Frame, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { enterDirectMode, enterInteractView, gotoEditor } from "./helpers";
+import {
+  enterDirectMode,
+  enterInteractView,
+  gotoEditor,
+  selectTool,
+} from "./helpers";
 
 const SCREEN_ONE = `<!doctype html>
 <html lang="en">
@@ -474,6 +479,7 @@ test.beforeAll(async ({}, testInfo) => {
 });
 
 test.describe("canvas flash — transient capture, dark theme, multi-screen", () => {
+  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
   test("overview canvas never paints a light/white frame across drag-into-container, undo x2, alt-drag-out, new shape, single-screen round trip, and resize", async ({
     page,
   }) => {
@@ -597,7 +603,7 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
 
       {
         await startRecorder(page, "draw-first-shape");
-        await page.locator('button[aria-label="Rectangle"]').first().click();
+        await selectTool(page, "Rectangle");
         const world = await page
           .locator("[data-multi-screen-canvas-world]")
           .boundingBox();

@@ -28,6 +28,7 @@ import {
 import { useParams, useLocation } from "react-router";
 import { toast } from "sonner";
 
+import type { PreviewThemeStatus } from "@/components/design/design-canvas/preview-theme";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import type {
   ElementInfo,
@@ -420,6 +421,27 @@ export function useEditorCore() {
     },
     [],
   );
+  const [previewThemeStatusByScreenId, setPreviewThemeStatusByScreenId] =
+    useState<Record<string, PreviewThemeStatus>>({});
+  const handlePreviewThemeStatus = useCallback(
+    (screenId: string | undefined, status: PreviewThemeStatus) => {
+      if (!screenId) return;
+      setPreviewThemeStatusByScreenId((current) => {
+        const previous = current[screenId];
+        if (
+          previous?.kind === status.kind &&
+          (status.kind === "unavailable" ||
+            (previous.kind === "ready" &&
+              previous.scheme === status.scheme &&
+              previous.darkStyles === status.darkStyles))
+        ) {
+          return current;
+        }
+        return { ...current, [screenId]: status };
+      });
+    },
+    [],
+  );
   const [
     runtimeStructureVerificationRequest,
     setRuntimeStructureVerificationRequest,
@@ -787,6 +809,8 @@ export function useEditorCore() {
     setLiveRoutePathsByScreenId,
     liveRoutePathsByScreenIdRef,
     handleLiveRoutePathChange,
+    previewThemeStatusByScreenId,
+    handlePreviewThemeStatus,
     runtimeStructureVerificationRequest,
     setRuntimeStructureVerificationRequest,
     pendingStructureVerificationStatus,

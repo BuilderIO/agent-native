@@ -487,6 +487,49 @@ test.fixme("lists the spawned folder, preserves dirty buffers, and saves a local
   await expect(localTree.getByText(".env", { exact: true })).toHaveCount(0);
 });
 
+test("puts a URL screen's route, Reload and Open in browser in the top bar", async ({
+  page,
+}, testInfo) => {
+  await page.context().grantPermissions(["local-network-access"], {
+    origin: new URL(baseURL).origin,
+  });
+  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
+    waitUntil: "domcontentloaded",
+  });
+  const controls = page.locator(
+    "[data-design-top-bar-center] [data-design-url-screen-controls]",
+  );
+  await expect(controls).toBeVisible({ timeout: 30_000 });
+  await expect(
+    controls.locator("[data-design-url-screen-route] [data-design-route-path]"),
+  ).toHaveText("/");
+  await cdpScreenshot(page, testInfo.outputPath("url-screen-top-bar.png"));
+
+  // Reload is on the bar. Its remount is the same per-screen nonce Interact's
+  // Reload uses (interact-toolbar-layout.spec.ts); this fixture's live editor
+  // does not finish mounting its frame on this route, so there is none to watch.
+  await controls.getByRole("button", { name: "Reload preview" }).click();
+  await expect(controls).toBeVisible();
+
+  // Open in browser is a new tab that cannot reach back into the editor.
+  const open = controls.locator("a[data-design-url-screen-open]");
+  await expect(open).toHaveAttribute("target", "_blank");
+  const [popup] = await Promise.all([page.waitForEvent("popup"), open.click()]);
+  await popup.waitForLoadState("domcontentloaded");
+  expect(new URL(popup.url()).origin).toBe(new URL(reactAppUrl).origin);
+  expect(await popup.evaluate(() => window.opener)).toBeNull();
+  await popup.close();
+
+  // Interact has its own route controls and no inspector.
+  await page.locator('[data-design-mode="interact"]').click();
+  await expect(controls).toHaveCount(0);
+  await expect(
+    page.locator('[data-design-chrome-region="right-panel"]'),
+  ).toHaveCount(0);
+  await page.locator('[data-design-mode="edit"]').click();
+  await expect(controls).toBeVisible();
+});
+
 test("updates only the selected URL screen from the Screen inspector", async ({
   page,
   request,

@@ -7,7 +7,7 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath, elementInner, expandAllLayers } from "./helpers";
+import { appPath, elementInner, expandAllLayers, selectTool } from "./helpers";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
@@ -119,7 +119,7 @@ async function layerRowForPath(
     )
     .toBe(1);
   const id = matchingIds[0];
-  if (!id || !/^[\w:-]+$/.test(id))
+  if (!id || !id.match(/^[\w:-]+$/))
     throw new Error(`Unexpected layer id: ${id}`);
   const rowButton = layerTree(page).locator(
     `[data-layer-row-button][data-layer-node-id="${id}"]`,
@@ -306,9 +306,7 @@ async function drawRectangle(
   from: { x: number; y: number },
   to: { x: number; y: number },
 ) {
-  await page
-    .locator('[data-design-bottom-toolbar] button[aria-label="Rectangle"]')
-    .click();
+  await selectTool(page, "Rectangle");
   await page.waitForTimeout(300);
   await dragTool(page, from, to);
 }
@@ -318,9 +316,7 @@ async function placeText(
   point: { x: number; y: number },
   text: string,
 ) {
-  await page
-    .locator('[data-design-bottom-toolbar] button[aria-label="Text"]')
-    .click();
+  await selectTool(page, "Text");
   await page.waitForTimeout(300);
   await page.mouse.click(point.x, point.y);
   await page.waitForTimeout(400);

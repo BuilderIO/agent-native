@@ -12,18 +12,19 @@ function makeArgs(
   overrides: Partial<ApplyDesignEditorCommandArgs> = {},
 ): ApplyDesignEditorCommandArgs {
   return {
+    annotateLab: "on",
     canEditDesign: true,
     canvasFrameGeometryById: {},
     files: [],
     id: "design-1",
     overviewScreens: [],
     setActiveFileId: vi.fn(),
-    setActiveInspectorTab: vi.fn(),
     setActiveLeftPanel: vi.fn(),
     setActiveTool: vi.fn(),
     setDrawMode: vi.fn(),
     setInteractDeviceName: vi.fn(),
     setInteractDeviceSize: vi.fn(),
+    setInteractTheme: vi.fn(),
     setMode: vi.fn(),
     setOverviewSelectedScreenIds: vi.fn(),
     setOverviewInteractScreenId: vi.fn(),
@@ -344,5 +345,243 @@ describe("runApplyDesignEditorCommand: screen focus stays on All screens", () =>
     expect(args.setSelectedLayerIdsState).toHaveBeenCalledWith(["file-1"]);
     expect(requestCameraFit).toHaveBeenCalledTimes(1);
     expect(args.setScreenZoom).not.toHaveBeenCalled();
+  });
+});
+
+describe("runApplyDesignEditorCommand: Interact device and theme", () => {
+  const focus = {
+    designId: "design-1",
+    issuedAt: 0,
+    editorView: "single",
+    screen: "file-1",
+  } as const;
+
+  it("applies a requested device after the one derived from the screen", () => {
+    const calls: string[] = [];
+    const args = makeArgs({
+      files: [screenFile],
+      overviewScreens: [overviewScreen],
+      setInteractDeviceName: vi.fn((name) =>
+        calls.push(`name:${String(name)}`),
+      ),
+    });
+
+    runApplyDesignEditorCommand(args, {
+      ...focus,
+      interactDevice: "iPhone 17",
+    });
+
+    expect(calls[calls.length - 1]).toBe("name:iPhone 17");
+    expect(args.setInteractDeviceSize).toHaveBeenLastCalledWith({
+      width: 402,
+      height: 874,
+    });
+  });
+
+  it("applies a requested device without changing the view", () => {
+    const args = makeArgs();
+
+    runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      interactDevice: 'iPad Pro 11" Landscape',
+    });
+
+    expect(args.setInteractDeviceName).toHaveBeenCalledWith(
+      'iPad Pro 11" Landscape',
+    );
+    expect(args.setInteractDeviceSize).toHaveBeenCalledWith({
+      width: 1194,
+      height: 834,
+    });
+    expect(args.setViewMode).not.toHaveBeenCalled();
+  });
+
+  it("ignores a device that is not a selectable preset", () => {
+    const args = makeArgs();
+
+    runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      interactDevice: "Custom",
+    });
+    runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      interactDevice: "Toaster",
+    });
+
+    expect(args.setInteractDeviceName).not.toHaveBeenCalled();
+    expect(args.setInteractDeviceSize).not.toHaveBeenCalled();
+  });
+
+  it("applies a requested theme and ignores an unknown one", () => {
+    const args = makeArgs();
+
+    runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      interactTheme: "dark",
+    });
+    expect(args.setInteractTheme).toHaveBeenCalledWith("dark");
+
+    runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      interactTheme: "sepia",
+    });
+    expect(args.setInteractTheme).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads a retired System request as Light", () => {
+    const args = makeArgs();
+
+    runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      interactTheme: "system",
+    });
+
+    expect(args.setInteractTheme).toHaveBeenCalledWith("light");
+  });
+});
+
+describe("runApplyDesignEditorCommand: Annotate lab", () => {
+  const drawCommand = {
+    designId: "design-1",
+    issuedAt: 0,
+    tool: "draw",
+  } as const;
+  const annotateFocusCommand = {
+    designId: "design-1",
+    issuedAt: 0,
+    editorView: "single",
+    screen: "file-1",
+    mode: "annotate",
+  } as const;
+  const focusFiles = {
+    files: [screenFile],
+    overviewScreens: [overviewScreen],
+  };
+
+  it("starts the Draw tool when the lab is on", () => {
+    const args = makeArgs({ annotateLab: "on" });
+
+    expect(runApplyDesignEditorCommand(args, drawCommand)).toBe(true);
+
+    expect(args.setActiveTool).toHaveBeenCalledWith("draw");
+    expect(args.setMode).toHaveBeenCalledWith("annotate");
+    expect(args.setDrawMode).toHaveBeenCalledWith(true);
+    expect(args.setPinMode).toHaveBeenCalledWith(false);
+  });
+
+  it("lands a stale Draw request on Move and Design when the lab is off", () => {
+    const args = makeArgs({ annotateLab: "off" });
+
+    expect(runApplyDesignEditorCommand(args, drawCommand)).toBe(true);
+
+    expect(args.setActiveTool).toHaveBeenCalledWith("move");
+    expect(args.setMode).toHaveBeenCalledWith("edit");
+    expect(args.setDrawMode).toHaveBeenCalledWith(false);
+    expect(args.setActiveTool).not.toHaveBeenCalledWith("draw");
+    expect(args.setMode).not.toHaveBeenCalledWith("annotate");
+    expect(args.setDrawMode).not.toHaveBeenCalledWith(true);
+  });
+
+  it("lands a focused-screen Annotate request on the Overview in Design when the lab is on", () => {
+    const args = makeArgs({ annotateLab: "on", ...focusFiles });
+
+    expect(runApplyDesignEditorCommand(args, annotateFocusCommand)).toBe(true);
+
+    expect(args.setMode).toHaveBeenCalledWith("edit");
+    expect(args.setMode).not.toHaveBeenCalledWith("annotate");
+    expect(args.setViewMode).toHaveBeenCalledWith("overview");
+  });
+
+  it("lands a stale Annotate request on Design when the lab is off", () => {
+    const args = makeArgs({ annotateLab: "off", ...focusFiles });
+
+    expect(runApplyDesignEditorCommand(args, annotateFocusCommand)).toBe(true);
+
+    expect(args.setMode).toHaveBeenCalledWith("edit");
+    expect(args.setMode).not.toHaveBeenCalledWith("annotate");
+    expect(args.setViewMode).toHaveBeenCalledWith("overview");
+  });
+
+  it("waits for the Labs answer instead of refusing Draw or Annotate", () => {
+    for (const command of [drawCommand, annotateFocusCommand]) {
+      const args = makeArgs({ annotateLab: "loading", ...focusFiles });
+
+      expect(runApplyDesignEditorCommand(args, command)).toBe(false);
+
+      expect(args.setActiveTool).not.toHaveBeenCalled();
+      expect(args.setMode).not.toHaveBeenCalled();
+      expect(args.setDrawMode).not.toHaveBeenCalled();
+      expect(args.setViewMode).not.toHaveBeenCalled();
+    }
+  });
+
+  it("does not hold up a command that needs no lab while it loads", () => {
+    const args = makeArgs({ annotateLab: "loading" });
+
+    expect(
+      runApplyDesignEditorCommand(args, {
+        designId: "design-1",
+        issuedAt: 0,
+        tool: "rect",
+      }),
+    ).toBe(true);
+
+    expect(args.setActiveTool).toHaveBeenCalledWith("rect");
+  });
+});
+
+describe("runApplyDesignEditorCommand: Agent and Comment tools", () => {
+  it("arms the Agent tool and opens the Agent panel for tool=agent", () => {
+    const args = makeArgs();
+
+    expect(
+      runApplyDesignEditorCommand(args, {
+        designId: "design-1",
+        issuedAt: 0,
+        tool: "agent",
+      }),
+    ).toBe(true);
+
+    expect(args.setActiveTool).toHaveBeenCalledWith("agent");
+    expect(args.setActiveLeftPanel).toHaveBeenCalledWith("agent");
+    expect(args.setMode).toHaveBeenCalledWith("edit");
+    expect(args.setDrawMode).toHaveBeenCalledWith(false);
+    expect(args.setPinMode).toHaveBeenCalledWith(false);
+  });
+
+  it("leaves the left panel alone for every other tool", () => {
+    const args = makeArgs();
+
+    runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      tool: "pen",
+    });
+
+    expect(args.setActiveLeftPanel).not.toHaveBeenCalled();
+  });
+
+  it("lands a request for the hidden Comment tool on Move, with no pin mode", () => {
+    const args = makeArgs();
+
+    expect(
+      runApplyDesignEditorCommand(args, {
+        designId: "design-1",
+        issuedAt: 0,
+        tool: "comment",
+      }),
+    ).toBe(true);
+
+    expect(args.setActiveTool).toHaveBeenCalledWith("move");
+    expect(args.setActiveTool).not.toHaveBeenCalledWith("comment");
+    expect(args.setPinMode).toHaveBeenCalledWith(false);
+    expect(args.setPinMode).not.toHaveBeenCalledWith(true);
+    expect(args.setMode).toHaveBeenCalledWith("edit");
   });
 });

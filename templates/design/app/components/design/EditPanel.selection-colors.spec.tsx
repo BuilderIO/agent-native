@@ -407,20 +407,21 @@ it("cancels an active opacity drag without closing or late-committing it", async
         y: 0,
         left: 0,
         top: 0,
-        right: 100,
-        bottom: 14,
-        width: 100,
-        height: 14,
+        right: 116,
+        bottom: 16,
+        width: 116,
+        height: 16,
         toJSON: () => ({}),
       }) as DOMRect,
   });
-  const pointer = (type: string, clientX: number) =>
+  // The knob travels 8px inside each end of the track, so x = value + 8.
+  const pointer = (type: string, value: number) =>
     new PointerEvent(type, {
       bubbles: true,
       cancelable: true,
       pointerId: 11,
       pointerType: "mouse",
-      clientX,
+      clientX: value + 8,
     });
 
   await act(() => slider.dispatchEvent(pointer("pointerdown", 50)));

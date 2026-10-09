@@ -7,6 +7,7 @@ import {
   DESIGN_SHORTCUTS,
   formatShortcutKeycaps,
   formatShortcutLabel,
+  getUnavailableShortcutIds,
 } from "./keyboard-shortcuts";
 
 describe("keyboard shortcuts catalog", () => {
@@ -152,5 +153,61 @@ describe("shortcut sections", () => {
 
   it("returns nothing for a query that matches no row", () => {
     expect(build("qqqqq")).toEqual([]);
+  });
+
+  const rowIds = (
+    flags: { annotateEnabled: boolean; commentEnabled: boolean },
+    query = "",
+  ) =>
+    buildShortcutSections({
+      query,
+      applePlatform: false,
+      categoryLabel: (category) => category,
+      rowLabel: (labelKey) => labelKey.split(".").pop() ?? labelKey,
+      codeCommands: [],
+      unavailableIds: getUnavailableShortcutIds(flags),
+    })
+      .flatMap((section) => section.rows)
+      .map((row) => row.id);
+  const everything = { annotateEnabled: true, commentEnabled: true };
+
+  it("leaves out the Draw row only when the Annotate lab is off", () => {
+    expect(rowIds(everything)).toContain("draw-tool");
+    const withoutDraw = rowIds({ ...everything, annotateEnabled: false });
+    expect(withoutDraw).not.toContain("draw-tool");
+    expect(withoutDraw).toContain("pen-tool");
+    expect(withoutDraw).toHaveLength(rowIds(everything).length - 1);
+  });
+
+  it("leaves out both comment rows only while the Comment tool is hidden", () => {
+    expect(rowIds(everything)).toEqual(
+      expect.arrayContaining(["comment-tool", "toggle-comments"]),
+    );
+    const withoutComments = rowIds({ ...everything, commentEnabled: false });
+    expect(withoutComments).not.toContain("comment-tool");
+    expect(withoutComments).not.toContain("toggle-comments");
+    expect(withoutComments).toContain("draw-tool");
+    expect(withoutComments).toHaveLength(rowIds(everything).length - 2);
+  });
+
+  it("does not match a hidden row by its key", () => {
+    const none = { annotateEnabled: false, commentEnabled: false };
+    expect(rowIds(none, "shift y")).not.toContain("draw-tool");
+    expect(rowIds(none, "shift c")).not.toContain("toggle-comments");
+  });
+
+  it("hands equal flags the same array, so the dialog does not rebuild its rows", () => {
+    expect(getUnavailableShortcutIds(everything)).toBe(
+      getUnavailableShortcutIds({
+        annotateEnabled: true,
+        commentEnabled: true,
+      }),
+    );
+    expect(
+      getUnavailableShortcutIds({
+        annotateEnabled: false,
+        commentEnabled: false,
+      }),
+    ).toEqual(["draw-tool", "comment-tool", "toggle-comments"]);
   });
 });

@@ -2,6 +2,7 @@ import type { CreationTool } from "@/components/design/design-canvas/creation";
 
 import {
   isDesignLeftPanelEnabled,
+  SHOW_DESIGN_COMMENT_TOOL,
   type DesignLeftPanel,
   type DesignTool,
   type EditorMode,
@@ -42,22 +43,25 @@ export function getMoveGroupToolPresentation(activeTool: DesignTool) {
   };
 }
 
-const DESIGN_EDITOR_TOOLS = new Set<DesignTool>([
-  "move",
-  "frame",
-  "rect",
-  "line",
-  "arrow",
-  "ellipse",
-  "polygon",
-  "star",
-  "text",
-  "pen",
-  "hand",
-  "comment",
-  "draw",
-  "scale",
-]);
+export const DESIGN_EDITOR_TOOLS: ReadonlySet<DesignTool> = new Set<DesignTool>(
+  [
+    "move",
+    "frame",
+    "rect",
+    "line",
+    "arrow",
+    "ellipse",
+    "polygon",
+    "star",
+    "text",
+    "pen",
+    "hand",
+    "comment",
+    "draw",
+    "scale",
+    "agent",
+  ],
+);
 
 export function normalizeDesignTool(value: unknown): DesignTool | null {
   return typeof value === "string" &&
@@ -79,8 +83,68 @@ export function normalizeDesignMode(value: unknown): EditorMode | null {
     : null;
 }
 
+/**
+ * `loading` is the stretch before the Labs answer arrives. It reads as off, but
+ * a request that needs the lab waits for the answer instead of being refused.
+ */
+export type AnnotateLabStatus = "on" | "off" | "loading";
+
+/** Annotate mode exists only while its lab is on; a request for it lands on Design. */
+export function resolveModeForAnnotateLab(
+  mode: EditorMode,
+  lab: AnnotateLabStatus,
+): EditorMode {
+  return mode === "annotate" && lab !== "on" ? "edit" : mode;
+}
+
+/**
+ * A request for a tool that is not on offer lands on Move: Draw while the
+ * Annotate lab is off, and Comment while it is hidden.
+ */
+export function resolveAvailableTool(
+  tool: DesignTool,
+  lab: AnnotateLabStatus,
+  commentToolShown: boolean = SHOW_DESIGN_COMMENT_TOOL,
+): DesignTool {
+  if (tool === "draw" && lab !== "on") return "move";
+  if (tool === "comment" && !commentToolShown) return "move";
+  return tool;
+}
+
+/**
+ * What to clear when the lab turns off under an open editor: the Draw tool and
+ * overlay it owned, and Annotate mode unless a comment pin is the reason for it.
+ * Null while there is nothing left over (and while the lab is still loading).
+ */
+export function resolveDrawStateWithoutLab(args: {
+  annotateLab: AnnotateLabStatus;
+  activeTool: DesignTool;
+  drawMode: boolean;
+  pinMode: boolean;
+}): { dropAnnotateMode: boolean } | null {
+  if (args.annotateLab !== "off") return null;
+  if (args.activeTool !== "draw" && !args.drawMode) return null;
+  return { dropAnnotateMode: !args.pinMode };
+}
+
+/** Whether a restored URL or agent `navigate` command asks for Annotate or Draw. */
+export function commandRequestsAnnotate(command: {
+  mode?: unknown;
+  tool?: unknown;
+}): boolean {
+  return (
+    normalizeDesignMode(command.mode) === "annotate" ||
+    normalizeDesignTool(command.tool) === "draw"
+  );
+}
+
+/** The Agent tool draws nothing, so the canvas keeps its Move behavior under it. */
+export function toCanvasTool(tool: DesignTool): Exclude<DesignTool, "agent"> {
+  return tool === "agent" ? "move" : tool;
+}
+
 export function resolveToolAfterSelection(current: DesignTool): DesignTool {
-  return current === "scale" ? "scale" : "move";
+  return current === "scale" || current === "agent" ? current : "move";
 }
 
 export function resolveSpaceForwardTransition(

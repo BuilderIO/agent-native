@@ -76,7 +76,7 @@ test("imported local SVG remains editable after reopening the design", async ({
 
     await gotoEditor(page, designId);
     await enterDirectMode(page);
-    await page.getByRole("button", { name: "Rectangle options" }).click();
+    await page.getByRole("button", { name: "Frame options" }).click();
     await page.getByRole("menuitem", { name: "Image/video..." }).click();
     const fileInput = page.locator(
       '[data-design-bottom-toolbar] input[type="file"]',

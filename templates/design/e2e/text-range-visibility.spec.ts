@@ -7,6 +7,7 @@ import {
   expandAllLayers,
   gotoEditor,
   selectByText,
+  selectTool,
 } from "./helpers";
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
@@ -662,6 +663,7 @@ test("multi-selected text leaves share inspector styles and one undo restores bo
   }
 });
 
+// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("Line Height Enter returns a real Text-tool range to the editor", async ({
   page,
 }) => {
@@ -687,7 +689,7 @@ test("Line Height Enter returns a real Text-tool range to the editor", async ({
     const textTool = page.locator(
       '[data-design-bottom-toolbar] button[aria-label="Text"]',
     );
-    await textTool.click();
+    await selectTool(page, "Text");
     await expect(textTool).toHaveAttribute("aria-pressed", "true");
     await page.mouse.click(bodyBox.x + 120 * scale, bodyBox.y + 120 * scale);
 
@@ -942,7 +944,6 @@ test("Auto ArrowUp uses the selected nested range's normal line-height", async (
 
   try {
     await gotoEditor(page, designId);
-    await page.getByRole("tab", { name: "Design", exact: true }).click();
     const normalLineHeights = await designFrame(page)
       .locator("body")
       .evaluate((body) => {
@@ -1060,7 +1061,6 @@ test("text range caret follows the active text leaf and exits to whole-layer Mix
 
   try {
     await gotoEditor(page, designId);
-    await page.getByRole("tab", { name: "Design", exact: true }).click();
     await selectTextRange(page, "Nested E2E Parent suffix", "Nested E2E");
     const heading = designFrame(page).locator("h1").first();
     await expect(heading).toHaveAttribute("contenteditable", "true");

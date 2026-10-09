@@ -1,6 +1,7 @@
-import type { ReactElement } from "react";
-
-import { CanvasContextMenu } from "@/components/design/CanvasContextMenu";
+import {
+  CanvasContextMenu,
+  type CanvasContextMenuAction,
+} from "@/components/design/CanvasContextMenu";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
 import { GenerationStatusCard } from "@/components/design/GenerationStatusCard";
 import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
@@ -41,10 +42,13 @@ import { rightInspectorCanvasInset } from "../minimal-inspector";
 import { resolveOverviewScreenSourceType } from "../pending-edits";
 import { isScreenRootElementInfo } from "../selection-state";
 import { getSingleScreenCreationTool } from "../tool-state";
-import type { DesignData } from "../types";
+import { SHOW_DESIGN_COMMENT_TOOL, type DesignData } from "../types";
 import { renderOverviewCanvas } from "./overview-canvas";
 import { renderSingleScreenCanvas } from "./single-screen-canvas";
 import { renderVisualEditApplyToolbar } from "./visual-edit-apply-toolbar";
+
+// Left out of the canvas menu while the Comment tool is hidden.
+const COMMENT_ACTIONS: readonly CanvasContextMenuAction[] = ["toggle-comments"];
 
 export function renderEditorCanvasArea({
   editorCore,
@@ -71,7 +75,6 @@ export function renderEditorCanvasArea({
   id,
   design,
   canApplyPendingVisualEditsWithAgent,
-  renderResponsiveInteractBar,
   leftChromeOverlayInset,
   rightSidebarVisible,
   chromeInsetLeft,
@@ -100,7 +103,6 @@ export function renderEditorCanvasArea({
   id: string;
   design: DesignData;
   canApplyPendingVisualEditsWithAgent: boolean;
-  renderResponsiveInteractBar: (floating: boolean) => ReactElement;
   leftChromeOverlayInset: string | undefined;
   rightSidebarVisible: boolean;
   chromeInsetLeft: number;
@@ -140,6 +142,7 @@ export function renderEditorCanvasArea({
     pinMode,
     canCommentDesign,
     drawMode,
+    annotateLab,
   } = editorGenerationAndAccess;
   const {
     layoutGrids,
@@ -596,6 +599,7 @@ export function renderEditorCanvasArea({
       }
       onToggleUi={handleToggleUi}
       onToggleComments={handleToggleComments}
+      hiddenActions={SHOW_DESIGN_COMMENT_TOOL ? undefined : COMMENT_ACTIONS}
       appendedItems={
         canOfferBooleanSubtract ? (
           <ContextMenuGroup>
@@ -630,12 +634,6 @@ export function renderEditorCanvasArea({
               : undefined
           }
         >
-          {/* Interact's device chrome sits inside the canvas column so
-                    the workspace rails stay put — Interact is a different view
-                    of the same editor, not a chrome-free takeover. */}
-          {responsiveInteractActive && !minimalUi ? (
-            <div className="shrink-0">{renderResponsiveInteractBar(false)}</div>
-          ) : null}
           {/* Breakpoint targeting controls live in the selected Screen
                     inspector section instead of over the canvas. */}
           <div
@@ -677,7 +675,9 @@ export function renderEditorCanvasArea({
                 <ReadOnlyDesignBanner
                   pinMode={pinMode}
                   onCommentPin={
-                    !hostOwnsChrome && canCommentDesign
+                    SHOW_DESIGN_COMMENT_TOOL &&
+                    !hostOwnsChrome &&
+                    canCommentDesign
                       ? handlePinToolToggle
                       : undefined
                   }
@@ -796,7 +796,10 @@ export function renderEditorCanvasArea({
                       is separate from DesignCanvas's focused-screen batch. */}
             <SharedDrawOverlay
               visible={
-                viewMode === "overview" && drawMode && mode === "annotate"
+                viewMode === "overview" &&
+                drawMode &&
+                mode === "annotate" &&
+                annotateLab === "on"
               }
               clearSignal={overviewAnnotationResetSignal}
               scopeKey="overview"

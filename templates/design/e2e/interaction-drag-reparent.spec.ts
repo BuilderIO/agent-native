@@ -8,6 +8,7 @@ import {
   designFrame,
   expandAllLayers,
   gotoEditor,
+  selectTool,
 } from "./helpers";
 
 const SCREEN_ONE = `<!doctype html>
@@ -1211,6 +1212,7 @@ test.describe("drag reparent interaction", () => {
     expect(styleOf(reloadedBoardHtml, "widget")).toBe(boardStyle);
   });
 
+  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
   test("dragging a board rectangle into a screen inserts it into that screen at the drop position", async ({
     page,
   }) => {
@@ -1219,9 +1221,7 @@ test.describe("drag reparent interaction", () => {
     const screenId = await fileIdFor(page, id, "index.html");
 
     const boardPoint = await emptyBoardPoint(page);
-    await page
-      .locator('[data-design-bottom-toolbar] button[aria-label="Rectangle"]')
-      .click();
+    await selectTool(page, "Rectangle");
     await page.waitForTimeout(300);
     await page.mouse.move(boardPoint.x, boardPoint.y);
     await page.mouse.down();

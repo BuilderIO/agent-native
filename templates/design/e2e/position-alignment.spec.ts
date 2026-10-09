@@ -191,12 +191,14 @@ async function openEditPanel(page: Page, designId: string) {
 }
 
 async function leaveResponsivePreview(page: Page) {
-  const exitPreview = page
-    .getByRole("button", { name: "Exit responsive preview" })
-    .first();
-  if (await exitPreview.isVisible().catch(() => false)) {
-    await exitPreview.click();
-    await expect(exitPreview).toBeHidden();
+  const previewControls = page.locator(
+    "[data-design-top-bar] [data-design-interact-route]",
+  );
+  if ((await previewControls.count()) > 0) {
+    await page
+      .locator('[data-design-top-bar] [data-design-mode="edit"]')
+      .click();
+    await expect(previewControls).toHaveCount(0);
   }
 }
 

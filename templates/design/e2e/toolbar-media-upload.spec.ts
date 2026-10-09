@@ -88,7 +88,7 @@ async function installAssetRoute(
 }
 
 async function addToolbarMedia(page: Page, fixture: string) {
-  await page.getByRole("button", { name: "Rectangle options" }).click();
+  await page.getByRole("button", { name: "Frame options" }).click();
   await page.getByRole("menuitem", { name: "Image/video..." }).click();
   const input = page.locator('[data-design-bottom-toolbar] input[type="file"]');
   await expect(input).toHaveAttribute("accept", "image/*,video/*");

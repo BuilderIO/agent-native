@@ -1,9 +1,11 @@
 import {
   alphaToOpacity,
   defaultGradientEndColor,
+  normalizeCssColor,
   parseCssColor,
   rgbaToCss,
   withColorOpacity,
+  withCssColorOpacity,
 } from "@shared/color-utils";
 import {
   gradientStopWithFillOpacity,
@@ -19,6 +21,7 @@ import {
   type DesignGradientType,
   type ExportSettingsValue,
 } from "../inspector";
+import { parseVarReference } from "../inspector/color-picker-tokens";
 import { colorHasVisibleAlpha, cssColorOrFallback } from "./position-helpers";
 
 export const SOLID_FILL_ID = "solid";
@@ -395,10 +398,30 @@ export function parseGradientLayer(layer: string): ParsedGradientLayer | null {
   };
 }
 
+/** A solid layer is a one-color gradient; a token's `var(--token)` stands in for the color. */
 export function buildSolidFillLayer(colorValue: string): string {
-  const parsed = parseCssColor(colorValue);
-  if (!parsed) throw new Error(`Invalid solid fill color: ${colorValue}`);
-  return `linear-gradient(${rgbaToCss(parsed)} 0 0)`;
+  const token = parseVarReference(colorValue);
+  const normalized = token ? colorValue.trim() : normalizeCssColor(colorValue);
+  if (!normalized) throw new Error(`Invalid solid fill color: ${colorValue}`);
+  return `linear-gradient(${normalized} 0 0)`;
+}
+
+/**
+ * The `var(--token)` a solid layer is bound to, or null for any other layer.
+ * `parseSolidFillLayer` stays null for these: it answers with a color, and a
+ * token is none until the design's tokens resolve it.
+ */
+export function parseTokenSolidFillLayer(layer: string): string | null {
+  const match = layer.trim().match(/^linear-gradient\((.*)\)$/i);
+  if (!match) return null;
+  const stops = splitCssLayers(match[1] ?? "");
+  if (stops.length !== 1) return null;
+  const color = readLeadingColor(stops[0] ?? "");
+  if (!color || !parseVarReference(color.value)) return null;
+  if (!/^0\s+0$/.test((stops[0] ?? "").trim().slice(color.raw.length).trim())) {
+    return null;
+  }
+  return color.value.trim();
 }
 
 export function parseSolidFillLayer(layer: string): string | null {
@@ -411,8 +434,7 @@ export function parseSolidFillLayer(layer: string): string | null {
     const color = readLeadingColor(stop);
     if (!color || !/^0\s+0$/.test(stop.slice(color.raw.length).trim()))
       return null;
-    const parsed = parseCssColor(color.value);
-    return parsed ? rgbaToCss(parsed) : null;
+    return normalizeCssColor(color.value);
   }
 
   if (stops.length !== 2) return null;
@@ -425,10 +447,10 @@ export function parseSolidFillLayer(layer: string): string | null {
   ) {
     return null;
   }
-  const first = parseCssColor(firstColor.value);
-  const second = parseCssColor(secondColor.value);
-  if (!first || !second || rgbaToCss(first) !== rgbaToCss(second)) return null;
-  return rgbaToCss(first);
+  const first = normalizeCssColor(firstColor.value);
+  const second = normalizeCssColor(secondColor.value);
+  if (!first || !second || first !== second) return null;
+  return first;
 }
 
 function stopPosition(stop: string, rawColor: string): string {
@@ -461,7 +483,7 @@ function normalizeGradientStop<T extends DesignGradientStop>(stop: T): T {
   const parsed = parseCssColor(stop.color);
   return {
     ...stop,
-    color: parsed ? rgbaToCss(parsed) : stop.color,
+    color: normalizeCssColor(stop.color) ?? stop.color,
     opacity: parsed ? alphaToOpacity(parsed.a) : 100,
   };
 }
@@ -553,9 +575,7 @@ export function buildGradientLayer(
     .map((stop) => {
       const parsed = parseCssColor(stop.color);
       const opacity = stop.opacity ?? (parsed ? alphaToOpacity(parsed.a) : 100);
-      const color = parsed
-        ? rgbaToCss(withColorOpacity(parsed, opacity))
-        : stop.color;
+      const color = withCssColorOpacity(stop.color, opacity) ?? stop.color;
       return `${gradientStopWithFillOpacity(color, fillOpacity)} ${clampNumber(stop.position, 0, 100)}%`;
     })
     .join(", ");
@@ -573,8 +593,12 @@ export function defaultGradientStops(colorValue: string): DesignGradientStop[] {
     parseCssColor(cssColorOrFallback(colorValue, "#000000")) ??
     parseCssColor("#000000");
   const opaque = withColorOpacity(parsed ?? { r: 0, g: 0, b: 0, a: 1 }, 100);
+  const firstColor =
+    // guard:allow-raw-color — a missing source paint starts the gradient from concrete black.
+    withCssColorOpacity(cssColorOrFallback(colorValue, "#000000"), 100) ??
+    rgbaToCss(opaque);
   return [
-    { id: "stop-0", color: rgbaToCss(opaque), position: 0, opacity: 100 },
+    { id: "stop-0", color: firstColor, position: 0, opacity: 100 },
     {
       id: "stop-1",
       color: rgbaToCss(defaultGradientEndColor(opaque)),

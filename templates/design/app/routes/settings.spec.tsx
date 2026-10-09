@@ -99,7 +99,7 @@ vi.mock("@agent-native/creative-context/client", () => ({
 }));
 
 vi.mock("@shared/labs", () => ({
-  DESIGN_TWEAKS: { key: "design-tweaks" },
+  ANNOTATE_LAB: { key: "design.annotate" },
   FULL_APP_BUILDING_LAB: { key: "full-app-building" },
   DESIGN_REVIEW_TOOLS_LAB: { key: "design-review-panel" },
 }));
@@ -221,9 +221,9 @@ describe("Design settings", () => {
       renderSettings();
 
       expect(mocks.props?.labs?.map((lab) => lab.key)).toEqual([
-        "design-tweaks",
         "full-app-building",
         "design-review-panel",
+        "design.annotate",
         "creative-context",
       ]);
       expect(
@@ -237,6 +237,12 @@ describe("Design settings", () => {
       ).toMatchObject({
         displayName: "settings.labDesignReviewTools",
         description: "settings.labDesignReviewToolsDescription",
+      });
+      expect(
+        mocks.props?.labs?.find((lab) => lab.key === "design.annotate"),
+      ).toMatchObject({
+        displayName: "settings.labAnnotate",
+        description: "settings.labAnnotateDescription",
       });
       expect(mocks.props?.labsIntro).toBeUndefined();
       expect(mocks.props?.mcpAbout).toBe("settings.mcpAbout");

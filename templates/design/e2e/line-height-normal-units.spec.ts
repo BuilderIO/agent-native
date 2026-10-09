@@ -202,7 +202,6 @@ test("line-height Auto, px, percent, and legacy unitless values round-trip", asy
 
   try {
     await gotoEditor(page, designId);
-    await page.getByRole("tab", { name: "Design", exact: true }).click();
     await selectByText(page, headingText);
 
     const typography = typographySection(page);

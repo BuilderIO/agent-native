@@ -1,7 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { expandAllLayers, gotoEditor } from "./helpers";
+import {
+  expandAllLayers,
+  gotoEditor,
+  selectTool,
+  type ToolbarMenuTool,
+} from "./helpers";
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
@@ -215,8 +220,8 @@ async function toScreenPointById(
   return { x: box.x + x * box.scale, y: box.y + y * box.scale };
 }
 
-async function useTool(page: Page, name: string): Promise<void> {
-  await toolbar(page).locator(`button[aria-label="${name}"]`).click();
+async function useTool(page: Page, name: ToolbarMenuTool): Promise<void> {
+  await selectTool(page, name);
   await expect(
     toolbar(page).locator(`button[aria-label="${name}"]`),
   ).toHaveAttribute("aria-pressed", "true");

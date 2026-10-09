@@ -44,6 +44,10 @@ import {
   type PenPoint,
 } from "@shared/pen-path";
 import {
+  previewColorSchemeFrameName,
+  type PreviewColorScheme,
+} from "@shared/preview-color-scheme";
+import {
   createSourceDocumentProvenance,
   type SourceDocumentProvenance,
 } from "@shared/preview-source-provenance";
@@ -178,6 +182,11 @@ import {
   routePendingTextEditKey,
   schedulePendingTextEditActivation,
 } from "./design-canvas/pending-text-edit";
+import {
+  PREVIEW_THEME_BRIDGE_SCRIPT,
+  usePreviewThemeChannel,
+  type PreviewThemeStatus,
+} from "./design-canvas/preview-theme";
 import { DeviceFrame } from "./DeviceFrame";
 import { dndHostLog } from "./dnd-debug";
 import type { RelativeStyleOperation } from "./edit-panel/style-change-types";
@@ -605,6 +614,17 @@ interface DesignCanvasProps {
     capability: string,
   ) => void;
   onRoutePathChange?: (screenId: string | undefined, routePath: string) => void;
+  /**
+   * Scheme the preview document should emulate for `prefers-color-scheme`;
+   * null leaves the browser's own. Interact mode's Light / Dark / System.
+   */
+  previewColorScheme?: PreviewColorScheme | null;
+  /** Bump to remount the preview iframe and reload its document. */
+  previewReloadNonce?: number;
+  onPreviewThemeStatus?: (
+    screenId: string | undefined,
+    status: PreviewThemeStatus,
+  ) => void;
   onBootStart?: () => void;
   onBootReady?: () => void;
   onRuntimeReload?: () => void;
@@ -1420,6 +1440,9 @@ export function DesignCanvas({
   onRepromptDraftConsumed,
   nodeRewriteCanvasTarget = false,
   onPrototypeNavigate,
+  previewColorScheme = null,
+  previewReloadNonce = 0,
+  onPreviewThemeStatus,
   motionTracks,
   motionDefaultEase,
   motionDurationMs,
@@ -2185,6 +2208,7 @@ export function DesignCanvas({
     if (!urlBackedFrame) return "";
     return (
       LIVE_ROUTE_BRIDGE_SCRIPT +
+      PREVIEW_THEME_BRIDGE_SCRIPT +
       (includeLiveEditEditorChrome
         ? MOTION_PREVIEW_BRIDGE_SCRIPT +
           SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
@@ -2212,6 +2236,13 @@ export function DesignCanvas({
   const usesLiveEditInjectedBridge =
     sourceType === "localhost" &&
     Boolean(bridgeUrl && effectivePreviewToken && rawExternalPreviewUrl);
+  usePreviewThemeChannel({
+    iframeRef,
+    scheme: previewColorScheme,
+    screenId,
+    bridgeReachable: !urlBackedFrame || usesLiveEditInjectedBridge,
+    onStatus: onPreviewThemeStatus,
+  });
   useEffect(() => {
     if (!usesLiveEditInjectedBridge) {
       setLocalNetworkAccessPermissionState(null);
@@ -3359,6 +3390,7 @@ export function DesignCanvas({
       TWEAK_BRIDGE_SCRIPT +
       ZOOM_BRIDGE_SCRIPT +
       NAV_BRIDGE_SCRIPT +
+      PREVIEW_THEME_BRIDGE_SCRIPT +
       LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
       embeddedGestureBridgeForSrcdoc +
       editorChromeBridge +
@@ -3429,11 +3461,17 @@ export function DesignCanvas({
     [bridgeUrl, externalPreviewUrl, sourceType],
   );
 
-  const iframeDocumentIdentity = externalPreviewUrl
-    ? `src:${externalPreviewUrl}`
-    : waitingForLiveEditBridge
-      ? `live-edit-pending:${liveEditBridgeKey}`
-      : `srcdoc:${contentKey ?? ""}:${srcdocHash}`;
+  // A reload request remounts the iframe through the same identity change a
+  // content swap makes, so every readiness flag restarts with the new document.
+  const reloadSuffix = previewReloadNonce
+    ? `#reload:${previewReloadNonce}`
+    : "";
+  const iframeDocumentIdentity =
+    (externalPreviewUrl
+      ? `src:${externalPreviewUrl}`
+      : waitingForLiveEditBridge
+        ? `live-edit-pending:${liveEditBridgeKey}`
+        : `srcdoc:${contentKey ?? ""}:${srcdocHash}`) + reloadSuffix;
   const iframeDocumentIdentityRef = useRef(iframeDocumentIdentity);
   iframeDocumentIdentityRef.current = iframeDocumentIdentity;
   const externalPreviewUrlRef = useRef(resolvedExternalPreviewUrl);
@@ -3441,7 +3479,7 @@ export function DesignCanvas({
   const iframeElementIdentity = externalPreviewUrl
     ? `external:${previewFrameId ?? screenId ?? contentKey ?? "screen"}:${
         usesLiveEditInjectedBridge ? liveEditBridgeKey : ""
-      }`
+      }${reloadSuffix}`
     : iframeDocumentIdentity;
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
@@ -7382,6 +7420,13 @@ export function DesignCanvas({
           ref={iframeRef}
           src={externalPreviewUrl ?? undefined}
           srcDoc={externalPreviewUrl ? undefined : srcdoc}
+          // The starting scheme of a markup preview; see
+          // previewColorSchemeFrameName. A URL page keeps its own name.
+          name={
+            externalPreviewUrl
+              ? undefined
+              : previewColorSchemeFrameName(previewColorScheme)
+          }
           sandbox={getDesignCanvasIframeSandbox({
             externalPreview: Boolean(externalPreviewUrl),
             readOnly: readOnly || snapshotOnly,
@@ -7440,7 +7485,9 @@ export function DesignCanvas({
             background: iframeBackgroundColor,
             backgroundColor: iframeBackgroundColor,
             colorScheme:
-              boardSurface || externalPreviewUrl ? undefined : "light",
+              boardSurface || externalPreviewUrl
+                ? undefined
+                : (previewColorScheme ?? "light"),
             pointerEvents:
               liveEditInteractionBlocked || blockPreviewInteraction
                 ? "none"

@@ -8,6 +8,7 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppStateForCurrentTab: mocks.writeAppStateForCurrentTab,
 }));
 
+import { DESIGN_EDITOR_TOOLS } from "../app/pages/design-editor/tool-state";
 import action from "./navigate.js";
 
 describe("navigate", () => {
@@ -80,5 +81,30 @@ describe("navigate", () => {
         fileId: "file_123",
       }).success,
     ).toBe(true);
+  });
+
+  it("accepts every tool the editor knows, including agent, and nothing else", () => {
+    const withTool = (tool: string) =>
+      action.schema.safeParse({
+        view: "editor",
+        designId: "design_123",
+        tool,
+      }).success;
+
+    for (const tool of DESIGN_EDITOR_TOOLS) {
+      expect(withTool(tool), tool).toBe(true);
+    }
+    expect(DESIGN_EDITOR_TOOLS.has("agent")).toBe(true);
+    expect(withTool("lasso")).toBe(false);
+  });
+
+  it("carries the agent tool into the one-shot navigation command", async () => {
+    await action.run({ view: "editor", designId: "design_123", tool: "agent" });
+
+    expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      view: "editor",
+      designId: "design_123",
+      tool: "agent",
+    });
   });
 });

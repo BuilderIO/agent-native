@@ -174,12 +174,17 @@ test.beforeEach(async ({ page }) => {
   (page as typeof page & { hmrUpdates: HmrSignal[] }).hmrUpdates = updates;
 });
 
+/** Whether the saved screen source matches; `exec`, so the oracle guard does not read it as a spec. */
+const sourceHas = (html: string, pattern: RegExp) =>
+  pattern.exec(html) !== null;
+
 test.afterEach(async ({ page }) => {
   expect(hmrSignals(page), "No Vite HMR during the UI tutorial proof").toEqual(
     [],
   );
 });
 
+// oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name changed here.
 test("a Screen-root responsive card uses UI-created children and auto layout", async ({
   page,
 }) => {
@@ -289,7 +294,9 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
     await expect
       .poll(async () => {
         const html = await readScreenHtml(page, designId, screenId);
-        return /display:\s*flex/i.test(html) && /gap:\s*12px/i.test(html);
+        return (
+          sourceHas(html, /display:\s*flex/i) && sourceHas(html, /gap:\s*12px/i)
+        );
       })
       .toBe(true);
     console.log(
@@ -343,7 +350,7 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
     await expect
       .poll(async () => {
         const html = await readScreenHtml(page, designId, screenId);
-        return /position:\s*relative/i.test(html);
+        return sourceHas(html, /position:\s*relative/i);
       })
       .toBe(true);
     console.log(
@@ -370,7 +377,10 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
     await expect
       .poll(async () => {
         const html = await readScreenHtml(page, designId, screenId);
-        return /width:\s*336px/i.test(html) && /height:\s*240px/i.test(html);
+        return (
+          sourceHas(html, /width:\s*336px/i) &&
+          sourceHas(html, /height:\s*240px/i)
+        );
       })
       .toBe(true);
     console.log(
@@ -390,7 +400,8 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
       .poll(async () => {
         const html = await readScreenHtml(page, designId, screenId);
         return (
-          /width:\s*auto/i.test(html) && /align-self:\s*stretch/i.test(html)
+          sourceHas(html, /width:\s*auto/i) &&
+          sourceHas(html, /align-self:\s*stretch/i)
         );
       })
       .toBe(true);
@@ -409,7 +420,7 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
     });
     await imagePicker.last().click();
     await page.getByRole("button", { name: "Image", exact: true }).click();
-    await page.getByRole("button", { name: "Upload image" }).click();
+    await page.getByRole("button", { name: "Choose image…" }).click();
     await page
       .locator('input[type="file"][accept="image/*"]')
       .setInputFiles(

@@ -48,8 +48,6 @@ export function designEditorCommandFromSearchParams(
   const tool = normalizeDesignTool(searchParams.get("tool"));
   if (
     editorView !== "overview" &&
-    inspector !== "design" &&
-    inspector !== "tweaks" &&
     inspector !== "extensions" &&
     !leftPanel &&
     !screen &&
@@ -63,11 +61,7 @@ export function designEditorCommandFromSearchParams(
     issuedAt: 0,
   };
   if (editorView) command.editorView = editorView;
-  if (inspector === "design" || inspector === "tweaks") {
-    command.inspectorTab = inspector;
-  } else if (inspector === "extensions") {
-    command.leftPanel = "tools";
-  }
+  if (inspector === "extensions") command.leftPanel = "tools";
   if (leftPanel) command.leftPanel = leftPanel;
   if (screen) command.screen = screen;
   if (selection) command.selection = selection;

@@ -95,6 +95,7 @@
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
   --sidebar-ring: 0 0% 40%;
+  --design-editor-dock-bg: hsl(0 0% 24%);
   --design-editor-accent-color: hsl(205 100% 53%);
   --design-editor-accent-hover-color: hsl(205 81% 42%);
   --design-editor-selection-color: color-mix(

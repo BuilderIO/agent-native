@@ -155,6 +155,7 @@ export function useEditorScreenRendering({
     liveRoutePathsByScreenId,
     liveRoutePathsByScreenIdRef,
     handleLiveRoutePathChange,
+    handlePreviewThemeStatus,
     runtimeStructureVerificationRequest,
     pendingVisualStyleBaselineResetRequest,
     handleTextEditingStateChangeForScreen,
@@ -307,8 +308,12 @@ export function useEditorScreenRendering({
     handleRuntimeLayerRenameApplied,
     runtimeLayerRenameForScreen,
   } = editorEditCommands;
-  const { suppressOverviewPopForExplicitZoomRef, handleExitReviewCommentMode } =
-    editorModes;
+  const {
+    suppressOverviewPopForExplicitZoomRef,
+    handleExitReviewCommentMode,
+    previewColorScheme,
+    screenReloadNonces,
+  } = editorModes;
   const { exportPreviewScreenId } = editorExportAndHandoff;
   const {
     getLayerSelectorsForFile,
@@ -869,6 +874,9 @@ export function useEditorScreenRendering({
           onRoutePathChange={
             screenSnapshotOnly ? undefined : handleLiveRoutePathChange
           }
+          previewColorScheme={screenIsActive ? previewColorScheme : null}
+          previewReloadNonce={screenReloadNonces[screen.id] ?? 0}
+          onPreviewThemeStatus={handlePreviewThemeStatus}
           publicVisualEdit={!screenSnapshotOnly && publicVisualEdit}
           externalSnapshotHtml={screenSnapshotOnly ? undefined : screenSnapshot}
           snapshotOnly={screenSnapshotOnly}
@@ -1119,6 +1127,9 @@ export function useEditorScreenRendering({
       handleRuntimeStructureDeleteRejected,
       handleRuntimeStructureRollbackResult,
       handleLiveRoutePathChange,
+      handlePreviewThemeStatus,
+      previewColorScheme,
+      screenReloadNonces,
       liveRoutePathsByScreenId,
       handleRuntimeStructureDeleteApplied,
       runtimeStructureVerificationRequest,
