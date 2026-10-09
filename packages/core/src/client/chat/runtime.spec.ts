@@ -24,6 +24,7 @@ import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index
 import {
   createAgentNativeChatRuntime as createAgentNativeChatRuntimeImpl,
   createHttpAgentChatRuntime,
+  loadedSkillSlugsFromMessages,
   type AgentChatRuntime,
   type AgentChatRuntimeEvent,
   type AgentChatRuntimeKnownEvent,
@@ -4358,5 +4359,53 @@ describe("createAgentNativeChatRuntime", () => {
       { type: "done", reason: "complete" },
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("loadedSkillSlugsFromMessages", () => {
+  const read = (
+    id: string,
+    slug: string,
+    result: string,
+    isError = false,
+  ): AgentChatRuntimeMessage[] => [
+    {
+      id: `${id}-call`,
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          toolCallId: id,
+          toolName: "docs-search",
+          input: { slug },
+        },
+      ],
+    },
+    {
+      id: `${id}-result`,
+      role: "user",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: id,
+          toolName: "docs-search",
+          resultText: result,
+          ...(isError ? { isError: true } : {}),
+        },
+      ],
+    },
+  ];
+
+  it("lists successful skill reads across turns, most recent last", () => {
+    expect(
+      loadedSkillSlugsFromMessages([
+        ...read("a", "skill-slide-design", "# Skill: slide-design\n..."),
+        ...read("b", "skill-slide-editing", "# Skill: slide-editing\n..."),
+        ...read("c", "skill-missing", "Doc not found: skill-missing"),
+        ...read("d", "skill-broken", "# Skill: broken", true),
+        ...read("e", "agents-template", "# Template AGENTS.md"),
+        ...read("f", "skill-slide-design", "# Skill: slide-design\n..."),
+      ]),
+    ).toEqual(["skill-slide-editing", "skill-slide-design"]);
   });
 });

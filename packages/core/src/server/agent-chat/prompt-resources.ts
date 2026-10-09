@@ -435,14 +435,14 @@ export function buildCompactSkillsSummary(
     const description = s.meta.description?.trim()
       ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
       : "";
-    return `- \`${s.meta.name}\`${description} Read with \`${skillReadTool} --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for subsequent steps in this turn.`;
+    return `- \`${s.meta.name}\`${description} Read with \`${skillReadTool} --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for the rest of the conversation.`;
   });
   if (skills.length > listedSkills.length) {
     lines.push(
       `- ...${skills.length - listedSkills.length} more codebase skills. Use \`${skillReadTool} --query "<topic>"\` to discover the relevant one.`,
     );
   }
-  return `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as ${skillReadTool} pages. Do not use MCP resource reads for these skills. Read each relevant page once per turn and reuse it; do not repeat an equivalent ${skillReadTool} lookup unless the page or question is different.\n\n${lines.join("\n")}\n</skills-summary>`;
+  return `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as ${skillReadTool} pages. Do not use MCP resource reads for these skills. Read each relevant page once per conversation and reuse it; do not repeat an equivalent ${skillReadTool} lookup unless the page or question is different.\n\n${lines.join("\n")}\n</skills-summary>`;
 }
 
 function escapeXmlAttribute(value: string): string {
