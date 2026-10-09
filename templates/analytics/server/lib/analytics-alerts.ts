@@ -1037,7 +1037,8 @@ export function prioritizeBigQueryAnalyticsAlertRules(
     const canonical = candidates.find((rule) =>
       prefix
         ? rule.id === defaultAlertId(prefix, rule.ownerEmail, rule.orgId)
-        : rule.filters.some(
+        : rule.filters.length === 2 &&
+          rule.filters.some(
             (filter) =>
               filter.field === "properties.status" &&
               (filter.op ?? "equals") === "equals" &&

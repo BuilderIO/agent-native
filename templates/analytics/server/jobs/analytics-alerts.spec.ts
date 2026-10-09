@@ -280,7 +280,10 @@ describe("analytics alert sweep batching", () => {
     targets[1].id = "default-agent-chat-stuck-spike-92d2e619f7";
     targets[2].id = "default-http-5xx-spike-92d2e619f7";
     mocks.list.mockResolvedValue([
-      rule("custom-terminal", { eventName: "agent_run_terminal", filters: [] }),
+      rule("custom-terminal", {
+        eventName: "agent_run_terminal",
+        filters: [...targets[0].filters, { field: "path", value: "/narrow" }],
+      }),
       rule("custom-stuck", { eventName: "agent_chat_stuck_detected" }),
       rule("custom-http", { eventName: "http.response" }),
       ...targets,
