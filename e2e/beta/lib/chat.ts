@@ -1,4 +1,10 @@
-import type { BrowserContext, Locator, Page, Request } from "@playwright/test";
+import type {
+  BrowserContext,
+  Locator,
+  Page,
+  Request,
+  Response,
+} from "@playwright/test";
 
 import { renderedText } from "./app";
 
@@ -65,10 +71,20 @@ export interface ChatRequestLog {
   count: number;
   /** One entry per turn POST, in order: what its body named at the top level. */
   requests: Array<{ model: string | null; engine: string | null }>;
+  agentNativeRequests?: () => AgentNativeRequestDiagnosticsSnapshot;
 }
 
 export function formatChatRequestDiagnostics(log: ChatRequestLog): string {
-  return `Agent chat requests: ${JSON.stringify(log)}`;
+  const { agentNativeRequests, ...chatLog } = log;
+  return (
+    "Agent chat requests: " +
+    JSON.stringify({
+      ...chatLog,
+      ...(agentNativeRequests
+        ? { agentNativeRequests: agentNativeRequests() }
+        : {}),
+    })
+  );
 }
 
 export function readTurnSelection(raw: string | null): {
@@ -132,6 +148,7 @@ export function spendViolations(
 export function watchChatRequests(page: Page): {
   log: ChatRequestLog;
   assertOnlyLuna: () => void;
+  dispose: () => void;
 } {
   const log: ChatRequestLog = {
     models: [],
@@ -141,8 +158,11 @@ export function watchChatRequests(page: Page): {
     requests: [],
   };
   const expected = lunaSelection();
+  const diagnostics = pageAgentNativeRequests(page);
+  let disposed = false;
 
-  page.on("request", (request: Request) => {
+  const onRequest = (request: Request) => {
+    if (disposed) return;
     if (request.method() !== "POST") return;
     if (!isChatTurnRequest(request.url())) return;
     log.count += 1;
@@ -151,10 +171,22 @@ export function watchChatRequests(page: Page): {
     log.engines.push(sent.engine ?? MISSING_ENGINE);
     if (sent.model) log.models.push(sent.model);
     else log.modelless += 1;
-  });
+  };
+  log.agentNativeRequests = diagnostics.snapshot;
+
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    page.off("request", onRequest);
+    page.off("close", dispose);
+    disposePageAgentNativeRequests(page, diagnostics);
+  };
+  page.on("request", onRequest);
+  page.on("close", dispose);
 
   return {
     log,
+    dispose,
     assertOnlyLuna() {
       if (log.count === 0) {
         throw new Error(
@@ -175,6 +207,180 @@ export function watchChatRequests(page: Page): {
       }
     },
   };
+}
+
+export interface AgentNativeRequestDiagnosticsSnapshot {
+  omittedRequests: number;
+  requests: Array<{
+    path: string;
+    method: string;
+    status: number | null;
+    pending: boolean;
+    elapsedMs: number;
+  }>;
+}
+
+const MAX_AGENT_NATIVE_REQUEST_RECORDS = 24;
+const MAX_AGENT_NATIVE_ELAPSED_MS = 300_000;
+const SAFE_HTTP_METHODS = new Set(
+  "GET HEAD POST PUT PATCH DELETE OPTIONS".split(" "),
+);
+const SAFE_AGENT_NATIVE_PATHS = new Set([
+  "/_agent-native/agent-chat",
+  "/_agent-native/agent-chat/threads",
+  "/_agent-native/agent-chat/runs/active",
+  "/_agent-native/agent-engine/status",
+  "/_agent-native/application-state",
+  "/_agent-native/application-state/pending-selection-context",
+  "/_agent-native/actions/get-document",
+]);
+const SAFE_THREAD_PATH =
+  /^\/_agent-native\/agent-chat\/threads\/[^/]+(?:\/queued)?$/;
+
+function safeAgentNativePathname(
+  requestUrl: string,
+  pageUrl: string,
+): string | null {
+  try {
+    const request = new URL(requestUrl);
+    if (request.origin !== new URL(pageUrl).origin) return null;
+    const marker = request.pathname.lastIndexOf("/_agent-native");
+    if (marker < 0) return null;
+    const pathname = request.pathname.slice(marker).replace(/\/+$/, "");
+    return SAFE_AGENT_NATIVE_PATHS.has(pathname)
+      ? pathname
+      : SAFE_THREAD_PATH.test(pathname)
+        ? pathname.endsWith("/queued")
+          ? "/_agent-native/agent-chat/threads/:id/queued"
+          : "/_agent-native/agent-chat/threads/:id"
+        : "/_agent-native/[redacted]";
+  } catch {
+    // coercion-ok: invalid URLs cannot be scoped safely, so exclude them from diagnostics.
+    return null;
+  }
+}
+
+const boundedElapsedMs = (start: number, now: number): number =>
+  Math.max(0, Math.min(MAX_AGENT_NATIVE_ELAPSED_MS, Math.floor(now - start)));
+
+function diagnosticMethod(method: string): string {
+  const normalized = method.toUpperCase();
+  return SAFE_HTTP_METHODS.has(normalized) ? normalized : "OTHER";
+}
+
+export function watchAgentNativeRequests(
+  page: Page,
+  now: () => number = Date.now,
+) {
+  type TrackedRequest =
+    AgentNativeRequestDiagnosticsSnapshot["requests"][number] & {
+      startedAt: number;
+    };
+  const requests: TrackedRequest[] = [];
+  const pending = new Map<Request, TrackedRequest>();
+  let omittedRequests = 0;
+  let disposed = false;
+
+  const onRequest = (request: Request) => {
+    if (disposed) return;
+    const path = safeAgentNativePathname(request.url(), page.url());
+    if (!path) return;
+
+    if (requests.length >= MAX_AGENT_NATIVE_REQUEST_RECORDS) {
+      const completedIndex = requests.findIndex((entry) => !entry.pending);
+      if (completedIndex < 0) {
+        omittedRequests = Math.min(999_999, omittedRequests + 1);
+        return;
+      }
+      requests.splice(completedIndex, 1);
+      omittedRequests = Math.min(999_999, omittedRequests + 1);
+    }
+
+    const startedAt = now();
+    const entry: TrackedRequest = {
+      path,
+      method: diagnosticMethod(request.method()),
+      status: null,
+      pending: true,
+      elapsedMs: 0,
+      startedAt,
+    };
+    requests.push(entry);
+    pending.set(request, entry);
+  };
+
+  const onResponse = (response: Response) => {
+    const entry = pending.get(response.request());
+    if (!entry) return;
+    const status = response.status();
+    entry.status =
+      Number.isInteger(status) && status >= 100 && status <= 599
+        ? status
+        : null;
+  };
+
+  const finishRequest = (request: Request) => {
+    const entry = pending.get(request);
+    if (!entry) return;
+    entry.pending = false;
+    entry.elapsedMs = boundedElapsedMs(entry.startedAt, now());
+    pending.delete(request);
+  };
+
+  const snapshot = (): AgentNativeRequestDiagnosticsSnapshot => {
+    const capturedAt = now();
+    return {
+      omittedRequests,
+      requests: requests.map(({ startedAt, ...entry }) => ({
+        ...entry,
+        elapsedMs: entry.pending
+          ? boundedElapsedMs(startedAt, capturedAt)
+          : entry.elapsedMs,
+      })),
+    };
+  };
+
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    page.off("request", onRequest);
+    page.off("response", onResponse);
+    page.off("requestfinished", finishRequest);
+    page.off("requestfailed", finishRequest);
+    page.off("close", dispose);
+    pending.clear();
+  };
+
+  page.on("request", onRequest);
+  page.on("response", onResponse);
+  page.on("requestfinished", finishRequest);
+  page.on("requestfailed", finishRequest);
+  page.on("close", dispose);
+
+  return {
+    snapshot,
+    dispose,
+  };
+}
+
+type AgentNativeRequestWatcher = ReturnType<typeof watchAgentNativeRequests>;
+const pageAgentNativeWatchers = new WeakMap<Page, AgentNativeRequestWatcher>();
+
+function pageAgentNativeRequests(page: Page): AgentNativeRequestWatcher {
+  const existing = pageAgentNativeWatchers.get(page);
+  if (existing) return existing;
+  const diagnostics = watchAgentNativeRequests(page);
+  pageAgentNativeWatchers.set(page, diagnostics);
+  return diagnostics;
+}
+
+function disposePageAgentNativeRequests(
+  page: Page,
+  diagnostics: AgentNativeRequestWatcher,
+): void {
+  if (pageAgentNativeWatchers.get(page) === diagnostics)
+    pageAgentNativeWatchers.delete(page);
+  diagnostics.dispose();
 }
 
 export const MISSING_ENGINE = "(none)";
@@ -369,46 +575,58 @@ export async function sendPromptAndAwaitTurn(
   prompt: string,
   { turnTimeoutMs = 180_000 }: { turnTimeoutMs?: number } = {},
 ): Promise<void> {
-  const input = page.locator(VISIBLE_COMPOSER.input).first();
-  await input.waitFor({ state: "visible", timeout: 60_000 });
-  await typePrompt(page, input, prompt);
-
-  const send = page.locator(VISIBLE_COMPOSER.send).first();
-  await send.waitFor({ state: "visible", timeout: 30_000 });
-  await awaitSendEnabled(page, send);
-
-  // Armed before the click: a click that starts no turn used to read as a turn
-  // that finished at once, because the stop button never appeared to wait on.
-  const turnPost = page.waitForRequest(
-    (request) =>
-      request.method() === "POST" && isChatTurnRequest(request.url()),
-    { timeout: 30_000 },
-  );
-  turnPost.catch(() => undefined); // coercion-ok: awaited below; this only stops an unhandled rejection if the click throws first
+  const existingDiagnostics = pageAgentNativeWatchers.get(page);
+  const diagnostics = existingDiagnostics ?? pageAgentNativeRequests(page);
+  const ownsDiagnostics = !existingDiagnostics;
   try {
-    await send.click();
-  } catch (error) {
-    throw await composerFailure(
-      page,
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-  try {
-    await turnPost;
-  } catch {
-    throw await composerFailure(
-      page,
-      "Send was clicked but the app never POSTed a turn to /_agent-native/agent-chat within 30s.",
-    );
-  }
+    const input = page.locator(VISIBLE_COMPOSER.input).first();
+    await input.waitFor({ state: "visible", timeout: 60_000 });
+    await typePrompt(page, input, prompt);
 
-  const stop = page.locator(VISIBLE_COMPOSER.stop).first();
-  // A turn the POST proves started may finish before the stop button paints,
-  // so its absence here is not a failure; the hidden wait below is the gate.
-  await stop
-    .waitFor({ state: "visible", timeout: 30_000 })
-    .catch(() => undefined); // coercion-ok: see above
-  await stop.waitFor({ state: "hidden", timeout: turnTimeoutMs });
+    const send = page.locator(VISIBLE_COMPOSER.send).first();
+    await send.waitFor({ state: "visible", timeout: 30_000 });
+    await awaitSendEnabled(page, send);
+
+    // Arm the request check before click so an early turn cannot escape it.
+    const turnPost = page.waitForRequest(
+      (request) =>
+        request.method() === "POST" && isChatTurnRequest(request.url()),
+      { timeout: 30_000 },
+    );
+    turnPost.catch(() => undefined); // coercion-ok: awaited below; this only stops an unhandled rejection if the click throws first
+    try {
+      await send.click();
+    } catch (error) {
+      throw await composerFailure(
+        page,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    try {
+      await turnPost;
+    } catch {
+      const message =
+        "Send was clicked but the app never POSTed a turn to /_agent-native/agent-chat within 30s.";
+      const failure = await composerFailure(page, message);
+      throw ownsDiagnostics
+        ? new Error(
+            failure.message +
+              "\nAgent-native request diagnostics: " +
+              JSON.stringify(diagnostics.snapshot()),
+          )
+        : failure;
+    }
+
+    const stop = page.locator(VISIBLE_COMPOSER.stop).first();
+    // A turn the POST proves started may finish before the stop button paints,
+    // so its absence here is not a failure; the hidden wait below is the gate.
+    await stop
+      .waitFor({ state: "visible", timeout: 30_000 })
+      .catch(() => undefined); // coercion-ok: see above
+    await stop.waitFor({ state: "hidden", timeout: turnTimeoutMs });
+  } finally {
+    if (ownsDiagnostics) disposePageAgentNativeRequests(page, diagnostics);
+  }
 }
 
 export async function assertNoChatFailure(
