@@ -669,7 +669,10 @@ describe("document editor layout", () => {
       "utf8",
     );
     expect(source).toMatch(
-      /contentRevision=\{\s*isLocalFileDocument \|\|\s*!suggestionEditorIsolation\.reconcileCanonical\s*\?\s*null\s*:/,
+      /contentRevision=\{\s*isLocalFileDocument \|\|\s*showLocalCreationDraft \|\|\s*!suggestionEditorIsolation\.reconcileCanonical\s*\?\s*null\s*:/,
+    );
+    expect(source).toMatch(
+      /isSuggesting\s*\?\s*suggestionDraft\s*:\s*showLocalCreationDraft\s*\?\s*localContent\s*:\s*document\.content/,
     );
     expect(source).toMatch(
       /onBaseAwareReconcile=\{\s*suggestionEditorIsolation\.reconcileCanonical\s*\?\s*handleBaseAwareReconcile\s*:\s*undefined\s*\}/,
@@ -2958,14 +2961,19 @@ describe("document editor layout", () => {
     expect(source).toContain("document.canEdit === true");
     expect(source).toContain("flushAllBlockFieldSaveControllersForDocument");
     expect(source).toContain("flushDocumentPropertyWrites(documentId)");
+    const navigationFlushStart = source.indexOf("const flushLatestPageEdits =");
     expect(source).toContain(
       "await editorPersistenceControllerRef.current?.flushLatest()",
     );
     expect(
-      source.indexOf("while (pendingPersistenceRef.current.size > 0)"),
+      source.indexOf(
+        "while (pendingPersistenceRef.current.size > 0)",
+        navigationFlushStart,
+      ),
     ).toBeLessThan(
       source.indexOf(
         "await editorPersistenceControllerRef.current?.flushLatest()",
+        navigationFlushStart,
       ),
     );
     expect(source).toContain(
@@ -3009,7 +3017,30 @@ describe("document editor layout", () => {
     );
     expect(documentEditorSource).toContain("mcpDirectoryWidgetReadOnly,");
     expect(documentEditorSource).toContain(
-      "const holdCollaborationForCreationSave =\n    isDocumentCreationConfirmed(queryClient, document) &&\n    (initialCreationSaveInFlight || pendingDocumentSaveRef.current !== null);",
+      "const holdCollaborationForCreationSave = isDocumentCreationConfirmed(\n    queryClient,\n    document,\n  );",
+    );
+    expect(documentEditorSource).toContain(
+      "const settled = creationSaveBarrierIsSettled({",
+    );
+    const creationReleaseStart = documentEditorSource.indexOf(
+      "const tryReleaseCreationCollaboration =",
+    );
+    expect(
+      documentEditorSource.indexOf(
+        "editorPersistenceControllerRef.current?.flushLatest()",
+        creationReleaseStart,
+      ),
+    ).toBeLessThan(
+      documentEditorSource.indexOf(
+        "creationSaveBarrierIsSettled({",
+        creationReleaseStart,
+      ),
+    );
+    expect(documentEditorSource).toContain(
+      "hasCollaborationSeedBody: !isEffectivelyEmptyDocumentContent(\n            currentDocument.content,\n          ),",
+    );
+    expect(documentEditorSource).toMatch(
+      /const selection =\s+editorSelectionControllerRef.current\?\.captureSelection\(\);/,
     );
     expect(documentEditorSource).toContain(
       "initialCreationSaveStartedRef.current = true;",
@@ -3021,13 +3052,16 @@ describe("document editor layout", () => {
       "patchDocumentCaches(queryClient, documentId, {\n          content: savedContent.content,",
     );
     expect(documentEditorSource).toContain(
-      "clearDocumentCreationConfirmed(queryClient, document);",
+      "clearDocumentCreationConfirmed(queryClient, currentDocument);",
     );
     expect(documentEditorSource).toContain(
-      "const creationCanEditWithoutCollaboration =\n    (creationAwaitingFirstRead || holdCollaborationForCreationSave) &&\n    !collabSynced;",
+      "const hasCollaborationSeedBody = !isEffectivelyEmptyDocumentContent(\n    document.content,\n  );",
     );
     expect(documentEditorSource).toContain(
-      "const collabDocumentId =\n    collabEnabled &&\n    !creationAwaitingFirstRead &&\n    !holdCollaborationForCreationSave &&\n    !isDocumentCreationPending(queryClient, document)",
+      "const canEditWithoutCollaboration =\n    (creationAwaitingFirstRead ||\n      holdCollaborationForCreationSave ||\n      (collabEnabled && !hasCollaborationSeedBody)) &&\n    !collabSynced;",
+    );
+    expect(documentEditorSource).toContain(
+      "const collabDocumentId =\n    collabEnabled &&\n    hasCollaborationSeedBody &&\n    !creationAwaitingFirstRead &&\n    !holdCollaborationForCreationSave &&\n    !isDocumentCreationPending(queryClient, document)",
     );
     expect(documentEditorSource).toContain("docId: collabDocumentId,");
     expect(documentEditorSource).toContain("const collabEditorEnabled =");
@@ -3061,10 +3095,10 @@ describe("document editor layout", () => {
     );
 
     expect(documentEditorSource).toContain(
-      "canEdit &&\n                    !creationCanEditWithoutCollaboration &&\n                    !collabSynced",
+      "canEdit &&\n                    !canEditWithoutCollaboration &&\n                    !collabSynced",
     );
     expect(documentEditorSource).toContain(
-      "(isLocalFileDocument ||\n      collabSynced ||\n      creationCanEditWithoutCollaboration)",
+      "(isLocalFileDocument || collabSynced || canEditWithoutCollaboration)",
     );
     expect(documentEditorSource).toContain(
       "!canEdit ||\n      !hydrationContext?.sourceId",

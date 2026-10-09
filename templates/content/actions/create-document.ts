@@ -42,6 +42,10 @@ import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { resolveContentSpaceTarget } from "./_content-space-target.js";
 import {
+  documentContentHash,
+  documentRevisionToken,
+} from "./_document-edit-mutation.js";
+import {
   documentsPositionScope,
   nextAppendPosition,
   withPositionLock,
@@ -475,6 +479,8 @@ export default defineAction({
       ctx,
     );
 
+    const revision = documentRevisionToken(doc.bodyRevision, doc.content ?? "");
+
     return {
       id: doc.id,
       spaceId,
@@ -487,6 +493,11 @@ export default defineAction({
       parentId: doc.parentId,
       title: doc.title,
       content: doc.content,
+      revision,
+      bodyRevision: doc.bodyRevision,
+      collabContentRevision:
+        doc.collabBodyRevision === doc.bodyRevision ? revision : null,
+      contentHash: documentContentHash(doc.content ?? ""),
       description: doc.description,
       icon: doc.icon,
       position: doc.position,

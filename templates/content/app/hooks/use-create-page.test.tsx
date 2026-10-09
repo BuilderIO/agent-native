@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => {
   const invalidateQueries = vi.fn();
   const removeQueries = vi.fn();
   const setQueryData = vi.fn();
+  const toastError = vi.fn(() => "create-error-toast");
+  const toastDismiss = vi.fn();
   const queryClient = {
     getQueryCache: () => ({ findAll: () => [], subscribe: () => () => {} }),
     getQueryData,
@@ -33,6 +35,8 @@ const mocks = vi.hoisted(() => {
     rollbackOptimisticCreatedDocument: vi.fn(),
     seedCreatedDocumentNavigation: vi.fn(),
     setQueryData,
+    toastDismiss,
+    toastError,
   };
 });
 
@@ -50,7 +54,11 @@ vi.mock("react-router", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { error: vi.fn() },
+  toast: { dismiss: mocks.toastDismiss, error: mocks.toastError },
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
 }));
 
 vi.mock("@/hooks/use-content-spaces", () => ({
@@ -179,13 +187,27 @@ describe("useCreatePage", () => {
     });
   });
 
-  it("preserves list metadata and rolls back only its optimistic page on failure", async () => {
+  it("keeps a navigated optimistic page reachable and retries creation with the same ID", async () => {
     const previous = {
       documents: [{ id: "existing-page" }],
       pagination: { totalItems: 1 },
     };
     mocks.getQueryData.mockReturnValue(previous);
-    mocks.createDocument.mockRejectedValue(new Error("create failed"));
+    mocks.createDocument
+      .mockRejectedValueOnce(new Error("create failed"))
+      .mockResolvedValueOnce({
+        id: "slash-page-id",
+        parentId: "parent-page",
+        title: "",
+        content: "",
+        icon: null,
+        position: 9999,
+        isFavorite: false,
+        hideFromSearch: false,
+        visibility: "private",
+        createdAt: "2026-07-23T18:00:00.000Z",
+        updatedAt: "2026-07-23T18:00:01.000Z",
+      } satisfies Document);
 
     let createPage!: (
       parentId?: string,
@@ -206,7 +228,13 @@ describe("useCreatePage", () => {
       );
     });
 
-    const optimisticUpdater = mocks.setQueryData.mock.calls[0]?.[1] as (
+    const listWrite = mocks.setQueryData.mock.calls.find(
+      ([key]) =>
+        Array.isArray(key) &&
+        key[0] === "action" &&
+        key[1] === "list-documents",
+    );
+    const optimisticUpdater = listWrite?.[1] as (
       old: typeof previous,
     ) => typeof previous;
     const optimistic = optimisticUpdater(previous);
@@ -219,31 +247,65 @@ describe("useCreatePage", () => {
         parentId: "parent-page",
       }),
     );
-    expect(mocks.rollbackOptimisticCreatedDocument).toHaveBeenCalledWith(
-      expect.anything(),
-      optimistic.documents[1]?.id,
-      true,
-    );
-    expect(mocks.removeQueries).toHaveBeenCalledWith({
-      queryKey: ["action", "get-document"],
-      predicate: expect.any(Function),
-    });
+    expect(mocks.rollbackOptimisticCreatedDocument).not.toHaveBeenCalled();
+    expect(mocks.removeQueries).not.toHaveBeenCalled();
     expect(mocks.seedCreatedDocumentNavigation).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ id: "slash-page-id", parentId: "parent-page" }),
       null,
     );
-    expect(mocks.removeCreatedDocumentNavigation).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ id: "slash-page-id", parentId: "parent-page" }),
-    );
-    expect(mocks.navigate).toHaveBeenLastCalledWith(
-      "/page/existing-page?view=table#details",
+    expect(mocks.removeCreatedDocumentNavigation).not.toHaveBeenCalled();
+    expect(mocks.navigate).toHaveBeenCalledExactlyOnceWith(
+      "/page/slash-page-id",
       {
-        replace: true,
         flushSync: true,
       },
     );
+
+    const [toastMessage, toastOptions] = mocks.toastError.mock
+      .calls[0] as unknown as [
+      string,
+      {
+        action: { label: string; onClick: () => Promise<void> };
+        description?: string;
+        duration: number;
+      },
+    ];
+    expect(toastMessage).toBe("sidebar.failedCreatePage");
+    expect(toastOptions.description).toBe("create failed");
+    expect(toastOptions.duration).toBe(Number.POSITIVE_INFINITY);
+    expect(toastOptions.action.label).toBe("database.retry");
+
+    await act(async () => {
+      window.history.replaceState({}, "", "/page/slash-page-id");
+      await toastOptions.action.onClick();
+    });
+
+    expect(mocks.createDocument).toHaveBeenCalledTimes(2);
+    expect(mocks.createDocument.mock.calls.map(([input]) => input.id)).toEqual([
+      "slash-page-id",
+      "slash-page-id",
+    ]);
+    expect(mocks.toastDismiss).toHaveBeenCalledWith("create-error-toast");
+    const documentWrites = mocks.setQueryData.mock.calls.filter(
+      ([key]) =>
+        Array.isArray(key) &&
+        key[0] === "action" &&
+        key[1] === "get-document" &&
+        key[2]?.id === "slash-page-id",
+    );
+    const confirmedWrite = documentWrites[documentWrites.length - 1];
+    const confirmedDocument = confirmedWrite?.[1] as Document | undefined;
+    expect(confirmedDocument).toBeDefined();
+    expect(
+      isDocumentCreationPending(mocks.queryClient as never, confirmedDocument!),
+    ).toBe(false);
+    expect(
+      isDocumentCreationConfirmed(
+        mocks.queryClient as never,
+        confirmedDocument!,
+      ),
+    ).toBe(true);
   });
 
   it("removes an optimistic list when no prior list snapshot existed", async () => {
@@ -252,7 +314,7 @@ describe("useCreatePage", () => {
 
     let createPage!: () => Promise<string>;
     function Probe() {
-      createPage = useCreatePage();
+      createPage = useCreatePage({ navigate: false });
       return null;
     }
     await act(async () => root.render(<Probe />));
@@ -265,5 +327,6 @@ describe("useCreatePage", () => {
       expect.any(String),
       false,
     );
+    expect(mocks.navigate).not.toHaveBeenCalled();
   });
 });

@@ -147,7 +147,13 @@ export function isEffectivelyEmptyDocumentContent(
   content: string | null | undefined,
 ) {
   const normalized = (content ?? "").trim();
-  return normalized === "" || normalized === "<empty-block/>";
+  return (
+    normalized === "" ||
+    normalized.split(/\r?\n/).every((line) => {
+      const trimmed = line.trim();
+      return trimmed === "" || /^<empty-block\b[^>]*\/>$/.test(trimmed);
+    })
+  );
 }
 
 function sourceBackedEmptyBodyNeedsHydration(args: {

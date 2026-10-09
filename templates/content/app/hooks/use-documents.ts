@@ -1237,6 +1237,8 @@ export function useUpdateDocument() {
       onMutate: async (variables) => {
         // This tab's own saves never come back through sync.
         spoilPageOpenReads(queryClient, variables.id);
+        const documentFilter = documentQueryFilter(variables.id);
+        await queryClient.cancelQueries(documentFilter);
         const optimisticPatch: Partial<Document> = {
           ...(variables.title !== undefined ? { title: variables.title } : {}),
           ...(variables.icon !== undefined ? { icon: variables.icon } : {}),
@@ -1246,7 +1248,6 @@ export function useUpdateDocument() {
         };
         if (Object.keys(optimisticPatch).length === 0) return undefined;
 
-        const documentFilter = documentQueryFilter(variables.id);
         const databaseFilter = {
           queryKey: ["action", "get-content-database"],
         } as const;
@@ -1269,7 +1270,6 @@ export function useUpdateDocument() {
         const sidebarStateKey = sidebarStateEntry?.[0];
         const documentSpaceId = sidebarStateKey?.[2].spaceId;
         await Promise.all([
-          queryClient.cancelQueries(documentFilter),
           queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
           queryClient.cancelQueries(databaseFilter),
           queryClient.cancelQueries(databasePageFilter),

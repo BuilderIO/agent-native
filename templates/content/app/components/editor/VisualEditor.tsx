@@ -1820,6 +1820,16 @@ export function suggestionReplacementIntentForTransaction(
   };
 }
 
+function hasSemanticCollaborationContent(value: string): boolean {
+  return (
+    value
+      .split(/\r?\n/)
+      .filter((line) => !/^<empty-block\b[^>]*\/>$/.test(line.trim()))
+      .join("\n")
+      .trim().length > 0
+  );
+}
+
 export function shouldSeedCollaborativeContent({
   content,
   currentMarkdown,
@@ -1829,12 +1839,10 @@ export function shouldSeedCollaborativeContent({
   currentMarkdown: string;
   fragmentLength: number;
 }): boolean {
-  const semanticMarkdown = currentMarkdown
-    .split(/\r?\n/)
-    .filter((line) => !/^<empty-block\b[^>]*\/>$/.test(line.trim()))
-    .join("\n")
-    .trim();
-  return !!content.trim() && (fragmentLength === 0 || !semanticMarkdown);
+  return (
+    hasSemanticCollaborationContent(content) &&
+    (fragmentLength === 0 || !hasSemanticCollaborationContent(currentMarkdown))
+  );
 }
 
 export function parseNfmForCollabReconcile(

@@ -160,6 +160,7 @@ import {
 } from "@/lib/local-content-source-files";
 import {
   clearDocumentCreationConfirmed,
+  getDocumentCreationBaseline,
   isDocumentCreationConfirmed,
   isDocumentCreationPending,
 } from "@/lib/optimistic-document";
@@ -198,6 +199,8 @@ import {
   useCommentReplyDrafts,
   usePendingCommentDraft,
 } from "./CommentsSidebar";
+import { creationSaveBarrierIsSettled } from "./creation-save-barrier";
+import { prepareInitialCreationSave } from "./creation-save-baseline";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
 import { shouldUseLiveDocumentCollaboration } from "./document-collaboration";
 import {
@@ -2653,6 +2656,9 @@ function PageEditorSessionBody({
     | VisualEditorSelectionSnapshot
     | null
   >(null);
+  const [creationCollaborationSelection, setCreationCollaborationSelection] =
+    useState<VisualEditorSelectionSnapshot | null>(null);
+  const [, setCreationCollaborationReleaseVersion] = useState(0);
   const suggestionBaseRef = useRef<SuggestionDraftSession | null>(null);
   const createdSuggestionOperationsRef = useRef(
     new Map<string, SuggestionPersistenceEntry>(),
@@ -2928,8 +2934,7 @@ function PageEditorSessionBody({
   const promotedBuilderBodyRef = useRef<string | null>(null);
   const builderBodyRetryWakeRef = useRef<number | null>(null);
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
-  const [initialCreationSaveInFlight, setInitialCreationSaveInFlight] =
-    useState(false);
+  const tryReleaseCreationCollaborationRef = useRef<() => void>(() => {});
   const initialCreationSaveStartedRef = useRef(false);
   const documentSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const activeContentSavesRef = useRef(0);
@@ -3290,11 +3295,18 @@ function PageEditorSessionBody({
     isLocalFileDocument,
     mcpDirectoryWidgetReadOnly,
   });
-  const holdCollaborationForCreationSave =
-    isDocumentCreationConfirmed(queryClient, document) &&
-    (initialCreationSaveInFlight || pendingDocumentSaveRef.current !== null);
+  const holdCollaborationForCreationSave = isDocumentCreationConfirmed(
+    queryClient,
+    document,
+  );
+  const showLocalCreationDraft =
+    creationAwaitingFirstRead || holdCollaborationForCreationSave;
+  const hasCollaborationSeedBody = !isEffectivelyEmptyDocumentContent(
+    document.content,
+  );
   const collabDocumentId =
     collabEnabled &&
+    hasCollaborationSeedBody &&
     !creationAwaitingFirstRead &&
     !holdCollaborationForCreationSave &&
     !isDocumentCreationPending(queryClient, document)
@@ -3325,18 +3337,18 @@ function PageEditorSessionBody({
       : null;
   const collabInitializationFailed =
     collabEnabled && collabInitialization.status === "error";
-  const creationCanEditWithoutCollaboration =
-    (creationAwaitingFirstRead || holdCollaborationForCreationSave) &&
+  const canEditWithoutCollaboration =
+    (creationAwaitingFirstRead ||
+      holdCollaborationForCreationSave ||
+      (collabEnabled && !hasCollaborationSeedBody)) &&
     !collabSynced;
   const editorCanEdit =
     canEdit &&
     !bodyHydrationPending &&
     !localSourceMissing &&
     (!isLocalFileDocument || localSourceAccess === "available") &&
-    (isLocalFileDocument ||
-      collabSynced ||
-      creationCanEditWithoutCollaboration) &&
-    (!collabInitializationFailed || creationCanEditWithoutCollaboration);
+    (isLocalFileDocument || collabSynced || canEditWithoutCollaboration) &&
+    (!collabInitializationFailed || canEditWithoutCollaboration);
   const collabEditorEnabled =
     collabEnabled &&
     canEdit &&
@@ -4043,7 +4055,7 @@ function PageEditorSessionBody({
         let result;
         try {
           const collaborationFlushed =
-            creationCanEditWithoutCollaboration ||
+            canEditWithoutCollaboration ||
             (await flushBeforeSave(flushCollabUpdates));
           if (
             options.requireActiveEditorSession &&
@@ -4271,6 +4283,7 @@ function PageEditorSessionBody({
     [
       documentId,
       autoSync,
+      canEditWithoutCollaboration,
       clearConfirmedDraftJournal,
       flushCollabUpdates,
       isLinkedLocalSourceDocument,
@@ -4614,6 +4627,87 @@ function PageEditorSessionBody({
     null,
   );
   const retryPendingSaveDelayRef = useRef(800);
+  const creationCollaborationReleaseRunningRef = useRef(false);
+  const tryReleaseCreationCollaboration = useCallback(async () => {
+    if (creationCollaborationReleaseRunningRef.current) return;
+    const createdDocument = currentDocumentRef.current;
+    if (
+      !isDocumentCreationConfirmed(queryClient, createdDocument) ||
+      isEffectivelyEmptyDocumentContent(createdDocument.content)
+    )
+      return;
+
+    creationCollaborationReleaseRunningRef.current = true;
+    try {
+      while (
+        editorSessionActiveRef.current &&
+        currentDocumentRef.current.id === documentId &&
+        isDocumentCreationConfirmed(queryClient, currentDocumentRef.current)
+      ) {
+        const latestBodyPersisted =
+          (await editorPersistenceControllerRef.current?.flushLatest()) ?? true;
+        if (!latestBodyPersisted) return;
+
+        const editGeneration = editorEditGenerationRef.current;
+        const saveQueue = documentSaveQueueRef.current;
+        await saveQueue;
+        while (pendingPersistenceRef.current.size > 0) {
+          await Promise.allSettled([...pendingPersistenceRef.current]);
+        }
+        await Promise.resolve();
+
+        if (
+          saveQueue !== documentSaveQueueRef.current ||
+          editGeneration !== editorEditGenerationRef.current
+        ) {
+          continue;
+        }
+
+        const currentDocument = currentDocumentRef.current;
+        if (
+          currentDocument.id !== documentId ||
+          !isDocumentCreationConfirmed(queryClient, currentDocument)
+        ) {
+          return;
+        }
+        const settled = creationSaveBarrierIsSettled({
+          saveQueueUnchanged: saveQueue === documentSaveQueueRef.current,
+          editGenerationUnchanged:
+            editGeneration === editorEditGenerationRef.current,
+          hasPendingSave: pendingDocumentSaveRef.current !== null,
+          hasDebounceTimer: saveTimeoutRef.current !== null,
+          hasRetry: retryPendingSaveTimerRef.current !== null,
+          hasCollaborationSeedBody: !isEffectivelyEmptyDocumentContent(
+            currentDocument.content,
+          ),
+          activeContentSaveCount: activeContentSavesRef.current,
+          pendingPersistenceCount: pendingPersistenceRef.current.size,
+          localTitle: localTitleRef.current,
+          savedTitle: lastSavedTitleRef.current.title,
+          documentTitle: currentDocument.title,
+          localContent: localContentRef.current,
+          savedContent: lastSavedContentRef.current.content,
+          documentContent: currentDocument.content,
+        });
+        if (!settled) return;
+
+        const selection =
+          editorSelectionControllerRef.current?.captureSelection();
+        if (selection) setCreationCollaborationSelection(selection);
+        clearDocumentCreationConfirmed(queryClient, currentDocument);
+        setCreationCollaborationReleaseVersion((version) => version + 1);
+        return;
+      }
+    } finally {
+      creationCollaborationReleaseRunningRef.current = false;
+    }
+  }, [documentId, queryClient]);
+  tryReleaseCreationCollaborationRef.current = () => {
+    void tryReleaseCreationCollaboration();
+  };
+  useEffect(() => {
+    if (document) tryReleaseCreationCollaborationRef.current();
+  }, [document]);
   retryPendingSaveRef.current = (result, pending) => {
     const currentRetryState = () => ({
       active: editorSessionActiveRef.current,
@@ -4660,6 +4754,7 @@ function PageEditorSessionBody({
         .then((next) => {
           if (next.contentPersisted) {
             retryPendingSaveDelayRef.current = 800;
+            tryReleaseCreationCollaborationRef.current();
           } else {
             retryPendingSaveRef.current(next, retryPending);
           }
@@ -4669,10 +4764,7 @@ function PageEditorSessionBody({
   };
   const flushPendingDocumentSave = useCallback(
     (pending: PendingDocumentSave) => {
-      if (
-        isDocumentCreationPending(queryClient, currentDocumentRef.current) ||
-        creationAwaitingFirstRead
-      ) {
+      if (isDocumentCreationPending(queryClient, currentDocumentRef.current)) {
         return Promise.resolve();
       }
       if (!pending.canEditWhenQueued) return Promise.resolve();
@@ -4695,19 +4787,19 @@ function PageEditorSessionBody({
         .then((result) => {
           if (result.contentPersisted) {
             retryPendingSaveDelayRef.current = 800;
+            tryReleaseCreationCollaborationRef.current();
           } else {
             retryPendingSaveRef.current(result, pending);
           }
         })
         .catch(handleBackgroundSaveError);
     },
-    [creationAwaitingFirstRead, handleBackgroundSaveError, queryClient],
+    [handleBackgroundSaveError, queryClient],
   );
   useEffect(() => {
     if (
       !creationStarted ||
       !document?.revision ||
-      creationAwaitingFirstRead ||
       !isDocumentCreationConfirmed(queryClient, document) ||
       initialCreationSaveStartedRef.current
     ) {
@@ -4716,36 +4808,22 @@ function PageEditorSessionBody({
     initialCreationSaveStartedRef.current = true;
     const pending = pendingDocumentSaveRef.current;
     if (!pending) {
-      clearDocumentCreationConfirmed(queryClient, document);
+      tryReleaseCreationCollaborationRef.current();
       return;
     }
 
-    setInitialCreationSaveInFlight(true);
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = null;
     pendingDocumentSaveRef.current = null;
 
-    const contentBase = {
-      content: document.content,
-      updatedAt: document.updatedAt ?? null,
-      revision: document.revision,
-    };
-    const authoredContentIntent =
-      pending.content === document.content
-        ? undefined
-        : {
-            ...pending.authoredContentIntent,
-            editGeneration: pending.editGeneration,
-            baseRevision: document.revision,
-            baseContent: document.content,
-            candidateContent: pending.content,
-          };
+    const preparedSave = prepareInitialCreationSave({
+      pending,
+      creationBaseline: getDocumentCreationBaseline(queryClient, document),
+      observedDocument: document,
+    });
     const createdDocumentSave = {
       ...pending,
-      contentBase,
-      titleBase: document.title,
-      contentAuthoredAfterRevision: document.revision,
-      authoredContentIntent,
+      ...preparedSave,
     };
     journalCurrentDraft(
       createdDocumentSave.title,
@@ -4753,9 +4831,9 @@ function PageEditorSessionBody({
       createdDocumentSave.editGeneration,
       {
         saveAttemptId: createdDocumentSave.saveAttemptId,
-        contentBase,
-        titleBase: document.title,
-        authoredContentIntent,
+        contentBase: preparedSave.contentBase,
+        titleBase: preparedSave.titleBase,
+        authoredContentIntent: preparedSave.authoredContentIntent,
       },
     );
     void flushPendingDocumentSave(createdDocumentSave).finally(() => {
@@ -4769,12 +4847,10 @@ function PageEditorSessionBody({
           ...(savedContent.revision ? { revision: savedContent.revision } : {}),
         });
       }
-      clearDocumentCreationConfirmed(queryClient, document);
-      setInitialCreationSaveInFlight(false);
+      tryReleaseCreationCollaborationRef.current();
     });
   }, [
     creationStarted,
-    creationAwaitingFirstRead,
     document,
     flushPendingDocumentSave,
     journalCurrentDraft,
@@ -4926,11 +5002,7 @@ function PageEditorSessionBody({
         expectedLocalSourceRevision,
         timeout: setTimeout(() => {
           if (
-            isDocumentCreationPending(
-              queryClient,
-              currentDocumentRef.current,
-            ) ||
-            creationAwaitingFirstRead
+            isDocumentCreationPending(queryClient, currentDocumentRef.current)
           ) {
             saveTimeoutRef.current = null;
             return;
@@ -4952,7 +5024,6 @@ function PageEditorSessionBody({
     },
     [
       flushPendingDocumentSave,
-      creationAwaitingFirstRead,
       isLinkedLocalSourceDocument,
       journalCurrentDraft,
       queryClient,
@@ -9102,16 +9173,19 @@ function PageEditorSessionBody({
                                   : (pendingSuggestionDecisionContent ??
                                     (isSuggesting
                                       ? suggestionDraft
-                                      : document.content))
+                                      : showLocalCreationDraft
+                                        ? localContent
+                                        : document.content))
                               }
                               contentUpdatedAt={
-                                isLocalFileDocument
+                                isLocalFileDocument || showLocalCreationDraft
                                   ? (localContentUpdatedAt ??
                                     document.updatedAt)
                                   : suggestionEditorIsolation.contentUpdatedAt
                               }
                               contentRevision={
                                 isLocalFileDocument ||
+                                showLocalCreationDraft ||
                                 !suggestionEditorIsolation.reconcileCanonical
                                   ? null
                                   : (document.revision ?? null)
@@ -9194,7 +9268,10 @@ function PageEditorSessionBody({
                                   ? handleSuggestionReplacementIntent
                                   : undefined
                               }
-                              initialSelection={suggestionInitialSelection}
+                              initialSelection={
+                                creationCollaborationSelection ??
+                                suggestionInitialSelection
+                              }
                               onSuggestionAnchorsChange={
                                 handleSuggestionAnchorsChange
                               }
@@ -9249,7 +9326,7 @@ function PageEditorSessionBody({
                     {!bodyHydrationPending &&
                     collabEnabled &&
                     canEdit &&
-                    !creationCanEditWithoutCollaboration &&
+                    !canEditWithoutCollaboration &&
                     !collabSynced ? (
                       <div
                         className="mt-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"

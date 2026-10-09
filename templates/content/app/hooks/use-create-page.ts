@@ -1,7 +1,8 @@
+import { useT } from "@agent-native/core/client/i18n";
 import type { Document } from "@shared/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -11,7 +12,6 @@ import {
 } from "@/components/sidebar/select-content-space";
 import { useContentSpaces } from "@/hooks/use-content-spaces";
 import {
-  removeCreatedDocumentNavigation,
   rollbackOptimisticCreatedDocument,
   seedCreatedDocumentNavigation,
   useCreateDocument,
@@ -43,7 +43,7 @@ export function useCreatePage(opts?: {
   awaitPersist?: boolean;
 }) {
   const navigate = useNavigate();
-  const location = useLocation();
+  const t = useT();
   const queryClient = useQueryClient();
   const createDocument = useCreateDocument();
   const contentSpacesQuery = useContentSpaces();
@@ -91,7 +91,6 @@ export function useCreatePage(opts?: {
       const previousDocuments = queryClient.getQueryData(
         LIST_DOCUMENTS_QUERY_KEY,
       );
-      const previousPath = `${location.pathname}${location.search}${location.hash}`;
 
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
         const docs: Document[] =
@@ -138,23 +137,51 @@ export function useCreatePage(opts?: {
         });
       };
 
-      const onPersistError = (err: unknown) => {
-        rollbackOptimisticCreatedDocument(
-          queryClient,
-          id,
-          previousDocuments !== undefined,
-        );
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
-        queryClient.removeQueries(documentQueryFilter(id));
-        if (shouldNavigate) {
-          removeCreatedDocumentNavigation(queryClient, tempDoc);
-          void navigate(previousPath, { replace: true, flushSync: true });
+      let createErrorToastId: string | number | undefined;
+      let retrying = false;
+
+      const reportPersistError = (err: unknown) => {
+        if (!shouldNavigate) {
+          rollbackOptimisticCreatedDocument(
+            queryClient,
+            id,
+            previousDocuments !== undefined,
+          );
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-documents"],
+          });
+          queryClient.removeQueries(documentQueryFilter(id));
+          toast.error(t("sidebar.failedCreatePage"), {
+            description:
+              err instanceof Error ? err.message : t("empty.genericError"),
+          });
+          return;
         }
-        toast.error("Failed to create page", {
+
+        const retryPersist = async () => {
+          if (retrying) return;
+          retrying = true;
+          try {
+            await persist();
+            if (createErrorToastId !== undefined) {
+              toast.dismiss(createErrorToastId);
+            }
+          } catch (retryError) {
+            reportPersistError(retryError);
+          } finally {
+            retrying = false;
+          }
+        };
+
+        createErrorToastId = toast.error(t("sidebar.failedCreatePage"), {
+          id: createErrorToastId,
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
+          duration: Number.POSITIVE_INFINITY,
+          action: {
+            label: t("database.retry"),
+            onClick: () => retryPersist(),
+          },
         });
       };
 
@@ -162,26 +189,24 @@ export function useCreatePage(opts?: {
         try {
           await persist();
         } catch (err) {
-          onPersistError(err);
+          reportPersistError(err);
           throw err;
         }
       } else {
-        void persist().catch(onPersistError);
+        void persist().catch(reportPersistError);
       }
 
       return id;
     },
     [
       createDocument,
-      location.hash,
-      location.pathname,
-      location.search,
       navigate,
       onAfterNavigate,
       queryClient,
       selectedSpace,
       shouldAwaitPersist,
       shouldNavigate,
+      t,
     ],
   );
 }

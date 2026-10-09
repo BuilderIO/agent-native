@@ -279,8 +279,8 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("const handleCreateDatabase = useCallback");
     expect(sidebar).toContain("newDocumentId: id");
     expect(sidebar).toContain("navigateToDocument(id)");
-    expect(sidebar).toContain(
-      "rollbackOptimisticCreatedDocument(\n          queryClient,\n          id",
+    expect(sidebar).toMatch(
+      /rollbackOptimisticCreatedDocument\(\s+queryClient,\s+id,/,
     );
     expect(sidebar).toContain("navigate(previousPath, {");
     expect(sidebar).toContain(

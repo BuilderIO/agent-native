@@ -347,6 +347,9 @@ describe("body hydration editing gates", () => {
   it("treats the editor empty block sentinel as empty content", () => {
     expect(isEffectivelyEmptyDocumentContent("")).toBe(true);
     expect(isEffectivelyEmptyDocumentContent(" <empty-block/> ")).toBe(true);
+    expect(
+      isEffectivelyEmptyDocumentContent("<empty-block/>\n <empty-block/>"),
+    ).toBe(true);
     expect(isEffectivelyEmptyDocumentContent("Hydrated body")).toBe(false);
   });
 

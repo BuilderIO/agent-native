@@ -209,7 +209,6 @@ describe("page open document reads", () => {
         title: "Plan",
       }),
     );
-
     clearDocumentCreationConfirmed(queryClient, created);
   });
 

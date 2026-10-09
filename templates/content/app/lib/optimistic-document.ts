@@ -6,6 +6,7 @@ import { documentQueryFilter } from "./document-query";
 type DocumentCreationState = {
   pending: Set<string>;
   confirmed: Set<string>;
+  baselines: Map<string, Document>;
 };
 
 const documentCreationStates = new WeakMap<
@@ -17,7 +18,7 @@ function creationStateFor(queryClient: QueryClient) {
   let state = documentCreationStates.get(queryClient);
   if (state) return state;
 
-  state = { pending: new Set(), confirmed: new Set() };
+  state = { pending: new Set(), confirmed: new Set(), baselines: new Map() };
   documentCreationStates.set(queryClient, state);
   queryClient.getQueryCache().subscribe((event) => {
     if (event.type !== "removed") return;
@@ -30,6 +31,7 @@ function creationStateFor(queryClient: QueryClient) {
     ) {
       state!.pending.delete(id);
       state!.confirmed.delete(id);
+      state!.baselines.delete(id);
     }
   });
   return state;
@@ -39,7 +41,10 @@ export function markDocumentCreationPending(
   queryClient: QueryClient,
   document: Document,
 ): Document {
-  creationStateFor(queryClient).pending.add(document.id);
+  const state = creationStateFor(queryClient);
+  state.pending.add(document.id);
+  state.confirmed.delete(document.id);
+  state.baselines.delete(document.id);
   return document;
 }
 
@@ -68,7 +73,15 @@ export function markDocumentCreationConfirmed(
   const state = creationStateFor(queryClient);
   state.pending.delete(document.id);
   state.confirmed.add(document.id);
+  state.baselines.set(document.id, document);
   return document;
+}
+
+export function getDocumentCreationBaseline(
+  queryClient: QueryClient,
+  document: Pick<Document, "id">,
+): Document | undefined {
+  return documentCreationStates.get(queryClient)?.baselines.get(document.id);
 }
 
 export function isDocumentCreationConfirmed(
@@ -84,7 +97,9 @@ export function clearDocumentCreationConfirmed<T extends Pick<Document, "id">>(
   queryClient: QueryClient,
   document: T,
 ): T {
-  documentCreationStates.get(queryClient)?.confirmed.delete(document.id);
+  const state = documentCreationStates.get(queryClient);
+  state?.confirmed.delete(document.id);
+  state?.baselines.delete(document.id);
   return document;
 }
 

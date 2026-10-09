@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   clearDocumentCreationConfirmed,
   clearDocumentCreationPending,
+  getDocumentCreationBaseline,
   isDocumentCreationConfirmed,
   isDocumentCreationPending,
   markDocumentCreationConfirmed,
@@ -77,9 +78,11 @@ describe("optimistic document creation", () => {
 
     expect(confirmed).toBe(persisted);
     expect(isDocumentCreationConfirmed(queryClient, confirmed)).toBe(true);
+    expect(getDocumentCreationBaseline(queryClient, confirmed)).toBe(persisted);
     const cleared = clearDocumentCreationConfirmed(queryClient, confirmed);
     expect(cleared).toBe(confirmed);
     expect(isDocumentCreationConfirmed(queryClient, cleared)).toBe(false);
+    expect(getDocumentCreationBaseline(queryClient, cleared)).toBeUndefined();
     expect(isDocumentCreationConfirmed(queryClient, persisted)).toBe(false);
     queryClient.clear();
   });
@@ -87,21 +90,24 @@ describe("optimistic document creation", () => {
   it("preserves create confirmation through query cache structural sharing", () => {
     const queryClient = new QueryClient();
     const queryKey = ["action", "get-document", { id: "page-1" }];
+    const created = document();
     queryClient.setQueryData(
       queryKey,
       markDocumentCreationPending(queryClient, document()),
     );
     queryClient.setQueryData(
       queryKey,
-      markDocumentCreationConfirmed(queryClient, document()),
+      markDocumentCreationConfirmed(queryClient, created),
     );
 
     const cached = queryClient.getQueryData<Document>(queryKey);
     expect(cached).toBeDefined();
     expect(isDocumentCreationConfirmed(queryClient, cached!)).toBe(true);
     expect(isDocumentCreationPending(queryClient, cached!)).toBe(false);
+    expect(getDocumentCreationBaseline(queryClient, cached!)).toBe(created);
 
     clearDocumentCreationConfirmed(queryClient, cached!);
+    expect(getDocumentCreationBaseline(queryClient, cached!)).toBeUndefined();
     queryClient.clear();
   });
 
@@ -144,6 +150,7 @@ describe("optimistic document creation", () => {
     queryClient.removeQueries({ queryKey });
 
     expect(isDocumentCreationConfirmed(queryClient, created)).toBe(false);
+    expect(getDocumentCreationBaseline(queryClient, created)).toBeUndefined();
     queryClient.clear();
   });
 

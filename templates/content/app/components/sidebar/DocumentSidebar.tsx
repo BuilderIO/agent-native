@@ -1731,10 +1731,6 @@ export function DocumentSidebar({
         createdAt: now,
         updatedAt: now,
       });
-      const previousDocuments = localFileMode
-        ? queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)
-        : undefined;
-      const previousPath = `${location.pathname}${location.search}${location.hash}`;
       pendingOptimisticCreationIdsRef.current.add(id);
 
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
@@ -1766,7 +1762,7 @@ export function DocumentSidebar({
       navigateToDocument(id);
       onNavigate?.();
 
-      try {
+      const persistCreatedPage = async () => {
         const created = await createDocument.mutateAsync({
           id,
           title: "",
@@ -1793,42 +1789,47 @@ export function DocumentSidebar({
             queryKey: contentDatabaseByIdQueryKey(rootFilesDatabaseId),
           });
         }
-        settleParentExpansion(true);
-      } catch (err) {
-        settleParentExpansion(false);
-        rollbackOptimisticCreatedDocument(
-          queryClient,
-          id,
-          previousDocuments !== undefined,
-        );
-        settleOptimisticListRefresh(id);
-        queryClient.removeQueries(documentQueryFilter(id));
-        removeCreatedDocumentNavigation(queryClient, tempDoc);
-        if (rootFilesDatabaseId) {
-          queryClient.setQueryData<ContentDatabaseResponse>(
-            contentDatabaseByIdQueryKey(rootFilesDatabaseId),
-            (current) => removeOptimisticItemFromContentDatabase(current, id),
-          );
-        }
-        if (window.location.pathname === `/page/${id}`) {
-          void navigate(previousPath, {
-            replace: true,
-            flushSync: true,
-          });
-        }
+      };
+      const retryToastId = `create-page-retry-${id}`;
+      let retrying = false;
+      function showCreatePageRetry(err: unknown) {
         toast.error(t("sidebar.failedCreatePage"), {
+          id: retryToastId,
           description:
             err instanceof Error ? err.message : t("empty.genericError"),
+          duration: Infinity,
+          action: {
+            label: t("root.searchRetry"),
+            onClick: () => {
+              void retryCreatedPage();
+            },
+          },
         });
+      }
+      async function retryCreatedPage() {
+        if (retrying) return;
+        retrying = true;
+        try {
+          await persistCreatedPage();
+          toast.dismiss(retryToastId);
+        } catch (retryErr) {
+          showCreatePageRetry(retryErr);
+        } finally {
+          retrying = false;
+        }
+      }
+
+      try {
+        await persistCreatedPage();
+        settleParentExpansion(true);
+      } catch (err) {
+        settleParentExpansion(true);
+        showCreatePageRetry(err);
       }
     },
     [
       createDocument,
       localFileMode,
-      location.hash,
-      location.pathname,
-      location.search,
-      navigate,
       navigateToDocument,
       onNavigate,
       queryClient,
