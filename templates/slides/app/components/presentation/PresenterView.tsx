@@ -233,6 +233,7 @@ export default function PresenterView({
             {current && (
               <SlideRenderer
                 slide={current}
+                slidePosition={{ number: index + 1, count: safeSlides.length }}
                 thumbnail
                 aspectRatio={aspectRatio}
                 designSystem={designSystem}
@@ -247,6 +248,10 @@ export default function PresenterView({
               <div className="overflow-hidden rounded-lg bg-black">
                 <SlideRenderer
                   slide={next}
+                  slidePosition={{
+                    number: index + 2,
+                    count: safeSlides.length,
+                  }}
                   thumbnail
                   aspectRatio={aspectRatio}
                   designSystem={designSystem}

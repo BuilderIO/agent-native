@@ -37,7 +37,7 @@ import {
 } from "../agent/engine/provider-env-vars.js";
 import type { AgentEngineEntry } from "../agent/engine/registry.js";
 import {
-  detectEngineFromEnv,
+  detectEngineFromEnvForRequest,
   detectEngineFromUserSecrets,
   isStoredEngineUsableForRequest,
 } from "../agent/engine/registry.js";
@@ -156,16 +156,21 @@ import { track } from "../tracking/index.js";
 import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
-import { isAgentChatAiSetupReady } from "./agent-chat-ai-setup.js";
+import {
+  isAgentChatAiSetupReady,
+  isBuilderChatSetupReady,
+} from "./agent-chat-ai-setup.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
 import { createAgentEngineDisconnectHandler } from "./agent-engine-default-model-route.js";
 import { createAgentEngineOllamaModelsHandler } from "./agent-engine-ollama-models-route.js";
+import { memoizeAgentEngineStatus } from "./agent-engine-status-cache.js";
 import {
   readAnalyticsClientPlatformHeader,
   readBrowserSessionIdHeader,
 } from "./agent-run-context.js";
 import { isAnonymousWaitlistSessionEmail } from "./anonymous-identity.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
+import { readAnalyticsSessionId } from "./attribution.js";
 import { getSession, type AuthSession } from "./auth.js";
 import { createAutomationFailureUnsubscribeHandler } from "./automation-failure-notifications.js";
 import {
@@ -231,6 +236,7 @@ import {
   exchangeBuilderOAuthAuthorization,
   getBuilderOAuthGrants,
   getBuilderOAuthStoredScope,
+  hasUsableBuilderOAuthSessionForReadiness,
   hasStoredBuilderOAuthGrant,
   isBuilderOrgManagerRole,
   isPersonalBuilderGrantAllowed,
@@ -256,12 +262,15 @@ import {
 } from "./cors-origins.js";
 import type { EnvKeyConfig } from "./create-server.js";
 import {
-  canUseDeployCredentialFallbackForRequest,
+  assertCredentialStoreReadable,
   CredentialStoreUnavailableError,
   getBuilderKeyConnections,
   prefetchSecrets,
-  readDeployCredentialEnv,
   resolveSecret,
+  resolveSecretDetailed,
+  resolveBuilderGatewayCredentialsDetailed,
+  resolveBuilderPrivateKey,
+  type BuilderCredentialLookupIdentity,
 } from "./credential-provider.js";
 import {
   decideCredentialWriteScope,
@@ -352,6 +361,50 @@ export const FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/events`;
 export const LEGACY_FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/poll-events`;
 
 function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry> {
+  const credentialIdentity: BuilderCredentialLookupIdentity = {
+    userEmail: getRequestUserEmail(),
+    orgId: getRequestOrgId(),
+  };
+  let builderConnectionPromise: Promise<boolean> | undefined;
+  const hasBuilderConnectionCandidate = () => {
+    builderConnectionPromise ??= (async () => {
+      if (
+        credentialIdentity.userEmail &&
+        isBuilderChatSetupReady({
+          oauthSessionUsable: await hasUsableBuilderOAuthSessionForReadiness(
+            credentialIdentity.userEmail,
+            credentialIdentity.orgId,
+          ),
+        })
+      ) {
+        return true;
+      }
+      const credentials =
+        await resolveBuilderGatewayCredentialsDetailed(credentialIdentity);
+      assertCredentialStoreReadable(credentials);
+      if (
+        isBuilderChatSetupReady({
+          privateKey: credentials.privateKey,
+          publicKey: credentials.publicKey,
+        })
+      ) {
+        return true;
+      }
+      return isBuilderChatSetupReady({
+        legacyPrivateKey: await resolveBuilderPrivateKey(credentialIdentity),
+      });
+    })();
+    return builderConnectionPromise;
+  };
+  let userSecretsEnginePromise: Promise<AgentEngineEntry | null> | undefined;
+  const detectFromUserSecrets = () => {
+    userSecretsEnginePromise ??= detectEngineFromUserSecrets(
+      credentialIdentity,
+      { isBuilderConnectionUsable: hasBuilderConnectionCandidate },
+    );
+    return userSecretsEnginePromise;
+  };
+
   return {
     readAppDefault: async () => {
       const app = getAppConfig().app;
@@ -373,19 +426,18 @@ function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry>
         model?: string;
       } | null,
     readOpenAiBaseUrlConfigured: async () => {
-      try {
-        if (await resolveSecret(OPENAI_BASE_URL_ENV_VAR)) return true;
-      } catch {
-        /* fall through to deployment env when allowed */
-      }
-      return (
-        canUseDeployCredentialFallbackForRequest(OPENAI_BASE_URL_ENV_VAR) &&
-        !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
-      );
+      const resolved = await resolveSecretDetailed(OPENAI_BASE_URL_ENV_VAR);
+      assertCredentialStoreReadable(resolved);
+      return Boolean(resolved.value?.trim());
     },
-    isStoredEngineUsable: isStoredEngineUsableForRequest,
-    detectFromUserSecrets: detectEngineFromUserSecrets,
-    detectFromEnv: detectEngineFromEnv,
+    isStoredEngineUsable: (stored, entry) =>
+      entry.name === "builder"
+        ? hasBuilderConnectionCandidate()
+        : isStoredEngineUsableForRequest(stored, entry, {
+            credentialIdentity,
+          }),
+    detectFromUserSecrets,
+    detectFromEnv: detectEngineFromEnvForRequest,
   };
 }
 
@@ -1632,6 +1684,14 @@ async function trackBuilderLifecycle(
 ): Promise<void> {
   if (!userEmail) return;
   const engine = await detectUsageEngineName(event, userEmail);
+  const cookieSessionId = readAnalyticsSessionId(getHeader(event, "cookie"));
+  const headerSessionId = readBrowserSessionIdHeader(event);
+  const sessionId =
+    cookieSessionId && headerSessionId
+      ? cookieSessionId === headerSessionId
+        ? cookieSessionId
+        : undefined
+      : (cookieSessionId ?? headerSessionId);
   track(
     name,
     {
@@ -1642,7 +1702,10 @@ async function trackBuilderLifecycle(
       }),
       ...properties,
     },
-    { userId: userEmail },
+    {
+      userId: userEmail,
+      ...(sessionId ? { sessionId } : {}),
+    },
   );
 }
 
@@ -2466,6 +2529,8 @@ export async function activateBuilderAccount(
     const credentials = await provisionBuilderAccount({
       email: ownerEmail,
       name: session.name,
+      agentNativeApp: input.tracking.agentNativeApp,
+      agentNativeTemplate: input.tracking.agentNativeTemplate,
     });
     const { writeBuilderCredentials } =
       await import("./credential-provider.js");
@@ -5724,29 +5789,35 @@ export function createCoreRoutesPlugin(
       );
 
       // GET /_agent-native/agent-engine/status — reports broad engine status
-      // plus the stricter eligibility gate for interactive Agent-Native chat.
+      // plus the chat setup snapshot used by interactive composers.
       getH3App(nitroApp).use(
         `${P}/agent-engine/status`,
         defineEventHandler(async (event) => {
           try {
             const { userEmail, orgId } =
               await resolveAgentEngineStatusIdentity(event);
-            return await runWithRequestContext(
+            return await memoizeAgentEngineStatus(
               { userEmail, orgId },
-              async (): Promise<AgentEngineStatusResponse> => {
-                const [engineStatus, chatEligible] = await Promise.all([
-                  resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
-                  isAgentChatAiSetupReady(),
-                ]);
-                return { ...engineStatus, chatEligible };
-              },
+              async () =>
+                await runWithRequestContext(
+                  { userEmail, orgId },
+                  async (): Promise<AgentEngineStatusResponse> => {
+                    const deps = requestAgentEngineStatusDeps();
+                    const engineStatus = await resolveAgentEngineStatus(deps);
+                    const chatEligible = await isAgentChatAiSetupReady({
+                      status: engineStatus,
+                      detectFromUserSecrets: deps.detectFromUserSecrets,
+                    });
+                    return { ...engineStatus, chatEligible };
+                  },
+                ),
             );
           } catch (err) {
             // NOT `{ configured: false }`. A 200 saying "not configured" is an
             // authoritative answer to the client, so a DB blip here renders as
-            // "connect an AI provider" and gates the composer. 503 is the only
-            // response the client can tell apart from a real answer — it maps
-            // to `unavailable`, which keeps the composer usable and retries.
+            // "connect an AI provider" and gates the composer. 503 maps to the
+            // separate `unavailable` state, which keeps text editable but
+            // blocks dispatch until a later status read can verify setup.
             console.error("[agent-engine/status] lookup failed", err);
             setResponseStatus(event, 503);
             return { error: "Could not read the agent engine configuration." };

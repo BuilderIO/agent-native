@@ -9,6 +9,10 @@ import {
 import type { AgentChatStructuredMessage } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
+import {
+  agentEngineStatusUrlForChatApi,
+  requireAgentEngineConfiguredForDispatch,
+} from "../agent-engine-readiness.js";
 import { getOrCreateAnalyticsSessionId } from "../analytics-session.js";
 import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
@@ -129,8 +133,10 @@ export interface AgentChatRuntimeMessage<
 
 export interface AgentChatRuntimeAttachment {
   readonly id?: string;
+  readonly type?: string;
   readonly name: string;
   readonly mediaType?: string;
+  readonly contentType?: string;
   readonly data?: string;
   readonly url?: string;
   readonly text?: string;
@@ -853,6 +859,12 @@ export interface CreateHttpAgentChatRuntimeOptions<
     turn: AgentChatRuntimeTurnInput;
     turnId: AgentChatRuntimeTurnId;
   }) => unknown;
+  /** Called at the final client boundary before a new turn reaches the endpoint. */
+  readonly beforeStartTurn?: (input: {
+    session: AgentChatRuntimeSessionSummary;
+    turn: AgentChatRuntimeTurnInput;
+    turnId: AgentChatRuntimeTurnId;
+  }) => AgentChatRuntimeAwaitable<void>;
   readonly mapEvent?: (
     event: unknown,
     context: {
@@ -1411,6 +1423,7 @@ export function createHttpAgentChatRuntime<
       previousTurns.set(turnId, turn);
       let response: Response;
       try {
+        await options.beforeStartTurn?.({ session: summary, turn, turnId });
         const endpoint =
           typeof options.endpoint === "function"
             ? options.endpoint({ session: summary, turn })
@@ -1778,6 +1791,7 @@ interface StructuredTextHistoryCandidate {
   position: number;
   role: "user" | "assistant";
   parts: StructuredTextPart[];
+  priority: number;
 }
 
 type StructuredHistoryCandidate =
@@ -2312,10 +2326,14 @@ function boundStructuredToolHistory(
     })),
   );
   candidates.sort((left, right) => {
-    const leftPriority =
-      left.kind === "tool" && left.candidate.priority ? 1 : 0;
-    const rightPriority =
-      right.kind === "tool" && right.candidate.priority ? 1 : 0;
+    const candidatePriority = (candidate: StructuredHistoryCandidate) =>
+      candidate.kind === "tool"
+        ? candidate.candidate.priority
+          ? 3
+          : 0
+        : candidate.candidate.priority;
+    const leftPriority = candidatePriority(left);
+    const rightPriority = candidatePriority(right);
     return leftPriority - rightPriority || left.position - right.position;
   });
 
@@ -2376,6 +2394,7 @@ interface StructuredHistorySourceMessage {
   message: AgentChatRuntimeMessage;
   parts: StructuredHistorySourcePart[];
   priority: boolean;
+  textPriority: number;
 }
 
 interface StructuredHistorySourceBoundary {
@@ -2423,6 +2442,7 @@ function boundedStructuredHistorySources(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
   supplementalMessages: readonly AgentChatRuntimeMessage[],
+  preservePreviousUserPrompt = false,
 ): BoundedStructuredHistorySources {
   const historyMessages = messages ?? [];
   let currentPromptMessageIndex: number | undefined;
@@ -2455,6 +2475,58 @@ function boundedStructuredHistorySources(
     }
   }
 
+  let firstUserPromptMessageIndex: number | undefined;
+  const historyWindowStart = Math.max(
+    0,
+    historyMessages.length - MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES,
+  );
+  for (
+    let index = historyWindowStart;
+    index < historyMessages.length;
+    index++
+  ) {
+    if (index === currentPromptMessageIndex) continue;
+    const message = historyMessages[index]!;
+    if (
+      message.role === "user" &&
+      message.content.some(
+        (part) =>
+          (part.type === "text" || part.type === "reasoning") &&
+          part.text.trim(),
+      )
+    ) {
+      firstUserPromptMessageIndex = index;
+      break;
+    }
+  }
+
+  let previousUserPromptMessageIndex: number | undefined;
+  if (preservePreviousUserPrompt) {
+    for (let index = historyMessages.length - 1; index >= 0; index--) {
+      if (index === currentPromptMessageIndex) continue;
+      const message = historyMessages[index]!;
+      if (
+        message.role === "user" &&
+        message.content.some(
+          (part) =>
+            (part.type === "text" || part.type === "reasoning") &&
+            part.text.trim(),
+        )
+      ) {
+        previousUserPromptMessageIndex = index;
+        break;
+      }
+    }
+  }
+  const protectedUserPromptMessageIndices = new Set(
+    [firstUserPromptMessageIndex, previousUserPromptMessageIndex].filter(
+      (index): index is number => index !== undefined,
+    ),
+  );
+  const regularTextPartLimit =
+    MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS -
+    protectedUserPromptMessageIndices.size;
+
   const selectedReversed: StructuredHistorySourceMessage[] = [];
   let selectedToolPartCount = 0;
   let selectedTextPartCount = 0;
@@ -2480,7 +2552,13 @@ function boundedStructuredHistorySources(
     }
     visitedMessageCount++;
     if (message.role !== "user" && message.role !== "assistant") return;
+    const isFirstUserPrompt =
+      list === "messages" && messageIndex === firstUserPromptMessageIndex;
+    const isPreviousUserPrompt =
+      list === "messages" && messageIndex === previousUserPromptMessageIndex;
+    const isProtectedUserPrompt = isFirstUserPrompt || isPreviousUserPrompt;
     const partsReversed: StructuredHistorySourcePart[] = [];
+    let protectedPromptTextAdded = false;
     for (
       let partIndex = message.content.length - 1;
       partIndex >= 0;
@@ -2500,6 +2578,33 @@ function boundedStructuredHistorySources(
         part.type === "tool-result";
       const isTextPart = part.type === "text" || part.type === "reasoning";
       if (!isToolPart && !isTextPart) continue;
+      if (isProtectedUserPrompt && isTextPart) {
+        if (!protectedPromptTextAdded) {
+          const text = message.content
+            .filter(
+              (candidate) =>
+                candidate.type === "text" || candidate.type === "reasoning",
+            )
+            .map((candidate) =>
+              candidate.type === "text" || candidate.type === "reasoning"
+                ? candidate.text
+                : "",
+            )
+            .join("\n");
+          if (text.trim()) {
+            if (
+              selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS
+            ) {
+              omitted = true;
+            } else {
+              selectedTextPartCount++;
+              partsReversed.push({ type: "text", text });
+            }
+          }
+          protectedPromptTextAdded = true;
+        }
+        continue;
+      }
       if (
         selectedToolPartCount >= MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS &&
         selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS
@@ -2519,7 +2624,7 @@ function boundedStructuredHistorySources(
         }
         selectedToolPartCount++;
       } else {
-        if (selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS) {
+        if (selectedTextPartCount >= regularTextPartLimit) {
           omitted = true;
           continue;
         }
@@ -2532,6 +2637,11 @@ function boundedStructuredHistorySources(
         message,
         parts: partsReversed.reverse(),
         priority: list === "supplemental",
+        textPriority: isPreviousUserPrompt
+          ? 2
+          : list === "supplemental"
+            ? 1
+            : 0,
       });
     }
   };
@@ -2723,6 +2833,7 @@ function nativeStructuredHistoryFromMessages(
   supplementalMessages: readonly AgentChatRuntimeMessage[] = [],
   supplementalHistoryOmitted = false,
   supplementalToolHistoryOmitted = false,
+  preservePreviousUserPrompt = false,
 ): AgentChatStructuredMessage[] | undefined {
   const structuredHistory: AgentChatStructuredMessage[] = [];
   const callCandidates: StructuredToolHistoryCandidate[] = [];
@@ -2736,6 +2847,7 @@ function nativeStructuredHistoryFromMessages(
     messages,
     currentPrompt,
     supplementalMessages,
+    preservePreviousUserPrompt,
   );
   const boundaryResultsToOmit = boundaryToolResultPartsToOmit(
     messages,
@@ -2744,7 +2856,7 @@ function nativeStructuredHistoryFromMessages(
     supplementalToolHistoryOmitted,
   );
 
-  for (const { message, parts, priority } of sources.messages) {
+  for (const { message, parts, priority, textPriority } of sources.messages) {
     if (message.role !== "user" && message.role !== "assistant") continue;
     const role = message.role;
     let content: AgentChatStructuredMessage["content"] = [];
@@ -2756,6 +2868,7 @@ function nativeStructuredHistoryFromMessages(
         position: toolHistoryPosition++,
         role,
         parts: pendingTextParts,
+        priority: textPriority,
       });
       pendingTextParts = [];
     };
@@ -3958,6 +4071,33 @@ export function createAgentNativeChatRuntime(
       options.description ?? "Agent-Native's built-in chat transport.",
     endpoint: apiUrl,
     fetch: runtimeFetch,
+    beforeStartTurn: async ({ session, turn, turnId }) => {
+      const metadata = turn.metadata;
+      const isAdmittedContinuation =
+        turn.queuePromotion !== undefined ||
+        metadata?.[AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY] === true ||
+        metadataString(metadata, AUTO_CONTINUE_OF_RUN_METADATA_KEY) !==
+          undefined ||
+        metadataStringList(
+          metadata,
+          AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY,
+        ) !== undefined;
+      if (isAdmittedContinuation) return;
+      const candidateEngine = metadata?.engine ?? options.engine;
+      return requireAgentEngineConfiguredForDispatch({
+        engine:
+          typeof candidateEngine === "string" ? candidateEngine : undefined,
+        source: {
+          statusUrl: agentEngineStatusUrlForChatApi(apiUrl),
+          fetch: fetchImpl,
+          headers: () =>
+            resolveHeaders(options.headers, {
+              sessionId: session.id,
+              turnId,
+            }),
+        },
+      });
+    },
     headers: async (input) => {
       const headers = await resolveHeaders(options.headers, input);
       headers.set("x-agent-native-surface", options.surface ?? "app");
@@ -4039,6 +4179,8 @@ export function createAgentNativeChatRuntime(
         pendingApprovalHistory.messages,
         pendingApprovalHistory.omitted,
         pendingApprovalHistory.toolHistoryOmitted,
+        turn.metadata?.[AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY] ===
+          true,
       );
       return {
         message: prompt,

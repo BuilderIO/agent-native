@@ -10,7 +10,11 @@ import {
   upsertUserMessage,
 } from "../../agent/thread-data-builder.js";
 import { agentTroubleCauseForCode } from "../../shared/analytics-events.js";
-import { createAgentNativeAgentKitTransport } from "./agentkit-agent-native.js";
+import {
+  AgentChatAiSetupRequiredError,
+  resetAgentEngineReadinessForTests,
+} from "../agent-engine-readiness.js";
+import { createAgentNativeAgentKitTransport as createAgentNativeAgentKitTransportImplementation } from "./agentkit-agent-native.js";
 import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "./agentkit-protocol.js";
 import type { RunOutcomeReport } from "./run-outcome.js";
 import {
@@ -33,6 +37,23 @@ function json(value: unknown, status = 200): Response {
   });
 }
 
+function createAgentNativeAgentKitTransport(
+  options: Parameters<
+    typeof createAgentNativeAgentKitTransportImplementation
+  >[0],
+) {
+  const fetchImpl = options.fetch ?? fetch;
+  return createAgentNativeAgentKitTransportImplementation({
+    ...options,
+    fetch: (async (input, init) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return json({ configured: true, chatEligible: true });
+      }
+      return fetchImpl(input, init);
+    }) as typeof fetch,
+  });
+}
+
 function resumableNativeRuntime(
   events: AgentChatRuntimeKnownEvent[],
 ): AgentChatRuntime {
@@ -49,6 +70,117 @@ function resumableNativeRuntime(
 }
 
 describe("createAgentNativeAgentKitTransport", () => {
+  it("blocks a client send through the constructed transport when AI is missing", async () => {
+    resetAgentEngineReadinessForTests();
+    const statusUrl =
+      "https://provider.example.test/_agent-native/agent-engine/status";
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === statusUrl) {
+        return json({ configured: true, chatEligible: false });
+      }
+      return json({ error: "Unexpected prompt dispatch" }, 500);
+    });
+    const transport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl: "https://provider.example.test/_agent-native/agent-chat",
+      engine: "openai",
+      fetch: fetcher as typeof fetch,
+    });
+    const client = new AgentKitClient({ transport });
+
+    try {
+      await expect(
+        client.sendMessage({ threadId: "thread-no-ai", text: "Blocked" }),
+      ).rejects.toBeInstanceOf(AgentChatAiSetupRequiredError);
+      expect(fetcher.mock.calls.map(([input]) => String(input))).toEqual([
+        statusUrl,
+      ]);
+    } finally {
+      await client.shutdown();
+      resetAgentEngineReadinessForTests();
+    }
+  });
+
+  it("uses the transport engine when checking AI readiness", async () => {
+    resetAgentEngineReadinessForTests();
+    const localFetch = vi.fn(async () => json({ chatEligible: true }));
+    const localTransport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl: "https://mobile.example.test/_agent-native/agent-chat",
+      engine: "codex-cli",
+      fetch: localFetch as typeof fetch,
+    });
+
+    await expect(
+      localTransport.assertAiSetupReady?.({}),
+    ).resolves.toBeUndefined();
+    expect(localFetch).not.toHaveBeenCalled();
+
+    const providerFetch = vi.fn(async () => json({ chatEligible: true }));
+    const providerTransport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl: "https://provider.example.test/_agent-native/agent-chat",
+      engine: "openai",
+      fetch: providerFetch as typeof fetch,
+    });
+    await expect(
+      providerTransport.assertAiSetupReady?.({}),
+    ).resolves.toBeUndefined();
+    expect(providerFetch).toHaveBeenCalledOnce();
+    expect(String(providerFetch.mock.calls[0]?.[0])).toBe(
+      "https://provider.example.test/_agent-native/agent-engine/status",
+    );
+    resetAgentEngineReadinessForTests();
+  });
+
+  it("starts the send deadline before resolving async auth headers and recovers", async () => {
+    vi.useFakeTimers();
+    resetAgentEngineReadinessForTests();
+    let resolveHeaders!: (value: HeadersInit) => void;
+    const pendingHeaders = new Promise<HeadersInit>((resolve) => {
+      resolveHeaders = resolve;
+    });
+    const headers = vi.fn(() => pendingHeaders);
+    let resolveFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      resolveFetchStarted = resolve;
+    });
+    const fetcher = vi.fn(async () => {
+      resolveFetchStarted();
+      return json({ configured: true, chatEligible: true });
+    });
+    const transport = createAgentNativeAgentKitTransportImplementation({
+      apiUrl: "https://headers.example.test/_agent-native/agent-chat",
+      engine: "openai",
+      fetch: fetcher as typeof fetch,
+      headers,
+    });
+
+    try {
+      const firstCheck = transport.assertAiSetupReady?.({
+        threadId: "thread-header-timeout",
+      });
+      const timedOutCheck = expect(firstCheck).rejects.toMatchObject({
+        name: AgentChatAiSetupRequiredError.name,
+        state: "unavailable",
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      await timedOutCheck;
+      expect(headers).toHaveBeenCalledOnce();
+      expect(fetcher).not.toHaveBeenCalled();
+
+      resolveHeaders({ Authorization: "Bearer test" });
+      await fetchStarted;
+      await expect(
+        transport.assertAiSetupReady?.({
+          threadId: "thread-header-timeout",
+        }),
+      ).resolves.toBeUndefined();
+      expect(headers).toHaveBeenCalledOnce();
+      expect(fetcher).toHaveBeenCalledOnce();
+    } finally {
+      resetAgentEngineReadinessForTests();
+      vi.useRealTimers();
+    }
+  });
+
   it("creates a missing thread when its first snapshot races the user-message save", async () => {
     const requests: Array<{ url: string; method: string; body?: string }> = [];
     let created = false;
@@ -7154,8 +7286,30 @@ describe("createAgentNativeAgentKitTransport", () => {
 
   it("releases a claimed queue item when starting its run fails", async () => {
     const queueWrites: unknown[] = [];
-    let queuedMessages = [{ id: "queued-terminal", text: "Try again" }];
+    const queuedImage = {
+      type: "image",
+      name: "optimized.png",
+      contentType: "image/png",
+      url: "https://storage.example.test/optimized.png",
+      referenceUrl: "https://storage.example.test/original.png",
+    };
+    let queuedMessages = [
+      {
+        id: "queued-terminal",
+        text: "Try again",
+        attachments: [
+          {
+            type: "file",
+            name: "original.png",
+            mediaType: "image/png",
+            url: "https://storage.example.test/original.png",
+          },
+        ],
+        requestAttachments: [queuedImage],
+      },
+    ];
     let startRunRequests = 0;
+    let startRunBody: Record<string, unknown> | undefined;
     let claimId: string | undefined;
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -7191,6 +7345,10 @@ describe("createAgentNativeAgentKitTransport", () => {
         }
         if (url.endsWith("/_agent-native/agent-chat")) {
           startRunRequests += 1;
+          startRunBody = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
           return json({ error: "Deterministic start rejection" }, 502);
         }
         return json({ error: "Not found" }, 404);
@@ -7209,6 +7367,21 @@ describe("createAgentNativeAgentKitTransport", () => {
     ).rejects.toThrow("Deterministic start rejection");
 
     expect(startRunRequests).toBe(1);
+    expect(startRunBody?.attachments).toEqual([
+      {
+        type: "file",
+        name: "original.png",
+        contentType: "image/png",
+        url: "https://storage.example.test/original.png",
+        referenceOnly: true,
+      },
+      {
+        type: "image",
+        name: "optimized.png",
+        contentType: "image/png",
+        url: "https://storage.example.test/optimized.png",
+      },
+    ]);
     expect(queueWrites).toHaveLength(2);
     expect(queueWrites[0]).toEqual({
       type: "claim",
@@ -7220,8 +7393,18 @@ describe("createAgentNativeAgentKitTransport", () => {
       messageId: "queued-terminal",
       claimId,
     });
-    expect(queuedMessages).toEqual([
-      { id: "queued-terminal", text: "Try again" },
+    expect(queuedMessages).toMatchObject([
+      {
+        id: "queued-terminal",
+        text: "Try again",
+        attachments: [
+          {
+            type: "file",
+            url: "https://storage.example.test/original.png",
+          },
+        ],
+        requestAttachments: [queuedImage],
+      },
     ]);
     await transport.dispose();
   });

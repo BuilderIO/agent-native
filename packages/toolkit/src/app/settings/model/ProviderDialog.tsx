@@ -8,11 +8,13 @@ import {
   getAgentProviderOption,
   type AgentProviderId,
 } from "@agent-native/core/client/agent-provider-catalog";
+import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   requestCustomKeyOnboardingAbandonment,
   setCustomKeyOnboardingSetupKind,
+  trackOnboardingEvent,
   trackCustomKeyOnboardingOutcome,
   withCustomKeyOnboardingCredentialSave,
   withCustomKeyOnboardingLocalEndpointSave,
@@ -57,6 +59,7 @@ import {
 } from "react";
 
 import { BrandLogo } from "../infra/logos.js";
+import { currentTemplateId } from "../shell/app-identity.js";
 import { WhoField } from "../WhoField.js";
 import {
   addDialogChoices,
@@ -96,10 +99,73 @@ const PROVIDER_LOGO_IDS: Record<AgentProviderId, string | null> = {
  */
 export type ProviderDialogMode = "add" | "manage" | "add-from-service";
 
+type ProviderSetupTrackingFlow = "chat_setup" | "settings";
+type ProviderSetupEventName =
+  | "integration_key_entry_started"
+  | "integration_key_validation_outcome"
+  | "integration_key_save_outcome";
+type ProviderSetupOutcome =
+  | "started"
+  | "accepted"
+  | "rejected"
+  | "missing_key"
+  | "invalid_endpoint"
+  | "unreachable"
+  | "provider_error"
+  | "error"
+  | "saved"
+  | "failed";
+
+function setupTelemetryAppName(): string {
+  const appId = injectedAgentNativeAppId() ?? currentTemplateId();
+  return appId && /^[a-z0-9][a-z0-9-]{0,63}$/.test(appId)
+    ? appId.replace(/^agent-native-/, "") || "framework"
+    : "framework";
+}
+
+function trackProviderSetupEvent(
+  flow: ProviderSetupTrackingFlow,
+  eventName: ProviderSetupEventName,
+  action: "enter" | "validate" | "save",
+  outcome: ProviderSetupOutcome,
+): void {
+  trackOnboardingEvent(eventName, {
+    flow,
+    app_name: setupTelemetryAppName(),
+    step_id: "connect_ai",
+    method_id: "custom_keys",
+    action,
+    outcome,
+  });
+}
+
+function providerCheckOutcome(
+  result: ProviderModelsCheck,
+): ProviderSetupOutcome {
+  if (result.ok) return "accepted";
+  switch (result.code) {
+    case "rejected":
+    case "wrong-provider":
+      return "rejected";
+    case "missing-key":
+      return "missing_key";
+    case "invalid-endpoint":
+      return "invalid_endpoint";
+    case "unreachable":
+      return "unreachable";
+    case "provider-error":
+      return "provider_error";
+    default:
+      return "error";
+  }
+}
+
 export interface ProviderDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: ProviderDialogMode;
+  /** Preserve the chat setup handoff through the first provider dialog. */
+  trackingFlow?: ProviderSetupTrackingFlow;
   /** Required for `manage` and `add-from-service`; the first choice for `add`. */
   provider?: AgentProviderId;
   /** `manage`: which saved key, the personal (`user`) or organization (`org`) one. */
@@ -275,6 +341,7 @@ interface FormProps extends ProviderDialogProps, ProviderDialogInternalProps {
 
 function ProviderDialogForm({
   mode,
+  trackingFlow = "settings",
   provider: requestedProvider,
   scope: requestedScope,
   serviceLabel,
@@ -347,6 +414,7 @@ function ProviderDialogForm({
   );
   const [keyValue, setKeyValue] = useState("");
   const [keyError, setKeyError] = useState(false);
+  const keyEntryTrackedRef = useRef(false);
   const savedEndpoint = isOpenAi ? (existing?.endpoint ?? "") : "";
   const [endpointOpen, setEndpointOpen] = useState(!!savedEndpoint);
   const [endpoint, setEndpoint] = useState(savedEndpoint);
@@ -381,6 +449,15 @@ function ProviderDialogForm({
   // A pasted key (or Ollama endpoint) is checked as it's entered, by asking
   // the provider which models it reaches.
   useEffect(() => {
+    if (keyValue.trim() && !keyEntryTrackedRef.current) {
+      keyEntryTrackedRef.current = true;
+      trackProviderSetupEvent(
+        trackingFlow,
+        "integration_key_entry_started",
+        "enter",
+        "started",
+      );
+    }
     if (!replacing) return;
     const value = keyValue.trim();
     const request = ++requestRef.current;
@@ -401,6 +478,12 @@ function ProviderDialogForm({
         .then((result) => {
           if (request !== requestRef.current) return;
           setCheck(toCheckState(result));
+          trackProviderSetupEvent(
+            trackingFlow,
+            "integration_key_validation_outcome",
+            "validate",
+            providerCheckOutcome(result),
+          );
           if (!result.ok) return;
           if (provider !== "ollama") {
             trackCustomKeyOnboardingOutcome("credential_validated");
@@ -419,6 +502,12 @@ function ProviderDialogForm({
             state: "error",
             message: err instanceof Error ? err.message : String(err),
           });
+          trackProviderSetupEvent(
+            trackingFlow,
+            "integration_key_validation_outcome",
+            "validate",
+            "error",
+          );
         });
     }, CHECK_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
@@ -430,6 +519,7 @@ function ProviderDialogForm({
     replacing,
     models,
     fromService,
+    trackingFlow,
   ]);
 
   // Models checked when the dialog opened stay listed after a check, so one
@@ -480,10 +570,22 @@ function ProviderDialogForm({
         if (result.ok) {
           setCheck(toCheckState(result));
           setRecheck({ checkedAt: result.checkedAt });
+          trackProviderSetupEvent(
+            trackingFlow,
+            "integration_key_validation_outcome",
+            "validate",
+            providerCheckOutcome(result),
+          );
           return;
         }
         setRecheck("idle");
         setCheck(toCheckState(result));
+        trackProviderSetupEvent(
+          trackingFlow,
+          "integration_key_validation_outcome",
+          "validate",
+          providerCheckOutcome(result),
+        );
         if (result.code === "rejected" || result.code === "wrong-provider") {
           setSavedRejected(true);
           setReplacing(true);
@@ -494,6 +596,12 @@ function ProviderDialogForm({
       .catch((err: unknown) => {
         setRecheck("idle");
         setError(err instanceof Error ? err.message : String(err));
+        trackProviderSetupEvent(
+          trackingFlow,
+          "integration_key_validation_outcome",
+          "validate",
+          "error",
+        );
       });
   };
 
@@ -536,6 +644,12 @@ function ProviderDialogForm({
           await withCustomKeyOnboardingCredentialSave(saveProviderSettings);
         }
         settingsSaved = true;
+        trackProviderSetupEvent(
+          trackingFlow,
+          "integration_key_save_outcome",
+          "save",
+          "saved",
+        );
       } else if (endpointChanged) {
         await saveAgentEngineProviderSettings({
           provider,
@@ -560,6 +674,14 @@ function ProviderDialogForm({
       onOpenChange(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (replacing && !settingsSaved) {
+        trackProviderSetupEvent(
+          trackingFlow,
+          "integration_key_save_outcome",
+          "save",
+          "failed",
+        );
+      }
       setError(
         settingsSaved ? t(`${K}modelsSaveFailed`, { message }) : message,
       );

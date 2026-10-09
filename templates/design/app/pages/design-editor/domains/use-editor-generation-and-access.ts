@@ -1376,6 +1376,9 @@ export function useEditorGenerationAndAccess({
           imageAttachmentUnavailableMessage: t(
             "promptDialog.imageAttachmentUnavailable",
           ),
+          invalidCanvasDimensionsMessage: t(
+            "designEditor.invalidCanvasDimensions",
+          ),
           id,
           setGenerationChatTabId,
           setGenerationIssue,

@@ -1058,7 +1058,7 @@ time from the command menu (Cmd+K → "What's new").
 ### Improved
 
 - Design system setup now indexes Figma, code, and design.md sources through Builder DSI.
-- Slide editing is cleaner and more Figma-like, with direct style controls for selected elements.
+- Slide editing has direct style controls for selected elements.
 - Slide editing now keeps thumbnails, speaker notes, styling, and the canvas in stable resizable panes with cleaner top controls.
 - Undo/redo is now precise and safe with collaborators: it only reverts your own changes, never a teammate's or the AI's, and unsaved edits flush when you close the tab
 

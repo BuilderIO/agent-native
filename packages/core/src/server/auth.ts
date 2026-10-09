@@ -278,6 +278,7 @@ import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import {
   getRequestContext,
   markRequestIdentityAuthenticatedAtMs,
+  markVerifiedServiceIdentityForEvent,
   hasContinuationLocalRequestContext,
   hasExplicitPersonalOrgScope,
   markExplicitPersonalOrgScope,
@@ -367,6 +368,12 @@ export interface AuthOptions {
    */
   trustCustomEmailVerification?: boolean;
   publicPaths?: string[];
+  /**
+   * Routes whose handlers authenticate a query token. These bypass session
+   * auth only when the named query parameter is present; without it, normal
+   * session and workspace-app authorization runs.
+   */
+  publicPathsWithQueryToken?: Array<{ path: string; queryParam: string }>;
   /**
    * Public, unauthenticated ingest paths that may receive cross-origin
    * requests when CORS_ALLOWED_ORIGINS is unset. These routes must perform
@@ -1199,6 +1206,16 @@ export async function getMcpOAuthBearerSession(
     if (!identity?.userEmail) return null;
     if (identity.orgId === null) markExplicitPersonalOrgScope(event);
     const orgId = await resolveMcpIdentityOrgId(identity);
+    if (
+      identity.identityAssurance === "service" &&
+      identity.orgId &&
+      orgId === identity.orgId
+    ) {
+      markVerifiedServiceIdentityForEvent(event, {
+        userEmail: identity.userEmail,
+        orgId: identity.orgId,
+      });
+    }
     return {
       email: identity.userEmail,
       token: bearerToken,
@@ -2215,6 +2232,7 @@ interface AuthGuardConfig {
   authMode?: OnboardingHtmlOptions["authMode"];
   rootAuth: boolean;
   publicPaths: string[];
+  publicPathsWithQueryToken: Array<{ path: string; queryParam: string }>;
   publicCorsPaths: string[];
   workspaceAppAudience: WorkspaceAppAudience;
   workspaceAppPublicPaths: string[];
@@ -2229,6 +2247,14 @@ const AUTH_PUBLIC_PATHS_REGISTRY_KEY = Symbol.for(
   "@agent-native/core/auth.publicPaths",
 );
 const SESSION_RESOLUTION_ERROR_CONTEXT_KEY = "__anSessionResolutionError";
+
+export function isSessionResolutionUnavailable(event: H3Event): boolean {
+  return (
+    (event.context as Record<string, unknown> | undefined)?.[
+      SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+    ] === true
+  );
+}
 
 async function getLegacyCookieSessionSafely(
   event: H3Event,
@@ -4133,7 +4159,27 @@ function createAuthGuardFn(
     if (getMethod(event) === "GET" && p.startsWith("/_agent-native/avatar/")) {
       return;
     }
-    if (isPublicPath(normalizedUrl, publicPaths, exactPublicPaths)) return;
+    const tokenPublicPaths = config.publicPathsWithQueryToken.filter(
+      ({ path }) => matchesPathList(p, [path]),
+    );
+    if (tokenPublicPaths.length > 0) {
+      const query = getQuery(event);
+      if (
+        tokenPublicPaths.some(({ queryParam }) => {
+          const value = query[queryParam];
+          if (typeof value === "string") return Boolean(value.trim());
+          return (
+            Array.isArray(value) &&
+            typeof value[0] === "string" &&
+            Boolean(value[0].trim())
+          );
+        })
+      ) {
+        return;
+      }
+    } else if (isPublicPath(normalizedUrl, publicPaths, exactPublicPaths)) {
+      return;
+    }
     if (shouldBypassAuthForBuilderConnect(event, p)) return;
     if (isPublicWorkspacePageRequest(event, p, config)) {
       return;
@@ -4851,12 +4897,7 @@ export const authSessionHandler = defineEventHandler(async (event: H3Event) => {
     return { error: "Method not allowed" };
   }
   const session = await getSession(event);
-  if (
-    !session &&
-    (event.context as Record<string, unknown>)[
-      SESSION_RESOLUTION_ERROR_CONTEXT_KEY
-    ] === true
-  ) {
+  if (!session && isSessionResolutionUnavailable(event)) {
     setResponseStatus(event, 503);
     return { error: "Session unavailable" };
   }
@@ -4925,6 +4966,19 @@ function normalizePath(path: string): string {
 function matchesPathList(path: string, paths: string[]): boolean {
   return paths.some((candidate) => {
     const normalized = normalizePath(candidate);
+    if (normalized.includes("/:")) {
+      const expectedSegments = normalized.split("/");
+      const actualSegments = path.split("/");
+      return (
+        expectedSegments.length === actualSegments.length &&
+        expectedSegments.every((segment, index) => {
+          if (/^:[A-Za-z][A-Za-z0-9_]*$/.test(segment)) {
+            return Boolean(actualSegments[index]);
+          }
+          return segment === actualSegments[index];
+        })
+      );
+    }
     return path === normalized || path.startsWith(normalized + "/");
   });
 }
@@ -6899,6 +6953,7 @@ async function mountBetterAuthRoutes(
   _authGuardConfig = {
     ...loginHtmlConfig,
     publicPaths,
+    publicPathsWithQueryToken: options.publicPathsWithQueryToken ?? [],
     publicCorsPaths: options.publicCorsPaths ?? [],
     workspaceAppAudience,
     workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
@@ -7096,6 +7151,12 @@ export async function autoMountAuth(
           ...options.publicPaths,
         ];
       }
+      if (options.publicPathsWithQueryToken) {
+        _authGuardConfig.publicPathsWithQueryToken = [
+          ..._authGuardConfig.publicPathsWithQueryToken,
+          ...options.publicPathsWithQueryToken,
+        ];
+      }
       if (options.publicCorsPaths) {
         _authGuardConfig.publicCorsPaths = [
           ...new Set([
@@ -7173,6 +7234,7 @@ export async function autoMountAuth(
           }),
       rootAuth: options.rootAuth ?? Boolean(options.loginHtml),
       publicPaths,
+      publicPathsWithQueryToken: options.publicPathsWithQueryToken ?? [],
       publicCorsPaths: options.publicCorsPaths ?? [],
       workspaceAppAudience,
       workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
@@ -7203,6 +7265,7 @@ export async function autoMountAuth(
     _authGuardConfig = {
       ...loginHtmlConfig,
       publicPaths,
+      publicPathsWithQueryToken: options.publicPathsWithQueryToken ?? [],
       publicCorsPaths: options.publicCorsPaths ?? [],
       workspaceAppAudience,
       workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,

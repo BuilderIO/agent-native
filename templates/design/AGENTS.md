@@ -5,29 +5,30 @@ actions against shared SQL state.
 
 ## Skills
 
-Read relevant guides before deeper work:
-- `.agents/skills/design-generation/SKILL.md` — for generation, adaptation, and readiness checks.
-- `.agents/skills/design-templates/SKILL.md` — when reusing existing Design work.
-- `.agents/skills/responsive-breakpoints/SKILL.md` — for breakpoint editing.
-- `.agents/skills/design-systems/SKILL.md` — for tokens, brand extraction, or Figma.
-- `.agents/skills/design-figma-parity/SKILL.md` — for evidence rules on measured Figma behavior claims.
-- `.agents/skills/creative-context/SKILL.md` — for cross-app sources and governed context.
-- `.agents/skills/design-review-feedback/SKILL.md` — for persisted review comments.
-- `.agents/skills/export-handoff/SKILL.md` — for exports and coding handoffs.
-- `.agents/skills/full-app-build/SKILL.md` — for fusion-backed app builds.
-- `.agents/skills/shader-fills/SKILL.md` — for GLSL fills/effects.
-- `.agents/skills/journey-storyboards/SKILL.md` — for onboarding-journey storyboards.
+Read `.agents/skills/<name>/SKILL.md` before deeper work:
+- `design-generation` — generation, adaptation, and readiness checks.
+- `design-templates` — reusing existing Design work.
+- `responsive-breakpoints` — breakpoint editing.
+- `design-systems` — tokens, brand extraction, or Figma.
+- `creative-context` — cross-app sources and governed context.
+- `design-review-feedback` — persisted review comments.
+- `export-handoff` — exports and coding handoffs.
+- `full-app-build` — fusion-backed app builds.
+- `shader-fills` — GLSL fills/effects.
+- `journey-storyboards` — onboarding-journey storyboards.
 
-`.agents/skills/actions/SKILL.md`, `.agents/skills/adding-a-feature/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/security/SKILL.md`,
-`.agents/skills/secrets/SKILL.md`, `.agents/skills/sharing/SKILL.md`, `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`,
-`.agents/skills/real-time-sync/SKILL.md`, `.agents/skills/context-awareness/SKILL.md`, `.agents/skills/delegate-to-agent/SKILL.md`, `.agents/skills/agent-native-docs/SKILL.md`,
-`.agents/skills/agent-native-toolkit/SKILL.md`, `.agents/skills/customizing-agent-native/SKILL.md`, `.agents/skills/client-side-routing/SKILL.md`, `.agents/skills/reliable-mutations/SKILL.md`,
-`.agents/skills/performance/SKILL.md`, `.agents/skills/external-agents/SKILL.md`, `.agents/skills/portability/SKILL.md`, `.agents/skills/self-modifying-code/SKILL.md`,
-`.agents/skills/turn-into-skill/SKILL.md`, `.agents/skills/workspace-conventions/SKILL.md`.
+Also read `.agents/skills/<name>/SKILL.md` for shared guides: `actions`,
+`adding-a-feature`, `storing-data`, `security`, `secrets`, `sharing`,
+`frontend-design`, `shadcn-ui`, `real-time-sync`, `context-awareness`,
+`delegate-to-agent`, `agent-native-docs`, `agent-native-toolkit`,
+`customizing-agent-native`, `client-side-routing`, `reliable-mutations`,
+`performance`, `external-agents`, `portability`, `self-modifying-code`,
+`turn-into-skill`, and `workspace-conventions`. Each guide is at
+`.agents/skills/<name>/SKILL.md`.
 
 ## Framework Docs
 
-Use local framework docs, not web research: `pnpm action docs-search --query "<topic>"` searches; `pnpm action docs-search --slug "<slug>"` reads a page.
+Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug with `pnpm action docs-search --slug "<slug>"`.
 
 ## Actions
 
@@ -42,13 +43,16 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 | `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Read/set collaboration opt-in |
 | `add-localhost-screens` / `update-screen-source` | Add screens; change source mode |
 | `add-session-replay-screenshots-to-board` | Add private Analytics replay screenshots to a Design board |
-| `create-journey-canvas` | Draw a journey storyboard from a tree and frames |
+| `stage-journey-canvas-frames` | Stage native PNGs in Design-owned private blob storage in batches |
+| `discard-journey-canvas-frame-import` | Discard staged import; queue its private blobs for cleanup |
+| `create-journey-canvas` | Create provenance-backed storyboard with stubs/reference chains; no cohort metrics |
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames |
 | `edit-design` | Adapt a design/screen |
 | `apply-visual-edit` | Apply deterministic layer edits |
 | `create-design` / `generate-design` | Start empty design / generate a fresh screen |
 | `present-design-variants` | Generate 2–5 variants |
 | `view-screen` / `navigate` | Read current screen / move UI |
+| `get-view-settings` / `update-view-settings` | Read/set the user's saved editor view toggles (pixel grid, snap, rulers, cursors, hidden comments) |
 | `export-png` | Export PNG |
 | `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export finished work |
 
@@ -76,3 +80,5 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI. Editor behavior lives in `app/pages/design-editor/commands/*.ts`; read `design-editor-architecture` before changing it.
 
 Search with `rg --hidden --follow`; read the exact linked guide before deeper work.
+
+Find and read relevant guides with `rg --hidden --follow`.

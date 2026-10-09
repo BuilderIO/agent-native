@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import englishMessages from "../../i18n/catalogs/en-US.js";
@@ -23,6 +24,7 @@ const state = vi.hoisted(() => ({
   modelsRefetch: vi.fn(),
   builder: {} as Record<string, unknown>,
   header: null as { action?: unknown } | null,
+  location: null as unknown,
   loop: {
     maxIterations: 400,
     defaultMaxIterations: 400,
@@ -149,6 +151,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 import ModelSettingsPage from "./ModelSettingsPage.js";
+
+function LocationProbe() {
+  state.location = useLocation();
+  return null;
+}
 
 const PROVIDERS = [
   "openrouter",
@@ -324,6 +331,8 @@ describe("ModelSettingsPage", () => {
     };
     state.builder = builderFlow();
     state.header = null;
+    state.location = null;
+    dialogProps.last = null;
     queryClient = new QueryClient();
     state.loop = { ...state.loop, canUpdate: true };
     callActionMock.mockReset();
@@ -331,6 +340,7 @@ describe("ModelSettingsPage", () => {
     popupMock.mockReset();
     navigateMock.mockReset();
     loopMock.save.mockReset();
+    window.history.replaceState(null, "", "/settings/model");
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -343,20 +353,76 @@ describe("ModelSettingsPage", () => {
     vi.unstubAllGlobals();
   });
 
-  async function render() {
+  async function render(locationState?: unknown) {
+    const entry = new URL(window.location.href);
     await act(async () => {
       root.render(
-        <QueryClientProvider client={queryClient}>
-          <ModelSettingsPage
-            pageId="model"
-            sub={null}
-            context={{} as never}
-            bridge={{} as never}
-          />
-        </QueryClientProvider>,
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: entry.pathname,
+              search: entry.search,
+              hash: entry.hash,
+              state: locationState,
+            },
+          ]}
+        >
+          <LocationProbe />
+          <QueryClientProvider client={queryClient}>
+            <ModelSettingsPage
+              pageId="model"
+              sub={null}
+              context={{} as never}
+              bridge={{} as never}
+            />
+          </QueryClientProvider>
+        </MemoryRouter>,
       );
     });
   }
+
+  it("uses chat setup attribution for the first provider dialog opening only", async () => {
+    window.history.replaceState(null, "", "/settings/model?from=chat#llm");
+    state.listing = listing(
+      {},
+      {
+        anthropic: {
+          personal: { scope: "user", masked: "••••1234", updatedAt: 1 },
+        },
+      },
+    );
+    await render({
+      providerSetupTrackingFlow: "chat_setup",
+      returnTo: "/chat",
+    });
+
+    await act(async () => {
+      row("provider-personal-anthropic").querySelector("button")!.click();
+    });
+    expect(dialogProps.last).toMatchObject({
+      open: true,
+      trackingFlow: "chat_setup",
+    });
+    expect(state.location).toMatchObject({
+      pathname: "/settings/model",
+      search: "?from=chat",
+      hash: "#llm",
+      state: { returnTo: "/chat" },
+    });
+
+    await act(async () => {
+      (
+        dialogProps.last as { onOpenChange: (open: boolean) => void }
+      ).onOpenChange(false);
+    });
+    await act(async () => {
+      row("provider-personal-anthropic").querySelector("button")!.click();
+    });
+    expect(dialogProps.last).toMatchObject({
+      open: true,
+      trackingFlow: "settings",
+    });
+  });
 
   it("shows members organization providers read-only and their own as manageable", async () => {
     state.listing = listing(

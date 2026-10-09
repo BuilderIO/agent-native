@@ -432,7 +432,7 @@ test("a Screen-root responsive card uses UI-created children and auto layout", a
     await expect
       .poll(async () => {
         const content = await readScreenHtml(page, designId, screenId);
-        return content.includes("/api/qa-figma-import-assets/");
+        return content.includes("/api/qa-import-assets/");
       })
       .toBe(true);
     reportTutorialCheckpoint(page, "album-art-uploaded");

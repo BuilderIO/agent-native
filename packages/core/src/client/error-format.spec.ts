@@ -444,6 +444,29 @@ describe("Builder gateway internal-error envelope", () => {
 });
 
 describe("malformed provider request", () => {
+  it("gives a typed attachment rejection smaller and supported-format guidance", () => {
+    const normalized = normalizeChatError(
+      "Invalid 'input[0].content[1].image_url': image size exceeds limit.",
+      "invalid_attachment",
+    );
+
+    expect(normalized.message).toBe(
+      "The model provider rejected this attachment's format or size. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported file format or paste the relevant text, then attach it again.",
+    );
+    expect(normalized.details).toContain("image_url");
+    expect(normalized.message).not.toMatch(/retry/i);
+    expect(
+      formatChatErrorText("provider detail", undefined, "invalid_attachment"),
+    ).toBe(`Error: ${normalized.message}`);
+  });
+
+  it.each([
+    ["http_400", "Image generation is not supported for this model."],
+    ["http_413", "The file is too large for this request."],
+  ])("keeps generic %s errors outside attachment guidance", (code, raw) => {
+    expect(normalizeChatError(raw, code).message).toBe(raw);
+  });
+
   it("names the attachment when a file part is rejected", () => {
     const raw =
       "Invalid 'input[0].content[1].file_url': string too long. " +
@@ -524,6 +547,23 @@ describe("localizeKnownChatErrorText", () => {
             : interpolate(key, options),
       ),
     ).toBe("Fehler: Diese Anfrage ist zu groß.");
+  });
+
+  it("localizes a typed invalid-attachment failure", () => {
+    const normalized = normalizeChatError(
+      "provider detail",
+      "invalid_attachment",
+    );
+
+    expect(
+      localizeKnownChatErrorText(normalized.message, (key, options) =>
+        key === "agentChat.errorMessages.invalidAttachment"
+          ? "Bitte exportieren Sie ein kleineres Bild in einem unterstützten Format."
+          : interpolate(key, options),
+      ),
+    ).toBe(
+      "Bitte exportieren Sie ein kleineres Bild in einem unterstützten Format.",
+    );
   });
 
   it.each([

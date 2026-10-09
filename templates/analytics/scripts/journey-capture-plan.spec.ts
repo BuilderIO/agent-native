@@ -9,7 +9,9 @@ import {
   normalizeAppUrl,
   parseTree,
   planCapture,
+  replayIframeParentIdsAt,
   reasonFromError,
+  replayAtFromRecordingStart,
   stripBearer,
   TreeFormatError,
   unattemptedFailures,
@@ -24,10 +26,11 @@ const example = (
     width: 1440,
     height: 900,
   },
+  ts = "",
 ) => ({
   sessionId: `s-${recordingId}-${offsetMs}`,
   recordingId,
-  ts: "",
+  ts,
   offsetMs,
   viewport,
 });
@@ -150,6 +153,24 @@ describe("planCapture", () => {
     });
     expect(items.map((item) => item.recordingId)).toEqual(["r3"]);
   });
+
+  it("preserves the source event time and derives the replay timestamp", () => {
+    const sourceEventAt = "2026-10-07T16:43:10.198Z";
+    const { items } = planCapture(
+      tree([
+        { key: "step", examples: [example("r1", 47_160, null, sourceEventAt)] },
+      ]),
+      { perNode: 1 },
+    );
+    expect(items[0]?.sourceEventAt).toBe(sourceEventAt);
+    expect(
+      replayAtFromRecordingStart(
+        Date.parse("2026-10-07T16:42:25.038Z"),
+        47_160,
+      ),
+    ).toBe("2026-10-07T16:43:12.198Z");
+    expect(replayAtFromRecordingStart(Number.NaN, 1)).toBeNull();
+  });
 });
 
 describe("groupByRecording", () => {
@@ -206,6 +227,8 @@ describe("manifest", () => {
           height: 1,
           localPath: "b-0.png",
           capturedAt: "t",
+          sourceEventAt: null,
+          replayAt: null,
         },
         {
           nodeKey: "a",
@@ -216,6 +239,8 @@ describe("manifest", () => {
           height: 1,
           localPath: "a-1.png",
           capturedAt: "t",
+          sourceEventAt: null,
+          replayAt: null,
         },
       ],
       failures: [
@@ -225,6 +250,8 @@ describe("manifest", () => {
           recordingId: "r2",
           offsetMs: 5,
           reason: "offset_out_of_range",
+          sourceEventAt: null,
+          replayAt: null,
         },
       ],
       skipped: [{ nodeKey: "d", exampleIndex: 0, reason: "no_recording" }],
@@ -244,6 +271,8 @@ describe("manifest", () => {
       recordingId: "r",
       offsetMs: 0,
       reason: "x",
+      sourceEventAt: null,
+      replayAt: null,
     };
     const frame = {
       nodeKey: "a",
@@ -254,6 +283,8 @@ describe("manifest", () => {
       height: 1,
       localPath: "p",
       capturedAt: "t",
+      sourceEventAt: null,
+      replayAt: null,
     };
     expect(exitCodeFor({ frames: [], failures: [failure] })).toBe(1);
     expect(exitCodeFor({ frames: [frame], failures: [failure] })).toBe(0);
@@ -347,6 +378,32 @@ describe("reasonFromError", () => {
   });
 });
 
+describe("replay iframe documents", () => {
+  it("only counts child documents attached by the requested replay time", () => {
+    const events = [
+      {
+        type: 3,
+        timestamp: 1_500,
+        data: {
+          isAttachIframe: true,
+          adds: [{ parentId: 42, node: { type: 0 } }],
+        },
+      },
+      {
+        type: 3,
+        timestamp: 2_500,
+        data: {
+          isAttachIframe: true,
+          adds: [{ parentId: 43, node: { type: 0 } }],
+        },
+      },
+    ];
+
+    expect([...replayIframeParentIdsAt(events, 2_000)]).toEqual([42]);
+    expect([...replayIframeParentIdsAt(events, 3_000)]).toEqual([42, 43]);
+  });
+});
+
 describe("unattemptedFailures", () => {
   const item = (nodeKey: string, exampleIndex: number, recordingId = "r") => ({
     nodeKey,
@@ -354,6 +411,7 @@ describe("unattemptedFailures", () => {
     recordingId,
     offsetMs: 100,
     viewport: null,
+    sourceEventAt: null,
   });
 
   it("lists every planned frame that has neither a frame nor a failure", () => {
@@ -368,6 +426,8 @@ describe("unattemptedFailures", () => {
         height: 1,
         localPath: "p",
         capturedAt: "t",
+        sourceEventAt: null,
+        replayAt: null,
       },
     ];
     const failures = [
@@ -377,6 +437,8 @@ describe("unattemptedFailures", () => {
         recordingId: "r",
         offsetMs: 100,
         reason: "upload_failed: x",
+        sourceEventAt: null,
+        replayAt: null,
       },
     ];
     expect(
@@ -388,6 +450,8 @@ describe("unattemptedFailures", () => {
         recordingId: "r2",
         offsetMs: 100,
         reason: "run_stopped: auth",
+        sourceEventAt: null,
+        replayAt: null,
       },
     ]);
     expect(unattemptedFailures([], [], [], "x")).toEqual([]);

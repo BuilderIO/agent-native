@@ -241,7 +241,7 @@ describe("motion-preview bridge easing", () => {
   });
 });
 
-describe("motion-preview bridge spring + linear() easing (Figma Motion parity)", () => {
+describe("motion-preview bridge spring + linear() easing", () => {
   it("evaluates spring tokens with real physics, matching the shared sampler", () => {
     for (const [token, spring] of [
       ["spring(0.69)", { bounce: 0.69, settle: 1 }],

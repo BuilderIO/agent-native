@@ -76,7 +76,7 @@ describe("inferAutoLayoutSuggestion", () => {
     });
   });
 
-  it("uses Figma's column default for a single wide child", () => {
+  it("uses column layout for a single wide child", () => {
     const suggestion = inferAutoLayoutSuggestion({
       container: { id: "container", x: 0, y: 0, width: 300, height: 40 },
       children: [{ id: "wide", x: 0, y: 0, width: 300, height: 40 }],

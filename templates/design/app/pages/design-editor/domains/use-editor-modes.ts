@@ -171,7 +171,7 @@ export function useEditorModes({
     handleExitOverviewDrawMode,
     handleExitFocusedDrawMode,
   } = editorToolsAndVectors;
-  const { setCommentsHidden } = editorLayoutAndStructure;
+  const { showComments } = editorLayoutAndStructure;
   const { runCurrentUndo, runCurrentRedo } = editorEditCommands;
 
   const [interactZoom, setInteractZoom] = useState(100);
@@ -641,7 +641,7 @@ export function useEditorModes({
       handleExitReviewCommentMode();
       return;
     }
-    setCommentsHidden(false);
+    showComments();
     setActiveInspectorTab("comments");
     if (viewMode !== "overview") {
       enterOverviewFromZoom("annotate");
@@ -655,6 +655,7 @@ export function useEditorModes({
     enterOverviewFromZoom,
     handleExitReviewCommentMode,
     pinMode,
+    showComments,
     viewMode,
   ]);
 

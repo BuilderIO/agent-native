@@ -23,6 +23,7 @@ const keyMock = vi.hoisted(() => ({
   deleteAgentEngineProviderSettings: vi.fn(),
 }));
 const callActionMock = vi.hoisted(() => vi.fn());
+const setupTelemetryMock = vi.hoisted(() => vi.fn());
 const onboardingOutcomeMock = vi.hoisted(() => vi.fn());
 const onboardingAbandonmentRequestMock = vi.hoisted(() => vi.fn());
 const onboardingSetupKindMock = vi.hoisted(() => vi.fn());
@@ -48,6 +49,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/agent-engine-key", () => keyMock);
 
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  trackOnboardingEvent: setupTelemetryMock,
   requestCustomKeyOnboardingAbandonment: onboardingAbandonmentRequestMock,
   setCustomKeyOnboardingSetupKind: onboardingSetupKindMock,
   trackCustomKeyOnboardingOutcome: onboardingOutcomeMock,
@@ -214,6 +216,7 @@ describe("ProviderDialog", () => {
       .mockReset()
       .mockResolvedValue(undefined);
     callActionMock.mockReset().mockResolvedValue({});
+    setupTelemetryMock.mockReset();
     onboardingOutcomeMock.mockReset();
     onboardingAbandonmentRequestMock.mockReset();
     onboardingSetupKindMock.mockReset();
@@ -305,6 +308,54 @@ describe("ProviderDialog", () => {
       scope: "org",
     });
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("tracks chat setup key entry and save without recording the key", async () => {
+    keyMock.fetchProviderModels.mockResolvedValue({
+      ok: true,
+      provider: "anthropic",
+      models: ["claude-sonnet-5"],
+      checkedAt: 1,
+    });
+    render({ provider: "anthropic", trackingFlow: "chat_setup" });
+
+    typeInto(inputByLabel("API key"), "sk-ant-test-0000");
+    await vi.waitFor(() => {
+      expect(setupTelemetryMock).toHaveBeenCalledWith(
+        "integration_key_entry_started",
+        expect.objectContaining({
+          flow: "chat_setup",
+          app_name: expect.any(String),
+          step_id: "connect_ai",
+          method_id: "custom_keys",
+          action: "enter",
+          outcome: "started",
+        }),
+      );
+      expect(setupTelemetryMock).toHaveBeenCalledWith(
+        "integration_key_validation_outcome",
+        expect.objectContaining({
+          flow: "chat_setup",
+          action: "validate",
+          outcome: "accepted",
+        }),
+      );
+    });
+
+    await act(async () => button("Add provider").click());
+    await vi.waitFor(() => {
+      expect(setupTelemetryMock).toHaveBeenCalledWith(
+        "integration_key_save_outcome",
+        expect.objectContaining({
+          flow: "chat_setup",
+          action: "save",
+          outcome: "saved",
+        }),
+      );
+    });
+    expect(JSON.stringify(setupTelemetryMock.mock.calls)).not.toContain(
+      "sk-ant-test-0000",
+    );
   });
 
   it("keeps Add disabled until the key checks out and keeps a failed save open", async () => {

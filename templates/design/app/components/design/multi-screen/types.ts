@@ -195,6 +195,9 @@ export interface MultiScreenCanvasProps {
   reviewResourceId?: string;
   reviewPinMode?: boolean;
   reviewCommentsHidden?: boolean;
+  pixelGridEnabled?: boolean;
+  snapToPixelGrid?: boolean;
+  showRulers?: boolean;
   reviewCanPost?: boolean;
   reviewCanResolve?: boolean;
   reviewTargetId?: string | null;
@@ -727,7 +730,7 @@ export interface VectorEditOverlayState {
 }
 
 /**
- * Figma-parity on-canvas gradient editing handles (follow-up to IP21's
+ * On-canvas gradient editing handles (follow-up to IP21's
  * inspector-only `GradientEditor`). Supplied by the parent (DesignEditor)
  * whenever a fill's gradient tab is open in the inspector for a selected
  * board/draft primitive or screen frame this canvas renders chrome for; see

@@ -1898,6 +1898,72 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(lastUpdatedDeckData).toBeUndefined();
   });
 
+  it("reports hygiene warnings for agent patches, only for slides it changed", async () => {
+    const stale = "<div><svg></svg><p>One</p></div>";
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: stale },
+        { id: "slide-2", content: "<div>Two</div>" },
+      ],
+    });
+
+    const result = (await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div><svg></svg><p>One!</p></div>" },
+            baseContentHash: hashSlideContent(stale),
+          },
+          {
+            op: "add-slide",
+            slideId: "slide-3",
+            fields: {
+              content: "<div><footer>03 / 12</footer><svg></svg></div>",
+            },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as { hygieneWarnings?: { warnings: Array<Record<string, unknown>> } };
+
+    // slide-1 kept the svg it already had; only the new slide is blamed.
+    expect(result.hygieneWarnings?.warnings).toEqual([
+      expect.objectContaining({
+        code: "inline-svg",
+        count: 1,
+        slideIds: ["slide-3"],
+      }),
+      expect.objectContaining({ code: "typed-page-number" }),
+    ]);
+    expect(JSON.parse(lastUpdatedDeckData!).slides).toHaveLength(3);
+  });
+
+  it("leaves the editor's patch result free of hygiene warnings", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "<div>One</div>" }],
+    });
+
+    const result = await runPatchDeckAction({
+      deckId: "deck-1",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<div><svg></svg></div>" },
+        },
+      ],
+    });
+
+    expect(result).not.toHaveProperty("hygieneWarnings");
+  });
+
   it("keeps reveal metadata when patch-deck applies a styleOnly batch", async () => {
     const source =
       '<div class="fmd-slide" style="background:#000;padding:80px"><p>One</p></div>';

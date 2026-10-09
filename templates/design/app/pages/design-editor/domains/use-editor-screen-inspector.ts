@@ -258,6 +258,7 @@ export function useEditorScreenInspector({
         url?: string;
         connectionId?: string;
       },
+      onSettled?: () => void,
     ) => {
       const publicLiveUrlEdit =
         !canEditDesign &&
@@ -270,7 +271,10 @@ export function useEditorScreenInspector({
             resolveOverviewScreenSourceType(screen, designSourceType) ===
               "localhost",
         );
-      if (!id || (!canEditDesign && !publicLiveUrlEdit)) return;
+      if (!id || (!canEditDesign && !publicLiveUrlEdit)) {
+        onSettled?.();
+        return;
+      }
       const snapshotHtml =
         next.sourceType === "static"
           ? (runtimeLayerSnapshotsById[screenId]?.html ??
@@ -355,6 +359,7 @@ export function useEditorScreenInspector({
                   : t("designEditor.toasts.screenSourceUpdateFailed")),
             );
           },
+          onSettled,
         },
       );
     },

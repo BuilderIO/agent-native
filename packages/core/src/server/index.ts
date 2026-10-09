@@ -93,6 +93,7 @@ export {
   autoMountAuth,
   registerAuthPublicPaths,
   getSession,
+  isSessionResolutionUnavailable,
   getMcpOAuthBearerSession,
   logout,
   COOKIE_NAME,
@@ -840,6 +841,7 @@ export {
   type RecurringSweepContext,
   type RecurringSweepHandler,
 } from "../jobs/sweep-hooks.js";
+export { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 export {
   scheduledTriggerAvailability,
   type ScheduledTriggerAvailability,

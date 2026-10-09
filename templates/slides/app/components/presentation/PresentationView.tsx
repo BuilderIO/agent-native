@@ -57,10 +57,11 @@ function PdfExportStage({
       data-pdf-export-stage="true"
       style={{ left: "-10000px", width: dims.width }}
     >
-      {slides.map((slide) => (
+      {slides.map((slide, index) => (
         <div key={slide.id} style={{ width: dims.width, height: dims.height }}>
           <SlideRenderer
             slide={slide}
+            slidePosition={{ number: index + 1, count: slides.length }}
             thumbnail={false}
             disableVideoAutoplay
             aspectRatio={aspectRatio}
@@ -724,6 +725,7 @@ export default function PresentationView({
         >
           <SlideRenderer
             slide={safeSlides[prevIndex]}
+            slidePosition={{ number: prevIndex + 1, count: safeSlides.length }}
             thumbnail={false}
             aspectRatio={aspectRatio}
             designSystem={designSystem}
@@ -739,6 +741,10 @@ export default function PresentationView({
       >
         <SlideRenderer
           slide={displaySlide}
+          slidePosition={{
+            number: currentIndex + 1,
+            count: safeSlides.length,
+          }}
           thumbnail={false}
           aspectRatio={aspectRatio}
           designSystem={designSystem}
