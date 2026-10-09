@@ -39,13 +39,9 @@ export function canonicalReplayLinkTimestamp(value: unknown): string | null {
   const offset = offsetHour * 60 + offsetMinute;
   const offsetSign = match[9] === "+" ? 1 : -1;
   const utc = new Date(local.getTime() - offsetSign * offset * 60_000);
-  if (Number.isNaN(utc.getTime())) return null;
-
-  try {
-    return utc.toISOString();
-  } catch {
-    return null;
-  }
+  const utcYear = utc.getUTCFullYear();
+  if (Number.isNaN(utc.getTime()) || utcYear < 0 || utcYear > 9999) return null;
+  return utc.toISOString();
 }
 
 function daysInMonth(year: number, month: number): number {
