@@ -56,7 +56,7 @@ async function createDesign(page: Page, content = HTML) {
   });
   return { designId, screenId: fileId };
 }
-
+// oracle: none — validates this editor's stroke controls and saved style output.
 test("image border and outline remain separate inside and outside strokes", async ({
   page,
 }) => {
@@ -325,7 +325,7 @@ async function readBoardContent(
   }
   return board.content as string;
 }
-
+// oracle: none — verifies the selected SVG layer and its image scale output.
 test("pasted SVG is an editable sized layer and image scale mode writes object-fit", async ({
   page,
 }, testInfo) => {
@@ -524,7 +524,7 @@ test("pasted SVG is an editable sized layer and image scale mode writes object-f
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }
 });
-
+// oracle: none — verifies nested SVG stroke edits persist in this editor.
 test("stroke gradient edits stay on the selected nested pasted-SVG shape", async ({
   page,
 }, testInfo) => {
@@ -1182,7 +1182,7 @@ test("clipboard SVG File paste relayed from a Screen iframe stays in that Screen
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }
 });
-
+// oracle: none — verifies clipboard paste targets the selected screen in this editor.
 test("clipboard SVG File paste from the board iframe targets the selected Screen", async ({
   page,
 }) => {
