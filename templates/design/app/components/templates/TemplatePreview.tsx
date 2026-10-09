@@ -108,45 +108,83 @@ export function TemplatePreview({
   useEffect(() => {
     const frame = frameRef.current;
     if (!recordSessionReplay || !frame) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        const hasVisibleArea =
-          entry.isIntersecting &&
-          entry.intersectionRatio > 0 &&
-          entry.intersectionRect.width > 0 &&
-          entry.intersectionRect.height > 0;
-        if (!hasVisibleArea) return;
-        const frameStyle = window.getComputedStyle(frame);
+    let latestIntersection: IntersectionObserverEntry | undefined;
+    const markVisiblePreview = () => {
+      const entry = latestIntersection;
+      const hasVisibleArea =
+        entry?.isIntersecting &&
+        entry.intersectionRatio > 0 &&
+        entry.intersectionRect.width > 0 &&
+        entry.intersectionRect.height > 0;
+      if (!hasVisibleArea) return;
+
+      for (
+        let current: Element | null = frame;
+        current;
+        current = current.parentElement
+      ) {
+        const styles = window.getComputedStyle(current);
         if (
-          frameStyle.visibility === "hidden" ||
-          frameStyle.visibility === "collapse"
+          styles.display === "none" ||
+          styles.contentVisibility === "hidden" ||
+          (styles.opacity !== "" && Number(styles.opacity) === 0) ||
+          (current === frame &&
+            (styles.visibility === "hidden" ||
+              styles.visibility === "collapse"))
         ) {
           return;
         }
-        for (
-          let current: Element | null = frame;
-          current;
-          current = current.parentElement
-        ) {
-          const styles = window.getComputedStyle(current);
-          if (
-            styles.display === "none" ||
-            styles.contentVisibility === "hidden" ||
-            (styles.opacity !== "" && Number(styles.opacity) === 0)
-          ) {
-            return;
-          }
-        }
-        setSessionReplayVisibility({
-          enabled: recordSessionReplay,
-          html,
-          visible: true,
-        });
+      }
+
+      setSessionReplayVisibility({
+        enabled: recordSessionReplay,
+        html,
+        visible: true,
+      });
+    };
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        latestIntersection = entry;
+        markVisiblePreview();
       },
       { threshold: [0, Number.MIN_VALUE] },
     );
+    const styleObserver = new MutationObserver(markVisiblePreview);
+    for (
+      let current: Element | null = frame;
+      current;
+      current = current.parentElement
+    ) {
+      styleObserver.observe(current, {
+        attributes: true,
+        attributeFilter: ["class", "hidden", "style"],
+      });
+    }
+    for (const eventName of [
+      "animationend",
+      "animationcancel",
+      "transitionend",
+      "transitioncancel",
+    ]) {
+      window.document.addEventListener(eventName, markVisiblePreview, true);
+    }
     observer.observe(frame);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      styleObserver.disconnect();
+      for (const eventName of [
+        "animationend",
+        "animationcancel",
+        "transitionend",
+        "transitioncancel",
+      ]) {
+        window.document.removeEventListener(
+          eventName,
+          markVisiblePreview,
+          true,
+        );
+      }
+    };
   }, [html, recordSessionReplay]);
 
   if (!html) {

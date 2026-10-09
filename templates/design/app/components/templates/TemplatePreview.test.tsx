@@ -145,6 +145,87 @@ describe("template artboard preview", () => {
     ).toBe(false);
   });
 
+  it("rechecks an intersecting preview after ancestor styles change", async () => {
+    await act(async () =>
+      root.render(
+        <TemplatePreview
+          title="Replay fixture"
+          html="<h1>Visible after fade in</h1>"
+          recordSessionReplay
+        />,
+      ),
+    );
+    const frame = container.querySelector("iframe")!;
+    const previewContainer = container.firstElementChild as HTMLElement;
+    previewContainer.style.opacity = "0";
+    await act(async () => Promise.resolve());
+
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 1,
+            intersectionRect: { width: 320, height: 180 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
+
+    await act(async () => {
+      previewContainer.style.opacity = "1";
+      await Promise.resolve();
+    });
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
+  });
+
+  it("rechecks visibility when an opacity transition completes", async () => {
+    await act(async () =>
+      root.render(
+        <TemplatePreview
+          title="Replay fixture"
+          html="<h1>Visible after transition</h1>"
+          recordSessionReplay
+        />,
+      ),
+    );
+    const frame = container.querySelector("iframe")!;
+    const getComputedStyle = vi
+      .spyOn(window, "getComputedStyle")
+      .mockReturnValue({
+        contentVisibility: "visible",
+        display: "block",
+        opacity: "0",
+        visibility: "visible",
+      } as CSSStyleDeclaration);
+    act(() =>
+      intersectionObservers[0]!.callback(
+        [
+          {
+            isIntersecting: true,
+            intersectionRatio: 1,
+            intersectionRect: { width: 320, height: 180 },
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      ),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(false);
+
+    getComputedStyle.mockReturnValue({
+      contentVisibility: "visible",
+      display: "block",
+      opacity: "1",
+      visibility: "visible",
+    } as CSSStyleDeclaration);
+    act(() =>
+      frame.dispatchEvent(new Event("transitionend", { bubbles: true })),
+    );
+    expect(frame.hasAttribute("data-agent-native-session-replay")).toBe(true);
+  });
+
   it("keeps one replay recorder across viewport changes while preserving isolation", async () => {
     const onNavigate = vi.fn();
     const onEscape = vi.fn();
