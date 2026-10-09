@@ -3,9 +3,9 @@ const MAX_MESSAGE_CHARACTERS = 2_000;
 const MAX_TOTAL_CHARACTERS = 8_000;
 
 const CREDENTIAL_ASSIGNMENT =
-  /(["']?)(api[_ -]?key|access[_ -]?token|refresh[_ -]?token|authorization|auth|password|passwd|client[_ -]?secret|secret|token)\1(\s*[:=]\s*(?:(?:bearer|basic|digest|negotiate|oauth|token)\s+)?)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\s,;}]+))/gi;
-const DIGEST_AUTHORIZATION_ASSIGNMENT =
-  /(["']?)(authorization)\1(\s*[:=]\s*)digest\s+[^\r\n]*/gi;
+  /(["']?)(api[_ -]?key|access[_ -]?token|refresh[_ -]?token|auth|password|passwd|client[_ -]?secret|secret|token)\1(\s*[:=]\s*(?:(?:bearer|basic|digest|negotiate|oauth|token)\s+)?)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\s,;}]+))/gi;
+const AUTHORIZATION_ASSIGNMENT =
+  /(["']?)(authorization)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\\r\n])*)"|'((?:\\.|[^'\\\r\n])*)'|([^\r\n]*))/gi;
 const BEARER_VALUE = /\bbearer\s+[a-z0-9._~+/-]+=*/gi;
 const SQL_CODE_BLOCK = /```(?:sql|postgres(?:ql)?)\b[\s\S]*?```/gi;
 const SQL_STATEMENT =
@@ -15,7 +15,7 @@ const LABELED_SQL_STATEMENT =
 const SQL_LOOKING_TEXT =
   /\bselect\s+(?:(?:distinct|all)\s+)?(?:\*|['"]|[-+]?(?:\d|\.?\d)|case\b|[a-z_][\w$]*\s*\()|\b(?:insert\s+into|update\s+\S+\s+set|delete\s+from|create\s+(?:table|index|view|schema)|alter\s+table|drop\s+(?:table|index|view|schema))\b|\bwith\s+[a-z_][\w$]*\s+as\s*\(/i;
 const INLINE_SQL_SELECT =
-  /\bselect\s+[a-z_][\w$]*\s*,\s*[a-z_][\w$]*\s+from\s+[a-z_][\w$]*\s+where\s+[a-z_][\w$.]*\s*(?:=|<>|!=|<=|>=|<|>|like\b|in\s*\()/i;
+  /\bselect\s+(?:(?:distinct|all)\s+)?[a-z_][\w$.]*(?:\s*,\s*[a-z_][\w$.]*)*\s+from\s+[a-z_][\w$.]*\s+where\s+[a-z_][\w$.]*\s*(?:=|<>|!=|<=|>=|<|>|like\b|in\s*\()/i;
 const DATA_URI_BASE64 =
   /\bdata:[a-z0-9.+-]+\/[a-z0-9.+-]+(?:;[a-z0-9=.+-]+)*;base64,[a-z0-9+/=]+/gi;
 const LONG_BASE64 = /[a-z0-9_+/=\n-]{128,}/gi;
@@ -69,9 +69,16 @@ function normalizeText(text: string): string {
 function redactCredentials(text: string): string {
   return text
     .replace(
-      DIGEST_AUTHORIZATION_ASSIGNMENT,
-      (_match, keyQuote, key, delimiter) =>
-        `${keyQuote}${key}${keyQuote}${delimiter}Digest [REDACTED]`,
+      AUTHORIZATION_ASSIGNMENT,
+      (_match, keyQuote, key, delimiter, doubleQuoted, singleQuoted) => {
+        const valueQuote =
+          doubleQuoted !== undefined
+            ? '"'
+            : singleQuoted !== undefined
+              ? "'"
+              : "";
+        return `${keyQuote}${key}${keyQuote}${delimiter}${valueQuote}[REDACTED]${valueQuote}`;
+      },
     )
     .replace(
       CREDENTIAL_ASSIGNMENT,

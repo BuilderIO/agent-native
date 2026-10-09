@@ -14,6 +14,15 @@ type ReplayAddress = { address: string; family: number };
 type ReplayLookup = (hostname: string) => Promise<ReplayAddress[]>;
 type ReplayConnect = (address: string, port: number) => Promise<Socket>;
 
+class ReplayNetworkError extends Error {
+  constructor(
+    message: string,
+    readonly cause: unknown,
+  ) {
+    super(message);
+  }
+}
+
 export type ReplaySocksRelay = {
   server: string;
   close(): Promise<void>;
@@ -114,15 +123,16 @@ function addressLookup(hostname: string): Promise<ReplayAddress[]> {
 export async function isReplayRequestAllowed(
   requestUrl: string,
   appUrl: string,
+  lookup: ReplayLookup = addressLookup,
 ): Promise<boolean> {
   let url: URL;
-  let app: URL;
   try {
     url = new URL(requestUrl);
-    app = new URL(appUrl);
-  } catch {
-    return false;
+  } catch (error) {
+    if (error instanceof TypeError) return false;
+    throw error;
   }
+  const app = new URL(appUrl);
   if (url.username || url.password || app.username || app.password) {
     return false;
   }
@@ -134,8 +144,14 @@ export async function isReplayRequestAllowed(
   let hostname: string;
   try {
     hostname = normalizedHostname(url.hostname);
-  } catch {
-    return false;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "replay_network_target_blocked"
+    ) {
+      return false;
+    }
+    throw error;
   }
   if (
     hostname.endsWith(".localhost") ||
@@ -150,13 +166,13 @@ export async function isReplayRequestAllowed(
   if (isIP(hostname)) return isPublicIpAddress(hostname);
 
   try {
-    const addresses = await addressLookup(hostname);
+    const addresses = await lookup(hostname);
     return (
       addresses.length > 0 &&
       addresses.every(({ address }) => isPublicIpAddress(address))
     );
-  } catch {
-    return false;
+  } catch (error) {
+    throw new ReplayNetworkError("replay_dns_lookup_failed", error);
   }
 }
 
@@ -189,8 +205,8 @@ export async function resolvePinnedAddresses(
   let addresses: ReplayAddress[];
   try {
     addresses = await addressLookup(hostname);
-  } catch {
-    throw new Error("app_dns_lookup_failed");
+  } catch (error) {
+    throw new ReplayNetworkError("app_dns_lookup_failed", error);
   }
   if (
     addresses.length === 0 ||
@@ -318,8 +334,8 @@ async function resolveSocksDestination(
   let addresses: ReplayAddress[];
   try {
     addresses = await lookup(requestedHost);
-  } catch {
-    throw new Error("replay_dns_lookup_failed");
+  } catch (error) {
+    throw new ReplayNetworkError("replay_dns_lookup_failed", error);
   }
   const localApp =
     sameAppOrigin && appUrl.protocol === "http:" && isLoopbackHost(appHost);
@@ -372,14 +388,16 @@ async function connectPinnedDestination(
     appUrl,
     lookup,
   );
+  const failures: unknown[] = [];
   for (const { address } of addresses) {
     try {
       return await connect(address, port);
-    } catch {
+    } catch (error) {
       // Try only other numeric addresses returned by the same validated lookup.
+      failures.push(error);
     }
   }
-  throw new Error("replay_network_connect_failed");
+  throw new ReplayNetworkError("replay_network_connect_failed", failures);
 }
 
 async function handleSocksClient(

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   isPublicIpAddress,
+  isReplayRequestAllowed,
   replayBrowserLaunchOptions,
   startReplaySocksRelay,
 } from "./journey-capture-network";
@@ -112,6 +113,23 @@ describe("journey capture replay network relay", () => {
     expect(isPublicIpAddress("127.0.0.1")).toBe(false);
   });
 
+  it("keeps destination lookup failures distinct from denied requests", async () => {
+    const lookupError = new Error("resolver_failure");
+
+    await expect(
+      isReplayRequestAllowed(
+        "https://recorded-assets.example.com/image.png",
+        "https://analytics.example.com",
+        async () => {
+          throw lookupError;
+        },
+      ),
+    ).rejects.toMatchObject({
+      message: "replay_dns_lookup_failed",
+      cause: lookupError,
+    });
+  });
+
   it("opens only the exact loopback Analytics origin and closes owned sockets", async () => {
     const appServer = createServer((_request, response) => {
       response.end("replay-frame");
@@ -188,6 +206,40 @@ describe("journey capture replay network relay", () => {
       socket.destroy();
       await relay.close();
       await close(targetServer);
+    }
+  });
+
+  it("returns an explicit SOCKS failure after every checked address rejects", async () => {
+    const lookup = vi.fn(async () => [
+      { address: "8.8.8.8", family: 4 },
+      { address: "1.1.1.1", family: 4 },
+    ]);
+    const connect = vi.fn(async (address: string, port: number) => {
+      expect([address, port]).toEqual(["8.8.8.8", 443]);
+      throw new Error("connect_refused");
+    });
+    const relay = await startReplaySocksRelay("https://analytics.example.com", {
+      lookup,
+      connect,
+    });
+    const proxyUrl = new URL(relay.server);
+    const socket = await connectSocket(
+      proxyUrl.hostname,
+      Number(proxyUrl.port),
+    );
+
+    try {
+      expect([...(await socksConnect(socket, "recorded.com", 443))]).toEqual([
+        5, 2, 0, 1, 0, 0, 0, 0, 0, 0,
+      ]);
+      expect(lookup).toHaveBeenCalledExactlyOnceWith("recorded.com");
+      expect(connect.mock.calls.map(([address]) => address)).toEqual([
+        "8.8.8.8",
+        "1.1.1.1",
+      ]);
+    } finally {
+      socket.destroy();
+      await relay.close();
     }
   });
 

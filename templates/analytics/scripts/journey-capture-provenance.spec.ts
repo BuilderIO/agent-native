@@ -47,7 +47,7 @@ describe("sanitizePromptProvenanceCandidates", () => {
     expect(result.messages).toEqual([
       {
         role: "user",
-        text: "api_key=[REDACTED] Authorization: Bearer [REDACTED] Bearer [REDACTED]",
+        text: "api_key=[REDACTED] Authorization: [REDACTED]",
       },
     ]);
     expect(result.messages[0]?.text).not.toContain("example-value");
@@ -72,7 +72,7 @@ describe("sanitizePromptProvenanceCandidates", () => {
     });
   });
 
-  it("redacts complete Basic, Digest, and Token authorization values", () => {
+  it("redacts complete authorization values, including unknown schemes", () => {
     const result = sanitizePromptProvenanceCandidates([
       { role: "user", text: "Authorization: Basic fake-basic-value" },
       {
@@ -80,12 +80,24 @@ describe("sanitizePromptProvenanceCandidates", () => {
         text: 'Authorization: Digest username="fake;user", realm="fake-realm", nonce="fake-nonce"',
       },
       { role: "user", text: "Authorization: Token fake-token-value" },
+      { role: "user", text: "Authorization: ApiKey fake-api-key-value" },
+      {
+        role: "user",
+        text: "Authorization: AWS4-HMAC-SHA256 Credential=fake-credential, SignedHeaders=host, Signature=fake-signature",
+      },
+      {
+        role: "user",
+        text: '{"authorization":"Bearer fake-json-token","next":"visible"}',
+      },
     ]);
 
     expect(result.messages.map(({ text }) => text)).toEqual([
-      "Authorization: Basic [REDACTED]",
-      "Authorization: Digest [REDACTED]",
-      "Authorization: Token [REDACTED]",
+      "Authorization: [REDACTED]",
+      "Authorization: [REDACTED]",
+      "Authorization: [REDACTED]",
+      "Authorization: [REDACTED]",
+      "Authorization: [REDACTED]",
+      '{"authorization":"[REDACTED]","next":"visible"}',
     ]);
     for (const value of [
       "fake-basic-value",
@@ -93,9 +105,17 @@ describe("sanitizePromptProvenanceCandidates", () => {
       "fake-realm",
       "fake-nonce",
       "fake-token-value",
+      "fake-api-key-value",
+      "fake-credential",
+      "fake-signature",
+      "fake-json-token",
     ]) {
       expect(JSON.stringify(result)).not.toContain(value);
     }
+    expect(JSON.parse(result.messages[5]!.text)).toEqual({
+      authorization: "[REDACTED]",
+      next: "visible",
+    });
   });
 
   it("omits SQL and base64 payloads from extracted message text", () => {
@@ -163,16 +183,22 @@ describe("sanitizePromptProvenanceCandidates", () => {
       },
       {
         role: "user",
+        text: "Can you check this: SELECT email FROM users WHERE id = 7?",
+      },
+      {
+        role: "user",
         text: "Can you select one from the list, then compare retention by plan?",
       },
     ]);
 
     expect(result.messages.map(({ text }) => text)).toEqual([
       "[OMITTED_SQL]",
+      "[OMITTED_SQL]",
       "Can you select one from the list, then compare retention by plan?",
     ]);
     expect(JSON.stringify(result)).not.toContain("user_id");
     expect(JSON.stringify(result)).not.toContain("pro");
+    expect(JSON.stringify(result)).not.toContain("email FROM users");
   });
 
   it("reports message and per-message character truncation", () => {

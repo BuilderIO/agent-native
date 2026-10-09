@@ -1097,6 +1097,19 @@ describe("browser journey capture", () => {
   });
 });
 
+describe("private output directory", () => {
+  it("rejects protected ancestors before changing their permissions", async () => {
+    const ancestor = path.dirname(process.cwd());
+    const originalMode = (await stat(ancestor)).mode & 0o777;
+
+    await expect(
+      preparePrivateOutputDirectory(ancestor, process.cwd()),
+    ).rejects.toThrow("output_directory_too_broad");
+
+    expect((await stat(ancestor)).mode & 0o777).toBe(originalMode);
+  });
+});
+
 describe("prompt provenance sidecar", () => {
   it("removes a prior sidecar before a run that does not extract prompts", async () => {
     const outDir = await mkdtemp(path.join(os.tmpdir(), "journey-provenance-"));

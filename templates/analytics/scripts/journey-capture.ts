@@ -381,7 +381,13 @@ export async function preparePrivateOutputDirectory(
     path.resolve(os.homedir()),
     path.resolve(os.tmpdir()),
   ]);
-  if (protectedPaths.has(resolved)) {
+  if (
+    [...protectedPaths].some(
+      (protectedPath) =>
+        protectedPath === resolved ||
+        protectedPath.startsWith(`${resolved}${path.sep}`),
+    )
+  ) {
     throw new Error("output_directory_too_broad");
   }
   await mkdir(resolved, { recursive: true, mode: 0o700 });
