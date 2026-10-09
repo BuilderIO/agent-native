@@ -238,7 +238,7 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
             parts: [
               {
                 type: "image",
-                data: "INLINE_HISTORY_IMAGE_BYTES",
+                data: "data:image/png;base64,aGlzdG9yeS1pbWFnZS1maXh0dXJl",
                 url: "https://files.example.test/history.png",
               },
             ],
