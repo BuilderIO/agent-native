@@ -2280,14 +2280,61 @@ const E2E_ISSUE_FANOUT_NORMALIZATION_CASES = [
 const LEGACY_LINE_NORMALIZATION_CASES = [
   [true, "Signup pages should always show\nthe WebGL wave, not this graphic."],
 ];
-const FEEDBACK_REPLY_DETAIL_RE =
-  /\b(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)\b[^.!?\n]{0,100}\b(?:too\s+technical|overly\s+technical|very\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|less\s+technical|less\s+detail)\b|\b(?:too\s+technical|overly\s+technical|very\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|less\s+technical|less\s+detail)\b[^.!?\n]{0,100}\b(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)\b|\b(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)\b[^.!?\n]{0,100}\b(?:don't|do not|avoid|skip|omit|leave out|remove|no|stop(?:\s+(?:including|mentioning))?)\b[^.!?\n]{0,120}\b(?:(?:technical|implementation|internal|deployment)\s+(?:details?|information)|(?:commit|branch|ci|publisher|deployment|run|workflow)(?:\s+(?:details?|hash(?:es)?|results?|mentions?|status|ids?|names?))?|hash(?:es)?|results?)\b|\b(?:don't|do not|avoid|skip|omit|leave out|remove|no|stop(?:\s+(?:including|mentioning))?)\b[^.!?\n]{0,120}\b(?:(?:technical|implementation|internal|deployment)\s+(?:details?|information)|(?:commit|branch|ci|publisher|deployment|run|workflow)(?:\s+(?:details?|hash(?:es)?|results?|mentions?|status|ids?|names?))?|hash(?:es)?|results?)\b[^.!?\n]{0,120}\b(?:in|from|for|when)\b[^.!?\n]{0,30}\b(?:you\s+)?(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)\b/i;
+const FEEDBACK_REPLY_CONTEXT =
+  /(?:reply|repl(?:y|ies)|response|status\s+updates?|feedback\s+updates?)/i
+    .source;
+const FEEDBACK_REPLY_DETAIL_ISSUE =
+  /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|less\s+technical|less\s+detail)/i
+    .source;
+const FEEDBACK_REPLY_DETAIL_TARGET =
+  /(?:(?:technical|implementation|internal|deployment)\s+(?:details?|information)|(?:commit|branch|ci|publisher|deployment|run|workflow)(?:\s+(?:details?|hash(?:es)?|results?|mentions?|status|ids?|names?))?|hash(?:es)?|results?)/i
+    .source;
+const FEEDBACK_REPLY_DETAIL_OMISSION =
+  /(?:don't|do not|avoid|skip|omit|leave out|remove|stop(?:\s+(?:including|mentioning))?)/i
+    .source;
+const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
+  [
+    "\\b" +
+      FEEDBACK_REPLY_CONTEXT +
+      "\\b[^.!?\\n]{0,100}\\b" +
+      FEEDBACK_REPLY_DETAIL_ISSUE +
+      "\\b",
+    "\\b" +
+      FEEDBACK_REPLY_DETAIL_ISSUE +
+      "\\b[^.!?\\n]{0,100}\\b" +
+      FEEDBACK_REPLY_CONTEXT +
+      "\\b",
+    "\\b" +
+      FEEDBACK_REPLY_CONTEXT +
+      "\\b[^.!?\\n]{0,100}\\b" +
+      FEEDBACK_REPLY_DETAIL_OMISSION +
+      "\\b[^.!?\\n]{0,120}\\b" +
+      FEEDBACK_REPLY_DETAIL_TARGET +
+      "\\b",
+    "\\b" +
+      FEEDBACK_REPLY_DETAIL_OMISSION +
+      "\\b[^.!?\\n]{0,120}\\b" +
+      FEEDBACK_REPLY_DETAIL_TARGET +
+      "\\b[^.!?\\n]{0,120}\\b(?:in|from|for|when)\\b[^.!?\\n]{0,30}\\b(?:you\\s+)?" +
+      FEEDBACK_REPLY_CONTEXT +
+      "\\b",
+    "\\bno\\b[^.!?\\n]{0,120}\\b" +
+      FEEDBACK_REPLY_DETAIL_TARGET +
+      "\\b[^.!?\\n]{0,120}\\b(?:in|from|for|when)\\b[^.!?\\n]{0,30}\\b(?:you\\s+)?" +
+      FEEDBACK_REPLY_CONTEXT +
+      "\\b",
+  ].join("|"),
+  "i",
+);
 const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "When you reply, don't include all those technical details."],
   [true, "Too much technical detail in replies."],
   [true, "Leave out publisher details from replies."],
   [true, "Don't include commit hashes or CI results in replies."],
+  [true, "No technical details in replies."],
   [false, "Please reply with technical details."],
+  [false, "Please reply with very technical details."],
+  [false, "Reply once there are no CI results yet."],
   [false, "CI results and branch details are useful."],
 ];
 
