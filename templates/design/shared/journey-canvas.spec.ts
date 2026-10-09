@@ -730,12 +730,29 @@ describe("create-journey-canvas input", () => {
           screen.nodeKey === canonical.key && screen.exampleIndex === 0,
       )?.html,
     ).toContain('aria-label="Show source example 6"');
+    const canonicalHighIndex = result.screens.find(
+      (screen) => screen.nodeKey === canonical.key && screen.exampleIndex === 5,
+    )?.html;
+    expect(canonicalHighIndex).toContain("Gallery 4 of 4");
+    expect(canonicalHighIndex).toContain("example-source-label");
+    expect(canonicalHighIndex).toContain(">Source</span>");
+    expect(canonicalHighIndex).toContain(
+      `alt="${canonical.label}, source example 6, gallery position 4 of 4, captured 2026-10-08"`,
+    );
     expect(
       result.screens.find(
         (screen) =>
           screen.nodeKey === observed.key && screen.exampleIndex === 0,
       )?.html,
     ).toContain('aria-label="Show source example 8"');
+    expect(
+      result.screens.find(
+        (screen) =>
+          screen.nodeKey === observed.key && screen.exampleIndex === 7,
+      )?.html,
+    ).toContain(
+      `alt="${observed.label}, source example 8, gallery position 4 of 4, captured 2026-10-08"`,
+    );
     expect(continuationLabel).toContain(">Ex. 6 → 8</div>");
     expect(continuationLabel).toContain(
       'title="Same recording · example 6 → example 8"',
@@ -1450,8 +1467,8 @@ describe("planJourneyCanvas", () => {
     expect(screens[0]?.html).toMatch(
       /:checked~main \.example-frame\[data-index="1"\]\{display:flex\}/,
     );
-    expect(screens[0]?.html).toContain("Example 1 of 2");
-    expect(screens[0]?.html).toContain("Example 2 of 2");
+    expect(screens[0]?.html).toContain("Gallery 1 of 2");
+    expect(screens[0]?.html).toContain("Gallery 2 of 2");
     expect(screens[0]?.html).toMatch(
       /aria-label="Show source example 1" checked/,
     );

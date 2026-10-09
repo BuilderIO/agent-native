@@ -14,10 +14,12 @@ export default {
     continuedOnUnpictured:
       "표시되지 않은 경로에서 계속됨: {count} · 이 단계의 {percent}",
     noLaterStepObserved: "이후 단계가 관찰되지 않음",
-    examplePosition: "예시 {current}/{total}",
+    examplePosition: "갤러리 {current}/{total}",
+    sourceExampleLabel: "출처",
     showExample: "원본 예시 {current} 표시",
     screenshotExamples: "스크린샷 예시",
-    screenshotAlt: "{label}, 예시 {current}/{total}, 캡처일 {date}",
+    screenshotAlt:
+      "{label}, 원본 예시 {source}, 갤러리 위치 {current}/{total}, 캡처일 {date}",
     screenshotMissing: "스크린샷이 캡처되지 않음",
     recordingUnavailable: "사용할 수 없음",
     eventTime: "이벤트 시간(UTC)",

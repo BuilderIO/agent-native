@@ -15,10 +15,12 @@ export default {
     continuedOnUnpictured:
       "Continuaron por rutas no mostradas: {count} · {percent} de este paso",
     noLaterStepObserved: "No se observó ningún paso posterior",
-    examplePosition: "Ejemplo {current} de {total}",
+    examplePosition: "Galería {current} de {total}",
+    sourceExampleLabel: "Origen",
     showExample: "Mostrar ejemplo de origen {current}",
     screenshotExamples: "Ejemplos de capturas",
-    screenshotAlt: "{label}, ejemplo {current} de {total}, capturado el {date}",
+    screenshotAlt:
+      "{label}, ejemplo de origen {source}, posición en galería {current} de {total}, capturado el {date}",
     screenshotMissing: "No se capturó ninguna captura",
     recordingUnavailable: "no disponible",
     eventTime: "Hora del evento (UTC)",

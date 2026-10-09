@@ -1035,7 +1035,7 @@ function exampleSwitchMarkup(
         `<label for="${item.selectorId}" title="${escapeHtml(interpolateJourneyCanvasMessage(messages.showExample, { current: formatInt(item.sourceExampleIndex + 1, messages.htmlLanguage), total: formatInt(items.length, messages.htmlLanguage) }))}">${formatInt(item.sourceExampleIndex + 1, messages.htmlLanguage)}</label>`,
     )
     .join("");
-  return `<div class="example-switcher" role="group" aria-label="${escapeHtml(messages.screenshotExamples)}">${positions}${labels}</div>`;
+  return `<div class="example-switcher" role="group" aria-label="${escapeHtml(messages.screenshotExamples)}">${positions}<span class="example-source-label">${escapeHtml(messages.sourceExampleLabel)}</span>${labels}</div>`;
 }
 
 function exampleSelectorsMarkup(
@@ -1497,6 +1497,7 @@ export function planJourneyCanvas(
         ...(candidateProvenance ? { provenance: candidateProvenance } : {}),
         alt: interpolateJourneyCanvasMessage(messages.screenshotAlt, {
           label: candidate.caption?.outputTitle ?? entry.node.label,
+          source: formatInt(candidate.exampleIndex + 1, messages.htmlLanguage),
           current: formatInt(index + 1, messages.htmlLanguage),
           total: formatInt(entry.frames.length, messages.htmlLanguage),
           date: utcTimestamp(candidate.capturedAt).slice(0, 10),

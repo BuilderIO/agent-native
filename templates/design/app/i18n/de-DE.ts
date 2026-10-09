@@ -15,11 +15,12 @@ export default {
     continuedOnUnpictured:
       "Fortsetzung auf nicht gezeigten Pfaden: {count} · {percent} dieses Schritts",
     noLaterStepObserved: "Kein späterer Schritt beobachtet",
-    examplePosition: "Beispiel {current} von {total}",
+    examplePosition: "Galerie {current} von {total}",
+    sourceExampleLabel: "Quelle",
     showExample: "Quellbeispiel {current} anzeigen",
     screenshotExamples: "Screenshot-Beispiele",
     screenshotAlt:
-      "{label}, Beispiel {current} von {total}, aufgenommen am {date}",
+      "{label}, Quellbeispiel {source}, Galerieposition {current} von {total}, aufgenommen am {date}",
     screenshotMissing: "Kein Screenshot aufgenommen",
     recordingUnavailable: "nicht verfügbar",
     eventTime: "Ereigniszeit (UTC)",

@@ -15,10 +15,12 @@ export default {
     continuedOnUnpictured:
       "المتابعة في مسارات غير معروضة: {count} · {percent} من هذه الخطوة",
     noLaterStepObserved: "لم تُرصد خطوة لاحقة",
-    examplePosition: "مثال {current} من {total}",
+    examplePosition: "المعرض {current} من {total}",
+    sourceExampleLabel: "المصدر",
     showExample: "عرض مثال المصدر {current}",
     screenshotExamples: "أمثلة لقطات الشاشة",
-    screenshotAlt: "{label}، المثال {current} من {total}، تاريخ الالتقاط {date}",
+    screenshotAlt:
+      "{label}، مثال المصدر {source}، موضعه في المعرض {current} من {total}، تاريخ الالتقاط {date}",
     screenshotMissing: "لم تُلتقط لقطة شاشة",
     recordingUnavailable: "غير متاح",
     eventTime: "وقت الحدث (UTC)",

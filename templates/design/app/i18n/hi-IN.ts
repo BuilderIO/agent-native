@@ -14,10 +14,12 @@ export default {
     continuedOnUnpictured:
       "न दिखाए गए रास्तों पर जारी: {count} · इस चरण का {percent}",
     noLaterStepObserved: "इसके बाद कोई चरण नहीं देखा गया",
-    examplePosition: "उदाहरण {current}/{total}",
+    examplePosition: "गैलरी {current}/{total}",
+    sourceExampleLabel: "स्रोत",
     showExample: "स्रोत उदाहरण {current} दिखाएँ",
     screenshotExamples: "स्क्रीनशॉट उदाहरण",
-    screenshotAlt: "{label}, उदाहरण {current}/{total}, कैप्चर की तारीख {date}",
+    screenshotAlt:
+      "{label}, स्रोत उदाहरण {source}, गैलरी में स्थान {current}/{total}, कैप्चर की तारीख {date}",
     screenshotMissing: "कोई स्क्रीनशॉट कैप्चर नहीं हुआ",
     recordingUnavailable: "उपलब्ध नहीं",
     eventTime: "इवेंट समय (UTC)",

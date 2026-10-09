@@ -14,10 +14,12 @@ export default {
     continuedOnUnpictured:
       "未表示の経路で継続: {count} · このステップの {percent}",
     noLaterStepObserved: "後続のステップは未観測",
-    examplePosition: "例 {current}/{total}",
+    examplePosition: "ギャラリー {current}/{total}",
+    sourceExampleLabel: "ソース",
     showExample: "ソース例{current}を表示",
     screenshotExamples: "スクリーンショットの例",
-    screenshotAlt: "{label}、例 {current}/{total}、撮影日 {date}",
+    screenshotAlt:
+      "{label}、ソース例{source}、ギャラリー位置 {current}/{total}、撮影日 {date}",
     screenshotMissing: "スクリーンショット未取得",
     recordingUnavailable: "利用不可",
     eventTime: "イベント時刻（UTC）",

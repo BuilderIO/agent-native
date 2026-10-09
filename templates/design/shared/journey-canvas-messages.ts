@@ -12,6 +12,7 @@ export interface JourneyCanvasMessages {
   continuedOnUnpictured: string;
   noLaterStepObserved: string;
   examplePosition: string;
+  sourceExampleLabel: string;
   showExample: string;
   screenshotExamples: string;
   screenshotAlt: string;
@@ -77,10 +78,12 @@ export const enUSJourneyCanvasMessages: JourneyCanvasMessages = {
   continuedOnUnpictured:
     "{count} continued on unpictured paths · {percent} of this step",
   noLaterStepObserved: "No later step observed",
-  examplePosition: "Example {current} of {total}",
+  examplePosition: "Gallery {current} of {total}",
+  sourceExampleLabel: "Source",
   showExample: "Show source example {current}",
   screenshotExamples: "Screenshot examples",
-  screenshotAlt: "{label}, example {current} of {total}, captured {date}",
+  screenshotAlt:
+    "{label}, source example {source}, gallery position {current} of {total}, captured {date}",
   screenshotMissing: "No screenshot captured",
   recordingUnavailable: "unavailable",
   eventTime: "Event time (UTC)",
