@@ -2533,6 +2533,14 @@ export async function runAuthoringFuzz(
       range.collapse(true);
       selection.removeAllRanges();
       selection.addRange(range);
+      const caretTarget =
+        range.startContainer instanceof Element
+          ? range.startContainer
+          : range.startContainer.parentElement;
+      (caretTarget ?? root).scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+      });
     });
     let state = await plainLineState();
     let attempts = 0;
