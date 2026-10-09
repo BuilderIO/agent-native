@@ -41,6 +41,24 @@ it("reports a failed HTML export once, then rethrows", async () => {
   });
 });
 
+it("does not attribute a failed export to a deck the caller cannot access", async () => {
+  mocks.track.mockClear();
+  mocks.resolveAccess.mockResolvedValue(null);
+
+  await expect(
+    exportHtml.run({ deckId: "someone-elses-deck" }, { caller: "ui" } as never),
+  ).rejects.toThrow("Deck not found");
+
+  expect(mocks.track).toHaveBeenCalledTimes(1);
+  const properties = mocks.track.mock.calls[0][1];
+  expect(properties).toMatchObject({
+    export_format: "html",
+    status: "failed",
+    error_type: "deck_not_found",
+  });
+  expect(properties).not.toHaveProperty("output_id");
+});
+
 it("navigates exported slides with controls and keyboard", async () => {
   const window = new Window({ settings: { enableJavaScriptEvaluation: true } });
   const html = buildStandaloneHtml("Deck", [

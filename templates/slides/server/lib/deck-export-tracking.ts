@@ -11,6 +11,8 @@ import { trackSlides } from "./slides-tracking.js";
 export type DeckExportFormat = "pptx" | "html" | "pdf" | "google_slides";
 
 export interface DeckExportFacts {
+  /** Set only once the caller is shown to have access to the deck. */
+  deckId?: string;
   slideCount?: number;
   generationAttemptId?: string;
 }
@@ -94,7 +96,6 @@ export function withExportFailureTracking<TArgs extends { deckId: string }>(
         trackDeckExported(
           {
             ...facts,
-            deckId: args.deckId,
             exportFormat,
             renderLocation: "server",
             status: "failed",

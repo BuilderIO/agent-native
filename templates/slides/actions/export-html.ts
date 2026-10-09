@@ -648,6 +648,7 @@ export default defineAction({
         statusCode: 404,
       });
 
+    facts.deckId = deckId;
     const row = access.resource;
     const deckData = JSON.parse(row.data);
     const slides = deckData.slides || [];
