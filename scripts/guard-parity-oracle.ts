@@ -498,7 +498,6 @@ async function loadLedger(
         entryCount: 0,
         problems,
         artifactBytes,
-        inspectionError: `${ORACLE_DIR} is missing`,
       };
     }
     const detail = error instanceof Error ? error.message : String(error);
@@ -930,9 +929,14 @@ function validateAddedTests(
       );
       const call = body.match(ORACLE_CALL);
       if (!citation && !call) {
-        problems.push(
-          `${rel}:${startLine}: test block needs oracle: fig.* or oracle: none — reason`,
-        );
+        // The ledger and its reference material can be intentionally removed.
+        // In that state there is no measured evidence to require test authors
+        // to classify, while explicit references above still fail if unknown.
+        if (entries.size > 0) {
+          problems.push(
+            `${rel}:${startLine}: test block needs oracle: fig.* or oracle: none — reason`,
+          );
+        }
         continue;
       }
       if (citation) {

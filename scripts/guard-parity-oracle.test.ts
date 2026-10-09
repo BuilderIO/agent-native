@@ -13,7 +13,6 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 
-import { oracle } from "../templates/design/e2e/parity-oracle.ts";
 import { runParityOracleGuard } from "./guard-parity-oracle.ts";
 
 const oracleId = "fig.inspector.empty-fill-title";
@@ -137,16 +136,6 @@ function jpegAbovePixelLimit(): Buffer {
 }
 
 describe("parity oracle guard", () => {
-  it("loads a seeded current record and verifies its evidence artifacts", () => {
-    const record = oracle("fig.inspector.empty-fill-title");
-    assert.equal(record.basis, "measured");
-    assert.deepEqual(record.values.fill, { hex: "D9D9D9", opacity: 100 });
-    assert.match(
-      record.title,
-      /^\[oracle fig\.inspector\.empty-fill-title measured\]$/,
-    );
-  });
-
   it("reports an empty ledger explicitly", async () => {
     const root = makeRoot();
     try {
@@ -165,26 +154,34 @@ describe("parity oracle guard", () => {
     }
   });
 
-  it("rejects chosen records as parity evidence at runtime", () => {
+  it("accepts a removed ledger as empty after reference-material cleanup", async () => {
     const root = makeRoot();
     try {
-      const dir = path.join(root, "templates/design/parity/oracle");
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(
-        path.join(dir, `${oracleId}.json`),
-        JSON.stringify({
-          schemaVersion: 1,
-          id: oracleId,
-          basis: "chosen",
-          status: "current",
-          date: "2026-10-06",
-          claim: "A deliberate product choice.",
-          artifacts: [],
-        }),
-      );
-      assert.throws(
-        () => oracle(oracleId, root),
-        /not measured; only measured records may be cited/,
+      const result = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: addedLines(
+          root,
+          "templates/design/e2e/interaction-cleanup.spec.ts",
+          'test("keeps the interaction stable", async () => {\n  expect(true).toBe(true);\n});',
+        ),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(result.exitCode, 0);
+      assert.match(result.message, /0 entries, 0 citations/);
+
+      const unknownCitation = await runParityOracleGuard({
+        repoRoot: root,
+        addedLines: addedLines(
+          root,
+          "templates/design/e2e/interaction-cleanup.spec.ts",
+          '// oracle: fig.removed-reference\ntest("uses a removed oracle", async () => {\n  expect(true).toBe(true);\n});',
+        ),
+        today: new Date("2026-10-06T00:00:00Z"),
+      });
+      assert.equal(unknownCitation.exitCode, 1);
+      assert.match(
+        unknownCitation.message,
+        /unknown oracle id fig\.removed-reference/,
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -872,34 +869,6 @@ describe("parity oracle guard", () => {
       });
       assert.equal(badPixels.exitCode, 1);
       assert.match(badPixels.message, /not a valid PNG or JPEG image/);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("requires measured runtime records to verify a native Figma screenshot", () => {
-    const root = makeRoot();
-    try {
-      writeEntry(root, { artifacts: [] });
-      assert.throws(
-        () => oracle(oracleId, root),
-        /no verified Figma screenshot artifact/,
-      );
-
-      const digest = createHash("sha256").update(pngBytes).digest("hex");
-      writeEntry(root, {
-        artifacts: [
-          {
-            path: `templates/design/parity/oracle/${oracleId}/figma.png`,
-            kind: "design-screenshot",
-            sha256: digest,
-          },
-        ],
-      });
-      assert.throws(
-        () => oracle(oracleId, root),
-        /no verified Figma screenshot artifact/,
-      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
