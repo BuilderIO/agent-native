@@ -8,6 +8,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Improved
 
 - Onboarding journeys include Builder connection and custom-key outcomes through deeper paths
+- Onboarding journeys now show later activity within a chosen window, mark no-later results as right-censored, and identify when follow-up counts are incomplete.
 - You can add app origins to a public key's replay allowlist without replacing its existing origins.
 
 ### Fixed
@@ -16,6 +17,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Journey recordings flag iframe content when clipping, masks, or filters make its visibility uncertain.
 - Onboarding journeys count saved clips and completed deck generations as outputs while showing Slides attempt outcomes separately
 - Session recordings keep their full history and performance insights across browser session changes and large replays.
+- Large onboarding journeys keep their step counts when follow-up coverage exceeds query limits
 
 ## 2026-10-08
 
