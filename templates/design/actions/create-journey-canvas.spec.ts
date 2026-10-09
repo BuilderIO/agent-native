@@ -1244,7 +1244,7 @@ describe("create-journey-canvas failures", () => {
     );
   });
 
-  it("refuses to overwrite a board whose stored content changed after it was read, and cleans up", async () => {
+  it("removes the design it created and the blobs it stored when the transaction fails", async () => {
     mocks.state.lockedBoardContent = `${mocks.state.boardContent}<!-- edited -->`;
     await expect(
       action.run(
@@ -1261,6 +1261,34 @@ describe("create-journey-canvas failures", () => {
     );
     expect(mocks.deletePrivateBlob).toHaveBeenCalledTimes(1);
     expect(mocks.state.inserts).toEqual([]);
+  });
+
+  it("preserves committed screenshot blobs when an editor changes the screen before write verification", async () => {
+    const input = parsed(rawInput([frame("a", { attachmentRef: "ref-a" })]));
+    const handle = {
+      id: "committed-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: true,
+    };
+    const screen = planJourneyCanvas(input, "generated-1").screens[0]!;
+    mocks.putPrivateBlob.mockResolvedValueOnce(handle);
+    mocks.state.landedSelects = [
+      [{ id: screen.fileId, content: `${screen.html}<!-- editor change -->` }],
+      [
+        {
+          id: screen.attachment!.rowId,
+          blobHandle: JSON.stringify(handle),
+        },
+      ],
+    ];
+    mocks.mutateDesignData.mockRejectedValueOnce(new Error("response lost"));
+
+    await expect(action.run(input, {} as any)).rejects.toThrow("response lost");
+
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.state.landedSelects).toEqual([]);
   });
 
   it("refuses to overwrite a board whose live collaboration content changed after it was read", async () => {

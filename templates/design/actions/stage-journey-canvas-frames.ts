@@ -496,15 +496,13 @@ export default defineAction({
     const preflightNewFrames = preparedFrames.filter(
       ({ id }) => !preflightById.has(id),
     );
-    if (
-      !preflightHasExpiredRows &&
-      exceedsStageQuota({
-        activeRows: preflightRows,
-        newFrames: preflightNewFrames,
-        importBoardFileId,
-        inspectedRows: preflightStagedRows.length,
-      })
-    ) {
+    const preflightExceedsQuota = exceedsStageQuota({
+      activeRows: preflightRows,
+      newFrames: preflightNewFrames,
+      importBoardFileId,
+      inspectedRows: preflightStagedRows.length,
+    });
+    if (!preflightHasExpiredRows && preflightExceedsQuota) {
       fail(
         "Staged screenshots reached this Design's storage limit. Discard an unused import or retry after expired frames are cleaned up.",
         { errorCode: "journey_staging_quota_exceeded", statusCode: 413 },
@@ -515,6 +513,7 @@ export default defineAction({
       preflightStagedRows.length === MAX_STAGED_ROWS_TO_INSPECT;
     const shouldUploadFrames =
       preflightNewFrames.length > 0 &&
+      !preflightExceedsQuota &&
       !preflightHasExpiredInput &&
       !preflightAtInspectionCap;
     const storage = shouldUploadFrames ? await resolveStorage() : null;

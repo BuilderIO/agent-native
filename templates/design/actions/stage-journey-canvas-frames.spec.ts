@@ -351,6 +351,29 @@ describe("stage-journey-canvas-frames", () => {
     expect(mocks.storeBytes).not.toHaveBeenCalled();
   });
 
+  it("cleans expired rows without uploading when active staged rows exceed quota", async () => {
+    const active = stagedRow(
+      512 * 1024 * 1024,
+      "journey-canvas-stage:older-import",
+    );
+    const expired = {
+      ...stagedRow(24, "journey-canvas-stage:expired-import"),
+      id: "jcu_expired-other-import",
+      createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1_000).toISOString(),
+    };
+    mocks.extraRows = [active, expired];
+
+    await expect(run(input())).rejects.toMatchObject({
+      errorCode: "journey_staging_quota_exceeded",
+      statusCode: 413,
+    });
+
+    expect(mocks.storeBytes).not.toHaveBeenCalled();
+    expect(mocks.queueStagedCleanup).toHaveBeenCalledWith(expect.anything(), [
+      expired.blobHandle,
+    ]);
+  });
+
   it("runs expiry cleanup before failing closed at the staged-row inspection cap", async () => {
     mocks.extraRows = Array.from({ length: 2_009 }, (_, index) => ({
       ...stagedRow(1, `journey-canvas-stage:expired-${index}`),

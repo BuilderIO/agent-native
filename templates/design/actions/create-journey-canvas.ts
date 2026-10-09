@@ -1015,17 +1015,18 @@ async function writeMayHaveLanded(args: {
         ),
       );
     const filesById = new Map(files.map((file) => [file.id, file.content]));
-    if (
-      !args.screens.every(
-        (screen) => filesById.get(screen.fileId) === screen.html,
-      )
-    ) {
-      return "not_landed";
-    }
+    const filesMatch = args.screens.every(
+      (screen) => filesById.get(screen.fileId) === screen.html,
+    );
+    const anyScreenFound = args.screens.some((screen) =>
+      filesById.has(screen.fileId),
+    );
 
     const expectedScreenshots = args.screens.flatMap(({ screenshot }) =>
       screenshot ? [screenshot] : [],
     );
+    let screenshotsMatch = true;
+    let expectedHandleStillReferenced = false;
     if (expectedScreenshots.length) {
       const rows = await db
         .select({
@@ -1043,16 +1044,42 @@ async function writeMayHaveLanded(args: {
           ),
         );
       const rowsById = new Map(rows.map((row) => [row.id, row.blobHandle]));
-      if (
-        !expectedScreenshots.every(
-          ({ rowId, blobHandle }) =>
-            blobHandle !== null && rowsById.get(rowId) === blobHandle,
-        )
-      ) {
-        return "not_landed";
+      screenshotsMatch = expectedScreenshots.every(
+        ({ rowId, blobHandle }) =>
+          blobHandle !== null && rowsById.get(rowId) === blobHandle,
+      );
+      expectedHandleStillReferenced = expectedScreenshots.some(
+        ({ rowId, blobHandle }) =>
+          blobHandle !== null && rowsById.get(rowId) === blobHandle,
+      );
+      if (!screenshotsMatch && !expectedHandleStillReferenced) {
+        const expectedHandles = expectedScreenshots.flatMap(({ blobHandle }) =>
+          blobHandle ? [blobHandle] : [],
+        );
+        if (expectedHandles.length) {
+          const references = await db
+            .select({
+              blobHandle: schema.designBoardReplayScreenshots.blobHandle,
+            })
+            .from(schema.designBoardReplayScreenshots)
+            .where(
+              and(
+                eq(schema.designBoardReplayScreenshots.designId, args.designId),
+                inArray(
+                  schema.designBoardReplayScreenshots.blobHandle,
+                  expectedHandles,
+                ),
+              ),
+            );
+          expectedHandleStillReferenced = references.length > 0;
+        }
       }
     }
-    return "landed";
+    if (filesMatch && screenshotsMatch) return "landed";
+    if (anyScreenFound || expectedHandleStillReferenced) {
+      return "unknown";
+    }
+    return "not_landed";
   } catch (error) {
     console.warn(
       "[design-journey-canvas] Could not tell whether the write landed; keeping the design and screenshots:",
