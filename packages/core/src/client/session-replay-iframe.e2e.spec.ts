@@ -487,4 +487,276 @@ describe("session replay iframe recording", () => {
     });
     await page.close();
   }, 30_000);
+
+  it("reports unverifiable for a 3D frame whose bounds only touch the viewport", async () => {
+    const page = await browser.newPage();
+    await page.setContent(
+      '<!doctype html><iframe id="replay" style="width:300px;height:200px;border:0"></iframe>',
+    );
+    await page.locator("#replay").evaluate((replayFrame) => {
+      const replayDocument = replayFrame.contentDocument!;
+      replayDocument.body.style.cssText = "margin:0;position:relative";
+
+      const target = replayDocument.createElement("iframe");
+      target.id = "unverifiable-3d-frame";
+      target.style.cssText =
+        "position:absolute;left:-20px;top:-20px;width:20px;height:20px;transform:perspective(300px) rotateX(30deg) rotateZ(45deg);border:0";
+      target.srcdoc = "<!doctype html><html><body>frame</body></html>";
+      replayDocument.body.append(target);
+    });
+    await page.waitForFunction(() => {
+      const replayDocument = (
+        document.querySelector("#replay") as HTMLIFrameElement
+      )?.contentDocument;
+      const target = replayDocument?.querySelector(
+        "#unverifiable-3d-frame",
+      ) as HTMLIFrameElement | null;
+      return target?.contentDocument?.readyState === "complete";
+    });
+
+    const result = await page.evaluate((auditSource) => {
+      const replayFrame = document.querySelector(
+        "#replay",
+      ) as HTMLIFrameElement;
+      const replayDocument = replayFrame.contentDocument!;
+      const target = replayDocument.querySelector(
+        "#unverifiable-3d-frame",
+      ) as HTMLIFrameElement;
+      const recordedMirrorId = 41;
+      const ids = new Map<Element, number>([[target, recordedMirrorId]]);
+      (
+        window as typeof window & { __anJourneyCapture?: unknown }
+      ).__anJourneyCapture = {
+        replayer: {
+          getMirror: () => ({ getId: (element: Element) => ids.get(element) }),
+          iframe: replayFrame,
+        },
+      };
+      const audit = new Function(`return (${auditSource})`)() as (
+        input: unknown,
+      ) => unknown;
+      const bounds = target.getBoundingClientRect();
+      let hasHit = false;
+      const left = Math.max(0, bounds.left);
+      const top = Math.max(0, bounds.top);
+      const right = Math.min(300, bounds.right);
+      const bottom = Math.min(200, bounds.bottom);
+      for (let row = 0; row < 25; row += 1) {
+        const y = top + ((row + 0.5) / 25) * (bottom - top);
+        for (let column = 0; column < 25; column += 1) {
+          const x = left + ((column + 0.5) / 25) * (right - left);
+          if (replayDocument.elementsFromPoint(x, y).includes(target)) {
+            hasHit = true;
+          }
+        }
+      }
+      return {
+        bounds: bounds.toJSON(),
+        hasHit,
+        audit: audit({
+          dimensions: { width: 300, height: 200 },
+          recordedIframeParentIds: [recordedMirrorId],
+        }),
+      };
+    }, serializedAuditSource());
+
+    expect(result.bounds.right).toBeGreaterThan(0);
+    expect(result.bounds.bottom).toBeGreaterThan(0);
+    expect(result.bounds.left).toBeLessThan(300);
+    expect(result.bounds.top).toBeLessThan(200);
+    expect(result.hasHit).toBe(false);
+    expect(result.audit).toEqual({
+      visibleIframeCount: 0,
+      unavailableIframeCount: 0,
+      unverifiableIframeCount: 1,
+    });
+    await page.close();
+  }, 30_000);
+
+  it("reports a visible perspective frame as unverifiable without descending into it", async () => {
+    const page = await browser.newPage();
+    await page.setContent(
+      '<!doctype html><iframe id="replay" style="width:300px;height:200px;border:0"></iframe>',
+    );
+    await page.locator("#replay").evaluate((replayFrame) => {
+      const replayDocument = replayFrame.contentDocument!;
+      replayDocument.body.style.cssText = "margin:0;position:relative";
+
+      const target = replayDocument.createElement("iframe");
+      target.id = "visible-perspective-frame";
+      target.style.cssText =
+        "position:absolute;left:90px;top:60px;width:120px;height:80px;transform:perspective(300px) rotateX(15deg) rotateY(15deg);border:0";
+      target.srcdoc =
+        '<!doctype html><html><body style="margin:0"></body></html>';
+      replayDocument.body.append(target);
+    });
+    await page.waitForFunction(() => {
+      const replayDocument = (
+        document.querySelector("#replay") as HTMLIFrameElement
+      )?.contentDocument;
+      const target = replayDocument?.querySelector(
+        "#visible-perspective-frame",
+      ) as HTMLIFrameElement | null;
+      return target?.contentDocument?.readyState === "complete";
+    });
+    await page.locator("#replay").evaluate((replayFrame) => {
+      const target = replayFrame.contentDocument!.querySelector(
+        "#visible-perspective-frame",
+      ) as HTMLIFrameElement;
+      const childDocument = target.contentDocument!;
+      const nested = childDocument.createElement("iframe");
+      nested.id = "nested-recorded-frame";
+      nested.style.cssText =
+        "position:absolute;left:5px;top:5px;width:24px;height:20px;border:0";
+      nested.srcdoc = "<!doctype html><html><body>nested frame</body></html>";
+      childDocument.body.append(nested);
+    });
+    await page.waitForFunction(() => {
+      const replayDocument = (
+        document.querySelector("#replay") as HTMLIFrameElement
+      )?.contentDocument;
+      const target = replayDocument?.querySelector(
+        "#visible-perspective-frame",
+      ) as HTMLIFrameElement | null;
+      const nested = target?.contentDocument?.querySelector(
+        "#nested-recorded-frame",
+      ) as HTMLIFrameElement | null;
+      return nested?.contentDocument?.readyState === "complete";
+    });
+
+    const result = await page.evaluate((auditSource) => {
+      const replayFrame = document.querySelector(
+        "#replay",
+      ) as HTMLIFrameElement;
+      const replayDocument = replayFrame.contentDocument!;
+      const target = replayDocument.querySelector(
+        "#visible-perspective-frame",
+      ) as HTMLIFrameElement;
+      const nested = target.contentDocument!.querySelector(
+        "#nested-recorded-frame",
+      ) as HTMLIFrameElement;
+      const targetMirrorId = 51;
+      const nestedMirrorId = 52;
+      const ids = new Map<Element, number>([
+        [target, targetMirrorId],
+        [nested, nestedMirrorId],
+      ]);
+      (
+        window as typeof window & { __anJourneyCapture?: unknown }
+      ).__anJourneyCapture = {
+        replayer: {
+          getMirror: () => ({ getId: (element: Element) => ids.get(element) }),
+          iframe: replayFrame,
+        },
+      };
+      const audit = new Function(`return (${auditSource})`)() as (
+        input: unknown,
+      ) => unknown;
+      const bounds = target.getBoundingClientRect();
+      return {
+        bounds: bounds.toJSON(),
+        hitTest: replayDocument
+          .elementsFromPoint(
+            (bounds.left + bounds.right) / 2,
+            (bounds.top + bounds.bottom) / 2,
+          )
+          .includes(target),
+        audit: audit({
+          dimensions: { width: 300, height: 200 },
+          recordedIframeParentIds: [targetMirrorId, nestedMirrorId],
+        }),
+      };
+    }, serializedAuditSource());
+
+    expect(result.bounds.left).toBeGreaterThan(0);
+    expect(result.bounds.top).toBeGreaterThan(0);
+    expect(result.bounds.right).toBeLessThan(300);
+    expect(result.bounds.bottom).toBeLessThan(200);
+    expect(result.hitTest).toBe(true);
+    expect(result.audit).toEqual({
+      visibleIframeCount: 0,
+      unavailableIframeCount: 0,
+      unverifiableIframeCount: 1,
+    });
+    await page.close();
+  }, 30_000);
+
+  it("ignores a hidden backface iframe with no hit-test points", async () => {
+    const page = await browser.newPage();
+    await page.setContent(
+      '<!doctype html><iframe id="replay" style="width:300px;height:200px;border:0"></iframe>',
+    );
+    await page.locator("#replay").evaluate((replayFrame) => {
+      const replayDocument = replayFrame.contentDocument!;
+      replayDocument.body.style.cssText = "margin:0;position:relative";
+
+      const hidden = replayDocument.createElement("iframe");
+      hidden.id = "hidden-backface-frame";
+      hidden.style.cssText =
+        "position:absolute;left:50px;top:50px;width:20px;height:20px;transform:perspective(300px) rotateY(180deg);backface-visibility:hidden;border:0";
+      hidden.srcdoc = "<!doctype html><html><body>frame</body></html>";
+      replayDocument.body.append(hidden);
+    });
+    await page.waitForFunction(() => {
+      const replayDocument = (
+        document.querySelector("#replay") as HTMLIFrameElement
+      )?.contentDocument;
+      const hidden = replayDocument?.querySelector(
+        "#hidden-backface-frame",
+      ) as HTMLIFrameElement | null;
+      return hidden?.contentDocument?.readyState === "complete";
+    });
+
+    const result = await page.evaluate((auditSource) => {
+      const replayFrame = document.querySelector(
+        "#replay",
+      ) as HTMLIFrameElement;
+      const replayDocument = replayFrame.contentDocument!;
+      const hidden = replayDocument.querySelector(
+        "#hidden-backface-frame",
+      ) as HTMLIFrameElement;
+      const recordedMirrorId = 42;
+      const ids = new Map<Element, number>([[hidden, recordedMirrorId]]);
+      (
+        window as typeof window & { __anJourneyCapture?: unknown }
+      ).__anJourneyCapture = {
+        replayer: {
+          getMirror: () => ({ getId: (element: Element) => ids.get(element) }),
+          iframe: replayFrame,
+        },
+      };
+      const audit = new Function(`return (${auditSource})`)() as (
+        input: unknown,
+      ) => unknown;
+      const bounds = hidden.getBoundingClientRect();
+      let hasHit = false;
+      for (let row = 0; row < 25; row += 1) {
+        const y = bounds.top + ((row + 0.5) / 25) * bounds.height;
+        for (let column = 0; column < 25; column += 1) {
+          const x = bounds.left + ((column + 0.5) / 25) * bounds.width;
+          if (replayDocument.elementsFromPoint(x, y).includes(hidden)) {
+            hasHit = true;
+          }
+        }
+      }
+      return {
+        backfaceVisibility:
+          replayDocument.defaultView!.getComputedStyle(hidden)
+            .backfaceVisibility,
+        hasHit,
+        audit: audit({
+          dimensions: { width: 300, height: 200 },
+          recordedIframeParentIds: [recordedMirrorId],
+        }),
+      };
+    }, serializedAuditSource());
+
+    expect(result.backfaceVisibility).toBe("hidden");
+    expect(result.hasHit).toBe(false);
+    expect(result.audit).toEqual({
+      visibleIframeCount: 0,
+      unavailableIframeCount: 0,
+    });
+    await page.close();
+  }, 30_000);
 });

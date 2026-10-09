@@ -224,10 +224,13 @@ export interface ManifestFailure {
   reason: string;
   sourceEventAt: string | null;
   replayAt: string | null;
-  code?: "replay_iframe_content_unavailable";
+  code?:
+    | "replay_iframe_content_unavailable"
+    | "replay_iframe_visibility_unverifiable";
   diagnostics?: {
     visibleIframeCount: number;
     unavailableIframeCount: number;
+    unverifiableIframeCount?: number;
   };
 }
 

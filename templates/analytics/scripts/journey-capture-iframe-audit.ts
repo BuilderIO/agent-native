@@ -6,6 +6,7 @@ interface ReplayIframeAuditInput {
 export interface ReplayIframeAudit {
   visibleIframeCount: number;
   unavailableIframeCount: number;
+  unverifiableIframeCount?: number;
 }
 
 /**
@@ -22,6 +23,7 @@ export function auditReplayIframeContent({
     bounds: DOMRect;
     height: number;
     transform: LinearTransform | null;
+    uncertain: boolean;
     width: number;
   };
 
@@ -178,6 +180,7 @@ export function auditReplayIframeContent({
       const height = htmlElement.offsetHeight || bounds.height;
       const unscaled = transformFor(element, view);
       let transform: LinearTransform | null = null;
+      let uncertain = unscaled === null;
       if (unscaled && width > 0 && height > 0) {
         const expectedWidth =
           Math.abs(unscaled.a) * width + Math.abs(unscaled.c) * height;
@@ -199,11 +202,15 @@ export function auditReplayIframeContent({
               c: unscaled.c * scale,
               d: unscaled.d * scale,
             };
+          } else {
+            uncertain = true;
           }
+        } else {
+          uncertain = true;
         }
       }
 
-      const result = { bounds, height, transform, width };
+      const result = { bounds, height, transform, uncertain, width };
       boxGeometries.set(element, result);
       return result;
     },
@@ -300,7 +307,13 @@ export function auditReplayIframeContent({
     },
   ];
 
-  const [clipLocalBound, clipLocalAxis, hasVisibleArea]: [
+  const [
+    clipLocalBound,
+    clipLocalAxis,
+    hasVisibleArea,
+    hasHitTestedPoint,
+    hasRoundedCornerOverlap,
+  ]: [
     (
       points: Point[],
       geometry: BoxGeometry,
@@ -316,6 +329,13 @@ export function auditReplayIframeContent({
       maximum: number,
     ) => Point[],
     (polygon: Point[]) => boolean,
+    (frame: HTMLIFrameElement, owner: Document, polygon: Point[]) => boolean,
+    (
+      polygon: Point[],
+      geometry: BoxGeometry,
+      ancestor: HTMLElement,
+      styles: CSSStyleDeclaration,
+    ) => boolean,
   ] = [
     (points, geometry, axis, boundary, isMinimum) => {
       if (points.length === 0) return [];
@@ -356,6 +376,72 @@ export function auditReplayIframeContent({
         false,
       ),
     (polygon) => polygon.length >= 3 && Math.abs(polygonArea(polygon)) > 1e-4,
+    (frame, owner, polygon) => {
+      const left = Math.min(...polygon.map((point) => point.x));
+      const top = Math.min(...polygon.map((point) => point.y));
+      const right = Math.max(...polygon.map((point) => point.x));
+      const bottom = Math.max(...polygon.map((point) => point.y));
+      const sampleCount = 25;
+      for (let row = 0; row < sampleCount; row += 1) {
+        const y = top + ((row + 0.5) / sampleCount) * (bottom - top);
+        for (let column = 0; column < sampleCount; column += 1) {
+          const x = left + ((column + 0.5) / sampleCount) * (right - left);
+          if (owner.elementsFromPoint(x, y).includes(frame)) return true;
+        }
+      }
+      return false;
+    },
+    (polygon, geometry, ancestor, styles) => {
+      if (polygon.length < 3) return false;
+      const local = polygon.map((point) => pointToLocal(geometry, point));
+      const minX = Math.min(...local.map((point) => point.x));
+      const maxX = Math.max(...local.map((point) => point.x));
+      const minY = Math.min(...local.map((point) => point.y));
+      const maxY = Math.max(...local.map((point) => point.y));
+      const cornerValues = [
+        [styles.borderTopLeftRadius, ancestor.clientLeft, ancestor.clientTop],
+        [
+          styles.borderTopRightRadius,
+          ancestor.clientLeft + ancestor.clientWidth,
+          ancestor.clientTop,
+        ],
+        [
+          styles.borderBottomRightRadius,
+          ancestor.clientLeft + ancestor.clientWidth,
+          ancestor.clientTop + ancestor.clientHeight,
+        ],
+        [
+          styles.borderBottomLeftRadius,
+          ancestor.clientLeft,
+          ancestor.clientTop + ancestor.clientHeight,
+        ],
+      ] as const;
+      for (let index = 0; index < cornerValues.length; index += 1) {
+        const [value, edgeX, edgeY] = cornerValues[index]!;
+        const radii = value
+          .split(/[ /]+/)
+          .filter(Boolean)
+          .map((part, radiusIndex) => {
+            const extent = radiusIndex === 0 ? geometry.width : geometry.height;
+            const amount = Number.parseFloat(part);
+            return part.endsWith("%") ? (amount / 100) * extent : amount;
+          });
+        const radiusX = radii[0] ?? 0;
+        const radiusY = radii[1] ?? radiusX;
+        if (radiusX <= 0 || radiusY <= 0) continue;
+        const left = index === 0 || index === 3 ? edgeX : edgeX - radiusX;
+        const top = index < 2 ? edgeY : edgeY - radiusY;
+        if (
+          maxX > left &&
+          minX < left + radiusX &&
+          maxY > top &&
+          minY < top + radiusY
+        ) {
+          return true;
+        }
+      }
+      return false;
+    },
   ];
 
   const documents = [
@@ -372,6 +458,7 @@ export function auditReplayIframeContent({
   ];
   let visibleIframeCount = 0;
   let unavailableIframeCount = 0;
+  let unverifiableIframeCount = 0;
 
   const containingBlockProperties = [
     "transform",
@@ -475,27 +562,41 @@ export function auditReplayIframeContent({
 
       let rendered = true;
       const frameGeometry = geometryFor(frame, view);
-      let visiblePolygon = intersectPolygons(
-        [
-          pointToScreen(frameGeometry, {
-            x: frame.clientLeft,
-            y: frame.clientTop,
-          }),
-          pointToScreen(frameGeometry, {
-            x: frame.clientLeft + frame.clientWidth,
-            y: frame.clientTop,
-          }),
-          pointToScreen(frameGeometry, {
-            x: frame.clientLeft + frame.clientWidth,
-            y: frame.clientTop + frame.clientHeight,
-          }),
-          pointToScreen(frameGeometry, {
-            x: frame.clientLeft,
-            y: frame.clientTop + frame.clientHeight,
-          }),
-        ],
-        clip,
-      );
+      let visibilityUncertain = frameGeometry.uncertain;
+      let visiblePolygon = frameGeometry.uncertain
+        ? intersectPolygons(
+            [
+              { x: frameGeometry.bounds.left, y: frameGeometry.bounds.top },
+              { x: frameGeometry.bounds.right, y: frameGeometry.bounds.top },
+              {
+                x: frameGeometry.bounds.right,
+                y: frameGeometry.bounds.bottom,
+              },
+              { x: frameGeometry.bounds.left, y: frameGeometry.bounds.bottom },
+            ],
+            clip,
+          )
+        : intersectPolygons(
+            [
+              pointToScreen(frameGeometry, {
+                x: frame.clientLeft,
+                y: frame.clientTop,
+              }),
+              pointToScreen(frameGeometry, {
+                x: frame.clientLeft + frame.clientWidth,
+                y: frame.clientTop,
+              }),
+              pointToScreen(frameGeometry, {
+                x: frame.clientLeft + frame.clientWidth,
+                y: frame.clientTop + frame.clientHeight,
+              }),
+              pointToScreen(frameGeometry, {
+                x: frame.clientLeft,
+                y: frame.clientTop + frame.clientHeight,
+              }),
+            ],
+            clip,
+          );
 
       for (let current: Element | null = frame; current; ) {
         const styles = view.getComputedStyle(current);
@@ -509,6 +610,7 @@ export function auditReplayIframeContent({
         }
         if (
           current !== frame &&
+          !frameGeometry.uncertain &&
           (!positioned || reachedContainingBlock || current === containingBlock)
         ) {
           const ancestor = current as HTMLElement;
@@ -549,10 +651,8 @@ export function auditReplayIframeContent({
                 visiblePolygon,
                 geometry,
                 "x",
-                paintContainment ? 0 : ancestor.clientLeft,
-                paintContainment
-                  ? geometry.width
-                  : ancestor.clientLeft + ancestor.clientWidth,
+                ancestor.clientLeft,
+                ancestor.clientLeft + ancestor.clientWidth,
               );
             }
             if (clipsY) {
@@ -560,11 +660,20 @@ export function auditReplayIframeContent({
                 visiblePolygon,
                 geometry,
                 "y",
-                paintContainment ? 0 : ancestor.clientTop,
-                paintContainment
-                  ? geometry.height
-                  : ancestor.clientTop + ancestor.clientHeight,
+                ancestor.clientTop,
+                ancestor.clientTop + ancestor.clientHeight,
               );
+            }
+            if (
+              (clipsX || clipsY) &&
+              hasRoundedCornerOverlap(
+                visiblePolygon,
+                geometry,
+                ancestor,
+                styles,
+              )
+            ) {
+              visibilityUncertain = true;
             }
           }
         }
@@ -580,6 +689,24 @@ export function auditReplayIframeContent({
         view.innerWidth <= 0 ||
         view.innerHeight <= 0
       ) {
+        continue;
+      }
+
+      if (frameGeometry.uncertain) {
+        const hasHit = hasHitTestedPoint(frame, owner, visiblePolygon);
+        if (
+          !hasHit &&
+          frameStyle.backfaceVisibility === "hidden" &&
+          frameStyle.pointerEvents !== "none"
+        ) {
+          continue;
+        }
+        unverifiableIframeCount += 1;
+        continue;
+      }
+
+      if (visibilityUncertain) {
+        unverifiableIframeCount += 1;
         continue;
       }
 
@@ -644,5 +771,9 @@ export function auditReplayIframeContent({
     }
   }
 
-  return { visibleIframeCount, unavailableIframeCount };
+  return {
+    visibleIframeCount,
+    unavailableIframeCount,
+    ...(unverifiableIframeCount > 0 ? { unverifiableIframeCount } : {}),
+  };
 }

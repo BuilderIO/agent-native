@@ -671,6 +671,81 @@ describe("replay iframe audit", () => {
     ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
   });
 
+  it("clips paint containment to the padding edge", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const contained = replayDocument.createElement("div");
+    contained.style.contain = "paint";
+    contained.style.border = "10px solid";
+    contained.style.padding = "20px";
+    contained.style.position = "relative";
+    replayDocument.body.append(contained);
+    setBox(
+      contained,
+      { left: 50, top: 50, width: 160, height: 160 },
+      140,
+      140,
+      10,
+      10,
+    );
+    const frame = appendFrame(
+      replayDocument,
+      { left: 201, top: 100, width: 5, height: 20 },
+      5,
+      20,
+      contained,
+    );
+    frame.style.position = "absolute";
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [1],
+      }),
+    ).toEqual({ visibleIframeCount: 0, unavailableIframeCount: 0 });
+  });
+
+  it("fails closed when a rounded paint clip may intersect the iframe", () => {
+    const replayFrame = appendFrame(
+      document,
+      { left: 0, top: 0, width: 100, height: 100 },
+      100,
+      100,
+    );
+    const replayDocument = replayFrame.contentDocument!;
+    const contained = replayDocument.createElement("div");
+    contained.style.contain = "paint";
+    contained.style.borderRadius = "40px";
+    replayDocument.body.append(contained);
+    setBox(contained, { left: 10, top: 10, width: 80, height: 80 }, 80, 80);
+    const frame = appendFrame(
+      replayDocument,
+      { left: 10, top: 10, width: 10, height: 10 },
+      10,
+      10,
+      contained,
+    );
+    frame.style.position = "absolute";
+    installReplayState(replayFrame, new WeakMap([[frame, 1]]));
+
+    expect(
+      auditReplayIframeContent({
+        dimensions: { width: 100, height: 100 },
+        recordedIframeParentIds: [1],
+      }),
+    ).toEqual({
+      visibleIframeCount: 0,
+      unavailableIframeCount: 0,
+      unverifiableIframeCount: 1,
+    });
+  });
+
   it("maps ancestor clipping into a nested document before auditing", () => {
     const replayFrame = appendFrame(
       document,

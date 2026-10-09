@@ -1035,6 +1035,16 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
           }),
           ctx.timeoutMs,
         );
+        if ((iframeAudit.unverifiableIframeCount ?? 0) > 0) {
+          fail(
+            "Iframe visibility could not be verified for unsupported projection or rounded clipping.",
+            {
+              code: "replay_iframe_visibility_unverifiable",
+              diagnostics: iframeAudit,
+            },
+          );
+          continue;
+        }
         if (iframeAudit.unavailableIframeCount > 0) {
           fail("Visible iframe content is missing from the recorded replay.", {
             code: "replay_iframe_content_unavailable",
