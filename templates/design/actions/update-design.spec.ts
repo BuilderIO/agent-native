@@ -414,6 +414,83 @@ describe("update-design data concurrency", () => {
     });
   });
 
+  it("allows the measured responsive breakpoint height the editor writes on first paint", async () => {
+    await action.run(
+      {
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-a", "breakpointHeights", "390"],
+            value: 1181,
+          },
+        ],
+      } as never,
+      widgetWriteContext as never,
+    );
+
+    expect(
+      JSON.parse(mocks.state.row.data!).screenMetadata["frame-a"]
+        .breakpointHeights,
+    ).toEqual({ "390": 1181 });
+  });
+
+  it.each([
+    {
+      label: "a nonnumeric height",
+      operation: {
+        op: "set",
+        path: ["screenMetadata", "frame-a", "breakpointHeights", "390"],
+        value: "1181px",
+      },
+    },
+    {
+      label: "a non-width key",
+      operation: {
+        op: "set",
+        path: ["screenMetadata", "frame-a", "breakpointHeights", "390px"],
+        value: 800,
+      },
+    },
+    {
+      label: "a nested value",
+      operation: {
+        op: "set",
+        path: ["screenMetadata", "frame-a", "breakpointHeights", "390", "x"],
+        value: 800,
+      },
+    },
+    {
+      label: "a deleted breakpoint height",
+      operation: {
+        op: "delete",
+        path: ["screenMetadata", "frame-a", "breakpointHeights", "390"],
+      },
+    },
+    {
+      label: "a nested localhost field",
+      operation: {
+        op: "set",
+        path: ["localhostScreens", "frame-a", "width", "390"],
+        value: 800,
+      },
+    },
+  ])(
+    "rejects widget breakpoint-height writes with $label",
+    async ({ operation }) => {
+      const before = mocks.state.row.data;
+
+      await expect(
+        action.run(
+          { id: "design-1", dataOperations: [operation] } as never,
+          widgetWriteContext as never,
+        ),
+      ).rejects.toThrow();
+
+      expect(mocks.state.row.data).toBe(before);
+    },
+  );
+
   it("rejects one ambiguous legacy snapshot instead of silently losing a concurrent frame edit", async () => {
     mocks.resetReadGate(2);
     const moveA = {

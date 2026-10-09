@@ -112,6 +112,10 @@ import {
   INTERACT_CUSTOM_DEVICE_NAME,
 } from "../responsive-interact";
 import {
+  classifyDesignSaveFailure,
+  designSaveErrorMessage,
+} from "../save-failure";
+import {
   getOverviewScreenExportGeometryById,
   resolveAvailableActiveFileId,
 } from "../selection-state";
@@ -138,6 +142,7 @@ export function useEditorActiveScreenAndGeometry({
     isSignedIn,
     queryClient,
     shellMode,
+    widgetEmbed,
     embedded,
     isLiveCanvasShareLink,
     setMode,
@@ -407,11 +412,22 @@ export function useEditorActiveScreenAndGeometry({
                 revision,
               );
             await acknowledgeOutboxEntry(outboxEntry);
-          } catch {
+          } catch (error) {
             void queryClient.invalidateQueries({
               queryKey: ["action", "get-design"],
             });
-            warnChangesWillRetry();
+            if (
+              classifyDesignSaveFailure(error, navigator.onLine) === "offline"
+            ) {
+              warnChangesWillRetry();
+            } else {
+              toast.error(
+                designSaveErrorMessage(error) ?? t("common.genericError"),
+                {
+                  id: "design-geometry-save-error",
+                },
+              );
+            }
           }
         });
       frameGeometryMutationChainRef.current = current;
@@ -429,6 +445,7 @@ export function useEditorActiveScreenAndGeometry({
       journalOutboxEntry,
       queryClient,
       saveDesignDataAsync,
+      t,
       warnChangesWillRetry,
     ],
   );
@@ -1485,6 +1502,9 @@ export function useEditorActiveScreenAndGeometry({
               nonce: cameraCommandNonceRef.current,
             });
           },
+          // A widget opens on the whole canvas, not on a selected screen with
+          // its inspector over the artboard.
+          selectTargetScreen: !widgetEmbed,
         },
         command,
       ),
@@ -1496,6 +1516,7 @@ export function useEditorActiveScreenAndGeometry({
       overviewScreens,
       overviewDataReady,
       setZoomForView,
+      widgetEmbed,
     ],
   );
 

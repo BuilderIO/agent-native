@@ -133,6 +133,7 @@ export function useEditorFilesAndSaving({
     isVisualEditSurface,
     isLiveCanvasShareLink,
     readOnlyWidget,
+    widgetEmbed,
     viewModeRef,
     pendingVisualEditHandoffPublicationRef,
     pendingVisualEditReloadedHandoffRef,
@@ -1130,7 +1131,8 @@ export function useEditorFilesAndSaving({
 
   const migrateBoardTriggeredRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!id || !canEditDesign || shellMode) return;
+    // A widget write grant covers only the design's own saves, never this migration.
+    if (!id || !canEditDesign || shellMode || widgetEmbed) return;
     if (boardFileId) return;
     if (migrateBoardTriggeredRef.current === id) return;
     migrateBoardTriggeredRef.current = id;
@@ -1147,6 +1149,7 @@ export function useEditorFilesAndSaving({
     id,
     migrateBoardObjectsMutation,
     queryClient,
+    widgetEmbed,
   ]);
 
   const openGenerateInAgent = useCallback(() => {

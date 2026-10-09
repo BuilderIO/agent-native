@@ -65,6 +65,14 @@ export function getFocusedLineupScale(args: {
   return Math.max(args.minScale, Math.min(args.maxScale, fit));
 }
 
+/**
+ * Margin a widget leaves around the artboard it fits: roomy in a wide pane,
+ * thin in a narrow one, where a fixed margin would leave only a sliver.
+ */
+export function getWidgetFitPaddingPx(width: number, height: number): number {
+  return Math.round(Math.min(96, Math.max(16, Math.min(width, height) * 0.05)));
+}
+
 export function getFocusedLineupFitScale(args: {
   frameWidth: number;
   frameHeight: number;
