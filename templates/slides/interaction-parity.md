@@ -99,20 +99,64 @@ list the author wrote keeps its own units: only its `rotate()` is replaced, so a
 centring `translate(-50%, -50%)` still follows the object's size. When the
 rotation comes from a stylesheet, or the list does not paint the requested
 rotation once edited, the effective matrix is written instead, and a pure
-rotation is written back as `rotate(Xdeg)`.
+rotation is written back as `rotate(Xdeg)`. A plain inline `transform` loses to
+a stylesheet `!important` transform (`none`, `initial` and `unset` included: an
+object they keep flat reads 0°) and to a CSS animation on a transform property,
+so the setter reads the painted rotation back and, when it is not the one asked
+for, restores the inline style and returns false rather than reporting an edit
+that paints nothing. An object with such an animation, running or still waiting
+out its delay, is refused outright, because a rotation read at one instant is
+not the one it keeps. The inspector field starts over from the painted value,
+the rotate handle and shortcut plan no rotation for that object, and ungroup
+(which writes its members' turned transform inline) does nothing. The read-back
+runs with transitions off, so an object with a transition on its transform
+still turns at once; the transition is left as authored and does not play the
+turn. Deviation: such an object can be moved and resized but not rotated;
+Google has no equivalent. Limits: switching transitions off for that instant,
+which the handle and ungroup checks also do, ends any transition running on the
+object (it jumps to its end value); an object whose inline `transform` is
+`!important` and also beaten by a stylesheet `!important` one turns from the
+inspector, which keeps the inline priority, but not from the handle or ungroup,
+which write a plain value.
 
 Starting a crop on a bare image hands its transform to the new crop frame and
 turns it off on the image, with `none !important` so a stylesheet `!important`
-rule or a running animation cannot paint it a second time inside the frame. The
-frame takes an inline value as authored, unless it reads the image's own cascade
-(`var()`, an `em` length), and otherwise the value the browser resolved. A
-stylesheet rule cannot match the new frame element, so the frame keeps the
-value that painted at the instant the crop started, including any `:hover`,
-media-query or mid-animation state; it does not follow the rule afterwards.
+rule cannot paint it a second time inside the frame. The frame takes an inline
+value as authored only when that value is what paints (a stylesheet
+`!important` declaration beats a plain inline one, so this is probed, not
+assumed) and it does not read the image's own cascade (`var()`, an `em`
+length); anything else, and the transform origin the same way, is the value the
+browser resolved. A stylesheet rule cannot match the new frame element, so the
+frame keeps the value that painted at the instant the crop started, including
+any `:hover` or media-query state (a crop starts under the pointer, so an
+`!important` `:hover` transform that beats an inline one is the one that moves);
+it does not follow the rule afterwards.
+A CSS animation that is running, paused or filling on a transform property
+moves with it: the image's animation list is copied to the frame and switched
+off on the image, and the frame's animations are seeked to where the image's
+were and held there while the crop is edited, so the frame paints what the image
+painted with no jump or restart and the saved frame plays what the image
+played. Whether the animation paints is decided by the cascade, not by its
+keyframes or the value it ends on: with the animation off, a plain inline write
+of the property must paint, so an animation an `!important` declaration (inline
+or in a stylesheet) beats stays on the image, where it paints nothing, instead
+of starting to paint on a frame that declaration cannot match. If one animation
+list holds both a beaten and a painting transform animation the whole list
+moves, and the beaten one paints on the frame. An animation that finished
+without filling paints nothing at that instant and is not carried, and an
+animation that does not touch a transform property stays on the image, which
+restarts it when it moves into the frame (and again if the crop is cancelled)
+like any element that moves in the document. Cropping an image that already has
+a frame does not hold the frame's animation while the crop is edited.
+Script-created animations and CSS transitions are not carried: a running
+transition is sampled like a `:hover` state.
 
-Evidence: the reader, the writer and the crop-frame hand-off are exercised in
-headless Chromium (`slide-object-transform.browser.spec.ts`, which runs in the
-fast lanes), not yet through the live editor UI.
+Evidence: the reader, the writer, the crop-frame hand-off (including a
+stylesheet `!important` transform over an inline one, and a CSS animation
+moved to the frame and replayed from the saved markup) and the inspector's
+refused-rotation field are exercised in headless Chromium
+(`slide-object-transform.browser.spec.ts`, which runs in the fast lanes) and in
+the happy-dom editor tests, not yet through the live editor UI.
 
 ## Google Help references
 

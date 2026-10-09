@@ -1,5 +1,6 @@
 export { writeImageCropPercentGeometry } from "./ImageCropOverlay";
 export {
+  readEditableSlideObjectRotation,
   readSlideObjectRotation,
   readSlideObjectTransformSnapshot,
   resizeTransformedSlideObject,

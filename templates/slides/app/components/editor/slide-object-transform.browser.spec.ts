@@ -391,9 +391,16 @@ describe("the rotation of a slide object in Chromium", () => {
 });
 
 describe("starting to crop an image in Chromium", () => {
-  const IMAGE = `<img id="pic" class="ruled" src="${PIXEL}" style="position: absolute; left: 200px; top: 100px; width: 160px; height: 90px">`;
+  const imageHtml = (inline = "") =>
+    `<img id="pic" class="ruled" src="${PIXEL}" style="position: absolute; left: 200px; top: 100px; width: 160px; height: 90px; ${inline}">`;
+  const IMAGE = imageHtml();
   const TRANSFORM_PROPERTIES = ["transform", "translate", "rotate", "scale"];
-  const CASES: Array<{ name: string; rule: string; extra?: string }> = [
+  const CASES: Array<{
+    name: string;
+    rule: string;
+    extra?: string;
+    inline?: string;
+  }> = [
     {
       name: "a transform and its origin",
       rule: "transform: rotate(20deg); transform-origin: top left;",
@@ -414,16 +421,39 @@ describe("starting to crop an image in Chromium", () => {
       rule: "rotate: 20deg !important;",
     },
     {
-      name: "a transform an animation holds",
-      rule: "animation: held 10s linear -5s paused;",
-      extra: "@keyframes held { to { transform: rotate(30deg); } }",
+      name: "an !important transform that beats the image's inline one",
+      rule: "transform: rotate(50deg) !important;",
+      inline: "transform: rotate(20deg);",
+    },
+    {
+      name: "an !important rotate property that beats the image's inline one",
+      rule: "rotate: 50deg !important;",
+      inline: "rotate: 20deg;",
+    },
+    {
+      name: "an !important transform under a transition, over the image's inline one",
+      rule: "transform: rotate(50deg) !important; transition: transform 1s;",
+      inline: "transform: rotate(20deg);",
+    },
+    {
+      name: "an !important none that switches the image's inline transform off",
+      rule: "transform: none !important;",
+      inline: "transform: rotate(20deg);",
+    },
+    {
+      name: "an !important origin that beats the image's inline one",
+      rule: "transform-origin: 100% 100% !important;",
+      inline: "transform: rotate(30deg); transform-origin: 0 0;",
     },
   ];
 
   it.each(CASES)(
     "carries $name from a stylesheet rule onto the frame without a jump",
-    async ({ rule, extra = "" }) => {
-      const page = await openPage(`${extra} .ruled { ${rule} }`, IMAGE);
+    async ({ rule, extra = "", inline }) => {
+      const page = await openPage(
+        `${extra} .ruled { ${rule} }`,
+        inline ? imageHtml(inline) : IMAGE,
+      );
       try {
         const painted = await hullOf(page, "#pic");
         const effective = await page.evaluate((properties) => {
@@ -630,6 +660,226 @@ describe("starting to crop an image in Chromium", () => {
   });
 });
 
+describe("starting to crop an image a CSS animation moves in Chromium", () => {
+  const imageHtml = (inline = "") =>
+    `<img id="pic" class="ruled" src="${PIXEL}" style="position: absolute; left: 200px; top: 100px; width: 160px; height: 90px; ${inline}">`;
+  const SPIN = "@keyframes spin { to { transform: rotate(360deg); } }";
+  const CASES: Array<{
+    name: string;
+    css: string;
+    inline?: string;
+    settle: number;
+    animations: string[];
+  }> = [
+    {
+      name: "an entrance that finished and holds its resting transform",
+      css: `@keyframes enter { from { transform: translateY(40px); opacity: 0; } to { transform: rotate(10deg); opacity: 1; } } .ruled { animation: enter 300ms ease-out forwards; }`,
+      settle: 600,
+      animations: ["enter"],
+    },
+    {
+      name: "an entrance that finished and holds a resting none",
+      css: `@keyframes enter { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } } .ruled { animation: enter 300ms ease-out forwards; }`,
+      settle: 600,
+      animations: ["enter"],
+    },
+    {
+      name: "an entrance still in flight",
+      css: `@keyframes enter { from { transform: translateY(40px); opacity: 0; } to { transform: rotate(10deg); opacity: 1; } } .ruled { animation: enter 3s ease-out forwards; }`,
+      settle: 400,
+      animations: ["enter"],
+    },
+    {
+      name: "an infinite animation on transform",
+      css: `${SPIN} .ruled { animation: spin 4s linear infinite; }`,
+      settle: 400,
+      animations: ["spin"],
+    },
+    {
+      name: "an infinite animation over an inline transform",
+      css: `${SPIN} .ruled { animation: spin 4s linear infinite; }`,
+      inline: "transform: translate(10px, 5px);",
+      settle: 400,
+      animations: ["spin"],
+    },
+    {
+      name: "an animation on the rotate property only",
+      css: "@keyframes turn { to { rotate: 360deg; } } .ruled { animation: turn 4s linear infinite; }",
+      settle: 400,
+      animations: ["turn"],
+    },
+    {
+      name: "an animation the rule holds paused",
+      css: "@keyframes held { to { transform: rotate(30deg); } } .ruled { animation: held 10s linear -5s paused; }",
+      settle: 0,
+      animations: ["held"],
+    },
+    {
+      name: "a fade running beside a spin",
+      css: `${SPIN} @keyframes fade { from { opacity: 0.2; } to { opacity: 1; } } .ruled { animation: fade 1s linear infinite, spin 4s linear infinite; }`,
+      settle: 400,
+      animations: ["fade", "spin"],
+    },
+  ];
+  // The hull of the element with every animation on it seeked to `time`.
+  const hullAt = (page: Page, selector: string, time: number) =>
+    page.evaluate(
+      ([target, ms]) => {
+        const element = document.querySelector(target as string)!;
+        for (const animation of element.getAnimations()) {
+          animation.currentTime = ms as number;
+        }
+        const { left, top, width, height } = element.getBoundingClientRect();
+        return { left, top, width, height };
+      },
+      [selector, time],
+    );
+
+  it.each(CASES)(
+    "holds $name on the frame where it was, without a jump",
+    async ({ css, inline, settle, animations }) => {
+      const page = await openPage(css, imageHtml(inline));
+      try {
+        await page.waitForTimeout(settle);
+        // One task, so no animation frame separates what the image painted
+        // from what the frame paints.
+        const started = await page.evaluate(() => {
+          const rect = (element: Element) => {
+            const { left, top, width, height } =
+              element.getBoundingClientRect();
+            return { left, top, width, height };
+          };
+          const names = (element: Element) =>
+            element
+              .getAnimations()
+              .map((animation) => (animation as CSSAnimation).animationName);
+          const image = document.getElementById("pic") as HTMLImageElement;
+          const painted = rect(image);
+          const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+          wrapped.frame.id = "frame";
+          return {
+            painted,
+            frame: rect(wrapped.frame),
+            image: rect(image),
+            frameAnimations: names(wrapped.frame),
+            imageAnimations: names(image),
+            imageAnimationName: getComputedStyle(image).animationName,
+            imageStyle: image.getAttribute("style") ?? "",
+          };
+        });
+
+        expectSameHull(started.frame, started.painted);
+        expectSameHull(started.image, started.painted);
+        expect(started.frameAnimations).toEqual(animations);
+        expect(started.imageAnimations).toEqual([]);
+        expect(started.imageAnimationName).toBe("none");
+        // The name alone: the `animation` shorthand serializes with an `auto`
+        // duration that an engine without it drops whole.
+        expect(started.imageStyle).toContain("animation-name: none !important");
+        expect(started.imageStyle).not.toMatch(/\bauto\b/);
+
+        // Held still while the crop is edited: its handles are placed from
+        // where the frame paints.
+        await page.waitForTimeout(300);
+        expectSameHull(await hullOf(page, "#frame"), started.frame);
+
+        // What is saved plays on the frame as it played on the image.
+        const saved = await page.evaluate(
+          () => document.getElementById("frame")!.outerHTML,
+        );
+        const reopened = await openPage(css, saved);
+        const reference = await openPage(css, imageHtml(inline));
+        try {
+          for (const time of [0, 250, 700]) {
+            expectSameHull(
+              await hullAt(reopened, "#frame", time),
+              await hullAt(reference, "#pic", time),
+            );
+          }
+        } finally {
+          await reopened.close();
+          await reference.close();
+        }
+      } finally {
+        await page.close();
+      }
+    },
+  );
+
+  it("leaves an animation that does not move the transform on the image", async () => {
+    const page = await openPage(
+      "@keyframes fade { from { opacity: 0.2; } to { opacity: 1; } } .ruled { animation: fade 1s linear infinite; }",
+      imageHtml("transform: rotate(20deg);"),
+    );
+    try {
+      const wrapped = await page.evaluate(() => {
+        const image = document.getElementById("pic") as HTMLImageElement;
+        const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+        return {
+          frame: wrapped.frame.getAnimations().length,
+          image: image.getAnimations().length,
+        };
+      });
+
+      expect(wrapped).toEqual({ frame: 0, image: 1 });
+    } finally {
+      await page.close();
+    }
+  });
+
+  it.each([
+    {
+      name: "an inline !important transform",
+      css: `${SPIN} .ruled { animation: spin 4s linear infinite; }`,
+      inline: "transform: rotate(10deg) !important;",
+    },
+    {
+      name: "a stylesheet !important transform",
+      css: `${SPIN} .ruled { transform: rotate(50deg) !important; animation: spin 4s linear infinite; }`,
+    },
+    {
+      name: "a stylesheet !important rotate property",
+      css: "@keyframes turn { to { rotate: 360deg; } } .ruled { rotate: 20deg !important; animation: turn 4s linear infinite; }",
+    },
+  ])(
+    "leaves an animation $name beats on the image, without a jump",
+    async ({ css, inline }) => {
+      const page = await openPage(css, imageHtml(inline));
+      try {
+        await page.waitForTimeout(300);
+        const started = await page.evaluate(() => {
+          const rect = (element: Element) => {
+            const { left, top, width, height } =
+              element.getBoundingClientRect();
+            return { left, top, width, height };
+          };
+          const image = document.getElementById("pic") as HTMLImageElement;
+          const painted = rect(image);
+          const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
+          wrapped.frame.id = "frame";
+          return {
+            painted,
+            frame: rect(wrapped.frame),
+            frameAnimations: wrapped.frame.getAnimations().length,
+            imageAnimations: image.getAnimations().length,
+            imageStyle: image.getAttribute("style") ?? "",
+          };
+        });
+
+        expectSameHull(started.frame, started.painted);
+        expect(started.frameAnimations).toBe(0);
+        expect(started.imageAnimations).toBe(1);
+        expect(started.imageStyle).not.toContain("animation-name");
+
+        await page.waitForTimeout(300);
+        expectSameHull(await hullOf(page, "#frame"), started.frame);
+      } finally {
+        await page.close();
+      }
+    },
+  );
+});
+
 describe("setting the rotation of a slide object in Chromium", () => {
   const CENTRED =
     'class="object" style="left: 50%; top: 50%; transform: translate(-50%, -50%)';
@@ -777,6 +1027,389 @@ describe("setting the rotation of a slide object in Chromium", () => {
     } finally {
       await page.close();
       await reference.close();
+    }
+  });
+});
+
+describe("a transform a stylesheet or an animation keeps over an inline one in Chromium", () => {
+  const OVERRIDES = [
+    {
+      name: "an !important stylesheet transform",
+      css: ".object { transform: rotate(50deg) !important; }",
+      painted: 50,
+    },
+    {
+      name: "an animation on transform",
+      css: "@keyframes sweep { to { transform: rotate(80deg); } } .object { animation: sweep 10s linear -5s paused; }",
+      painted: 45,
+    },
+  ];
+  const INLINE = '<div class="object" style="transform: rotate(10deg)"></div>';
+
+  const state = (page: Page) =>
+    page.evaluate(() => {
+      const element = document.querySelector<HTMLElement>(".object")!;
+      return {
+        inline: element.getAttribute("style") ?? "",
+        painted: getComputedStyle(element).transform,
+        rotation: window.slideObjects.readSlideObjectRotation(element),
+      };
+    });
+  const setRotation = (page: Page, degrees: number) =>
+    page.evaluate(
+      (value) =>
+        window.slideObjects.setSlideObjectRotation(
+          document.querySelector<HTMLElement>(".object")!,
+          value,
+        ),
+      degrees,
+    );
+
+  it.each(OVERRIDES)(
+    "does not report turning an object that $name keeps painting",
+    async ({ css, painted }) => {
+      const page = await openPage(css, INLINE);
+      try {
+        const before = await state(page);
+        expect(before.rotation).toBeCloseTo(painted, 3);
+
+        expect(await setRotation(page, 90)).toBe(false);
+
+        expect(await state(page)).toEqual(before);
+      } finally {
+        await page.close();
+      }
+    },
+  );
+
+  it("does not report turning an object whose only transform is an !important stylesheet one", async () => {
+    const page = await openPage(
+      ".object { transform: rotate(50deg) !important; }",
+      '<div class="object"></div>',
+    );
+    try {
+      const before = await state(page);
+
+      expect(await setRotation(page, 90)).toBe(false);
+
+      expect(await state(page)).toEqual(before);
+      expect(before.inline).toBe("");
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("still turns an object whose rotate property is the !important one", async () => {
+    const page = await openPage(
+      ".object { rotate: 30deg !important; }",
+      INLINE,
+    );
+    try {
+      expect((await state(page)).rotation).toBeCloseTo(40, 3);
+
+      expect(await setRotation(page, 90)).toBe(true);
+
+      expect((await state(page)).rotation).toBeCloseTo(90, 3);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it.each(OVERRIDES)(
+    "offers no rotation to edit or plan for an object that $name keeps painting",
+    async ({ css, painted }) => {
+      const page = await openPage(css, INLINE);
+      try {
+        const result = await page.evaluate(() => {
+          const element = document.querySelector<HTMLElement>(".object")!;
+          const rotation =
+            window.slideObjects.readEditableSlideObjectRotation(element);
+          const plan = window.slideObjects.rotateSlideObjectMembers(
+            [
+              {
+                objectId: "object",
+                element,
+                start: {
+                  x: element.offsetLeft,
+                  y: element.offsetTop,
+                  width: element.offsetWidth,
+                  height: element.offsetHeight,
+                },
+                ...window.slideObjects.readSlideObjectTransformSnapshot(
+                  element,
+                ),
+                rotation,
+              },
+            ],
+            30,
+          );
+          return {
+            read: window.slideObjects.readSlideObjectRotation(element),
+            rotation,
+            planned: plan.size,
+          };
+        });
+
+        expect(result.read).toBeCloseTo(painted, 3);
+        expect(result.rotation).toBeNull();
+        expect(result.planned).toBe(0);
+      } finally {
+        await page.close();
+      }
+    },
+  );
+
+  it("offers the rotation of an object whose inline transform paints", async () => {
+    const page = await openPage(
+      ".object { transition: transform 1s; }",
+      INLINE,
+    );
+    try {
+      const rotation = await page.evaluate(() =>
+        window.slideObjects.readEditableSlideObjectRotation(
+          document.querySelector<HTMLElement>(".object")!,
+        ),
+      );
+
+      expect(rotation).toBeCloseTo(10, 3);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("is not fooled by a transition on the transform", async () => {
+    const page = await openPage(
+      ".object { transition: transform 1s; transform: rotate(50deg) !important; }",
+      INLINE,
+    );
+    try {
+      const before = await state(page);
+
+      expect(await setRotation(page, 90)).toBe(false);
+      expect(
+        await page.evaluate(() =>
+          window.slideObjects.readEditableSlideObjectRotation(
+            document.querySelector<HTMLElement>(".object")!,
+          ),
+        ),
+      ).toBeNull();
+      expect(await state(page)).toEqual(before);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it.each([
+    {
+      name: "a stylesheet transition on the transform",
+      css: ".object { transition: transform 0.5s; }",
+      style: "transform: rotate(10deg)",
+    },
+    {
+      name: "a stylesheet transition on everything",
+      css: ".object { transition: all 0.75s; }",
+      style: "transform: rotate(10deg)",
+    },
+    {
+      name: "an inline transition",
+      css: "",
+      style: "transform: rotate(10deg); transition: transform 1s ease",
+    },
+    {
+      name: "an inline transition longhand",
+      css: "",
+      style: "transform: rotate(10deg); transition-duration: 1s",
+    },
+    {
+      name: "an inline !important transform under a transition",
+      css: ".object { transition: transform 1s; }",
+      style: "transform: rotate(10deg) !important",
+    },
+  ])(
+    "turns an object with $name at once and leaves the transition as authored",
+    async ({ css, style }) => {
+      const page = await openPage(
+        css,
+        `<div class="object" style="${style}"></div>`,
+      );
+      try {
+        const result = await page.evaluate(() => {
+          const element = document.querySelector<HTMLElement>(".object")!;
+          const { transition, transitionDuration } = element.style;
+          const written = window.slideObjects.setSlideObjectRotation(
+            element,
+            90,
+          );
+          return {
+            written,
+            rotation: window.slideObjects.readSlideObjectRotation(element),
+            transform: element.style.getPropertyValue("transform"),
+            priority: element.style.getPropertyPriority("transform"),
+            kept:
+              element.style.transition === transition &&
+              element.style.transitionDuration === transitionDuration,
+          };
+        });
+
+        expect(result.written).toBe(true);
+        expect(result.rotation).toBeCloseTo(90, 3);
+        expect(result.transform).toBe("rotate(90deg)");
+        expect(result.priority).toBe(
+          style.includes("important") ? "important" : "",
+        );
+        expect(result.kept).toBe(true);
+        // No transition left running from the old rotation to the new one.
+        await page.waitForTimeout(200);
+        expect((await state(page)).rotation).toBeCloseTo(90, 3);
+      } finally {
+        await page.close();
+      }
+    },
+  );
+
+  it.each(["none", "initial", "unset", "revert"])(
+    "does not report turning an object a stylesheet `transform: %s !important` keeps flat",
+    async (value) => {
+      const page = await openPage(
+        `.object { transform: ${value} !important; }`,
+        INLINE,
+      );
+      try {
+        const before = await state(page);
+        expect(before.painted).toBe("none");
+        expect(before.rotation).toBeCloseTo(0, 3);
+
+        expect(await setRotation(page, 90)).toBe(false);
+        expect(
+          await page.evaluate(() =>
+            window.slideObjects.readEditableSlideObjectRotation(
+              document.querySelector<HTMLElement>(".object")!,
+            ),
+          ),
+        ).toBeNull();
+
+        expect(await state(page)).toEqual(before);
+      } finally {
+        await page.close();
+      }
+    },
+  );
+
+  it("does not report turning an object with no inline transform that a stylesheet keeps flat", async () => {
+    const page = await openPage(
+      ".object { transform: none !important; }",
+      '<div class="object"></div>',
+    );
+    try {
+      const before = await state(page);
+
+      expect(await setRotation(page, 90)).toBe(false);
+
+      expect(await state(page)).toEqual(before);
+      expect(before.inline).toBe("");
+    } finally {
+      await page.close();
+    }
+  });
+
+  it.each([
+    {
+      name: "a delayed animation on transform",
+      css: "@keyframes sweep { to { transform: rotate(80deg); } } .object { animation: sweep 1s linear 5s; }",
+    },
+    {
+      name: "an animation on the rotate property",
+      css: "@keyframes turn { to { rotate: 360deg; } } .object { animation: turn 4s linear infinite; }",
+    },
+  ])(
+    "does not report turning an object $name is about to move",
+    async ({ css }) => {
+      const page = await openPage(css, INLINE);
+      try {
+        const before = await state(page);
+
+        expect(await setRotation(page, 90)).toBe(false);
+        expect(
+          await page.evaluate(() =>
+            window.slideObjects.readEditableSlideObjectRotation(
+              document.querySelector<HTMLElement>(".object")!,
+            ),
+          ),
+        ).toBeNull();
+
+        expect((await state(page)).inline).toBe(before.inline);
+      } finally {
+        await page.close();
+      }
+    },
+  );
+
+  it("does not ungroup a group whose member keeps a transform the ungrouping has to write", async () => {
+    const page = await openPage(
+      ".turned { transform: rotate(200deg); } #first { transform: rotate(10deg) !important; }",
+      `<div class="fmd-slide-group turned" data-slide-group="true" data-slide-object-id="group" style="position: absolute; left: 200px; top: 100px; width: 300px; height: 160px">
+        <div id="first" data-slide-object-id="first" style="position: absolute; left: 20px; top: 30px; width: 80px; height: 40px; background: #888"></div>
+        <div id="second" data-slide-object-id="second" style="position: absolute; left: 180px; top: 90px; width: 60px; height: 50px; background: #444"></div>
+      </div>`,
+    );
+    try {
+      const result = await page.evaluate(() => {
+        const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+        const html = document.body.innerHTML;
+        const ungrouped = window.slideObjects.ungroupSlideObject(
+          group,
+          (element) => ({
+            x: element.offsetLeft,
+            y: element.offsetTop,
+            width: element.offsetWidth,
+            height: element.offsetHeight,
+          }),
+          () => {},
+        );
+        return { ungrouped, untouched: document.body.innerHTML === html };
+      });
+
+      expect(result).toEqual({ ungrouped: null, untouched: true });
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("reads the transform origin a stylesheet !important declaration gives over an inline one", async () => {
+    const page = await openPage(
+      ".object { transform-origin: 100% 100% !important; }",
+      '<div class="object" style="transform: rotate(30deg); transform-origin: 0 0"></div>',
+    );
+    try {
+      const origin = await page.evaluate(
+        () =>
+          window.slideObjects.readSlideObjectTransformSnapshot(
+            document.querySelector<HTMLElement>(".object")!,
+          ).transformOrigin,
+      );
+
+      expect(origin).toBe("100% 100%");
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("keeps the transform origin an inline declaration paints as authored", async () => {
+    const page = await openPage(
+      "",
+      '<div class="object" style="transform: rotate(30deg); transform-origin: left top"></div>',
+    );
+    try {
+      const origin = await page.evaluate(
+        () =>
+          window.slideObjects.readSlideObjectTransformSnapshot(
+            document.querySelector<HTMLElement>(".object")!,
+          ).transformOrigin,
+      );
+
+      expect(origin).toBe("left top");
+    } finally {
+      await page.close();
     }
   });
 });

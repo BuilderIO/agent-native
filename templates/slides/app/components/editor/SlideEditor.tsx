@@ -233,6 +233,7 @@ import {
   resolveSelectionOwnerId,
   isValidSlideClipboardRoot,
   readSlideObjectSelectionFrame,
+  readEditableSlideObjectRotation,
   readSlideObjectClipboardId,
   readSlideObjectRotation,
   readSlideObjectTransformSnapshot,
@@ -266,6 +267,7 @@ import {
   removeSlideObjectLayoutSpacer,
   setSlideObjectDimension,
   setSlideObjectRotation,
+  slideObjectPaintsRotation,
   SLIDE_OBJECT_PASTE_OFFSET,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
@@ -7361,7 +7363,7 @@ export default function SlideEditor({
       const members: SlideObjectRotationMember[] = movable.map((member) => ({
         ...member,
         ...readSlideObjectTransformSnapshot(member.element),
-        rotation: readSlideObjectRotation(member.element),
+        rotation: readEditableSlideObjectRotation(member.element),
       }));
       const plan = rotateSlideObjectMembers(members, deltaDegrees);
       if (plan.size !== members.length) return false;
@@ -7507,7 +7509,7 @@ export default function SlideEditor({
         members = movable.map((member) => ({
           ...member,
           ...readSlideObjectTransformSnapshot(member.element),
-          rotation: readSlideObjectRotation(member.element),
+          rotation: readEditableSlideObjectRotation(member.element),
         }));
         originalStyles = new Map(
           members.map((member) => [
@@ -9345,6 +9347,12 @@ export default function SlideEditor({
           ]),
         );
       }
+      // A rotation the object cannot be made to paint is refused, and the
+      // field that asked for it has to show what the object paints.
+      return (
+        patch.rotation === undefined ||
+        slideObjectPaintsRotation(element, patch.rotation)
+      );
     },
     [
       buildSelectionState,

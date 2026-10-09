@@ -1102,6 +1102,45 @@ describe("the rotation field of the style inspector", () => {
       style.remove();
     }
   });
+
+  it("shows the rotation an object paints again when a stylesheet !important transform refuses the edit", async () => {
+    const style = document.createElement("style");
+    style.textContent =
+      ".inspector-pinned { transform: rotate(50deg) !important; }";
+    document.head.append(style);
+    try {
+      const editor = await mountEditor(
+        ROTATED_BY_PROPERTY.replace(
+          ";rotate:20deg",
+          ";transform:rotate(10deg)",
+        ).replace(
+          'class="fmd-text-box"',
+          'class="fmd-text-box inspector-pinned"',
+        ),
+      );
+      const field = await openRotationField(editor);
+      expect(field.value).toBe("50°");
+      const inline = editor.el("box").getAttribute("style");
+
+      field.focus();
+      fireEvent.change(field, { target: { value: "90" } });
+      fireEvent.keyDown(field, { key: "Enter" });
+      fireEvent.blur(field);
+      await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+
+      expect(editor.el("box").getAttribute("style")).toBe(inline);
+      expect(readSlideObjectRotation(editor.el("box"))).toBeCloseTo(50, 6);
+      // The field starts over, so it is not the element that was typed into.
+      const label = Array.from(document.querySelectorAll("label")).find(
+        (candidate) => candidate.textContent === "styleInspector.rotation",
+      )!;
+      expect(
+        (document.getElementById(label.htmlFor) as HTMLInputElement).value,
+      ).toBe("50°");
+    } finally {
+      style.remove();
+    }
+  });
 });
 
 describe("starting to crop an image", () => {

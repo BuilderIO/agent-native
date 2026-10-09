@@ -1295,36 +1295,206 @@ const TRANSFORM_PROPERTIES = ["transform", "translate", "rotate", "scale"];
 // defines, a length against its font size) means something else on a frame.
 const READS_OWN_CASCADE = /var\(|\d(?:em|ex|ch|lh|cap|ic)\b/i;
 
+const ANIMATION_LONGHANDS = [
+  "animation-name",
+  "animation-duration",
+  "animation-timing-function",
+  "animation-delay",
+  "animation-iteration-count",
+  "animation-direction",
+  "animation-fill-mode",
+  "animation-play-state",
+];
+
+// Valid and unlike anything an author writes, so a plain inline write of one
+// paints only when nothing in the cascade beats a plain inline declaration.
+const TRANSFORM_PROBES: Record<string, string> = {
+  transform: "translate(0.37px, 0.53px)",
+  translate: "0.37px 0.53px",
+  rotate: "0.37deg",
+  scale: "1.37",
+};
+
+/**
+ * Whether `value` as the inline `property` of `element` is what paints, rather
+ * than sitting in the style attribute under a declaration that wins: a
+ * stylesheet !important rule or a running animation beats a plain inline value.
+ * It compares what a plain write paints with what the same write made
+ * !important paints, which beats both, and puts the style attribute back.
+ * Transitions are off meanwhile: one started by the !important write would
+ * still read as the old value.
+ */
+function inlineValuePaints(
+  element: HTMLElement,
+  property: string,
+  value = element.style.getPropertyValue(property),
+): boolean {
+  const { style } = element;
+  if (!value) return false;
+  if (
+    style.getPropertyPriority(property) === "important" &&
+    value === style.getPropertyValue(property)
+  ) {
+    return true;
+  }
+  const saved = element.getAttribute("style");
+  const kept = [
+    style.getPropertyValue(property),
+    style.getPropertyPriority(property),
+  ] as const;
+  const computed = window.getComputedStyle(element);
+  try {
+    style.setProperty("transition", "none", "important");
+    style.setProperty(property, value);
+    const plain = computed.getPropertyValue(property);
+    style.setProperty(property, value, "important");
+    return computed.getPropertyValue(property) === plain;
+  } finally {
+    style.setProperty(property, ...kept);
+    // Settled before `transition` returns: put back together, they would start
+    // a transition from the probe's value.
+    computed.getPropertyValue(property);
+    restoreStyleAttribute(element, saved);
+  }
+}
+
+function restoreStyleAttribute(element: HTMLElement, style: string | null) {
+  if (style === null) element.removeAttribute("style");
+  else element.setAttribute("style", style);
+}
+
+function readCssAnimations(element: HTMLElement): CSSAnimation[] {
+  // The unit-test DOM has no Web Animations API.
+  if (typeof element.getAnimations !== "function") return [];
+  return element
+    .getAnimations()
+    .filter(
+      (animation): animation is CSSAnimation =>
+        animation instanceof CSSAnimation,
+    );
+}
+
+/** The transform properties the keyframes of these animations set. */
+function animatedTransformProperties(animations: CSSAnimation[]): string[] {
+  return TRANSFORM_PROPERTIES.filter((property) =>
+    animations.some(
+      ({ effect }) =>
+        effect instanceof KeyframeEffect &&
+        effect.getKeyframes().some((keyframe) => property in keyframe),
+    ),
+  );
+}
+
+function hasTransformAnimation(element: HTMLElement): boolean {
+  return animatedTransformProperties(readCssAnimations(element)).length > 0;
+}
+
+interface RunningAnimation {
+  name: string;
+  currentTime: CSSNumberish | null;
+}
+
 /**
  * Hands the transform that paints `source` to `frame`, which takes its place at
  * the same box, and switches it off on `source` so it applies once. The cascade
- * decides what paints: an inline value moves as authored unless it reads the
- * element's own cascade, and one a stylesheet rule gives `source` moves as the
- * browser resolved it.
+ * decides what paints: an inline value moves as authored when it is what
+ * paints and does not read the element's own cascade, and anything else moves
+ * as the browser resolved it. When a CSS animation paints a transform property
+ * the whole animation list moves, so the frame plays what the image played; the
+ * animations to hold on the frame, once it is in the document, are returned.
  */
 function moveSlideObjectTransform(
   source: HTMLElement,
   frame: HTMLElement,
-): void {
+): RunningAnimation[] {
   const computed = window.getComputedStyle(source);
+  const animations = readCssAnimations(source);
+  const keyframed = animatedTransformProperties(animations);
+  const savedStyle = source.getAttribute("style");
+  const playing = ANIMATION_LONGHANDS.map((property) =>
+    computed.getPropertyValue(property),
+  );
+  const running = animations.map(({ animationName, currentTime }) => ({
+    name: animationName,
+    currentTime,
+  }));
+  if (keyframed.length > 0) {
+    // Only the name: the `animation` shorthand serializes with `auto` as its
+    // duration, which an engine without it drops whole.
+    source.style.setProperty("animation-name", "none", "important");
+  }
+  // Read before anything below writes: what paints without the animation, and
+  // before a probe starts a transition that would answer for the old value.
+  const painted = TRANSFORM_PROPERTIES.map((property) =>
+    computed.getPropertyValue(property),
+  );
+  // An animation paints a property it keyframes unless an !important
+  // declaration beats it, and with the animation off that is all a plain inline
+  // write can lose to. Moved onto the frame, which no such declaration matches,
+  // a beaten animation would start to paint.
+  const animated = keyframed.some(
+    (property) =>
+      source.style.getPropertyPriority(property) !== "important" &&
+      inlineValuePaints(source, property, TRANSFORM_PROBES[property]),
+  );
+  if (animated) {
+    ANIMATION_LONGHANDS.forEach((property, index) => {
+      frame.style.setProperty(property, playing[index]);
+    });
+  } else {
+    restoreStyleAttribute(source, savedStyle);
+  }
   const { transformOrigin } = readSlideObjectTransformSnapshot(source);
-  let moved = false;
-  for (const property of TRANSFORM_PROPERTIES) {
+  let moved = animated;
+  TRANSFORM_PROPERTIES.forEach((property, index) => {
     const authored = source.style.getPropertyValue(property);
-    const value = READS_OWN_CASCADE.test(authored)
-      ? computed.getPropertyValue(property)
-      : authored || computed.getPropertyValue(property);
+    const value =
+      authored &&
+      !READS_OWN_CASCADE.test(authored) &&
+      inlineValuePaints(source, property)
+        ? authored
+        : painted[index];
     if (value && value !== "none") {
       frame.style.setProperty(property, value);
       moved = true;
     }
-    // Off even when nothing moved, so a rule that matches later cannot paint
-    // the image a second time inside the frame. Important, because a stylesheet
-    // !important declaration and a running animation both beat a plain one.
+    // Off even when nothing moved, so a rule that matches later or an
+    // animation the image replays once it moves cannot paint the image a second
+    // time inside the frame. Important, because a stylesheet !important
+    // declaration beats a plain one.
     source.style.setProperty(property, "none", "important");
-  }
+  });
   if (moved && transformOrigin !== "50% 50%") {
     frame.style.transformOrigin = transformOrigin;
+  }
+  return animated ? running : [];
+}
+
+/**
+ * Seeks the animations `frame` took from the image to where the image's were
+ * and holds them there, so the frame paints what the image painted for as long
+ * as the crop is edited. One the image no longer had had finished without
+ * filling, and replaying it would flash the frame.
+ */
+function holdMovedAnimations(
+  frame: HTMLElement,
+  running: RunningAnimation[],
+): void {
+  const pending = [...running];
+  for (const animation of readCssAnimations(frame)) {
+    const index = pending.findIndex(
+      ({ name }) => name === animation.animationName,
+    );
+    const [reached] = index < 0 ? [] : pending.splice(index, 1);
+    if (!reached) {
+      animation.cancel();
+      continue;
+    }
+    // Paused before it is set, so it freezes at that time and not a frame on.
+    animation.pause();
+    if (reached.currentTime !== null) {
+      animation.currentTime = reached.currentTime;
+    }
   }
 }
 
@@ -1363,7 +1533,7 @@ export function wrapImageInCropFrame(
   }
   const zIndex = imageStyle.zIndex || window.getComputedStyle(image).zIndex;
   if (zIndex && zIndex !== "auto") frame.style.zIndex = zIndex;
-  moveSlideObjectTransform(image, frame);
+  const running = moveSlideObjectTransform(image, frame);
   frame.style.position ||= "absolute";
   frame.style.display = "block";
   frame.style.left ||= `${imageLeft}px`;
@@ -1400,6 +1570,7 @@ export function wrapImageInCropFrame(
     maxHeight: "none",
     margin: "0",
   });
+  holdMovedAnimations(frame, running);
   return { frame, viewport };
 }
 
@@ -2328,20 +2499,42 @@ function toTransformProperty(
   ]);
 }
 
+function authoredOriginPaints(
+  element: HTMLElement,
+  authored: string,
+  computed: string | undefined,
+): boolean {
+  const authoredOrigin = parseSlideObjectTransformOrigin(authored);
+  if (!authoredOrigin) return false;
+  const { offsetWidth: width, offsetHeight: height } = element;
+  const painted =
+    computed && width > 0 && height > 0
+      ? parseSlideObjectTransformOrigin(computed)?.(width, height)
+      : null;
+  if (!painted) return true;
+  const wanted = authoredOrigin(width, height);
+  return (
+    Math.abs(wanted.x - painted.x) < 0.5 && Math.abs(wanted.y - painted.y) < 0.5
+  );
+}
+
 export function readSlideObjectTransformSnapshot(
   element: HTMLElement,
 ): SlideObjectTransformSnapshot {
   const computedStyle = window.getComputedStyle(element);
   const computedTransform = computedStyle.transform;
   const authoredTransformOrigin = element.style.transformOrigin.trim();
+  const computedTransformOrigin = computedStyle.transformOrigin?.trim();
   // An authored origin we cannot parse (calc(), var()) is already resolved to
-  // pixels in the computed style.
-  const inlineTransformOrigin = parseSlideObjectTransformOrigin(
+  // pixels in the computed style, and so is one that a stylesheet !important
+  // declaration overrides.
+  const inlineTransformOrigin = authoredOriginPaints(
+    element,
     authoredTransformOrigin,
+    computedTransformOrigin,
   )
     ? authoredTransformOrigin
     : "";
-  const computedTransformOrigin = computedStyle.transformOrigin?.trim();
   let transformOrigin =
     inlineTransformOrigin ||
     computedTransformOrigin ||
@@ -2369,9 +2562,9 @@ export function readSlideObjectTransformSnapshot(
     transform: composeSlideObjectTransform(
       element,
       computedStyle,
-      computedTransform && computedTransform !== "none"
-        ? computedTransform
-        : element.style.transform || "none",
+      // "none" is a transform that paints nothing, whatever the inline one
+      // says; only an empty string is a style the browser did not compute.
+      computedTransform || element.style.transform || "none",
     ),
     transformOrigin,
   };
@@ -2760,6 +2953,9 @@ export function ungroupSlideObject(
   >();
   if (groupRotation !== 0) {
     for (const { element, geometry } of childGeometries) {
+      // The turned transform is written inline below, so one that cannot paint
+      // there would leave the member where the group's rotation no longer is.
+      if (!inlineTransformPaints(element)) return null;
       const currentMatrix = readSlideObjectTransformMatrix(
         geometry,
         readSlideObjectTransformSnapshot(element).transform,
@@ -3400,6 +3596,44 @@ export function readSlideObjectRotation(element: HTMLElement): number | null {
   return painted ? slideObjectMatrixRotation(painted.matrix) : null;
 }
 
+/** Whether the object paints `rotation` degrees, to a hundredth of a degree. */
+export function slideObjectPaintsRotation(
+  element: HTMLElement,
+  rotation: number,
+): boolean {
+  const painting = readSlideObjectRotation(element);
+  return (
+    painting !== null &&
+    Math.abs(
+      ((painting - wrapSlideObjectRotation(rotation) + 540) % 360) - 180,
+    ) < 0.01
+  );
+}
+
+/**
+ * Whether a plain inline `transform` written to the element goes on painting:
+ * not under a stylesheet !important declaration, nor under a CSS animation
+ * that is running or still to start on a transform property.
+ */
+function inlineTransformPaints(element: HTMLElement): boolean {
+  return (
+    !hasTransformAnimation(element) &&
+    inlineValuePaints(element, "transform", TRANSFORM_PROBES.transform)
+  );
+}
+
+/**
+ * The rotation the object paints, or null when it has none to read or an inline
+ * transform could not turn it: a stylesheet !important declaration or a CSS
+ * animation keeps painting the rotation it has, whatever a handle writes.
+ */
+export function readEditableSlideObjectRotation(
+  element: HTMLElement,
+): number | null {
+  const rotation = readSlideObjectRotation(element);
+  return rotation !== null && inlineTransformPaints(element) ? rotation : null;
+}
+
 export function resolveSlideObjectRotationDelta(
   startAngle: number,
   center: { x: number; y: number },
@@ -3437,36 +3671,45 @@ function isPureSlideObjectRotation([
  * [0, 360), keeping the scale, skew and translation it paints with. It edits
  * the effective transform, so one that a stylesheet or the rotate property
  * supplies is kept rather than overwritten. False, with nothing written, when
- * that transform has no rotation to set.
+ * that transform has no rotation to set or the object goes on painting another
+ * rotation: a stylesheet !important declaration beats the inline transform
+ * written here, and a CSS animation on a transform property keeps moving it.
  */
 export function setSlideObjectRotation(
   element: HTMLElement,
   rotation: number,
 ): boolean {
   const painted = readPaintedSlideObject(element);
-  if (!painted) return false;
+  if (!painted || hasTransformAnimation(element)) return false;
   const target = wrapSlideObjectRotation(rotation);
+  const { style } = element;
+  const priority = style.getPropertyPriority("transform");
+  const before = element.getAttribute("style");
+  const write = (value: string) => {
+    // Read back with transitions off: one would still paint the old rotation.
+    style.setProperty("transition", "none", "important");
+    style.setProperty("transform", value, priority);
+    const paints = slideObjectPaintsRotation(element, target);
+    // Put back in one step with the transform unchanged since that read, so no
+    // transition starts from it.
+    restoreStyleAttribute(element, before);
+    if (paints) style.setProperty("transform", value, priority);
+    return paints;
+  };
 
   // A transform list the author wrote keeps its own units, so a centring
   // translate(-50%, -50%) goes on following the object's size. Only its
   // rotation is replaced, and only if that paints the rotation asked for: a
   // list with two rotate()s or a skew does not.
-  const authored = element.style.transform.trim();
+  const authored = style.transform.trim();
   if (
     authored &&
     authored !== "none" &&
     !/^matrix/i.test(authored) &&
-    !readTransformLonghands(element, window.getComputedStyle(element))
+    !readTransformLonghands(element, window.getComputedStyle(element)) &&
+    write(slideObjectRotationTransform(authored, target))
   ) {
-    element.style.transform = slideObjectRotationTransform(authored, target);
-    const painting = readSlideObjectRotation(element);
-    if (
-      painting !== null &&
-      Math.abs(((painting - target + 540) % 360) - 180) < 0.01
-    ) {
-      return true;
-    }
-    element.style.transform = authored;
+    return true;
   }
 
   const writable = toTransformProperty(
@@ -3477,9 +3720,7 @@ export function setSlideObjectRotation(
       ? `rotate(${formatSlideObjectRotation(target)})`
       : slideObjectRotationTransform(painted.transform.trim(), target),
   );
-  if (writable === null) return false;
-  element.style.transform = writable;
-  return true;
+  return writable !== null && write(writable);
 }
 
 function slideObjectRotationTransform(
