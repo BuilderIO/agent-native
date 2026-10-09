@@ -510,7 +510,7 @@ function AgentDiscovery({
         {/* The href alone is invisible to agents: the common way to read a page
             is rendered-text or accessibility-tree extraction, which keeps this
             text and drops every attribute. Keep the URL in the text itself. */}
-        {`${t("sharePage.agentReadableContext")}: ${agentContextUrl} ${t("sharePage.agentInstructions")}`}
+        {`${t("sharePage.agentReadableContext")}: ${agentContextUrl} ${t("sharePage.agentInstructions", { shareWithAgents: t("shareDialog.shareWithAgents") })}`}
       </a>
       <script
         type="application/agent-native+json"

@@ -15,6 +15,7 @@ import {
   type BigQueryTableRef,
 } from "./bigquery.js";
 import { requireRequestCredentialContext } from "./credentials-context.js";
+import { firstPartyEventPushdownPredicates } from "./first-party-analytics-pushdown.js";
 import { validateAnalyticsSqlFunctions } from "./first-party-analytics-sql-policy.js";
 import { fetchGoogleWithRetry, getAccessToken } from "./gcloud.js";
 import {
@@ -1302,8 +1303,10 @@ function addPartitionPrunedEventDeduplication(
     }
     // ponytail: insertAll is at-least-once; staging + MERGE is the upgrade path
     // for physical exactly-once if the warehouse contract requires it.
+    const predicates = firstPartyEventPushdownPredicates(sql, sourceIndex);
     result +=
       sql.slice(cursor, predicateEnd) +
+      predicates.map((predicate) => ` AND (${predicate})`).join("") +
       " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1" +
       (predicateEnd < sql.length ? " " : "");
     cursor = predicateEnd;

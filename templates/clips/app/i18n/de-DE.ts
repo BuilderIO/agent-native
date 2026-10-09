@@ -352,7 +352,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "Vom Agenten lesbarer Clip-Kontext",
     agentInstructions:
-      "Rufen Sie agentContextUrl für das Transkript und den JPEG-Frame URLs ab. Rufen Sie den Frame „URLs“ ab, um den Bildschirm zu SEHEN, und nicht nur, um das Transkript zu lesen.",
+      "Öffne zuerst agentContextUrl. Lies das vollständige Transkript über apis.transcript und rufe recommendedFrames[].url (oder apis.frame.urlTemplate mit atMs) als Bilder ab. Behalte id und agent_access genau wie angegeben bei. Prüfe bei jedem Fehler failureKind, error und nextStep in der JSON-Antwort. Bei failureKind=access erklärt der Link den Zugriff nicht; bitte den Eigentümer eines privaten Clips, im Clips-Share-Menü {{shareWithAgents}} zu wählen und den erzeugten Link zu senden. Bei failureKind=media und funktionierendem Transkript konnten die gespeicherten Medien nicht abgerufen werden; ein anderer Link hilft nicht. Bei failureKind=processing folgen Sie nextStep; das bedeutet nicht, dass Medien fehlen oder der Link ungültig ist. Bei failureKind=expired soll der Eigentümer den Ablauf des Clips im Share-Menü verlängern oder entfernen, speichern und anschließend {{shareWithAgents}} wählen und den neuen Link senden.",
     untitledClip: "Unbenannter Clip",
     incorrectPassword: "Falsches Passwort",
     passwordProtected: "Dieser Clip ist passwortgeschützt",
@@ -621,7 +621,7 @@ const messages = {
     openInCodex: "In Codex öffnen",
     copyAgentPrompt: "Agent-Prompt kopieren",
     agentPrompt:
-      "Rufe diese Clips-Agent-Kontext-URL ab: {{agentContextUrl}}. Verwende transcript.segments fuer den gesprochenen Kontext, rufe recommendedFrames oder die Frame-API-URLs ab, um den Bildschirm zu sehen, und pruefe browserDiagnostics, falls vorhanden, fuer redigierte Konsolenprotokolle und fetch/XHR-Anfragemetadaten.",
+      "Lies diese Clips-Agent-Kontext-URL: {{agentContextUrl}}. Lies das vollständige Transkript über apis.transcript und rufe recommendedFrames[].url (oder apis.frame.urlTemplate mit atMs) als Bilder ab. Behalte id und agent_access genau wie angegeben bei. Prüfe bei jedem Fehler failureKind, error und nextStep in der JSON-Antwort. Bei failureKind=access erklärt der Link den Zugriff nicht; bitte den Eigentümer eines privaten Clips, im Clips-Share-Menü {{shareWithAgents}} zu wählen und den erzeugten Link zu senden. Bei failureKind=media und funktionierendem Transkript konnten die gespeicherten Medien nicht abgerufen werden; ein anderer Link hilft nicht. Bei failureKind=processing folgen Sie nextStep; das bedeutet nicht, dass Medien fehlen oder der Link ungültig ist. Bei failureKind=expired soll der Eigentümer den Ablauf des Clips im Share-Menü verlängern oder entfernen, speichern und anschließend {{shareWithAgents}} wählen und den neuen Link senden. Nutze browserDiagnostics bei Fehlerberichten, falls vorhanden.",
     agentTokenDescription:
       "Temporärer Nur-Lese-Link für Agenten, da dieser Clip nicht öffentlich ist. Läuft in 2 Stunden ab.",
     agentPublicDescription:
