@@ -769,6 +769,9 @@ export default {
       tools: "उपकरण",
       tokens: "टोकन",
       label: "डिज़ाइन कार्यक्षेत्र",
+      account: "खाता",
+      collapse: "साइडबार समेटें",
+      expand: "साइडबार फैलाएँ",
     },
     breakpointBar: {
       base: "आधार",
@@ -858,12 +861,10 @@ export default {
       "{{path}} इसके खुलने के बाद डिस्क पर बदल गई है। स्क्रीन को रीलोड करें और फिर से प्रयास करें।",
     applyToSourceError: "स्रोत में सहेजा नहीं जा सका: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "टोकन इम्पोर्ट करें",
       importTitle: "टोकन इम्पोर्ट करें",
       importHint:
@@ -875,6 +876,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "पेस्ट किए गए टोकन इम्पोर्ट करें",
       importedCount: "{{count}} टोकन इम्पोर्ट हुए",
+      count: "{{count}} टोकन",
+      search: "टोकन खोजें",
+      noMatches: "कोई मेल खाता टोकन नहीं",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
