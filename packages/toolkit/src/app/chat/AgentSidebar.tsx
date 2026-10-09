@@ -1235,7 +1235,7 @@ export function AgentSidebar({
   }, [shouldMountPanel, sidebarAnimationEnabled]);
 
   const shouldRenderPanel =
-    enabled &&
+    ownsPanel &&
     (sidebarAnimationEnabled ? renderAnimatedPanel : shouldMountPanel);
   const panelOpen = enabled && open && shouldMountPanel;
   const panelLayout = isOverlay

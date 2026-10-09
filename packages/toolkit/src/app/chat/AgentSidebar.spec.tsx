@@ -13,6 +13,7 @@ import { TiptapComposer } from "../../composer/TiptapComposer.js";
 import { TooltipProvider } from "../../ui/tooltip.js";
 
 const mockTrust = vi.hoisted(() => ({ frame: true, builder: false }));
+const mockPanelOwnership = vi.hoisted(() => ({ hosted: false }));
 
 const mockHostedHarness = vi.hoisted(() => ({
   configured: false,
@@ -145,7 +146,10 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
           ? { enabled: true, runtimes: [] }
           : undefined,
     }),
-    usePerAppChatState: () => ({ hosted: false, open: false }),
+    usePerAppChatState: () => ({
+      hosted: mockPanelOwnership.hosted,
+      open: false,
+    }),
     useScreenRefreshKey: () => 0,
   };
 });
@@ -204,6 +208,7 @@ beforeEach(() => {
   mockPanel.composer = undefined;
   mockTrust.frame = true;
   mockTrust.builder = false;
+  mockPanelOwnership.hosted = false;
   window.history.replaceState({}, "", "/");
   mockHostedHarness.configured = false;
   mockHostedHarness.enabled = false;
@@ -630,73 +635,86 @@ describe("AgentSidebar panel", () => {
     },
   );
 
-  it("restores real composer readiness after panel ownership returns", async () => {
-    mockPanel.resolveImport();
-    let disabled = true;
-    function Composer() {
-      const runtime = useLocalRuntime({ async *run() {} });
-      return (
-        <AssistantRuntimeProvider runtime={runtime}>
-          <TooltipProvider>
-            <TiptapComposer
-              disabled={disabled}
-              isReferenceTarget
-              includeDefaultSlashSkills={false}
-              plusMenuMode="hidden"
-              voiceEnabled={false}
-            />
-          </TooltipProvider>
-        </AssistantRuntimeProvider>
-      );
-    }
-    mockPanel.composer = <Composer />;
-    const render = renderSidebar(true);
-    await act(async () => {
-      await Promise.resolve();
-    });
-    const submissions: string[] = [];
-    const record = (event: MessageEvent) => {
-      if (event.data?.type === "agentNative.submitChat")
-        submissions.push(container!.textContent!);
-    };
-    window.addEventListener("message", record);
-    try {
+  it.each(["disabled", "hosted"])(
+    "restores real composer readiness after %s ownership returns",
+    async (owner) => {
+      mockPanel.resolveImport();
+      let disabled = true;
+      function Composer() {
+        const runtime = useLocalRuntime({ async *run() {} });
+        return (
+          <AssistantRuntimeProvider runtime={runtime}>
+            <TooltipProvider>
+              <TiptapComposer
+                disabled={disabled}
+                isReferenceTarget
+                includeDefaultSlashSkills={false}
+                plusMenuMode="hidden"
+                voiceEnabled={false}
+              />
+            </TooltipProvider>
+          </AssistantRuntimeProvider>
+        );
+      }
+      mockPanel.composer = <Composer />;
+      const render = renderSidebar(true);
       await act(async () => {
-        window.dispatchEvent(
-          new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
-            detail: {
-              label: "Restored document",
-              refType: "file",
-              refId: "/restored.md",
-              slotKey: "document",
-              insertMessageId: "ownership-reference",
-            },
-          }),
-        );
-        window.dispatchEvent(
-          new MessageEvent("message", {
-            origin: window.location.origin,
-            data: {
-              type: "agentNative.submitChat",
-              data: { message: "Use the retained document", submit: false },
-            },
-          }),
-        );
+        await Promise.resolve();
       });
-      expect(submissions).toEqual([]);
-      await act(async () => render(false));
-      disabled = false;
-      await act(async () => render(true));
-      expect(
-        container!.querySelector(".tiptap")?.getAttribute("contenteditable"),
-      ).toBe("true");
-      expect(submissions).toEqual([
-        expect.stringContaining("Restored document"),
-      ]);
-    } finally {
-      window.removeEventListener("message", record);
-    }
-  });
+      const submissions: string[] = [];
+      const record = (event: MessageEvent) => {
+        if (event.data?.type === "agentNative.submitChat")
+          submissions.push(container!.textContent!);
+      };
+      window.addEventListener("message", record);
+      try {
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: {
+                label: "Restored document",
+                refType: "file",
+                refId: "/restored.md",
+                slotKey: "document",
+                insertMessageId: "ownership-reference",
+              },
+            }),
+          );
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              origin: window.location.origin,
+              data: {
+                type: "agentNative.submitChat",
+                data: { message: "Use the retained document", submit: false },
+              },
+            }),
+          );
+        });
+        expect(submissions).toEqual([]);
+        await act(async () => {
+          mockPanelOwnership.hosted = owner === "hosted";
+          render(owner !== "disabled");
+        });
+        expect(container!.querySelector(".tiptap")).toBeNull();
+        expect(
+          container!.querySelector('[data-testid="app-content"]'),
+        ).not.toBeNull();
+        disabled = false;
+        await act(async () => {
+          mockPanelOwnership.hosted = false;
+          render(true);
+        });
+        expect(
+          container!.querySelector(".tiptap")?.getAttribute("contenteditable"),
+        ).toBe("true");
+        expect(submissions).toEqual([
+          expect.stringContaining("Restored document"),
+        ]);
+      } finally {
+        window.removeEventListener("message", record);
+      }
+    },
+  );
 
   it("retains accepted work while panel ownership is temporarily disabled", async () => {
     const render = renderSidebar(false);
