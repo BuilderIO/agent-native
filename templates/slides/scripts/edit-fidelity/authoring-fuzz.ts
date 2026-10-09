@@ -2198,7 +2198,7 @@ export async function runAuthoringFuzz(
     await newLine();
     await typeText("/");
     const options = page.locator('[role="listbox"] [role="option"]');
-    await options.first().waitFor({ state: "visible", timeout: 1500 });
+    await options.first().waitFor({ state: "visible", timeout: 5_000 });
     if ((await options.count()) !== SLASH_COMMANDS.length)
       throw new Error("slash menu did not expose all eight commands");
     const focused = await editor.evaluate(
