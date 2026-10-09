@@ -26,6 +26,10 @@ import {
   EMBED_TARGET_QUERY_PARAM,
   createMcpDirectoryWidgetReadCapability,
   createMcpDirectoryWidgetWriteCapability,
+  getMcpDirectoryWidgetWriteCapabilityGrant,
+  isMcpDirectoryWidgetReadCapabilityScope,
+  isMcpDirectoryWidgetWriteCapabilityScope,
+  renewMcpDirectoryWidgetCapabilityScope,
 } from "../shared/embed-auth.js";
 import {
   requestMatchesEmbedTarget,
@@ -2084,6 +2088,223 @@ describe("directory widget write session renewal", () => {
 
     await expect(
       resolveEmbedSessionTokenForHost(token, "content.example.test"),
+    ).resolves.toBeNull();
+  });
+});
+
+describe("directory widget recovery after a chat reload", () => {
+  const OWNER = "owner@example.com";
+  const ORG = "org_123";
+  const RESOURCE_URI = "ui://content/shell-v66";
+  const HOUR_MS = 60 * 60 * 1000;
+  const rows = new Map<string, Record<string, unknown>>();
+  let revokedBefore: number | null = null;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-20T12:00:00Z"));
+    process.env = { ...ORIGINAL_ENV, OAUTH_STATE_SECRET: "embed-test-secret" };
+    rows.clear();
+    revokedBefore = null;
+    dbExec.transaction
+      .mockReset()
+      .mockImplementation(async (run) => run(dbExec));
+    dbExec.execute
+      .mockReset()
+      .mockImplementation(async ({ sql, args }: any) => {
+        if (sql.includes("INSERT INTO agent_native_embed_tickets")) {
+          const [hash, owner, org, target, scope, created, expires, , renewal] =
+            args;
+          rows.set(hash, {
+            ticket_hash: hash,
+            owner_email: owner,
+            org_id: org,
+            target_path: target,
+            scope,
+            created_at: created,
+            expires_at: expires,
+            consumed_at: null,
+            renewal_expires_at: renewal,
+            session_active_until: args[9],
+          });
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (sql.includes("FROM agent_native_embed_tickets WHERE ticket_hash")) {
+          const row = rows.get(args[0]);
+          return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
+        }
+        if (
+          sql.startsWith("UPDATE agent_native_embed_tickets SET consumed_at")
+        ) {
+          const row = rows.get(args[2]);
+          if (!row || row.consumed_at != null)
+            return { rows: [], rowsAffected: 0 };
+          row.consumed_at = args[0];
+          row.session_active_until = args[1];
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (sql.includes("SELECT revoked_before")) {
+          return {
+            rows:
+              revokedBefore === null ? [] : [{ revoked_before: revokedBefore }],
+          };
+        }
+        if (
+          sql.includes("INSERT INTO agent_native_embed_session_revocations")
+        ) {
+          revokedBefore = Number(args[1]);
+        }
+        return { rows: [], rowsAffected: 1 };
+      });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    process.env = ORIGINAL_ENV;
+  });
+
+  /** The result ticket the tool call minted, as the widget persists it. */
+  async function mintAndConsumeSourceTicket(scope: string) {
+    const createdBefore = Date.now() - 1000;
+    const { ticket } = await createEmbedSessionTicket({
+      ownerEmail: OWNER,
+      orgId: ORG,
+      targetPath: "/page/doc_123",
+      scope,
+      ttlSeconds: 5 * 60,
+      revocationAnchorCreatedAtMs: createdBefore,
+    });
+    await expect(
+      consumeEmbedSessionTicket(ticket, { expectedOwnerEmail: OWNER }),
+    ).resolves.toMatchObject({ ownerEmail: OWNER, orgId: ORG });
+    return ticket;
+  }
+
+  /** What the start tool does for a persisted source ticket. */
+  async function renewFrom(
+    sourceTicket: string,
+    caller: { readAllowed?: boolean; writeAllowed?: boolean } = {},
+  ) {
+    const original = await readMcpDirectoryWidgetRenewalTicket(sourceTicket);
+    if (!original) throw new Error("source ticket unavailable");
+    const scope = renewMcpDirectoryWidgetCapabilityScope(original.scope, {
+      appId: "content",
+      resourceUri: RESOURCE_URI,
+      userEmail: OWNER,
+      orgId: ORG,
+      expiresAtMs: Date.now() + 15 * 60 * 1000,
+      readAllowed: caller.readAllowed ?? true,
+      writeAllowed: caller.writeAllowed ?? true,
+    });
+    if (!scope) throw new Error("renewed scope unavailable");
+    const renewed = await createEmbedSessionTicket({
+      ownerEmail: OWNER,
+      orgId: ORG,
+      targetPath: original.targetPath,
+      scope,
+      ttlSeconds: 15 * 60,
+      renewalExpiresAtMs: original.renewalExpiresAtMs,
+      revocationAnchorCreatedAtMs: original.createdAtMs,
+    });
+    return { original, scope, renewed };
+  }
+
+  it("refuses the replayed start URL but renews the same user and artifact hours later", async () => {
+    const source = await mintAndConsumeSourceTicket(
+      contentWidgetWriteScope({ orgId: ORG }),
+    );
+
+    vi.advanceTimersByTime(3 * HOUR_MS);
+
+    let replay: string | undefined;
+    await expect(
+      consumeEmbedSessionTicket(source, {
+        expectedOwnerEmail: OWNER,
+        onResult: (diagnostic) => {
+          replay = diagnostic.outcome;
+        },
+      }),
+    ).resolves.toBeNull();
+    expect(replay).toBe("already-consumed");
+
+    const { scope, renewed } = await renewFrom(source);
+    const session = await consumeEmbedSessionTicket(renewed.ticket, {
+      expectedOwnerEmail: OWNER,
+    });
+
+    expect(session).toMatchObject({
+      ownerEmail: OWNER,
+      orgId: ORG,
+      targetPath: "/page/doc_123",
+      scope,
+    });
+    expect(
+      getMcpDirectoryWidgetWriteCapabilityGrant(session?.scope, {
+        appId: "content",
+        resourceUri: RESOURCE_URI,
+        userEmail: OWNER,
+        orgId: ORG,
+      }),
+    ).toEqual({
+      resourceIds: { documentId: "doc_123" },
+      actionNames: ["update-document"],
+    });
+
+    // A second reload still holds only the first result's ticket.
+    vi.advanceTimersByTime(HOUR_MS);
+    const again = await renewFrom(source);
+    await expect(
+      consumeEmbedSessionTicket(again.renewed.ticket, {
+        expectedOwnerEmail: OWNER,
+      }),
+    ).resolves.toMatchObject({ ownerEmail: OWNER, scope: again.scope });
+  });
+
+  it("degrades a restored write widget to read without upgrading it", async () => {
+    const source = await mintAndConsumeSourceTicket(
+      contentWidgetWriteScope({ orgId: ORG }),
+    );
+    vi.advanceTimersByTime(3 * HOUR_MS);
+
+    const { scope } = await renewFrom(source, { writeAllowed: false });
+    expect(isMcpDirectoryWidgetReadCapabilityScope(scope)).toBe(true);
+    expect(isMcpDirectoryWidgetWriteCapabilityScope(scope)).toBe(false);
+
+    const readSource = await mintAndConsumeSourceTicket(
+      createMcpDirectoryWidgetReadCapability({
+        appId: "content",
+        resourceUri: RESOURCE_URI,
+        resourceIds: { documentId: "doc_123" },
+        actionArguments: { "get-document": { documentId: "doc_123" } },
+      })!,
+    );
+    const renewedRead = await renewFrom(readSource, { writeAllowed: true });
+    expect(isMcpDirectoryWidgetWriteCapabilityScope(renewedRead.scope)).toBe(
+      false,
+    );
+  });
+
+  it("refuses to renew once the owner logged out after the source ticket was minted", async () => {
+    const source = await mintAndConsumeSourceTicket(
+      contentWidgetWriteScope({ orgId: ORG }),
+    );
+    vi.advanceTimersByTime(HOUR_MS);
+    await revokeEmbedSessionsForOwner(OWNER);
+    vi.advanceTimersByTime(HOUR_MS);
+
+    await expect(renewFrom(source)).rejects.toThrow(
+      "Embed session ticket creation was revoked by logout.",
+    );
+  });
+
+  it("stops renewing 30 days after the source ticket was minted", async () => {
+    const source = await mintAndConsumeSourceTicket(
+      contentWidgetWriteScope({ orgId: ORG }),
+    );
+    vi.advanceTimersByTime(30 * 24 * HOUR_MS);
+
+    await expect(
+      readMcpDirectoryWidgetRenewalTicket(source),
     ).resolves.toBeNull();
   });
 });
