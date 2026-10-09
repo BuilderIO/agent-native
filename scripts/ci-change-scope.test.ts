@@ -982,6 +982,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "a removed path must not fail the changed-spec shard",
   );
   assert.ok(
+    changedSpecRegressions.includes(
+      'if ((${#existing_changed_specs[@]} == 0)); then\n            echo "::error::Changed-spec shard received an empty selector."\n            exit 2\n          fi',
+    ),
+    "a deletion-only change must fail when no runnable changed specs remain",
+  );
+  assert.ok(
     regressionCases.includes(
       "mapfile -d '' -t changed_specs < \"$changed_specs_file\"",
     ),
