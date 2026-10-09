@@ -1574,7 +1574,11 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
       "@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .ruled { transform: rotate(0deg); } .animated { animation: spin 4s linear infinite; }";
     const page = await openPage(css, imageHtml());
     try {
-      const started = await page.evaluate(() => {
+      const cropped = await page.evaluate(() => {
+        const rect = (element: Element) => {
+          const { left, top, width, height } = element.getBoundingClientRect();
+          return { left, top, width, height };
+        };
         const image = document.getElementById("pic") as HTMLImageElement;
         image.classList.add("animated");
         const cssAnimation = image
@@ -1595,10 +1599,12 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
           value: "transform",
         });
         const animations = image.getAnimations();
-        return {
+        const painted = rect(image);
+        const computedTransform = getComputedStyle(image).transform;
+        const started = {
           animationTime: cssAnimation?.currentTime,
           transitionTime: transition?.currentTime,
-          computedTransform: getComputedStyle(image).transform,
+          computedTransform,
           animationTransformAtCapturedTime: new DOMMatrix()
             .rotate(54)
             .toString(),
@@ -1613,22 +1619,6 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
                   .transitionProperty,
             ),
         };
-      });
-      expect(started.animationNames).toContain("spin");
-      expect(started.transitionProperties).toContain("transform");
-      expect(started.animationTime).toBe(600);
-      expect(started.transitionTime).toBe(150);
-      expect(started.computedTransform).not.toBe(
-        started.animationTransformAtCapturedTime,
-      );
-
-      const cropped = await page.evaluate(() => {
-        const rect = (element: Element) => {
-          const { left, top, width, height } = element.getBoundingClientRect();
-          return { left, top, width, height };
-        };
-        const image = document.getElementById("pic") as HTMLImageElement;
-        const painted = rect(image);
         const wrapped = window.slideObjects.wrapImageInCropFrame(image)!;
         wrapped.frame.id = "frame";
         const frameAnimation = wrapped.frame.getAnimations()[0] as
@@ -1643,6 +1633,7 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
           wrapped.frame.style.getPropertyPriority("transform");
         wrapped.resumeAnimations();
         return {
+          ...started,
           painted,
           frame,
           frameTime,
@@ -1656,8 +1647,15 @@ describe("starting to crop an image a CSS animation moves in Chromium", () => {
           pausedState,
         };
       });
+      expect(cropped.animationNames).toContain("spin");
+      expect(cropped.transitionProperties).toContain("transform");
+      expect(cropped.animationTime).toBe(600);
+      expect(cropped.transitionTime).toBe(150);
+      expect(cropped.computedTransform).not.toBe(
+        cropped.animationTransformAtCapturedTime,
+      );
       expectSameHull(cropped.frame, cropped.painted, 1);
-      expect(cropped.frameTransform).toBe(started.computedTransform);
+      expect(cropped.frameTransform).toBe(cropped.computedTransform);
       expect(cropped.frameTransformPriority).toBe("important");
       expect(cropped.resumedTransformPriority).toBe("");
       expect(cropped.animationName).toMatch(/^fmd_crop_/);
