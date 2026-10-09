@@ -428,6 +428,12 @@ function editorActionContext(
   };
 }
 
+function isThrottledEditorCheckpointCaller(
+  caller: string | undefined,
+): boolean {
+  return caller === "frontend" || caller === "mcp-widget-write";
+}
+
 function versionTime(value: string | null): number {
   if (!value) return 0;
   const timestamp = Date.parse(value);
@@ -924,7 +930,7 @@ async function snapshotDesignBeforeAgentEditInLock(
         database,
       );
     }
-    if (context.caller === "frontend") {
+    if (isThrottledEditorCheckpointCaller(context.caller)) {
       const [latestVersion] = await (database ?? getDb())
         .select({
           id: schema.designVersions.id,
@@ -947,12 +953,12 @@ async function snapshotDesignBeforeAgentEditInLock(
         } catch {
           latestChatContext = undefined;
         }
-        const latestIsFrontendEditorCheckpoint =
+        const latestIsThrottledEditorCheckpoint =
           latestChatContext?.surface === "editor" &&
-          latestChatContext.caller === "frontend";
+          isThrottledEditorCheckpointCaller(latestChatContext.caller);
         const latestAgeMs = Date.now() - versionTime(latestVersion.createdAt);
         if (
-          latestIsFrontendEditorCheckpoint &&
+          latestIsThrottledEditorCheckpoint &&
           latestAgeMs < EDITOR_CHECKPOINT_THROTTLE_MS
         ) {
           return {
@@ -993,7 +999,7 @@ async function snapshotDesignBeforeAgentEditInLock(
         extra: { designId, actionName: context.actionName },
       });
       if (!allowCheckpointFailureSkip) throw error;
-      if (context.caller === "frontend") {
+      if (isThrottledEditorCheckpointCaller(context.caller)) {
         editorCheckpointRecentSkips.set(designId, { at: Date.now(), reason });
       }
       return { skipped: true, reason };

@@ -1,7 +1,8 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
-import type {
-  CanvasFrameGeometry,
-  CanvasFrameGeometryById,
+import {
+  numericDesignDataWriteError,
+  type CanvasFrameGeometry,
+  type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
 import { annotateScreenHtmlForPersist } from "@shared/screen-annotation";
 import type { QueryClient } from "@tanstack/react-query";
@@ -43,6 +44,13 @@ import {
 import type { DesignFile } from "@/pages/design-editor/types";
 
 const DUPLICATE_SCREEN_GAP = 56;
+const WIDGET_DUPLICATE_SCREEN_METADATA_KEYS = [
+  "width",
+  "height",
+  "heightPinned",
+  "heightMode",
+  "breakpointHeights",
+] as const;
 
 interface DuplicateBatchState {
   sourceIds: Set<string>;
@@ -118,6 +126,37 @@ function isCompleteFrameGeometry(
       (value) => typeof value === "number" && Number.isFinite(value),
     )
   );
+}
+
+function widgetDuplicateScreenMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!metadata) return undefined;
+  const result: Record<string, unknown> = {};
+  for (const key of WIDGET_DUPLICATE_SCREEN_METADATA_KEYS) {
+    const value = metadata[key];
+    if (key === "width" || key === "height") {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        result[key] = value;
+      }
+    } else if (key === "heightPinned") {
+      if (typeof value === "boolean") result[key] = value;
+    } else if (key === "heightMode") {
+      if (value === "auto" || value === "fixed" || value === "hug") {
+        result[key] = value;
+      }
+    } else if (
+      key === "breakpointHeights" &&
+      value !== undefined &&
+      numericDesignDataWriteError(
+        ["screenMetadata", "duplicate", "breakpointHeights"],
+        value,
+      ) === null
+    ) {
+      result[key] = value;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 function rebaseDispatchedCanvasGeometry(
@@ -335,6 +374,7 @@ function duplicateStackDataOperations(
 
 export interface DuplicateScreenArgs {
   canEditDesign: boolean;
+  widgetEmbed: boolean;
   createFileAsync: ReturnType<
     typeof useActionMutation<undefined, undefined, "create-file">
   >["mutateAsync"];
@@ -385,6 +425,7 @@ export interface DuplicateScreenArgs {
 export function runDuplicateScreen(
   {
     canEditDesign,
+    widgetEmbed,
     createFileAsync,
     deleteFileAsync,
     designDataJsonRef,
@@ -645,14 +686,20 @@ export function runDuplicateScreen(
     Object.keys(currentLocalhostScreen).length > 0
       ? { ...currentLocalhostScreen }
       : undefined;
-  const screenMetadata =
+  const copiedOrRecoveredScreenMetadata =
     recoveryState && "screenMetadata" in recoveryState
       ? recoveryState.screenMetadata
       : currentScreenMetadata;
-  const localhostScreen =
+  const screenMetadata = widgetEmbed
+    ? widgetDuplicateScreenMetadata(copiedOrRecoveredScreenMetadata)
+    : copiedOrRecoveredScreenMetadata;
+  const copiedOrRecoveredLocalhostScreen =
     recoveryState && "localhostScreen" in recoveryState
       ? recoveryState.localhostScreen
       : currentLocalhostMetadata;
+  const localhostScreen = widgetEmbed
+    ? undefined
+    : copiedOrRecoveredLocalhostScreen;
   let createdFileId: string | undefined;
   let duplicateBatchCopyId: string | undefined;
   let appliedDuplicateStackChange: DuplicateStackHistoryChange | undefined;

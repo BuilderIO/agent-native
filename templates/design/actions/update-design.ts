@@ -36,6 +36,7 @@ const WIDGET_SCREEN_METADATA_KEYS = new Set([
   "height",
   "heightPinned",
   "heightMode",
+  "breakpointHeights",
 ]);
 const WIDGET_LOCALHOST_SCREEN_KEYS = new Set(["width", "height"]);
 const WIDGET_LAYOUT_GRID_KEYS = new Set(["kind", "size", "visible"]);

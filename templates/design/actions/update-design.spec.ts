@@ -274,6 +274,14 @@ describe("update-design data concurrency", () => {
       },
     },
     {
+      label: "malformed responsive breakpoint heights",
+      operation: {
+        op: "set",
+        path: ["screenMetadata", "frame-a"],
+        value: { width: 400, breakpointHeights: { "390px": 800 } },
+      },
+    },
+    {
       label: "localhost connection metadata",
       operation: {
         op: "set",
@@ -368,6 +376,7 @@ describe("update-design data concurrency", () => {
               height: 1200,
               heightPinned: true,
               heightMode: "fixed",
+              breakpointHeights: { "390": 820 },
             },
           },
           {
@@ -392,6 +401,7 @@ describe("update-design data concurrency", () => {
       height: 1200,
       heightPinned: true,
       heightMode: "fixed",
+      breakpointHeights: { "390": 820 },
     });
     expect(persisted.localhostScreens["frame-c"]).toEqual({
       width: 900,
