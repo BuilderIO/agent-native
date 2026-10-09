@@ -70,6 +70,7 @@ import {
   PRE_ACQUISITION_SPLIT_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
   PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_WITH_LAST_VALID_SQL,
   PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL,
+  PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL,
   repairCanonicalFirstPartyDashboardQueries,
   repairFirstPartyBigQueryDashboardQueries,
   repairKnownFirstPartyDashboardQueries,
@@ -629,7 +630,10 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     );
     expect(panels[0].source).toBe("bigquery");
     expect(panels[0].sql).toContain(
-      "FROM `builder-3b0a2.analytics.first_party_analytics_events_raw_query`",
+      "FROM `builder-3b0a2.analytics.first_party_analytics_events_raw_query_range`(",
+    );
+    expect(panels[0].sql).not.toContain(
+      "first_party_analytics_events_raw_query`",
     );
     expect(panels[0].sql).toContain("org_id = 'PlRt3bfcpJNnOyF_Wfgsh'");
     expect(panels[0].sql).toContain(
@@ -1178,7 +1182,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
 
   it("repairs the malformed non-empty BigQuery wau query", async () => {
     const weekly = requiredFirstPartyPanel("wau-over-time");
-    const malformedSql = FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+    const malformedSql = PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
       "WHEN '{{timeRange}}' = '7d'",
       "WHEN '{{timeRange}}' = '{{timeRange}}'",
     );
@@ -1190,6 +1194,35 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
             ...weekly,
             source: "bigquery",
             sql: malformedSql,
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
+      FIRST_PARTY_BIGQUERY_WAU_SQL,
+    );
+  });
+
+  it("moves the view-reading BigQuery wau query onto the date-range function", async () => {
+    const weekly = requiredFirstPartyPanel("wau-over-time");
+    const row = legacyRow({
+      id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+      config: JSON.stringify({
+        panels: [
+          {
+            ...weekly,
+            source: "bigquery",
+            sql: PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL,
           },
         ],
       }),
@@ -1240,7 +1273,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
 
   it("preserves a customized malformed-looking BigQuery wau query", async () => {
     const weekly = requiredFirstPartyPanel("wau-over-time");
-    const customizedSql = FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+    const customizedSql = PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
       "WHEN '{{timeRange}}' = '7d'",
       "WHEN '{{timeRange}}' = '{{timeRange}}'",
     ).replace("ORDER BY date, template", "ORDER BY template, date");
@@ -1268,7 +1301,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
 
   it("preserves a malformed-looking query when a SQL literal changes", async () => {
     const weekly = requiredFirstPartyPanel("wau-over-time");
-    const customizedSql = FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+    const customizedSql = PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
       "WHEN '{{timeRange}}' = '7d'",
       "WHEN '{{timeRange}}' = '{{timeRange}}'",
     ).replace("'session status'", "'session  status'");
