@@ -1893,13 +1893,22 @@ describe("update-document compare-and-swap", () => {
       .set({ content: "pulled from notion", updatedAt: remoteUpdatedAt })
       .where(eq(schema.documents.id, documentId));
 
-    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
-      updateDocumentAction.run({
-        id: documentId,
-        title: "New title from the stale editor",
-        content: "editor's stale rewrite",
-        baseUpdatedAt: staleSnapshot.updatedAt,
-      }),
+    const result = await measuredSave(
+      () =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          updateDocumentAction.run({
+            id: documentId,
+            title: "New title from the stale editor",
+            content: "editor's stale rewrite",
+            baseUpdatedAt: staleSnapshot.updatedAt,
+          }),
+        ),
+      {
+        outcome: "conflict",
+        stale_base: "true",
+        history_effect: "none",
+        reason_code: "timestamp_cas_conflict",
+      },
     );
 
     expect("conflict" in result && result.conflict).toBe(true);
@@ -2169,6 +2178,46 @@ describe("update-document compare-and-swap", () => {
 });
 
 describe("update-document save outcome counts", () => {
+  it.each([false, true])(
+    "does not treat a malformed base as stale (body changes: %s)",
+    async (bodyChanges) => {
+      const id = await createDocument({ title: "Page", content: "Body" });
+      const before = await documentRow(id);
+      await measuredSave(
+        async () => {
+          const saved = runWithRequestContext({ userEmail: OWNER }, () =>
+            updateDocumentAction.run(
+              {
+                id,
+                content: bodyChanges ? "Changed body" : "Body",
+                baseRevision: "invalid-token",
+              },
+              { caller: "http", userEmail: OWNER },
+            ),
+          );
+          if (bodyChanges)
+            await expect(saved).rejects.toMatchObject({
+              errorCode: "INVALID_BASE_REVISION",
+            });
+          else expect((await saved).content).toBe("Body");
+        },
+        {
+          outcome: bodyChanges ? "refused" : "unchanged",
+          stale_base: "unknown",
+          history_effect: "none",
+          ...(bodyChanges ? { reason_code: "INVALID_BASE_REVISION" } : {}),
+        },
+      );
+      expect(await documentRow(id)).toEqual(before);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentVersions)
+          .where(eq(schema.documentVersions.documentId, id)),
+      ).toHaveLength(0);
+    },
+  );
+
   it.each([false, true])(
     "does not reuse a prior audit outcome when a later call fails validation (post-save failure: %s)",
     async (postSaveFailure) => {

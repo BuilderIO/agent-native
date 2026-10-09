@@ -702,7 +702,8 @@ const updateDocumentAction = defineAction({
         observedBaseRevision !==
           documentRevisionToken(snapshot.bodyRevision, snapshot.content);
       const staleComparisons = [
-        ...(observedBaseRevision
+        ...(observedBaseRevision &&
+        parseDocumentRevisionToken(observedBaseRevision)
           ? [bodyBaseStale]
           : args.baseUpdatedAt !== undefined
             ? [args.baseUpdatedAt !== snapshot.updatedAt]
@@ -1329,6 +1330,10 @@ const updateDocumentAction = defineAction({
           },
         });
         if (!applied) {
+          measurement.reason_code =
+            intentMerge || parsedBaseRevision
+              ? "body_revision_cas_conflict"
+              : "timestamp_cas_conflict";
           contentCasConflict = true;
           return;
         }

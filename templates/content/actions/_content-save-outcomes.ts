@@ -64,6 +64,8 @@ const reasons = new Set([
   "recovery_base_changed",
   "title_base_changed",
   "body_base_changed",
+  "body_revision_cas_conflict",
+  "timestamp_cas_conflict",
   "source_persisted_history_pending",
   "source_persisted_history_reconciled",
   "local_source_unavailable",
