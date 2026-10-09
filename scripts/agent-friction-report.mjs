@@ -2281,7 +2281,7 @@ const LEGACY_LINE_NORMALIZATION_CASES = [
   [true, "Signup pages should always show\nthe WebGL wave, not this graphic."],
 ];
 const FEEDBACK_REPLY_CONTEXT =
-  /(?:reply|repl(?:y|ies)|respond(?:s|ed|ing)?|answer\s+(?:in|using)|feedback\s+(?:responses?|replies?|updates?))(?!\s+(?:feature|endpoint|api|tool|method|function|route|component)\b)/i
+  /(?:reply|repl(?:y|ies)|respond(?:s|ed|ing)?|responses?|answer\s+(?:in|using)|feedback\s+(?:responses?|replies?|updates?))(?!\s+(?:feature|endpoint|api|tool|method|function|route|component|rate|rates|time|times|template|templates)\b)/i
     .source;
 const FEEDBACK_REPLY_DETAIL_ISSUE_BASE =
   /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+jargon[- ]heavy|overly\s+jargon[- ]heavy|excessively\s+jargon[- ]heavy|too\s+much\s+jargon|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|too\s+many\s+commit\s+hashes?|less\s+technical|less\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|more\s+concise|more\s+succinct|succinct|briefer|shorter|shorten|trim|simplify|(?:should\s+not|shouldn't)\s+(?:(?:include|contain|have)\s+)?(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|should\s+(?:include|contain|have)\s+no\s+(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|(?:without|free\s+of)\s+(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information))/i
@@ -2290,6 +2290,8 @@ const FEEDBACK_REPLY_DETAIL_ISSUE = `(?:${FEEDBACK_REPLY_DETAIL_ISSUE_BASE}|verb
 const FEEDBACK_REPLY_DETAIL_TARGET =
   /(?:(?:technical|implementation|internal|deployment)\s+(?:details?|information)|(?:commit|branch|ci|publisher|deployment|run|workflow)(?:\s+(?:details?|hash(?:es)?|results?|mentions?|status|ids?|names?))?|jargon(?:[- ]heavy)?|hash(?:es)?|results?)/i
     .source;
+const FEEDBACK_REPLY_DETAIL_OTHER_SURFACE =
+  "(?![^.!?;]{0,80}\\b(?:in|on|for|to)\\s+(?:(?:the|a|an)\\s+)?(?:dashboard|pr\\s+description)\\b)";
 const FEEDBACK_REPLY_DETAIL_OMISSION =
   /(?:(?:don['’]t|do not|shouldn['’]t|should not)\s+(?:include|mention|say|write|share|post|list|describe|cover|discuss|add|use|quote|give|put|provide)|(?:avoid|skip|omit|remove)(?:\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using|giving|putting|providing))?|leave out|stop\s+(?:including|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using|giving|putting|providing))/i
     .source;
@@ -2300,7 +2302,8 @@ const FEEDBACK_REPLY_DETAIL_CROSS_CLAUSE_OMISSION_RE = new RegExp(
     FEEDBACK_REPLY_DETAIL_OMISSION +
     "\\b\\s*(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
     FEEDBACK_REPLY_DETAIL_TARGET +
-    "\\b",
+    "\\b" +
+    FEEDBACK_REPLY_DETAIL_OTHER_SURFACE,
   "i",
 );
 const FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION =
@@ -2320,6 +2323,7 @@ const FEEDBACK_REPLY_DETAIL_ISSUE_RE = new RegExp(
 );
 // Negated requests and praise are not corrections about excessive detail.
 const FEEDBACK_REPLY_DETAIL_NON_CORRECTION = [
+  "\\b(?:api|server|http|endpoint|webhook|provider)\\s+responses?\\b",
   "\\b(?:reply|replies|respond)\\s+(?:feature|endpoint)\\b",
   "(?:\\b(?:for\\s+(?:example|instance|illustration)s?|as\\s+an?\\s+(?:example|illustration)|such\\s+as)\\b|\\b(?:examples?|samples?|illustrations?)(?:\\s+(?:instruction|request|sentence|reply|response|correction))?\\s*:|\\be\\.g\\.)[^.!?;]{0,100}\\b(?:reply|respond|answer|write|use)\\b[^.!?;]{0,100}\\b(?:plain\\s+english|plain[- ]language)\\b",
   "\\b(?:i|we)\\s+(?:don['’]t|do\\s+not|wouldn['’]t|would\\s+not)\\s+(?:think|believe|say|feel)\\b[^.!?;,]{0,100}\\b" +
@@ -2414,14 +2418,16 @@ const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
         FEEDBACK_REPLY_DETAIL_OMISSION +
         "\\b\\s+(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
         FEEDBACK_REPLY_DETAIL_TARGET +
-        "\\b",
+        "\\b" +
+        FEEDBACK_REPLY_DETAIL_OTHER_SURFACE,
       "\\b" +
         FEEDBACK_REPLY_CONTEXT +
         "\\b[^.!?;]{0,100}\\b" +
         FEEDBACK_REPLY_DETAIL_OMISSION +
         "\\b\\s+(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
         FEEDBACK_REPLY_DETAIL_TARGET +
-        "\\b",
+        "\\b" +
+        FEEDBACK_REPLY_DETAIL_OTHER_SURFACE,
       "\\b" +
         FEEDBACK_REPLY_DETAIL_OMISSION +
         "\\b\\s+(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
@@ -2467,9 +2473,9 @@ const FEEDBACK_REPLY_DETAIL_AFFIRMATIVE_FOLLOWUP_RE = new RegExp(
 const FEEDBACK_REPLY_DETAIL_PRONOUN_FOLLOWUP_RE = new RegExp(
   "\\b" +
     FEEDBACK_REPLY_CONTEXT +
-    "\\b[^.!?]{0,100}[.!?]\\s*(?!(?:they|it)(?:['’](?:re|s))?\\b[^.!?]{0,80}\\b(?:not|no\\s+longer|shouldn['’]t|should\\s+not|isn't|aren't|wasn't|weren't)\\b)(?:(?:please\\s+)?(?:make|keep|write|use)\\s+(?:them|it)|(?:they|it)(?:['’](?:re|s))?\\s+(?:should|could|must|need\\s+to|are|is))[^.!?]{0,60}\\b" +
+    "\\b[^.!?]{0,100}[.!?]\\s*(?!(?:they|it)(?:['’](?:re|s))?\\b[^.!?]{0,80}\\b(?:not|no\\s+longer|shouldn['’]t|should\\s+not|isn't|aren't|wasn't|weren't)\\b)(?:(?:(?:please\\s+)?(?:make|keep|write|use)\\s+(?:them|it)|(?:they|it)(?:['’](?:re|s))?\\s+(?:should|could|must|need\\s+to))[^.!?]{0,60}\\b(?:" +
     FEEDBACK_REPLY_DETAIL_ISSUE +
-    "\\b",
+    "|concise|brief|short)\\b|(?:they|it)(?:['’](?:re|s))?\\s+(?:are|is)\\s+(?:(?:way|much|very)\\s+)?(?:too|overly|excessively)\\s+(?:technical|verbose|detailed?|jargon[- ]heavy|wordy|long)\\b)",
   "i",
 );
 const FEEDBACK_REPLY_DETAIL_CONTEXT_RE = new RegExp(
@@ -2699,6 +2705,8 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "Write replies in plain language."],
   [true, "Please use less internal detail in replies."],
   [true, "The feedback response should be less verbose."],
+  [true, "Responses are too verbose."],
+  [true, "The response should be shorter."],
   [true, "Replies are too verbose."],
   [true, "Replies are verbose."],
   [true, "Reply is overly verbose."],
@@ -2724,11 +2732,25 @@ const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
   [true, "Replies are great. Make them shorter."],
   [true, "Replies are great. They should be shorter."],
   [true, "Replies are great. They are too wordy."],
+  [true, "Replies are good. They should be concise."],
+  [true, "Replies are good. They should be brief."],
+  [true, "Replies are good. Keep them concise."],
   [false, "Replies are great. They are not too wordy."],
+  [false, "Replies are good. They are shorter now."],
   [false, "The reply feature is too technical for end users."],
   [false, "The respond endpoint is too technical; please document it better."],
+  [false, "Our reply rate is too long to measure."],
+  [false, "Our reply templates are too long; trim the onboarding email."],
   [true, "Replies are not too technical, but please remove CI results."],
   [true, "Replies are not too technical, and don't mention CI."],
+  [
+    false,
+    "The feedback reply was helpful, but don't include CI results in the dashboard.",
+  ],
+  [
+    false,
+    "Reply to the reporter, but don't include CI logs in the PR description.",
+  ],
   [
     true,
     "Replies are too technical. But don't make replies less technical. Please remove commit hashes.",
