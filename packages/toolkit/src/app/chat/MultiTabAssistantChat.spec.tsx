@@ -783,6 +783,22 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     consoleError.mockRestore();
   });
 
+  it("a text-only prefill clears the context staged for the previous prompt", () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "A new prompt",
+        submit: false,
+        openSidebar: true,
+      });
+    });
+
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith("A new prompt");
+    expect(chatHandleMocks.setComposerContextItem).not.toHaveBeenCalled();
+    expect(chatHandleMocks.removeComposerContextItem).toHaveBeenCalledWith(
+      "agent-chat-prefill-context",
+    );
+  });
+
   it("shows a visible fallback chip when a prefill has no prompt text", () => {
     act(() => {
       dispatchSubmitChat({

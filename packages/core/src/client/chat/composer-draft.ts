@@ -217,6 +217,8 @@ function parseHiddenContextEnvelope(
   return result.success ? result.data.items : null;
 }
 
+// Returns false when items that should survive a reload could not be saved. The
+// draft text is stored separately, so the caller must not treat the prefill as persisted.
 export function writeAssistantChatHiddenContext(
   scope: string | null | undefined,
   items: readonly {
@@ -226,10 +228,10 @@ export function writeAssistantChatHiddenContext(
     hidden?: boolean;
     stagedAt?: number;
   }[],
-): void {
+): boolean {
   const key = assistantChatHiddenContextKey(scope);
   const storage = getComposerDraftStorage();
-  if (!key || !storage) return;
+  if (!key || !storage) return items.length === 0;
   try {
     if (items.length === 0) {
       storage.removeItem(key);
@@ -248,7 +250,9 @@ export function writeAssistantChatHiddenContext(
         }),
       );
     }
+    return true;
   } catch {
-    // coercion-ok: browser storage may be unavailable or full; hidden context then lasts for this page load only.
+    // coercion-ok: browser storage may be unavailable or full; the caller reports the failed write.
+    return items.length === 0;
   }
 }

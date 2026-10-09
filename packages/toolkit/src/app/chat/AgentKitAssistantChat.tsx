@@ -1875,10 +1875,15 @@ const AgentKitAssistantChatBody = forwardRef<
   }, [props.contextNamespace, props.isActiveComposer]);
 
   useEffect(() => {
-    writeAssistantChatHiddenContext(
+    const saved = writeAssistantChatHiddenContext(
       hiddenContextScope,
       contextItems.filter((item) => item.composerOnly),
     );
+    if (!saved) {
+      console.error(
+        "Prefill context could not be saved to browser storage; the draft text will restore without it after a reload.",
+      );
+    }
   }, [contextItems, hiddenContextScope]);
 
   useEffect(() => {

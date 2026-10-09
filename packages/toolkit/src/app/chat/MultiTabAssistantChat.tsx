@@ -131,6 +131,9 @@ interface PendingDelivery {
   modelOverride?: ModelSelection;
 }
 
+/** The composer-only item a prefill stages; a newer prefill replaces it. */
+const PREFILL_CONTEXT_KEY = "agent-chat-prefill-context";
+
 /** The single path that hands a queued send to a mounted chat ref. */
 function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
   if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
@@ -153,7 +156,13 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
     }
     // A context-only prefill has no text; it must not clear the user's draft.
     if (send.message.trim()) ref.prefillMessage(send.message);
-    if (send.prefillContext) ref.setComposerContextItem(send.prefillContext);
+    if (send.prefillContext) {
+      ref.setComposerContextItem(send.prefillContext);
+    } else {
+      // A text-only prefill replaces the draft, so the context staged for the
+      // previous prompt must not ride along with the new one.
+      ref.removeComposerContextItem(PREFILL_CONTEXT_KEY);
+    }
     return;
   }
   // Every field is decided once, here; a separate "has options" condition
@@ -2170,7 +2179,7 @@ export function MultiTabAssistantChat({
           : message;
       // One prefill context per composer, like the draft it accompanies: a newer
       // prefill replaces it, so repeated prefills cannot pile up submit-limit items.
-      const prefillKey = "agent-chat-prefill-context";
+      const prefillKey = PREFILL_CONTEXT_KEY;
       const hasPromptText = message.trim().length > 0;
       let prefillContext: AgentChatContextItem | undefined;
       if (!submit && context) {

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   assistantChatComposerDraftKey,
@@ -187,5 +187,29 @@ describe("hidden composer context recovery", () => {
       { ...item, composerOnly: true },
     ]);
     writeAssistantChatHiddenContext("thread-d", []);
+  });
+});
+
+describe("hidden composer context persistence", () => {
+  it("reports a failed write instead of treating the prefill as saved", () => {
+    const setItem = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new Error("QuotaExceededError");
+      });
+    try {
+      const saved = writeAssistantChatHiddenContext("thread-f", [
+        {
+          key: "prefill-context-full",
+          title: "prefill-context-full",
+          context: "Cast: Tom Holland",
+          stagedAt: Date.now(),
+        },
+      ]);
+
+      expect(saved).toBe(false);
+    } finally {
+      setItem.mockRestore();
+    }
   });
 });
