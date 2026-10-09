@@ -209,14 +209,24 @@ describe("list-ai-requests", () => {
     ]);
   });
 
-  it("recovers a generating workflow that has a background session tab", async () => {
+  it("recovers only generating workflows that have a background session tab", async () => {
     await insertRecording("rec_flow", "Workflow", "me@example.com");
+    await insertRecording("rec_legacy", "Legacy", "me@example.com");
     const requestedAt = "2026-09-28T12:00:00.000Z";
     const tabId = "clips-workflow:rec_flow:2026:req-1:run";
     mocks.appState = [
       {
         key: "clips-workflow-rec_flow",
         value: { status: "generating", requestedAt, requestId: "req-1", tabId },
+      },
+      {
+        key: "clips-workflow-rec_legacy",
+        value: {
+          status: "generating",
+          requestedAt,
+          requestId: "req-2",
+          tabId: "clips-workflow:rec_legacy:2026:req-2:chat-abc",
+        },
       },
       {
         key: "clips-workflow-rec_done",

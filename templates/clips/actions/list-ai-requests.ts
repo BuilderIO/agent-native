@@ -14,6 +14,9 @@ const REQUEST_PREFIX = "clips-ai-request-";
 const STATUS_PREFIX = "clips-ai-request-status-";
 const WORKFLOW_PREFIX = "clips-workflow-";
 const WORKFLOW_TAB_PREFIX = "clips-workflow:";
+// Tabs from the retired chat-panel path end in a random chat id and have no
+// background-session receipt; deriving one would mark live runs failed.
+const WORKFLOW_SESSION_TAB_SUFFIX = ":run";
 
 type QueuedAiRequest = Record<string, unknown> & { recordingId: string };
 
@@ -99,6 +102,7 @@ async function listQueuedRequests(): Promise<{
         state.status !== "generating" ||
         typeof state.tabId !== "string" ||
         !state.tabId.startsWith(WORKFLOW_TAB_PREFIX) ||
+        !state.tabId.endsWith(WORKFLOW_SESSION_TAB_SUFFIX) ||
         typeof state.requestedAt !== "string"
       ) {
         return [];

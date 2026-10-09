@@ -263,6 +263,28 @@ describe("workflow generation background sessions", () => {
     expect(mocks.startBackgroundAgentSession).not.toHaveBeenCalled();
   });
 
+  it("stops retrying once tracking consumes a finished workflow's request", async () => {
+    configureActions(
+      { requests: [workflowRequest] },
+      {
+        track: () => ({
+          reconciled: false,
+          tracked: false,
+          consumed: true,
+          reason: "terminal",
+        }),
+      },
+    );
+    await renderBridge();
+
+    await vi.waitFor(() => expect(workflowOperations("track")).toHaveLength(1));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    });
+    expect(workflowOperations("track")).toHaveLength(1);
+    expect(mocks.startBackgroundAgentSession).not.toHaveBeenCalled();
+  });
+
   it("consumes a delivered request after reload without restarting it", async () => {
     configureActions({
       requests: [{ ...workflowRequest, deliveredTabId: workflowTabId }],

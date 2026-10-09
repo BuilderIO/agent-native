@@ -255,7 +255,13 @@ export function useAutoTitleBridge(): void {
                   ...workflowRequest,
                   tabId,
                 } as any,
-              )) as { tracked?: boolean };
+              )) as { tracked?: boolean; consumed?: boolean };
+              if (result.consumed === true) {
+                dispatched.current.add(dispatchKey);
+                completedWork = true;
+                bumpAiRequestRefresh();
+                continue;
+              }
               if (result.tracked !== true) {
                 retrySoon();
                 continue;
@@ -843,7 +849,13 @@ async function settleWorkflowSession(
       result.reconciled === true ||
       (typeof result.reason === "string" && result.reason !== "stale")
     );
-  } catch {
+  } catch (error) {
+    console.warn("[clips] failed to reconcile finished workflow session", {
+      recordingId: session.recordingId,
+      requestedAt: session.requestedAt,
+      tabId: session.operationId,
+      error,
+    });
     return false;
   }
 }
