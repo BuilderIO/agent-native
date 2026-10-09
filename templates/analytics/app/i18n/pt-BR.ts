@@ -692,6 +692,19 @@ export default {
     copied: "Copiado",
     copy: "Cópia",
     keyActions: "Principais ações {{name}}",
+    manageReplayOrigins: "Gerenciar origens de reprodução",
+    replayOriginsDescription:
+      "Adicione origens HTTPS exatas, uma por linha. As origens existentes serão mantidas.",
+    currentReplayOrigins: "Origens permitidas atuais",
+    anyReplayOriginAllowed:
+      "No momento, qualquer origem é permitida. Ao adicionar origens, a reprodução ficará limitada à lista; inclua todos os apps que usam esta chave.",
+    originsToAdd: "Origens para adicionar",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "Adicionar origens",
+    addingReplayOrigins: "Adicionando origens…",
+    replayOriginsUpdateFailed:
+      "Não foi possível atualizar as origens permitidas.",
+    cancel: "Cancelar",
     lastUsed: "último {{date}} usado",
     neverUsed: "nunca usado",
     revoking: "Revogando...",
