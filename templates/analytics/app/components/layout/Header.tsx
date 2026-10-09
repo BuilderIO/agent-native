@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import { RunsTray } from "@agent-native/toolkit/app/progress";
+import { isAnalyticsAskPath } from "@shared/ask-route";
 import type { ReactNode } from "react";
 import { useLocation } from "react-router";
 
@@ -14,7 +15,6 @@ import {
 
 const pageTitleKeys: Record<string, string> = {
   "/": "navigation.ask",
-  "/ask": "navigation.ask",
   "/data-sources": "navigation.dataSources",
   "/source-status": "navigation.sourceStatus",
   "/data-dictionary": "navigation.dataDictionary",
@@ -29,6 +29,7 @@ const pageTitleKeys: Record<string, string> = {
 };
 
 function resolveTitle(pathname: string, t: (key: string) => string): ReactNode {
+  if (isAnalyticsAskPath(pathname)) return t("navigation.ask");
   if (pageTitleKeys[pathname]) return t(pageTitleKeys[pathname]);
 
   const adhocMatch = pathname.match(/^\/(?:adhoc|dashboards)\/(.+)$/);

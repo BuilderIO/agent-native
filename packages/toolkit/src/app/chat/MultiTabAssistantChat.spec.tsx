@@ -105,6 +105,7 @@ const assistantChatMockState = vi.hoisted(() => ({
         },
       ) => void)
     | undefined,
+  onSubmitStart: undefined as ((threadId: string) => void) | undefined,
   branchNavigation: undefined as
     | {
         index: number;
@@ -391,6 +392,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         onForkedThread?: (threadId: string) => void;
         onGenerateTitle?: typeof assistantChatMockState.onGenerateTitle;
         onSaveThread?: typeof assistantChatMockState.onSaveThread;
+        onSubmitStart?: typeof assistantChatMockState.onSubmitStart;
         branchNavigation?: typeof assistantChatMockState.branchNavigation;
       };
       assistantChatMockState.onThreadRestoreNotFound =
@@ -400,6 +402,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
       assistantChatMockState.onForkedThread = props.onForkedThread;
       assistantChatMockState.onGenerateTitle = props.onGenerateTitle;
       assistantChatMockState.onSaveThread = props.onSaveThread;
+      assistantChatMockState.onSubmitStart = props.onSubmitStart;
       assistantChatMockState.branchNavigation = props.branchNavigation;
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
@@ -459,6 +462,7 @@ function resetThreadMocks() {
   assistantChatMockState.onForkedThread = undefined;
   assistantChatMockState.onGenerateTitle = undefined;
   assistantChatMockState.onSaveThread = undefined;
+  assistantChatMockState.onSubmitStart = undefined;
   assistantChatMockState.branchNavigation = undefined;
   threadMocks.activeThreadId = "thread-1";
   threadMocks.isLoading = false;
@@ -2488,6 +2492,57 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     expect(container.textContent).not.toContain("Using this form");
     expect(container.textContent).not.toContain("Previous chats for this form");
+  });
+
+  it("routes the active create chat to its thread on submit, before the first save", async () => {
+    const navigate = vi.fn();
+    window.history.replaceState(null, "", "/chat");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync={{
+            routeThreadId: null,
+            getPath: (threadId) =>
+              threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat",
+            navigate,
+          }}
+        />,
+      );
+    });
+
+    act(() => {
+      assistantChatMockState.onSubmitStart?.("thread-1");
+    });
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith("/chat/thread-1", { replace: false });
+  });
+
+  it("does not move the route when a background chat submits", async () => {
+    const navigate = vi.fn();
+    window.history.replaceState(null, "", "/chat");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync={{
+            routeThreadId: null,
+            getPath: (threadId) =>
+              threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat",
+            navigate,
+          }}
+        />,
+      );
+    });
+
+    act(() => {
+      assistantChatMockState.onSubmitStart?.("thread-2");
+    });
+
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("syncs selected and new chat states to the URL when enabled", async () => {

@@ -2718,30 +2718,46 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
   ): Promise<AgentRunHandle> {
     this.assertActive();
-    await this.assertAiSetupReady(
-      { engine: selectedEngineForDispatch(input), threadId: input.threadId },
-      context,
-    );
-    const requestContext = this.createRequestContext(context);
-    await this.ensureCapabilities(requestContext);
-    if (input.attachments?.length || input.requestAttachments?.length) {
-      await this.requireCapability("attachments", requestContext);
+    const message: AgentMessage = {
+      id: this.createId("message"),
+      role: "user",
+      createdAt: this.now(),
+      status: "complete",
+      parts: [{ type: "text", text: input.text }, ...(input.attachments ?? [])],
+      metadata: input.metadata,
+    };
+    // The checks below can wait on the network, so the turn is appended first.
+    // A send that queues behind an active run is rendered by the queue instead.
+    const rollbackPending =
+      this.queueBehindRunId(input, this.getThread(input.threadId)) === undefined
+        ? this.appendPendingUserMessage(input.threadId, message)
+        : undefined;
+    let requestContext: AgentRequestContext;
+    try {
+      await this.assertAiSetupReady(
+        { engine: selectedEngineForDispatch(input), threadId: input.threadId },
+        context,
+      );
+      requestContext = this.createRequestContext(context);
+      await this.ensureCapabilities(requestContext);
+      if (input.attachments?.length || input.requestAttachments?.length) {
+        await this.requireCapability("attachments", requestContext);
+      }
+      if (input.options?.model) {
+        await this.requireCapability("modelSelection", requestContext);
+      }
+      if (input.options?.toolChoice) {
+        await this.requireCapability("toolSelection", requestContext);
+      }
+      this.assertActive();
+    } catch (error) {
+      rollbackPending?.();
+      throw error;
     }
-    if (input.options?.model) {
-      await this.requireCapability("modelSelection", requestContext);
-    }
-    if (input.options?.toolChoice) {
-      await this.requireCapability("toolSelection", requestContext);
-    }
-    this.assertActive();
     const current = this.getThread(input.threadId);
-    const activeRunId = current.activeRunIds.at(-1);
-    if (
-      (input.queueWhileRunning !== false || input.interruptActiveRun) &&
-      activeRunId &&
-      hasActiveAgentRuns(current) &&
-      this.transport.queueMessage
-    ) {
+    const activeRunId = this.queueBehindRunId(input, current);
+    if (activeRunId) {
+      rollbackPending?.();
       const queued = await this.queueMessage(
         { ...input, queuedWhileRunActive: true },
         requestContext,
@@ -2766,26 +2782,13 @@ export class AgentKitClient implements AgentKitController {
           this.removeQueuedMessage(input.threadId, queued.id, requestContext),
       };
     }
-    const message: AgentMessage = {
-      id: this.createId("message"),
-      role: "user",
-      createdAt: this.now(),
-      status: "complete",
-      parts: [{ type: "text", text: input.text }, ...(input.attachments ?? [])],
-      metadata: input.metadata,
-    };
-    this.setThread(input.threadId, {
-      ...current,
-      messages: [...current.messages, message],
-      suggestions: [],
-      suggestionsPendingTurn: true,
-    });
-    this.setConnection("connecting");
+    if (!rollbackPending)
+      this.appendPendingUserMessage(input.threadId, message);
 
     try {
       input.onLocalSubmit?.();
       const messages = messagesWithToolCallHistory(
-        [...current.messages, message],
+        this.getThread(input.threadId).messages,
         orderedThreadToolCalls(current),
       );
       const result = await this.invokeRequest(requestContext, (context) =>
@@ -6065,6 +6068,62 @@ export class AgentKitClient implements AgentKitController {
 
   private setConnection(connection: AgentKitSnapshot["connection"]): void {
     if (this.snapshot.connection !== connection) this.patch({ connection });
+  }
+
+  // Appends a user turn ahead of a send's async checks. The returned rollback
+  // removes it and restores what this append changed, for a send rejected
+  // before its run starts.
+  private appendPendingUserMessage(
+    threadId: ThreadId,
+    message: AgentMessage,
+  ): () => void {
+    const before = this.getThread(threadId);
+    const previousConnection = this.snapshot.connection;
+    const previousError = this.snapshot.error;
+    this.setThread(threadId, {
+      ...before,
+      messages: [...before.messages, message],
+      suggestions: [],
+      suggestionsPendingTurn: true,
+    });
+    this.setConnection("connecting");
+    return () => {
+      const latest = this.getThread(threadId);
+      this.patch({
+        threads: {
+          ...this.snapshot.threads,
+          [threadId]: {
+            ...latest,
+            messages: latest.messages.filter(
+              (candidate) => candidate.id !== message.id,
+            ),
+            suggestions: before.suggestions,
+            suggestionsPendingTurn: before.suggestionsPendingTurn,
+          },
+        },
+        // Disposal sets "offline"; only undo a "connecting" this send set.
+        connection:
+          this.snapshot.connection === "connecting"
+            ? previousConnection
+            : this.snapshot.connection,
+        error: previousError,
+      });
+    };
+  }
+
+  // The active run a send would queue behind, or undefined when it starts its
+  // own run.
+  private queueBehindRunId(
+    input: SendMessageInput,
+    thread: AgentThreadState,
+  ): RunId | undefined {
+    const activeRunId = thread.activeRunIds.at(-1);
+    return activeRunId &&
+      (input.queueWhileRunning !== false || input.interruptActiveRun) &&
+      hasActiveAgentRuns(thread) &&
+      this.transport.queueMessage
+      ? activeRunId
+      : undefined;
   }
 
   private fail(error: unknown, code: string): void {

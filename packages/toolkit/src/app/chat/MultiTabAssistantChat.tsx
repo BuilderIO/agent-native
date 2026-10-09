@@ -2893,6 +2893,20 @@ export function MultiTabAssistantChat({
     [saveThreadData, writeThreadUrl],
   );
 
+  // Save-time writes lag the submit by the agent client's network awaits, so
+  // the route is written here, on submit. Push, not replace: Back returns to
+  // the blank create route.
+  const handleSubmitStart = useCallback(
+    (threadId: string) => {
+      if (!threadUrlSyncEnabled || threadId !== activeThreadIdRef.current) {
+        return;
+      }
+      if (urlThreadIdRef.current === threadId) return;
+      writeThreadUrl(threadId);
+    },
+    [threadUrlSyncEnabled, writeThreadUrl],
+  );
+
   // ─── Slash command handler ──────────────────────────────────────────
   const [helpVisible, setHelpVisible] = useState(false);
 
@@ -3380,6 +3394,7 @@ export function MultiTabAssistantChat({
                     props.onMessageCountChange?.(count);
                   }}
                   onSaveThread={handleSaveThread}
+                  onSubmitStart={handleSubmitStart}
                   onGenerateTitle={handleGenerateTitle}
                   onSlashCommand={handleSlashCommand}
                   onForkedThread={(forkedId) =>

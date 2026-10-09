@@ -27,7 +27,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { navItems } from "@/lib/brain";
+import { brainAskThreadPath, isBrainAskPath, navItems } from "@/lib/brain";
 
 const BRAIN_CHAT_STORAGE_KEY = "brain";
 const BRAIN_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${BRAIN_CHAT_STORAGE_KEY}`;
@@ -86,7 +86,6 @@ function BrainChatsSection({ open }: { open: boolean }) {
   const {
     threads,
     activeThreadId,
-    createThread,
     switchThread,
     pinThread,
     archiveThread,
@@ -138,21 +137,21 @@ function BrainChatsSection({ open }: { open: boolean }) {
     };
   }, [refreshThreads]);
 
-  function openThread(threadId: string, options?: { isNew?: boolean }) {
+  function openThread(threadId: string) {
     switchThread(threadId);
-    navigateWithAgentChatViewTransition(navigate, "/home");
+    navigateWithAgentChatViewTransition(navigate, brainAskThreadPath(threadId));
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
-          detail: { threadId, newThread: options?.isNew === true },
+          detail: { threadId, newThread: false },
         }),
       );
     });
   }
 
-  async function handleNewChat() {
-    const threadId = await createThread();
-    if (threadId) openThread(threadId, { isNew: true });
+  // No thread is created here: the id joins the URL on the first saved message.
+  function handleNewChat() {
+    navigateWithAgentChatViewTransition(navigate, brainAskThreadPath(null));
   }
 
   async function handleArchiveThread(threadId: string) {
@@ -164,7 +163,7 @@ function BrainChatsSection({ open }: { open: boolean }) {
       return;
     }
     if (wasActive) {
-      await handleNewChat();
+      handleNewChat();
     }
   }
 
@@ -185,7 +184,7 @@ function BrainChatsSection({ open }: { open: boolean }) {
           items={chatItems}
           activeId={activeThreadId}
           onSelect={openThread}
-          onNewChat={() => void handleNewChat()}
+          onNewChat={handleNewChat}
           railLabels={{
             newChat: t("chat.newChat"),
             showMore: t("chat.chats"),
@@ -225,7 +224,7 @@ export function Sidebar({
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
-  const isAskRoute = location.pathname === "/home";
+  const isAskRoute = isBrainAskPath(location.pathname);
 
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />

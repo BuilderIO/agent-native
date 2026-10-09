@@ -644,6 +644,8 @@ interface AgentKitSurfaceContextValue {
   suggestions: AgentSuggestionInput[];
   showSuggestions: boolean;
   voiceTranscriptMessages: AgentMessage[];
+  /** The user's message, shown from submit until the agent client appends it. */
+  optimisticUserMessage: AgentMessage | null;
   selectionLength: number | null;
   prefillRevision: number;
   text: string;
@@ -1400,6 +1402,15 @@ const AgentKitAssistantChatBody = forwardRef<
   const isSubmissionInFlight = history?.isSubmissionInFlight === true;
   const [composerSubmissionPending, setComposerSubmissionPending] =
     useState(false);
+  // Set at submit and cleared when the submit settles. The agent client
+  // appends the real message only after its own awaits, so the transcript
+  // shows this copy in the meantime.
+  const [pendingUserSubmission, setPendingUserSubmission] = useState<{
+    text: string;
+    baseCount: number;
+  } | null>(null);
+  const messageCountRef = useRef(0);
+  messageCountRef.current = thread.messages.length;
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
@@ -1512,8 +1523,19 @@ const AgentKitAssistantChatBody = forwardRef<
   const threadMessageIds = new Set(
     thread.messages.map((message) => message.id),
   );
+  const optimisticUserMessage: AgentMessage | null =
+    pendingUserSubmission &&
+    thread.messages.length <= pendingUserSubmission.baseCount
+      ? {
+          id: "pending-user-submission",
+          role: "user",
+          parts: [{ type: "text", text: pendingUserSubmission.text }],
+          status: "complete",
+        }
+      : null;
   const hasRenderedMessages =
     thread.messages.length > 0 ||
+    optimisticUserMessage !== null ||
     props.threadContentSlot != null ||
     getAgentKitThreadHandoffMessages(
       thread,
@@ -2504,6 +2526,17 @@ const AgentKitAssistantChatBody = forwardRef<
         reportAgentChatSubmitResult(options.submitMessageId, false, reason);
         return { status: "rejected", reason };
       }
+      const showsUserMessage =
+        !options.hideUserMessage && !options.approvedToolCalls;
+      if (showsUserMessage) {
+        props.onSubmitStart?.(threadId);
+        if (!isThreadRunning()) {
+          setPendingUserSubmission({
+            text,
+            baseCount: messageCountRef.current,
+          });
+        }
+      }
       try {
         await dispatch(
           text,
@@ -2522,6 +2555,7 @@ const AgentKitAssistantChatBody = forwardRef<
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
         throw error;
       } finally {
+        setPendingUserSubmission(null);
         release?.();
       }
     },
@@ -2539,6 +2573,7 @@ const AgentKitAssistantChatBody = forwardRef<
       props.selectedModel,
       isRestoring,
       isThreadRunning,
+      props.onSubmitStart,
       props.tabId,
       setupMissing,
       t,
@@ -2558,6 +2593,10 @@ const AgentKitAssistantChatBody = forwardRef<
       const release = await acquireSubmission();
       if (!release)
         throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
+      props.onSubmitStart?.(threadId);
+      if (!runWasActiveAtSubmit) {
+        setPendingUserSubmission({ text, baseCount: messageCountRef.current });
+      }
       try {
         const preparedOptions = prepare ? await prepare() : composerOptions;
         await dispatch(
@@ -2573,6 +2612,7 @@ const AgentKitAssistantChatBody = forwardRef<
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
         throw error;
       } finally {
+        setPendingUserSubmission(null);
         release?.();
       }
     },
@@ -2582,6 +2622,7 @@ const AgentKitAssistantChatBody = forwardRef<
       isThreadRunning,
       props.composerDisabled,
       props.composerSubmissionDisabled,
+      props.onSubmitStart,
       props.tabId,
       t,
       threadId,
@@ -3157,6 +3198,7 @@ const AgentKitAssistantChatBody = forwardRef<
     isThinkingVisibleInTranscript,
     contextItems,
     voiceTranscriptMessages,
+    optimisticUserMessage,
     selectionLength,
     suggestions: suggestions ?? [],
     showSuggestions,
@@ -3469,10 +3511,11 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   };
   const lastMessage = thread.messages.at(-1);
   const showThinking =
-    surface.isSubmissionInFlight &&
     !surface.isRunning &&
-    lastMessage?.role === "user" &&
-    lastMessage.metadata?.hideUserMessage !== true;
+    (surface.optimisticUserMessage !== null ||
+      (surface.isSubmissionInFlight &&
+        lastMessage?.role === "user" &&
+        lastMessage.metadata?.hideUserMessage !== true));
   const pendingVoiceMessages = surface.voiceTranscriptMessages.filter(
     (message) => !threadMessageIds.has(message.id),
   );
@@ -3701,6 +3744,12 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           threadId={threadId}
         />
       ))}
+      {surface.optimisticUserMessage ? (
+        <AgentMessageView
+          value={surface.optimisticUserMessage}
+          threadId={threadId}
+        />
+      ) : null}
       {showThinking ? (
         <div
           className="agentkit-activities agentkit-activities-summary-content"

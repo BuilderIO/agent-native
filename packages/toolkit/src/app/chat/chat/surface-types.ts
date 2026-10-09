@@ -238,6 +238,8 @@ export interface AssistantChatProps {
       titleSource?: "fallback";
     },
   ) => void;
+  /** Called synchronously when the user submits, before any network await. */
+  onSubmitStart?: (threadId: string) => void;
   /** Callback to generate a title from the first user message, on the model it was sent with */
   onGenerateTitle?: (
     threadId: string,

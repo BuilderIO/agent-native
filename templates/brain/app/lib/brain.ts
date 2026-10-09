@@ -1087,6 +1087,15 @@ export const defaultSettings: BrainSettings = {
   quarantineRetentionHours: 72,
 };
 
+/** `/home` is the blank Ask page; `/home/<threadId>` is one saved thread. */
+export function isBrainAskPath(pathname: string): boolean {
+  return pathname === "/home" || pathname.startsWith("/home/");
+}
+
+export function brainAskThreadPath(threadId: string | null): string {
+  return threadId ? `/home/${encodeURIComponent(threadId)}` : "/home";
+}
+
 export function viewFromPath(pathname: string): BrainView {
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/search")) return "search";

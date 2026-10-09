@@ -1149,6 +1149,41 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toBeNull();
   });
 
+  it("shows the submitted message and Thinking before the agent client accepts the send", async () => {
+    let acceptSend: () => void = () => undefined;
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          acceptSend = () => resolve(undefined);
+        }),
+    );
+    await mount(baseProps());
+
+    let submission: Promise<unknown> | undefined;
+    await act(async () => {
+      submission = chatMocks.composerProps.onSubmit(
+        "Summarize my inbox",
+        [],
+        [],
+        { intent: "immediate" },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("Summarize my inbox");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "agentChat.status.thinking",
+    );
+
+    await act(async () => {
+      acceptSend();
+      await submission;
+    });
+
+    expect(container.textContent).not.toContain("Summarize my inbox");
+  });
+
   it("copies the active run ID from its action menu", async () => {
     const props = baseProps();
     await mount(props);
