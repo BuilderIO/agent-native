@@ -5,24 +5,31 @@ actions against shared SQL state.
 
 ## Skills
 
-Read relevant guides before deeper work:
-- `.agents/skills/design-generation/SKILL.md` — for generation, adaptation, and readiness checks.
-- `.agents/skills/design-templates/SKILL.md` — when reusing existing Design work.
-- `.agents/skills/responsive-breakpoints/SKILL.md` — for breakpoint editing.
-- `.agents/skills/design-systems/SKILL.md` — for tokens, brand extraction, or Figma.
-- `.agents/skills/design-figma-parity/SKILL.md` — for evidence rules on measured Figma behavior claims.
-- `.agents/skills/creative-context/SKILL.md` — for cross-app sources and governed context.
-- `.agents/skills/design-review-feedback/SKILL.md` — for persisted review comments.
-- `.agents/skills/export-handoff/SKILL.md` — for exports and coding handoffs.
-- `.agents/skills/full-app-build/SKILL.md` — for fusion-backed app builds.
-- `.agents/skills/shader-fills/SKILL.md` — for GLSL fills/effects.
-- `.agents/skills/journey-storyboards/SKILL.md` — for onboarding-journey storyboards.
+Read `.agents/skills/<name>/SKILL.md` before deeper work:
+- `design-generation` — generation, adaptation, and readiness checks.
+- `design-templates` — reusing existing Design work.
+- `responsive-breakpoints` — breakpoint editing.
+- `design-systems` — tokens, brand extraction, or Figma.
+- `design-figma-parity` — measured Figma behavior evidence.
+- `creative-context` — cross-app sources and governed context.
+- `design-review-feedback` — persisted review comments.
+- `export-handoff` — exports and coding handoffs.
+- `full-app-build` — fusion-backed app builds.
+- `shader-fills` — GLSL fills/effects.
+- `journey-storyboards` — onboarding-journey storyboards.
 
-Guides: `.agents/skills/<name>/SKILL.md` — actions, adding-a-feature, storing-data, security, secrets, sharing, frontend-design, shadcn-ui, real-time-sync, context-awareness, delegate-to-agent, agent-native-docs, agent-native-toolkit, customizing-agent-native, client-side-routing, reliable-mutations, performance, external-agents, portability, self-modifying-code, turn-into-skill, workspace-conventions.
+Also read `.agents/skills/<name>/SKILL.md` for shared guides: `actions`,
+`adding-a-feature`, `storing-data`, `security`, `secrets`, `sharing`,
+`frontend-design`, `shadcn-ui`, `real-time-sync`, `context-awareness`,
+`delegate-to-agent`, `agent-native-docs`, `agent-native-toolkit`,
+`customizing-agent-native`, `client-side-routing`, `reliable-mutations`,
+`performance`, `external-agents`, `portability`, `self-modifying-code`,
+`turn-into-skill`, and `workspace-conventions`. Each guide is at
+`.agents/skills/<name>/SKILL.md`.
 
-## Docs
+## Framework Docs
 
-Use local docs only: `pnpm action docs-search --query "<topic>"` and `pnpm action docs-search --slug "<slug>"`.
+Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug with `pnpm action docs-search --slug "<slug>"`.
 
 ## Actions
 
@@ -71,6 +78,8 @@ Use local docs only: `pnpm action docs-search --query "<topic>"` and `pnpm actio
 
 ## Source Changes
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI. Editor commands are in `app/pages/design-editor/commands/*.ts`; read `design-editor-architecture` before edits.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI. Editor behavior lives in `app/pages/design-editor/commands/*.ts`; read `design-editor-architecture` before changing it.
+
+Search with `rg --hidden --follow`; read the exact linked guide before deeper work.
 
 Find and read relevant guides with `rg --hidden --follow`.
