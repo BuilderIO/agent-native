@@ -150,6 +150,8 @@ export {
   sendMcpAppHostMessage,
   updateMcpAppModelContext,
   useIsMcpAppWidgetEmbed,
+  useIsMcpDirectoryWidgetReadOnlyEmbed,
+  useIsMcpDirectoryWidgetWriteEmbed,
   useMcpAppHostContext,
   type AgentNativeMcpAppHostMessageType,
   type McpAppDisplayMode,

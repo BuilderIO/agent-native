@@ -1629,6 +1629,7 @@ export default {
     fork: "分岐",
     fullView: "全体表示",
     preview: "プレビュー",
+    focusScreen: "画面にフォーカス",
     openAndDuplicate:
       "{{display}} を選択します。集中してスクロールするには操作モードを使用。",
     openAndPreview:

@@ -1628,6 +1628,7 @@ export default {
     fork: "Bifurcar",
     fullView: "Vista completa",
     preview: "Vista previa",
+    focusScreen: "Enfocar pantalla",
     openAndDuplicate:
       "Selecciona {{display}}. Usa Interactuar para desplazamiento enfocado.",
     openAndPreview:

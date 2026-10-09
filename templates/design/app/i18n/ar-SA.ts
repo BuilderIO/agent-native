@@ -1589,6 +1589,7 @@ export default {
     fork: "تفريع",
     fullView: "عرض كامل",
     preview: "معاينة",
+    focusScreen: "تركيز الشاشة",
     openAndDuplicate: "حدد {{display}}. استخدم وضع التفاعل للتمرير المركّز.",
     openAndPreview: "حدد {{display}}. استخدم وضع التفاعل للتمرير المركّز.",
     doubleClickToEdit: "استخدم وضع التفاعل للتمرير المركّز",

@@ -202,6 +202,7 @@ import {
 import { creationSaveBarrierIsSettled } from "./creation-save-barrier";
 import { prepareInitialCreationSave } from "./creation-save-baseline";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
+import { directoryWidgetEditability } from "./directory-widget-editability";
 import { shouldUseLiveDocumentCollaboration } from "./document-collaboration";
 import {
   DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
@@ -2521,7 +2522,9 @@ function PageEditorSessionBody({
   const location = useLocation();
   const mcpDirectoryWidgetReadOnly =
     document.mcpDirectoryWidgetReadOnly === true;
-  const canEdit = document.canEdit === true && !mcpDirectoryWidgetReadOnly;
+  const widgetEditability = directoryWidgetEditability(document);
+  const widgetCanEditDatabaseRows = widgetEditability.canEditDatabaseRows;
+  const canEdit = widgetEditability.canEditDocument;
   const canEditRef = useRef(canEdit);
   const contentSpacesQuery = useContentSpaces({
     enabled: !mcpDirectoryWidgetReadOnly,
@@ -2774,7 +2777,11 @@ function PageEditorSessionBody({
     documentId,
     document.source,
   );
-  useDocumentSyncStatus(canEdit && !isLocalFileDocument ? documentId : null);
+  useDocumentSyncStatus(
+    canEdit && !isLocalFileDocument && !mcpDirectoryWidgetReadOnly
+      ? documentId
+      : null,
+  );
   const pushDocumentToNotion = usePushDocumentToNotion(documentId);
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
@@ -3365,7 +3372,10 @@ function PageEditorSessionBody({
     !bodyHydrationPending &&
     !localSourceMissing &&
     (!isLocalFileDocument || localSourceAccess === "available") &&
-    (isLocalFileDocument || collabSynced || canEditWithoutCollaboration) &&
+    (isLocalFileDocument ||
+      mcpDirectoryWidgetReadOnly ||
+      collabSynced ||
+      canEditWithoutCollaboration) &&
     (!collabInitializationFailed || canEditWithoutCollaboration);
   const collabEditorEnabled =
     collabEnabled &&
@@ -8965,6 +8975,7 @@ function PageEditorSessionBody({
                       document={document}
                       foreground={foreground}
                       canEdit={canEdit}
+                      canEditRowsOnly={widgetCanEditDatabaseRows}
                       viewId={viewId}
                       onExportContextChange={handleDatabaseExportContextChange}
                     />
@@ -9255,6 +9266,10 @@ function PageEditorSessionBody({
                                 !pendingSuggestionDecision &&
                                 !pendingProposalDecision
                               }
+                              directoryWidgetEditing={
+                                mcpDirectoryWidgetReadOnly &&
+                                widgetEditability.canEditDocument
+                              }
                               suggesting={isSuggesting}
                               localFileMode={isLocalFileDocument}
                               localFilePath={
@@ -9322,7 +9337,9 @@ function PageEditorSessionBody({
                               databaseDocumentId ??
                               document.databaseMembership.databaseDocumentId
                             }
-                            canEdit={editorCanEdit}
+                            canEdit={
+                              editorCanEdit && !mcpDirectoryWidgetReadOnly
+                            }
                             usePagePropertiesOnly={mcpDirectoryWidgetReadOnly}
                             suggesting={isSuggesting || isStartingSuggestion}
                             enteringSuggestion={isStartingSuggestion}

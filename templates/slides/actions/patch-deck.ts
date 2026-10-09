@@ -12,9 +12,11 @@
  */
 import {
   AgentActionStopError,
+  ActionContractError,
   isActionContractError,
 } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   getGenerationCreativeContext,
@@ -27,6 +29,7 @@ import type { CreativeContextReuseLabel } from "@agent-native/creative-context/t
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { getPreset, type TweakDefinition } from "../app/lib/design-systems.js";
 import {
   normalizeSlidePadding,
   normalizeSlidePaddingForWrite,
@@ -337,6 +340,230 @@ export const OperationSchema = z.discriminatedUnion("op", [
 ]);
 
 export type Operation = z.infer<typeof OperationSchema>;
+type PatchSlideOperation = Extract<Operation, { op: "patch-slide" }>;
+
+const MCP_WIDGET_PATCH_SLIDE_FIELDS = new Set([
+  "content",
+  "notes",
+  "background",
+  "layout",
+  "layoutWarningDismissed",
+  "imageUrl",
+  "excalidrawData",
+  "transition",
+  "animations",
+  "splitByParagraph",
+  "skipped",
+]);
+
+const MCP_WIDGET_ADD_SLIDE_FIELDS = new Set([
+  "content",
+  "notes",
+  "background",
+  "layout",
+  "layoutWarningDismissed",
+  "imageUrl",
+  "excalidrawData",
+  "transition",
+  "animations",
+  "splitByParagraph",
+  "skipped",
+]);
+
+function hasOnlyMcpWidgetSlideFields(
+  fields: object,
+  allowedFields: Set<string>,
+): boolean {
+  const names = Object.keys(fields);
+  return (
+    names.length > 0 &&
+    names.every((name) => allowedFields.has(name)) &&
+    Object.values(fields).every((value) => value !== undefined)
+  );
+}
+
+function hasOnlyMcpWidgetOperationKeys(
+  operation: object,
+  allowedKeys: readonly string[],
+  requiredKeys: readonly string[],
+): boolean {
+  const keys = Object.keys(operation);
+  return (
+    keys.every((key) => allowedKeys.includes(key)) &&
+    requiredKeys.every((key) => Object.hasOwn(operation, key))
+  );
+}
+
+function hasExactMcpWidgetFieldBaselines(
+  fields: object,
+  baseFields: PatchSlideOperation["baseFields"],
+): boolean {
+  const fieldsByName = fields as Record<string, unknown>;
+  const changedFields = Object.keys(fields).filter(
+    (field) => field !== "content" && fieldsByName[field] !== undefined,
+  );
+  if (changedFields.length === 0) return baseFields === undefined;
+  if (!baseFields) return false;
+
+  const baselineFields = Object.keys(baseFields);
+  return (
+    baselineFields.length === changedFields.length &&
+    baselineFields.every((field) => {
+      const baseline = baseFields[field];
+      if (!changedFields.includes(field) || !baseline) return false;
+      const baselineKeys = Object.keys(baseline);
+      return baseline.present === false
+        ? baselineKeys.length === 1 && baselineKeys[0] === "present"
+        : baselineKeys.length === 2 &&
+            baselineKeys.includes("present") &&
+            baselineKeys.includes("value");
+    })
+  );
+}
+
+function hasOnlyMcpWidgetTweakSelections(
+  value: unknown,
+  tweakDefinitions: readonly TweakDefinition[],
+): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const tweaks = value as Record<string, unknown>;
+  const definitions = new Map(
+    tweakDefinitions.map((tweak) => [tweak.id, tweak]),
+  );
+  const entries = Object.entries(tweaks);
+  return (
+    entries.length > 0 &&
+    entries.every(([id, selectedValue]) => {
+      const definition = definitions.get(id);
+      return (
+        typeof selectedValue === "string" &&
+        (definition?.options?.some(
+          (option) => option.value === selectedValue,
+        ) ??
+          false)
+      );
+    })
+  );
+}
+
+export function isMcpWidgetPatchAllowed(
+  caller: string | undefined,
+  operations: Operation[],
+  options?: {
+    rewriteSource?: boolean;
+    hasCreativeContext?: boolean;
+    requireAllSourceSlides?: boolean;
+    tweakDefinitions?: readonly TweakDefinition[];
+  },
+): boolean {
+  if (caller !== "mcp-widget-write") return true;
+  if (
+    operations.length === 0 ||
+    options?.rewriteSource ||
+    options?.hasCreativeContext ||
+    options?.requireAllSourceSlides
+  ) {
+    return false;
+  }
+
+  return operations.every((operation) => {
+    if (operation.op === "patch-deck-fields") {
+      if (
+        !hasOnlyMcpWidgetOperationKeys(
+          operation,
+          ["op", "fields"],
+          ["op", "fields"],
+        ) ||
+        Object.keys(operation.fields).length !== 1
+      ) {
+        return false;
+      }
+      if (typeof operation.fields.title === "string") return true;
+
+      return (
+        options?.tweakDefinitions !== undefined &&
+        hasOnlyMcpWidgetTweakSelections(
+          operation.fields.tweaks,
+          options.tweakDefinitions,
+        )
+      );
+    }
+
+    if (operation.op === "patch-slide") {
+      const hasContent = operation.fields.content !== undefined;
+      return (
+        hasOnlyMcpWidgetOperationKeys(
+          operation,
+          [
+            "op",
+            "slideId",
+            "fields",
+            "baseContentHash",
+            "baseFields",
+            "preserveSource",
+          ],
+          ["op", "slideId", "fields"],
+        ) &&
+        hasOnlyMcpWidgetSlideFields(
+          operation.fields,
+          MCP_WIDGET_PATCH_SLIDE_FIELDS,
+        ) &&
+        Object.values(operation.fields).every((value) => value !== undefined) &&
+        hasExactMcpWidgetFieldBaselines(
+          operation.fields,
+          operation.baseFields,
+        ) &&
+        (operation.fields.layoutWarningDismissed === undefined ||
+          typeof operation.fields.layoutWarningDismissed === "boolean") &&
+        (hasContent
+          ? typeof operation.fields.content === "string" &&
+            typeof operation.baseContentHash === "string" &&
+            operation.baseContentHash.length > 0
+          : operation.baseContentHash === undefined) &&
+        operation.preserveSource !== false
+      );
+    }
+
+    if (operation.op === "add-slide") {
+      return (
+        hasOnlyMcpWidgetOperationKeys(
+          operation,
+          ["op", "slideId", "afterSlideId", "fields"],
+          ["op", "slideId", "fields"],
+        ) &&
+        typeof operation.fields.content === "string" &&
+        hasOnlyMcpWidgetSlideFields(
+          operation.fields,
+          MCP_WIDGET_ADD_SLIDE_FIELDS,
+        ) &&
+        (operation.fields.layoutWarningDismissed === undefined ||
+          typeof operation.fields.layoutWarningDismissed === "boolean")
+      );
+    }
+
+    if (operation.op === "delete-slide") {
+      return (
+        hasOnlyMcpWidgetOperationKeys(
+          operation,
+          ["op", "slideId", "allowEmpty"],
+          ["op", "slideId"],
+        ) && operation.allowEmpty !== true
+      );
+    }
+
+    if (operation.op === "reorder-slides") {
+      return (
+        hasOnlyMcpWidgetOperationKeys(
+          operation,
+          ["op", "orderedIds"],
+          ["op", "orderedIds"],
+        ) && operation.orderedIds.length > 0
+      );
+    }
+
+    return false;
+  });
+}
 
 function persistedTargetSlideCount(deck: unknown): number | null {
   if (!deck || typeof deck !== "object" || Array.isArray(deck)) return null;
@@ -395,6 +622,29 @@ function firstDuplicate(values: readonly string[]): string | undefined {
     seen.add(value);
   }
   return undefined;
+}
+
+export function assertSlidesWidgetWriteScope(
+  deckId: string,
+  context: ActionRunContext | undefined,
+): void {
+  if (context?.caller !== "mcp-widget-write") return;
+
+  const grant = context.mcpDirectoryWidgetWrite;
+  if (
+    !grant ||
+    grant.appId !== "slides" ||
+    grant.resourceIds.deckId !== deckId ||
+    !grant.actionNames.includes("patch-deck")
+  ) {
+    throw new ActionContractError(
+      "This Slides widget write capability is missing or scoped to a different deck or action.",
+      {
+        errorCode: "mcp_widget_write_scope_mismatch",
+        statusCode: 403,
+      },
+    );
+  }
 }
 
 export function assertSourceImportSlidesCovered(
@@ -981,6 +1231,7 @@ export default defineAction({
     },
     ctx,
   ) => {
+    assertSlidesWidgetWriteScope(deckId, ctx);
     await assertAccess("deck", deckId, "editor");
     const isAgentCaller = isAgentPatchCaller(ctx?.caller);
 
@@ -997,6 +1248,41 @@ export default defineAction({
           errorCode: "deck_not_found",
           statusCode: 404,
         });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const deck: any = JSON.parse(row.data);
+      if (
+        !isMcpWidgetPatchAllowed(ctx?.caller, operations, {
+          rewriteSource,
+          hasCreativeContext: creativeContext !== undefined,
+          requireAllSourceSlides,
+          tweakDefinitions: getPreset(
+            typeof deck.designSystemId === "string"
+              ? deck.designSystemId
+              : "default",
+          ).tweaks,
+        })
+      ) {
+        fail(
+          "The Slides widget can edit slide content, structure, title, and available design-system tweaks, not deck access or linked resources.",
+          {
+            errorCode: "mcp_widget_write_outside_editor_scope",
+            statusCode: 403,
+          },
+        );
+      }
+      if (
+        ctx?.caller === "mcp-widget-write" &&
+        clientWrite?.expectedUpdatedAt === undefined
+      ) {
+        fail(
+          "The Slides widget needs the current deck revision before saving.",
+          {
+            errorCode: "mcp_widget_write_revision_required",
+            statusCode: 409,
+          },
+        );
+      }
 
       const writeDisposition = assertDeckClientWriteCurrent(
         row,
@@ -1017,8 +1303,6 @@ export default defineAction({
         };
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const deck: any = JSON.parse(row.data);
       const existingContext = storedCreativeContext(deck.creativeContext);
       const previousDeckFitFields = {
         aspectRatio: deck.aspectRatio,
@@ -1026,6 +1310,22 @@ export default defineAction({
       };
 
       const currentSlides = Array.isArray(deck.slides) ? deck.slides : [];
+      if (ctx?.caller === "mcp-widget-write") {
+        const storedSlideIds = currentSlides
+          .map((slide: { id?: unknown }) => slide?.id)
+          .filter((id: unknown): id is string => typeof id === "string");
+        const duplicateSlideId = firstDuplicate(storedSlideIds);
+        if (duplicateSlideId !== undefined) {
+          fail(
+            "The Slides widget cannot edit a deck with duplicate slide IDs. Repair the deck in the Slides editor first.",
+            {
+              errorCode: "duplicate_deck_slide_ids",
+              statusCode: 409,
+              details: { slideId: duplicateSlideId },
+            },
+          );
+        }
+      }
       const sourceContentHashes = new Map<string, string>(
         currentSlides.map(
           (slide: { id: string; content?: unknown }) =>

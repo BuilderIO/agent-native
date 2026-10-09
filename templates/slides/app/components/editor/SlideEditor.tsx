@@ -10269,9 +10269,9 @@ export default function SlideEditor({
   // Excalidraw slides have no selectable slide content, so the row collapses
   // to its slide-level state — but that state owns the background picker, and
   // SlideRenderer paints `slide.background` behind the drawing, so the row has
-  // to stay mounted or that background becomes uneditable. The widget has no
-  // toolbar row, so it never mounts these.
-  const showContextToolbars = !readOnly && !widgetEmbed;
+  // to stay mounted or that background becomes uneditable. Write access is
+  // supplied by the caller for both standalone and embedded editors.
+  const showContextToolbars = !readOnly;
   const contextToolbar = showContextToolbars ? (
     <div
       className="shrink-0"
