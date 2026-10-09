@@ -32,6 +32,21 @@ const EMPTY_FILL_FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
+const MIXED_VECTOR_SHAPES_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Mixed vector shapes</title></head>
+  <body style="margin:0">
+    <main data-agent-native-node-id="vector-root" data-agent-native-layer-name="Root" style="position:relative;width:900px;height:700px">
+      <svg xmlns="http://www.w3.org/2000/svg" data-agent-native-node-id="vector-path" data-agent-native-layer-name="Path shape" data-an-primitive="path" viewBox="0 0 100 100" style="position:absolute;left:64px;top:64px;width:100px;height:100px;fill:#123456">
+        <path d="M 10 10 L 90 10 L 50 90 Z" />
+      </svg>
+      <svg xmlns="http://www.w3.org/2000/svg" data-agent-native-node-id="vector-rect" data-agent-native-layer-name="Rectangle shape" data-an-primitive="rectangle" viewBox="0 0 100 100" style="position:absolute;left:184px;top:64px;width:100px;height:100px;fill:#abcdef">
+        <rect x="10" y="10" width="80" height="80" />
+      </svg>
+    </main>
+  </body>
+</html>`;
+
 async function postAction(
   request: APIRequestContext,
   baseURL: string,
@@ -195,6 +210,80 @@ test("clicking an empty Fill heading adds the first fill", async ({
     await expect(
       fill.locator('[data-inspector-layout="paint-row"]'),
     ).toBeVisible();
+  } finally {
+    await postAction(request, baseURL, "delete-design", { id: designId });
+  }
+});
+
+test("Add fill uses SVG paint for a selection of different vector tags", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  if (!baseURL) throw new Error("Playwright baseURL is not configured");
+  const created = await postAction(request, baseURL, "create-design", {
+    title: `Mixed vector fill ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId: string | undefined =
+    created?.id ?? created?.data?.id ?? created?.design?.id;
+  if (!designId) throw new Error("create-design returned no id");
+
+  try {
+    await postAction(request, baseURL, "create-file", {
+      designId,
+      filename: "index.html",
+      content: MIXED_VECTOR_SHAPES_FIXTURE,
+      fileType: "html",
+    });
+    await gotoEditor(page, designId);
+    await enterDirectMode(page);
+    await expandAllLayers(page);
+
+    const layers = page.getByRole("tree", { name: "Layers" });
+    await layers
+      .getByRole("button", { name: "Path shape", exact: true })
+      .first()
+      .click();
+    await layers
+      .getByRole("button", { name: "Rectangle shape", exact: true })
+      .first()
+      .click({ modifiers: ["Shift"] });
+
+    const fill = page
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name: "Fill", exact: true }) })
+      .first();
+    await fill.getByRole("button", { name: "Add fill" }).click();
+
+    const preview = page
+      .locator("iframe[data-design-preview-iframe]")
+      .last()
+      .contentFrame();
+    const pathShape = preview.locator(
+      'svg[data-agent-native-node-id="vector-path"] path',
+    );
+    const rectShape = preview.locator(
+      'svg[data-agent-native-node-id="vector-rect"] rect',
+    );
+    await expect
+      .poll(async () =>
+        Promise.all(
+          [pathShape, rectShape].map((shape) =>
+            shape.evaluate((node) => getComputedStyle(node).fill),
+          ),
+        ),
+      )
+      .toEqual(["rgb(217, 217, 217)", "rgb(217, 217, 217)"]);
+    await expect
+      .poll(async () =>
+        Promise.all(
+          [pathShape, rectShape].map((shape) =>
+            shape.evaluate((node) => getComputedStyle(node).backgroundColor),
+          ),
+        ),
+      )
+      .toEqual(["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"]);
   } finally {
     await postAction(request, baseURL, "delete-design", { id: designId });
   }

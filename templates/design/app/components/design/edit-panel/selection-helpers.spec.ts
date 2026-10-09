@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ElementInfo } from "../types";
 import {
+  isVectorShapeSelection,
   isMixedValue,
   MIXED_VALUE,
   mixedElementFromSelection,
@@ -263,6 +264,24 @@ describe("mixedElementFromSelection", () => {
     const b = makeElement({ pendingNodeId: "draft-text-123" });
     const merged = mixedElementFromSelection([a, b]);
     expect(merged?.pendingNodeId).toBeUndefined();
+  });
+
+  it("keeps vector paint classification for different selected SVG shape tags", () => {
+    const path = makeElement({ tagName: "path", primitiveKind: "path" });
+    const rect = makeElement({ tagName: "rect", primitiveKind: "rect" });
+    const merged = mixedElementFromSelection([path, rect]);
+
+    expect(merged?.tagName).toBe(MIXED_VALUE);
+    expect(merged && isVectorShapeSelection(merged)).toBe(true);
+  });
+
+  it("does not classify a mixed HTML and SVG selection as vector-only", () => {
+    const html = makeElement({ tagName: "div" });
+    const path = makeElement({ tagName: "path", primitiveKind: "path" });
+    const merged = mixedElementFromSelection([html, path]);
+
+    expect(merged?.tagName).toBe(MIXED_VALUE);
+    expect(merged && isVectorShapeSelection(merged)).toBe(false);
   });
 
   it("computes the bounding box as the union of all selected elements", () => {

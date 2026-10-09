@@ -1,11 +1,18 @@
 import { parseCssColorExtended, rgbaToHex } from "@shared/color-utils";
 
 import type { ElementInfo } from "../types";
+import { isVectorShapeElement } from "./element-classification";
+
+const vectorShapeSelections = new WeakSet<ElementInfo>();
 
 export const MIXED_VALUE = "Mixed";
 
 export function isMixedValue(value: string | undefined): boolean {
   return value === MIXED_VALUE;
+}
+
+export function isVectorShapeSelection(element: ElementInfo): boolean {
+  return vectorShapeSelections.has(element) || isVectorShapeElement(element);
 }
 
 export function sameOrMixed(values: string[]): string {
@@ -115,7 +122,7 @@ export function mixedElementFromSelection(
       ? firstComponentName
       : undefined;
 
-  return {
+  const merged: ElementInfo = {
     ...base,
     tagName: sameOrMixed(elements.map((element) => element.tagName)),
     id: undefined,
@@ -176,4 +183,8 @@ export function mixedElementFromSelection(
       base.parentLayout,
     ),
   };
+  if (elements.every(isVectorShapeElement)) {
+    vectorShapeSelections.add(merged);
+  }
+  return merged;
 }

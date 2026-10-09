@@ -28,7 +28,7 @@ import {
 import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
 import { selectionColorValues } from "./document-colors";
-import { isTextElement, isVectorShapeElement } from "./element-classification";
+import { isTextElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
 import { commitStylePatch, FieldTrailer } from "./field-primitives";
 import {
@@ -62,7 +62,7 @@ import {
   cssColorOrFallback,
   swatchStyle,
 } from "./position-helpers";
-import { isMixedValue } from "./selection-helpers";
+import { isMixedValue, isVectorShapeSelection } from "./selection-helpers";
 import type { CapturedStyleTarget } from "./style-change-types";
 import type {
   BreakpointOverrideFieldContext,
@@ -196,7 +196,7 @@ export function FillProperties({
     backgroundImage: authoredStyleValue(element, "backgroundImage") ?? "",
   };
   const isTextFillElement = shouldUseTextFill(element, styles);
-  const isVectorFillElement = isVectorShapeElement(element);
+  const isVectorFillElement = isVectorShapeSelection(element);
   const fillProperty = isTextFillElement
     ? "color"
     : isVectorFillElement

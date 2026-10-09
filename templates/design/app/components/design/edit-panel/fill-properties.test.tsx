@@ -35,6 +35,7 @@ import {
   FillProperties,
   shouldUseTextFill,
 } from "./fill-properties";
+import { mixedElementFromSelection } from "./selection-helpers";
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -180,6 +181,152 @@ describe("baseFillLayerSourceProps", () => {
 });
 
 describe("FillProperties base row — image layer prop wiring", () => {
+  it("uses SVG paint controls for a selection of different vector shape tags", () => {
+    const selected = mixedElementFromSelection([
+      element({
+        tagName: "path",
+        primitiveKind: "path",
+        computedStyles: { fill: "#123456" },
+        inlineStyles: { fill: "#123456" },
+      }),
+      element({
+        tagName: "rect",
+        primitiveKind: "rect",
+        computedStyles: { fill: "#123456" },
+        inlineStyles: { fill: "#123456" },
+      }),
+    ]);
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: selected!,
+        onStyleChange: vi.fn(),
+      }),
+    );
+
+    expect(selected?.tagName).toBe("Mixed");
+    expect(markup).toContain('data-supports-layered-fills="false"');
+    expect(markup).toContain('data-single-paint="true"');
+  });
+
+  it("keeps CSS fill controls for a selection mixing HTML and SVG elements", () => {
+    const selected = mixedElementFromSelection([
+      element({
+        tagName: "div",
+        computedStyles: { backgroundColor: "#ffffff" },
+        inlineStyles: { backgroundColor: "#ffffff" },
+      }),
+      element({
+        tagName: "path",
+        primitiveKind: "path",
+        computedStyles: { backgroundColor: "#ffffff" },
+        inlineStyles: { backgroundColor: "#ffffff" },
+      }),
+    ]);
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: selected!,
+        onStyleChange: vi.fn(),
+      }),
+    );
+
+    expect(selected?.tagName).toBe("Mixed");
+    expect(markup).toContain('data-supports-layered-fills="true"');
+    expect(markup).toContain('data-single-paint="false"');
+  });
+
+  it("adds fill to mixed vector tags through SVG fill styles", async () => {
+    const selected = mixedElementFromSelection([
+      element({
+        tagName: "path",
+        primitiveKind: "path",
+        computedStyles: { fill: "#123456" },
+        inlineStyles: { fill: "#123456" },
+      }),
+      element({
+        tagName: "rect",
+        primitiveKind: "rect",
+        computedStyles: { fill: "#abcdef" },
+        inlineStyles: { fill: "#abcdef" },
+      }),
+    ]);
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: selected!,
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+    const addFill = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="editPanel.labels.addFill"]',
+    );
+    await act(async () => addFill?.click());
+
+    expect(onStylesChange).toHaveBeenCalledWith(
+      { fill: DEFAULT_SHAPE_FILL },
+      undefined,
+    );
+    expect(onStyleChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it("keeps mixed HTML and SVG fills on the CSS background path", async () => {
+    const selected = mixedElementFromSelection([
+      element({
+        tagName: "div",
+        computedStyles: { backgroundColor: "#ffffff" },
+        inlineStyles: { backgroundColor: "#ffffff" },
+      }),
+      element({
+        tagName: "path",
+        primitiveKind: "path",
+        computedStyles: { backgroundColor: "#000000" },
+        inlineStyles: { backgroundColor: "#000000" },
+      }),
+    ]);
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: selected!,
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+    const addFill = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="editPanel.labels.addFill"]',
+    );
+    await act(async () => addFill?.click());
+
+    expect(onStylesChange).toHaveBeenCalledWith(
+      {
+        color: "#000000",
+        backgroundColor: "#ffffff",
+        backgroundImage: "none",
+      },
+      undefined,
+    );
+    expect(onStyleChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
   it("keeps the Fill section empty for an open Pen path", () => {
     const openPath = renderToStaticMarkup(
       createElement(FillProperties, {

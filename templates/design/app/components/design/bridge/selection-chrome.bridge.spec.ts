@@ -273,13 +273,16 @@ describe("editor chrome selection overlays", () => {
     }
   });
 
-  it("refreshes Alt measurements when a sibling moves the hovered element", async () => {
+  it("refreshes Alt measurements after sibling insertion and class changes", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage({
         viewport: { width: 1000, height: 800 },
       });
-      await page.setContent(`<!doctype html><html><body style="margin:0">
+      await page.setContent(`<!doctype html><html><head><style>
+        #hover-parent > .layout-sibling { height:20px; }
+        #hover-parent > .layout-sibling.expanded { height:40px; }
+      </style></head><body style="margin:0">
         <div id="selected-parent" style="position:relative;width:1000px;height:800px">
           <div id="selected" data-agent-native-node-id="selected" style="position:absolute;left:200px;top:200px;width:200px;height:120px;background:#d4d4d8"></div>
         </div>
@@ -287,6 +290,51 @@ describe("editor chrome selection overlays", () => {
           <div id="hovered" data-agent-native-node-id="hovered" style="width:200px;height:120px;background:#ccc"></div>
         </div>
       </body></html>`);
+      await page.evaluate(() => {
+        type ObserverEvent = {
+          observerId: number;
+          event: "observe-hover-parent" | "disconnect-hover-parent";
+        };
+        const events: ObserverEvent[] = [];
+        let nextObserverId = 1;
+        const observerIds = new WeakMap<MutationObserver, number>();
+        const observingHoverParent = new WeakSet<MutationObserver>();
+        const getObserverId = (observer: MutationObserver) => {
+          let observerId = observerIds.get(observer);
+          if (!observerId) {
+            observerId = nextObserverId++;
+            observerIds.set(observer, observerId);
+          }
+          return observerId;
+        };
+        const originalObserve = MutationObserver.prototype.observe;
+        MutationObserver.prototype.observe = function (target, options) {
+          if (target instanceof Element && target.id === "hover-parent") {
+            observingHoverParent.add(this);
+            events.push({
+              observerId: getObserverId(this),
+              event: "observe-hover-parent",
+            });
+          }
+          return originalObserve.call(this, target, options);
+        };
+        const originalDisconnect = MutationObserver.prototype.disconnect;
+        MutationObserver.prototype.disconnect = function () {
+          if (observingHoverParent.has(this)) {
+            events.push({
+              observerId: getObserverId(this),
+              event: "disconnect-hover-parent",
+            });
+            observingHoverParent.delete(this);
+          }
+          return originalDisconnect.call(this);
+        };
+        (
+          window as Window & {
+            __altMeasurementObserverEvents?: ObserverEvent[];
+          }
+        ).__altMeasurementObserverEvents = events;
+      });
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await select(page, "#selected");
       await page.keyboard.down("Alt");
@@ -320,7 +368,7 @@ describe("editor chrome selection overlays", () => {
       await page.evaluate(() => {
         const parent = document.querySelector("#hover-parent")!;
         const sibling = document.createElement("div");
-        sibling.style.height = "20px";
+        sibling.className = "layout-sibling";
         parent.insertBefore(sibling, parent.firstElementChild);
       });
       await page.waitForFunction(
@@ -337,7 +385,53 @@ describe("editor chrome selection overlays", () => {
         undefined,
         { timeout: 5_000 },
       );
-      expect(await readLabels()).toEqual(["100", "119"]);
+      await page.waitForTimeout(1_200);
+      await page.evaluate(() => {
+        document
+          .querySelector("#hover-parent > .layout-sibling")!
+          .classList.add("expanded");
+      });
+      await page.waitForFunction(
+        () => {
+          const overlay = document.querySelector(
+            "[data-agent-native-measurement-overlay]",
+          );
+          const labels = [...(overlay?.children ?? [])]
+            .map((node) => node.textContent)
+            .filter(Boolean)
+            .sort();
+          return labels.join(",") === "119,120";
+        },
+        undefined,
+        { timeout: 5_000 },
+      );
+      expect(await readLabels()).toEqual(["119", "120"]);
+      await page.keyboard.up("Alt");
+      const observerDetached = await page.evaluate(() => {
+        const events =
+          (
+            window as Window & {
+              __altMeasurementObserverEvents?: {
+                observerId: number;
+                event: "observe-hover-parent" | "disconnect-hover-parent";
+              }[];
+            }
+          ).__altMeasurementObserverEvents ?? [];
+        const lastObserveIndex = events
+          .map((event) => event.event)
+          .lastIndexOf("observe-hover-parent");
+        const lastObserverId = events[lastObserveIndex]?.observerId;
+        return (
+          lastObserveIndex >= 0 &&
+          events.some(
+            (event, index) =>
+              index > lastObserveIndex &&
+              event.observerId === lastObserverId &&
+              event.event === "disconnect-hover-parent",
+          )
+        );
+      });
+      expect(observerDetached).toBe(true);
     } finally {
       await browser.close();
     }
