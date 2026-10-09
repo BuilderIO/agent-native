@@ -321,7 +321,6 @@ describe("AgentSidebar panel", () => {
     expect(mockPanel.events.map((event) => event.type)).toEqual([
       "agent-panel:set-mode",
       "agent-panel:open-settings",
-      "agent-chat:open-thread",
     ]);
     expect(container?.querySelector("textarea")).toBeTruthy();
     await act(async () => {
@@ -331,7 +330,7 @@ describe("AgentSidebar panel", () => {
         }),
       );
     });
-    expect(mockPanel.events).toHaveLength(3);
+    expect(mockPanel.events).toHaveLength(2);
     await act(async () => {
       window.dispatchEvent(
         new CustomEvent("agentNative:composer-reference-ready", {
@@ -340,14 +339,17 @@ describe("AgentSidebar panel", () => {
       );
     });
     expect(mockPanel.events).toHaveLength(7);
-    expect(mockPanel.events[3]).toEqual({
+    expect(mockPanel.events[2]).toEqual({
       type: "message",
       detail: {
         type: "agentNative.insertComposerReference",
         data: { type: "file", path: "/builder.md" },
       },
     });
-    expect([...mockPanel.events.slice(0, 3), mockPanel.events[4]]).toEqual([
+    expect([
+      ...mockPanel.events.slice(0, 2),
+      ...mockPanel.events.slice(3, 5),
+    ]).toEqual([
       { type: "agent-panel:set-mode", detail: { mode: "resources" } },
       {
         type: "agent-panel:open-settings",
@@ -521,12 +523,7 @@ describe("AgentSidebar panel", () => {
     await act(async () =>
       window.dispatchEvent(new CustomEvent("agent-panel:prepare")),
     );
-    const controls = [
-      "agent-panel:open-settings",
-      "agent-panel:set-mode",
-      "agent-chat:open-thread",
-      "agent-task-open",
-    ];
+    const controls = ["agent-panel:open-settings", "agent-panel:set-mode"];
     await act(async () => {
       window.dispatchEvent(
         new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
@@ -572,6 +569,90 @@ describe("AgentSidebar panel", () => {
     expect(mockPanel.events.at(-1)?.detail).toMatchObject({
       data: { targetTabId: "thread-example" },
     });
+  });
+
+  it.each(["agent-chat:open-thread", "agent-task-open"])(
+    "keeps %s behind an earlier reference and untargeted submission",
+    async (type) => {
+      renderSidebar(false);
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:prepare"));
+      });
+      let selected = "original-thread";
+      const destinations: string[] = [];
+      const record = (event: Event) => {
+        if (event.type === type) selected = "next-thread";
+        else destinations.push(selected);
+      };
+      window.addEventListener(type, record);
+      window.addEventListener(AGENT_CHAT_INSERT_REFERENCE_EVENT, record);
+      window.addEventListener("message", record);
+      try {
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: { refType: "file", refId: "/original.md" },
+            }),
+          );
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data: {
+                type: "agentNative.submitChat",
+                data: {
+                  message: "Use this reference",
+                  submit: false,
+                },
+              },
+            }),
+          );
+          window.dispatchEvent(
+            new CustomEvent(type, {
+              detail: { threadId: "next-thread" },
+            }),
+          );
+        });
+        expect(selected).toBe("original-thread");
+        expect(destinations).toEqual([]);
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent("agentNative:composer-reference-ready", {
+              detail: container!.querySelector("textarea"),
+            }),
+          );
+        });
+        expect(destinations).toEqual(["original-thread", "original-thread"]);
+        expect(selected).toBe("next-thread");
+      } finally {
+        window.removeEventListener(type, record);
+        window.removeEventListener(AGENT_CHAT_INSERT_REFERENCE_EVENT, record);
+        window.removeEventListener("message", record);
+      }
+    },
+  );
+
+  it("retains accepted work while panel ownership is temporarily disabled", async () => {
+    const render = renderSidebar(false);
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+          detail: { refType: "file", refId: "/retained.md" },
+        }),
+      );
+    });
+    await act(async () => render(false));
+    await act(async () => render(true));
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative:composer-reference-ready", {
+          detail: container!.querySelector("textarea"),
+        }),
+      );
+    });
+    expect(
+      mockPanel.events.filter(
+        (event) => event.type === AGENT_CHAT_INSERT_REFERENCE_EVENT,
+      ),
+    ).toHaveLength(1);
   });
 
   it("keeps real chat readiness when a resource composer opens and closes", async () => {

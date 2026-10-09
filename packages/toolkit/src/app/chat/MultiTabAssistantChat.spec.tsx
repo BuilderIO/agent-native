@@ -26,11 +26,17 @@ import type {
 import { buildChatModelGroups } from "@agent-native/core/client/chat-model-groups";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { invalidateClientStatusRequests } from "@agent-native/core/client/status-requests";
+import { AssistantRuntimeProvider, useLocalRuntime } from "@assistant-ui/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AGENT_CHAT_INSERT_REFERENCE_EVENT } from "../../composer/runtime-adapters.js";
+import { TiptapComposer } from "../../composer/TiptapComposer.js";
+import { TooltipProvider } from "../../ui/tooltip.js";
+import { AgentSidebar } from "./AgentSidebar.js";
 import { AgentSidebarPanel } from "./AgentSidebarPanel.js";
 import {
   MultiTabAssistantChat,
@@ -84,6 +90,9 @@ const chatHandleMocks = vi.hoisted(() => ({
 }));
 
 const assistantChatMockState = vi.hoisted(() => ({
+  referenceProbe: false,
+  referenceDisabled: true,
+  referenceDeliveries: [] as Array<{ threadId: string; context: string }>,
   onThreadRestoreNotFound: undefined as (() => void) | undefined,
   onRetryModelList: undefined as (() => void) | undefined,
   onSlashCommand: undefined as ((command: string) => void) | undefined,
@@ -191,7 +200,10 @@ vi.mock("./RunStuckBanner.js", () => ({
   RunStuckBanner: () => null,
 }));
 
-vi.mock("@agent-native/toolkit/ui/tooltip", () => ({
+vi.mock("@agent-native/toolkit/ui/tooltip", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/ui/tooltip")
+  >()),
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
@@ -365,6 +377,31 @@ async function mountWithCatalog(
 
 chatThreadHookMocks.useChatThreads.mockImplementation(() => threadMocks);
 
+function ReferenceProbe({
+  threadId,
+  selected,
+}: {
+  threadId: string;
+  selected: boolean;
+}) {
+  const runtime = useLocalRuntime({ async *run() {} });
+  return (
+    <div data-reference-thread={threadId}>
+      <AssistantRuntimeProvider runtime={runtime}>
+        <TooltipProvider>
+          <TiptapComposer
+            disabled={assistantChatMockState.referenceDisabled}
+            reportReferenceReadiness={selected}
+            includeDefaultSlashSkills={false}
+            plusMenuMode="hidden"
+            voiceEnabled={false}
+          />
+        </TooltipProvider>
+      </AssistantRuntimeProvider>
+    </div>
+  );
+}
+
 vi.mock("./AgentKitAssistantChat.js", async () => {
   const React = await import("react");
   return {
@@ -373,6 +410,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
       ref,
     ) {
       const props = _props as {
+        threadId: string;
         composerSlot?: React.ReactNode;
         emptyStateAddon?: React.ReactNode;
         selectedModel?: string;
@@ -410,7 +448,18 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
         implementPlan: chatHandleMocks.implementPlan,
-        prefillMessage: chatHandleMocks.prefillMessage,
+        prefillMessage: assistantChatMockState.referenceProbe
+          ? (message: string) => {
+              const element = document.querySelector(
+                `[data-reference-thread="${props.threadId}"]`,
+              );
+              assistantChatMockState.referenceDeliveries.push({
+                threadId: props.threadId,
+                context: element?.textContent ?? "",
+              });
+              chatHandleMocks.prefillMessage(message);
+            }
+          : chatHandleMocks.prefillMessage,
         setComposerContextItem: chatHandleMocks.setComposerContextItem,
         removeComposerContextItem: chatHandleMocks.removeComposerContextItem,
         clearComposerContextItems: chatHandleMocks.clearComposerContextItems,
@@ -453,6 +502,12 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         >
           {props.emptyStateAddon}
           {props.composerSlot}
+          {assistantChatMockState.referenceProbe && (
+            <ReferenceProbe
+              threadId={props.threadId}
+              selected={props.isReferenceTarget === true}
+            />
+          )}
         </div>
       );
     }),
@@ -460,6 +515,9 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
 });
 
 function resetThreadMocks() {
+  assistantChatMockState.referenceProbe = false;
+  assistantChatMockState.referenceDisabled = true;
+  assistantChatMockState.referenceDeliveries = [];
   assistantChatMockState.onThreadRestoreNotFound = undefined;
   assistantChatMockState.onRetryModelList = undefined;
   assistantChatMockState.onSlashCommand = undefined;
@@ -567,6 +625,138 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it.each(["agent-chat:open-thread", "agent-task-open"])(
+    "preserves the actual destination when %s follows blocked conversation work",
+    async (type) => {
+      assistantChatMockState.referenceProbe = true;
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      threadMocks.threads.push({
+        ...threadMocks.threads[0],
+        id: "thread-2",
+        title: "Other thread",
+      });
+      const sidebar = () => (
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AgentSidebar
+              defaultOpen
+              storageKey="bridge-test"
+              showMissingApiKeySetup={false}
+            >
+              <div>Content</div>
+            </AgentSidebar>
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(sidebar());
+      });
+      await act(async () => {
+        root.render(sidebar());
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+            detail: {
+              label: "Original document",
+              refType: "file",
+              refId: "/original.md",
+              slotKey: "document",
+              insertMessageId: `ordered-${type}`,
+            },
+          }),
+        );
+        dispatchSubmitChat({
+          message: "Use this document",
+          submit: false,
+          openSidebar: false,
+        });
+        window.dispatchEvent(
+          new CustomEvent(type, { detail: { threadId: "thread-2" } }),
+        );
+      });
+      expect(threadMocks.activeThreadId).toBe("thread-1");
+      expect(assistantChatMockState.referenceDeliveries).toEqual([]);
+      assistantChatMockState.referenceDisabled = false;
+      await act(async () => root.render(sidebar()));
+      expect(assistantChatMockState.referenceDeliveries).toEqual([
+        {
+          threadId: "thread-1",
+          context: expect.stringContaining("Original document"),
+        },
+      ]);
+      expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-2");
+      expect(threadMocks.activeThreadId).toBe("thread-2");
+    },
+  );
+
+  it("starts cold thread navigation without a ready composer and preserves explicit targets", async () => {
+    assistantChatMockState.referenceProbe = true;
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    threadMocks.threads.push({
+      ...threadMocks.threads[0],
+      id: "thread-2",
+      title: "Other thread",
+    });
+    let finishLookup!: (result: "opened") => void;
+    threadMocks.openThread.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    const sidebar = () => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AgentSidebar
+            defaultOpen={false}
+            storageKey="bridge-test"
+            showMissingApiKeySetup={false}
+          >
+            <div>Content</div>
+          </AgentSidebar>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(sidebar());
+    });
+    await act(async () => root.render(sidebar()));
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2" },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(threadMocks.openThread).toHaveBeenCalledWith("thread-2");
+    expect(threadMocks.activeThreadId).toBe("thread-1");
+    expect(
+      container.querySelector(".tiptap")?.getAttribute("contenteditable"),
+    ).toBe("false");
+    await act(async () => finishLookup("opened"));
+    expect(threadMocks.activeThreadId).toBe("thread-2");
+    await act(async () =>
+      dispatchSubmitChat({
+        message: "Target the original",
+        targetTabId: "thread-1",
+        submit: false,
+        openSidebar: false,
+      }),
+    );
+    expect(assistantChatMockState.referenceDeliveries).toEqual([
+      { threadId: "thread-1", context: expect.any(String) },
+    ]);
   });
 
   it("receives queued commands when the real client-only panel reports ready", async () => {

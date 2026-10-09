@@ -761,9 +761,6 @@ export function AgentSidebar({
 
   useEffect(() => {
     if (!ownsPanel) {
-      pendingPanelEvents.current.length = 0;
-      pendingPanelControls.current.length = 0;
-      setHasPendingPanelEvents(false);
       panelReadyRef.current = false;
       composerReadyRef.current = false;
       composerElementRef.current = null;
@@ -813,8 +810,17 @@ export function AgentSidebar({
       replayAfterMount(AGENT_PANEL_OPEN_SETTINGS_EVENT, event);
     };
 
-    const handleOpenThread = (event: Event) =>
-      replayAfterMount(event.type, event);
+    const handleOpenThread = (event: Event) => {
+      if (
+        !shouldRetainEvent(
+          event,
+          panelReadyRef.current,
+          pendingPanelEvents.current,
+        )
+      )
+        return;
+      retainEvent(event, pendingPanelEvents.current);
+    };
     const handleReference = (event: Event) => {
       if (
         !shouldRetainEvent(
