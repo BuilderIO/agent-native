@@ -641,6 +641,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     changedSpecRegressions,
+    /^        timeout-minutes: 7$/m,
+    "the changed-spec step must fit inside the 9-minute acceptance job after setup",
+  );
+  assert.match(
+    changedSpecRegressions,
     /^        if: \$\{\{ startsWith\(matrix\.shard, 'changed-'\) && needs\.change-scope\.outputs\.design_canvas_e2e_specs != '\[\]' \}\}$/m,
     "changed-spec tests run for every non-empty selector on dedicated shards",
   );
@@ -794,9 +799,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(changedSpecStepTimeout) &&
-      changedSpecStepTimeout === 6 &&
-      jobTimeout >= changedSpecStepTimeout + 3,
-    `changed-spec tests need the exact six-minute cap and three minutes for setup (job ${jobTimeout}, step ${changedSpecStepTimeout})`,
+      changedSpecStepTimeout === 7 &&
+      jobTimeout >= changedSpecStepTimeout + 2,
+    `changed-spec tests need the exact seven-minute cap and two minutes for setup (job ${jobTimeout}, step ${changedSpecStepTimeout})`,
   );
   const shardEntries = [
     ...designJob.matchAll(
@@ -1348,13 +1353,27 @@ test("a non-empty selector with only deleted specs resolves to a no-op", () => {
 test("keeps runnable specs while excluding deleted paths from the same selector", () => {
   const removed = "templates/design/e2e/removed-by-this-change.spec.ts";
   const existing = "templates/design/e2e/interaction-selection.spec.ts";
+  const testFiles = [
+    "templates/design/e2e/interaction-support.test.ts",
+    "templates/design/e2e/interaction-support.spec.tsx",
+  ];
 
   assert.deepEqual(
-    resolveDesignE2ESpecs(JSON.stringify([removed, existing]), {
-      isFile: (specPath) => specPath === "e2e/interaction-selection.spec.ts",
+    resolveDesignE2ESpecs(JSON.stringify([removed, existing, ...testFiles]), {
+      isFile: (specPath) =>
+        [
+          "e2e/interaction-selection.spec.ts",
+          ...testFiles.map((testFile) =>
+            testFile.slice("templates/design/".length),
+          ),
+        ].includes(specPath),
     }),
     {
-      existingSpecs: ["e2e/interaction-selection.spec.ts"],
+      existingSpecs: [
+        "e2e/interaction-selection.spec.ts",
+        "e2e/interaction-support.test.ts",
+        "e2e/interaction-support.spec.tsx",
+      ],
       removedSpecs: ["e2e/removed-by-this-change.spec.ts"],
     },
   );

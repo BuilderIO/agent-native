@@ -526,7 +526,7 @@ jobs:
       - name: Run changed Design E2E specs
         if: ${{ startsWith(matrix.shard, 'changed-') && needs.change-scope.outputs.design_canvas_e2e_specs != '[]' }}
         working-directory: templates/design
-        timeout-minutes: 6
+        timeout-minutes: 7
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}

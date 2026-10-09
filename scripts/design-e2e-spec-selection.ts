@@ -54,7 +54,7 @@ export function resolveDesignE2ESpecs(
       !candidate.startsWith(DESIGN_E2E_PREFIX) ||
       candidate.includes("\\") ||
       path.posix.normalize(candidate) !== candidate ||
-      !candidate.endsWith(".spec.ts")
+      !/\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(candidate)
     ) {
       throw new Error("Invalid changed Design E2E spec path");
     }
