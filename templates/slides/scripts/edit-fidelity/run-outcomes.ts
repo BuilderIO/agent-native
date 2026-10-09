@@ -59,6 +59,13 @@ export function getHarnessUnavailableError(error: unknown): CouldNotRun | null {
   return null;
 }
 
+export function shouldUseFreshBrowserPageForCleanup(
+  error: unknown,
+  pageClosed: boolean,
+) {
+  return pageClosed || isPlaywrightTargetTransportFailure(error);
+}
+
 export function rethrowIfHarnessUnavailable(error: unknown): void {
   const unavailable = getHarnessUnavailableError(error);
   if (unavailable) throw unavailable;

@@ -77,6 +77,7 @@ import {
   isPlaywrightTargetTransportFailure,
   runSetupActionAsCouldNotRun,
   runSetupAsCouldNotRun,
+  shouldUseFreshBrowserPageForCleanup,
 } from "./run-outcomes.ts";
 
 /**
@@ -5031,6 +5032,7 @@ async function runAuthoringFuzzQa(
     let authoringSucceeded = false;
     let createAttempted = false;
     let seedHarnessUnavailable: CouldNotRun | null = null;
+    let cleanupNeedsFreshPage = false;
     const scratchTitle = `[edit-fidelity] authoring fuzz ${seed} ${randomUUID()}`;
     try {
       const activePage = await runSetupAsCouldNotRun(
@@ -5038,6 +5040,12 @@ async function runAuthoringFuzzQa(
         createPage,
       );
       page = activePage;
+      activePage.on("crash", () => {
+        cleanupNeedsFreshPage = true;
+      });
+      activePage.on("close", () => {
+        cleanupNeedsFreshPage = true;
+      });
       await runSetupAsCouldNotRun(
         "could not navigate to authoring fuzz setup page",
         () =>
@@ -5168,6 +5176,10 @@ async function runAuthoringFuzzQa(
       );
     } catch (error) {
       seedHarnessUnavailable = getHarnessUnavailableError(error);
+      cleanupNeedsFreshPage = shouldUseFreshBrowserPageForCleanup(
+        error,
+        Boolean(page?.isClosed()),
+      );
       if (!seedHarnessUnavailable) {
         const problem = `seed ${seed} ${profile ? `committed-${profile.kind}` : "synthetic"}: ${String(error)}`;
         problems.push(problem);
@@ -5175,9 +5187,15 @@ async function runAuthoringFuzzQa(
       }
     } finally {
       const cleanupErrors: string[] = [];
+      const monitoredPages = new Set<Page>();
+      let recoveryPage: Page | null = null;
       const recordCleanupFailure = (label: string, error: unknown) => {
         cleanupErrors.push(
           formatAuthoringFuzzCleanupIssue(label, deckId, error),
+        );
+        cleanupNeedsFreshPage ||= shouldUseFreshBrowserPageForCleanup(
+          error,
+          Boolean(page?.isClosed()),
         );
         const unavailable = getHarnessUnavailableError(error);
         if (unavailable) {
@@ -5197,18 +5215,71 @@ async function runAuthoringFuzzQa(
           cleanupErrors.push(`HTTP ${response.status()} ${response.url()}`);
         }
       };
-      if (page && deckId && authoringSucceeded) {
-        page.on("console", onConsole);
-        page.on("pageerror", onPageError);
-        page.on("response", onResponse);
-      }
+      const monitorCleanupPage = (target: Page) => {
+        if (!authoringSucceeded || monitoredPages.has(target)) return;
+        target.on("console", onConsole);
+        target.on("pageerror", onPageError);
+        target.on("response", onResponse);
+        monitoredPages.add(target);
+      };
+      const getCleanupPage = async (): Promise<Page> => {
+        if (page && !cleanupNeedsFreshPage && !page.isClosed()) {
+          monitorCleanupPage(page);
+          return page;
+        }
+        cleanupNeedsFreshPage = true;
+        if (recoveryPage && !recoveryPage.isClosed()) {
+          monitorCleanupPage(recoveryPage);
+          return recoveryPage;
+        }
+        const createdRecoveryPage = await runSetupAsCouldNotRun(
+          "could not create a fresh authoring fuzz cleanup page",
+          createPage,
+        );
+        recoveryPage = createdRecoveryPage;
+        createdRecoveryPage.on("crash", () => {
+          cleanupNeedsFreshPage = true;
+        });
+        createdRecoveryPage.on("close", () => {
+          cleanupNeedsFreshPage = true;
+        });
+        try {
+          await runSetupAsCouldNotRun(
+            "could not navigate the fresh authoring fuzz cleanup page",
+            () =>
+              createdRecoveryPage.goto(`${base}/home`, {
+                waitUntil: "domcontentloaded",
+              }),
+          );
+          await runSetupAsCouldNotRun(
+            "could not sign in the fresh authoring fuzz cleanup page",
+            () => ensureSignedIn(createdRecoveryPage),
+          );
+        } catch (error) {
+          recoveryPage = null;
+          if (!createdRecoveryPage.isClosed()) {
+            try {
+              await createdRecoveryPage.close();
+            } catch (closeError) {
+              recordCleanupFailure(
+                "could not close a failed recovery page",
+                closeError,
+              );
+            }
+          }
+          throw error;
+        }
+        monitorCleanupPage(recoveryPage);
+        return recoveryPage;
+      };
       try {
-        if (page && createAttempted && !deckId) {
+        if (createAttempted && !deckId) {
           try {
+            const lookupPage = await getCleanupPage();
             const result = await action<{
               decks?: Array<{ id?: string; title?: string }>;
             }>(
-              page,
+              lookupPage,
               "list-decks",
               {
                 createdBy: "me",
@@ -5238,23 +5309,29 @@ async function runAuthoringFuzzQa(
             );
           }
         }
-        if (page && deckId) {
+        if (deckId) {
           try {
-            if ((await editorState(page, slideId)).editing) {
-              await exitEdit(page, slideId, "escape");
+            const cleanupPage = await getCleanupPage();
+            if (
+              cleanupPage === page &&
+              (await editorState(cleanupPage, slideId)).editing
+            ) {
+              await exitEdit(cleanupPage, slideId, "escape");
             }
           } catch (error) {
             recordCleanupFailure("could not exit editing", error);
           }
           if (authoringSucceeded) {
             try {
-              await settleSaved(page, deckId, slideId, () => 0);
+              const cleanupPage = await getCleanupPage();
+              await settleSaved(cleanupPage, deckId, slideId, () => 0);
             } catch (error) {
               recordCleanupFailure("could not settle saves", error);
             }
           }
           try {
-            await page.goto(`${base}/home`, {
+            const cleanupPage = await getCleanupPage();
+            await cleanupPage.goto(`${base}/home`, {
               waitUntil: "domcontentloaded",
               timeout: 120_000,
             });
@@ -5262,24 +5339,31 @@ async function runAuthoringFuzzQa(
             recordCleanupFailure("could not leave scratch deck", error);
           }
           try {
-            await action(page, "delete-deck", { id: deckId }, "DELETE");
+            const cleanupPage = await getCleanupPage();
+            await action(cleanupPage, "delete-deck", { id: deckId }, "DELETE");
           } catch (error) {
             recordCleanupFailure("could not delete scratch deck", error);
           }
         }
       } finally {
-        if (page && deckId && authoringSucceeded) {
-          page.off("console", onConsole);
-          page.off("pageerror", onPageError);
-          page.off("response", onResponse);
+        for (const monitoredPage of monitoredPages) {
+          if (monitoredPage.isClosed()) continue;
+          monitoredPage.off("console", onConsole);
+          monitoredPage.off("pageerror", onPageError);
+          monitoredPage.off("response", onResponse);
         }
       }
-      if (page && !page.isClosed()) {
+      const closePage = async (target: Page | null, label: string) => {
+        if (!target || target.isClosed()) return;
         try {
-          await page.close();
+          await target.close();
         } catch (error) {
-          recordCleanupFailure("could not close authoring page", error);
+          recordCleanupFailure(label, error);
         }
+      };
+      await closePage(page, "could not close authoring page");
+      if (recoveryPage !== page) {
+        await closePage(recoveryPage, "could not close recovery page");
       }
       if (cleanupErrors.length) {
         const problem = `seed ${seed}: scratch deck cleanup failed (${cleanupErrors.join("; ")})`;

@@ -1136,6 +1136,12 @@ jobs:
           pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
           --seed 16 --steps 80 --browser chromium
 
+      - name: Run absolute-layout authoring smoke in Chromium
+        working-directory: templates/slides
+        run: >-
+          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+          --seed 2 --steps 80 --browser chromium
+
       - name: Run deterministic authoring smoke in WebKit
         working-directory: templates/slides
         run: >-

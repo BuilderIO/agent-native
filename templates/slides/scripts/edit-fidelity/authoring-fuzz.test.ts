@@ -34,6 +34,7 @@ import {
   rethrowIfHarnessUnavailable,
   runSetupActionAsCouldNotRun,
   runSetupAsCouldNotRun,
+  shouldUseFreshBrowserPageForCleanup,
 } from "./run-outcomes.ts";
 
 it("keeps authoring page setup errors out of seed regression results", async () => {
@@ -250,6 +251,21 @@ it("recognizes Playwright target transport failures only", () => {
   );
   expect(
     isPlaywrightTargetTransportFailure(new Error("Timeout 45000ms exceeded")),
+  ).toBe(false);
+});
+
+it("uses a fresh browser page only after the cleanup target is unavailable", () => {
+  expect(
+    shouldUseFreshBrowserPageForCleanup(new Error("Target crashed"), false),
+  ).toBe(true);
+  expect(
+    shouldUseFreshBrowserPageForCleanup(new Error("ordinary app error"), true),
+  ).toBe(true);
+  expect(
+    shouldUseFreshBrowserPageForCleanup(
+      new Error("get-slide-content returned HTTP 500"),
+      false,
+    ),
   ).toBe(false);
 });
 
