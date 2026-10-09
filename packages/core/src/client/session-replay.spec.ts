@@ -225,6 +225,9 @@ function installBrowser(
   vi.stubGlobal("document", {
     referrer: "",
     title: "Inbox",
+    get baseURI() {
+      return location.href;
+    },
     visibilityState: "visible",
     addEventListener: vi.fn(addDocumentListener),
     removeEventListener: vi.fn(removeDocumentListener),
@@ -4592,32 +4595,51 @@ describe("session replay", () => {
     expect(recordMock).not.toHaveBeenCalled();
   });
 
-  it("derives the replay endpoint from the first-party analytics endpoint env", async () => {
-    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
-    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
-    vi.stubEnv(
-      "VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT",
+  it.each([
+    [
+      "known track endpoint",
       "https://analytics.example.test/api/analytics/track",
-    );
-    vi.stubEnv("VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE", "1");
-    let recordOptions: any;
-    recordMock.mockImplementation((options) => {
-      recordOptions = options;
-      return vi.fn();
-    });
-    const { startSessionReplay, stopSessionReplay } =
-      await freshSessionReplay();
-
-    await startSessionReplay();
-    recordOptions.emit({ type: 3, data: { href: "/inbox" } });
-    stopSessionReplay();
-    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://app.agent-native.com/inbox",
       "https://analytics.example.test/api/analytics/replay",
-    );
-  });
+    ],
+    [
+      "custom analytics path",
+      "https://analytics.example.test/v1/events",
+      "https://app.agent-native.com/inbox",
+      "https://analytics.example.test/api/analytics/replay",
+    ],
+    [
+      "path-relative analytics path",
+      "analytics/track",
+      "https://app.agent-native.com/workspace/",
+      "https://app.agent-native.com/workspace/analytics/api/analytics/replay",
+    ],
+  ])(
+    "derives the replay endpoint from the %s env endpoint",
+    async (_label, analyticsEndpoint, browserUrl, expectedReplayEndpoint) => {
+      const { fetchMock } = installBrowser(browserUrl);
+      vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+      vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT", analyticsEndpoint);
+      vi.stubEnv("VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE", "1");
+      let recordOptions: any;
+      recordMock.mockImplementation((options) => {
+        recordOptions = options;
+        return vi.fn();
+      });
+      const { startSessionReplay, stopSessionReplay } =
+        await freshSessionReplay();
+
+      await startSessionReplay();
+      recordOptions.emit({ type: 3, data: { href: "/inbox" } });
+      stopSessionReplay();
+      await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(
+        new URL(String(fetchMock.mock.calls[0][0]), document.baseURI).href,
+      ).toBe(expectedReplayEndpoint);
+    },
+  );
 
   it("derives replay defaults from configureTracking key and endpoint", async () => {
     const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {

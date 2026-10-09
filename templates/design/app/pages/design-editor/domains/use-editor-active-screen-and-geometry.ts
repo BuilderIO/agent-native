@@ -123,6 +123,10 @@ import {
   INTERACT_CUSTOM_DEVICE_NAME,
 } from "../responsive-interact";
 import {
+  classifyDesignSaveFailure,
+  designSaveErrorMessage,
+} from "../save-failure";
+import {
   getOverviewScreenExportGeometryById,
   resolveAvailableActiveFileId,
 } from "../selection-state";
@@ -281,6 +285,7 @@ export function useEditorActiveScreenAndGeometry({
     isSignedIn,
     queryClient,
     shellMode,
+    widgetEmbed,
     embedded,
     isLiveCanvasShareLink,
     setMode,
@@ -739,8 +744,17 @@ export function useEditorActiveScreenAndGeometry({
                   "Reconciled frame geometry save remains queued for retry.",
                   reconciledEntryRetryFailure.error,
                 );
+                warnChangesWillRetry();
+              } else if (
+                classifyDesignSaveFailure(error, navigator.onLine) === "offline"
+              ) {
+                warnChangesWillRetry();
+              } else {
+                toast.error(
+                  designSaveErrorMessage(error) ?? t("common.genericError"),
+                  { id: "design-geometry-save-error" },
+                );
               }
-              warnChangesWillRetry();
             }
           }
         });
@@ -759,6 +773,7 @@ export function useEditorActiveScreenAndGeometry({
       journalOutboxEntry,
       queryClient,
       saveDesignDataAsync,
+      t,
       shellMode,
       warnChangesWillRetry,
     ],
@@ -1842,6 +1857,9 @@ export function useEditorActiveScreenAndGeometry({
               nonce: cameraCommandNonceRef.current,
             });
           },
+          // A widget opens on the whole canvas, not on a selected screen with
+          // its inspector over the artboard.
+          selectTargetScreen: !widgetEmbed,
         },
         command,
       ),
@@ -1853,6 +1871,7 @@ export function useEditorActiveScreenAndGeometry({
       overviewScreens,
       overviewDataReady,
       setZoomForView,
+      widgetEmbed,
     ],
   );
 

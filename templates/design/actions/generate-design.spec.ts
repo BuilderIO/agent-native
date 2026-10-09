@@ -470,6 +470,7 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       expect.objectContaining({
         app_name: "design",
         output_id: "design-1",
+        generation_attempt_id: expect.stringMatching(/^[A-Za-z0-9_-]{16,128}$/),
         output_type: "design",
         file_count: 1,
         outcome: "completed",
@@ -477,6 +478,24 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       }),
       undefined,
     );
+    const started = track.mock.calls.find(
+      ([event]) => event === "generation_started",
+    )?.[1];
+    const completed = track.mock.calls.find(
+      ([event]) => event === "generation_completed",
+    )?.[1];
+    expect(started?.generation_attempt_id).toBe(
+      completed?.generation_attempt_id,
+    );
+    expect(result.urlPath).toContain(
+      `generation_attempt_id=${completed?.generation_attempt_id}`,
+    );
+    const link = (action as any).link({ args: {}, result });
+    expect(
+      new URL(link.url, "https://agent-native.test").searchParams.get(
+        "generation_attempt_id",
+      ),
+    ).toBe(completed?.generation_attempt_id);
   });
 
   it("reports generation when a stylesheet is saved for an existing design", async () => {
@@ -864,12 +883,22 @@ describe("generate-design: new-file creation path", () => {
     });
 
     const savedFileId = result.savedFiles[0]!.id;
-    expect(result.urlPath).toBe(
-      `/design/design-1?editorView=overview&screen=${savedFileId}`,
+    const resultUrl = new URL(result.urlPath, "https://agent-native.test");
+    expect(resultUrl.pathname).toBe("/design/design-1");
+    expect(resultUrl.searchParams.get("editorView")).toBe("overview");
+    expect(resultUrl.searchParams.get("screen")).toBe(savedFileId);
+    const generationAttemptId = resultUrl.searchParams.get(
+      "generation_attempt_id",
     );
+    expect(generationAttemptId).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
     const link = action.link?.({ args: {}, result });
     expect(link?.url).toContain(`screen=${savedFileId}`);
     expect(link?.url).toContain("view=editor");
+    expect(
+      new URL(link!.url, "https://agent-native.test").searchParams.get(
+        "generation_attempt_id",
+      ),
+    ).toBe(generationAttemptId);
   });
 
   it("defaults a generated web screen to a desktop canvas and responsive breakpoints", async () => {

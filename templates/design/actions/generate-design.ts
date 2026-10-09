@@ -51,6 +51,7 @@ import {
   getOverviewScreenFileIds,
   isOverviewScreenFile,
 } from "../shared/design-files.js";
+import { DESIGN_GENERATION_ATTEMPT_QUERY_PARAM } from "../shared/generation-provenance.js";
 import {
   designGenerationSessionKey,
   type DesignGenerationSession,
@@ -77,11 +78,19 @@ import {
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 
-function designDeepLink(designId: string, screenId?: string): string {
+function designDeepLink(
+  designId: string,
+  screenId?: string,
+  generationAttemptId?: string,
+): string {
   return buildDeepLink({
     app: "design",
     view: "editor",
-    params: { designId, screen: screenId },
+    params: {
+      designId,
+      screen: screenId,
+      [DESIGN_GENERATION_ATTEMPT_QUERY_PARAM]: generationAttemptId,
+    },
   });
 }
 
@@ -756,12 +765,14 @@ const generateDesignAction = defineAction({
     const promptCanvasDimensions =
       canvasIntent.kind === "fixed" ? canvasIntent.dimensions : undefined;
     await assertAccess("design", designId, "editor");
+    const generationAttemptId = nanoid();
     track(
       "generation_started",
       {
         app_name: "design",
         template_name: "design",
         output_id: designId,
+        generation_attempt_id: generationAttemptId,
         output_type: "design",
         prompt_type: "ui",
         has_reference_design_system: Boolean(designSystemId),
@@ -1602,6 +1613,7 @@ const generateDesignAction = defineAction({
         app_name: "design",
         template_name: "design",
         output_id: designId,
+        generation_attempt_id: generationAttemptId,
         output_type: "design",
         edit_type: "generation",
         file_count: savedFiles.length,
@@ -1622,6 +1634,7 @@ const generateDesignAction = defineAction({
           app_name: "design",
           template_name: "design",
           output_id: designId,
+          generation_attempt_id: generationAttemptId,
           output_type: "design",
           file_count: savedFiles.length,
           outcome: fileErrors.length > 0 ? "partial" : "completed",
@@ -1634,8 +1647,8 @@ const generateDesignAction = defineAction({
     return {
       designId,
       urlPath: firstRenderableSavedFile
-        ? `/design/${encodeURIComponent(designId)}?editorView=overview&screen=${encodeURIComponent(firstRenderableSavedFile.id)}`
-        : `/design/${encodeURIComponent(designId)}`,
+        ? `/design/${encodeURIComponent(designId)}?editorView=overview&screen=${encodeURIComponent(firstRenderableSavedFile.id)}&${DESIGN_GENERATION_ATTEMPT_QUERY_PARAM}=${encodeURIComponent(generationAttemptId)}`
+        : `/design/${encodeURIComponent(designId)}?${DESIGN_GENERATION_ATTEMPT_QUERY_PARAM}=${encodeURIComponent(generationAttemptId)}`,
       renderable: true,
       savedFiles,
       placedFrames,
@@ -1656,8 +1669,17 @@ const generateDesignAction = defineAction({
     const screenId = urlPath
       ? new URL(urlPath, "http://an.invalid").searchParams.get("screen")
       : null;
+    const generationAttemptId = urlPath
+      ? new URL(urlPath, "http://an.invalid").searchParams.get(
+          DESIGN_GENERATION_ATTEMPT_QUERY_PARAM,
+        )
+      : null;
     return {
-      url: designDeepLink(designId, screenId ?? undefined),
+      url: designDeepLink(
+        designId,
+        screenId ?? undefined,
+        generationAttemptId ?? undefined,
+      ),
       label: "Open design",
       view: "editor",
     };
