@@ -383,7 +383,7 @@ function parseDocumentCreationProvenance(
 
 export default defineAction({
   description:
-    "Create and persist a new Markdown document in Content. Use parentId to nest it, or spaceId/spaceName to choose the workspace for a top-level page; with none of them the page is created in the caller's Personal workspace. Returns the stable document ID and the resolved spaceId for subsequent get-document or edit-document calls.",
+    "Create and persist a new Markdown document in Content. Use parentId to nest it, or spaceId/spaceName to choose the workspace for a top-level page; with none of them the page is created in the caller's Personal workspace. Returns the stable document ID and resolved spaceId. If creativeContextProjectionStatus is pending, the document is committed; retry the same arguments with the returned id to repair its projection without creating a duplicate.",
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -391,7 +391,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Optional pre-generated document ID for optimistic UI; omit for normal external creation.",
+        "Optional pre-generated document ID for optimistic UI. When replaying a create result with creativeContextProjectionStatus pending, use its returned id and the same arguments.",
       ),
     spaceId: z
       .string()
@@ -494,23 +494,21 @@ export default defineAction({
     const actor = requireDocumentRequestActor(ctx);
     const hasCallerSuppliedId = Boolean(args.id);
     const id = args.id || nanoid();
-    const requestDigest = hasCallerSuppliedId
-      ? creationRequestDigest({
-          id,
-          actor,
-          parentId: args.parentId ?? null,
-          spaceId: args.spaceId ?? null,
-          spaceName: args.spaceName?.trim() ?? null,
-          title,
-          content,
-          description,
-          icon,
-          preserveLeadingTitleHeading: args.preserveLeadingTitleHeading,
-          contextPackId: args.contextPackId ?? null,
-          contextModeOverride: args.contextModeOverride ?? null,
-          reuseLabels: args.reuseLabels ?? [],
-        })
-      : null;
+    const requestDigest = creationRequestDigest({
+      id,
+      actor,
+      parentId: args.parentId ?? null,
+      spaceId: args.spaceId ?? null,
+      spaceName: args.spaceName?.trim() ?? null,
+      title,
+      content,
+      description,
+      icon,
+      preserveLeadingTitleHeading: args.preserveLeadingTitleHeading,
+      contextPackId: args.contextPackId ?? null,
+      contextModeOverride: args.contextModeOverride ?? null,
+      reuseLabels: args.reuseLabels ?? [],
+    });
     const hasCreativeContextInput = Boolean(
       args.contextPackId ||
       args.contextModeOverride ||
@@ -864,25 +862,39 @@ export default defineAction({
       );
     }
 
+    let creativeContextProjectionStatus: "pending" | undefined;
     if (creativeContextProvenance) {
-      await recordDocumentCreationContextIfMissing({
-        artifactId: doc.id,
-        ...creativeContextProvenance,
-        elementProvenance: documentCreationElementProvenance(
-          doc.id,
-          creativeContextProvenance,
-        ),
-      });
+      try {
+        await recordDocumentCreationContextIfMissing({
+          artifactId: doc.id,
+          ...creativeContextProvenance,
+          elementProvenance: documentCreationElementProvenance(
+            doc.id,
+            creativeContextProvenance,
+          ),
+        });
+      } catch (error) {
+        creativeContextProjectionStatus = "pending";
+        console.error(
+          `Could not write the Creative Context projection for committed Content document ${doc.id}.`,
+          error,
+        );
+      }
     }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     const access = await assertAccess("document", doc.id, "viewer");
-    return documentCreationResult(
-      access.resource as typeof schema.documents.$inferSelect,
-      access.role,
-      creativeContextProvenance,
-    );
+    return {
+      ...documentCreationResult(
+        access.resource as typeof schema.documents.$inferSelect,
+        access.role,
+        creativeContextProvenance,
+      ),
+      ...(creativeContextProjectionStatus
+        ? { creativeContextProjectionStatus }
+        : {}),
+    };
   },
   link: ({ result }) => {
     const id = (result as { id?: string } | null)?.id;

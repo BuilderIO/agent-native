@@ -399,7 +399,11 @@ describe("space-aware document writers", () => {
         createDocument.run(input),
       );
 
-    await expect(create()).rejects.toThrow("projection store unavailable");
+    const first = await create();
+    expect(first).toMatchObject({
+      id: input.id,
+      creativeContextProjectionStatus: "pending",
+    });
     expect(actionEffects.generationContexts.get(input.id)).toMatchObject({
       contextMode: "off",
       contextPackId: null,
@@ -450,6 +454,57 @@ describe("space-aware document writers", () => {
     ).resolves.toHaveLength(1);
   });
 
+  it("returns the committed id for an id-less create with a pending projection", async () => {
+    const input = {
+      title: "Id-less provenance retry",
+      content: "Body",
+      contextModeOverride: "off" as const,
+    };
+    actionEffects.recordGenerationCreativeContext.mockClear();
+    actionEffects.recordGenerationCreativeContextFromSnapshot.mockClear();
+    actionEffects.recordGenerationCreativeContext.mockImplementationOnce(
+      async () => {
+        throw new Error("generation row unavailable");
+      },
+    );
+
+    const create = (args: typeof input & { id?: string }) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        createDocument.run(args),
+      );
+
+    const first = await create(input);
+    expect(first).toMatchObject({
+      title: input.title,
+      creativeContextProjectionStatus: "pending",
+    });
+    expect(first.id).toEqual(expect.any(String));
+
+    const [createdRow] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, first.id));
+    expect(createdRow?.creationRequestDigest).toMatch(/^[a-f0-9]{64}$/);
+
+    const replayed = await create({ ...input, id: first.id });
+    expect(replayed).toMatchObject({
+      id: first.id,
+      title: input.title,
+      contextMode: "off",
+      contextPackId: null,
+    });
+    expect(replayed.creativeContextProjectionStatus).toBeUndefined();
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, first.id)),
+    ).resolves.toHaveLength(1);
+    expect(
+      actionEffects.recordGenerationCreativeContextFromSnapshot,
+    ).toHaveBeenCalledTimes(1);
+  });
+
   it("restores missing provenance from the committed creation snapshot", async () => {
     const input = {
       id: "optimistic-create-missing-context-row",
@@ -476,6 +531,7 @@ describe("space-aware document writers", () => {
     actionEffects.getGenerationCreativeContext.mockClear();
     actionEffects.recordGenerationCreativeContext.mockClear();
     actionEffects.recordGenerationCreativeContextFromSnapshot.mockClear();
+    actionEffects.validateGenerationCreativeContext.mockClear();
     actionEffects.validateGenerationCreativeContext.mockResolvedValueOnce(
       validated,
     );
@@ -491,7 +547,11 @@ describe("space-aware document writers", () => {
       runWithRequestContext({ userEmail: OWNER }, () =>
         createDocument.run(input),
       );
-    await expect(create()).rejects.toThrow("generation row was not inserted");
+    const first = await create();
+    expect(first).toMatchObject({
+      id: input.id,
+      creativeContextProjectionStatus: "pending",
+    });
 
     const [createdRow] = await getDb()
       .select()
@@ -504,11 +564,7 @@ describe("space-aware document writers", () => {
     });
     expect(actionEffects.generationContexts.has(input.id)).toBe(false);
 
-    actionEffects.validateGenerationCreativeContext.mockImplementationOnce(
-      () => {
-        throw new Error("current context pack access was revoked");
-      },
-    );
+    actionEffects.validateGenerationCreativeContext.mockClear();
     const replayed = await create();
 
     expect(replayed).toMatchObject({
@@ -518,7 +574,7 @@ describe("space-aware document writers", () => {
     });
     expect(
       actionEffects.validateGenerationCreativeContext,
-    ).toHaveBeenCalledTimes(1);
+    ).not.toHaveBeenCalled();
     expect(
       actionEffects.recordGenerationCreativeContextFromSnapshot,
     ).toHaveBeenCalledTimes(1);
@@ -697,7 +753,10 @@ describe("space-aware document writers", () => {
       );
 
     try {
-      await expect(create()).rejects.toThrow("projection store unavailable");
+      await expect(create()).resolves.toMatchObject({
+        id: input.id,
+        creativeContextProjectionStatus: "pending",
+      });
       actionEffects.getGenerationCreativeContext.mockClear();
       actionEffects.recordGenerationCreativeContext.mockClear();
       actionEffects.validateGenerationCreativeContext.mockClear();
