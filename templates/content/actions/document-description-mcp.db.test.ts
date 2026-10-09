@@ -166,6 +166,27 @@ afterAll(async () => {
 const longDescription = `${"Complete guidance with Unicode café 🪶 and Markdown **emphasis**.\n".repeat(160)}END OF DESCRIPTION`;
 
 describe("document descriptions through external MCP", () => {
+  it("rejects combined description and favorite changes before mutation", async () => {
+    const created = await createPage({
+      title: "Separate favorite update",
+      description: "Original guidance",
+    });
+    const before = await readRow(created.id);
+    const rejected = await ownerClient.callTool({
+      name: "update-document",
+      arguments: {
+        id: created.id,
+        description: "Must not be dropped",
+        isFavorite: false,
+      },
+    });
+    expect(rejected.isError).toBe(true);
+    expect(JSON.stringify(rejected.content)).toContain(
+      "FAVORITE_UPDATE_MUST_BE_SEPARATE",
+    );
+    expect(await readRow(created.id)).toEqual(before);
+  });
+
   it("distinguishes a committed description update from losing read access afterward", async () => {
     const created = await createPage({
       title: "Committed description",
