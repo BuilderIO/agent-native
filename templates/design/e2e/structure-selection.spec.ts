@@ -55,7 +55,7 @@ const BOARD_FIXTURE = FIXTURE.replace("loose-a", "board-a")
   .replace("Loose A", "Board A")
   .replace("loose-b", "board-b")
   .replace("Loose B", "Board B");
-const MOVE_TARGET_FIXTURE = `<!doctype html>
+const IDLESS_MOVE_FIXTURE = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Source identity</title></head>
 <body style="margin:0;min-height:${PAGE_H}px;background:#0f1115;color:#fff">
   <main class="identity-frame" style="position:absolute;left:20px;top:80px;width:360px;height:220px">
@@ -264,24 +264,29 @@ test.beforeEach(async ({ page }, testInfo) => {
 });
 
 test.describe("keyboard selection traversal", () => {
-  test("Layers-first selection preserves source identity through a move and reload", async ({
+  test("Layers-first selection persists source identity for a later move and reload", async ({
     page,
   }) => {
-    const id = await newDesign(page, MOVE_TARGET_FIXTURE);
+    const id = await newDesign(page, IDLESS_MOVE_FIXTURE);
     try {
       await openEditor(page, id);
       const initial = await indexHtml(page, id);
-      const nodeId =
-        /class="move-target"[^>]*data-agent-native-node-id="([^"]+)"/i.exec(
-          initial,
-        )?.[1];
-      expect(nodeId).toMatch(/^an-/);
+      expect(initial).not.toMatch(
+        /class="move-target"[^>]*data-agent-native-node-id=/,
+      );
 
       await selectViaTree(page, "Move target");
       await expect
         .poll(() => indexHtml(page, id))
-        .toContain(`data-agent-native-node-id="${nodeId}"`);
-      const selectedHtml = await indexHtml(page, id);
+        .toMatch(
+          /<button[^>]*class="move-target"[^>]*data-agent-native-node-id="an-[^"]+"/,
+        );
+      const stampedHtml = await indexHtml(page, id);
+      const nodeId =
+        /class="move-target"[^>]*data-agent-native-node-id="([^"]+)"/.exec(
+          stampedHtml,
+        )?.[1];
+      expect(nodeId).toMatch(/^an-/);
 
       const styleForTarget = (html: string) => {
         const tag = new RegExp(
@@ -292,7 +297,7 @@ test.describe("keyboard selection traversal", () => {
           ? styleNum(/\bstyle="([^"]*)"/i.exec(tag)?.[1] ?? "", "left")
           : NaN;
       };
-      const before = styleForTarget(selectedHtml);
+      const before = styleForTarget(stampedHtml);
       await page.keyboard.press("ArrowRight");
       await expect
         .poll(() => indexHtml(page, id).then(styleForTarget))
