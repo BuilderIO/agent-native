@@ -971,7 +971,7 @@ ${"<span>".repeat(70)}deep
     expect(importMarkdown(`# Notes\n\n${text}\n`).dialect).toBe("markdown");
   });
 
-  it("reads Content Markdown after an indented code block that shows a fence", () => {
+  it("keeps text after an indented code block that shows a fence out of the code", () => {
     const page = importMarkdown(
       [
         "Example:",
@@ -985,7 +985,18 @@ ${"<span>".repeat(70)}deep
       ].join("\n"),
     );
 
-    expect(page.dialect).toBe("nfm");
+    expect(page.dialect).toBe("markdown");
+    expect(page.doc.content).toEqual([
+      expect.objectContaining({ type: "paragraph" }),
+      expect.objectContaining({
+        type: "codeBlock",
+        content: [{ type: "text", text: "```\ncode" }],
+      }),
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "Inside" }],
+      },
+    ]);
   });
 
   it("reads Content Markdown with an escaped backtick as Content Markdown", () => {

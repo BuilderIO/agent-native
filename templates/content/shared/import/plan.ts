@@ -94,25 +94,25 @@ function splitDataUrl(
 }
 
 /**
- * The bytes a percent-encoded `data:` payload spells, or null when a `%` isn't
- * followed by two hex digits. The bytes needn't be text: a PNG written this
- * way starts `%89PNG`, which `decodeURIComponent` refuses as invalid UTF-8.
+ * The bytes a percent-encoded `data:` payload spells. The bytes needn't be
+ * text: a PNG written this way starts `%89PNG`, which `decodeURIComponent`
+ * refuses as invalid UTF-8. A `%` not followed by two hex digits stays a `%`,
+ * as browsers keep it, so an SVG holding `100%` still shows.
  */
-function percentDecodedBytes(payload: string): Uint8Array | null {
-  if (/%(?![0-9a-f]{2})/i.test(payload)) return null;
+function percentDecodedBytes(payload: string): Uint8Array {
   const encoded = new TextEncoder().encode(payload);
   const bytes = new Uint8Array(encoded.length);
   let length = 0;
   for (let index = 0; index < encoded.length; index++) {
     if (encoded[index] === 0x25) {
-      bytes[length++] = parseInt(
-        String.fromCharCode(encoded[index + 1], encoded[index + 2]),
-        16,
-      );
-      index += 2;
-    } else {
-      bytes[length++] = encoded[index];
+      const hex = String.fromCharCode(encoded[index + 1], encoded[index + 2]);
+      if (/^[0-9a-f]{2}$/i.test(hex)) {
+        bytes[length++] = parseInt(hex, 16);
+        index += 2;
+        continue;
+      }
     }
+    bytes[length++] = encoded[index];
   }
   return bytes.subarray(0, length);
 }
@@ -126,9 +126,7 @@ function percentDecodedBytes(payload: string): Uint8Array | null {
 function base64Digits(payload: string): string | null {
   let text = payload;
   if (payload.includes("%")) {
-    const bytes = percentDecodedBytes(payload);
-    if (!bytes) return null;
-    text = new TextDecoder("latin1").decode(bytes);
+    text = new TextDecoder("latin1").decode(percentDecodedBytes(payload));
   }
   text = text.replace(/[\t\n\f\r ]/g, "");
   const digits = text.replace(/={1,2}$/, "");
@@ -138,16 +136,16 @@ function base64Digits(payload: string): string | null {
 
 /**
  * Decoded size of a `data:` URL, measured without decoding base64. One with
- * no payload, or one that won't decode, such as a stray `%` or a character
- * base64 doesn't use, has no size, so the preview reports the image missing
- * instead of apply storing a broken one.
+ * no payload, or base64 that won't decode, such as a character base64 doesn't
+ * use, has no size, so the preview reports the image missing instead of apply
+ * storing a broken one.
  */
 export function dataUrlByteLength(dataUrl: string): number | null {
   const parts = splitDataUrl(dataUrl);
   if (!parts) return null;
   const length = parts.base64
     ? (base64Digits(parts.payload)?.length ?? 0) * 0.75
-    : (percentDecodedBytes(parts.payload)?.length ?? 0);
+    : percentDecodedBytes(parts.payload).length;
   return Math.floor(length) || null;
 }
 
@@ -157,7 +155,7 @@ export function dataUrlBytes(dataUrl: string): Uint8Array | null {
   if (!parts) return null;
   if (!parts.base64) {
     const bytes = percentDecodedBytes(parts.payload);
-    return bytes?.length ? bytes : null;
+    return bytes.length ? bytes : null;
   }
   const digits = base64Digits(parts.payload);
   if (!digits) return null;

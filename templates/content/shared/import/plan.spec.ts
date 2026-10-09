@@ -132,8 +132,6 @@ describe("Import planning", () => {
     expect(dataUrlByteLength("data:image/svg+xml,%3Csvg%3E")).toBe(5);
     expect(dataUrlByteLength("data:image/png,%89PNG%0D%0A%1A%0A")).toBe(8);
     expect(dataUrlByteLength("data:image/svg+xml,café")).toBe(5);
-    expect(dataUrlByteLength("data:image/svg+xml,100%")).toBeNull();
-    expect(dataUrlByteLength("data:image/svg+xml,%G0")).toBeNull();
     expect(dataUrlByteLength("data:image/png")).toBeNull();
     expect(dataUrlByteLength("data:image/png,")).toBeNull();
     expect(dataUrlByteLength("data:image/png;base64,")).toBeNull();
@@ -150,6 +148,20 @@ describe("Import planning", () => {
 
       expect([...dataUrlBytes(url)!]).toEqual(bytes);
       expect(dataUrlByteLength(url)).toBe(bytes.length);
+    },
+  );
+
+  it.each([
+    ["100%", "100%"],
+    ["%G0", "%G0"],
+    ["%3Csvg%3E100%%3C/svg%3E", "<svg>100%</svg>"],
+  ])(
+    "keeps a percent sign that starts no escape in %s, as browsers do",
+    (payload, text) => {
+      const url = `data:image/svg+xml,${payload}`;
+
+      expect(new TextDecoder().decode(dataUrlBytes(url)!)).toBe(text);
+      expect(dataUrlByteLength(url)).toBe(text.length);
     },
   );
 
@@ -170,7 +182,7 @@ describe("Import planning", () => {
       markdown: [
         {
           path: "guide.md",
-          text: "![Chart](data:image/svg+xml,<svg>100%</svg>)",
+          text: "![Chart](data:image/png;base64,QUJD!)",
         },
       ],
       imagePaths: new Set(),
