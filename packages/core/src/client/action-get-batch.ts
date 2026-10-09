@@ -159,7 +159,7 @@ async function sendBatch(items: PendingGet[]): Promise<void> {
   // failed POST each time. Any other answer of that kind is transient: only
   // this batch falls back, and the next tick batches again.
   if (response.status === 404 || response.status === 405) {
-    batchUnsupported = true;
+    if (text.includes(ACTION_BATCH_ACTION_NAME)) batchUnsupported = true;
     sendEachSingle(items);
     return;
   }

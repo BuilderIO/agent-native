@@ -248,6 +248,40 @@ describe("action GET batching", () => {
     ]);
   });
 
+  it("falls back for one batch on a transient 404, and batches again on the next tick", async () => {
+    let transient = true;
+    const { calls } = stubFetch((call) => {
+      if (call.url !== BATCH_URL) return jsonResponse({ url: call.url });
+      if (transient) {
+        return jsonResponse({ error: "Gateway timeout" }, { status: 404 });
+      }
+      return batchResponses(call, (index) => ({
+        status: 200,
+        body: { index },
+      }));
+    });
+
+    const first = await Promise.all([
+      callAction("get-a", {}, { method: "GET" }),
+      callAction("get-b", {}, { method: "GET" }),
+    ]);
+    expect(first).toEqual([
+      { url: "/_agent-native/actions/get-a" },
+      { url: "/_agent-native/actions/get-b" },
+    ]);
+
+    transient = false;
+    calls.length = 0;
+    const second = await Promise.all([
+      callAction("get-c", {}, { method: "GET" }),
+      callAction("get-d", {}, { method: "GET" }),
+    ]);
+    expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
+      `POST ${BATCH_URL}`,
+    ]);
+    expect(second).toEqual([{ index: 0 }, { index: 1 }]);
+  });
+
   it("sends each call alone when the batch is too large, and batches again on the next tick", async () => {
     let tooLarge = true;
     const { calls } = stubFetch((call) => {
