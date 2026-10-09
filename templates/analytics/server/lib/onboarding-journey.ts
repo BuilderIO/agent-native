@@ -163,7 +163,9 @@ interface EventRead {
   rows: JourneyEventRow[];
   invalidRows: number;
   truncated: boolean;
-  lastSessionDropped: boolean;
+  onboardingTruncated: boolean;
+  standaloneSetupTruncated: boolean;
+  lastSessionDroppedFor: JourneyEventRow["journeyKind"] | null;
   pages: number;
 }
 
@@ -174,6 +176,8 @@ async function readJourneyEvents(
 ): Promise<EventRead> {
   const raw: Record<string, unknown>[] = [];
   let truncated = false;
+  let truncatedAt: JourneyEventRow["journeyKind"] | null = null;
+  let overflowSessionId: string | null = null;
   let pages = 0;
   for (;;) {
     // One row past the budget tells a full read from a cut one.
@@ -194,6 +198,12 @@ async function readJourneyEvents(
     if (page.rows.length < limit) break;
     if (raw.length > maxEventRows) {
       truncated = true;
+      const overflowKind = raw[maxEventRows]?.journey_kind;
+      truncatedAt =
+        overflowKind === "onboarding" || overflowKind === "standalone_setup"
+          ? overflowKind
+          : null;
+      overflowSessionId = text(raw[maxEventRows]?.session_id);
       raw.length = maxEventRows;
       break;
     }
@@ -207,16 +217,38 @@ async function readJourneyEvents(
     else byId.set(row.id, row);
   }
   let rows = [...byId.values()];
-  let lastSessionDropped = false;
+  let lastSessionDroppedFor: JourneyEventRow["journeyKind"] | null = null;
   if (truncated) {
-    // Rows arrive ordered by journey kind and session, so only the final session can be cut.
-    const lastSession = text(raw[raw.length - 1]?.session_id);
-    if (lastSession) {
-      rows = rows.filter((row) => row.sessionId !== lastSession);
-      lastSessionDropped = true;
+    const lastIncluded = raw[raw.length - 1];
+    const lastSession = text(lastIncluded?.session_id);
+    const lastKind = lastIncluded?.journey_kind;
+    const knownLastKind =
+      lastKind === "onboarding" || lastKind === "standalone_setup"
+        ? lastKind
+        : null;
+    const cutWithinLastSession =
+      truncatedAt !== null &&
+      truncatedAt === knownLastKind &&
+      overflowSessionId !== null &&
+      overflowSessionId === lastSession;
+    if (lastSession && (truncatedAt === null || cutWithinLastSession)) {
+      rows = rows.filter(
+        (row) =>
+          (knownLastKind !== null && row.journeyKind !== knownLastKind) ||
+          row.sessionId !== lastSession,
+      );
+      lastSessionDroppedFor = knownLastKind;
     }
   }
-  return { rows, invalidRows, truncated, lastSessionDropped, pages };
+  return {
+    rows,
+    invalidRows,
+    truncated,
+    onboardingTruncated: truncated && truncatedAt !== "standalone_setup",
+    standaloneSetupTruncated: truncated,
+    lastSessionDroppedFor,
+    pages,
+  };
 }
 
 function groupSessions(rows: readonly JourneyEventRow[]): {
@@ -393,9 +425,14 @@ export async function getOnboardingJourney(
     : null;
 
   const notes: string[] = [];
-  if (read.truncated) {
+  if (read.onboardingTruncated) {
     notes.push(
-      `Event read stopped at maxEventRows=${args.maxEventRows}; counts are a partial sample${read.lastSessionDropped ? " and the last session read was left out" : ""}.`,
+      `Event read stopped at maxEventRows=${args.maxEventRows} while reading onboarding events; onboarding counts are a partial sample${read.lastSessionDroppedFor === "onboarding" ? " and the last onboarding session read was left out" : ""}.`,
+    );
+  }
+  if (read.standaloneSetupTruncated) {
+    notes.push(
+      `Standalone setup events were not fully read before maxEventRows=${args.maxEventRows}${read.lastSessionDroppedFor === "standalone_setup" ? "; the last standalone setup session read was left out" : ""}.`,
     );
   }
   if (read.pages > 1 && args.dateTo >= new Date().toISOString().slice(0, 10)) {
@@ -430,7 +467,7 @@ export async function getOnboardingJourney(
     rootN: built.rootN,
     ...(notes.length ? { notes } : {}),
   };
-  const truncated = read.truncated || capped.dropped > 0;
+  const truncated = read.onboardingTruncated || capped.dropped > 0;
   if (args.format === "summary") {
     return {
       format: "summary",
@@ -457,7 +494,8 @@ export async function getOnboardingJourney(
                     : standalone.sessions.filter((session) =>
                         bySession.has(session.sessionId),
                       ).length,
-                truncated: read.truncated || standaloneCapped.dropped > 0,
+                truncated:
+                  read.standaloneSetupTruncated || standaloneCapped.dropped > 0,
               },
               outline: formatJourneyOutline(
                 standaloneCapped.nodes,
@@ -487,7 +525,8 @@ export async function getOnboardingJourney(
               sessionsWithReplay: standalone.sessions.filter((session) =>
                 bySession.has(session.sessionId),
               ).length,
-              truncated: read.truncated || standaloneCapped.dropped > 0,
+              truncated:
+                read.standaloneSetupTruncated || standaloneCapped.dropped > 0,
             },
             nodes: standaloneCapped.nodes,
           },

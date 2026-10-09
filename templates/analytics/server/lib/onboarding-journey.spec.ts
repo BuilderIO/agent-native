@@ -305,7 +305,52 @@ describe("getOnboardingJourney", () => {
     expect(tree.coverage.truncated).toBe(true);
     // s2 was cut off mid-session, so it is not in the tree.
     expect(tree.rootN).toBe(1);
-    expect(tree.notes?.join(" ")).toMatch(/maxEventRows=3.*last session/);
+    expect(tree.notes?.join(" ")).toMatch(
+      /maxEventRows=3.*last onboarding session/,
+    );
+  });
+
+  it("keeps onboarding coverage complete when only standalone rows exceed the read cap", async () => {
+    const standaloneRows = [
+      eventRow("home-a", "pageview", 1, {
+        path: "/home",
+        journey_kind: "standalone_setup",
+      }),
+      eventRow("home-b", "pageview", 1, {
+        path: "/home",
+        journey_kind: "standalone_setup",
+      }),
+      eventRow("home-b", "integration_setup_exposed", 2, {
+        flow: "chat_setup",
+        method_id: "setup_card",
+        journey_kind: "standalone_setup",
+      }),
+    ];
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({
+      rows: [...journeyRows(), ...standaloneRows],
+      schema: [],
+    });
+    mocks.listJourneyRecordings.mockResolvedValue({
+      recordings: [...["s1", "s2", "s3", "home-a"].map(recordingFor)],
+      complete: true,
+    });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      maxEventRows: 8,
+    })) as JourneyTree;
+
+    expect(tree.coverage.truncated).toBe(false);
+    expect(tree.standaloneSetup?.coverage).toMatchObject({
+      sessionsWithEvents: 1,
+      truncated: true,
+    });
+    expect(tree.notes?.join(" ")).toMatch(
+      /Standalone setup events were not fully read/,
+    );
+    expect(tree.notes?.join(" ")).not.toMatch(
+      /onboarding counts are a partial sample/,
+    );
   });
 
   it("does not flag a read that ends exactly at the budget", async () => {

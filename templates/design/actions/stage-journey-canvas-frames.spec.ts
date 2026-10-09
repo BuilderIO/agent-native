@@ -319,6 +319,26 @@ describe("stage-journey-canvas-frames", () => {
     expect(mocks.row).toBeNull();
   });
 
+  it("uploads a fresh frame on the first attempt when only unrelated staged rows expired", async () => {
+    const expired = stagedRow(24, "journey-canvas-stage:older-import");
+    expired.id = "jcu_expired-other-import";
+    expired.createdAt = new Date(
+      Date.now() - 8 * 24 * 60 * 60 * 1_000,
+    ).toISOString();
+    mocks.extraRows = [expired];
+
+    const result = (await run(input())) as {
+      stagedFrames: Array<{ stagedFrameId: string }>;
+    };
+
+    expect(mocks.storeBytes).toHaveBeenCalledOnce();
+    expect(result.stagedFrames[0]?.stagedFrameId).toMatch(/^jcu_/);
+    expect(mocks.row?.blobHandle).toContain("private-blob-1");
+    expect(mocks.queueStagedCleanup).toHaveBeenCalledWith(expect.anything(), [
+      expired.blobHandle,
+    ]);
+  });
+
   it("enforces per-Design staged-byte limits across repeated imports", async () => {
     mocks.extraRows = [
       stagedRow(512 * 1024 * 1024, "journey-canvas-stage:older-import"),

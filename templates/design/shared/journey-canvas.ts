@@ -208,7 +208,7 @@ export const journeyFrameSchema = z
       .max(2_147_483_647)
       .optional()
       .describe(
-        "Actual replay seek offset used to capture this screenshot, measured from recordingStartedAt.",
+        "Actual replay seek offset used to capture this screenshot, measured from recordingStartedAt. Required when stagedFrameId is passed.",
       ),
     recordingStartedAt: isoTimestamp
       .optional()
@@ -245,6 +245,16 @@ export const journeyFrameSchema = z
         code: "custom",
         path: ["route"],
         message: "Pass the captured replay route for a staged frame.",
+      });
+    }
+    if (
+      frame.stagedFrameId !== undefined &&
+      frame.screenshotOffsetMs === undefined
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["screenshotOffsetMs"],
+        message: "Pass the actual screenshot seek offset for a staged frame.",
       });
     }
   });
@@ -504,9 +514,13 @@ function localizedDateLabel(
   value: JourneyFrameCaption["dateLabel"] | undefined,
   referenceOnly: boolean,
   hasReplayObservation: boolean,
+  hasGenerationCompletionEvidence: boolean,
   messages: JourneyCanvasMessages,
 ): string {
-  if (value === "generation_completed event (UTC)") {
+  if (
+    value === "generation_completed event (UTC)" &&
+    hasGenerationCompletionEvidence
+  ) {
     return messages.generationCompletedEvent;
   }
   if (
@@ -609,9 +623,15 @@ function cardProvenanceMarkup(
   const showsReplayObservation =
     provenance.dateLabel === `${messages.replayObservation} (UTC)` &&
     provenance.replayObservedAt !== null;
+  const showsGenerationCompletion =
+    provenance.dateLabel === messages.generationCompletedEvent &&
+    caption?.evidenceStatus === "generation_completed" &&
+    caption.evidenceAt !== undefined;
   const displayedTimestamp = showsReplayObservation
     ? provenance.replayObservedAt!
-    : provenance.eventAt;
+    : showsGenerationCompletion
+      ? caption!.evidenceAt!
+      : provenance.eventAt;
   const captionMarkup = caption
     ? [
         caption.observedState
@@ -1119,6 +1139,8 @@ export function planJourneyCanvas(
               candidate.caption?.dateLabel,
               entry.node.referenceOnly === true,
               candidateReplayObservedAt !== null,
+              candidate.caption?.evidenceStatus === "generation_completed" &&
+                candidate.caption.evidenceAt !== undefined,
               messages,
             ),
             recordingId: candidateExample.recordingId,

@@ -459,6 +459,9 @@ export default defineAction({
       ...preflightRequestedRows,
       ...preflightStagedRows,
     ].some((row) => expiredStageRow(row.createdAt, preflightNow));
+    const preflightHasExpiredInput = preflightRequestedRows.some((row) =>
+      expiredStageRow(row.createdAt, preflightNow),
+    );
     const preflightRows = activeStageRows(
       preflightRequestedRows,
       preflightStagedRows,
@@ -508,10 +511,13 @@ export default defineAction({
       );
     }
 
-    const storage =
-      preflightNewFrames.length && !preflightHasExpiredRows
-        ? await resolveStorage()
-        : null;
+    const preflightAtInspectionCap =
+      preflightStagedRows.length === MAX_STAGED_ROWS_TO_INSPECT;
+    const shouldUploadFrames =
+      preflightNewFrames.length > 0 &&
+      !preflightHasExpiredInput &&
+      !preflightAtInspectionCap;
+    const storage = shouldUploadFrames ? await resolveStorage() : null;
     type StoredStageBlob = Awaited<
       ReturnType<typeof storeReplayScreenshotBytesAsPrivateBlob>
     >;
@@ -520,7 +526,7 @@ export default defineAction({
       { serializedHandle: string; stored: StoredStageBlob }
     >();
     const uploadResults = await Promise.allSettled(
-      preflightHasExpiredRows
+      !shouldUploadFrames
         ? []
         : preflightNewFrames.map(async (prepared) => {
             const stored = await storeReplayScreenshotBytesAsPrivateBlob({

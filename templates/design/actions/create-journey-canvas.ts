@@ -184,7 +184,7 @@ export default defineAction({
     "Create or refresh an onboarding-journey storyboard on a Design canvas in one call: a left-to-right tree of step cards with real session screenshots, arrows between them, cohort percentage labels on forks, and a 'No later step observed' stub for sessions whose last observed step was a node. These counts do not prove that a session exited. Each call accepts up to 1,000 journey nodes and 900 frame entries, subject to a 256 MiB total screenshot-byte limit. " +
     "For a separately observed visual-reference chain, mark each step node `referenceOnly: true` and omit cohort fields (`n`, `pctOfRoot`, `pctOfParent`, `dropoffN`, `dropoffPct`). Its card is labeled 'Observed session reference'; cohort counts, percentages and drop-off stubs are not shown for those nodes, and incoming edge percentages are suppressed. Keep each frame's `exampleIndex` matched to its example so event, recording, replay-offset, and screenshot-capture provenance stays attached. " +
     "Pass the journey tree from Analytics `get-onboarding-journey` as `tree` and one captured frame per example as `frames` ({ nodeKey, exampleIndex, width, height, capturedAt } plus exactly one of `imageUrl` (https only; data: URLs are rejected), `attachmentRef` (a personal private attachment), or `stagedFrameId` (a PNG staged in this Design with `stage-journey-canvas-frames`; consumed without copying its blob)). When `tree.app` is `all`, set each private frame's `sourceApp` to the source template; app-prefixed node keys can supply it. Private blob providers are used by default; set `allowEncryptedPublicUploadFallback: true` only when this call is approved to use the configured encrypted public-upload fallback. " +
-    "Each card shows the exact UTC event or replay-observation timestamp, recording id, actual screenshot seek offset, and screenshot capture date. For staged frames, pass the captured `route`; pass `recordingStartedAt` with `screenshotOffsetMs` to show the exact replay observation time. The Analytics example offset is only a nominal checkpoint target because it includes settling time. A frame may include `caption` metadata (`observedState`, `outputTitle`, recorded `actor` and `actorSource`, `dateLabel`, `evidenceStatus`, optional `evidenceAt` for a distinct source event timestamp, `prompt`, optional `promptTranslation`/`promptSource`, or `promptUnavailableReason`); it is displayed with that frame, and a full prompt can be opened from its caption. Use the actor identity from the recording, never the storage owner. " +
+    "Each card shows the exact UTC event or replay-observation timestamp, recording id, actual screenshot seek offset, and screenshot capture date. For staged frames, pass the captured `route` and actual `screenshotOffsetMs`; pass `recordingStartedAt` with `screenshotOffsetMs` to show the exact replay observation time. The Analytics example offset is only a nominal checkpoint target because it includes settling time. A frame may include `caption` metadata (`observedState`, `outputTitle`, recorded `actor` and `actorSource`, `dateLabel`, `evidenceStatus`, optional `evidenceAt` for a distinct source event timestamp, `prompt`, optional `promptTranslation`/`promptSource`, or `promptUnavailableReason`); it is displayed with that frame, and a full prompt can be opened from its caption. Use the actor identity from the recording, never the storage owner. " +
     "Pass `locale` to translate the standalone card labels; it defaults to `en-US`. " +
     "When a node has multiple frames, the card includes accessible numbered controls to switch examples in place; all example screenshots remain private attachments. " +
     "Cards are sized from each frame's real aspect ratio; extra examples (up to `maxExamplesPerNode`, default 3) stack behind the front card. A step with no frame is left off and listed in `skippedNodes` unless `includeScreenshotless` is true. " +
@@ -244,6 +244,10 @@ export default defineAction({
     const stagedSourceAppByRowId = new Map<string, string>();
     let createdDesignId: string | undefined;
     let mutationStarted = false;
+    let boardFileId: string | undefined;
+    let previousBoardContent: string | undefined;
+    let nextBoardContent: string | undefined;
+    let removedBlobHandles: string[] = [];
     try {
       const blobOwnerEmail =
         existingAccess?.resource.ownerEmail ?? requesterEmail;
@@ -449,6 +453,7 @@ export default defineAction({
       const access = await assertAccess("design", designId, "editor");
       const design = access.resource as typeof schema.designs.$inferSelect;
       const board = await migrateBoardObjectsToFile.run({ designId }, context);
+      boardFileId = board.boardFileId;
       const [boardFile] = await db
         .select({
           id: schema.designFiles.id,
@@ -475,11 +480,11 @@ export default defineAction({
       const liveBoard = await readLiveSourceFile(
         boardFile as SourceWorkspaceFile,
       );
+      previousBoardContent = liveBoard.content;
+      nextBoardContent = liveBoard.content;
 
       let origin = { x: 0, y: 0 };
-      let nextBoardContent = liveBoard.content;
       let lockedBoardContent = liveBoard.content;
-      let removedBlobHandles: string[] = [];
       const ownBlobHandles = new Set<string>();
       const now = new Date().toISOString();
       mutationStarted = true;
@@ -869,8 +874,8 @@ export default defineAction({
 
       const collabSyncPending = await reconcileCollaboration({
         boardFileId: boardFile.id,
-        previousBoardContent: liveBoard.content,
-        nextBoardContent,
+        previousBoardContent,
+        nextBoardContent: nextBoardContent!,
         screens: plan.screens,
       });
       if (removedBlobHandles.length) {
@@ -893,16 +898,68 @@ export default defineAction({
         collabSyncPending,
       };
     } catch (error) {
-      const mayHaveLanded =
-        mutationStarted &&
-        (await writeMayHaveLanded({
+      const landingStatus = mutationStarted
+        ? await writeMayHaveLanded({
+            designId,
+            screens: plan.screens.map((screen) => {
+              const attachment = screen.attachment;
+              const blob = attachment
+                ? stored.get(attachment.rowId)
+                : undefined;
+              return {
+                fileId: screen.fileId,
+                html: screen.html,
+                ...(attachment
+                  ? {
+                      screenshot: {
+                        rowId: attachment.rowId,
+                        blobHandle: blob
+                          ? JSON.stringify(blob.blobHandle)
+                          : null,
+                      },
+                    }
+                  : {}),
+              };
+            }),
+          })
+        : "not_landed";
+      if (landingStatus === "landed") {
+        if (
+          !boardFileId ||
+          previousBoardContent === undefined ||
+          nextBoardContent === undefined
+        ) {
+          console.warn(
+            "[design-journey-canvas] The storyboard rows landed but collaboration inputs are unavailable; preserving the saved Design.",
+          );
+          throw error;
+        }
+        const collabSyncPending = await reconcileCollaboration({
+          boardFileId,
+          previousBoardContent,
+          nextBoardContent,
+          screens: plan.screens.map(({ fileId, html }) => ({ fileId, html })),
+        });
+        if (removedBlobHandles.length) {
+          try {
+            await deleteVisualEditSnapshotBlobs(removedBlobHandles);
+          } catch (cleanupError) {
+            console.warn(
+              "[design-journey-canvas] Replaced screenshot cleanup remains queued:",
+              cleanupError,
+            );
+          }
+        }
+        return {
           designId,
-          isNewDesign: Boolean(createdDesignId),
-          blobHandles: [...newlyStored.values()].map((blob) =>
-            JSON.stringify(blob.blobHandle),
-          ),
-        }));
-      if (!mayHaveLanded) {
+          url: designDeepLink(designId),
+          nodeCount: plan.nodeCount,
+          frameCount: plan.frameCount,
+          skippedNodes: plan.skippedNodes,
+          collabSyncPending,
+        };
+      }
+      if (landingStatus === "not_landed") {
         if (createdDesignId) {
           try {
             await deleteDesign.run({ id: createdDesignId }, context);
@@ -930,54 +987,78 @@ export default defineAction({
   },
 });
 
-/**
- * `mutateDesignData` can reject after its transaction committed, and deleting
- * the design or blobs then would break rows that reference them. When the
- * database cannot answer, assume the write landed.
- */
+/** Unknown verification must preserve resources but cannot turn the failed write into success. */
 async function writeMayHaveLanded(args: {
   designId: string;
-  isNewDesign: boolean;
-  blobHandles: readonly string[];
-}): Promise<boolean> {
+  screens: readonly {
+    fileId: string;
+    html: string;
+    screenshot?: { rowId: string; blobHandle: string | null };
+  }[];
+}): Promise<"landed" | "not_landed" | "unknown"> {
   try {
     await assertAccess("design", args.designId, "editor");
     const db = getDb();
-    if (args.blobHandles.length) {
-      const rows = await db
-        .select({ blobHandle: schema.designBoardReplayScreenshots.blobHandle })
-        .from(schema.designBoardReplayScreenshots)
-        .where(
-          and(
-            eq(schema.designBoardReplayScreenshots.designId, args.designId),
-            like(
-              schema.designBoardReplayScreenshots.id,
-              likePrefix(JOURNEY_REPLAY_ROW_PREFIX),
-            ),
-          ),
-        );
-      if (rows.some((row) => args.blobHandles.includes(row.blobHandle))) {
-        return true;
-      }
-    }
-    if (!args.isNewDesign) return false;
     const files = await db
-      .select({ id: schema.designFiles.id })
+      .select({
+        id: schema.designFiles.id,
+        content: schema.designFiles.content,
+      })
       .from(schema.designFiles)
       .where(
         and(
           eq(schema.designFiles.designId, args.designId),
-          like(schema.designFiles.id, likePrefix(JOURNEY_FILE_ID_PREFIX)),
+          inArray(
+            schema.designFiles.id,
+            args.screens.map(({ fileId }) => fileId),
+          ),
         ),
+      );
+    const filesById = new Map(files.map((file) => [file.id, file.content]));
+    if (
+      !args.screens.every(
+        (screen) => filesById.get(screen.fileId) === screen.html,
       )
-      .limit(1);
-    return files.length > 0;
+    ) {
+      return "not_landed";
+    }
+
+    const expectedScreenshots = args.screens.flatMap(({ screenshot }) =>
+      screenshot ? [screenshot] : [],
+    );
+    if (expectedScreenshots.length) {
+      const rows = await db
+        .select({
+          id: schema.designBoardReplayScreenshots.id,
+          blobHandle: schema.designBoardReplayScreenshots.blobHandle,
+        })
+        .from(schema.designBoardReplayScreenshots)
+        .where(
+          and(
+            eq(schema.designBoardReplayScreenshots.designId, args.designId),
+            inArray(
+              schema.designBoardReplayScreenshots.id,
+              expectedScreenshots.map(({ rowId }) => rowId),
+            ),
+          ),
+        );
+      const rowsById = new Map(rows.map((row) => [row.id, row.blobHandle]));
+      if (
+        !expectedScreenshots.every(
+          ({ rowId, blobHandle }) =>
+            blobHandle !== null && rowsById.get(rowId) === blobHandle,
+        )
+      ) {
+        return "not_landed";
+      }
+    }
+    return "landed";
   } catch (error) {
     console.warn(
       "[design-journey-canvas] Could not tell whether the write landed; keeping the design and screenshots:",
       error,
     );
-    return true;
+    return "unknown";
   }
 }
 

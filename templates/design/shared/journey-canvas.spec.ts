@@ -197,10 +197,23 @@ describe("create-journey-canvas input", () => {
           imageUrl: undefined,
           stagedFrameId: "jcu_opaque-frame-id",
           route: "/home",
+          screenshotOffsetMs: 2_600,
         }),
       ],
     });
     expect(problems(withStagedFrame)).toEqual([]);
+    const stagedFrameWithoutOffset = rawInput({
+      frames: [
+        frame("signup", 0, {
+          imageUrl: undefined,
+          stagedFrameId: "jcu_opaque-frame-id",
+          route: "/home",
+        }),
+      ],
+    });
+    expect(problems(stagedFrameWithoutOffset).join("\n")).toMatch(
+      /frames\.0\.screenshotOffsetMs: Pass the actual screenshot seek offset/,
+    );
   });
 
   it("requires and carries sourceApp for private frames in an all-app tree", () => {
@@ -310,6 +323,7 @@ describe("create-journey-canvas input", () => {
             imageUrl: undefined,
             stagedFrameId: "jcu_opaque-frame-id",
             route: "/app/settings",
+            screenshotOffsetMs: 2_600,
           }),
         ],
       }),
@@ -992,6 +1006,49 @@ describe("planJourneyCanvas", () => {
     expect(screen.html).toContain("Actor (recording): actor@example.test");
     expect(screen.frame.height).toBe(
       CARD_PROVENANCE_HEADER_HEIGHT + 60 + Math.round(360 / (1536 / 826)),
+    );
+  });
+
+  it("uses evidenceAt for a generation-completed primary timestamp", () => {
+    const base = rawInput();
+    const outputKey = "signup > completed output";
+    const observed = referenceNode(outputKey, "signup", 2, [
+      {
+        ...example("completed-output"),
+        ts: "2026-09-28T22:07:06.840Z",
+        offsetMs: 545_313,
+      },
+    ]);
+    const screen = plan(
+      rawInput({
+        tree: { ...base.tree, nodes: [base.tree.nodes[0]!, observed] },
+        frames: [
+          frame("signup", 0),
+          {
+            nodeKey: outputKey,
+            exampleIndex: 0,
+            attachmentRef: "attachment:v1:completed-output",
+            width: 1536,
+            height: 826,
+            capturedAt: "2026-10-08T15:17:00.000Z",
+            caption: {
+              dateLabel: "generation_completed event (UTC)",
+              evidenceStatus: "generation_completed",
+              evidenceAt: "2026-09-28T22:07:01.840Z",
+            },
+          },
+        ],
+      }),
+    ).screens.find((item) => item.nodeKey === outputKey)!;
+
+    expect(screen.html).toContain(
+      "generation_completed event (UTC) 2026-09-28T22:07:01.840Z",
+    );
+    expect(screen.html).not.toContain(
+      "generation_completed event (UTC) 2026-09-28T22:07:06.840Z",
+    );
+    expect(screen.html).toContain(
+      "Evidence: generation_completed event (2026-09-28T22:07:01.840Z UTC)",
     );
   });
 

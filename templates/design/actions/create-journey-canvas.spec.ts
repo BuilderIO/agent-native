@@ -548,6 +548,64 @@ describe("create-journey-canvas run", () => {
     expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
   });
 
+  it("recognizes a staged-only refresh after its mutation response is lost", async () => {
+    const stagedHandle = {
+      id: "staged-committed-private-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: false,
+    };
+    const input = parsed({
+      ...rawInput([
+        frame("a", {
+          stagedFrameId: stageFrameId,
+          screenshotOffsetMs: 2_600,
+        }),
+      ]),
+      designId: "design-1",
+    });
+    const screen = planJourneyCanvas(input, "design-1").screens[0]!;
+    mocks.state.preflightStagedRows = [{ id: stageFrameId, sizeBytes: 24 }];
+    mocks.state.stagedRows = [
+      [
+        {
+          id: stageFrameId,
+          app: stageAppMarker,
+          route: "/home",
+          replayId: "a-r1",
+          capturedAt: "2026-10-08T09:30:00.000Z",
+          offsetMs: 2_600,
+          viewportWidth: 1440,
+          viewportHeight: 900,
+          mimeType: "image/png",
+          sizeBytes: 24,
+          blobHandle: JSON.stringify(stagedHandle),
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      [],
+    ];
+    mocks.state.landedSelects = [
+      [{ id: screen.fileId, content: screen.html }],
+      [
+        {
+          id: screen.attachment!.rowId,
+          blobHandle: JSON.stringify(stagedHandle),
+        },
+      ],
+    ];
+    const commitMutation = mocks.mutateDesignData.getMockImplementation()!;
+    mocks.mutateDesignData.mockImplementationOnce(async (...args) => {
+      await commitMutation(...args);
+      throw new Error("committed response lost");
+    });
+
+    const result = await action.run(input, {} as any);
+    expect(result.designId).toBe("design-1");
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
   it("does not promote an expired staged frame", async () => {
     const stagedHandle = {
       id: "expired-private-blob",
@@ -605,6 +663,7 @@ describe("create-journey-canvas run", () => {
       ...rawInput([
         frame("a", {
           stagedFrameId: stageFrameId,
+          screenshotOffsetMs: 2_000,
           caption: { prompt: "Updated caption after the lost response" },
         }),
       ]),
@@ -1068,7 +1127,7 @@ describe("create-journey-canvas failures", () => {
     expect(mocks.deletePrivateBlob).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the design and the blobs when the mutation rejects after its screenshot rows landed", async () => {
+  it("reports success when exact screen and screenshot rows prove the write landed", async () => {
     const handle = {
       id: "blob-kept",
       provider: "private-provider",
@@ -1076,33 +1135,35 @@ describe("create-journey-canvas failures", () => {
       encrypted: true,
     };
     mocks.putPrivateBlob.mockResolvedValueOnce(handle);
-    mocks.state.landedSelects = [[{ blobHandle: JSON.stringify(handle) }]];
+    const input = parsed(rawInput([frame("a", { attachmentRef: "ref-a" })]));
+    const screen = planJourneyCanvas(input, "generated-1").screens[0]!;
+    mocks.state.landedSelects = [
+      [{ id: screen.fileId, content: screen.html }],
+      [
+        {
+          id: screen.attachment!.rowId,
+          blobHandle: JSON.stringify(handle),
+        },
+      ],
+    ];
     mocks.mutateDesignData.mockRejectedValueOnce(
       new Error("Design not found after commit"),
     );
-    await expect(
-      action.run(
-        parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
-        {} as any,
-      ),
-    ).rejects.toThrow("not found after commit");
+    const result = await action.run(input, {} as any);
+    expect(result.designId).toBe("generated-1");
     expect(mocks.deleteDesign).not.toHaveBeenCalled();
     expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
   });
 
-  it("keeps a newly created design whose screens landed even when no blobs were stored", async () => {
-    mocks.state.landedSelects = [[{ id: "jc_landed" }]];
+  it("reports success when exact screenshotless screen rows prove the write landed", async () => {
+    const input = parsed(
+      rawInput([frame("a", { imageUrl: "https://img.example.test/a.png" })]),
+    );
+    const screen = planJourneyCanvas(input, "generated-1").screens[0]!;
+    mocks.state.landedSelects = [[{ id: screen.fileId, content: screen.html }]];
     mocks.mutateDesignData.mockRejectedValueOnce(new Error("not applied"));
-    await expect(
-      action.run(
-        parsed(
-          rawInput([
-            frame("a", { imageUrl: "https://img.example.test/a.png" }),
-          ]),
-        ),
-        {} as any,
-      ),
-    ).rejects.toThrow("not applied");
+    const result = await action.run(input, {} as any);
+    expect(result.designId).toBe("generated-1");
     expect(mocks.deleteDesign).not.toHaveBeenCalled();
   });
 

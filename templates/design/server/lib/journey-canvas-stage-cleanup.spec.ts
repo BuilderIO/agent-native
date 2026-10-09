@@ -65,6 +65,7 @@ afterAll(async () => {
 beforeEach(() => {
   ensureIndexExistsConcurrently.mockClear();
   isLocalDatabase.mockClear();
+  deletePrivateBlob.mockReset().mockResolvedValue({ deleted: true });
 });
 
 describe("journey canvas staged frame cleanup", () => {
@@ -122,5 +123,59 @@ describe("journey canvas staged frame cleanup", () => {
       "jcs_shared",
       "jcu_recent",
     ]);
+  });
+
+  it("continues through bounded batches until all expired rows are removed", async () => {
+    const sharedBlob = privateHandle("many-expired-stages");
+    const rowCount = 205;
+    const values = Array.from({ length: rowCount }, (_, index) => {
+      const base = index * 3;
+      return `($${base + 1}, $${base + 2}, $${base + 3})`;
+    });
+    const args = Array.from({ length: rowCount }, (_, index) => [
+      `jcu_expired-many-${index}`,
+      sharedBlob,
+      expiredAt,
+    ]).flat();
+    await getDbExec().execute({
+      sql: `INSERT INTO design_board_replay_screenshots (id, blob_handle, created_at)
+            VALUES ${values.join(", ")}`,
+      args,
+    });
+
+    const result = await sweepExpiredJourneyCanvasStages();
+
+    expect(result).toEqual({
+      rowsRemoved: rowCount,
+      blobsQueued: 1,
+      cleanupPending: false,
+    });
+    expect(deletePrivateBlob).toHaveBeenCalledOnce();
+    const remaining = await getDbExec().execute({
+      sql: "SELECT id FROM design_board_replay_screenshots WHERE id LIKE 'jcu_expired-many-%'",
+    });
+    expect(remaining.rows).toEqual([]);
+  });
+
+  it("reports remaining rows when the sweep deadline has elapsed", async () => {
+    await getDbExec().execute({
+      sql: `INSERT INTO design_board_replay_screenshots (id, blob_handle, created_at)
+            VALUES ($1, $2, $3)`,
+      args: [
+        "jcu_expired-deadline",
+        privateHandle("deadline-stage"),
+        expiredAt,
+      ],
+    });
+
+    const result = await sweepExpiredJourneyCanvasStages({
+      deadlineAt: Date.now() - 1,
+    });
+
+    expect(result).toEqual({
+      rowsRemoved: 0,
+      blobsQueued: 0,
+      cleanupPending: true,
+    });
   });
 });
