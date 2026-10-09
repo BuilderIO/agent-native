@@ -1085,18 +1085,6 @@ function isRetryableTargetMcpError(error: unknown): boolean {
   );
 }
 
-function isTargetMcpAuthError(error: unknown): boolean {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : safeJson(error);
-  return /\b401\b|\b403\b|unauthorized|forbidden|invalid(?: or expired)? (?:a2a )?token|authentication required|create_embed_session requires an authenticated MCP caller/i.test(
-    message,
-  );
-}
-
 function targetMcpErrorStatus(error: unknown): number | undefined {
   const message =
     error instanceof Error
@@ -1107,11 +1095,6 @@ function targetMcpErrorStatus(error: unknown): number | undefined {
   const status = message.match(/\b([45]\d{2})\b/)?.[1];
   return status ? Number(status) : undefined;
 }
-
-type TargetMcpTokenAttempt = {
-  token: string;
-  strategy: "org" | "global";
-};
 
 function targetMcpRequestDetails(input: {
   app: DispatchMcpAccessibleApp;
@@ -1186,56 +1169,18 @@ async function callTargetCreateEmbedSession(input: {
   }
 }
 
-async function createTargetMcpTokenAttempts(input: {
+async function createTargetMcpUserToken(input: {
   ownerEmail: string;
   orgId?: string;
-  orgDomain?: string;
-  orgSecret?: string;
   target: DispatchMcpAccessibleApp;
-}): Promise<TargetMcpTokenAttempt[]> {
-  const attempts: TargetMcpTokenAttempt[] = [];
-  if (input.orgId && !input.orgDomain?.trim()) {
-    throw new Error(
-      "Cannot authenticate cross-app MCP access without the active organization domain.",
-    );
-  }
-  const addAttempt = async (tokenInput: {
-    strategy: TargetMcpTokenAttempt["strategy"];
-  }) => {
-    const audience = canonicalA2AAudience(
-      `${appHomeBaseUrl(input.target)}/mcp`,
-    );
-    const token =
-      tokenInput.strategy === "org" && input.orgDomain && input.orgSecret
-        ? await signA2AOrganizationToken(
-            input.orgDomain,
-            input.orgSecret,
-            undefined,
-            { expiresIn: "5m", audience },
-          )
-        : await signA2AToken(input.ownerEmail, input.orgDomain, undefined, {
-            expiresIn: "5m",
-            audience,
-            preferGlobalSecret: true,
-          });
-    if (!attempts.some((attempt) => attempt.token === token)) {
-      attempts.push({ token, strategy: tokenInput.strategy });
-    }
-  };
-
-  if (getGlobalA2ASecret()) {
-    await addAttempt({
-      strategy: "global",
-    });
-  }
-  if (input.orgDomain && input.orgSecret) {
-    await addAttempt({
-      strategy: "org",
-    });
-  }
-  if (attempts.length === 0) await addAttempt({ strategy: "global" });
-
-  return attempts;
+}): Promise<string> {
+  const audience = canonicalA2AAudience(`${appHomeBaseUrl(input.target)}/mcp`);
+  return signA2AToken(input.ownerEmail, undefined, undefined, {
+    expiresIn: "5m",
+    audience,
+    preferGlobalSecret: true,
+    ...(input.orgId ? { extraClaims: { org_id: input.orgId } } : {}),
+  });
 }
 
 async function resolveEmbedTarget(
@@ -1395,22 +1340,9 @@ async function createEmbedSessionForResolvedApp(input: {
     });
   }
 
-  const [orgDomain, orgSecret] = orgId
-    ? await Promise.all([
-        getOrgDomain(orgId).catch(() => null),
-        getOrgA2ASecret(orgId).catch(() => null),
-      ])
-    : [null, null];
-  const usableOrgSecret =
-    typeof orgSecret === "string" && orgSecret.trim().length > 0;
-  const usableOrgDomain =
-    typeof orgDomain === "string" && orgDomain.trim().length > 0;
-  const signedOrgDomain = usableOrgDomain ? orgDomain.trim() : undefined;
-  const tokenAttempts = await createTargetMcpTokenAttempts({
+  const targetToken = await createTargetMcpUserToken({
     ownerEmail,
     orgId,
-    orgDomain: signedOrgDomain,
-    orgSecret: usableOrgSecret ? orgSecret.trim() : undefined,
     target: target.app,
   });
   const targetDetails = targetMcpRequestDetails({
@@ -1421,58 +1353,31 @@ async function createEmbedSessionForResolvedApp(input: {
     startUrl?: string;
     targetPath?: string;
     expiresAt?: number;
-  } | null = null;
-  let lastError: unknown;
-  for (
-    let attemptIndex = 0;
-    attemptIndex < tokenAttempts.length;
-    attemptIndex++
-  ) {
-    const tokenAttempt = tokenAttempts[attemptIndex];
-    console.info("[dispatch] workspace embed target request", {
-      ...targetDetails,
-      authStrategy: tokenAttempt.strategy,
-      attempt: attemptIndex + 1,
-      attempts: tokenAttempts.length,
+  };
+  console.info("[dispatch] workspace embed target request", {
+    ...targetDetails,
+    authStrategy: "user-identity",
+  });
+  try {
+    const result = await callTargetCreateEmbedSession({
+      app: target.app,
+      token: targetToken,
+      url: target.url,
+      chrome,
     });
-    try {
-      const result = await callTargetCreateEmbedSession({
-        app: target.app,
-        token: tokenAttempt.token,
-        url: target.url,
-        chrome,
-      });
-      parsed = parseMcpToolTextResult(result) as {
-        startUrl?: string;
-        targetPath?: string;
-        expiresAt?: number;
-      };
-      break;
-    } catch (error) {
-      lastError = error;
-      console.warn("[dispatch] workspace embed target response", {
-        ...targetDetails,
-        authStrategy: tokenAttempt.strategy,
-        attempt: attemptIndex + 1,
-        status: targetMcpErrorStatus(error),
-        category: isTargetMcpAuthError(error)
-          ? "authentication"
-          : isRetryableTargetMcpError(error)
-            ? "transient"
-            : "permanent",
-      });
-      if (
-        !isTargetMcpAuthError(error) ||
-        attemptIndex >= tokenAttempts.length - 1
-      ) {
-        throw error;
-      }
-    }
-  }
-  if (!parsed) {
-    throw lastError instanceof Error
-      ? lastError
-      : new Error("Target app did not return an embed session.");
+    parsed = parseMcpToolTextResult(result) as {
+      startUrl?: string;
+      targetPath?: string;
+      expiresAt?: number;
+    };
+  } catch (error) {
+    console.warn("[dispatch] workspace embed target response", {
+      ...targetDetails,
+      authStrategy: "user-identity",
+      status: targetMcpErrorStatus(error),
+      category: isRetryableTargetMcpError(error) ? "transient" : "permanent",
+    });
+    throw error;
   }
   if (!parsed.startUrl) {
     throw new Error("Target app did not return an embed start URL.");

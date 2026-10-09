@@ -1928,10 +1928,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     });
   });
 
-  it("uses the org A2A secret when minting cross-app MCP embed tokens", async () => {
-    mocks.getOrgDomain.mockResolvedValue("builder.io");
-    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
-
+  it("binds the authenticated MCP caller token to the org ID", async () => {
     await runWithRequestContext(
       {
         userEmail: "owner@example.test",
@@ -1945,26 +1942,47 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         }),
     );
 
-    expect(mocks.signA2AOrganizationToken).toHaveBeenCalledWith(
-      "builder.io",
-      "org-specific-secret",
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      undefined,
       undefined,
       {
         expiresIn: "5m",
         audience: "http://localhost:8086/mcp",
+        preferGlobalSecret: true,
+        extraClaims: { org_id: "org-1" },
       },
+    );
+    expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
+    expect(mocks.getOrgDomain).not.toHaveBeenCalled();
+    expect(mocks.getOrgA2ASecret).not.toHaveBeenCalled();
+    expect(mocks.managerConstructor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            headers: { Authorization: "Bearer signed-token" },
+          }),
+        },
+      }),
     );
   });
 
-  it("does not fall back to a shared unscoped token when the active org domain is unavailable", async () => {
-    vi.stubEnv("A2A_SECRET", "shared-secret");
-    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+  it("does not retry an authenticated-caller error with an org principal", async () => {
+    mocks.managerCallTool.mockResolvedValueOnce({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "Error: create_embed_session requires an authenticated MCP caller.",
+        },
+      ],
+    });
 
     await expect(
       runWithRequestContext(
         {
           userEmail: "owner@example.test",
-          orgId: "org-without-domain",
+          orgId: "org-1",
           requestOrigin: "http://localhost:8092",
         },
         () =>
@@ -1973,176 +1991,11 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
             path: "/dashboards",
           }),
       ),
-    ).rejects.toThrow(
-      "Cannot authenticate cross-app MCP access without the active organization domain.",
-    );
-    expect(mocks.signA2AToken).not.toHaveBeenCalled();
+    ).rejects.toThrow(/authenticated MCP caller/);
+
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(1);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
     expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
-    expect(mocks.managerConstructor).not.toHaveBeenCalled();
-  });
-
-  it("uses the verified user token first and falls back to the org principal", async () => {
-    vi.stubEnv("A2A_SECRET", "shared-secret");
-    mocks.getOrgDomain.mockResolvedValue("builder.io");
-    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
-    mocks.signA2AOrganizationToken.mockResolvedValueOnce("org-signed-token");
-    mocks.signA2AToken.mockResolvedValueOnce("global-signed-token");
-    mocks.managerCallTool
-      .mockRejectedValueOnce(
-        new Error(
-          'MCP server "target" is not connected: HTTP 401 Unauthorized',
-        ),
-      )
-      .mockResolvedValueOnce({
-        structuredContent: {
-          startUrl:
-            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
-        },
-      });
-
-    const result = await runWithRequestContext(
-      {
-        userEmail: "owner@example.test",
-        orgId: "org-1",
-        requestOrigin: "http://localhost:8092",
-      },
-      () =>
-        createGrantedDispatchMcpEmbedSession({
-          app: "analytics",
-          path: "/dashboards",
-        }),
-    );
-
-    expect(result).toMatchObject({ app: "analytics" });
-    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
-    expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        servers: {
-          target: expect.objectContaining({
-            headers: { Authorization: "Bearer global-signed-token" },
-          }),
-        },
-      }),
-    );
-    expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        servers: {
-          target: expect.objectContaining({
-            headers: { Authorization: "Bearer org-signed-token" },
-          }),
-        },
-      }),
-    );
-    expect(mocks.signA2AOrganizationToken).toHaveBeenCalledWith(
-      "builder.io",
-      "org-specific-secret",
-      undefined,
-      {
-        expiresIn: "5m",
-        audience: "http://localhost:8086/mcp",
-      },
-    );
-    expect(mocks.signA2AToken).toHaveBeenCalledWith(
-      "owner@example.test",
-      "builder.io",
-      undefined,
-      {
-        expiresIn: "5m",
-        audience: "http://localhost:8086/mcp",
-        preferGlobalSecret: true,
-      },
-    );
-  });
-
-  it("retries unauthenticated MCP tool errors with the org-scoped token", async () => {
-    vi.stubEnv("A2A_SECRET", "shared-secret");
-    mocks.getOrgDomain.mockResolvedValue("builder.io");
-    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
-    mocks.signA2AOrganizationToken.mockResolvedValueOnce("org-signed-token");
-    mocks.signA2AToken.mockResolvedValueOnce("global-signed-token");
-    mocks.managerCallTool
-      .mockResolvedValueOnce({
-        isError: true,
-        content: [
-          {
-            type: "text",
-            text: "Error: create_embed_session requires an authenticated MCP caller.",
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        structuredContent: {
-          startUrl:
-            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
-        },
-      });
-
-    const result = await runWithRequestContext(
-      {
-        userEmail: "owner@example.test",
-        orgId: "org-1",
-        requestOrigin: "http://localhost:8092",
-      },
-      () =>
-        createGrantedDispatchMcpEmbedSession({
-          app: "analytics",
-          path: "/dashboards",
-        }),
-    );
-
-    expect(result).toMatchObject({ app: "analytics" });
-    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
-    expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        servers: {
-          target: expect.objectContaining({
-            headers: { Authorization: "Bearer global-signed-token" },
-          }),
-        },
-      }),
-    );
-    expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        servers: {
-          target: expect.objectContaining({
-            headers: { Authorization: "Bearer org-signed-token" },
-          }),
-        },
-      }),
-    );
-  });
-
-  it("falls back to the shared A2A secret when no org secret is available", async () => {
-    mocks.getOrgDomain.mockResolvedValue("builder.io");
-    mocks.getOrgA2ASecret.mockResolvedValue(null);
-
-    await runWithRequestContext(
-      {
-        userEmail: "owner@example.test",
-        orgId: "org-1",
-        requestOrigin: "http://localhost:8092",
-      },
-      () =>
-        createGrantedDispatchMcpEmbedSession({
-          app: "analytics",
-          path: "/dashboards",
-        }),
-    );
-
-    expect(mocks.signA2AToken).toHaveBeenCalledWith(
-      "owner@example.test",
-      "builder.io",
-      undefined,
-      {
-        expiresIn: "5m",
-        audience: "http://localhost:8086/mcp",
-        preferGlobalSecret: true,
-      },
-    );
   });
 
   it("does not retry permanent target MCP errors", async () => {
@@ -2220,5 +2073,8 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
           }),
       ),
     ).rejects.toThrow(/authenticated MCP caller/);
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(1);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+    expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
   });
 });
