@@ -679,6 +679,14 @@ jobs:
           record_failure() {
             failures+=("$1: $2")
           }
+          require_boolean() {
+            local selection="$1"
+            local value="$2"
+            case "$value" in
+              true|false) ;;
+              *) record_failure "Determine change scope" "$selection selection was missing or invalid ($value)" ;;
+            esac
+          }
           require_success() {
             local job="$1"
             local result="$2"
@@ -692,6 +700,9 @@ jobs:
           if [[ "$CHANGE_SCOPE_RESULT" != "success" ]]; then
             require_success "Determine change scope" "$CHANGE_SCOPE_RESULT"
           else
+            require_boolean "full-suite" "$CI_FULL"
+            require_boolean "Fast tests" "$FAST_TESTS"
+
             if [[ "$PRE_AUTH_REPLAY_E2E" == "true" ]]; then
               require_success "Pre-auth session replay smoke" "$PRE_AUTH_REPLAY_RESULT"
             elif [[ "$PRE_AUTH_REPLAY_E2E" == "false" ]]; then

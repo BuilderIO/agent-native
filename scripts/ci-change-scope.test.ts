@@ -1084,6 +1084,10 @@ test("fast-tests gates the selected browser checks on their actual job results",
     fastTestsJob,
     /elif \[\[ "\$result" != "success" \]\]; then\s+record_failure "\$job" "did not succeed/,
   );
+  assert.ok(fastTestsJob.includes('require_boolean "full-suite" "$CI_FULL"'));
+  assert.ok(
+    fastTestsJob.includes('require_boolean "Fast tests" "$FAST_TESTS"'),
+  );
   assert.ok(fastTestsJob.includes('require_success "Determine change scope"'));
   assert.ok(fastTestsJob.includes('require_success "Docs checks"'));
   assert.ok(
@@ -1236,6 +1240,50 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
       overrides: { CHANGE_SCOPE_RESULT: "failure" },
       status: 1,
       outputIncludes: "Determine change scope: did not succeed",
+    },
+    {
+      name: "a missing full-suite selector fails closed",
+      overrides: {
+        CI_FULL: "",
+        FAST_TESTS: "false",
+        TEST_TARGETED_RESULT: "skipped",
+      },
+      status: 1,
+      outputIncludes:
+        "Determine change scope: full-suite selection was missing or invalid ()",
+    },
+    {
+      name: "an invalid full-suite selector fails closed",
+      overrides: {
+        CI_FULL: "invalid",
+        FAST_TESTS: "false",
+        TEST_TARGETED_RESULT: "skipped",
+      },
+      status: 1,
+      outputIncludes:
+        "Determine change scope: full-suite selection was missing or invalid (invalid)",
+    },
+    {
+      name: "a missing targeted selector fails closed",
+      overrides: {
+        CI_FULL: "false",
+        FAST_TESTS: "",
+        TEST_TARGETED_RESULT: "skipped",
+      },
+      status: 1,
+      outputIncludes:
+        "Determine change scope: Fast tests selection was missing or invalid ()",
+    },
+    {
+      name: "an invalid targeted selector fails closed",
+      overrides: {
+        CI_FULL: "false",
+        FAST_TESTS: "invalid",
+        TEST_TARGETED_RESULT: "skipped",
+      },
+      status: 1,
+      outputIncludes:
+        "Determine change scope: Fast tests selection was missing or invalid (invalid)",
     },
     {
       name: "an invalid pre-auth selection fails closed",
