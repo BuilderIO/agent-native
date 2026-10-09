@@ -113,6 +113,7 @@ describe("VoiceTranscriptionSection compact picker", () => {
   let root: Root;
   let prefsGet: Handler;
   let prefsPut: Handler;
+  let cleanupPrefsGet: Handler;
   const puts: unknown[] = [];
 
   beforeEach(() => {
@@ -120,6 +121,7 @@ describe("VoiceTranscriptionSection compact picker", () => {
     mountFailurePaths.clear();
     puts.length = 0;
     prefsGet = () => json({ transcriptionMode: "mac-native" });
+    cleanupPrefsGet = () => json(null);
     prefsPut = (init) => {
       puts.push(JSON.parse(String(init?.body)));
       return json({ ok: true });
@@ -131,7 +133,7 @@ describe("VoiceTranscriptionSection compact picker", () => {
         if (url.endsWith("/voice-transcription-prefs")) {
           return init?.method === "PUT" ? prefsPut(init) : prefsGet(init);
         }
-        if (url.endsWith("/voice-cleanup-prefs")) return json(null);
+        if (url.endsWith("/voice-cleanup-prefs")) return cleanupPrefsGet(init);
         if (url.endsWith("/voice-providers/status")) {
           return json({
             builder: false,
@@ -314,6 +316,15 @@ describe("VoiceTranscriptionSection compact picker", () => {
       retry?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector('[aria-label="AI cleanup"]')).toBeTruthy();
+  });
+
+  it("treats an empty cleanup preference response as unset", async () => {
+    cleanupPrefsGet = () => new Response(null, { status: 200 });
+
+    await render(false);
 
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(container.querySelector('[aria-label="AI cleanup"]')).toBeTruthy();

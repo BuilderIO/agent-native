@@ -191,9 +191,10 @@ export function VoiceTranscriptionSection({
   useEffect(() => {
     let cancelled = false;
     void fetchResolvedPath(cleanupPrefsUrl)
-      .then((r) => {
+      .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
+        const text = await r.text();
+        return text ? JSON.parse(text) : null;
       })
       .then(
         (
