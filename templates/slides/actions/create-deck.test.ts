@@ -722,6 +722,25 @@ describe("create-deck — generation lifecycle tracking", () => {
     }));
   }
 
+  it("does not count an agent rewrite of an existing deck as a creation start", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({ title: "T", slides: [] }),
+    };
+
+    await action.run({
+      title: "T",
+      slides: [{ id: "s1", content: "<div></div>" }],
+      deckId: "deck-1",
+    });
+
+    const names = trackedEvents().map((event) => event.name);
+    expect(names).not.toContain("deck_creation_started");
+    expect(names).not.toContain("deck_created");
+    expect(names).toContain("deck_edited");
+  });
+
   it("accepts only bounded URL-safe browser generation attempt IDs", () => {
     const base = { title: "T", slides: [], deckId: "deck-1" };
 
@@ -1078,17 +1097,35 @@ describe("create-deck — generation lifecycle tracking", () => {
     const events = trackedEvents();
     expect(events.map((event) => event.name)).toEqual([
       "generation_started",
+      "deck_creation_started",
       "generation_request_accepted",
       "deck_created",
     ]);
     expect(events[1]?.properties).toMatchObject({
+      generation_attempt_id: events[0]?.properties.generation_attempt_id,
+      output_type: "deck",
+      creation_method: "generated",
+      mode: "new",
+      has_text_prompt: false,
+      prompt_length_bucket: "0",
+      attachment_count: 0,
+      attachment_types: [],
+      has_reference_deck: false,
+      is_retry: false,
+    });
+    expect(events[2]?.properties).toMatchObject({
       generation_mode: "incremental",
       slide_count: 0,
       started_at_ms: expect.any(Number),
       ended_at_ms: expect.any(Number),
       duration_ms: expect.any(Number),
     });
-    expect(events[1]?.properties).not.toHaveProperty("prompt");
+    expect(events[2]?.properties).not.toHaveProperty("prompt");
+    expect(events[3]?.properties).toMatchObject({
+      output_id: result.id,
+      creation_method: "generated",
+      slide_count: 0,
+    });
     expect(JSON.parse(insertedRow!.data as string).generationContext).toEqual({
       generationAttemptId: events[0]?.properties.generation_attempt_id,
       generationMode: "action",

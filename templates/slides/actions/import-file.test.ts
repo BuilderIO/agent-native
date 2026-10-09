@@ -35,6 +35,8 @@ const mockCanvasFactory = vi.hoisted(() => ({
   destroy: vi.fn(),
 }));
 const mockGetDb = vi.hoisted(() => vi.fn());
+const mockTrack = vi.hoisted(() => vi.fn());
+const mockParseDocx = vi.hoisted(() => vi.fn());
 const mockEq = vi.hoisted(() => vi.fn(() => "where"));
 
 vi.mock("pdf-parse/worker", () => ({
@@ -111,6 +113,14 @@ vi.mock("drizzle-orm", async (importOriginal) => {
     eq: (...args: unknown[]) => mockEq(...args),
   };
 });
+
+vi.mock("../server/handlers/import/docx-parser.js", () => ({
+  parseDocx: (...args: unknown[]) => mockParseDocx(...args),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
 
 vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: vi.fn(),
@@ -441,7 +451,116 @@ describe("import-file PDF source extraction", () => {
       "https://files.example/source-page.png",
     ]);
     expect(updatedDeck.sourceImport.slides[0].editableText).toBe(true);
+    // The shell this PDF fills was already counted by add-deck.
+    expect(
+      mockTrack.mock.calls.filter(([name]) => name === "deck_created"),
+    ).toHaveLength(0);
   });
+
+  it("does not count a PDF imported into a deck that already has slides as a creation", async () => {
+    mockPdfText.mockResolvedValue({
+      pages: [{ num: 1, text: "Source title\nSource body" }],
+    });
+    mockParsePdfFidelity.mockResolvedValue([
+      {
+        pageNumber: 1,
+        widthEmu: 9144000,
+        heightEmu: 5143500,
+        backgroundColor: "#000000",
+        elements: [{ kind: "text", content: "Source title" }],
+      },
+    ]);
+    const updateWhere = vi.fn().mockResolvedValue({ rowsAffected: 1 });
+    mockGetDb.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "Existing deck",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+                data: JSON.stringify({
+                  slides: [{ id: "slide-old", content: "<p>Old</p>" }],
+                }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    });
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: Buffer.from("%PDF-1.7\n"),
+      filename: "Appendix.pdf",
+    });
+
+    const result = (await action.run({
+      filePath: "source.pdf",
+      format: "pdf",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    })) as any;
+
+    expect(result).toMatchObject({ imported: true });
+    expect(
+      mockTrack.mock.calls.filter(([name]) => name === "deck_created"),
+    ).toHaveLength(0);
+  });
+
+  it.each([
+    { existingSlides: [] },
+    { existingSlides: [{ id: "slide-old", content: "<p>Old</p>" }] },
+  ])(
+    "never counts a DOCX import as a creation ($existingSlides.length existing slides)",
+    async ({ existingSlides }) => {
+      mockParseDocx.mockResolvedValue({
+        title: "Notes",
+        text: "Notes body",
+        sections: [{ heading: "Notes", body: "Notes body" }],
+      });
+      mockConvertSectionsToSlides.mockReturnValue(["<p>Notes body</p>"]);
+      mockGetDb.mockReturnValue({
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue([
+                {
+                  id: "deck-1",
+                  title: "Deck",
+                  updatedAt: "2026-01-01T00:00:00.000Z",
+                  data: JSON.stringify({ slides: existingSlides }),
+                },
+              ]),
+            })),
+          })),
+        })),
+        update: vi.fn(() => ({
+          set: vi.fn(() => ({
+            where: vi.fn().mockResolvedValue({ rowsAffected: 1 }),
+          })),
+        })),
+      });
+      mockReadUserUploadedFile.mockResolvedValue({
+        data: Buffer.from("PK"),
+        filename: "Notes.docx",
+      });
+
+      await action.run({
+        filePath: "notes.docx",
+        format: "docx",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      });
+
+      const created = mockTrack.mock.calls.filter(
+        ([name]) => name === "deck_created",
+      );
+      expect(created).toHaveLength(0);
+    },
+  );
 
   it("uses the uploaded filename when the extracted PDF title is corrupted", async () => {
     mockPdfText.mockResolvedValue({

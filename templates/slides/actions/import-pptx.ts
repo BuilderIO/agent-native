@@ -33,6 +33,7 @@ import {
   resolveImportedDeckTitle,
 } from "../shared/deck-title.js";
 import { getDeckUrl } from "./_app-url.js";
+import { trackDeckCreated } from "./_deck-tracking.js";
 import {
   assertDeckWriteApplied,
   deckRevisionWhere,
@@ -331,15 +332,31 @@ export default defineAction({
       .describe(
         "Deck title — defaults to the title extracted from the presentation",
       ),
+    purpose: z
+      .enum(["direct", "reference"])
+      .optional()
+      .describe("Why the deck is being imported; used only for analytics"),
   }),
-  run: async ({ filePath, deckId, title, designSystemId }, ctx) => {
+  run: async ({ filePath, deckId, title, designSystemId, purpose }, ctx) => {
     const { data: fileBuffer } = await readUserUploadedFile(filePath, ctx);
-    return importPptxBufferToDeck({
+    const result = await importPptxBufferToDeck({
       fileBuffer,
       deckId,
       title,
       designSystemId,
     });
+    if (!deckId) {
+      trackDeckCreated(
+        result.id,
+        {
+          creationMethod: "import_pptx",
+          purpose: purpose ?? "unknown",
+          slideCount: result.slideCount,
+        },
+        ctx,
+      );
+    }
+    return result;
   },
 });
 
