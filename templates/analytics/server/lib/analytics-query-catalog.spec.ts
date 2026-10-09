@@ -82,16 +82,16 @@ describe("analytics query catalog", () => {
     ).toBe(false);
   });
 
-  it("keeps approved definitions ahead of matching generated source-index entries", () => {
+  it("keeps approved definitions ahead of broader generated source-index matches", () => {
     const results = rankAnalyticsQueryCatalog({
-      search: "Builder.io user count",
+      search: "Builder.io product monthly active user count",
       limit: 6,
       dashboards: [],
       dictionaryEntries: [
         {
           id: "generated-builder-users",
-          metric: "Builder.io user count",
-          definition: "Generated model metadata suggestion",
+          metric: "Builder.io product monthly active user count",
+          definition: "Generated model metadata for monthly active users",
           table: "product_user_dimension",
           sourceIndex: true,
           approved: false,
@@ -100,7 +100,7 @@ describe("analytics query catalog", () => {
         {
           id: "approved-builder-users",
           metric: "Builder.io user count",
-          definition: "Reviewed Builder.io user definition",
+          definition: "Reviewed definition for Builder.io user count",
           table: "product_user_dimension",
           approved: true,
         },
@@ -210,8 +210,8 @@ describe("analytics query catalog", () => {
 
     const expected = [
       "approved-organization-users",
-      "sigma-product-users",
       "favorite-user-count",
+      "sigma-product-users",
     ];
     expect(rank(dictionaryEntries)).toEqual(expected);
     expect(rank([...dictionaryEntries].reverse())).toEqual(expected);
@@ -717,7 +717,7 @@ describe("analytics query catalog", () => {
     expect(results).toHaveLength(1);
   });
 
-  it("does not let generic single-token matches tie above an exact panel", () => {
+  it("lets an exact runnable panel outrank a generic single-token dictionary match", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "error rate",
       limit: 6,

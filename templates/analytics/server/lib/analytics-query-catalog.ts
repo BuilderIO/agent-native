@@ -611,6 +611,8 @@ export function rankAnalyticsQueryCatalogPage(args: {
   ];
 
   const requestedScope = requestedSemanticScope(args.search);
+  const requestedTerms = new Set(searchTerms(args.search));
+  // Strong definitions and proven panels outrank generic hits before coverage.
   const rankedCandidates = candidates.map((candidate) => ({
     candidate,
     scope:
@@ -621,6 +623,20 @@ export function rankAnalyticsQueryCatalogPage(args: {
             requestedScope,
           ),
     trust: candidateTrustTier(candidate),
+    rankingTier:
+      candidate.kind === "data-dictionary" &&
+      candidate.approved === true &&
+      candidate.matchedTerms.length > 1
+        ? 2
+        : candidate.kind === "dashboard-panel" &&
+            (candidate.dashboardCertified ||
+              (candidateIsRunnable(candidate) &&
+                requestedTerms.size > 1 &&
+                [...requestedTerms].every((term) =>
+                  candidate.matchedTerms.includes(term),
+                )))
+          ? 1
+          : 0,
     coverage:
       candidate.matchedTerms.length +
       (candidate.kind === "dashboard-panel" && candidate.dashboardCertified
@@ -646,9 +662,12 @@ export function rankAnalyticsQueryCatalogPage(args: {
       : rankedCandidates;
   const ranked = scopeFiltered
     .sort((a, b) => {
-      if (b.coverage !== a.coverage) return b.coverage - a.coverage;
+      if (b.rankingTier !== a.rankingTier) {
+        return b.rankingTier - a.rankingTier;
+      }
       if (b.trust !== a.trust) return b.trust - a.trust;
       if (b.scope !== a.scope) return b.scope - a.scope;
+      if (b.coverage !== a.coverage) return b.coverage - a.coverage;
       if (b.candidate.score !== a.candidate.score) {
         return b.candidate.score - a.candidate.score;
       }
