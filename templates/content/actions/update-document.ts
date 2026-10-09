@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { ActionContractError } from "@agent-native/core";
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import {
@@ -196,6 +196,19 @@ function isFavoriteOnlyUpdate(args: {
     args.content === undefined &&
     args.description === undefined &&
     args.icon === undefined
+  );
+}
+
+function isScopedWidgetDocumentWriter(
+  ctx: ActionRunContext | undefined,
+  documentId: string,
+) {
+  const grant = ctx?.mcpDirectoryWidgetWrite;
+  return (
+    ctx?.caller === "mcp-widget-write" &&
+    grant?.appId === "content" &&
+    grant.actionNames.includes("update-document") &&
+    grant.resourceIds.documentId === documentId
   );
 }
 
@@ -665,7 +678,7 @@ export default defineAction({
       ctx?.caller === "a2a";
     if (
       args.browserSaveAttemptId !== undefined &&
-      (ctx?.caller !== "frontend" ||
+      ((ctx?.caller !== "frontend" && !isScopedWidgetDocumentWriter(ctx, id)) ||
         (args.title === undefined && args.content === undefined))
     ) {
       throw new ActionContractError(

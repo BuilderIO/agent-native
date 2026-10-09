@@ -908,6 +908,95 @@ describe("update-document compare-and-swap", () => {
     });
   });
 
+  it("accepts idempotent browser saves only from the scoped document widget", async () => {
+    const id = await createDocument({ content: "Before" });
+    const before = await documentRow(id);
+    const args = {
+      id,
+      content: "After",
+      baseRevision: documentRevisionToken(before.bodyRevision, before.content),
+      authoredBaseRevision: documentRevisionToken(
+        before.bodyRevision,
+        before.content,
+      ),
+      authoredBaseContent: before.content,
+      authoredCandidateContent: "After",
+      editorSessionId: nextId("widget-save-session"),
+      editorEditGeneration: 1,
+      browserSaveAttemptId: nextId("widget-save"),
+    };
+    const widgetContext = {
+      caller: "mcp-widget-write" as const,
+      userEmail: OWNER,
+      mcpDirectoryWidgetWrite: {
+        appId: "content",
+        resourceIds: { documentId: id },
+        actionNames: ["update-document"],
+      },
+    };
+    const deliver = (
+      context: typeof widgetContext,
+      input: typeof args = args,
+    ) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(input, context),
+      );
+
+    const first = await deliver(widgetContext);
+    expect(first).toMatchObject({
+      content: "After",
+      browserSaveAttempt: {
+        attemptId: args.browserSaveAttemptId,
+        result: "applied",
+      },
+    });
+    const saved = await documentRow(id);
+    const replay = await deliver(widgetContext);
+    expect(replay).toMatchObject({
+      content: "After",
+      browserSaveAttempt: {
+        attemptId: args.browserSaveAttemptId,
+        result: "replayed",
+        revision: documentRevisionToken(saved.bodyRevision, saved.content),
+      },
+    });
+    await expect(
+      deliver(widgetContext, {
+        ...args,
+        content: "Different",
+        authoredCandidateContent: "Different",
+      }),
+    ).rejects.toMatchObject({ errorCode: "BROWSER_SAVE_ATTEMPT_REUSED" });
+
+    const wrongDocument = {
+      ...widgetContext,
+      mcpDirectoryWidgetWrite: {
+        ...widgetContext.mcpDirectoryWidgetWrite,
+        resourceIds: { documentId: "another-document" },
+      },
+    };
+    await expect(deliver(wrongDocument)).rejects.toMatchObject({
+      errorCode: "INVALID_BROWSER_SAVE_ATTEMPT",
+    });
+    await expect(
+      deliver({
+        ...widgetContext,
+        mcpDirectoryWidgetWrite: {
+          ...widgetContext.mcpDirectoryWidgetWrite,
+          actionNames: [],
+        },
+      }),
+    ).rejects.toMatchObject({ errorCode: "INVALID_BROWSER_SAVE_ATTEMPT" });
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(args, {
+          caller: "mcp",
+          userEmail: OWNER,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "INVALID_BROWSER_SAVE_ATTEMPT" });
+  });
+
   it("replays a lost title-only browser response without reverting a later rename", async () => {
     const id = await createDocument({ title: "Before", content: "Body" });
     const args = {
