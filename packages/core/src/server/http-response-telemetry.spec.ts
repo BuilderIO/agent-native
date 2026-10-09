@@ -548,6 +548,84 @@ describe("http response telemetry", () => {
     }
   });
 
+  describe("flush handoff", () => {
+    let releaseFlush: () => void = () => undefined;
+    let unregister: () => void = () => undefined;
+
+    beforeEach(() => {
+      processState.requestSequence = 5;
+      const pending = new Promise<void>((resolve) => {
+        releaseFlush = resolve;
+      });
+      unregister = registerObservabilityProvider({
+        meterProvider: {
+          getMeter: () => ({
+            createHistogram: () => ({ record() {} }),
+            createCounter: () => ({ add() {} }),
+          }),
+          forceFlush: () => pending,
+        },
+      });
+    });
+
+    afterEach(() => {
+      releaseFlush();
+      unregister();
+      delete (globalThis as { Netlify?: unknown }).Netlify;
+    });
+
+    async function respond(event: ReturnType<typeof eventFor>) {
+      const { requestHooks, responseHooks } = createHooks();
+      await requestHooks[0](event);
+      let settled = false;
+      const hook = Promise.resolve(
+        responseHooks[0](new Response("ok"), event),
+      ).then(() => {
+        settled = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { hook, settled: () => settled };
+    }
+
+    it("returns before the export finishes when the request carries waitUntil", async () => {
+      const event = eventFor("/some/page");
+      const handedOff: Promise<unknown>[] = [];
+      Object.assign(event.req, {
+        waitUntil: (promise: Promise<unknown>) => handedOff.push(promise),
+      });
+
+      const { settled } = await respond(event);
+
+      expect(settled()).toBe(true);
+      expect(handedOff).toHaveLength(1);
+    });
+
+    it("uses the Netlify invocation context when the request has no waitUntil", async () => {
+      const handedOff: Promise<unknown>[] = [];
+      Object.assign(globalThis, {
+        Netlify: {
+          context: {
+            waitUntil: (promise: Promise<unknown>) => handedOff.push(promise),
+          },
+        },
+      });
+
+      const { settled } = await respond(eventFor("/some/page"));
+
+      expect(settled()).toBe(true);
+      expect(handedOff).toHaveLength(1);
+    });
+
+    it("waits for the export inline when no waitUntil exists", async () => {
+      const { hook, settled } = await respond(eventFor("/some/page"));
+
+      expect(settled()).toBe(false);
+      releaseFlush();
+      await hook;
+      expect(settled()).toBe(true);
+    });
+  });
+
   it("attributes a framework 401 to its route on the metric and the span", async () => {
     processState.requestSequence = 5;
     const recorded: Array<Record<string, string | number> | undefined> = [];

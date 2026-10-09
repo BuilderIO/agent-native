@@ -491,8 +491,36 @@ async function emitTelemetry(
     durationMs,
     route,
   });
-  await flushTrackingEvents(state.trackingScope);
-  await flushObservability();
+  const flush = (async () => {
+    await flushTrackingEvents(state.trackingScope);
+    await flushObservability();
+  })();
+  const waitUntil = responseWaitUntil(event);
+  if (waitUntil) {
+    waitUntil(flush);
+    return;
+  }
+  await flush;
+}
+
+type WaitUntil = (promise: Promise<unknown>) => void;
+
+// h3 holds the Response until the response hook settles, so awaiting the
+// export here delays every reply by up to the flush timeout.
+function responseWaitUntil(event: H3Event): WaitUntil | undefined {
+  const req = event.req as { waitUntil?: unknown } | undefined;
+  if (typeof req?.waitUntil === "function") {
+    return req.waitUntil.bind(req) as WaitUntil;
+  }
+  // Nitro's Netlify entry drops the function context; Netlify exposes the
+  // current invocation's context on this global instead.
+  const netlifyContext = (
+    globalThis as { Netlify?: { context?: { waitUntil?: unknown } | null } }
+  ).Netlify?.context;
+  if (typeof netlifyContext?.waitUntil === "function") {
+    return netlifyContext.waitUntil.bind(netlifyContext) as WaitUntil;
+  }
+  return undefined;
 }
 
 function requestTelemetryState(
