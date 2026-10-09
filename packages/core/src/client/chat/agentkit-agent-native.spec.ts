@@ -4539,6 +4539,16 @@ describe("createAgentNativeAgentKitTransport", () => {
         createdAt: "2026-08-29T00:02:00.000Z",
       },
     ];
+    let threadData = JSON.stringify({
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: [{ type: "text", text: "Review the release" }],
+        },
+      ],
+      queuedMessages,
+    });
     let activeRunChecks = 0;
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -4553,16 +4563,7 @@ describe("createAgentNativeAgentKitTransport", () => {
             title: "Release review",
             createdAt: "2026-08-29T00:00:00.000Z",
             updatedAt: "2026-08-29T00:01:00.000Z",
-            threadData: JSON.stringify({
-              messages: [
-                {
-                  id: "user-1",
-                  role: "user",
-                  content: [{ type: "text", text: "Review the release" }],
-                },
-              ],
-              queuedMessages,
-            }),
+            threadData,
           });
         }
         if (url.endsWith("/threads/thread-1/queued")) {
@@ -4590,6 +4591,13 @@ describe("createAgentNativeAgentKitTransport", () => {
             });
           }
           return json({ queuedMessages });
+        }
+        if (
+          url.endsWith("/threads/thread-1") &&
+          String(init?.method).toUpperCase() === "PUT"
+        ) {
+          threadData = JSON.parse(String(init?.body)).threadData;
+          return json({ ok: true });
         }
         if (url.endsWith("/_agent-native/agent-chat")) {
           const stream = [
@@ -4667,6 +4675,13 @@ describe("createAgentNativeAgentKitTransport", () => {
         claimId: expect.any(String),
       },
     ]);
+    expect(JSON.parse(threadData).agentKit.messages).toContainEqual(
+      expect.objectContaining({
+        id: "queued-1",
+        role: "user",
+        parts: [{ type: "text", text: "Continue after approval" }],
+      }),
+    );
     expect(activeRunChecks).toBe(1);
     expect(events.map((event) => event.type)).toEqual([
       "run.started",

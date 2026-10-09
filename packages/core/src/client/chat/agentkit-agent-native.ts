@@ -1551,6 +1551,85 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
   }));
 }
 
+function queuedMessageFileParts(
+  queued: AgentQueuedMessage,
+): Extract<AgentMessagePart, { type: "file" }>[] {
+  const files = (queued.attachments ?? []).map(persistableFilePart);
+  const seenUrls = new Set(
+    files.flatMap((part) => (part.url ? [part.url] : [])),
+  );
+  for (const attachment of queued.requestAttachments ?? []) {
+    const url =
+      persistedFileUrl(attachment.referenceUrl) ??
+      persistedFileUrl(attachment.url);
+    if (url) {
+      if (!seenUrls.has(url)) {
+        files.push({
+          type: "file",
+          name: attachment.name,
+          ...(attachment.contentType
+            ? { mediaType: attachment.contentType }
+            : {}),
+          url,
+        });
+        seenUrls.add(url);
+      }
+      continue;
+    }
+    if (
+      attachment.data &&
+      !files.some(
+        (part) =>
+          part.name === attachment.name &&
+          part.mediaType === attachment.contentType,
+      )
+    ) {
+      files.push({
+        type: "file",
+        name: attachment.name,
+        ...(attachment.contentType
+          ? { mediaType: attachment.contentType }
+          : {}),
+        omitted: "inline-bytes",
+      });
+    }
+  }
+  return files;
+}
+
+function withQueuedMessageHistory(
+  messages: AgentMessage[],
+  queued: AgentQueuedMessage,
+): AgentMessage[] {
+  const existing = messages.find((message) => message.id === queued.id);
+  const parts = existing ? [...existing.parts] : [];
+  if (!parts.some((part) => part.type === "text")) {
+    parts.unshift({ type: "text", text: queued.text });
+  }
+  for (const file of queuedMessageFileParts(queued)) {
+    const alreadyPresent = parts.some(
+      (part) =>
+        part.type === "file" &&
+        (part.url === file.url ||
+          (part.name === file.name && part.mediaType === file.mediaType)),
+    );
+    if (!alreadyPresent) parts.push(file);
+  }
+  const message: AgentMessage = existing
+    ? { ...existing, role: "user", parts }
+    : {
+        id: queued.id,
+        role: "user",
+        parts,
+        createdAt: queued.createdAt,
+      };
+  return existing
+    ? messages.map((candidate) =>
+        candidate.id === queued.id ? message : candidate,
+      )
+    : [...messages, message];
+}
+
 /**
  * Keep only fields needed to resume a failed or continued request after reload.
  */
@@ -3612,6 +3691,17 @@ export function createAgentNativeAgentKitTransport(
             },
             undefined,
           );
+          const latestThread = await snapshot(threadId);
+          if (!latestThread) {
+            throw new Error(`Unknown agent chat thread: ${threadId}`);
+          }
+          await persistThreadSnapshot({
+            threadId,
+            snapshot: {
+              ...latestThread,
+              messages: withQueuedMessageHistory(latestThread.messages, queued),
+            },
+          });
           clearPromotionClaimId(threadId, messageId);
           return run;
         } catch (error) {
