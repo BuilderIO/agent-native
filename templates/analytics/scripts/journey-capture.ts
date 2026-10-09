@@ -9,7 +9,6 @@
  * command never reads a local database or saves raw replay events.
  */
 import { createHash } from "node:crypto";
-import { lookup as dnsLookup } from "node:dns/promises";
 import { chmod, lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import {
   Agent as HttpAgent,
@@ -19,7 +18,7 @@ import {
 } from "node:http";
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
 import { createRequire } from "node:module";
-import { BlockList, isIP } from "node:net";
+import { isIP } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -42,6 +41,15 @@ import {
   auditReplayIframeContent,
   type ReplayIframeAudit,
 } from "./journey-capture-iframe-audit";
+import {
+  isLoopbackAddress,
+  isPublicIpAddress,
+  isReplayRequestAllowed,
+  replayBrowserLaunchOptions,
+  resolvePinnedAddresses,
+  startReplaySocksRelay,
+  type ReplaySocksRelay,
+} from "./journey-capture-network";
 import {
   aspectInRange,
   buildManifest,
@@ -68,6 +76,8 @@ import {
 } from "./journey-capture-plan";
 import { sanitizePromptProvenanceCandidates } from "./journey-capture-provenance";
 
+export { isReplayRequestAllowed } from "./journey-capture-network";
+
 const HELP = `journey:capture - render onboarding journey frames from a JourneyTree
 
 Usage:
@@ -87,7 +97,7 @@ Options:
   --app-url <url>        Deployed Analytics app (default ${DEFAULT_APP_URL}, or AGENT_NATIVE_ANALYTICS_URL)
   --token <bearer>       Bearer for that app (default AGENT_NATIVE_TOKEN, then Codex's config.toml)
   --upload               Store each PNG in the app's private storage and put an attachmentRef in the manifest (a frame that fails to upload is a failure, not a frame)
-  --capture-mode <mode>  offline (default) or browser, which checks recorded assets with the replay frame capture and blocks private-network requests
+  --capture-mode <mode>  offline (default) or browser, which checks recorded assets in Chromium through a bounded local network relay
   --extract-prompts      Browser mode only: save bounded user-role text locally; redact credentials and omit SQL/base64 payloads
   --timeout-ms <ms>      Per recording load / per frame limit (default 60000)
   --dry-run              Print the plan (recordings, offsets, viewports) and render nothing
@@ -110,10 +120,12 @@ promptProvenancePath? }.
 Browser captures use the recording-scoped frame URL in an empty browser context.
 Each recording loads once and seeks all requested offsets. Assets that cannot
 pass the frame's bounded same-origin/CORS preflight fail that frame explicitly.
-Browser interception blocks private destinations and WebSockets, including
-redirect targets before Chromium follows them. It limits cross-origin requests
-to GET/HEAD and removes auth, cookie, origin, and referrer headers before
-allowing public recorded-origin requests.
+Chromium uses a per-run loopback SOCKS tunnel that resolves and pins public
+destinations, permits the exact app origin, and blocks WebSockets. Chromium
+continues to handle TLS and CORS. Cross-origin requests are GET/HEAD only and
+have authorization, proxy-authorization, and referrer headers removed; requests
+carrying cookies are blocked, and Origin is preserved for CORS. The Analytics
+bearer is sent only to app actions, never to recorded origins.
 --extract-prompts writes only bounded, redacted user-role text to
 prompt-provenance.json, omitting SQL and base64 payloads; that sidecar is
 local-only and is never uploaded. It records screenshot/upload success or
@@ -138,28 +150,30 @@ export interface BrowserPage {
   ): Promise<unknown>;
   evaluate<T>(fn: (arg: any) => unknown, arg?: unknown): Promise<T>;
 }
-export interface BrowserCDPSession {
-  on(event: string, handler: (params: BrowserFetchRequestPaused) => void): void;
-  send(method: string, params?: Record<string, unknown>): Promise<unknown>;
-  detach(): Promise<void>;
-}
-export interface BrowserFetchRequestPaused {
-  requestId: string;
-  request: {
-    url: string;
-    method: string;
-    headers: Record<string, string>;
+export interface BrowserRoute {
+  request(): {
+    url(): string;
+    method(): string;
+    allHeaders(): Promise<Record<string, string>>;
   };
-  responseStatusCode?: number;
-  responseErrorReason?: string;
-  responseHeaders?: Array<{ name: string; value: string }>;
+  abort(): Promise<void>;
+  continue(options?: {
+    headers?: Record<string, string | undefined>;
+  }): Promise<void>;
 }
 export interface BrowserWebSocketRoute {
   close(): void;
 }
 export interface BrowserContext {
   newPage(): Promise<BrowserPage>;
-  newCDPSession(page: BrowserPage): Promise<BrowserCDPSession>;
+  route(
+    url: string,
+    handler: (route: BrowserRoute) => Promise<void>,
+  ): Promise<void>;
+  unroute(
+    url: string,
+    handler: (route: BrowserRoute) => Promise<void>,
+  ): Promise<void>;
   routeWebSocket(
     url: string,
     handler: (route: BrowserWebSocketRoute) => void,
@@ -338,6 +352,26 @@ function reservePromptProvenanceSnapshot(ctx: RunContext): boolean {
   return true;
 }
 
+function recordTimedOutPromptProvenance(
+  ctx: RunContext,
+  plan: RecordingPlan,
+  item: RecordingPlan["items"][number],
+  reason: string,
+): void {
+  if (!reservePromptProvenanceSnapshot(ctx)) return;
+  ctx.provenanceFailures.push({
+    nodeKey: item.nodeKey,
+    exampleIndex: item.exampleIndex,
+    recordingId: plan.recordingId,
+    treeSourceEventAt: item.sourceEventAt,
+    requestedOffsetMs: item.offsetMs,
+    observedAt: new Date().toISOString(),
+    captureOutcome: { status: "failed", reason },
+    reason,
+  });
+  ctx.provenanceInFlight -= 1;
+}
+
 export async function preparePrivateOutputDirectory(
   outDir: string,
   base: string,
@@ -439,163 +473,6 @@ export async function writePromptProvenanceSidecar(
     ) + "\n",
   );
   return filePath;
-}
-
-const nonPublicIpv4 = new BlockList();
-for (const [range, prefix] of [
-  ["0.0.0.0", 8],
-  ["10.0.0.0", 8],
-  ["100.64.0.0", 10],
-  ["127.0.0.0", 8],
-  ["169.254.0.0", 16],
-  ["172.16.0.0", 12],
-  ["192.0.0.0", 24],
-  ["192.0.2.0", 24],
-  ["192.88.99.0", 24],
-  ["192.168.0.0", 16],
-  ["198.18.0.0", 15],
-  ["198.51.100.0", 24],
-  ["203.0.113.0", 24],
-  ["224.0.0.0", 4],
-  ["240.0.0.0", 4],
-] as const) {
-  nonPublicIpv4.addSubnet(range, prefix, "ipv4");
-}
-
-const globalUnicastIpv6 = new BlockList();
-globalUnicastIpv6.addSubnet("2000::", 3, "ipv6");
-const nonPublicIpv6 = new BlockList();
-for (const [range, prefix] of [
-  ["2001:2::", 48],
-  ["2001::", 23],
-  ["2001:db8::", 32],
-  ["2002::", 16],
-  ["3fff::", 20],
-] as const) {
-  nonPublicIpv6.addSubnet(range, prefix, "ipv6");
-}
-
-const loopbackAddresses = new BlockList();
-loopbackAddresses.addSubnet("127.0.0.0", 8, "ipv4");
-loopbackAddresses.addSubnet("::1", 128, "ipv6");
-
-function isPublicIpAddress(address: string): boolean {
-  const family = isIP(address);
-  if (family === 4) return !nonPublicIpv4.check(address, "ipv4");
-  return (
-    family === 6 &&
-    globalUnicastIpv6.check(address, "ipv6") &&
-    !nonPublicIpv6.check(address, "ipv6")
-  );
-}
-
-function isLoopbackAddress(address: string): boolean {
-  const family = isIP(address);
-  return (
-    (family === 4 || family === 6) &&
-    loopbackAddresses.check(address, family === 4 ? "ipv4" : "ipv6")
-  );
-}
-
-export async function isReplayRequestAllowed(
-  requestUrl: string,
-  appUrl: string,
-): Promise<boolean> {
-  let url: URL;
-  let app: URL;
-  try {
-    url = new URL(requestUrl);
-    app = new URL(appUrl);
-    // coercion-ok: malformed request URLs are denied by the replay network policy.
-  } catch {
-    return false;
-  }
-  if (url.username || url.password || app.username || app.password) {
-    return false;
-  }
-  if (url.origin === app.origin) return true;
-  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
-
-  const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  const normalizedHost = hostname.replace(/\.$/, "");
-  if (
-    normalizedHost.endsWith(".localhost") ||
-    normalizedHost.endsWith(".local") ||
-    normalizedHost.endsWith(".internal") ||
-    normalizedHost.endsWith(".test") ||
-    normalizedHost.endsWith(".invalid") ||
-    normalizedHost.endsWith(".example")
-  ) {
-    return false;
-  }
-  const family = isIP(normalizedHost);
-  if (family) return isPublicIpAddress(normalizedHost);
-
-  try {
-    const addresses = await dnsLookup(normalizedHost, {
-      all: true,
-      verbatim: true,
-    });
-    return (
-      addresses.length > 0 &&
-      addresses.every(({ address }) => isPublicIpAddress(address))
-    );
-    // coercion-ok: a DNS failure denies the external replay request.
-  } catch {
-    return false;
-  }
-}
-
-async function resolvePinnedAddresses(
-  url: URL,
-): Promise<Array<{ address: string; family: number }>> {
-  if (url.username || url.password) {
-    throw new Error("app_request_url_invalid");
-  }
-  const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  const normalizedHost = hostname.replace(/\.$/, "");
-  const isLoopbackApp = isLoopbackHost(normalizedHost);
-  if (
-    url.protocol !== "https:" &&
-    !(url.protocol === "http:" && isLoopbackApp)
-  ) {
-    throw new Error("app_request_url_invalid");
-  }
-  if (
-    !isLoopbackApp &&
-    (normalizedHost.endsWith(".localhost") ||
-      normalizedHost.endsWith(".local") ||
-      normalizedHost.endsWith(".internal") ||
-      normalizedHost.endsWith(".test") ||
-      normalizedHost.endsWith(".invalid") ||
-      normalizedHost.endsWith(".example"))
-  ) {
-    throw new Error("app_network_target_blocked");
-  }
-
-  let addresses: Array<{ address: string; family: number }>;
-  const family = isIP(normalizedHost);
-  if (family) {
-    addresses = [{ address: normalizedHost, family }];
-  } else {
-    try {
-      addresses = await dnsLookup(normalizedHost, {
-        all: true,
-        verbatim: true,
-      });
-    } catch {
-      throw new Error("app_dns_lookup_failed");
-    }
-  }
-  if (
-    addresses.length === 0 ||
-    addresses.some(({ address }) =>
-      isLoopbackApp ? !isLoopbackAddress(address) : !isPublicIpAddress(address),
-    )
-  ) {
-    throw new Error("app_network_target_blocked");
-  }
-  return addresses;
 }
 
 function abortReason(signal: AbortSignal): Error {
@@ -1109,113 +986,61 @@ type BrowserPromptReply =
     }
   | { ok: false; reason: string };
 
-export async function handleReplayRequestPaused(
-  session: BrowserCDPSession,
-  event: BrowserFetchRequestPaused,
-  appUrl: string,
-  signal: AbortSignal,
-): Promise<void> {
-  const fail = () =>
-    session.send("Fetch.failRequest", {
-      requestId: event.requestId,
-      errorReason: "BlockedByClient",
-    });
-  const requestUrl = event.request.url;
-  if (
-    event.responseStatusCode !== undefined ||
-    event.responseErrorReason !== undefined
-  ) {
-    if (signal.aborted || event.responseErrorReason !== undefined) {
-      await fail();
-      return;
-    }
-    const location = event.responseHeaders?.find(
-      ({ name }) => name.toLowerCase() === "location",
-    )?.value;
-    if (
-      event.responseStatusCode !== undefined &&
-      [301, 302, 303, 307, 308].includes(event.responseStatusCode) &&
-      location
-    ) {
-      let redirectUrl: string;
-      try {
-        redirectUrl = new URL(location, requestUrl).toString();
-      } catch {
-        await fail();
-        return;
-      }
-      if (
-        signal.aborted ||
-        !(await isReplayRequestAllowed(redirectUrl, appUrl))
-      ) {
-        await fail();
-        return;
-      }
-    }
-    await session.send("Fetch.continueResponse", {
-      requestId: event.requestId,
-    });
-    return;
-  }
-
-  if (signal.aborted || !(await isReplayRequestAllowed(requestUrl, appUrl))) {
-    await fail();
-    return;
-  }
-  const appOrigin = new URL(appUrl).origin;
-  if (new URL(requestUrl).origin !== appOrigin) {
-    if (!["GET", "HEAD"].includes(event.request.method.toUpperCase())) {
-      await fail();
-      return;
-    }
-    const headers = Object.entries(event.request.headers)
-      .filter(
-        ([name]) =>
-          !["authorization", "cookie", "cookie2", "origin", "referer"].includes(
-            name.toLowerCase(),
-          ),
-      )
-      .map(([name, value]) => ({ name, value }));
-    await session.send("Fetch.continueRequest", {
-      requestId: event.requestId,
-      headers,
-    });
-    return;
-  }
-
-  await session.send("Fetch.continueRequest", {
-    requestId: event.requestId,
-  });
-}
-
 export async function installReplayNetworkPolicy(
   context: BrowserContext,
-  page: BrowserPage,
   appUrl: string,
   signal: AbortSignal,
 ): Promise<ReplayNetworkPolicy> {
-  const session = await context.newCDPSession(page);
   const inFlight = new Set<Promise<void>>();
   let policyError: unknown;
-  session.on("Fetch.requestPaused", (event) => {
-    const work = handleReplayRequestPaused(session, event, appUrl, signal);
+  const appOrigin = new URL(appUrl).origin;
+  const routeHandler = async (route: BrowserRoute) => {
+    const work = (async () => {
+      const request = route.request();
+      const requestUrl = request.url();
+      if (
+        signal.aborted ||
+        !(await isReplayRequestAllowed(requestUrl, appUrl))
+      ) {
+        await route.abort();
+        return;
+      }
+      if (new URL(requestUrl).origin !== appOrigin) {
+        if (!["GET", "HEAD"].includes(request.method().toUpperCase())) {
+          await route.abort();
+          return;
+        }
+        const originalHeaders = await request.allHeaders();
+        if (originalHeaders.cookie || originalHeaders.cookie2) {
+          await route.abort();
+          return;
+        }
+        const headers: Record<string, string | undefined> = {
+          ...originalHeaders,
+          authorization: undefined,
+          "proxy-authorization": undefined,
+          referer: undefined,
+        };
+        await route.continue({ headers });
+        return;
+      }
+      await route.continue();
+    })();
     inFlight.add(work);
-    void work
-      .catch((error) => {
-        policyError ??= error;
-      })
-      .finally(() => inFlight.delete(work));
-  });
+    try {
+      await work;
+    } catch (error) {
+      policyError ??= error;
+      await route.abort().catch(() => undefined);
+    } finally {
+      inFlight.delete(work);
+    }
+  };
   try {
-    await session.send("Fetch.enable", {
-      patterns: [
-        { urlPattern: "*", requestStage: "Request" },
-        { urlPattern: "*", requestStage: "Response" },
-      ],
-    });
+    await context.route("**/*", routeHandler);
     await context.routeWebSocket("**/*", (websocket) => websocket.close());
   } catch (error) {
-    await session.detach();
+    await context.unroute("**/*", routeHandler);
     throw error;
   }
 
@@ -1231,11 +1056,7 @@ export async function installReplayNetworkPolicy(
       }
     },
     async close() {
-      try {
-        await session.send("Fetch.disable");
-      } finally {
-        await session.detach();
-      }
+      await context.unroute("**/*", routeHandler);
     },
   };
 }
@@ -1289,7 +1110,6 @@ export async function captureBrowserRecording(
     page = await context.newPage();
     networkPolicy = await installReplayNetworkPolicy(
       context,
-      page,
       ctx.appUrl,
       ctx.signal,
     );
@@ -1344,8 +1164,10 @@ export async function captureBrowserRecording(
     }
     await context.clearCookies();
 
-    for (const item of plan.items) {
+    for (let itemIndex = 0; itemIndex < plan.items.length; itemIndex += 1) {
+      const item = plan.items[itemIndex]!;
       let captureFailureReason: string | undefined;
+      let terminalCaptureFailure: string | undefined;
       const itemFailure = (reason: string, assetFailed = false) => {
         captureFailureReason ??= reason;
         ctx.failures.push(
@@ -1483,12 +1305,37 @@ export async function captureBrowserRecording(
       } catch (error) {
         if (error instanceof AuthError) throw error;
         if (ctx.signal.aborted) throw abortReason(ctx.signal);
-        itemFailure(browserFailureReason(error));
+        const reason = browserFailureReason(error);
+        itemFailure(reason);
+        if (error instanceof CaptureTimeout) terminalCaptureFailure = reason;
+      }
+
+      if (terminalCaptureFailure) {
+        const remainingReason =
+          "capture_timeout: an earlier frame did not finish";
+        for (const later of plan.items.slice(itemIndex + 1)) {
+          ctx.failures.push(
+            failureFor(later, remainingReason, recordingStartedAtMs),
+          );
+        }
+        if (ctx.extractPrompts) {
+          recordTimedOutPromptProvenance(
+            ctx,
+            plan,
+            item,
+            terminalCaptureFailure,
+          );
+          for (const later of plan.items.slice(itemIndex + 1)) {
+            recordTimedOutPromptProvenance(ctx, plan, later, remainingReason);
+          }
+        }
+        break;
       }
 
       if (ctx.extractPrompts) {
         if (!reservePromptProvenanceSnapshot(ctx)) continue;
         const observedAt = new Date().toISOString();
+        let extractionTimedOut = false;
         try {
           const reply = await withTimeout(
             page.evaluate<BrowserPromptReply>(async (offsetMs) => {
@@ -1554,8 +1401,20 @@ export async function captureBrowserRecording(
             reason: browserFailureReason(error),
           });
           if (ctx.signal.aborted) throw abortReason(ctx.signal);
+          extractionTimedOut = error instanceof CaptureTimeout;
         } finally {
           ctx.provenanceInFlight -= 1;
+        }
+        if (extractionTimedOut) {
+          const remainingReason =
+            "capture_timeout: an earlier frame did not finish";
+          for (const later of plan.items.slice(itemIndex + 1)) {
+            ctx.failures.push(
+              failureFor(later, remainingReason, recordingStartedAtMs),
+            );
+            recordTimedOutPromptProvenance(ctx, plan, later, remainingReason);
+          }
+          break;
         }
       }
     }
@@ -2245,6 +2104,17 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const chromium = await importChromium();
+  let replayRelay: ReplaySocksRelay | undefined;
+  if (captureMode === "browser") {
+    try {
+      replayRelay = await startReplaySocksRelay(appUrl);
+    } catch (error) {
+      console.error(
+        `Browser replay network relay could not start (${reasonFromError(error)}).`,
+      );
+      return 1;
+    }
+  }
   let browser: Browser;
   try {
     // The run handles Ctrl-C itself (below) so it can write its manifest.
@@ -2253,8 +2123,16 @@ async function main(argv: string[]): Promise<number> {
       handleSIGINT: false,
       handleSIGTERM: false,
       handleSIGHUP: false,
+      ...(replayRelay ? replayBrowserLaunchOptions(replayRelay.server) : {}),
     });
   } catch (error) {
+    try {
+      await replayRelay?.close();
+    } catch (closeError) {
+      console.error(
+        `Browser replay network relay did not close cleanly (${reasonFromError(closeError)}).`,
+      );
+    }
     console.error(
       `Chromium could not start (${reasonFromError(error)}). Run: npx playwright install chromium`,
     );
@@ -2282,11 +2160,18 @@ async function main(argv: string[]): Promise<number> {
     provenanceInFlight: 0,
   };
   let requestedSignal: NodeJS.Signals | undefined;
-  let browserCloseError: unknown;
+  let captureResourceCloseError: unknown;
   let browserClosePromise: Promise<void> | undefined;
   const closeBrowser = () => {
-    browserClosePromise ??= browser.close().catch((error) => {
-      browserCloseError = error;
+    browserClosePromise ??= Promise.allSettled(
+      [
+        () => browser.close(),
+        ...(replayRelay ? [() => replayRelay!.close()] : []),
+      ].map((close) => Promise.resolve().then(close)),
+    ).then((results) => {
+      const rejected = results.find((result) => result.status === "rejected");
+      captureResourceCloseError =
+        rejected?.status === "rejected" ? rejected.reason : undefined;
     });
     return browserClosePromise;
   };
@@ -2350,9 +2235,9 @@ async function main(argv: string[]): Promise<number> {
       process.off(signal, handler);
     }
   }
-  if (browserCloseError) {
+  if (captureResourceCloseError) {
     console.error(
-      `Chromium did not close cleanly (${reasonFromError(browserCloseError)}).`,
+      `Browser capture resources did not close cleanly (${reasonFromError(captureResourceCloseError)}).`,
     );
     return 1;
   }

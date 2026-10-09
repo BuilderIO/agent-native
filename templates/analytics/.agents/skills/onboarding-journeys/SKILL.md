@@ -199,12 +199,18 @@ unreadable, missing, or oversized asset is an explicit frame failure with
 CLI's Analytics bearer or browser cookies. The manifest sets
 `remoteAssets: "browser-preflight-per-frame"` to describe the capture path;
 each frame status describes what happened for that seek.
-Before navigation, the CLI intercepts browser requests and blocks private,
-loopback, and metadata destinations outside the exact Analytics app origin at
-every redirect. It blocks WebSockets and allows cross-origin requests only for
-GET/HEAD to public hosts, stripping authorization, cookie, origin, and referrer
-headers.
-The output directory uses mode 0700 and each file uses mode 0600.
+Before navigation, the CLI routes requests from every page in the isolated
+browser context and blocks private, loopback, and metadata destinations outside
+the exact Analytics app origin. Redirect destinations pass through the same
+check before Chromium connects. A temporary loopback SOCKS tunnel resolves each
+destination once, validates every returned address, and connects only to those
+numeric addresses; Chromium cannot bypass the tunnel for loopback hosts or do
+its own destination DNS lookup. WebSockets are blocked. Cross-origin requests
+are GET/HEAD only, have authorization, proxy-authorization, and referrer
+headers removed, and are blocked if they carry cookies; `Origin` is preserved
+for CORS. Chromium performs TLS and CORS itself, and the CLI never forwards its
+Analytics bearer or cookies to a recorded origin. The output directory uses
+mode 0700 and each file uses mode 0600.
 
 `--extract-prompts` is available only with browser mode. It reads at most 12
 visible user-role message text blocks from the materialized replay document at

@@ -55,6 +55,23 @@ describe("sanitizePromptProvenanceCandidates", () => {
     expect(result.messages[0]?.text).not.toContain("sample-token");
   });
 
+  it("redacts JSON-quoted credential property names", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      {
+        role: "user",
+        text: '{"api_key":"example-value","access_token":"another-value"}',
+      },
+    ]);
+
+    expect(result.messages[0]?.text).toContain("[REDACTED]");
+    expect(result.messages[0]?.text).not.toContain("example-value");
+    expect(result.messages[0]?.text).not.toContain("another-value");
+    expect(JSON.parse(result.messages[0]!.text)).toEqual({
+      api_key: "[REDACTED]",
+      access_token: "[REDACTED]",
+    });
+  });
+
   it("omits SQL and base64 payloads from extracted message text", () => {
     const query = "SELECT email, api_key FROM accounts WHERE id = 7;";
     const imageData = `data:image/png;base64,${"A".repeat(160)}`;
@@ -94,6 +111,22 @@ describe("sanitizePromptProvenanceCandidates", () => {
     ]);
     expect(JSON.stringify(result)).not.toContain("customer@example.com");
     expect(JSON.stringify(result)).not.toContain("SELECT");
+  });
+
+  it("keeps natural language selection prompts and omits function SELECTs", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      {
+        role: "user",
+        text: "Please select one, then compare retention by plan.",
+      },
+      { role: "user", text: "SELECT decrypt(secret_column)" },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "Please select one, then compare retention by plan.",
+      "[OMITTED_SQL]",
+    ]);
+    expect(JSON.stringify(result)).not.toContain("secret_column");
   });
 
   it("reports message and per-message character truncation", () => {

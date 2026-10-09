@@ -10,7 +10,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   captureBrowserRecording,
   createCaptureSignalHandler,
-  handleReplayRequestPaused,
   installReplayNetworkPolicy,
   isReplayRequestAllowed,
   loadReplayEvents,
@@ -21,9 +20,9 @@ import {
   signalExitCode,
   writePromptProvenanceSidecar,
   type Browser,
-  type BrowserCDPSession,
   type BrowserContext,
   type BrowserPage,
+  type BrowserRoute,
   type BrowserWebSocketRoute,
   type RunContext,
 } from "./journey-capture";
@@ -84,15 +83,19 @@ const recordingPlan: RecordingPlan = {
 };
 
 describe("journey capture network requests", () => {
-  it("blocks private replay destinations while stripping cross-origin credentials", async () => {
+  it("routes every page request, blocks private destinations, and strips cross-origin credentials", async () => {
     let websocketHandler: ((route: BrowserWebSocketRoute) => void) | undefined;
-    const session = {
-      on: vi.fn(),
-      send: vi.fn(async () => undefined),
-      detach: vi.fn(async () => undefined),
-    } as unknown as BrowserCDPSession;
+    let routeHandler: ((route: BrowserRoute) => Promise<void>) | undefined;
     const context = {
-      newCDPSession: vi.fn(async () => session),
+      route: vi.fn(
+        async (
+          _url: string,
+          handler: (route: BrowserRoute) => Promise<void>,
+        ) => {
+          routeHandler = handler;
+        },
+      ),
+      unroute: vi.fn(async () => undefined),
       routeWebSocket: vi.fn(
         async (
           _url: string,
@@ -105,108 +108,57 @@ describe("journey capture network requests", () => {
     const signal = new AbortController().signal;
     const policy = await installReplayNetworkPolicy(
       context,
-      {} as BrowserPage,
       "https://analytics.example.com",
       signal,
     );
-    expect(session.send).toHaveBeenCalledWith("Fetch.enable", {
-      patterns: [
-        { urlPattern: "*", requestStage: "Request" },
-        { urlPattern: "*", requestStage: "Response" },
-      ],
-    });
+    expect(context.route).toHaveBeenCalledWith("**/*", expect.any(Function));
     expect(context.routeWebSocket).toHaveBeenCalledWith(
       "**/*",
       expect.any(Function),
     );
-    await handleReplayRequestPaused(
-      session,
-      {
-        requestId: "public-asset",
-        request: {
-          url: "https://8.8.8.8/replay-image.png",
-          method: "GET",
-          headers: {
-            authorization: "Bearer must-not-leave",
-            cookie: "session=must-not-leave",
-            origin: "https://analytics.example.com",
-            referer:
-              "https://analytics.example.com/sessions/replay?agent_access=grant",
-            accept: "image/png",
-          },
-        },
+    const continueRequest = vi.fn(async () => undefined);
+    const abortRequest = vi.fn(async () => undefined);
+    const dispatch = async (
+      url: string,
+      method = "GET",
+      headers: Record<string, string> = {},
+    ) =>
+      routeHandler!({
+        request: () => ({
+          url: () => url,
+          method: () => method,
+          allHeaders: async () => headers,
+        }),
+        abort: abortRequest,
+        continue: continueRequest,
+      });
+
+    await dispatch("https://8.8.8.8/replay-image.png", "GET", {
+      authorization: "Bearer must-not-leave",
+      "proxy-authorization": "Basic must-not-leave",
+      origin: "https://analytics.example.com",
+      referer:
+        "https://analytics.example.com/sessions/replay?agent_access=grant",
+      accept: "image/png",
+    });
+    expect(continueRequest).toHaveBeenLastCalledWith({
+      headers: {
+        authorization: undefined,
+        "proxy-authorization": undefined,
+        origin: "https://analytics.example.com",
+        referer: undefined,
+        accept: "image/png",
       },
-      "https://analytics.example.com",
-      signal,
-    );
-    expect(session.send).toHaveBeenCalledWith("Fetch.continueRequest", {
-      requestId: "public-asset",
-      headers: [{ name: "accept", value: "image/png" }],
     });
 
-    await handleReplayRequestPaused(
-      session,
-      {
-        requestId: "private-redirect",
-        request: {
-          url: "https://analytics.example.com/sessions/replay",
-          method: "GET",
-          headers: {},
-        },
-        responseStatusCode: 302,
-        responseHeaders: [
-          {
-            name: "Location",
-            value: "http://169.254.169.254/latest/meta-data",
-          },
-        ],
-      },
-      "https://analytics.example.com",
-      signal,
-    );
-    expect(session.send).toHaveBeenCalledWith("Fetch.failRequest", {
-      requestId: "private-redirect",
-      errorReason: "BlockedByClient",
+    await dispatch("https://8.8.8.8/cookie", "GET", {
+      cookie: "session=must-not-leave",
     });
-
-    await handleReplayRequestPaused(
-      session,
-      {
-        requestId: "public-redirect",
-        request: {
-          url: "https://analytics.example.com/sessions/replay",
-          method: "GET",
-          headers: {},
-        },
-        responseStatusCode: 302,
-        responseHeaders: [
-          { name: "Location", value: "https://8.8.8.8/replay-image.png" },
-        ],
-      },
-      "https://analytics.example.com",
-      signal,
-    );
-    expect(session.send).toHaveBeenCalledWith("Fetch.continueResponse", {
-      requestId: "public-redirect",
-    });
-
-    await handleReplayRequestPaused(
-      session,
-      {
-        requestId: "external-post",
-        request: {
-          url: "https://8.8.8.8/collect",
-          method: "POST",
-          headers: {},
-        },
-      },
-      "https://analytics.example.com",
-      signal,
-    );
-    expect(session.send).toHaveBeenCalledWith("Fetch.failRequest", {
-      requestId: "external-post",
-      errorReason: "BlockedByClient",
-    });
+    expect(abortRequest).toHaveBeenCalledOnce();
+    await dispatch("http://169.254.169.254/latest/meta-data");
+    expect(abortRequest).toHaveBeenCalledTimes(2);
+    await dispatch("https://8.8.8.8/collect", "POST");
+    expect(abortRequest).toHaveBeenCalledTimes(3);
 
     const closeWebSocket = vi.fn();
     websocketHandler!({ close: closeWebSocket });
@@ -218,8 +170,7 @@ describe("journey capture network requests", () => {
       ),
     ).toBe(false);
     await policy.close();
-    expect(session.send).toHaveBeenCalledWith("Fetch.disable");
-    expect(session.detach).toHaveBeenCalledOnce();
+    expect(context.unroute).toHaveBeenCalledWith("**/*", routeHandler);
   });
 
   it("connects to an available loopback family for localhost", async () => {
@@ -677,14 +628,10 @@ describe("browser journey capture", () => {
       waitForFunction: vi.fn(async () => undefined),
       evaluate: vi.fn(async <T>() => replies.shift() as T),
     } as unknown as BrowserPage;
-    const session = {
-      on: vi.fn(),
-      send: vi.fn(async () => undefined),
-      detach: vi.fn(async () => undefined),
-    } as unknown as BrowserCDPSession;
     const context = {
       newPage: vi.fn(async () => page),
-      newCDPSession: vi.fn(async () => session),
+      route: vi.fn(async () => undefined),
+      unroute: vi.fn(async () => undefined),
       routeWebSocket: vi.fn(async () => undefined),
       clearCookies: vi.fn(async () => undefined),
       close: vi.fn(async () => undefined),
@@ -788,6 +735,228 @@ describe("browser journey capture", () => {
     }
   });
 
+  it("treats a timed-out seek as terminal and accounts for all remaining provenance", async () => {
+    const outDir = await mkdtemp(
+      path.join(os.tmpdir(), "journey-capture-timeout-"),
+    );
+    const items = [
+      ...recordingPlan.items,
+      {
+        nodeKey: "third",
+        exampleIndex: 2,
+        recordingId: "sr_1",
+        offsetMs: 30,
+        viewport: { width: 1, height: 1 },
+        sourceEventAt: "source-event-three",
+      },
+    ];
+    const plan: RecordingPlan = { recordingId: "sr_1", items };
+    let evaluateCalls = 0;
+    const page = {
+      goto: vi.fn(async () => undefined),
+      waitForFunction: vi.fn(async () => undefined),
+      evaluate: vi.fn(async <T>() => {
+        evaluateCalls += 1;
+        if (evaluateCalls === 1) {
+          return {
+            status: "ready",
+            recordingStartedAt: "2026-10-09T00:00:00.000Z",
+          } as T;
+        }
+        return new Promise<T>(() => undefined);
+      }),
+    } as unknown as BrowserPage;
+    const context = {
+      newPage: vi.fn(async () => page),
+      route: vi.fn(async () => undefined),
+      unroute: vi.fn(async () => undefined),
+      routeWebSocket: vi.fn(async () => undefined),
+      clearCookies: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+    } as unknown as BrowserContext;
+    const browser = {
+      newContext: vi.fn(async () => context),
+    } as unknown as Browser;
+    const ctx: RunContext = {
+      appUrl: "https://analytics.example.com",
+      token: undefined,
+      signal: new AbortController().signal,
+      browser,
+      outDir,
+      timeoutMs: 10,
+      upload: false,
+      captureMode: "browser",
+      extractPrompts: true,
+      minAspect: undefined,
+      maxAspect: undefined,
+      usedNames: new Set<string>(),
+      frames: [],
+      failures: [],
+      provenanceSnapshots: [],
+      provenanceFailures: [],
+      provenanceOmittedSnapshots: 0,
+      provenanceInFlight: 0,
+    };
+
+    try {
+      await preparePrivateOutputDirectory(outDir, process.cwd());
+      await captureBrowserRecording(
+        ctx,
+        plan,
+        "https://analytics.example.com/sessions/sr_1?agent_access=scoped-grant&frame=1",
+      );
+
+      expect(page.evaluate).toHaveBeenCalledTimes(2);
+      expect(ctx.frames).toEqual([]);
+      expect(ctx.failures).toMatchObject([
+        {
+          nodeKey: "first",
+          reason: expect.stringContaining("capture_timeout"),
+        },
+        {
+          nodeKey: "second",
+          reason: "capture_timeout: an earlier frame did not finish",
+        },
+        {
+          nodeKey: "third",
+          reason: "capture_timeout: an earlier frame did not finish",
+        },
+      ]);
+      expect(ctx.provenanceFailures).toMatchObject([
+        {
+          nodeKey: "first",
+          reason: expect.stringContaining("capture_timeout"),
+        },
+        {
+          nodeKey: "second",
+          reason: "capture_timeout: an earlier frame did not finish",
+        },
+        {
+          nodeKey: "third",
+          reason: "capture_timeout: an earlier frame did not finish",
+        },
+      ]);
+      expect(ctx.provenanceInFlight).toBe(0);
+      expect(context.close).toHaveBeenCalledOnce();
+
+      const sidecarPath = await writePromptProvenanceSidecar(
+        outDir,
+        "2026-10-09T00:00:00.000Z",
+        ctx.provenanceSnapshots,
+        ctx.provenanceFailures,
+        ctx.provenanceOmittedSnapshots,
+        plan.items.length,
+      );
+      const sidecar = JSON.parse(await readFile(sidecarPath, "utf8"));
+      expect(sidecar.coverage).toMatchObject({
+        plannedSnapshots: 3,
+        failedSnapshots: 3,
+        unrecordedSnapshots: 0,
+      });
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
+    }
+  });
+
+  it("stops later seeks when prompt extraction times out", async () => {
+    const outDir = await mkdtemp(
+      path.join(os.tmpdir(), "journey-capture-prompt-timeout-"),
+    );
+    const png = Buffer.from(pngHeader(1, 1)).toString("base64");
+    let evaluateCalls = 0;
+    const page = {
+      goto: vi.fn(async () => undefined),
+      waitForFunction: vi.fn(async () => undefined),
+      evaluate: vi.fn(async <T>() => {
+        evaluateCalls += 1;
+        if (evaluateCalls === 1) {
+          return {
+            status: "ready",
+            recordingStartedAt: "2026-10-09T00:00:00.000Z",
+          } as T;
+        }
+        if (evaluateCalls === 2) {
+          return {
+            ok: true,
+            value: {
+              offsetMs: 10,
+              playheadOffsetMs: 5,
+              width: 1,
+              height: 1,
+              route: "/start",
+              capturedAt: "2026-10-09T00:00:00.010Z",
+              png,
+            },
+          } as T;
+        }
+        return new Promise<T>(() => undefined);
+      }),
+    } as unknown as BrowserPage;
+    const context = {
+      newPage: vi.fn(async () => page),
+      route: vi.fn(async () => undefined),
+      unroute: vi.fn(async () => undefined),
+      routeWebSocket: vi.fn(async () => undefined),
+      clearCookies: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+    } as unknown as BrowserContext;
+    const browser = {
+      newContext: vi.fn(async () => context),
+    } as unknown as Browser;
+    const ctx: RunContext = {
+      appUrl: "https://analytics.example.com",
+      token: undefined,
+      signal: new AbortController().signal,
+      browser,
+      outDir,
+      timeoutMs: 15,
+      upload: false,
+      captureMode: "browser",
+      extractPrompts: true,
+      minAspect: undefined,
+      maxAspect: undefined,
+      usedNames: new Set<string>(),
+      frames: [],
+      failures: [],
+      provenanceSnapshots: [],
+      provenanceFailures: [],
+      provenanceOmittedSnapshots: 0,
+      provenanceInFlight: 0,
+    };
+
+    try {
+      await preparePrivateOutputDirectory(outDir, process.cwd());
+      await captureBrowserRecording(
+        ctx,
+        recordingPlan,
+        "https://analytics.example.com/sessions/sr_1?agent_access=scoped-grant&frame=1",
+      );
+
+      expect(page.evaluate).toHaveBeenCalledTimes(3);
+      expect(ctx.frames).toMatchObject([{ nodeKey: "first" }]);
+      expect(ctx.failures).toMatchObject([
+        {
+          nodeKey: "second",
+          reason: "capture_timeout: an earlier frame did not finish",
+        },
+      ]);
+      expect(ctx.provenanceFailures).toMatchObject([
+        {
+          nodeKey: "first",
+          reason: expect.stringContaining("capture_timeout"),
+        },
+        {
+          nodeKey: "second",
+          reason: "capture_timeout: an earlier frame did not finish",
+        },
+      ]);
+      expect(ctx.provenanceInFlight).toBe(0);
+      expect(context.close).toHaveBeenCalledOnce();
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
+    }
+  });
+
   it("records prompt provenance when frame upload fails", async () => {
     const outDir = await mkdtemp(path.join(os.tmpdir(), "journey-capture-"));
     await chmod(outDir, 0o700);
@@ -834,13 +1003,9 @@ describe("browser journey capture", () => {
       waitForFunction: vi.fn(async () => undefined),
       evaluate: vi.fn(async <T>() => replies.shift() as T),
     } as unknown as BrowserPage;
-    const session = {
-      on: vi.fn(),
-      send: vi.fn(async () => undefined),
-      detach: vi.fn(async () => undefined),
-    } as unknown as BrowserCDPSession;
     const context = {
-      newCDPSession: vi.fn(async () => session),
+      route: vi.fn(async () => undefined),
+      unroute: vi.fn(async () => undefined),
       routeWebSocket: vi.fn(async () => undefined),
       newPage: vi.fn(async () => page),
       clearCookies: vi.fn(async () => undefined),
