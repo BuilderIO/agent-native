@@ -885,6 +885,7 @@ export interface MultiTabAssistantChatHeaderProps {
   tabs: ChatTab[];
   activeTabId: string;
   activeTabMessageCount: number;
+  activeTabIsPersisted: boolean;
   setActiveTabId: (tabId: string) => void;
   addTab: () => void;
   closeTab: (tabId: string) => void;
@@ -3063,6 +3064,11 @@ export function MultiTabAssistantChat({
     activeTabMessageCount: activeThreadId
       ? (messageCounts[activeThreadId] ?? 0)
       : 0,
+    activeTabIsPersisted: Boolean(
+      activeThreadId &&
+      !newThreadIds.current.has(activeThreadId) &&
+      !isNewThread(activeThreadId),
+    ),
     setActiveTabId: switchThread,
     addTab,
     closeTab,

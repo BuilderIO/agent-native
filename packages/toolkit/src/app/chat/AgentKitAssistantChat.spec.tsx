@@ -2602,6 +2602,20 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).not.toBeNull();
   });
 
+  it("anchors the composer at the bottom while restoring a persisted thread", async () => {
+    await mount(
+      baseProps({
+        centerComposerWhenEmpty: true,
+        isNewThread: false,
+        isThreadStateLoading: true,
+      }),
+    );
+
+    expect(chatMocks.chatProps.hasRenderedMessages).toBe(false);
+    expect(chatMocks.chatProps.emptyComposerPlacement).toBe("bottom");
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+  });
+
   it("keeps transient voice messages scoped to the active thread", async () => {
     const base = baseProps({
       centerComposerWhenEmpty: true,

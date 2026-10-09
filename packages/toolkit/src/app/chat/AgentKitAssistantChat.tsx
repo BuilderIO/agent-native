@@ -3240,7 +3240,7 @@ const AgentKitAssistantChatBody = forwardRef<
         composerProps={{ attachmentsEnabled: fileStorageConfigured }}
         hasRenderedMessages={hasRenderedMessages}
         emptyComposerPlacement={
-          props.centerComposerWhenEmpty ? "center" : "bottom"
+          props.centerComposerWhenEmpty && !isRestoring ? "center" : "bottom"
         }
         title={props.showHeader === false ? undefined : props.emptyStateText}
         autoScroll
@@ -3568,18 +3568,18 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   ) {
     return (
       <div
-        className="flex h-full flex-col gap-3 p-4"
+        className="flex h-full flex-col gap-6 p-4"
         aria-busy="true"
         role="status"
       >
         <span className="sr-only">{t("agentChat.empty.loadingChat")}</span>
-        <div className="flex justify-end">
-          <div className="h-8 w-32 animate-pulse rounded-lg bg-muted" />
+        <div className="flex justify-end" aria-hidden="true">
+          <div className="h-20 w-2/3 max-w-[38rem] animate-pulse rounded-2xl bg-muted motion-reduce:animate-none" />
         </div>
-        <div className="flex flex-col gap-1.5">
-          <div className="h-4 w-48 animate-pulse rounded bg-muted" />
-          <div className="h-4 w-64 animate-pulse rounded bg-muted" />
-          <div className="h-4 w-40 animate-pulse rounded bg-muted" />
+        <div className="flex flex-col gap-2.5" aria-hidden="true">
+          <div className="h-3.5 w-full max-w-[38rem] animate-pulse rounded bg-muted motion-reduce:animate-none" />
+          <div className="h-3.5 w-[88%] max-w-[33rem] animate-pulse rounded bg-muted motion-reduce:animate-none" />
+          <div className="h-3.5 w-[64%] max-w-[24rem] animate-pulse rounded bg-muted motion-reduce:animate-none" />
         </div>
       </div>
     );

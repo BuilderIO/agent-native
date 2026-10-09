@@ -2054,6 +2054,53 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(headerProps?.tabs.map((tab) => tab.id)).toEqual(["thread-clear"]);
   });
 
+  it("distinguishes persisted threads from a new chat in header state", async () => {
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.activeTabIsPersisted).toBe(true);
+
+    threadMocks.createThread.mockImplementationOnce(async () => {
+      const id = "thread-new";
+      threadMocks.activeThreadId = id;
+      threadMocks.threads = [
+        {
+          id,
+          title: "",
+          preview: "",
+          messageCount: 0,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          scope: null,
+        },
+        ...threadMocks.threads,
+      ];
+      return id;
+    });
+
+    await act(async () => {
+      await headerProps?.addTab();
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.activeTabId).toBe("thread-new");
+    expect(headerProps?.activeTabIsPersisted).toBe(false);
+  });
+
   it("keeps a chat mounted when scoped navigation has no saved open tabs", async () => {
     let tabs: Array<{ id: string }> = [];
     const renderHeader = (props: { tabs: Array<{ id: string }> }) => {
