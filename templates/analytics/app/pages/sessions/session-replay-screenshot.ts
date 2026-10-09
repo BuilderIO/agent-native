@@ -1125,6 +1125,8 @@ export function inlineReplayAssets(
 }
 
 async function assertDocumentFontsReady(document: Document): Promise<void> {
+  // rrweb rebuilds with document.open(); font readiness also waits for parsing to finish.
+  if (document.readyState === "loading") document.close();
   const fontSet = document.fonts;
   if (!fontSet?.ready) return;
 
