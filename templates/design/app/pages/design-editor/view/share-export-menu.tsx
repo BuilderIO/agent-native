@@ -58,8 +58,7 @@ export function ShareExportMenu({
         <DropdownMenuContent
           align="end"
           sideOffset={8}
-          onCloseAutoFocus={(event) => event.preventDefault()}
-          className="design-editor-app-menu-content z-[100010] w-52"
+          className="design-editor-app-menu-content w-52"
         >
           <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
             {t("designEditor.export")}
@@ -79,14 +78,14 @@ export function ShareExportMenu({
               setPublishOpen(true);
             }}
           >
-            {"Publish app" /* i18n-ignore */}
+            {t("designEditor.publishApp")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <Dialog open={publishOpen} onOpenChange={setPublishOpen}>
-        <DialogContent className="z-[100010] sm:max-w-sm">
+        <DialogContent className="sm:max-w-sm">
           <DialogTitle className="sr-only">
-            {"Publish app" /* i18n-ignore */}
+            {t("designEditor.publishApp")}
           </DialogTitle>
           <PublishWaitlistPanel
             editorCore={editorCore}

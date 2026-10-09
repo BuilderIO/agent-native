@@ -1233,6 +1233,7 @@ export default {
     downloadFigmaSvg: "下载用于 Figma 的 SVG",
     downloadZip: "下载 ZIP",
     downloadPdfAllScreens: "下载 PDF（所有屏幕）",
+    publishApp: "发布应用",
     exportHtml: "导出HTML",
     exportPdf: "导出PDF",
     copyCodingHandoff: "复制编码交接",

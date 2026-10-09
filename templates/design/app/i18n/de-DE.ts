@@ -1284,6 +1284,7 @@ export default {
     downloadFigmaSvg: "Für Figma herunterladen (SVG)",
     downloadZip: "ZIP herunterladen",
     downloadPdfAllScreens: "Laden Sie PDF herunter (Alle Screens)",
+    publishApp: "App veröffentlichen",
     exportHtml: "HTML exportieren",
     exportPdf: "PDF exportieren",
     copyCodingHandoff: "Code-Übergabe kopieren",

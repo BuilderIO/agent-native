@@ -1278,6 +1278,7 @@ export default {
     downloadFigmaSvg: "Figma 用にダウンロード（SVG）",
     downloadZip: "ZIP をダウンロード",
     downloadPdfAllScreens: "PDFをダウンロード（すべての画面）",
+    publishApp: "アプリを公開",
     exportHtml: "エクスポート HTML",
     exportPdf: "エクスポート PDF",
     copyCodingHandoff: "コーディング引き継ぎをコピー",

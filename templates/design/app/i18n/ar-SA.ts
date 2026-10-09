@@ -1254,6 +1254,7 @@ export default {
     downloadFigmaSvg: "تنزيل لـ Figma ‏(SVG)",
     downloadZip: "تنزيل ZIP",
     downloadPdfAllScreens: "تحميل PDF (كل الشاشات)",
+    publishApp: "نشر التطبيق",
     exportHtml: "تصدير HTML",
     exportPdf: "تصدير PDF",
     copyCodingHandoff: "نسخ تسليم الترميز",
