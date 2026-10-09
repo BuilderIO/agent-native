@@ -8,6 +8,7 @@ export default {
     sessionsOfParent: "{count} sesiones · {percent} de {label}",
     observedContinuation:
       "Misma grabación · ejemplo {fromExample} → ejemplo {toExample}",
+    observedContinuationCompact: "Ej. {fromExample} → {toExample}",
     observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "{count} sesiones · {percent} de este paso",
     partialSample: "muestra parcial",

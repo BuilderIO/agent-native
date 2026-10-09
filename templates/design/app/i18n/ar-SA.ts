@@ -8,6 +8,7 @@ export default {
     sessionsOfParent: "\u200f{count} جلسة · {percent} من {label}",
     observedContinuation:
       "التسجيل نفسه · المثال {fromExample} ← المثال {toExample}",
+    observedContinuationCompact: "مثال {fromExample} ← {toExample}",
     observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "\u200f{count} جلسة · {percent} من هذه الخطوة",
     partialSample: "عينة جزئية",

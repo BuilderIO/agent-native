@@ -5,6 +5,7 @@ export interface JourneyCanvasMessages {
   sessionsOfPrevious: string;
   sessionsOfParent: string;
   observedContinuation: string;
+  observedContinuationCompact: string;
   observedBranchLabel: string;
   sessionsOfStep: string;
   partialSample: string;
@@ -69,6 +70,7 @@ export const enUSJourneyCanvasMessages: JourneyCanvasMessages = {
   sessionsOfParent: "{count} sessions · {percent} of {label}",
   observedContinuation:
     "Same recording · example {fromExample} → example {toExample}",
+  observedContinuationCompact: "Ex. {fromExample} → {toExample}",
   observedBranchLabel: "{label} · {percent}",
   sessionsOfStep: "{count} sessions · {percent} of this step",
   partialSample: "partial sample",

@@ -7,6 +7,7 @@ export default {
     sessionsOfPrevious: "{count} 個工作階段 · 佔上一步 {percent}",
     sessionsOfParent: "{count} 個工作階段 · 佔 {label} 的 {percent}",
     observedContinuation: "同一錄製 · 範例 {fromExample} → 範例 {toExample}",
+    observedContinuationCompact: "範例 {fromExample} → {toExample}",
     observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "{count} 個工作階段 · 佔此步驟 {percent}",
     partialSample: "部分樣本",

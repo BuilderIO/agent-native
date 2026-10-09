@@ -1662,16 +1662,19 @@ export function planJourneyCanvas(
   const labelText = (edge: PlacedEdge): string | null => {
     const continuation = observedContinuationForEdge(edge);
     if (continuation) {
-      return interpolateJourneyCanvasMessage(messages.observedContinuation, {
-        fromExample: formatInt(
-          continuation.fromExampleIndex + 1,
-          messages.htmlLanguage,
-        ),
-        toExample: formatInt(
-          continuation.toExampleIndex + 1,
-          messages.htmlLanguage,
-        ),
-      });
+      return interpolateJourneyCanvasMessage(
+        messages.observedContinuationCompact,
+        {
+          fromExample: formatInt(
+            continuation.fromExampleIndex + 1,
+            messages.htmlLanguage,
+          ),
+          toExample: formatInt(
+            continuation.toExampleIndex + 1,
+            messages.htmlLanguage,
+          ),
+        },
+      );
     }
     const child = byLayoutId.get(edge.toKey);
     if (!child || child.kind !== "card" || !hasCohortMetrics(child.node))
@@ -1790,6 +1793,19 @@ export function planJourneyCanvas(
       );
       const text = labelText(edge);
       if (text) {
+        const continuation = observedContinuationForEdge(edge);
+        const accessibleText = continuation
+          ? interpolateJourneyCanvasMessage(messages.observedContinuation, {
+              fromExample: formatInt(
+                continuation.fromExampleIndex + 1,
+                messages.htmlLanguage,
+              ),
+              toExample: formatInt(
+                continuation.toExampleIndex + 1,
+                messages.htmlLanguage,
+              ),
+            })
+          : text;
         fragments.push(
           boardDiv({
             id: `${id}-label`,
@@ -1800,8 +1816,8 @@ export function planJourneyCanvas(
             rect: at(edge.labelRect),
             style: `background:${SURFACE};border:1px solid ${BORDER};border-radius:11px;text-align:center;font:600 10px/20px system-ui,sans-serif;color:${INK};overflow:hidden;white-space:nowrap;text-overflow:ellipsis`,
             html: escapeHtml(text),
-            title: text,
-            ariaLabel: text,
+            title: accessibleText,
+            ariaLabel: accessibleText,
           }),
         );
       }

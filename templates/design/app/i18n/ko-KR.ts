@@ -7,6 +7,7 @@ export default {
     sessionsOfPrevious: "세션 {count}개 · 이전 단계의 {percent}",
     sessionsOfParent: "세션 {count}개 · {label}의 {percent}",
     observedContinuation: "같은 녹화 · 예시 {fromExample} → 예시 {toExample}",
+    observedContinuationCompact: "예시 {fromExample} → {toExample}",
     observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "세션 {count}개 · 이 단계의 {percent}",
     partialSample: "부분 샘플",

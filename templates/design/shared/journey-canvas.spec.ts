@@ -592,9 +592,7 @@ describe("create-journey-canvas input", () => {
     );
 
     expect(problems(raw)).toEqual([]);
-    expect(continuationLabel).toContain(
-      ">Same recording · example 1 → example 1</div>",
-    );
+    expect(continuationLabel).toContain(">Ex. 1 → 1</div>");
     expect(continuationLabel).toContain(
       'title="Same recording · example 1 → example 1"',
     );
@@ -738,8 +736,12 @@ describe("create-journey-canvas input", () => {
           screen.nodeKey === observed.key && screen.exampleIndex === 0,
       )?.html,
     ).toContain('aria-label="Show source example 8"');
+    expect(continuationLabel).toContain(">Ex. 6 → 8</div>");
     expect(continuationLabel).toContain(
-      ">Same recording · example 6 → example 8</div>",
+      'title="Same recording · example 6 → example 8"',
+    );
+    expect(continuationLabel).toContain(
+      'aria-label="Same recording · example 6 → example 8"',
     );
     expect(continuationLabel).not.toContain("%");
   });

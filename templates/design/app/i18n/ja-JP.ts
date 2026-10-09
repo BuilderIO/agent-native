@@ -7,6 +7,7 @@ export default {
     sessionsOfPrevious: "{count} セッション · 前のステップの {percent}",
     sessionsOfParent: "{count} セッション · {label} の {percent}",
     observedContinuation: "同じ録画 · 例{fromExample} → 例{toExample}",
+    observedContinuationCompact: "例{fromExample} → {toExample}",
     observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "{count} セッション · このステップの {percent}",
     partialSample: "一部のサンプル",

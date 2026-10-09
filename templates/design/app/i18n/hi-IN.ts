@@ -7,6 +7,7 @@ export default {
     sessionsOfParent: "{count} सत्र · {label} का {percent}",
     observedContinuation:
       "वही रिकॉर्डिंग · उदाहरण {fromExample} → उदाहरण {toExample}",
+    observedContinuationCompact: "उदा. {fromExample} → {toExample}",
     observedBranchLabel: "{label} · {percent}",
     sessionsOfStep: "{count} सत्र · इस चरण का {percent}",
     partialSample: "आंशिक नमूना",
