@@ -772,7 +772,6 @@ const editor = {
     linkToNotionPage: "链接到概念页面",
     localFile: "本地文件",
     morePageActions: "更多页面操作",
-    formatting: "格式",
     noPagesFound: "没有找到页面",
     notifications: "通知",
     notionSync: "概念同步",
