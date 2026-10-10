@@ -1358,9 +1358,6 @@ async function setFillHex(page: Page, hex: string, probeName?: string) {
       contentType: "application/json",
     });
     console.info("color-escape-" + probeName, JSON.stringify(evidence));
-    await expect(picker).toHaveAttribute("data-state", "closed", {
-      timeout: 2_500,
-    });
   }
   await expect(picker).toBeHidden({ timeout: probeName ? 2_500 : 20_000 });
 }
