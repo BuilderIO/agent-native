@@ -462,13 +462,57 @@ describe("slide animation element parsing", () => {
       },
     ]);
     expect(
-      Object.fromEntries(
-        reversed?.map(({ elementPath, type }) => [
-          elementPath?.join(".") ?? "",
-          type,
-        ]) ?? [],
-      ),
-    ).toEqual({ "0.0": "slide-up", "0.1": "fade" });
+      reversed?.map(({ elementPath, type }) => ({ elementPath, type })),
+    ).toEqual([
+      { elementPath: [0, 0], type: "slide-up" },
+      { elementPath: [0, 1], type: "fade" },
+    ]);
+  });
+
+  it("uses the first configured effect for overlapping by-paragraph steps", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><p>First</p><p>Second</p></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "first-effect",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "fade",
+      },
+      {
+        id: "second-effect",
+        elementIndex: 1,
+        elementPath: [0, 1],
+        byParagraph: true,
+        type: "zoom",
+      },
+    ]);
+
+    expect(
+      expanded?.map(({ id, elementPath, type }) => ({
+        id,
+        elementPath,
+        type,
+      })),
+    ).toEqual([
+      {
+        id: "first-effect-paragraph-0",
+        elementPath: [0, 0],
+        type: "fade",
+      },
+      {
+        id: "first-effect-paragraph-1",
+        elementPath: [0, 1],
+        type: "fade",
+      },
+    ]);
   });
 
   it("expands by paragraph when one native paragraph is selected", () => {

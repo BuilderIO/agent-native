@@ -282,6 +282,109 @@ export function resolveSlideAnimationTargets<T extends AnimationTarget>(
   return resolveSlideAnimationTargetsWithDiagnostics(root, targets).resolved;
 }
 
+function expandByParagraphAnimation<T extends AnimationTarget>(
+  root: Element,
+  target: T,
+  element: Element,
+  key: string,
+): Array<{ target: T; key: string }> | null {
+  if (!target.byParagraph) return [{ target, key }];
+
+  const textObject = element.closest(".fmd-pptx-text");
+  const importedParagraphs = textObject
+    ? Array.from(textObject.querySelectorAll("p[data-pptx-paragraph]"))
+    : [];
+  const tagName = element.tagName.toLowerCase();
+  const nativeParagraphs: Element[] = [];
+  if (importedParagraphs.length < 2) {
+    const collectNestedLists = (parent: Element) => {
+      for (const child of getPersistedChildren(parent)) {
+        const childTagName = child.tagName.toLowerCase();
+        if (SKIPPED_TAGS.has(childTagName)) continue;
+        if (childTagName === "ul" || childTagName === "ol") {
+          collectListItems(child);
+        } else {
+          collectNestedLists(child);
+        }
+      }
+    };
+    const collectListItems = (list: Element) => {
+      for (const child of getPersistedChildren(list)) {
+        const childTagName = child.tagName.toLowerCase();
+        if (SKIPPED_TAGS.has(childTagName)) continue;
+        if (childTagName === "li") {
+          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+          collectNestedLists(child);
+        } else if (childTagName === "ul" || childTagName === "ol") {
+          collectListItems(child);
+        }
+      }
+    };
+    const collectParagraphs = (parent: Element) => {
+      for (const child of getPersistedChildren(parent)) {
+        const childTagName = child.tagName.toLowerCase();
+        if (SKIPPED_TAGS.has(childTagName)) continue;
+        if (childTagName === "p") {
+          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+          continue;
+        }
+        if (childTagName === "li") {
+          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+          collectNestedLists(child);
+          continue;
+        }
+        if (childTagName === "ul" || childTagName === "ol") {
+          collectListItems(child);
+          continue;
+        }
+        collectParagraphs(child);
+      }
+    };
+    if (!textObject && tagName === "p") {
+      const containingList = element.closest("li")?.closest("ul, ol");
+      if (containingList) {
+        collectListItems(containingList);
+      } else {
+        for (const sibling of getPersistedChildren(
+          element.parentElement ?? element,
+        )) {
+          const siblingTagName = sibling.tagName.toLowerCase();
+          if (siblingTagName === "p") {
+            if (hasMeaningfulContent(sibling)) nativeParagraphs.push(sibling);
+          } else if (siblingTagName === "ul" || siblingTagName === "ol") {
+            collectListItems(sibling);
+          }
+        }
+      }
+    } else {
+      const textContainer =
+        textObject ??
+        (tagName === "li" ? (element.closest("ul, ol") ?? element) : element);
+      collectParagraphs(textContainer);
+    }
+  }
+  const paragraphs =
+    importedParagraphs.length > 1 ? importedParagraphs : nativeParagraphs;
+  if (paragraphs.length < 2) return [{ target, key }];
+
+  const expanded: Array<{ target: T; key: string }> = [];
+  for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
+    const elementPath = getPersistedElementPath(root, paragraph);
+    if (!elementPath) return null;
+    expanded.push({
+      target: {
+        ...target,
+        id: target.id ? `${target.id}-paragraph-${paragraphIndex}` : undefined,
+        elementIndex: paragraphIndex,
+        elementPath,
+        byParagraph: false,
+      },
+      key: animationElementKey(elementPath),
+    });
+  }
+  return expanded;
+}
+
 export function expandByParagraphAnimations<T extends AnimationTarget>(
   root: Element,
   animations: readonly T[],
@@ -289,121 +392,39 @@ export function expandByParagraphAnimations<T extends AnimationTarget>(
   const resolved = resolveSlideAnimationTargets(root, animations);
   if (!resolved) return null;
 
-  const expanded: T[] = [];
-  const explicitTargetKeys = new Set(
-    resolved.filter(({ target }) => !target.byParagraph).map(({ key }) => key),
+  const prepared = resolved.map(({ target, element, key }) => {
+    const candidates = expandByParagraphAnimation(root, target, element, key);
+    return candidates ? { target, key, candidates } : null;
+  });
+  if (prepared.some((entry) => entry === null)) return null;
+  const entries = prepared.filter(
+    (entry): entry is NonNullable<typeof entry> => entry !== null,
   );
+  const byParagraphTargetKeys = new Set(
+    entries
+      .filter(({ target }) => target.byParagraph)
+      .flatMap(({ candidates }) => candidates.map(({ key }) => key)),
+  );
+  const explicitTargets = new Map(
+    entries
+      .filter(({ target }) => !target.byParagraph)
+      .map(({ target, key }) => [key, target]),
+  );
+  const expanded: T[] = [];
   const seenTargets = new Set<string>();
-  for (const { target, element, key } of resolved) {
+  for (const { target, key, candidates } of entries) {
     if (!target.byParagraph) {
+      if (byParagraphTargetKeys.has(key) || seenTargets.has(key)) continue;
       seenTargets.add(key);
       expanded.push(target);
       continue;
     }
 
-    const textObject = element.closest(".fmd-pptx-text");
-    const importedParagraphs = textObject
-      ? Array.from(textObject.querySelectorAll("p[data-pptx-paragraph]"))
-      : [];
-    const tagName = element.tagName.toLowerCase();
-    const nativeParagraphs: Element[] = [];
-    if (importedParagraphs.length < 2) {
-      const collectNestedLists = (parent: Element) => {
-        for (const child of getPersistedChildren(parent)) {
-          const childTagName = child.tagName.toLowerCase();
-          if (SKIPPED_TAGS.has(childTagName)) continue;
-          if (childTagName === "ul" || childTagName === "ol") {
-            collectListItems(child);
-          } else {
-            collectNestedLists(child);
-          }
-        }
-      };
-      const collectListItems = (list: Element) => {
-        for (const child of getPersistedChildren(list)) {
-          const childTagName = child.tagName.toLowerCase();
-          if (SKIPPED_TAGS.has(childTagName)) continue;
-          if (childTagName === "li") {
-            if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
-            collectNestedLists(child);
-          } else if (childTagName === "ul" || childTagName === "ol") {
-            collectListItems(child);
-          }
-        }
-      };
-      const collectParagraphs = (parent: Element) => {
-        for (const child of getPersistedChildren(parent)) {
-          const childTagName = child.tagName.toLowerCase();
-          if (SKIPPED_TAGS.has(childTagName)) continue;
-          if (childTagName === "p") {
-            if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
-            continue;
-          }
-          if (childTagName === "li") {
-            if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
-            collectNestedLists(child);
-            continue;
-          }
-          if (childTagName === "ul" || childTagName === "ol") {
-            collectListItems(child);
-            continue;
-          }
-          collectParagraphs(child);
-        }
-      };
-      if (!textObject && tagName === "p") {
-        const containingList = element.closest("li")?.closest("ul, ol");
-        if (containingList) {
-          collectListItems(containingList);
-        } else {
-          for (const sibling of getPersistedChildren(
-            element.parentElement ?? element,
-          )) {
-            const siblingTagName = sibling.tagName.toLowerCase();
-            if (siblingTagName === "p") {
-              if (hasMeaningfulContent(sibling)) nativeParagraphs.push(sibling);
-            } else if (siblingTagName === "ul" || siblingTagName === "ol") {
-              collectListItems(sibling);
-            }
-          }
-        }
-      } else {
-        const textContainer =
-          textObject ??
-          (tagName === "li" ? (element.closest("ul, ol") ?? element) : element);
-        collectParagraphs(textContainer);
-      }
-    }
-    const paragraphs =
-      importedParagraphs.length > 1 ? importedParagraphs : nativeParagraphs;
-    if (paragraphs.length < 2) {
-      if (!seenTargets.has(key)) {
-        seenTargets.add(key);
-        expanded.push(target);
-      }
-      continue;
-    }
-
-    // Explicit element animations take precedence over generated paragraph
-    // steps.
-    for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
-      const elementPath = getPersistedElementPath(root, paragraph);
-      if (!elementPath) return null;
-      const paragraphKey = animationElementKey(elementPath);
-      if (
-        explicitTargetKeys.has(paragraphKey) ||
-        seenTargets.has(paragraphKey)
-      ) {
-        continue;
-      }
-      seenTargets.add(paragraphKey);
-      expanded.push({
-        ...target,
-        id: target.id ? `${target.id}-paragraph-${paragraphIndex}` : undefined,
-        elementIndex: paragraphIndex,
-        elementPath,
-        byParagraph: false,
-      });
+    // The first configured by-paragraph animation wins duplicate step targets.
+    for (const candidate of candidates) {
+      if (seenTargets.has(candidate.key)) continue;
+      seenTargets.add(candidate.key);
+      expanded.push(explicitTargets.get(candidate.key) ?? candidate.target);
     }
   }
   return expanded;
