@@ -13,16 +13,16 @@ import {
 } from "@playwright/test";
 
 import {
+  captureFixtureInput,
+  parseFixtureInput,
+  type FixtureInputSnapshot,
+} from "./editor-input-lineage";
+import {
   SaveLineageCapture,
   type SaveLineageCheckpointName,
   type SaveLineageEvent,
   type UpdateDocumentRequestLineage,
 } from "./save-lineage";
-import {
-  captureFixtureInput,
-  parseFixtureInput,
-  type FixtureInputSnapshot,
-} from "./editor-input-lineage";
 
 export const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
