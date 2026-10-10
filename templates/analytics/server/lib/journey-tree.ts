@@ -98,6 +98,8 @@ export interface JourneyNode {
   examples: JourneyExample[];
   /** Original direct children represented by an `other` aggregate. */
   otherBranchCount?: number;
+  /** True when the bounded summary omits one or more original branches. */
+  otherBranchSummariesPartial?: true;
   otherBranches?: Array<{
     /** Human-readable path; oversized segments end in an identity hash. */
     path: string[];
@@ -117,6 +119,8 @@ export interface JourneyNode {
 }
 
 export const MAX_OTHER_BRANCH_SUMMARIES = 20;
+export const MAX_OTHER_BRANCH_SUMMARIES_PER_TREE = 200;
+export const MAX_OTHER_BRANCH_SUMMARY_BYTES_PER_TREE = 64 * 1024;
 export const MAX_JOURNEY_LABEL_CHARS = 300;
 export const MAX_JOURNEY_KEY_CHARS = 2_048;
 const JOURNEY_TRUNCATION_HASH_CHARS = 16;
@@ -382,6 +386,10 @@ export function buildJourneyTree(
   }
 
   const nodes: JourneyNode[] = [];
+  const utf8Encoder = new TextEncoder();
+  let otherBranchSummaryCount = 0;
+  let otherBranchSummaryBytes = 0;
+  let otherBranchSummaryBudgetExhausted = false;
   const emitChildren = (parent: TrieNode, parentPath: string[]) => {
     const ordered = [...parent.children.values()].sort(
       (a, b) => b.n - a.n || compareKeys(a.stepKey, b.stepKey),
@@ -409,6 +417,54 @@ export function buildJourneyTree(
     if (merged.length) {
       const n = merged.reduce((sum, node) => sum + node.n, 0);
       const dropoffN = merged.reduce((sum, node) => sum + subtreeEnds(node), 0);
+      const otherBranches: NonNullable<JourneyNode["otherBranches"]> = [];
+      for (const branch of merged) {
+        if (
+          otherBranches.length >= MAX_OTHER_BRANCH_SUMMARIES ||
+          otherBranchSummaryBudgetExhausted
+        ) {
+          break;
+        }
+        if (otherBranchSummaryCount >= MAX_OTHER_BRANCH_SUMMARIES_PER_TREE) {
+          otherBranchSummaryBudgetExhausted = true;
+          break;
+        }
+        const path = [...parentPath, branch.label].map((label) =>
+          boundedJourneyText(label, MAX_JOURNEY_LABEL_CHARS),
+        );
+        const key = boundedJourneyText(branch.key, MAX_JOURNEY_KEY_CHARS);
+        const sourceStepKey = boundedJourneyText(
+          branch.stepKey,
+          MAX_JOURNEY_KEY_CHARS,
+        );
+        const summary = {
+          path: path.map((segment) => segment.value),
+          ...(path.some((segment) => segment.truncated)
+            ? { pathTruncated: true }
+            : {}),
+          key: key.value,
+          ...(key.truncated ? { keyTruncated: true } : {}),
+          sourceStepKey: sourceStepKey.value,
+          ...(sourceStepKey.truncated ? { sourceStepKeyTruncated: true } : {}),
+          n: branch.n,
+          pctOfParent: pct(branch.n, parent.n),
+        };
+        const summaryBytes = utf8Encoder.encode(
+          JSON.stringify(summary),
+        ).byteLength;
+        const arrayOverheadBytes = otherBranches.length === 0 ? 2 : 1;
+        if (
+          otherBranchSummaryBytes + summaryBytes + arrayOverheadBytes >
+          MAX_OTHER_BRANCH_SUMMARY_BYTES_PER_TREE
+        ) {
+          otherBranchSummaryBudgetExhausted = true;
+          break;
+        }
+        otherBranches.push(summary);
+        otherBranchSummaryCount += 1;
+        otherBranchSummaryBytes += summaryBytes + arrayOverheadBytes;
+      }
+      const branchSummariesPartial = otherBranches.length < merged.length;
       nodes.push({
         key: `${parent.key} > other`,
         label: `Other (${merged.length} ${merged.length === 1 ? "branch" : "branches"})`,
@@ -423,32 +479,10 @@ export function buildJourneyTree(
         deeperN: 0,
         examples: [],
         otherBranchCount: merged.length,
-        otherBranches: merged
-          .slice(0, MAX_OTHER_BRANCH_SUMMARIES)
-          .map((branch) => {
-            const path = [...parentPath, branch.label].map((label) =>
-              boundedJourneyText(label, MAX_JOURNEY_LABEL_CHARS),
-            );
-            const key = boundedJourneyText(branch.key, MAX_JOURNEY_KEY_CHARS);
-            const sourceStepKey = boundedJourneyText(
-              branch.stepKey,
-              MAX_JOURNEY_KEY_CHARS,
-            );
-            return {
-              path: path.map((segment) => segment.value),
-              ...(path.some((segment) => segment.truncated)
-                ? { pathTruncated: true }
-                : {}),
-              key: key.value,
-              ...(key.truncated ? { keyTruncated: true } : {}),
-              sourceStepKey: sourceStepKey.value,
-              ...(sourceStepKey.truncated
-                ? { sourceStepKeyTruncated: true }
-                : {}),
-              n: branch.n,
-              pctOfParent: pct(branch.n, parent.n),
-            };
-          }),
+        ...(otherBranches.length ? { otherBranches } : {}),
+        ...(branchSummariesPartial
+          ? { otherBranchSummariesPartial: true }
+          : {}),
       });
     }
   };

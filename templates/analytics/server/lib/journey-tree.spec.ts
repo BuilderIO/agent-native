@@ -5,6 +5,8 @@ import {
   buildJourneyTree,
   MAX_JOURNEY_KEY_CHARS,
   MAX_JOURNEY_LABEL_CHARS,
+  MAX_OTHER_BRANCH_SUMMARIES_PER_TREE,
+  MAX_OTHER_BRANCH_SUMMARY_BYTES_PER_TREE,
   type BuildJourneyTreeOptions,
   type JourneyNode,
   type JourneyRecording,
@@ -211,6 +213,90 @@ describe("buildJourneyTree", () => {
     expect(
       other.otherBranches?.some((branch) => branch.key === "branch-21"),
     ).toBe(false);
+  });
+
+  it("caps branch summaries across the tree without reducing aggregate metrics", () => {
+    const sessions = Array.from({ length: 12 }, (_, parentIndex) =>
+      Array.from({ length: 25 }, (_, branchIndex) =>
+        session(`s${parentIndex}-${branchIndex}`, [
+          `parent-${String(parentIndex).padStart(2, "0")}`,
+          `branch-${String(branchIndex).padStart(2, "0")}`,
+        ]),
+      ),
+    ).flat();
+    const { rootN, nodes } = buildJourneyTree(sessions, new Map(), {
+      ...OPTIONS,
+      maxDepth: 2,
+      minNodeSessions: 2,
+      examplesPerNode: 0,
+    });
+    const otherNodes = nodes.filter((candidate) => candidate.kind === "other");
+    const summaryCount = otherNodes.reduce(
+      (sum, candidate) => sum + (candidate.otherBranches?.length ?? 0),
+      0,
+    );
+
+    expect(rootN).toBe(300);
+    expect(otherNodes).toHaveLength(12);
+    expect(summaryCount).toBe(MAX_OTHER_BRANCH_SUMMARIES_PER_TREE);
+    expect(otherNodes[0]).toMatchObject({
+      n: 25,
+      pctOfRoot: 8.33,
+      pctOfParent: 100,
+      otherBranchCount: 25,
+      otherBranchSummariesPartial: true,
+    });
+    expect(
+      otherNodes
+        .slice(0, 10)
+        .every((candidate) => candidate.otherBranches?.length === 20),
+    ).toBe(true);
+    expect(
+      otherNodes
+        .slice(10)
+        .every(
+          (candidate) =>
+            candidate.otherBranches === undefined &&
+            candidate.otherBranchSummariesPartial === true,
+        ),
+    ).toBe(true);
+  });
+
+  it("caps serialized branch summary bytes across the tree", () => {
+    const sessions = Array.from({ length: 20 }, (_, index) =>
+      session(`s${index}`, [
+        "major",
+        `branch-${"k".repeat(1_800)}-${String(index).padStart(2, "0")}`,
+      ]).steps.map((step, stepIndex) =>
+        stepIndex === 1
+          ? { ...step, label: `Branch ${"L".repeat(280)} ${index}` }
+          : step,
+      ),
+    ).map((journeySteps, index) => ({
+      sessionId: `s${index}`,
+      steps: journeySteps,
+    }));
+    const { nodes } = buildJourneyTree(sessions, new Map(), {
+      ...OPTIONS,
+      maxDepth: 2,
+      minNodeSessions: 2,
+      examplesPerNode: 0,
+    });
+    const other = nodes.find((candidate) => candidate.kind === "other")!;
+    const summaryBytes = new TextEncoder().encode(
+      JSON.stringify(other.otherBranches ?? []),
+    ).byteLength;
+
+    expect(other).toMatchObject({
+      n: 20,
+      pctOfParent: 100,
+      otherBranchCount: 20,
+      otherBranchSummariesPartial: true,
+    });
+    expect(other.otherBranches?.length).toBeLessThan(20);
+    expect(summaryBytes).toBeLessThanOrEqual(
+      MAX_OTHER_BRANCH_SUMMARY_BYTES_PER_TREE,
+    );
   });
 
   it("bounds serialized labels and keys without changing branch metrics", () => {

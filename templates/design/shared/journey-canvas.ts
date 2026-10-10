@@ -46,6 +46,8 @@ export const MAX_JOURNEY_NODES = 2000;
 export const MAX_JOURNEY_FRAMES = 900;
 export const MAX_EXAMPLES_PER_NODE = 6;
 export const MAX_OTHER_BRANCH_SUMMARIES = 20;
+export const MAX_OTHER_BRANCH_SUMMARIES_PER_TREE = 200;
+export const MAX_OTHER_BRANCH_SUMMARY_BYTES_PER_TREE = 64 * 1024;
 export const MAX_JOURNEY_DEPTH = 40;
 export const MAX_JOURNEY_LABEL_CHARS = 300;
 export const MAX_JOURNEY_KEY_CHARS = 2_048;
@@ -162,6 +164,7 @@ const journeyNodeBaseSchema = z.object({
   depth: count,
   examples: z.array(journeyExampleSchema).max(50),
   otherBranchCount: count.min(1).optional(),
+  otherBranchSummariesPartial: z.literal(true).optional(),
   otherBranches: z
     .array(otherBranchSummarySchema)
     .max(MAX_OTHER_BRANCH_SUMMARIES)
@@ -185,7 +188,9 @@ const cohortJourneyNodeSchema = journeyNodeBaseSchema
     const branches = node.otherBranches;
     if (
       node.kind !== "other" &&
-      (node.otherBranchCount !== undefined || branches !== undefined)
+      (node.otherBranchCount !== undefined ||
+        node.otherBranchSummariesPartial !== undefined ||
+        branches !== undefined)
     ) {
       ctx.addIssue({
         code: "custom",
@@ -202,6 +207,17 @@ const cohortJourneyNodeSchema = journeyNodeBaseSchema
         code: "custom",
         path: ["otherBranchCount"],
         message: "The branch count cannot exceed the aggregate session count.",
+      });
+    }
+    if (
+      node.otherBranchSummariesPartial === true &&
+      (node.otherBranchCount === undefined ||
+        node.otherBranchCount <= (branches?.length ?? 0))
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["otherBranchSummariesPartial"],
+        message: "Partial branch summaries must omit at least one branch.",
       });
     }
     if (!branches) return;
@@ -253,6 +269,7 @@ const referenceJourneyNodeSchema = journeyNodeBaseSchema
   .superRefine((node, ctx) => {
     if (
       node.otherBranchCount !== undefined ||
+      node.otherBranchSummariesPartial !== undefined ||
       node.otherBranches !== undefined
     ) {
       ctx.addIssue({
@@ -268,21 +285,49 @@ export const journeyNodeSchema = z.union([
   referenceJourneyNodeSchema,
 ]);
 
-export const journeyTreeSchema = z.object({
-  window: z.object({ from: z.string().max(64), to: z.string().max(64) }),
-  app: z.string().min(1).max(128),
-  rootN: count,
-  appRootN: z
-    .record(z.string().regex(/^[a-z][a-z0-9-]{0,127}$/), count.min(1))
-    .optional()
-    .describe("Per-app root denominators for separate app-band layouts."),
-  coverage: z.object({
-    sessionsWithEvents: count,
-    sessionsWithReplay: count,
-    truncated: z.boolean(),
-  }),
-  nodes: z.array(journeyNodeSchema).min(1).max(MAX_JOURNEY_NODES),
-});
+const journeyTextEncoder = new TextEncoder();
+
+export const journeyTreeSchema = z
+  .object({
+    window: z.object({ from: z.string().max(64), to: z.string().max(64) }),
+    app: z.string().min(1).max(128),
+    rootN: count,
+    appRootN: z
+      .record(z.string().regex(/^[a-z][a-z0-9-]{0,127}$/), count.min(1))
+      .optional()
+      .describe("Per-app root denominators for separate app-band layouts."),
+    coverage: z.object({
+      sessionsWithEvents: count,
+      sessionsWithReplay: count,
+      truncated: z.boolean(),
+    }),
+    nodes: z.array(journeyNodeSchema).min(1).max(MAX_JOURNEY_NODES),
+  })
+  .superRefine((tree, ctx) => {
+    let summaryCount = 0;
+    let summaryBytes = 0;
+    for (const node of tree.nodes) {
+      if (!node.otherBranches) continue;
+      summaryCount += node.otherBranches.length;
+      summaryBytes += journeyTextEncoder.encode(
+        JSON.stringify(node.otherBranches),
+      ).byteLength;
+    }
+    if (summaryCount > MAX_OTHER_BRANCH_SUMMARIES_PER_TREE) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["nodes"],
+        message: `Branch summaries exceed the tree limit of ${MAX_OTHER_BRANCH_SUMMARIES_PER_TREE}.`,
+      });
+    }
+    if (summaryBytes > MAX_OTHER_BRANCH_SUMMARY_BYTES_PER_TREE) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["nodes"],
+        message: `Branch summaries exceed the tree byte limit of ${MAX_OTHER_BRANCH_SUMMARY_BYTES_PER_TREE}.`,
+      });
+    }
+  });
 
 /** Why a URL cannot be an image source, or null when it can. */
 export function imageUrlProblem(value: string): string | null {
@@ -1147,6 +1192,7 @@ interface OtherStubDisplay {
   aggregateDetail: string;
   branches: OtherBranchDisplay[];
   branchCount: number;
+  emptyDetails: string | null;
   height: number;
 }
 
@@ -1233,6 +1279,15 @@ function otherStubDisplay(args: {
     };
   });
   const branchCount = node.otherBranchCount ?? branches.length;
+  const emptyDetails =
+    displays.length === 0
+      ? node.otherBranchSummariesPartial === true
+        ? interpolateJourneyCanvasMessage(messages.otherBranchesShown, {
+            shown: formatInt(0, messages.htmlLanguage),
+            total: formatInt(branchCount, messages.htmlLanguage),
+          })
+        : messages.otherBranchDetailsUnavailable
+      : null;
   let height = Math.max(
     STUB_HEIGHT,
     wrappedStubHeaderHeight(
@@ -1248,12 +1303,7 @@ function otherStubDisplay(args: {
   if (displays.length === 0) {
     height +=
       8 +
-      wrappedTextLayout(
-        messages.otherBranchDetailsUnavailable,
-        OTHER_STUB_CONTENT_WIDTH,
-        11,
-        14,
-      ).height;
+      wrappedTextLayout(emptyDetails!, OTHER_STUB_CONTENT_WIDTH, 11, 14).height;
   } else {
     for (const branch of displays) {
       height +=
@@ -1280,6 +1330,7 @@ function otherStubDisplay(args: {
     aggregateDetail,
     branches: displays,
     branchCount,
+    emptyDetails,
     height,
   };
 }
@@ -2617,7 +2668,7 @@ export function planJourneyCanvas(
           .join("");
         const detailsHtml =
           display.branches.length === 0
-            ? `<div style="padding-top:4px;font-size:11px;line-height:14px;color:${MUTED};overflow-wrap:anywhere">${escapeHtml(messages.otherBranchDetailsUnavailable)}</div>`
+            ? `<div style="padding-top:4px;font-size:11px;line-height:14px;color:${MUTED};overflow-wrap:anywhere">${escapeHtml(display.emptyDetails ?? messages.otherBranchDetailsUnavailable)}</div>`
             : `${branchRows}${display.branchCount > display.branches.length ? `<div style="margin-top:4px;padding-top:4px;border-top:1px solid ${BORDER};font-size:10px;line-height:14px;color:${MUTED};overflow-wrap:anywhere">${escapeHtml(interpolateJourneyCanvasMessage(messages.otherBranchesShown, { shown: formatInt(display.branches.length, messages.htmlLanguage), total: formatInt(display.branchCount, messages.htmlLanguage) }))}</div>` : ""}`;
         fragments.push(
           stubFragment(

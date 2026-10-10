@@ -10,6 +10,8 @@ import {
   MAX_JOURNEY_COUNT,
   MAX_JOURNEY_KEY_CHARS,
   MAX_JOURNEY_LABEL_CHARS,
+  MAX_OTHER_BRANCH_SUMMARIES_PER_TREE,
+  MAX_OTHER_BRANCH_SUMMARY_BYTES_PER_TREE,
   REPLAY_SCREENSHOT_ROUTE,
   createJourneyCanvasInputSchema,
   formatPercent,
@@ -399,6 +401,116 @@ describe("create-journey-canvas input", () => {
         },
       }).join("\n"),
     ).toMatch(/branch count cannot exceed the aggregate session count/);
+  });
+
+  it("validates partial markers and tree-wide summary budgets", () => {
+    const raw = rawInput();
+    const summary = (index: number) => ({
+      ...node(`other-${index}`, null, 1, {
+        pctOfRoot: 0.1,
+        pctOfParent: 0.1,
+      }),
+      kind: "other" as const,
+      examples: [],
+      otherBranchCount: 1,
+      otherBranches: [
+        {
+          path: [`branch-${index}`],
+          key: `branch-${index}`,
+          n: 1,
+          pctOfParent: 0.1,
+        },
+      ],
+    });
+    const withTooManySummaries = rawInput({
+      tree: {
+        ...raw.tree,
+        nodes: [
+          ...raw.tree.nodes.slice(0, 4),
+          ...Array.from(
+            { length: MAX_OTHER_BRANCH_SUMMARIES_PER_TREE + 1 },
+            (_, index) => summary(index),
+          ),
+        ],
+      },
+    });
+    expect(problems(withTooManySummaries).join("\n")).toMatch(
+      /Branch summaries exceed the tree limit/,
+    );
+
+    const oversizedDetail = {
+      ...node("signup > other", "signup", 5, {
+        pctOfRoot: 0.5,
+        pctOfParent: 0.5,
+      }),
+      kind: "other" as const,
+      examples: [],
+      otherBranchCount: 5,
+      otherBranches: Array.from({ length: 5 }, (_, index) => ({
+        path: Array.from({ length: 40 }, () =>
+          "x".repeat(MAX_JOURNEY_LABEL_CHARS),
+        ),
+        key: "k".repeat(MAX_JOURNEY_KEY_CHARS),
+        sourceStepKey: "s".repeat(MAX_JOURNEY_KEY_CHARS),
+        n: 1,
+        pctOfParent: 20,
+      })),
+    };
+    const withTooManyBytes = rawInput({
+      tree: {
+        ...raw.tree,
+        nodes: [...raw.tree.nodes.slice(0, 4), oversizedDetail],
+      },
+    });
+    expect(problems(withTooManyBytes).join("\n")).toMatch(
+      /Branch summaries exceed the tree byte limit/,
+    );
+
+    const partial = {
+      ...summary(900),
+      key: "signup > other",
+      label: "Other (2 branches)",
+      parentKey: "signup",
+      n: 2,
+      pctOfRoot: 0.2,
+      pctOfParent: 0.2,
+      otherBranchCount: 2,
+      otherBranchSummariesPartial: true as const,
+      otherBranches: undefined,
+    };
+    const partialInput = rawInput({
+      tree: { ...raw.tree, nodes: [...raw.tree.nodes.slice(0, 4), partial] },
+    });
+    expect(problems(partialInput)).toEqual([]);
+    expect(
+      problems({
+        ...partialInput,
+        tree: {
+          ...partialInput.tree,
+          nodes: partialInput.tree.nodes.map((candidate) =>
+            candidate.key === partial.key
+              ? { ...candidate, otherBranchSummariesPartial: undefined }
+              : candidate,
+          ),
+        },
+      }),
+    ).toEqual([]);
+    expect(
+      problems({
+        ...partialInput,
+        tree: {
+          ...partialInput.tree,
+          nodes: partialInput.tree.nodes.map((candidate) =>
+            candidate.key === partial.key
+              ? {
+                  ...candidate,
+                  otherBranchCount: 0,
+                }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/Partial branch summaries must omit at least one branch/);
   });
 
   it("accepts producer truncation markers and enforces journey text and count limits", () => {
@@ -2544,6 +2656,39 @@ describe("planJourneyCanvas", () => {
     expect(fragments).toContain("font-size:24px;line-height:28px");
     const otherFragment = fragments.slice(fragments.indexOf("jc-other-"));
     expect(otherFragment).not.toContain("<img");
+  });
+
+  it("distinguishes budgeted zero-detail summaries from legacy unknown details", () => {
+    const raw = rawInput();
+    const partialOther = {
+      ...node("signup > other", "signup", 40, {
+        pctOfRoot: 4,
+        pctOfParent: 4,
+      }),
+      kind: "other" as const,
+      label: "Other (4 branches)",
+      examples: [],
+      otherBranchCount: 4,
+      otherBranchSummariesPartial: true as const,
+    };
+    const partial = plan(
+      rawInput({
+        tree: {
+          ...raw.tree,
+          nodes: [...raw.tree.nodes.slice(0, 4), partialOther],
+        },
+      }),
+    )
+      .boardFragments({ x: 0, y: 0 })
+      .join("\n");
+
+    expect(partial).toContain("Showing 0 of 4 branches");
+    expect(partial).not.toContain(
+      "Branch details are not available in this journey tree",
+    );
+    expect(
+      plan(rawInput()).boardFragments({ x: 0, y: 0 }).join("\n"),
+    ).toContain("Branch details are not available in this journey tree");
   });
 
   it("renders explicit hash suffixes for bounded Other branch details", () => {
