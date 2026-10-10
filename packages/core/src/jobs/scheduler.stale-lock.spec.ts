@@ -178,7 +178,11 @@ function interruptedScheduledJob(runCount = 1) {
     ]),
     vi
       .spyOn(runStore, "getCurrentTurnRunEventsForThread")
-      .mockResolvedValue([]),
+      .mockImplementation(async (...args) =>
+        (await runStore.getCurrentTurnEventsForThread(...args)).map(
+          (event, seq) => ({ runId: history.runId, seq, event }),
+        ),
+      ),
     vi
       .spyOn(runStore, "tryClaimRunSlot")
       .mockImplementation(async (_threadId, _runId, _maxStaleMs, options) => {
@@ -765,11 +769,9 @@ describe("stale automation run-lock recovery across trigger types", () => {
         getSystemPrompt.mockRejectedValueOnce(
           new Error("setup temporarily unavailable"),
         );
-        vi.mocked(runStore.getCurrentTurnEventsForThread)
-          .mockResolvedValueOnce(receipt.map(({ event }) => event))
-          .mockRejectedValueOnce(
-            new Error("evidence database temporarily unavailable"),
-          );
+        vi.mocked(runStore.getCurrentTurnEventsForThread).mockRejectedValueOnce(
+          new Error("evidence database temporarily unavailable"),
+        );
       }
       const finish = vi
         .spyOn(runHistory, "finishAutomationRun")
