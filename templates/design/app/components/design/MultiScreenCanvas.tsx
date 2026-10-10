@@ -9929,8 +9929,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         });
       }
     }
+    setCanvasZoom(zoomRef.current);
     if (!panGestureActiveRef.current) {
-      setCanvasZoom(zoomRef.current);
       setPan(panRef.current);
       recomputePenPointerForViewChange();
     }
